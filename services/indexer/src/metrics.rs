@@ -10,8 +10,6 @@ pub const METRICS_TREE_SYNC_LATENCY_MS: &str = "indexer.tree.sync_latency_ms";
 pub const METRICS_TREE_SYNC_EVENTS: &str = "indexer.tree.sync_events";
 pub const METRICS_TREE_LAST_SYNCED_BLOCK: &str = "indexer.tree.last_synced_block";
 
-pub const METRICS_WS_RECONNECTS: &str = "indexer.ws.reconnects";
-
 pub const METRICS_HTTP_LATENCY_MS: &str = "indexer.http.latency_ms";
 
 pub fn describe_metrics() {
@@ -52,12 +50,6 @@ pub fn describe_metrics() {
         "Block number of the last DB event synced into the tree."
     );
 
-    ::metrics::describe_counter!(
-        METRICS_WS_RECONNECTS,
-        ::metrics::Unit::Count,
-        "Number of blockchain stream reconnect attempts."
-    );
-
     ::metrics::describe_histogram!(
         METRICS_HTTP_LATENCY_MS,
         ::metrics::Unit::Milliseconds,
@@ -87,10 +79,6 @@ pub fn record_tree_sync(events: usize, latency_ms: f64, last_synced_block: u64) 
 
 pub fn set_tree_last_synced_block(block_number: u64) {
     ::metrics::gauge!(METRICS_TREE_LAST_SYNCED_BLOCK).set(block_number as f64);
-}
-
-pub fn increment_ws_reconnects() {
-    ::metrics::counter!(METRICS_WS_RECONNECTS).increment(1);
 }
 
 pub fn record_http_latency_ms(route: &str, status: u16, latency_ms: f64) {

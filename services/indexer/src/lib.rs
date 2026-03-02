@@ -453,15 +453,7 @@ pub async fn process_registry_events(
 ) -> IndexerResult<()> {
     // We re-create the blockchain connection (including backfill and websocket) when the stream
     // returns an error or the websocket connection is dropped.
-    let mut first_connection = true;
-
     loop {
-        if first_connection {
-            first_connection = false;
-        } else {
-            crate::metrics::increment_ws_reconnects();
-        }
-
         tracing::info!("starting blockchain connection");
 
         let blockchain =
