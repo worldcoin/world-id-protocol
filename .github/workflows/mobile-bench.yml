@@ -63,5 +63,5 @@ jobs:
       warmup: ${{ inputs.warmup }}
       pr_number: ${{ inputs.pr_number || '' }}
       requested_by: ${{ inputs.requested_by || '' }}
-      functions: '["bench_nullifier_proof_generation","bench_nullifier_witness_generation_only","bench_nullifier_proving_only","bench_query_proof_generation","bench_query_witness_generation_only","bench_query_proving_only"]'
+      functions: '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_proof_only","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only"]'
     secrets: inherit

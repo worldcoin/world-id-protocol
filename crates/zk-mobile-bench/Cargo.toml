@@ -15,7 +15,7 @@ path = "src/bin/uniffi-bindgen.rs"
 
 [dependencies]
 # Benchmarking
-mobench-sdk = { git = "https://github.com/worldcoin/mobile-bench-rs", branch = "codex/ci-devex" }
+mobench-sdk = { git = "https://github.com/worldcoin/mobile-bench-rs", branch = "dcbuild3r/0.1.15" }
 inventory = "0.3"
 
 # World ID
@@ -47,4 +47,3 @@ thiserror = { workspace = true }
 # UniFFI for mobile bindings
 uniffi = { workspace = true, features = ["cli"] }
 
-[dev-dependencies]
