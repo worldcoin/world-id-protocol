@@ -1,16 +1,16 @@
 //! Metrics definitions and helpers for the world-id-indexer.
 
-pub const METRICS_CHAIN_HEAD_BLOCK: &str = "indexer.chain.head_block";
-pub const METRICS_CHAIN_PROCESSED_BLOCK: &str = "indexer.chain.processed_block";
+pub const METRICS_CHAIN_HEAD_BLOCK: &str = "chain.head_block";
+pub const METRICS_CHAIN_PROCESSED_BLOCK: &str = "chain.processed_block";
 
-pub const METRICS_EVENTS_COMMIT_BATCH_SIZE: &str = "indexer.events.commit_batch_size";
-pub const METRICS_EVENTS_COMMIT_LATENCY_MS: &str = "indexer.events.commit_latency_ms";
+pub const METRICS_EVENTS_COMMIT_BATCH_SIZE: &str = "events.commit_batch_size";
+pub const METRICS_EVENTS_COMMIT_LATENCY_MS: &str = "events.commit_latency_ms";
 
-pub const METRICS_TREE_SYNC_LATENCY_MS: &str = "indexer.tree.sync_latency_ms";
-pub const METRICS_TREE_SYNC_EVENTS: &str = "indexer.tree.sync_events";
-pub const METRICS_TREE_LAST_SYNCED_BLOCK: &str = "indexer.tree.last_synced_block";
+pub const METRICS_TREE_SYNC_LATENCY_MS: &str = "tree.sync_latency_ms";
+pub const METRICS_TREE_SYNC_EVENTS: &str = "tree.sync_events";
+pub const METRICS_TREE_LAST_SYNCED_BLOCK: &str = "tree.last_synced_block";
 
-pub const METRICS_HTTP_LATENCY_MS: &str = "indexer.http.latency_ms";
+pub const METRICS_HTTP_LATENCY_MS: &str = "http.latency_ms";
 
 pub fn describe_metrics() {
     ::metrics::describe_gauge!(

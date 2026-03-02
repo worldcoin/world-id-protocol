@@ -2,9 +2,9 @@
 
 use axum::{extract::Request, middleware::Next, response::Response};
 
-/// Records request latency metrics with normalized route and status class.
+/// Records request latency metrics with route and status class tags.
 pub async fn request_latency_middleware(request: Request, next: Next) -> Response {
-    let route = normalize_path(request.uri().path());
+    let route = request.uri().path().to_string();
     let started = std::time::Instant::now();
 
     let response = next.run(request).await;
@@ -13,8 +13,4 @@ pub async fn request_latency_middleware(request: Request, next: Next) -> Respons
     crate::metrics::record_http_latency_ms(&route, response.status().as_u16(), latency_ms);
 
     response
-}
-
-fn normalize_path(path: &str) -> String {
-    path.to_string()
 }

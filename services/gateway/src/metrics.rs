@@ -1,23 +1,23 @@
 //! Metrics definitions and helpers for the world-id-gateway.
 
 // HTTP metrics
-pub const METRICS_HTTP_LATENCY_MS: &str = "gateway.http.latency_ms";
+pub const METRICS_HTTP_LATENCY_MS: &str = "http.latency_ms";
 
 // Root cache metrics
-pub const METRICS_ROOT_CACHE_HITS: &str = "gateway.root_cache.hits";
-pub const METRICS_ROOT_CACHE_MISSES: &str = "gateway.root_cache.misses";
+pub const METRICS_ROOT_CACHE_HITS: &str = "root_cache.hits";
+pub const METRICS_ROOT_CACHE_MISSES: &str = "root_cache.misses";
 
 // Batcher metrics
-pub const METRICS_BATCH_SUBMITTED: &str = "gateway.batch.submitted";
-pub const METRICS_BATCH_SIZE: &str = "gateway.batch.size";
-pub const METRICS_BATCH_LATENCY_MS: &str = "gateway.batch.latency_ms";
-pub const METRICS_BATCH_SUCCESS: &str = "gateway.batch.success";
-pub const METRICS_BATCH_FAILURE: &str = "gateway.batch.failure";
-pub const METRICS_BATCH_POLICY_COST_SCORE: &str = "gateway.batch.policy.cost_score";
-pub const METRICS_BATCH_POLICY_URGENCY_SCORE: &str = "gateway.batch.policy.urgency_score";
-pub const METRICS_BATCH_POLICY_DEFER: &str = "gateway.batch.policy.defer";
-pub const METRICS_BATCH_POLICY_FORCE_SEND: &str = "gateway.batch.policy.force_send";
-pub const METRICS_BATCH_POLICY_TARGET_SIZE: &str = "gateway.batch.policy.target_size";
+pub const METRICS_BATCH_SUBMITTED: &str = "batch.submitted";
+pub const METRICS_BATCH_SIZE: &str = "batch.size";
+pub const METRICS_BATCH_LATENCY_MS: &str = "batch.latency_ms";
+pub const METRICS_BATCH_SUCCESS: &str = "batch.success";
+pub const METRICS_BATCH_FAILURE: &str = "batch.failure";
+pub const METRICS_BATCH_POLICY_COST_SCORE: &str = "batch.policy.cost_score";
+pub const METRICS_BATCH_POLICY_URGENCY_SCORE: &str = "batch.policy.urgency_score";
+pub const METRICS_BATCH_POLICY_DEFER: &str = "batch.policy.defer";
+pub const METRICS_BATCH_POLICY_FORCE_SEND: &str = "batch.policy.force_send";
+pub const METRICS_BATCH_POLICY_TARGET_SIZE: &str = "batch.policy.target_size";
 
 pub fn describe_metrics() {
     ::metrics::describe_histogram!(
