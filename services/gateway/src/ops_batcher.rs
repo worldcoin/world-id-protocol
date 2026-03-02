@@ -48,6 +48,7 @@ pub struct OpsBatcherHandle {
 pub struct OpsEnvelope {
     pub id: String,
     pub calldata: Bytes,
+    pub leaf_index: u64,
 }
 
 pub struct OpsBatcherRunner {
@@ -94,6 +95,7 @@ impl OpsBatcherRunner {
 
         let batch_size = batch.len();
         let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
+        let inflight_leaf_indices: Vec<u64> = batch.iter().map(|env| env.leaf_index).collect();
 
         ::metrics::counter!(METRICS_BATCH_SUBMITTED, "type" => "ops").increment(1);
         ::metrics::histogram!(METRICS_BATCH_SIZE, "type" => "ops").record(batch_size as f64);
@@ -150,6 +152,7 @@ impl OpsBatcherRunner {
                                 .await;
                         }
                     }
+                    tracker.remove_inflight_leaves(&inflight_leaf_indices).await;
                 });
             }
             Err(e) => {
@@ -162,6 +165,9 @@ impl OpsBatcherRunner {
                 let code = parse_contract_error(&error_str);
                 self.tracker
                     .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
+                    .await;
+                self.tracker
+                    .remove_inflight_leaves(&inflight_leaf_indices)
                     .await;
             }
         }

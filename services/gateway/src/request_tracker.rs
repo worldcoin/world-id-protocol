@@ -422,6 +422,70 @@ impl RequestTracker {
     }
 
     // =========================================================================
+    // In-flight leaf-index tracking (for insert/update/remove/recover ops)
+    // =========================================================================
+
+    /// Redis key for an in-flight leaf index.
+    fn inflight_leaf_key(leaf_index: u64) -> String {
+        format!("gateway:inflight:leaf:{leaf_index}")
+    }
+
+    /// Attempts to mark a leaf index as in-flight.
+    ///
+    /// Returns `Ok(())` if the leaf index was not already in-flight.
+    /// Returns `Err` with `DuplicateRequestInFlight` if another operation
+    /// targeting the same account is already pending.
+    pub async fn try_insert_inflight_leaf(
+        &self,
+        leaf_index: u64,
+    ) -> Result<(), GatewayErrorResponse> {
+        let key = Self::inflight_leaf_key(leaf_index);
+        let mut manager = self.redis_manager.clone();
+
+        let result: Result<bool, redis::RedisError> = redis::cmd("SET")
+            .arg(&key)
+            .arg("1")
+            .arg("NX")
+            .arg("EX")
+            .arg(INFLIGHT_TTL.as_secs())
+            .query_async(&mut manager)
+            .await;
+
+        match result {
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                tracing::warn!(
+                    leaf_index = leaf_index,
+                    "Duplicate in-flight request detected for leaf index"
+                );
+                Err(GatewayErrorResponse::bad_request(
+                    GatewayErrorCode::DuplicateRequestInFlight,
+                ))
+            }
+            Err(e) => {
+                tracing::error!("Redis error during in-flight leaf insert: {e}");
+                Err(GatewayErrorResponse::internal_server_error())
+            }
+        }
+    }
+
+    /// Remove a leaf index from the in-flight tracker.
+    pub async fn remove_inflight_leaf(&self, leaf_index: u64) {
+        let key = Self::inflight_leaf_key(leaf_index);
+        let mut manager = self.redis_manager.clone();
+        let result: Result<usize, redis::RedisError> = manager.del(&key).await;
+        if let Err(e) = result {
+            tracing::error!("Failed to delete Redis key {key}: {e}");
+        }
+    }
+
+    pub async fn remove_inflight_leaves(&self, leaf_indices: &[u64]) {
+        for leaf_index in leaf_indices {
+            self.remove_inflight_leaf(*leaf_index).await;
+        }
+    }
+
+    // =========================================================================
     // Rate limiting
     // =========================================================================
 

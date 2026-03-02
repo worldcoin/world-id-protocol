@@ -205,33 +205,19 @@ impl IntoRequest for InsertAuthenticatorRequest {
 impl IntoRequestWithRateLimit for InsertAuthenticatorRequest {}
 
 impl Request<InsertAuthenticatorRequest> {
-    /// Submit the request for processing.
     pub async fn submit(
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        // Register in tracker
-        ctx.tracker
-            .new_request_with_id(self.id.to_string(), self.kind)
-            .await?;
-
-        // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id(), self.calldata(), DEFAULT_INSERT_AUTHENTICATOR_GAS);
-
-        if !ctx.batcher.submit(cmd).await {
-            ctx.tracker
-                .set_status(
-                    &self.id().to_string(),
-                    GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
-                )
-                .await;
-            return Err(GatewayErrorResponse::batcher_unavailable());
-        }
-
-        Ok(SubmittedRequest {
-            id: self.id(),
-            kind: self.kind(),
-        })
+        submit_leaf_operation(
+            self.id(),
+            self.kind(),
+            self.calldata(),
+            self.payload.leaf_index,
+            DEFAULT_INSERT_AUTHENTICATOR_GAS,
+            ctx,
+        )
+        .await
     }
 }
 
@@ -252,33 +238,19 @@ impl IntoRequest for UpdateAuthenticatorRequest {
 impl IntoRequestWithRateLimit for UpdateAuthenticatorRequest {}
 
 impl Request<UpdateAuthenticatorRequest> {
-    /// Submit the request for processing.
     pub async fn submit(
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        // Register in tracker
-        ctx.tracker
-            .new_request_with_id(self.id().to_string(), self.kind())
-            .await?;
-
-        // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id(), self.calldata(), DEFAULT_UPDATE_AUTHENTICATOR_GAS);
-
-        if !ctx.batcher.submit(cmd).await {
-            ctx.tracker
-                .set_status(
-                    &self.id().to_string(),
-                    GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
-                )
-                .await;
-            return Err(GatewayErrorResponse::batcher_unavailable());
-        }
-
-        Ok(SubmittedRequest {
-            id: self.id(),
-            kind: self.kind(),
-        })
+        submit_leaf_operation(
+            self.id(),
+            self.kind(),
+            self.calldata(),
+            self.payload.leaf_index,
+            DEFAULT_UPDATE_AUTHENTICATOR_GAS,
+            ctx,
+        )
+        .await
     }
 }
 
@@ -299,32 +271,19 @@ impl IntoRequest for RemoveAuthenticatorRequest {
 impl IntoRequestWithRateLimit for RemoveAuthenticatorRequest {}
 
 impl Request<RemoveAuthenticatorRequest> {
-    /// Submit the request for processing.
     pub async fn submit(
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        // Register in tracker
-        ctx.tracker
-            .new_request_with_id(self.id().to_string(), self.kind())
-            .await?;
-
-        // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id(), self.calldata(), DEFAULT_REMOVE_AUTHENTICATOR_GAS);
-        if !ctx.batcher.submit(cmd).await {
-            ctx.tracker
-                .set_status(
-                    &self.id().to_string(),
-                    GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
-                )
-                .await;
-            return Err(GatewayErrorResponse::batcher_unavailable());
-        }
-
-        Ok(SubmittedRequest {
-            id: self.id(),
-            kind: self.kind(),
-        })
+        submit_leaf_operation(
+            self.id(),
+            self.kind(),
+            self.calldata(),
+            self.payload.leaf_index,
+            DEFAULT_REMOVE_AUTHENTICATOR_GAS,
+            ctx,
+        )
+        .await
     }
 }
 
@@ -345,31 +304,54 @@ impl IntoRequest for RecoverAccountRequest {
 impl IntoRequestWithRateLimit for RecoverAccountRequest {}
 
 impl Request<RecoverAccountRequest> {
-    /// Submit the request for processing.
     pub async fn submit(
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        // Register in tracker
-        ctx.tracker
-            .new_request_with_id(self.id().to_string(), self.kind())
-            .await?;
-
-        // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id(), self.calldata(), DEFAULT_RECOVER_ACCOUNT_GAS);
-        if !ctx.batcher.submit(cmd).await {
-            ctx.tracker
-                .set_status(
-                    &self.id().to_string(),
-                    GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
-                )
-                .await;
-            return Err(GatewayErrorResponse::batcher_unavailable());
-        }
-
-        Ok(SubmittedRequest {
-            id: self.id(),
-            kind: self.kind(),
-        })
+        submit_leaf_operation(
+            self.id(),
+            self.kind(),
+            self.calldata(),
+            self.payload.leaf_index,
+            DEFAULT_RECOVER_ACCOUNT_GAS,
+            ctx,
+        )
+        .await
     }
+}
+
+/// Shared submission logic for leaf-index-based operations (insert/update/remove/recover).
+///
+/// Acquires an in-flight lock on the leaf index, registers the request in Redis,
+/// and submits to the ops batcher. Rolls back the lock on any failure.
+async fn submit_leaf_operation(
+    id: Uuid,
+    kind: GatewayRequestKind,
+    calldata: Bytes,
+    leaf_index: u64,
+    gas: u64,
+    ctx: &GatewayContext,
+) -> Result<SubmittedRequest, GatewayErrorResponse> {
+    ctx.tracker.try_insert_inflight_leaf(leaf_index).await?;
+
+    if let Err(err) = ctx.tracker.new_request_with_id(id.to_string(), kind).await {
+        // Rollback in-flight lock on error
+        ctx.tracker.remove_inflight_leaf(leaf_index).await;
+        return Err(err);
+    }
+
+    let cmd = Command::operation(id, calldata, gas, leaf_index);
+
+    if !ctx.batcher.submit(cmd).await {
+        ctx.tracker.remove_inflight_leaf(leaf_index).await;
+        ctx.tracker
+            .set_status(
+                &id.to_string(),
+                GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
+            )
+            .await;
+        return Err(GatewayErrorResponse::batcher_unavailable());
+    }
+
+    Ok(SubmittedRequest { id, kind })
 }
