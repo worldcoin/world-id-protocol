@@ -5,7 +5,10 @@
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
-use crate::{FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, rp::RpId};
+use crate::{
+    FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, nullifier::Nullifier,
+    rp::RpId,
+};
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
 use taceo_oprf::types::OprfKeyId;
@@ -220,19 +223,13 @@ pub struct ResponseItem {
     /// Encoded World ID Proof. See [`ZeroKnowledgeProof`] for more details.
     pub proof: ZeroKnowledgeProof,
 
-    /// Nullifier for Uniqueness proofs.
-    ///
-    /// A unique, one-time identifier derived from (user, rpId, action) that lets RPs detect
-    /// duplicate actions without learning who the user is. Used with the contract's `verify()` function.
+    /// A [`Nullifier`] for Uniqueness proofs.
     ///
     /// Present for Uniqueness proofs, absent for Session proofs.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub nullifier: Option<FieldElement>,
+    pub nullifier: Option<Nullifier>,
 
-    /// Session nullifier for Session proofs.
-    ///
-    /// Contains both the nullifier and action values that are cryptographically bound together.
-    /// Used with the contract's `verifySession()` function which expects `uint256[2] sessionNullifier`.
+    /// A [`SessionNullifier`] for Session proofs.
     ///
     /// Present for Session proofs, absent for Uniqueness proofs.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -271,7 +268,7 @@ impl ResponseItem {
         identifier: String,
         issuer_schema_id: u64,
         proof: ZeroKnowledgeProof,
-        nullifier: FieldElement,
+        nullifier: Nullifier,
         expires_at_min: u64,
     ) -> Self {
         Self {
@@ -709,14 +706,14 @@ mod tests {
                     "test_req_1".into(),
                     1,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1001),
+                    test_field_element(1001).into(),
                     1_735_689_600,
                 ),
                 ResponseItem::new_uniqueness(
                     "test_req_2".into(),
                     2,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1002),
+                    test_field_element(1002).into(),
                     1_735_689_600,
                 ),
             ],
@@ -760,14 +757,14 @@ mod tests {
                     "orb".into(),
                     1,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1001),
+                    Nullifier::from(test_field_element(1001)),
                     1_735_689_600,
                 ),
                 ResponseItem::new_uniqueness(
                     "passport".into(),
                     2,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1002),
+                    Nullifier::from(test_field_element(1002)),
                     1_735_689_600,
                 ),
             ],
@@ -874,14 +871,14 @@ mod tests {
                     "orb".into(),
                     1,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1001),
+                    Nullifier::from(test_field_element(1001)),
                     1_735_689_600,
                 ),
                 ResponseItem::new_uniqueness(
                     "document".into(),
                     2,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1002),
+                    Nullifier::from(test_field_element(1002)),
                     1_735_689_600,
                 ),
             ],
@@ -897,7 +894,7 @@ mod tests {
                 "orb".into(),
                 1,
                 ZeroKnowledgeProof::default(),
-                test_field_element(1001),
+                Nullifier::from(test_field_element(1001)),
                 1_735_689_600,
             )],
         };
@@ -914,21 +911,21 @@ mod tests {
                     "orb".into(),
                     1,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1001),
+                    Nullifier::from(test_field_element(1001)),
                     1_735_689_600,
                 ),
                 ResponseItem::new_uniqueness(
                     "document".into(),
                     2,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1002),
+                    Nullifier::from(test_field_element(1002)),
                     1_735_689_600,
                 ),
                 ResponseItem::new_uniqueness(
                     "passport".into(),
                     3,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1003),
+                    Nullifier::from(test_field_element(1003)),
                     1_735_689_600,
                 ),
             ],
@@ -949,14 +946,14 @@ mod tests {
                     "orb".into(),
                     1,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1001),
+                    Nullifier::from(test_field_element(1001)),
                     1_735_689_600,
                 ),
                 ResponseItem::new_uniqueness(
                     "orb".into(),
                     1,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1001),
+                    Nullifier::from(test_field_element(1001)),
                     1_735_689_600,
                 ),
             ],
@@ -1009,7 +1006,7 @@ mod tests {
                 "orb".into(),
                 1,
                 ZeroKnowledgeProof::default(),
-                test_field_element(1001),
+                Nullifier::from(test_field_element(1001)),
                 1_735_689_600,
             )],
         };
@@ -1136,21 +1133,21 @@ mod tests {
                     "test_req_10".into(),
                     10,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1010),
+                    Nullifier::from(test_field_element(1010)),
                     1_735_689_600,
                 ),
                 ResponseItem::new_uniqueness(
                     "test_req_11".into(),
                     11,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1011),
+                    Nullifier::from(test_field_element(1011)),
                     1_735_689_600,
                 ),
                 ResponseItem::new_uniqueness(
                     "test_req_15".into(),
                     15,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1015),
+                    Nullifier::from(test_field_element(1015)),
                     1_735_689_600,
                 ),
             ],
@@ -1284,7 +1281,7 @@ mod tests {
                 "test_req_20".into(),
                 20,
                 ZeroKnowledgeProof::default(),
-                test_field_element(1020),
+                Nullifier::from(test_field_element(1020)),
                 1_735_689_600,
             )],
         };
@@ -1383,7 +1380,7 @@ mod tests {
                 "test_req_2".into(),
                 2,
                 ZeroKnowledgeProof::default(),
-                test_field_element(1001),
+                Nullifier::from(test_field_element(1001)),
                 1_725_381_192,
             )],
         };
@@ -1452,14 +1449,14 @@ mod tests {
                     "test_req_3".into(),
                     3,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1001),
+                    Nullifier::from(test_field_element(1001)),
                     1_725_381_192,
                 ),
                 ResponseItem::new_uniqueness(
                     "test_req_1".into(),
                     1,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1002),
+                    Nullifier::from(test_field_element(1002)),
                     1_725_381_192,
                 ),
             ],
@@ -1515,7 +1512,7 @@ mod tests {
                 "passport".into(),
                 2,
                 ZeroKnowledgeProof::default(),
-                test_field_element(2002),
+                Nullifier::from(test_field_element(2002)),
                 1_725_381_192,
             )],
         };
@@ -2025,14 +2022,14 @@ mod tests {
                     "orb".into(),
                     100,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1001),
+                    Nullifier::from(test_field_element(1001)),
                     request_created_at, // Matches default
                 ),
                 ResponseItem::new_uniqueness(
                     "document".into(),
                     101,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1002),
+                    Nullifier::from(test_field_element(1002)),
                     custom_expires_at, // Matches explicit value
                 ),
             ],
@@ -2050,14 +2047,14 @@ mod tests {
                     "orb".into(),
                     100,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1001),
+                    Nullifier::from(test_field_element(1001)),
                     custom_expires_at, // Wrong! Should be request_created_at
                 ),
                 ResponseItem::new_uniqueness(
                     "document".into(),
                     101,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1002),
+                    Nullifier::from(test_field_element(1002)),
                     custom_expires_at,
                 ),
             ],
@@ -2084,14 +2081,14 @@ mod tests {
                     "orb".into(),
                     100,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1001),
+                    Nullifier::from(test_field_element(1001)),
                     request_created_at,
                 ),
                 ResponseItem::new_uniqueness(
                     "document".into(),
                     101,
                     ZeroKnowledgeProof::default(),
-                    test_field_element(1002),
+                    Nullifier::from(test_field_element(1002)),
                     request_created_at, // Wrong! Should be custom_expires_at
                 ),
             ],
@@ -2230,7 +2227,7 @@ mod tests {
                 "orb".into(),
                 1,
                 ZeroKnowledgeProof::default(),
-                test_field_element(1001), // Using uniqueness nullifier instead of session!
+                Nullifier::from(test_field_element(1001)), // Using uniqueness nullifier instead of session!
                 1_735_689_600,
             )],
         };

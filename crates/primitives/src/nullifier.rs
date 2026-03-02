@@ -1,7 +1,155 @@
+use std::{ops::Deref, str::FromStr};
+
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
-use crate::FieldElement;
+use crate::{FieldElement, PrimitiveError};
+
+/// A nullifier is a unique, one-time identifier derived from (user, rpId, action) that lets RPs detect
+/// duplicate actions without learning who the user is. Used with the contract's `verify()` function.
+///
+/// Internally, this is a thin wrapper to identify explicitly a single _nullifier_. This wrapper is
+/// used to expose explicit canonical serialization which is critical for uniqueness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Nullifier {
+    /// The `FieldElement` representing the nullifier.
+    pub inner: FieldElement,
+}
+
+impl Nullifier {
+    const PREFIX: &str = "nil_";
+    const ENCODING_LENGTH: usize = 64;
+
+    /// Initializes a new [`Nullifier`] from a [`FieldElement`]
+    #[expect(clippy::missing_const_for_fn)]
+    pub fn new(nullifier: FieldElement) -> Self {
+        Self { inner: nullifier }
+    }
+
+    /// Outputs the nullifier as a number. This is the **recommended way of enforcing nullifier uniqueness**.
+    ///
+    /// Store this number directly to enforce uniqueness.
+    pub fn as_number(&self) -> U256 {
+        self.inner.into()
+    }
+
+    /// Serializes a nullifier in a canonical string representation.
+    ///
+    /// It is generally safe to do uniqueness on nullifiers treating them as strings if you always serialize
+    /// them with this method. However, storing nullifiers as numbers instead is recommended.
+    ///
+    /// # Warning
+    /// Using a canonical representation is particularly important for nullifiers. Otherwise, different strings
+    /// may actually represent the same field elements, which could result in a compromise of uniqueness.
+    ///
+    /// # Details
+    /// In particular, this method adds an explicit prefix, serializes the field element to a 32-byte hex padded
+    /// string with only lowercase characters.
+    pub fn to_canonical_string(&self) -> String {
+        let value = self
+            .inner
+            .to_string()
+            .trim_start_matches("0x")
+            .to_lowercase();
+        // len is safe because for all the hex charset, each uses 1 byte
+        format!(
+            "{}{}{value}",
+            Self::PREFIX,
+            "0".repeat(Self::ENCODING_LENGTH - value.len())
+        )
+    }
+
+    /// Deserializes a nullifier from a canonical string representation. In particular,
+    /// this method will enforce all the required rules to ensure the value was canonically serialized.
+    ///
+    /// For example, the following string representations are equivalently the same field element: `0xa`, `0xA`, `0x0A`,
+    /// this method will ensure a single representation exists for each field element.
+    ///
+    /// # Errors
+    /// Will return an error if any of the encoding conditions failed (e.g. invalid characters, invalid length, etc.)
+    pub fn from_canonical_string(nullifier: String) -> Result<Self, PrimitiveError> {
+        let nullifier = nullifier.strip_prefix(Self::PREFIX).ok_or_else(|| {
+            PrimitiveError::Deserialization(format!(
+                "nullifier must start with the {}",
+                Self::PREFIX
+            ))
+        })?;
+
+        if nullifier
+            .chars()
+            .any(|c| !c.is_ascii_hexdigit() || !c.is_ascii_lowercase())
+        {
+            return Err(PrimitiveError::Deserialization(
+                "nullifier has invalid characters. only lowercase hex characters allowed."
+                    .to_string(),
+            ));
+        }
+
+        if nullifier.len() != Self::ENCODING_LENGTH {
+            return Err(PrimitiveError::Deserialization(format!(
+                "nullifier does not have the right length. length: {}",
+                nullifier.len()
+            )));
+        }
+
+        let nullifier = FieldElement::from_str(nullifier)?;
+
+        Ok(Self { inner: nullifier })
+    }
+}
+
+impl Serialize for Nullifier {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            serializer.serialize_str(&self.to_canonical_string())
+        } else {
+            // `to_be_bytes()` is guaranteed to return 32 bytes
+            serializer.serialize_bytes(&self.inner.to_be_bytes())
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Nullifier {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            let value = String::deserialize(deserializer)?;
+            Self::from_canonical_string(value).map_err(|e| D::Error::custom(e.to_string()))
+        } else {
+            let bytes = Vec::deserialize(deserializer)?;
+            let bytes: [u8; 32] = bytes
+                .try_into()
+                .map_err(|_| D::Error::custom("expected 32 bytes"))?;
+            let nullifier = FieldElement::from_be_bytes(&bytes)
+                .map_err(|_| D::Error::custom("invalid field element"))?;
+            Ok(Self { inner: nullifier })
+        }
+    }
+}
+
+impl From<Nullifier> for FieldElement {
+    fn from(value: Nullifier) -> Self {
+        value.inner
+    }
+}
+
+impl From<FieldElement> for Nullifier {
+    fn from(value: FieldElement) -> Self {
+        Self { inner: value }
+    }
+}
+
+impl Deref for Nullifier {
+    type Target = FieldElement;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
 
 /// A session nullifier for World ID Session proofs.
 ///

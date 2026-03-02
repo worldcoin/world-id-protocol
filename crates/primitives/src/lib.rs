@@ -117,7 +117,8 @@ impl FieldElement {
     /// Deserializes a field element from a big-endian byte slice.
     ///
     /// # Warning
-    /// Use this function carefully. This function will perform modulo reduction on the input, which may lead to unexpected results if the input should not be reduced.
+    /// Use this function carefully. This function will perform modulo reduction on the input, which may
+    /// lead to unexpected results if the input should not be reduced.
     #[must_use]
     pub(crate) fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
         let field_element = Fq::from_be_bytes_mod_order(bytes);
@@ -441,6 +442,9 @@ mod tests {
         }
     }
 
+    /// This test is of particular importance because if we performed modulo reduction
+    /// or other techniques to fit into the field this could cause problems with uniqueness
+    /// for field elements that must be unique (e.g. nullifier)
     #[test]
     fn test_from_be_bytes_rejects_value_above_modulus() {
         // The BN254 field is 254 bits
