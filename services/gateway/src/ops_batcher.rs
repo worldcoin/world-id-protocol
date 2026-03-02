@@ -13,7 +13,9 @@ use crate::{
         METRICS_BATCH_FAILURE, METRICS_BATCH_LATENCY_MS, METRICS_BATCH_SIZE,
         METRICS_BATCH_SUBMITTED, METRICS_BATCH_SUCCESS,
     },
-    policy_batcher::{PolicyBatchLoopRunner, TimedEnvelope},
+    policy_batcher::{
+        BatchLoopConfig, BatchLoopHooks, TimedEnvelope, run_legacy_loop, run_policy_loop,
+    },
     request_tracker::BacklogScope,
 };
 use alloy::{
@@ -50,14 +52,13 @@ pub struct OpsEnvelope {
     pub calldata: Bytes,
 }
 
-pub struct OpsBatcherRunner {
-    rx: mpsc::Receiver<OpsEnvelope>,
+struct OpsBatchHooks {
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-    max_batch_size: usize,
-    local_queue_limit: usize,
-    tracker: RequestTracker,
-    batch_policy: BatchPolicyConfig,
-    base_fee_cache: BaseFeeCache,
+}
+
+pub struct OpsBatcherRunner {
+    loop_cfg: BatchLoopConfig<OpsEnvelope>,
+    hooks: OpsBatchHooks,
 }
 
 impl OpsBatcherRunner {
@@ -70,26 +71,33 @@ impl OpsBatcherRunner {
         batch_policy: BatchPolicyConfig,
         base_fee_cache: BaseFeeCache,
     ) -> Self {
-        Self {
-            rx,
-            registry,
+        let loop_cfg = BatchLoopConfig::new(
+            "ops",
+            BacklogScope::Ops,
             max_batch_size,
-            local_queue_limit: local_queue_limit.max(1),
-            tracker,
+            local_queue_limit,
             batch_policy,
             base_fee_cache,
-        }
+            tracker,
+            rx,
+        );
+
+        let hooks = OpsBatchHooks { registry };
+
+        Self { loop_cfg, hooks }
     }
 
     pub async fn run(mut self) {
-        if self.batch_policy.enabled {
-            self.run_policy_loop().await;
+        if self.loop_cfg.batch_policy.enabled {
+            run_policy_loop(&mut self.loop_cfg, &self.hooks).await;
         } else {
-            self.run_legacy_loop().await;
+            run_legacy_loop(&mut self.loop_cfg, &self.hooks).await;
         }
     }
+}
 
-    async fn submit_ops_batch(&self, batch: Vec<OpsEnvelope>) {
+impl OpsBatchHooks {
+    async fn submit_ops_batch(&self, tracker: &RequestTracker, batch: Vec<OpsEnvelope>) {
         if batch.is_empty() {
             return;
         }
@@ -102,7 +110,7 @@ impl OpsBatcherRunner {
         ::metrics::counter!(METRICS_BATCH_SUBMITTED, "type" => "ops").increment(1);
         ::metrics::histogram!(METRICS_BATCH_SIZE, "type" => "ops").record(batch_size as f64);
 
-        self.tracker
+        tracker
             .set_status_batch(&ids, GatewayRequestState::Batching)
             .await;
 
@@ -124,7 +132,7 @@ impl OpsBatcherRunner {
                 ::metrics::counter!(METRICS_BATCH_SUCCESS, "type" => "ops").increment(1);
 
                 let hash = format!("0x{:x}", builder.tx_hash());
-                self.tracker
+                tracker
                     .set_status_batch(
                         &ids,
                         GatewayRequestState::Submitted {
@@ -133,7 +141,7 @@ impl OpsBatcherRunner {
                     )
                     .await;
 
-                let tracker = self.tracker.clone();
+                let tracker = tracker.clone();
                 let ids_for_receipt = ids;
                 tokio::spawn(async move {
                     match builder.get_receipt().await {
@@ -164,7 +172,7 @@ impl OpsBatcherRunner {
                 tracing::warn!(error = %e, "multicall3 send failed");
                 let error_str = e.to_string();
                 let code = parse_contract_error(&error_str);
-                self.tracker
+                tracker
                     .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
                     .await;
             }
@@ -172,46 +180,18 @@ impl OpsBatcherRunner {
     }
 }
 
-impl PolicyBatchLoopRunner for OpsBatcherRunner {
+impl BatchLoopHooks for OpsBatchHooks {
     type Envelope = OpsEnvelope;
 
-    fn batch_type(&self) -> &'static str {
-        "ops"
+    async fn submit_batch(&self, tracker: &RequestTracker, batch: Vec<Self::Envelope>) {
+        self.submit_ops_batch(tracker, batch).await;
     }
 
-    fn backlog_scope(&self) -> BacklogScope {
-        BacklogScope::Ops
-    }
-
-    fn max_batch_size(&self) -> usize {
-        self.max_batch_size
-    }
-
-    fn local_queue_limit(&self) -> usize {
-        self.local_queue_limit
-    }
-
-    fn batch_policy(&self) -> &BatchPolicyConfig {
-        &self.batch_policy
-    }
-
-    fn base_fee_cache(&self) -> &BaseFeeCache {
-        &self.base_fee_cache
-    }
-
-    fn tracker(&self) -> &RequestTracker {
-        &self.tracker
-    }
-
-    fn rx(&mut self) -> &mut mpsc::Receiver<Self::Envelope> {
-        &mut self.rx
-    }
-
-    async fn submit_batch(&self, batch: Vec<Self::Envelope>) {
-        self.submit_ops_batch(batch).await;
-    }
-
-    async fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<Self::Envelope>>) {
+    async fn handle_no_backlog(
+        &self,
+        _tracker: &RequestTracker,
+        queue: &mut VecDeque<TimedEnvelope<Self::Envelope>>,
+    ) {
         let dropped = queue.len();
         tracing::warn!(
             dropped,

@@ -9,7 +9,9 @@ use crate::{
         METRICS_BATCH_FAILURE, METRICS_BATCH_LATENCY_MS, METRICS_BATCH_SIZE,
         METRICS_BATCH_SUBMITTED, METRICS_BATCH_SUCCESS,
     },
-    policy_batcher::{PolicyBatchLoopRunner, TimedEnvelope},
+    policy_batcher::{
+        BatchLoopConfig, BatchLoopHooks, TimedEnvelope, run_legacy_loop, run_policy_loop,
+    },
     request_tracker::BacklogScope,
 };
 use alloy::{
@@ -33,14 +35,13 @@ pub struct CreateReqEnvelope {
     pub req: CreateAccountRequest,
 }
 
-pub struct CreateBatcherRunner {
-    rx: mpsc::Receiver<CreateReqEnvelope>,
+struct CreateBatchHooks {
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-    max_batch_size: usize,
-    local_queue_limit: usize,
-    tracker: RequestTracker,
-    batch_policy: BatchPolicyConfig,
-    base_fee_cache: BaseFeeCache,
+}
+
+pub struct CreateBatcherRunner {
+    loop_cfg: BatchLoopConfig<CreateReqEnvelope>,
+    hooks: CreateBatchHooks,
 }
 
 impl CreateBatcherRunner {
@@ -53,27 +54,35 @@ impl CreateBatcherRunner {
         batch_policy: BatchPolicyConfig,
         base_fee_cache: BaseFeeCache,
     ) -> Self {
-        Self {
-            rx,
-            registry,
+        let loop_cfg = BatchLoopConfig::new(
+            "create",
+            BacklogScope::Create,
             max_batch_size,
-            local_queue_limit: local_queue_limit.max(1),
-            tracker,
+            local_queue_limit,
             batch_policy,
             base_fee_cache,
-        }
+            tracker,
+            rx,
+        );
+
+        let hooks = CreateBatchHooks { registry };
+
+        Self { loop_cfg, hooks }
     }
 
     pub async fn run(mut self) {
-        if self.batch_policy.enabled {
-            self.run_policy_loop().await;
+        if self.loop_cfg.batch_policy.enabled {
+            run_policy_loop(&mut self.loop_cfg, &self.hooks).await;
         } else {
-            self.run_legacy_loop().await;
+            run_legacy_loop(&mut self.loop_cfg, &self.hooks).await;
         }
     }
+}
 
+impl CreateBatchHooks {
     async fn drop_local_queue_and_inflight(
         &self,
+        tracker: &RequestTracker,
         queue: &mut VecDeque<TimedEnvelope<CreateReqEnvelope>>,
     ) -> usize {
         let mut inflight_addresses = Vec::new();
@@ -83,12 +92,12 @@ impl CreateBatcherRunner {
 
         let removed = inflight_addresses.len();
         if removed > 0 {
-            self.tracker.remove_inflight(&inflight_addresses).await;
+            tracker.remove_inflight(&inflight_addresses).await;
         }
         removed
     }
 
-    async fn submit_create_batch(&self, batch: Vec<CreateReqEnvelope>) {
+    async fn submit_create_batch(&self, tracker: &RequestTracker, batch: Vec<CreateReqEnvelope>) {
         if batch.is_empty() {
             return;
         }
@@ -99,7 +108,7 @@ impl CreateBatcherRunner {
         ::metrics::counter!(METRICS_BATCH_SUBMITTED, "type" => "create").increment(1);
         ::metrics::histogram!(METRICS_BATCH_SIZE, "type" => "create").record(batch_size as f64);
 
-        self.tracker
+        tracker
             .set_status_batch(&ids, GatewayRequestState::Batching)
             .await;
 
@@ -131,7 +140,7 @@ impl CreateBatcherRunner {
                 ::metrics::counter!(METRICS_BATCH_SUCCESS, "type" => "create").increment(1);
 
                 let hash = format!("0x{:x}", builder.tx_hash());
-                self.tracker
+                tracker
                     .set_status_batch(
                         &ids,
                         GatewayRequestState::Submitted {
@@ -140,7 +149,7 @@ impl CreateBatcherRunner {
                     )
                     .await;
 
-                let tracker = self.tracker.clone();
+                let tracker = tracker.clone();
                 let ids_for_receipt = ids;
                 let addresses_for_cleanup = all_addresses;
                 tokio::spawn(async move {
@@ -175,58 +184,30 @@ impl CreateBatcherRunner {
                 tracing::error!(error = %err, "create batch send failed");
                 let error_str = err.to_string();
                 let code = parse_contract_error(&error_str);
-                self.tracker
+                tracker
                     .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
                     .await;
                 // Remove all addresses from the in-flight tracker on send failure
-                self.tracker.remove_inflight(&all_addresses).await;
+                tracker.remove_inflight(&all_addresses).await;
             }
         }
     }
 }
 
-impl PolicyBatchLoopRunner for CreateBatcherRunner {
+impl BatchLoopHooks for CreateBatchHooks {
     type Envelope = CreateReqEnvelope;
 
-    fn batch_type(&self) -> &'static str {
-        "create"
+    async fn submit_batch(&self, tracker: &RequestTracker, batch: Vec<Self::Envelope>) {
+        self.submit_create_batch(tracker, batch).await;
     }
 
-    fn backlog_scope(&self) -> BacklogScope {
-        BacklogScope::Create
-    }
-
-    fn max_batch_size(&self) -> usize {
-        self.max_batch_size
-    }
-
-    fn local_queue_limit(&self) -> usize {
-        self.local_queue_limit
-    }
-
-    fn batch_policy(&self) -> &BatchPolicyConfig {
-        &self.batch_policy
-    }
-
-    fn base_fee_cache(&self) -> &BaseFeeCache {
-        &self.base_fee_cache
-    }
-
-    fn tracker(&self) -> &RequestTracker {
-        &self.tracker
-    }
-
-    fn rx(&mut self) -> &mut mpsc::Receiver<Self::Envelope> {
-        &mut self.rx
-    }
-
-    async fn submit_batch(&self, batch: Vec<Self::Envelope>) {
-        self.submit_create_batch(batch).await;
-    }
-
-    async fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<Self::Envelope>>) {
+    async fn handle_no_backlog(
+        &self,
+        tracker: &RequestTracker,
+        queue: &mut VecDeque<TimedEnvelope<Self::Envelope>>,
+    ) {
         let dropped = queue.len();
-        let inflight_removed = self.drop_local_queue_and_inflight(queue).await;
+        let inflight_removed = self.drop_local_queue_and_inflight(tracker, queue).await;
         tracing::warn!(
             dropped,
             inflight_removed,
