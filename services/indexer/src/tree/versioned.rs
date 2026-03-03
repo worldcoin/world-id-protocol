@@ -1,6 +1,9 @@
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use alloy::primitives::U256;
@@ -39,6 +42,11 @@ struct VersionedTreeStateInner {
     tree: TreeState,
     history: RwLock<HashMap<usize, LeafLog>>,
     max_block_age: u64,
+    /// Maximum pruning cutoff ever applied when entries were actually removed.
+    /// Initialized to 0 (meaning no pruning has occurred).
+    /// If `target.block_number < max_cutoff_ever`, a rollback cannot be served
+    /// from history because relevant entries may have been discarded.
+    max_cutoff_ever: AtomicU64,
 }
 
 impl VersionedTreeState {
@@ -48,6 +56,7 @@ impl VersionedTreeState {
                 tree,
                 history: RwLock::new(HashMap::new()),
                 max_block_age,
+                max_cutoff_ever: AtomicU64::new(0),
             }),
         }
     }
@@ -108,6 +117,11 @@ impl VersionedTreeState {
     /// Returns an error if the history for any affected leaf has already been
     /// pruned past the rollback point.
     pub async fn rollback_to(&self, target: WorldIdRegistryEventId) -> TreeResult<()> {
+        let max_cutoff = self.inner.max_cutoff_ever.load(Ordering::Relaxed);
+        if max_cutoff > 0 && target.block_number < max_cutoff {
+            return Err(TreeError::RollbackHistoryPruned { target });
+        }
+
         let mut history = self.inner.history.write().await;
 
         for (leaf_index, log) in history.iter_mut() {
@@ -133,6 +147,7 @@ impl VersionedTreeState {
     async fn prune(&self, current_block: u64) {
         let cutoff = current_block.saturating_sub(self.inner.max_block_age);
         let mut history = self.inner.history.write().await;
+        let mut any_pruned = false;
         history.retain(|_, log| {
             // Drop entries older than the cutoff from the front.
             while log
@@ -140,9 +155,15 @@ impl VersionedTreeState {
                 .is_some_and(|v| v.event_id.block_number < cutoff)
             {
                 log.pop_front();
+                any_pruned = true;
             }
             !log.is_empty()
         });
+        if any_pruned {
+            self.inner
+                .max_cutoff_ever
+                .fetch_max(cutoff, Ordering::Relaxed);
+        }
     }
 
     /// Compute a simulated Merkle root after applying `changes` without

@@ -39,6 +39,10 @@ pub enum TreeError {
     StaleCache { root: String },
     #[error("simulate_root computation did not produce a root — this is a bug")]
     SimulationMissingRoot,
+    #[error(
+        "cannot rollback versioned tree to event {target:?}: history has been pruned past this point"
+    )]
+    RollbackHistoryPruned { target: WorldIdRegistryEventId },
     #[error(transparent)]
     Db(#[from] crate::db::DBError),
 }

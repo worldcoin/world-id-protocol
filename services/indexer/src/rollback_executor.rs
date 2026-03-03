@@ -11,7 +11,7 @@ use crate::{
     db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId},
     error::{IndexerError, IndexerResult},
     events_processor::EventsProcessor,
-    tree::VersionedTreeState,
+    tree::{TreeError, VersionedTreeState},
 };
 
 /// Walk backwards through all `RootRecorded` events in the DB and find the
@@ -35,7 +35,13 @@ pub async fn rollback_to_last_valid_root(
     rollback_to_event(&mut tx, target_id).await?;
     tx.commit().await?;
 
-    versioned_tree.rollback_to(target_id).await?;
+    match versioned_tree.rollback_to(target_id).await {
+        Ok(()) => {}
+        Err(TreeError::RollbackHistoryPruned { target }) => {
+            return Err(IndexerError::RollbackTreeHistoryPruned { event_id: target });
+        }
+        Err(e) => return Err(e.into()),
+    }
 
     Ok(Some(target_id))
 }
