@@ -937,6 +937,12 @@ pub struct InitializingAuthenticator {
 }
 
 impl InitializingAuthenticator {
+    /// Returns the gateway request ID for this pending account creation.
+    #[must_use]
+    pub fn request_id(&self) -> &str {
+        &self.request_id
+    }
+
     /// Creates a new World ID account by adding it to the registry using the gateway.
     ///
     /// # Errors
