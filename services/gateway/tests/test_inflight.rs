@@ -443,7 +443,7 @@ async fn test_same_leaf_conflict_matrix() {
 
 /// After a request finalizes on-chain, the Redis lock key is removed.
 ///
-/// Tests create-account and insert (representative leaf op).
+/// Tests create-account and all leaf ops (insert, update, remove, recover).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lock_removed_after_finalization() {
     ensure_crypto_provider();
@@ -463,37 +463,27 @@ async fn test_lock_removed_after_finalization() {
         "auth lock key should be removed atomically on finalization"
     );
 
-    // -- insert (representative leaf op) --
-    let (pubkey, _) = derive_keys_from_seed(seed);
-    let (q, n) = load_embedded_materials();
-    let tmp_config = make_config(&gw, "http://127.0.0.1:0");
-    let auth = Authenticator::init(&seed, tmp_config, q.clone(), n.clone())
-        .await
-        .expect("init after register failed");
+    // -- leaf ops (insert, update, remove, recover) --
+    for op in &LEAF_OPS {
+        let op_seed: [u8; 32] = rand::random();
+        let recovery_signer = PrivateKeySigner::from_bytes(&op_seed.into()).unwrap();
 
-    let leaf_index = auth.leaf_index();
-    let proof = make_inclusion_proof(vec![pubkey], leaf_index);
-    let stub = MutableIndexerStub::spawn(leaf_index, proof)
-        .await
-        .expect("failed to spawn indexer stub");
+        let (mut auth, stub) =
+            register_and_init(&gw, op_seed, Some(recovery_signer.address())).await;
+        let leaf_index = auth.leaf_index();
 
-    let config = make_config(&gw, &stub.url);
-    let mut auth = Authenticator::init(&seed, config, q, n)
-        .await
-        .expect("init with indexer stub failed");
+        let aux_seed: [u8; 32] = rand::random();
+        let req_id = dispatch_op(&mut auth, *op, aux_seed, &recovery_signer)
+            .await
+            .unwrap_or_else(|e| panic!("{op:?} should be accepted on leaf {leaf_index}: {e}"));
 
-    let aux_seed: [u8; 32] = rand::random();
-    let (aux_pubkey, aux_addr) = derive_keys_from_seed(aux_seed);
-    let req_id = auth
-        .insert_authenticator(aux_pubkey, aux_addr)
-        .await
-        .expect("insert should be accepted");
-    wait_for_finalized(&gw.client, &gw.base_url, &req_id).await;
-    let leaf_key = format!("gateway:inflight:leaf:{leaf_index}");
-    assert!(
-        !redis_key_exists(&gw, &leaf_key).await,
-        "leaf lock key should be removed atomically on finalization"
-    );
+        wait_for_finalized(&gw.client, &gw.base_url, &req_id).await;
+        let leaf_key = format!("gateway:inflight:leaf:{leaf_index}");
+        assert!(
+            !redis_key_exists(&gw, &leaf_key).await,
+            "leaf lock key should be removed after {op:?} finalization on leaf {leaf_index}",
+        );
 
-    stub.abort();
+        stub.abort();
+    }
 }
