@@ -84,7 +84,10 @@ pub(crate) trait RequestValidation: Sized + Sync {
     }
 }
 
-async fn simulate_calldata(registry: &Registry, calldata: &Bytes) -> Result<(), GatewayErrorResponse> {
+async fn simulate_calldata(
+    registry: &Registry,
+    calldata: &Bytes,
+) -> Result<(), GatewayErrorResponse> {
     let tx = TransactionRequest {
         to: Some(TxKind::Call(*registry.address())),
         input: calldata.clone().into(),
@@ -204,7 +207,6 @@ impl RequestValidation for CreateAccountRequest {
             .calldata()
             .clone()
     }
-
 }
 
 // =============================================================================
