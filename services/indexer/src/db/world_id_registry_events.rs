@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Event identifier for World ID Registry events
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct WorldIdRegistryEventId {
     pub block_number: u64,
     pub log_index: u64,
@@ -83,52 +83,302 @@ impl<'a> TryFrom<&'a str> for WorldIdRegistryEventType {
     }
 }
 
+pub fn serialize_account_created(ev: &AccountCreatedEvent) -> serde_json::Value {
+    serde_json::json!({
+        "recovery_address": format!("{:?}", ev.recovery_address),
+        "authenticator_addresses": ev.authenticator_addresses.iter()
+            .map(|a| format!("{:?}", a))
+            .collect::<Vec<_>>(),
+        "authenticator_pubkeys": ev.authenticator_pubkeys.iter()
+            .map(|p| format!("{:#x}", p))
+            .collect::<Vec<_>>(),
+        "offchain_signer_commitment": format!("{:#x}", ev.offchain_signer_commitment),
+    })
+}
+
+pub fn serialize_account_updated(ev: &AccountUpdatedEvent) -> serde_json::Value {
+    serde_json::json!({
+        "pubkey_id": ev.pubkey_id,
+        "new_authenticator_pubkey": format!("{:#x}", ev.new_authenticator_pubkey),
+        "old_authenticator_address": format!("{:?}", ev.old_authenticator_address),
+        "new_authenticator_address": format!("{:?}", ev.new_authenticator_address),
+        "old_offchain_signer_commitment": format!("{:#x}", ev.old_offchain_signer_commitment),
+        "new_offchain_signer_commitment": format!("{:#x}", ev.new_offchain_signer_commitment),
+    })
+}
+
+pub fn serialize_authenticator_inserted(ev: &AuthenticatorInsertedEvent) -> serde_json::Value {
+    serde_json::json!({
+        "pubkey_id": ev.pubkey_id,
+        "authenticator_address": format!("{:?}", ev.authenticator_address),
+        "new_authenticator_pubkey": format!("{:#x}", ev.new_authenticator_pubkey),
+        "old_offchain_signer_commitment": format!("{:#x}", ev.old_offchain_signer_commitment),
+        "new_offchain_signer_commitment": format!("{:#x}", ev.new_offchain_signer_commitment),
+    })
+}
+
+pub fn serialize_authenticator_removed(ev: &AuthenticatorRemovedEvent) -> serde_json::Value {
+    serde_json::json!({
+        "pubkey_id": ev.pubkey_id,
+        "authenticator_address": format!("{:?}", ev.authenticator_address),
+        "authenticator_pubkey": format!("{:#x}", ev.authenticator_pubkey),
+        "old_offchain_signer_commitment": format!("{:#x}", ev.old_offchain_signer_commitment),
+        "new_offchain_signer_commitment": format!("{:#x}", ev.new_offchain_signer_commitment),
+    })
+}
+
+pub fn serialize_account_recovered(ev: &AccountRecoveredEvent) -> serde_json::Value {
+    serde_json::json!({
+        "new_authenticator_address": format!("{:?}", ev.new_authenticator_address),
+        "new_authenticator_pubkey": format!("{:#x}", ev.new_authenticator_pubkey),
+        "old_offchain_signer_commitment": format!("{:#x}", ev.old_offchain_signer_commitment),
+        "new_offchain_signer_commitment": format!("{:#x}", ev.new_offchain_signer_commitment),
+    })
+}
+
+pub fn serialize_root_recorded(ev: &RootRecordedEvent) -> serde_json::Value {
+    serde_json::json!({
+        "root": format!("{:#x}", ev.root),
+        "timestamp": format!("{}", ev.timestamp),
+    })
+}
+
 /// Serialize event data to JSON for storage
 pub fn serialize_event_data(event: &RegistryEvent) -> serde_json::Value {
     match event {
-        RegistryEvent::AccountCreated(ev) => serde_json::json!({
-            "recovery_address": format!("{:?}", ev.recovery_address),
-            "authenticator_addresses": ev.authenticator_addresses.iter()
-                .map(|a| format!("{:?}", a))
-                .collect::<Vec<_>>(),
-            "authenticator_pubkeys": ev.authenticator_pubkeys.iter()
-                .map(|p| format!("{:#x}", p))
-                .collect::<Vec<_>>(),
-            "offchain_signer_commitment": format!("{:#x}", ev.offchain_signer_commitment),
-        }),
-        RegistryEvent::AccountUpdated(ev) => serde_json::json!({
-            "pubkey_id": ev.pubkey_id,
-            "new_authenticator_pubkey": format!("{:#x}", ev.new_authenticator_pubkey),
-            "old_authenticator_address": format!("{:?}", ev.old_authenticator_address),
-            "new_authenticator_address": format!("{:?}", ev.new_authenticator_address),
-            "old_offchain_signer_commitment": format!("{:#x}", ev.old_offchain_signer_commitment),
-            "new_offchain_signer_commitment": format!("{:#x}", ev.new_offchain_signer_commitment),
-        }),
-        RegistryEvent::AuthenticatorInserted(ev) => serde_json::json!({
-            "pubkey_id": ev.pubkey_id,
-            "authenticator_address": format!("{:?}", ev.authenticator_address),
-            "new_authenticator_pubkey": format!("{:#x}", ev.new_authenticator_pubkey),
-            "old_offchain_signer_commitment": format!("{:#x}", ev.old_offchain_signer_commitment),
-            "new_offchain_signer_commitment": format!("{:#x}", ev.new_offchain_signer_commitment),
-        }),
-        RegistryEvent::AuthenticatorRemoved(ev) => serde_json::json!({
-            "pubkey_id": ev.pubkey_id,
-            "authenticator_address": format!("{:?}", ev.authenticator_address),
-            "authenticator_pubkey": format!("{:#x}", ev.authenticator_pubkey),
-            "old_offchain_signer_commitment": format!("{:#x}", ev.old_offchain_signer_commitment),
-            "new_offchain_signer_commitment": format!("{:#x}", ev.new_offchain_signer_commitment),
-        }),
-        RegistryEvent::AccountRecovered(ev) => serde_json::json!({
-            "new_authenticator_address": format!("{:?}", ev.new_authenticator_address),
-            "new_authenticator_pubkey": format!("{:#x}", ev.new_authenticator_pubkey),
-            "old_offchain_signer_commitment": format!("{:#x}", ev.old_offchain_signer_commitment),
-            "new_offchain_signer_commitment": format!("{:#x}", ev.new_offchain_signer_commitment),
-        }),
-        RegistryEvent::RootRecorded(ev) => serde_json::json!({
-            "root": format!("{:#x}", ev.root),
-            "timestamp": format!("{}", ev.timestamp),
-        }),
+        RegistryEvent::AccountCreated(ev) => serialize_account_created(ev),
+        RegistryEvent::AccountUpdated(ev) => serialize_account_updated(ev),
+        RegistryEvent::AuthenticatorInserted(ev) => serialize_authenticator_inserted(ev),
+        RegistryEvent::AuthenticatorRemoved(ev) => serialize_authenticator_removed(ev),
+        RegistryEvent::AccountRecovered(ev) => serialize_account_recovered(ev),
+        RegistryEvent::RootRecorded(ev) => serialize_root_recorded(ev),
     }
+}
+
+pub fn deserialize_account_created(
+    leaf_index: Option<u64>,
+    event_data: &serde_json::Value,
+) -> DBResult<AccountCreatedEvent> {
+    let recovery_address = event_data["recovery_address"]
+        .as_str()
+        .ok_or_else(|| missing_field!("recovery_address"))?
+        .parse()
+        .map_err(|_| invalid_field!("recovery_address", "failed to parse address"))?;
+
+    let authenticator_addresses: Vec<_> = event_data["authenticator_addresses"]
+        .as_array()
+        .ok_or_else(|| missing_field!("authenticator_addresses"))?
+        .iter()
+        .filter_map(|v| v.as_str()?.parse().ok())
+        .collect();
+
+    let authenticator_pubkeys: Vec<_> = event_data["authenticator_pubkeys"]
+        .as_array()
+        .ok_or_else(|| missing_field!("authenticator_pubkeys"))?
+        .iter()
+        .filter_map(|v| v.as_str()?.parse().ok())
+        .collect();
+
+    let offchain_signer_commitment = event_data["offchain_signer_commitment"]
+        .as_str()
+        .ok_or_else(|| missing_field!("offchain_signer_commitment"))?
+        .parse()
+        .map_err(|_| invalid_field!("offchain_signer_commitment", "failed to parse U256"))?;
+
+    Ok(AccountCreatedEvent {
+        leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
+        recovery_address,
+        authenticator_addresses,
+        authenticator_pubkeys,
+        offchain_signer_commitment,
+    })
+}
+
+pub fn deserialize_account_updated(
+    leaf_index: Option<u64>,
+    event_data: &serde_json::Value,
+) -> DBResult<AccountUpdatedEvent> {
+    let pubkey_id = event_data["pubkey_id"]
+        .as_u64()
+        .ok_or_else(|| missing_field!("pubkey_id"))? as u32;
+
+    let new_authenticator_pubkey = event_data["new_authenticator_pubkey"]
+        .as_str()
+        .ok_or_else(|| missing_field!("new_authenticator_pubkey"))?
+        .parse()
+        .map_err(|_| invalid_field!("new_authenticator_pubkey", "failed to parse U256"))?;
+
+    let old_authenticator_address = event_data["old_authenticator_address"]
+        .as_str()
+        .ok_or_else(|| missing_field!("old_authenticator_address"))?
+        .parse()
+        .map_err(|_| invalid_field!("old_authenticator_address", "failed to parse address"))?;
+
+    let new_authenticator_address = event_data["new_authenticator_address"]
+        .as_str()
+        .ok_or_else(|| missing_field!("new_authenticator_address"))?
+        .parse()
+        .map_err(|_| invalid_field!("new_authenticator_address", "failed to parse address"))?;
+
+    let old_offchain_signer_commitment = event_data["old_offchain_signer_commitment"]
+        .as_str()
+        .ok_or_else(|| missing_field!("old_offchain_signer_commitment"))?
+        .parse()
+        .map_err(|_| invalid_field!("old_offchain_signer_commitment", "failed to parse U256"))?;
+
+    let new_offchain_signer_commitment = event_data["new_offchain_signer_commitment"]
+        .as_str()
+        .ok_or_else(|| missing_field!("new_offchain_signer_commitment"))?
+        .parse()
+        .map_err(|_| invalid_field!("new_offchain_signer_commitment", "failed to parse U256"))?;
+
+    Ok(AccountUpdatedEvent {
+        leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
+        pubkey_id,
+        new_authenticator_pubkey,
+        old_authenticator_address,
+        new_authenticator_address,
+        old_offchain_signer_commitment,
+        new_offchain_signer_commitment,
+    })
+}
+
+pub fn deserialize_authenticator_inserted(
+    leaf_index: Option<u64>,
+    event_data: &serde_json::Value,
+) -> DBResult<AuthenticatorInsertedEvent> {
+    let pubkey_id = event_data["pubkey_id"]
+        .as_u64()
+        .ok_or_else(|| missing_field!("pubkey_id"))? as u32;
+
+    let authenticator_address = event_data["authenticator_address"]
+        .as_str()
+        .ok_or_else(|| missing_field!("authenticator_address"))?
+        .parse()
+        .map_err(|_| invalid_field!("authenticator_address", "failed to parse address"))?;
+
+    let new_authenticator_pubkey = event_data["new_authenticator_pubkey"]
+        .as_str()
+        .ok_or_else(|| missing_field!("new_authenticator_pubkey"))?
+        .parse()
+        .map_err(|_| invalid_field!("new_authenticator_pubkey", "failed to parse U256"))?;
+
+    let old_offchain_signer_commitment = event_data["old_offchain_signer_commitment"]
+        .as_str()
+        .ok_or_else(|| missing_field!("old_offchain_signer_commitment"))?
+        .parse()
+        .map_err(|_| invalid_field!("old_offchain_signer_commitment", "failed to parse U256"))?;
+
+    let new_offchain_signer_commitment = event_data["new_offchain_signer_commitment"]
+        .as_str()
+        .ok_or_else(|| missing_field!("new_offchain_signer_commitment"))?
+        .parse()
+        .map_err(|_| invalid_field!("new_offchain_signer_commitment", "failed to parse U256"))?;
+
+    Ok(AuthenticatorInsertedEvent {
+        leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
+        pubkey_id,
+        authenticator_address,
+        new_authenticator_pubkey,
+        old_offchain_signer_commitment,
+        new_offchain_signer_commitment,
+    })
+}
+
+pub fn deserialize_authenticator_removed(
+    leaf_index: Option<u64>,
+    event_data: &serde_json::Value,
+) -> DBResult<AuthenticatorRemovedEvent> {
+    let pubkey_id = event_data["pubkey_id"]
+        .as_u64()
+        .ok_or_else(|| missing_field!("pubkey_id"))? as u32;
+
+    let authenticator_address = event_data["authenticator_address"]
+        .as_str()
+        .ok_or_else(|| missing_field!("authenticator_address"))?
+        .parse()
+        .map_err(|_| invalid_field!("authenticator_address", "failed to parse address"))?;
+
+    let authenticator_pubkey = event_data["authenticator_pubkey"]
+        .as_str()
+        .ok_or_else(|| missing_field!("authenticator_pubkey"))?
+        .parse()
+        .map_err(|_| invalid_field!("authenticator_pubkey", "failed to parse U256"))?;
+
+    let old_offchain_signer_commitment = event_data["old_offchain_signer_commitment"]
+        .as_str()
+        .ok_or_else(|| missing_field!("old_offchain_signer_commitment"))?
+        .parse()
+        .map_err(|_| invalid_field!("old_offchain_signer_commitment", "failed to parse U256"))?;
+
+    let new_offchain_signer_commitment = event_data["new_offchain_signer_commitment"]
+        .as_str()
+        .ok_or_else(|| missing_field!("new_offchain_signer_commitment"))?
+        .parse()
+        .map_err(|_| invalid_field!("new_offchain_signer_commitment", "failed to parse U256"))?;
+
+    Ok(AuthenticatorRemovedEvent {
+        leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
+        pubkey_id,
+        authenticator_address,
+        authenticator_pubkey,
+        old_offchain_signer_commitment,
+        new_offchain_signer_commitment,
+    })
+}
+
+pub fn deserialize_account_recovered(
+    leaf_index: Option<u64>,
+    event_data: &serde_json::Value,
+) -> DBResult<AccountRecoveredEvent> {
+    let new_authenticator_address = event_data["new_authenticator_address"]
+        .as_str()
+        .ok_or_else(|| missing_field!("new_authenticator_address"))?
+        .parse()
+        .map_err(|_| invalid_field!("new_authenticator_address", "failed to parse address"))?;
+
+    let new_authenticator_pubkey = event_data["new_authenticator_pubkey"]
+        .as_str()
+        .ok_or_else(|| missing_field!("new_authenticator_pubkey"))?
+        .parse()
+        .map_err(|_| invalid_field!("new_authenticator_pubkey", "failed to parse U256"))?;
+
+    let old_offchain_signer_commitment = event_data["old_offchain_signer_commitment"]
+        .as_str()
+        .ok_or_else(|| missing_field!("old_offchain_signer_commitment"))?
+        .parse()
+        .map_err(|_| invalid_field!("old_offchain_signer_commitment", "failed to parse U256"))?;
+
+    let new_offchain_signer_commitment = event_data["new_offchain_signer_commitment"]
+        .as_str()
+        .ok_or_else(|| missing_field!("new_offchain_signer_commitment"))?
+        .parse()
+        .map_err(|_| invalid_field!("new_offchain_signer_commitment", "failed to parse U256"))?;
+
+    Ok(AccountRecoveredEvent {
+        leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
+        new_authenticator_address,
+        new_authenticator_pubkey,
+        old_offchain_signer_commitment,
+        new_offchain_signer_commitment,
+    })
+}
+
+/// Deserialize event data from JSON back to RootRecordedEvent
+pub fn deserialize_root_recorded(event_data: &serde_json::Value) -> DBResult<RootRecordedEvent> {
+    let root = event_data["root"]
+        .as_str()
+        .ok_or_else(|| missing_field!("root"))?
+        .parse()
+        .map_err(|_| invalid_field!("root", "failed to parse U256"))?;
+
+    let timestamp = event_data["timestamp"]
+        .as_str()
+        .ok_or_else(|| missing_field!("timestamp"))?
+        .parse()
+        .map_err(|_| invalid_field!("timestamp", "failed to parse U256"))?;
+
+    Ok(RootRecordedEvent { root, timestamp })
 }
 
 /// Deserialize event data from JSON back to RegistryEvent
@@ -138,242 +388,34 @@ pub fn deserialize_registry_event(
     event_data: &serde_json::Value,
 ) -> DBResult<RegistryEvent> {
     match event_type {
-        WorldIdRegistryEventType::AccountCreated => {
-            let recovery_address = event_data["recovery_address"]
-                .as_str()
-                .ok_or_else(|| missing_field!("recovery_address"))?
-                .parse()
-                .map_err(|_| invalid_field!("recovery_address", "failed to parse address"))?;
-
-            let authenticator_addresses: Vec<_> = event_data["authenticator_addresses"]
-                .as_array()
-                .ok_or_else(|| missing_field!("authenticator_addresses"))?
-                .iter()
-                .filter_map(|v| v.as_str()?.parse().ok())
-                .collect();
-
-            let authenticator_pubkeys: Vec<_> = event_data["authenticator_pubkeys"]
-                .as_array()
-                .ok_or_else(|| missing_field!("authenticator_pubkeys"))?
-                .iter()
-                .filter_map(|v| v.as_str()?.parse().ok())
-                .collect();
-
-            let offchain_signer_commitment = event_data["offchain_signer_commitment"]
-                .as_str()
-                .ok_or_else(|| missing_field!("offchain_signer_commitment"))?
-                .parse()
-                .map_err(|_| {
-                    invalid_field!("offchain_signer_commitment", "failed to parse U256")
-                })?;
-
-            Ok(RegistryEvent::AccountCreated(AccountCreatedEvent {
-                leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
-                recovery_address,
-                authenticator_addresses,
-                authenticator_pubkeys,
-                offchain_signer_commitment,
-            }))
-        }
-        WorldIdRegistryEventType::AccountUpdated => {
-            let pubkey_id = event_data["pubkey_id"]
-                .as_u64()
-                .ok_or_else(|| missing_field!("pubkey_id"))? as u32;
-
-            let new_authenticator_pubkey = event_data["new_authenticator_pubkey"]
-                .as_str()
-                .ok_or_else(|| missing_field!("new_authenticator_pubkey"))?
-                .parse()
-                .map_err(|_| invalid_field!("new_authenticator_pubkey", "failed to parse U256"))?;
-
-            let old_authenticator_address = event_data["old_authenticator_address"]
-                .as_str()
-                .ok_or_else(|| missing_field!("old_authenticator_address"))?
-                .parse()
-                .map_err(|_| {
-                    invalid_field!("old_authenticator_address", "failed to parse address")
-                })?;
-
-            let new_authenticator_address = event_data["new_authenticator_address"]
-                .as_str()
-                .ok_or_else(|| missing_field!("new_authenticator_address"))?
-                .parse()
-                .map_err(|_| {
-                    invalid_field!("new_authenticator_address", "failed to parse address")
-                })?;
-
-            let old_offchain_signer_commitment = event_data["old_offchain_signer_commitment"]
-                .as_str()
-                .ok_or_else(|| missing_field!("old_offchain_signer_commitment"))?
-                .parse()
-                .map_err(|_| {
-                    invalid_field!("old_offchain_signer_commitment", "failed to parse U256")
-                })?;
-
-            let new_offchain_signer_commitment = event_data["new_offchain_signer_commitment"]
-                .as_str()
-                .ok_or_else(|| missing_field!("new_offchain_signer_commitment"))?
-                .parse()
-                .map_err(|_| {
-                    invalid_field!("new_offchain_signer_commitment", "failed to parse U256")
-                })?;
-
-            Ok(RegistryEvent::AccountUpdated(AccountUpdatedEvent {
-                leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
-                pubkey_id,
-                new_authenticator_pubkey,
-                old_authenticator_address,
-                new_authenticator_address,
-                old_offchain_signer_commitment,
-                new_offchain_signer_commitment,
-            }))
-        }
+        WorldIdRegistryEventType::AccountCreated => Ok(RegistryEvent::AccountCreated(
+            deserialize_account_created(leaf_index, event_data)?,
+        )),
+        WorldIdRegistryEventType::AccountUpdated => Ok(RegistryEvent::AccountUpdated(
+            deserialize_account_updated(leaf_index, event_data)?,
+        )),
         WorldIdRegistryEventType::AuthenticatorInserted => {
-            let pubkey_id = event_data["pubkey_id"]
-                .as_u64()
-                .ok_or_else(|| missing_field!("pubkey_id"))? as u32;
-
-            let authenticator_address = event_data["authenticator_address"]
-                .as_str()
-                .ok_or_else(|| missing_field!("authenticator_address"))?
-                .parse()
-                .map_err(|_| invalid_field!("authenticator_address", "failed to parse address"))?;
-
-            let new_authenticator_pubkey = event_data["new_authenticator_pubkey"]
-                .as_str()
-                .ok_or_else(|| missing_field!("new_authenticator_pubkey"))?
-                .parse()
-                .map_err(|_| invalid_field!("new_authenticator_pubkey", "failed to parse U256"))?;
-
-            let old_offchain_signer_commitment = event_data["old_offchain_signer_commitment"]
-                .as_str()
-                .ok_or_else(|| missing_field!("old_offchain_signer_commitment"))?
-                .parse()
-                .map_err(|_| {
-                    invalid_field!("old_offchain_signer_commitment", "failed to parse U256")
-                })?;
-
-            let new_offchain_signer_commitment = event_data["new_offchain_signer_commitment"]
-                .as_str()
-                .ok_or_else(|| missing_field!("new_offchain_signer_commitment"))?
-                .parse()
-                .map_err(|_| {
-                    invalid_field!("new_offchain_signer_commitment", "failed to parse U256")
-                })?;
-
             Ok(RegistryEvent::AuthenticatorInserted(
-                AuthenticatorInsertedEvent {
-                    leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
-                    pubkey_id,
-                    authenticator_address,
-                    new_authenticator_pubkey,
-                    old_offchain_signer_commitment,
-                    new_offchain_signer_commitment,
-                },
+                deserialize_authenticator_inserted(leaf_index, event_data)?,
             ))
         }
-        WorldIdRegistryEventType::AuthenticatorRemoved => {
-            let pubkey_id = event_data["pubkey_id"]
-                .as_u64()
-                .ok_or_else(|| missing_field!("pubkey_id"))? as u32;
-
-            let authenticator_address = event_data["authenticator_address"]
-                .as_str()
-                .ok_or_else(|| missing_field!("authenticator_address"))?
-                .parse()
-                .map_err(|_| invalid_field!("authenticator_address", "failed to parse address"))?;
-
-            let authenticator_pubkey = event_data["authenticator_pubkey"]
-                .as_str()
-                .ok_or_else(|| missing_field!("authenticator_pubkey"))?
-                .parse()
-                .map_err(|_| invalid_field!("authenticator_pubkey", "failed to parse U256"))?;
-
-            let old_offchain_signer_commitment = event_data["old_offchain_signer_commitment"]
-                .as_str()
-                .ok_or_else(|| missing_field!("old_offchain_signer_commitment"))?
-                .parse()
-                .map_err(|_| {
-                    invalid_field!("old_offchain_signer_commitment", "failed to parse U256")
-                })?;
-
-            let new_offchain_signer_commitment = event_data["new_offchain_signer_commitment"]
-                .as_str()
-                .ok_or_else(|| missing_field!("new_offchain_signer_commitment"))?
-                .parse()
-                .map_err(|_| {
-                    invalid_field!("new_offchain_signer_commitment", "failed to parse U256")
-                })?;
-
-            Ok(RegistryEvent::AuthenticatorRemoved(
-                AuthenticatorRemovedEvent {
-                    leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
-                    pubkey_id,
-                    authenticator_address,
-                    authenticator_pubkey,
-                    old_offchain_signer_commitment,
-                    new_offchain_signer_commitment,
-                },
-            ))
-        }
-        WorldIdRegistryEventType::AccountRecovered => {
-            let new_authenticator_address = event_data["new_authenticator_address"]
-                .as_str()
-                .ok_or_else(|| missing_field!("new_authenticator_address"))?
-                .parse()
-                .map_err(|_| {
-                    invalid_field!("new_authenticator_address", "failed to parse address")
-                })?;
-
-            let new_authenticator_pubkey = event_data["new_authenticator_pubkey"]
-                .as_str()
-                .ok_or_else(|| missing_field!("new_authenticator_pubkey"))?
-                .parse()
-                .map_err(|_| invalid_field!("new_authenticator_pubkey", "failed to parse U256"))?;
-
-            let old_offchain_signer_commitment = event_data["old_offchain_signer_commitment"]
-                .as_str()
-                .ok_or_else(|| missing_field!("old_offchain_signer_commitment"))?
-                .parse()
-                .map_err(|_| {
-                    invalid_field!("old_offchain_signer_commitment", "failed to parse U256")
-                })?;
-
-            let new_offchain_signer_commitment = event_data["new_offchain_signer_commitment"]
-                .as_str()
-                .ok_or_else(|| missing_field!("new_offchain_signer_commitment"))?
-                .parse()
-                .map_err(|_| {
-                    invalid_field!("new_offchain_signer_commitment", "failed to parse U256")
-                })?;
-
-            Ok(RegistryEvent::AccountRecovered(AccountRecoveredEvent {
-                leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
-                new_authenticator_address,
-                new_authenticator_pubkey,
-                old_offchain_signer_commitment,
-                new_offchain_signer_commitment,
-            }))
-        }
-        WorldIdRegistryEventType::RootRecorded => {
-            let root = event_data["root"]
-                .as_str()
-                .ok_or_else(|| missing_field!("root"))?
-                .parse()
-                .map_err(|_| invalid_field!("root", "failed to parse U256"))?;
-
-            let timestamp = event_data["timestamp"]
-                .as_str()
-                .ok_or_else(|| missing_field!("timestamp"))?
-                .parse()
-                .map_err(|_| invalid_field!("timestamp", "failed to parse U256"))?;
-
-            Ok(RegistryEvent::RootRecorded(RootRecordedEvent {
-                root,
-                timestamp,
-            }))
-        }
+        WorldIdRegistryEventType::AuthenticatorRemoved => Ok(RegistryEvent::AuthenticatorRemoved(
+            deserialize_authenticator_removed(leaf_index, event_data)?,
+        )),
+        WorldIdRegistryEventType::AccountRecovered => Ok(RegistryEvent::AccountRecovered(
+            deserialize_account_recovered(leaf_index, event_data)?,
+        )),
+        WorldIdRegistryEventType::RootRecorded => Ok(RegistryEvent::RootRecorded(
+            deserialize_root_recorded(event_data)?,
+        )),
     }
+}
+
+/// A block number with all distinct block hashes observed for it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockWithConflictingHashes {
+    pub block_number: u64,
+    pub block_hashes: Vec<U256>,
 }
 
 pub struct WorldIdRegistryEvents<'a, E>
@@ -532,6 +574,103 @@ where
         .await?;
 
         Ok(result.rows_affected())
+    }
+
+    /// Get RootRecorded events in descending order (newest first) strictly before the given cursor.
+    pub async fn get_root_recorded_events_desc_before(
+        self,
+        before: WorldIdRegistryEventId,
+        limit: u64,
+    ) -> DBResult<Vec<BlockchainEvent<RootRecordedEvent>>> {
+        let rows = sqlx::query(
+            r#"
+                SELECT
+                    block_number,
+                    log_index,
+                    block_hash,
+                    tx_hash,
+                    event_type,
+                    leaf_index,
+                    event_data
+                FROM world_id_registry_events
+                WHERE event_type = 'root_recorded'
+                  AND (
+                      block_number < $1
+                      OR (block_number = $1 AND log_index < $2)
+                  )
+                ORDER BY
+                    block_number DESC,
+                    log_index DESC
+                LIMIT $3
+            "#,
+        )
+        .bind(before.block_number as i64)
+        .bind(before.log_index as i64)
+        .bind(limit as i64)
+        .fetch_all(self.executor)
+        .await?;
+
+        rows.iter()
+            .map(|row| Self::map_root_recorded_event(row))
+            .collect()
+    }
+
+    /// Find blocks where multiple distinct block_hashes have been recorded,
+    /// restricted to the given set of block numbers.
+    pub async fn get_blocks_with_conflicting_hashes(
+        self,
+        block_numbers: &[i64],
+    ) -> DBResult<Vec<BlockWithConflictingHashes>> {
+        if block_numbers.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let rows = sqlx::query(
+            r#"
+                SELECT block_number, block_hash
+                FROM world_id_registry_events
+                WHERE block_number IN (
+                    SELECT block_number
+                    FROM world_id_registry_events
+                    WHERE block_number = ANY($1)
+                    GROUP BY block_number
+                    HAVING COUNT(DISTINCT block_hash) > 1
+                )
+                GROUP BY block_number, block_hash
+                ORDER BY block_number ASC
+            "#,
+        )
+        .bind(block_numbers)
+        .fetch_all(self.executor)
+        .await?;
+
+        let mut result: Vec<BlockWithConflictingHashes> = Vec::new();
+        for row in &rows {
+            let block_number = row.get::<i64, _>("block_number") as u64;
+            let block_hash = row.get::<U256, _>("block_hash");
+            if let Some(entry) = result.last_mut().filter(|e| e.block_number == block_number) {
+                entry.block_hashes.push(block_hash);
+            } else {
+                result.push(BlockWithConflictingHashes {
+                    block_number,
+                    block_hashes: vec![block_hash],
+                });
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn map_root_recorded_event(row: &PgRow) -> DBResult<BlockchainEvent<RootRecordedEvent>> {
+        let event = Self::map_event(row)?;
+        let details = deserialize_root_recorded(&event.event_data)?;
+        Ok(BlockchainEvent {
+            block_number: event.id.block_number,
+            block_hash: event.block_hash,
+            tx_hash: event.tx_hash,
+            log_index: event.id.log_index,
+            details,
+        })
     }
 
     fn map_event(row: &PgRow) -> DBResult<WorldIdRegistryEvent> {

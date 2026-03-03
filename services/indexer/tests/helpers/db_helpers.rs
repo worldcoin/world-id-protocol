@@ -6,6 +6,7 @@ use uuid::Uuid;
 use world_id_indexer::{
     blockchain::{BlockchainEvent, RegistryEvent, RootRecordedEvent},
     db::{DB, DBResult},
+    tree::{self, TreeState, VersionedTreeState},
 };
 
 /// RAII guard that ensures test database cleanup on drop
@@ -267,4 +268,45 @@ pub async fn assert_account_not_exists(pool: &PgPool, leaf_index: u64) {
         "Expected account with leaf_index {} to not exist",
         leaf_index
     );
+}
+
+/// Create a throw-away `VersionedTreeState` backed by a temp file.
+/// Depth 10 is sufficient for all tests (capacity 1024 leaves).
+pub fn make_versioned_tree() -> VersionedTreeState {
+    let path = {
+        let mut p = std::env::temp_dir();
+        p.push(format!("test_versioned_tree_{}.tmp", Uuid::new_v4()));
+        p
+    };
+    let state = unsafe { TreeState::new_empty(10, path).expect("failed to create tree") };
+    VersionedTreeState::new(state, 1000)
+}
+
+/// Apply a slice of events to a fresh tree and return the resulting root.
+/// Useful for constructing a correct `RootRecorded` event in unit tests.
+pub async fn compute_root_after_events(events: &[BlockchainEvent<RegistryEvent>]) -> U256 {
+    let versioned = make_versioned_tree();
+    for event in events {
+        tree::apply_event_to_tree(&versioned, event)
+            .await
+            .expect("failed to apply event to tree");
+    }
+    versioned.root().await
+}
+
+/// Apply batches of events to a shared tree and return the root after each batch.
+/// `batches` is a slice of slices where each inner slice is the events in one batch
+/// (excluding the RootRecorded event itself). Roots are returned in batch order.
+pub async fn compute_batch_roots(batches: &[&[BlockchainEvent<RegistryEvent>]]) -> Vec<U256> {
+    let versioned = make_versioned_tree();
+    let mut roots = Vec::with_capacity(batches.len());
+    for batch in batches {
+        for event in *batch {
+            tree::apply_event_to_tree(&versioned, event)
+                .await
+                .expect("failed to apply event to tree");
+        }
+        roots.push(versioned.root().await);
+    }
+    roots
 }

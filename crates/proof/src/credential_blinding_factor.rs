@@ -1,6 +1,7 @@
 //! Logic to generate credential blinding factors using the OPRF Nodes.
 
 use ark_ff::PrimeField;
+use eyre::Context as _;
 use groth16_material::circom::CircomGroth16Material;
 
 use taceo_oprf::{
@@ -104,9 +105,12 @@ impl OprfCredentialBlindingFactor {
 
         tracing::debug!("executing distributed OPRF");
 
+        let service_uris =
+            taceo_oprf::client::to_oprf_uri_many(services, OprfModule::CredentialBlindingFactor)
+                .context("while building service URI for credential blinding factor")?;
+
         let verifiable_oprf_output = taceo_oprf::client::distributed_oprf(
-            services,
-            OprfModule::CredentialBlindingFactor.to_string().as_str(),
+            &service_uris,
             threshold,
             *query_hash,
             query_blinding_factor,
