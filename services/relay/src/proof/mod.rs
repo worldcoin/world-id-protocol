@@ -1,10 +1,10 @@
 pub mod ethereum_mpt;
-// pub mod light_client;
+pub mod light_client;
 pub mod mpt;
 pub mod permissioned;
 
 use alloy::sol_types::SolValue;
-use alloy_primitives::{Bytes, B256};
+use alloy_primitives::{B256, Bytes};
 use eyre::Result;
 
 use crate::bindings::IWorldIDSource;
@@ -33,8 +33,7 @@ pub fn merge_commitments(batch: Vec<ChainCommitment>) -> Result<ChainCommitment>
 
     let mut merged: Vec<IWorldIDSource::Commitment> = Vec::new();
     for c in &batch {
-        let commits =
-            Vec::<IWorldIDSource::Commitment>::abi_decode_params(&c.commitment_payload)?;
+        let commits = Vec::<IWorldIDSource::Commitment>::abi_decode_params(&c.commitment_payload)?;
         merged.extend(commits);
     }
 

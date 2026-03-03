@@ -1,17 +1,12 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
-use alloy::primitives::Address;
-use alloy::providers::DynProvider;
+use alloy::{primitives::Address, providers::DynProvider};
 use eyre::Result;
 use futures::stream::BoxStream;
 use futures_util::StreamExt;
 use tracing::{error, info, warn};
 
-use crate::proof::merge_commitments;
-use crate::satellite::Satellite;
-use crate::{propagate, stream};
+use crate::{proof::merge_commitments, propagate, satellite::Satellite, stream};
 
 // ── Registry change types ────────────────────────────────────────────────────
 

@@ -5,7 +5,8 @@
     "gateways": [
       {
         "type": "permissioned",
-        "address": "0x39587dC7bC2AC7bA8fEF61fac949bC7d67c7A8eb"
+        "address": "0x39587dC7bC2AC7bA8fEF61fac949bC7d67c7A8eb",
+        "bridge": "0x39587dC7bC2AC7bA8fEF61fac949bC7d67c7A8eb"
       }
     ]
   }

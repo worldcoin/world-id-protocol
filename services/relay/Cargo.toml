@@ -40,4 +40,4 @@ tokio-stream = { version = "*" }
 async-stream = { version = "*" }
 
 [dev-dependencies]
-testcontainers = "0.27"
+testcontainers = { workspace = true }

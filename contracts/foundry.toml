@@ -49,3 +49,9 @@ exclude_lints = ["screaming-snake-case-const"]
 
 [fmt]
 ignore = ["lib"]
+
+[invariant]
+runs = 256
+depth = 15
+fail_on_revert = false
+dictionary_weight = 80

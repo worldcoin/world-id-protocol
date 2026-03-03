@@ -42,19 +42,28 @@ VERSION        := if _TAG != "" { trim_start_match(trim_start_match(_TAG, RELEAS
 
 import 'contracts/Justfile'
 
-import 'justfiles/bootstrap.just'
+# import 'justfiles/bootstrap.just'
 import 'justfiles/deploy.just'
+import 'justfiles/e2e.just'
 import 'justfiles/forge.just'
 
 alias t := test
 
-# Run the relay E2E integration test (3 anvils + relay binary).
-[group('test')]
-relay-it:
-    just -f services/relay/it.just it
+# Build Solidity artifacts + relay binary.
+[group('build')]
+build-artifacts:
+    just build
+    cargo build -p world-id-relay
 
-# Manual cleanup for relay E2E test.
-[group('test')]
-relay-it-stop:
-    just -f services/relay/it.just stop
+# Bootstrap all services (anvils + contracts + relay). Blocks until Ctrl+C.
+[group('e2e')]
+bootstrap:
+    just build-artifacts
+    cargo run -p xtask -- bootstrap
+
+# Fuzz the relay with random registry mutations.
+[group('e2e')]
+fuzz *ARGS='':
+    just build-artifacts
+    cargo run -p xtask -- fuzz {{ ARGS }}
 

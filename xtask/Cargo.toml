@@ -1,0 +1,25 @@
+[package]
+name = "xtask"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+alloy = { workspace = true, features = [
+    "full",
+    "node-bindings",
+    "rlp",
+    "sol-types",
+    "signer-local",
+    "provider-http",
+] }
+alloy-primitives = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+eyre = { workspace = true }
+rand = { workspace = true }
+serde_json = { workspace = true }
+testcontainers = { workspace = true }
+tokio = { workspace = true, features = ["full", "process"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

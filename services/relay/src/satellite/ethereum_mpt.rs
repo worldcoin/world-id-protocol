@@ -1,12 +1,15 @@
 use std::{future::Future, pin::Pin, time::Duration};
 
-use alloy::primitives::{Address, Bytes, B256};
-use alloy::providers::DynProvider;
+use alloy::{
+    primitives::{Address, B256, Bytes},
+    providers::DynProvider,
+};
 use eyre::Result;
 
-use crate::proof::ChainCommitment;
-use crate::proof::ethereum_mpt::build_l1_proof_attributes;
-use crate::relay::send_relay_tx;
+use crate::{
+    proof::{ChainCommitment, ethereum_mpt::build_l1_proof_attributes},
+    relay::send_relay_tx,
+};
 
 use super::Satellite;
 

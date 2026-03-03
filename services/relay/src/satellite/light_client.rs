@@ -5,46 +5,39 @@ use alloy::{
     providers::DynProvider,
 };
 use eyre::Result;
+use url::Url;
 
 use crate::{
-    proof::{ChainCommitment, permissioned::build_permissioned_proof_attributes},
+    proof::{ChainCommitment, light_client::build_light_client_proof_attributes},
     relay::send_relay_tx,
 };
 
 use super::Satellite;
 
-/// A satellite that uses the permissioned (owner-attested) gateway.
-///
-/// The simplest proof path: the relay transaction must be sent from the gateway owner's
-/// wallet. The proof attribute is just the chain head hash.
-pub struct PermissionedSatellite {
+pub struct LightClientSatellite {
     name: String,
     chain_id: u64,
     gateway_address: Address,
     bridge_address: Address,
-    /// The chain ID of the anchor (source) chain, used for ERC-7930 address encoding.
     anchor_chain_id: u64,
-    provider: DynProvider,
+    dest_provider: DynProvider,
+    l1_provider: DynProvider,
+    l1_bridge_address: Address,
+    helios_prover_url: Url,
 }
 
-impl PermissionedSatellite {
-    /// Creates a new permissioned satellite.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - Human-readable name for logging.
-    /// * `chain_id` - The chain ID of this destination chain.
-    /// * `gateway` - The permissioned gateway contract address.
-    /// * `bridge` - The satellite bridge contract address.
-    /// * `anchor_chain_id` - The chain ID of World Chain (source).
-    /// * `provider` - A provider with signing capability for this destination chain.
+impl LightClientSatellite {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: impl Into<String>,
         chain_id: u64,
         gateway: Address,
         bridge: Address,
         anchor_chain_id: u64,
-        provider: DynProvider,
+        dest_provider: DynProvider,
+        l1_provider: DynProvider,
+        l1_bridge_address: Address,
+        helios_prover_url: Url,
     ) -> Self {
         Self {
             name: name.into(),
@@ -52,12 +45,15 @@ impl PermissionedSatellite {
             gateway_address: gateway,
             bridge_address: bridge,
             anchor_chain_id,
-            provider,
+            dest_provider,
+            l1_provider,
+            l1_bridge_address,
+            helios_prover_url,
         }
     }
 }
 
-impl Satellite for PermissionedSatellite {
+impl Satellite for LightClientSatellite {
     fn name(&self) -> &str {
         &self.name
     }
@@ -79,8 +75,15 @@ impl Satellite for PermissionedSatellite {
         commitment: &'a ChainCommitment,
     ) -> Pin<Box<dyn Future<Output = Result<(Bytes, Bytes)>> + Send + 'a>> {
         Box::pin(async move {
-            let (attribute, payload) = build_permissioned_proof_attributes(commitment);
-            Ok((attribute, payload))
+            build_light_client_proof_attributes(
+                &self.l1_provider,
+                &self.dest_provider,
+                self.l1_bridge_address,
+                self.gateway_address,
+                &self.helios_prover_url,
+                commitment,
+            )
+            .await
         })
     }
 
@@ -89,9 +92,9 @@ impl Satellite for PermissionedSatellite {
         commitment: &'a ChainCommitment,
     ) -> Pin<Box<dyn Future<Output = Result<B256>> + Send + 'a>> {
         Box::pin(async move {
-            let (attribute, payload) = build_permissioned_proof_attributes(commitment);
+            let (attribute, payload) = self.build_proof(commitment).await?;
             send_relay_tx(
-                &self.provider,
+                &self.dest_provider,
                 self.gateway_address,
                 self.bridge_address,
                 self.anchor_chain_id,

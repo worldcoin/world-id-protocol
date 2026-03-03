@@ -1,9 +1,7 @@
-use alloy::primitives::Address;
-use alloy::providers::DynProvider;
+use alloy::{primitives::Address, providers::DynProvider};
 use eyre::Result;
 
-use crate::bindings::IWorldIDSource;
-use crate::primitives::KeccakChain;
+use crate::{bindings::IWorldIDSource, primitives::KeccakChain};
 
 /// Reads the current keccak chain state from a StateBridge contract.
 pub async fn read_keccak_chain(
@@ -26,10 +24,7 @@ pub async fn read_latest_root(
 }
 
 /// Reads the contract version from a StateBridge contract.
-pub async fn read_version(
-    provider: &DynProvider,
-    bridge_address: Address,
-) -> Result<u8> {
+pub async fn read_version(provider: &DynProvider, bridge_address: Address) -> Result<u8> {
     let source = IWorldIDSource::new(bridge_address, provider);
     let version = source.VERSION().call().await?;
     Ok(version)

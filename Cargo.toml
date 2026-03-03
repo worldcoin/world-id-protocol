@@ -13,6 +13,7 @@ members = [
   "services/common",
   "services/faux-issuer",
   "services/relay",
+  "xtask",
 ]
 resolver = "2"
 
@@ -32,6 +33,7 @@ rust-version = "1.87"
 [workspace.dependencies]
 # alloy
 alloy = { version = "1.7.3", default-features = false }
+alloy-genesis = "1.7.3"
 alloy-primitives = { version = "1.5.6", default-features = false }
 alloy-node-bindings = "1.0.42"
 
@@ -119,6 +121,7 @@ tar = "0.4"
 taceo-nodes-common = "0.2.1"
 taceo-nodes-observability = "0.1"
 tempfile = "3"
+testcontainers = "0.27"
 tokio-util = "0.7"
 tower = "0.5.3"
 

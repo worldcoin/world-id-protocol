@@ -101,7 +101,7 @@ pub async fn build_l1_proof_attributes(
     );
 
     if computed_output_root != game.root_claim {
-        return eyre::bail!(
+        eyre::bail!(
             "computed output root does not match game root claim: computed {}, claimed {}",
             computed_output_root,
             game.root_claim
@@ -157,7 +157,7 @@ async fn wait_for_dispute_game(
 
     loop {
         if tokio::time::Instant::now() >= deadline {
-            return eyre::bail!(
+            eyre::bail!(
                 "timed out waiting for dispute game covering WC block {}",
                 target_wc_block
             );

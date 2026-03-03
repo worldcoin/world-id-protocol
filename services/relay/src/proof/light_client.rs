@@ -6,13 +6,13 @@ use alloy::{
     providers::DynProvider,
     sol_types::SolValue,
 };
+use eyre::Result;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 use url::Url;
 
 use crate::{
-    contracts::{self, ILightClientGateway},
-    error::RelayError,
+    bindings::{self, ILightClientGatewayAdapter},
     proof::{ChainCommitment, mpt},
 };
 
@@ -57,10 +57,6 @@ struct ProverSubmitResponse {
     request_id: String,
 }
 
-/// Builds the LightClient (Helios/SP1) proof attributes for relaying to a destination gateway.
-///
-/// Two-hop proof: the SP1 proof verifies L1 consensus, then MPT proves the L1
-/// bridge's chain head against the verified L1 state root.
 pub async fn build_light_client_proof_attributes(
     l1_provider: &DynProvider,
     dest_provider: &DynProvider,
@@ -68,9 +64,9 @@ pub async fn build_light_client_proof_attributes(
     gateway_address: Address,
     helios_prover_url: &Url,
     commitment: &ChainCommitment,
-) -> Result<(Bytes, Bytes), RelayError> {
+) -> Result<(Bytes, Bytes)> {
     // Step 1: Read current on-chain state from the LightClient gateway
-    let gateway = ILightClientGateway::new(gateway_address, dest_provider);
+    let gateway = ILightClientGatewayAdapter::new(gateway_address, dest_provider);
 
     let current_head: u64 = gateway.head().call().await?.to::<u64>();
 
@@ -101,7 +97,7 @@ pub async fn build_light_client_proof_attributes(
     let l1_mpt_proof = mpt::fetch_storage_proof(
         l1_provider,
         l1_bridge_address,
-        contracts::STATE_BRIDGE_STORAGE_SLOT,
+        bindings::STATE_BRIDGE_STORAGE_SLOT,
         BlockNumberOrTag::Number(prover_result.execution_block_number),
     )
     .await?;
@@ -134,18 +130,15 @@ pub async fn build_light_client_proof_attributes(
     Ok((Bytes::from(attribute), payload))
 }
 
-/// Submits a proof request to the Helios prover and polls until completion.
 async fn request_sp1_proof(
     prover_url: &Url,
     prev_head: u64,
     prev_header: B256,
     target_block: u64,
-) -> Result<ProverResult, RelayError> {
+) -> Result<ProverResult> {
     let client = reqwest::Client::new();
 
-    let submit_url = prover_url
-        .join("prove")
-        .map_err(|e| RelayError::Prover(format!("invalid prover URL: {e}")))?;
+    let submit_url = prover_url.join("prove")?;
 
     let request = ProverRequest {
         prev_head,
@@ -157,20 +150,14 @@ async fn request_sp1_proof(
         .post(submit_url)
         .json(&request)
         .send()
-        .await
-        .map_err(|e| RelayError::Prover(format!("prover submit failed: {e}")))?
-        .error_for_status()
-        .map_err(|e| RelayError::Prover(format!("prover returned error: {e}")))?
+        .await?
+        .error_for_status()?
         .json()
-        .await
-        .map_err(|e| RelayError::Prover(format!("prover response decode failed: {e}")))?;
+        .await?;
 
     debug!(request_id = %submit_response.request_id, "SP1 proof request submitted");
 
-    // Poll for completion
-    let status_url = prover_url
-        .join(&format!("status/{}", submit_response.request_id))
-        .map_err(|e| RelayError::Prover(format!("invalid prover URL: {e}")))?;
+    let status_url = prover_url.join(&format!("status/{}", submit_response.request_id))?;
 
     let poll_interval = Duration::from_secs(30);
     let timeout = Duration::from_secs(3600);
@@ -178,7 +165,7 @@ async fn request_sp1_proof(
 
     loop {
         if tokio::time::Instant::now() >= deadline {
-            return Err(RelayError::ProverTimeout(timeout));
+            eyre::bail!("timed out waiting for SP1 proof after {timeout:?}");
         }
 
         tokio::time::sleep(poll_interval).await;
@@ -186,22 +173,19 @@ async fn request_sp1_proof(
         let response: ProverResponse = client
             .get(status_url.clone())
             .send()
-            .await
-            .map_err(|e| RelayError::Prover(format!("prover poll failed: {e}")))?
-            .error_for_status()
-            .map_err(|e| RelayError::Prover(format!("prover returned error: {e}")))?
+            .await?
+            .error_for_status()?
             .json()
-            .await
-            .map_err(|e| RelayError::Prover(format!("prover response decode failed: {e}")))?;
+            .await?;
 
         match response.status {
             ProverStatus::Complete => {
-                return response.result.ok_or_else(|| {
-                    RelayError::Prover("prover returned complete but no result".into())
-                });
+                return response
+                    .result
+                    .ok_or_else(|| eyre::eyre!("prover returned complete but no result"));
             }
             ProverStatus::Failed => {
-                return Err(RelayError::Prover("SP1 proof generation failed".into()));
+                eyre::bail!("prover: SP1 proof generation failed");
             }
             ProverStatus::Pending => {
                 debug!(

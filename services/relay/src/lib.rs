@@ -1,5 +1,5 @@
 pub mod bindings;
-mod cli;
+pub mod cli;
 pub mod engine;
 pub mod primitives;
 pub mod proof;

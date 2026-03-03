@@ -1,12 +1,14 @@
 mod ethereum_mpt;
+mod light_client;
 mod permissioned;
 
 pub use ethereum_mpt::EthereumMptSatellite;
+pub use light_client::LightClientSatellite;
 pub use permissioned::PermissionedSatellite;
 
 use std::{future::Future, pin::Pin};
 
-use alloy::primitives::{Address, Bytes, B256};
+use alloy::primitives::{Address, B256, Bytes};
 use eyre::Result;
 
 use crate::proof::ChainCommitment;
@@ -19,6 +21,7 @@ use crate::proof::ChainCommitment;
 ///
 /// This trait is object-safe so it can be used as `dyn Satellite`. Async methods return
 /// boxed futures to support dynamic dispatch.
+#[allow(clippy::type_complexity)]
 pub trait Satellite: Send + Sync {
     /// Human-readable name for logging (e.g. "ethereum-mainnet", "base-sepolia").
     fn name(&self) -> &str;

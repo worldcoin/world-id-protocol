@@ -32,6 +32,20 @@ pub struct WorldIDRelayConfig {
     /// Optional URL of the monitoring service to send metrics to.
     #[arg(long, env = "MONITORING_URL")]
     pub monitoring_url: Option<Url>,
+
+    /// Path to destinations JSON config file.
+    #[arg(long, env = "DESTINATIONS_CONFIG")]
+    pub destinations_config: Option<PathBuf>,
+
+    /// Commitment batch window in seconds (how long to accumulate ChainCommitted events).
+    #[arg(long, env = "COMMITMENT_BATCH_WINDOW_SECS")]
+    #[serde(default)]
+    pub commitment_batch_window_secs: Option<u64>,
+
+    /// Batch interval in seconds for periodic propagateState calls.
+    #[arg(long, env = "BATCH_INTERVAL_SECS")]
+    #[serde(default)]
+    pub batch_interval_secs: Option<u64>,
 }
 
 impl<P: AsRef<Path>> TryFrom<Option<P>> for WorldIDRelayConfig {
@@ -124,6 +138,56 @@ impl FromStr for ChainConfig {
         serde_json::from_str(s)
             .map_err(|err| format!("Failed to parse ChainConfig from JSON: {err}"))
     }
+}
+
+// ── Destinations JSON config ─────────────────────────────────────────────────
+
+/// A single destination chain loaded from the destinations JSON config file.
+///
+/// Each entry specifies a chain and one or more gateways the relayer should
+/// deliver commitments to.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DestinationConfig {
+    pub chain_id: u64,
+    pub rpc_url: Url,
+    pub gateways: Vec<GatewayConfig>,
+}
+
+/// Configuration for a single gateway on a destination chain.
+///
+/// The `type` field in JSON selects the variant (e.g. `"permissioned"`,
+/// `"ethereum_mpt"`, `"light_client"`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum GatewayConfig {
+    /// Owner-attested gateway. The relay wallet must be the gateway owner.
+    Permissioned { address: Address, bridge: Address },
+    /// L1 DisputeGame + MPT storage proof gateway.
+    EthereumMpt {
+        address: Address,
+        bridge: Address,
+        dispute_game_factory: Address,
+        #[serde(default)]
+        game_type: u32,
+        #[serde(default)]
+        require_finalized: bool,
+    },
+    /// ZK light-client gateway (Helios-based).
+    LightClient {
+        address: Address,
+        bridge: Address,
+        l1_bridge_address: Address,
+        helios_prover_url: Url,
+    },
+}
+
+/// Load destination chain configs from a JSON file.
+pub fn load_destinations(
+    path: impl AsRef<std::path::Path>,
+) -> eyre::Result<Vec<DestinationConfig>> {
+    let content = std::fs::read_to_string(path)?;
+    let destinations: Vec<DestinationConfig> = serde_json::from_str(&content)?;
+    Ok(destinations)
 }
 
 #[cfg(test)]
