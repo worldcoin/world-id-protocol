@@ -279,48 +279,7 @@ async fn run_both(
     http_cfg: HttpConfig,
     tree_state: tree::TreeState,
 ) -> eyre::Result<()> {
-    let tree_cache_cfg = &http_cfg.tree_cache;
-    let batch_size = indexer_cfg.batch_size;
-
-    // --- Phase 1: Backfill historical events into DB (no tree) ---
-    let from = match db.world_id_registry_events().get_latest_block().await? {
-        Some(block) => block,
-        None => indexer_cfg.start_block,
-    };
-
-    tracing::info!(
-        from_block = from,
-        batch_size,
-        "Phase 1: starting historical backfill"
-    );
-
-    {
-        let blockchain =
-            Blockchain::new(http_provider.clone(), ws_rpc_url, registry_address).await?;
-        let (backfill_stream, last_block) = blockchain.backfill_events(from, batch_size);
-        let committed_batches = save_events(&db, backfill_stream).await?;
-        let backfill_up_to_block = last_block.load(Ordering::Relaxed);
-
-        crate::metrics::set_chain_head_block(backfill_up_to_block);
-        crate::metrics::set_chain_processed_block(backfill_up_to_block);
-
-        tracing::info!(
-            committed_batches,
-            backfill_up_to_block,
-            "Phase 1: backfill complete, all historical events stored in DB"
-        );
-    } // blockchain dropped, WS connection closed
-
-    // --- Phase 2: Build tree from complete DB ---
-    tracing::info!("Phase 2: building tree from DB");
-    let start_time = std::time::Instant::now();
-    let tree_state = unsafe { initialize_tree_with_config(tree_cache_cfg, &db).await? };
-    tracing::info!(
-        "Phase 2: tree initialization took {:?}",
-        start_time.elapsed()
-    );
-
-    // --- Phase 3: Start HTTP server + sanity check ---
+    // --- Start HTTP server + sanity check ---
     let http_tree_state = tree_state.clone();
     let sanity_tree_state = tree_state.clone();
 
@@ -388,32 +347,6 @@ pub async fn handle_registry_event<'a>(
     events_committer.handle_event(event.clone()).await?;
     Ok(())
 }
-
-/// Process decoded backfill events from a stream, writing to DB only (no tree sync).
-/// Returns the number of committed batches.
-async fn save_events(
-    db: &DB,
-    mut stream: impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin,
-) -> IndexerResult<usize> {
-    let mut events_committer = EventsCommitter::new(db);
-    let mut committed_batches = 0usize;
-
-    while let Some(event_result) = stream.next().await {
-        let event = event_result?;
-        tracing::info!(?event, "processing backfill event");
-
-        let block_number = event.block_number;
-        let committed = events_committer.handle_event(event).await?;
-        crate::metrics::set_chain_processed_block(block_number);
-
-        if committed {
-            committed_batches += 1;
-        }
-    }
-
-    Ok(committed_batches)
-}
-
 
 /// Stream registry events from the blockchain and process them.
 /// Restart when websocket connection is dropped.
