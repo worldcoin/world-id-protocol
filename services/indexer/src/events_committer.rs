@@ -39,6 +39,9 @@ impl<'a> EventsCommitter<'a> {
     async fn commit_events(&mut self) -> DBResult<()> {
         tracing::info!("committing events to DB");
 
+        let batch_size = self.buffered_events.len();
+        let started = std::time::Instant::now();
+
         let mut transaction = self.db.transaction(IsolationLevel::Serializable).await?;
 
         for event in self.buffered_events.iter() {
@@ -85,6 +88,9 @@ impl<'a> EventsCommitter<'a> {
         }
 
         transaction.commit().await?;
+
+        let latency_ms = started.elapsed().as_millis() as f64;
+        crate::metrics::record_commit(batch_size, latency_ms);
 
         self.buffered_events.clear();
 
