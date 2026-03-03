@@ -3,7 +3,7 @@ use crate::{
     db::{DB, IsolationLevel},
     error::{IndexerError, IndexerResult},
     events_processor::EventsProcessor,
-    tree::{VersionedTreeState, apply_event_to_tree},
+    tree::{VersionedTreeState, apply_event_to_tree, extract_leaf_commitment},
 };
 
 /// Buffers blockchain events and commits them to the database in batches,
@@ -16,9 +16,11 @@ use crate::{
 ///    transaction is aborted and `ReorgDetected` is returned. A final post-write
 ///    check catches any cross-event conflicts within the same batch.
 ///
-/// 2. **Root integrity on every commit**: After applying each batch to the tree,
-///    the computed root is compared against the `RootRecorded` event. A mismatch
-///    returns `ReorgDetected` and the DB transaction is not committed.
+/// 2. **Root integrity on every commit**: Before committing, the root that would
+///    result from the batch is simulated and compared against the `RootRecorded`
+///    event. A mismatch returns `ReorgDetected` without touching the tree or
+///    committing the DB transaction. The tree is only updated after a successful
+///    commit.
 ///
 /// 3. **Reorg suffix is contiguous**: Because commits are rejected the moment a
 ///    bad root or conflicting hash is detected, any invalid state that does reach
@@ -139,11 +141,6 @@ impl<'a> EventsCommitter<'a> {
             });
         }
 
-        let tree = &self.versioned_tree;
-        for event in self.buffered_events.iter() {
-            apply_event_to_tree(tree, event).await?;
-        }
-
         if let Some(BlockchainEvent {
             block_number,
             details:
@@ -154,19 +151,36 @@ impl<'a> EventsCommitter<'a> {
             ..
         }) = self.buffered_events.last()
         {
-            let actual_root = tree.root().await;
-            if actual_root != *expected_root {
+            let block_number = *block_number;
+            let expected_root = *expected_root;
+
+            let changes: Vec<(usize, alloy::primitives::U256)> = self
+                .buffered_events
+                .iter()
+                .filter_map(|e| {
+                    extract_leaf_commitment(&e.details)
+                        .map(|(leaf_index, value)| (leaf_index as usize, value))
+                })
+                .collect();
+
+            let simulated_root = self.versioned_tree.simulate_root(&changes).await?;
+            if simulated_root != expected_root {
                 return Err(IndexerError::ReorgDetected {
-                    block_number: *block_number,
+                    block_number,
                     reason: format!(
-                        "tree root after applying batch (0x{:x}) does not match RootRecorded root (0x{:x})",
-                        actual_root, expected_root,
+                        "simulated tree root (0x{:x}) does not match RootRecorded root (0x{:x})",
+                        simulated_root, expected_root,
                     ),
                 });
             }
         }
 
         tx.commit().await?;
+
+        let tree = &self.versioned_tree;
+        for event in self.buffered_events.iter() {
+            apply_event_to_tree(tree, event).await?;
+        }
 
         let latency_ms = started.elapsed().as_millis() as f64;
         crate::metrics::record_commit(batch_size, latency_ms);
