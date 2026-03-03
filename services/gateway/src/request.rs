@@ -92,6 +92,12 @@ impl<T: HasLeafIndex> HasInflightKeys for T {
     }
 }
 
+/// Trait for request payloads that can be converted to batcher commands.
+pub trait IntoCommand: IntoRequest + HasInflightKeys + Sized {
+    /// Build the command that should be queued for this request type.
+    fn into_command(id: Uuid, payload: Self, calldata: Bytes) -> Command;
+}
+
 /// Trait for converting API payloads into tracked Requests.
 ///
 /// Validation is performed asynchronously, including contract simulation.
@@ -146,15 +152,19 @@ impl IntoRequest for CreateAccountRequest {
     const KIND: GatewayRequestKind = GatewayRequestKind::CreateAccount;
 }
 
+impl IntoCommand for CreateAccountRequest {
+    fn into_command(id: Uuid, payload: Self, _calldata: Bytes) -> Command {
+        Command::create_account(id, payload, DEFAULT_CREATE_ACCOUNT_GAS)
+    }
+}
+
 impl Request<CreateAccountRequest> {
     /// Submit the request for processing.
     pub async fn submit(
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        let inflight_keys = self.payload.inflight_keys();
-        let cmd = Command::create_account(self.id, self.payload, DEFAULT_CREATE_ACCOUNT_GAS);
-        submit_request(self.id, self.kind, inflight_keys, cmd, ctx).await
+        submit_request(self, ctx).await
     }
 }
 
@@ -172,6 +182,12 @@ impl IntoRequest for InsertAuthenticatorRequest {
     const KIND: GatewayRequestKind = GatewayRequestKind::InsertAuthenticator;
 }
 
+impl IntoCommand for InsertAuthenticatorRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata, DEFAULT_INSERT_AUTHENTICATOR_GAS)
+    }
+}
+
 impl IntoRequestWithRateLimit for InsertAuthenticatorRequest {}
 
 impl Request<InsertAuthenticatorRequest> {
@@ -179,9 +195,7 @@ impl Request<InsertAuthenticatorRequest> {
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        let inflight_keys = self.payload.inflight_keys();
-        let cmd = Command::operation(self.id, self.calldata, DEFAULT_INSERT_AUTHENTICATOR_GAS);
-        submit_request(self.id, self.kind, inflight_keys, cmd, ctx).await
+        submit_request(self, ctx).await
     }
 }
 
@@ -199,6 +213,12 @@ impl IntoRequest for UpdateAuthenticatorRequest {
     const KIND: GatewayRequestKind = GatewayRequestKind::UpdateAuthenticator;
 }
 
+impl IntoCommand for UpdateAuthenticatorRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata, DEFAULT_UPDATE_AUTHENTICATOR_GAS)
+    }
+}
+
 impl IntoRequestWithRateLimit for UpdateAuthenticatorRequest {}
 
 impl Request<UpdateAuthenticatorRequest> {
@@ -206,9 +226,7 @@ impl Request<UpdateAuthenticatorRequest> {
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        let inflight_keys = self.payload.inflight_keys();
-        let cmd = Command::operation(self.id, self.calldata, DEFAULT_UPDATE_AUTHENTICATOR_GAS);
-        submit_request(self.id, self.kind, inflight_keys, cmd, ctx).await
+        submit_request(self, ctx).await
     }
 }
 
@@ -226,6 +244,12 @@ impl IntoRequest for RemoveAuthenticatorRequest {
     const KIND: GatewayRequestKind = GatewayRequestKind::RemoveAuthenticator;
 }
 
+impl IntoCommand for RemoveAuthenticatorRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata, DEFAULT_REMOVE_AUTHENTICATOR_GAS)
+    }
+}
+
 impl IntoRequestWithRateLimit for RemoveAuthenticatorRequest {}
 
 impl Request<RemoveAuthenticatorRequest> {
@@ -233,9 +257,7 @@ impl Request<RemoveAuthenticatorRequest> {
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        let inflight_keys = self.payload.inflight_keys();
-        let cmd = Command::operation(self.id, self.calldata, DEFAULT_REMOVE_AUTHENTICATOR_GAS);
-        submit_request(self.id, self.kind, inflight_keys, cmd, ctx).await
+        submit_request(self, ctx).await
     }
 }
 
@@ -253,6 +275,12 @@ impl IntoRequest for RecoverAccountRequest {
     const KIND: GatewayRequestKind = GatewayRequestKind::RecoverAccount;
 }
 
+impl IntoCommand for RecoverAccountRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata, DEFAULT_RECOVER_ACCOUNT_GAS)
+    }
+}
+
 impl IntoRequestWithRateLimit for RecoverAccountRequest {}
 
 impl Request<RecoverAccountRequest> {
@@ -260,9 +288,7 @@ impl Request<RecoverAccountRequest> {
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        let inflight_keys = self.payload.inflight_keys();
-        let cmd = Command::operation(self.id, self.calldata, DEFAULT_RECOVER_ACCOUNT_GAS);
-        submit_request(self.id, self.kind, inflight_keys, cmd, ctx).await
+        submit_request(self, ctx).await
     }
 }
 
@@ -270,13 +296,22 @@ impl Request<RecoverAccountRequest> {
 ///
 /// Atomically registers the request with the tracker (acquiring in-flight
 /// locks), then submits the pre-built command to the batcher.
-async fn submit_request(
-    id: Uuid,
-    kind: GatewayRequestKind,
-    inflight_keys: Vec<String>,
-    cmd: Command,
+async fn submit_request<T>(
+    request: Request<T>,
     ctx: &GatewayContext,
-) -> Result<SubmittedRequest, GatewayErrorResponse> {
+) -> Result<SubmittedRequest, GatewayErrorResponse>
+where
+    T: IntoCommand,
+{
+    let Request {
+        id,
+        kind,
+        payload,
+        calldata,
+    } = request;
+    let inflight_keys = payload.inflight_keys();
+    let cmd = T::into_command(id, payload, calldata);
+
     ctx.tracker
         .new_request_with_id(id.to_string(), kind, inflight_keys)
         .await?;
