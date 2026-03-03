@@ -19,8 +19,8 @@ The indexer connects to the chain via HTTP + WebSocket RPC. On startup it backfi
 Events are processed through `EventsCommitter`, which:
 
 1. Buffers incoming `AccountCreated`, `AccountUpdated`, `AuthenticatorInserted`, `AuthenticatorRemoved`, and `AccountRecovered` events in memory.
-2. On each `RootRecorded` event, commits the buffered batch atomically to PostgreSQL and applies the leaf changes to the in-memory Merkle tree.
-3. Verifies after each batch that the computed Merkle root matches the on-chain `RootRecorded` value.
+2. On each `RootRecorded` event, simulates the resulting Merkle root and verifies it matches the on-chain value, then commits the buffered batch atomically to PostgreSQL, and finally applies the leaf changes to the in-memory Merkle tree.
+3. The tree is only mutated after a successful DB commit; a root mismatch aborts without touching the tree.
 
 ### In-Memory Merkle Tree
 
@@ -44,7 +44,7 @@ The HTTP server serves inclusion proofs for public keys. It is backed by the sha
 Reorgs are detected during batch commit in two ways:
 
 1. **Block hash conflict** — an event with the same `(block_number, log_index)` already exists in the DB but with a different `block_hash` or `tx_hash`.
-2. **Root mismatch** — after applying a batch to the in-memory tree, the resulting root does not match the `RootRecorded` value in that batch.
+2. **Root mismatch** — the simulated root for the batch does not match the `RootRecorded` value in that batch (checked before commit; the tree is not modified).
 
 When either condition is detected, `rollback_to_last_valid_root` is called. It walks backwards through `RootRecorded` events in the DB (newest first) and for each one queries the chain to verify that a log at the same block and log index still exists with the same root value. The first event that passes this check becomes the rollback target. The rollback then:
 
@@ -54,10 +54,10 @@ When either condition is detected, `rollback_to_last_valid_root` is called. It w
 
 After a successful rollback, `process_registry_events` returns a `ReorgDetected` error, which propagates up and terminates the process. **A restart is required.** On restart the indexer follows the normal startup procedure:
 
-1. The tree is re-initialized from the mmap cache (which reflects the rolled-back state, since tree writes flush through to the mmap immediately). DB events are replayed from genesis to bring the tree fully up to date with the rolled-back DB.
+1. The tree is re-initialized from the mmap cache (which reflects the rolled-back state, since tree writes flush through to the mmap immediately). DB events are replayed from first event to bring the tree fully up to date with the rolled-back DB.
 2. The indexer backfills from the last DB block forward, re-fetching the blocks that were removed by the rollback.
 
-This restart-on-reorg pattern — detect, rollback state, exit cleanly, re-initialize on restart — has been used across multiple World ID Protocol services in the past. The alternative of recovering in-process adds significant complexity and is error-prone when in-flight state (buffered events, stream cursors, tree snapshots) is partially corrupted by the reorg.
+This restart-on-reorg pattern — detect, rollback state, exit cleanly, re-initialize on restart — has been used across multiple World ID Protocol services in the past. The alternative of recovering in-process adds significant complexity and is error-prone when in-flight state (buffered events, stream cursors, tree snapshots) is partially corrupted by the reorg. Also reorgs on World Chain are quite rare.
 
 ## Configuration
 
