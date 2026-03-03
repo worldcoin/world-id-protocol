@@ -34,23 +34,24 @@ async fn test_packed_account_endpoint() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8083".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: TreeCacheConfig {
-                    cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
-                    tree_depth: 6,
-                    http_cache_refresh_interval_secs: 30,
-                },
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: TreeCacheConfig {
+            cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
+            tree_depth: 30,
+            http_cache_refresh_interval_secs: 30,
+        },
     };
 
     let indexer_task = tokio::spawn(async move {

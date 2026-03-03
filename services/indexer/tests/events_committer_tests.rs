@@ -10,7 +10,7 @@ async fn test_events_are_buffered_and_committed() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // Create AccountCreated event
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(123));
@@ -27,8 +27,9 @@ async fn test_events_are_buffered_and_committed() {
         U256::from(789),
     );
 
+    let root = compute_root_after_events(&[event1.clone(), event2.clone()]).await;
     // Create RootRecorded event (triggers commit)
-    let event3 = mock_root_recorded_event(100, 2, U256::from(999), U256::from(1000));
+    let event3 = mock_root_recorded_event(100, 2, root, U256::from(1000));
 
     // Handle events
     committer.handle_event(event1).await.unwrap();
@@ -58,11 +59,11 @@ async fn test_event_idempotency() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
-    // Create the same event twice
     let event = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(123));
-    let root_event = mock_root_recorded_event(100, 1, U256::from(999), U256::from(1000));
+    let root = compute_root_after_events(std::slice::from_ref(&event)).await;
+    let root_event = mock_root_recorded_event(100, 1, root, U256::from(1000));
 
     // Process first event
     committer.handle_event(event.clone()).await.unwrap();
@@ -73,7 +74,7 @@ async fn test_event_idempotency() {
     assert_eq!(count, 1);
 
     // Create new committer and process same event again (using clone)
-    let mut committer2 = EventsCommitter::new(db);
+    let mut committer2 = EventsCommitter::new(db, make_versioned_tree());
     committer2.handle_event(event).await.unwrap();
     committer2.handle_event(root_event).await.unwrap();
 
@@ -91,7 +92,7 @@ async fn test_account_update_modifies_existing_account() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     let leaf_index = 1u64;
     let recovery_address = Address::ZERO;
@@ -123,7 +124,8 @@ async fn test_account_update_modifies_existing_account() {
         initial_commitment,
         updated_commitment,
     );
-    let root_event = mock_root_recorded_event(100, 2, U256::from(999), U256::from(1000));
+    let root = compute_root_after_events(&[create_event.clone(), update_event.clone()]).await;
+    let root_event = mock_root_recorded_event(100, 2, root, U256::from(1000));
 
     // Process events: create, update, then root (which triggers commit)
     // Account should NOT exist in DB until root event is processed
@@ -159,23 +161,20 @@ async fn test_multiple_event_batches() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
-    // First batch
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
-    let root1 = mock_root_recorded_event(100, 1, U256::from(500), U256::from(1000));
+    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
+    let roots =
+        compute_batch_roots(&[std::slice::from_ref(&event1), std::slice::from_ref(&event2)]).await;
+    let root1 = mock_root_recorded_event(100, 1, roots[0], U256::from(1000));
+    let root2 = mock_root_recorded_event(101, 1, roots[1], U256::from(2000));
 
     committer.handle_event(event1).await.unwrap();
     committer.handle_event(root1).await.unwrap();
-
-    // Second batch
-    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
-    let root2 = mock_root_recorded_event(101, 1, U256::from(600), U256::from(2000));
-
     committer.handle_event(event2).await.unwrap();
     committer.handle_event(root2).await.unwrap();
 
-    // Verify both accounts were created
     let count = count_accounts(db.pool()).await.unwrap();
     assert_eq!(count, 2, "Both batches should be committed");
 
@@ -189,7 +188,7 @@ async fn test_authenticator_inserted() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     let leaf_index = 1u64;
     let create_event =
@@ -204,7 +203,8 @@ async fn test_authenticator_inserted() {
         U256::from(100),
         U256::from(300),
     );
-    let root_event = mock_root_recorded_event(100, 2, U256::from(999), U256::from(1000));
+    let root = compute_root_after_events(&[create_event.clone(), insert_event.clone()]).await;
+    let root_event = mock_root_recorded_event(100, 2, root, U256::from(1000));
 
     committer.handle_event(create_event).await.unwrap();
     committer.handle_event(insert_event).await.unwrap();
@@ -216,6 +216,16 @@ async fn test_authenticator_inserted() {
         event_count, 2,
         "AccountCreated and AuthenticatorInserted should be recorded"
     );
+
+    // Verify authenticator was inserted at index 0 (pubkey_id=0)
+    let account = db
+        .accounts()
+        .get_account(leaf_index)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.authenticator_pubkeys[0], Some(U256::from(200)));
+    assert_eq!(account.offchain_signer_commitment, U256::from(300));
 }
 
 /// Test AuthenticatorRemoved event
@@ -224,11 +234,18 @@ async fn test_authenticator_removed() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     let leaf_index = 1u64;
-    let create_event =
-        mock_account_created_event(100, 0, leaf_index, Address::ZERO, U256::from(100));
+    let create_event = mock_account_created_event_with_authenticators(
+        100,
+        0,
+        leaf_index,
+        Address::ZERO,
+        vec![Address::ZERO],
+        vec![U256::from(200)],
+        U256::from(100),
+    );
     let remove_event = mock_authenticator_removed_event(
         100,
         1,
@@ -239,7 +256,8 @@ async fn test_authenticator_removed() {
         U256::from(100),
         U256::from(300),
     );
-    let root_event = mock_root_recorded_event(100, 2, U256::from(999), U256::from(1000));
+    let root = compute_root_after_events(&[create_event.clone(), remove_event.clone()]).await;
+    let root_event = mock_root_recorded_event(100, 2, root, U256::from(1000));
 
     committer.handle_event(create_event).await.unwrap();
     committer.handle_event(remove_event).await.unwrap();
@@ -251,6 +269,17 @@ async fn test_authenticator_removed() {
         event_count, 2,
         "AccountCreated and AuthenticatorRemoved should be recorded"
     );
+
+    // Verify authenticator slot 0 was nulled out
+    let account = db
+        .accounts()
+        .get_account(leaf_index)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.authenticator_addresses[0], None);
+    assert_eq!(account.authenticator_pubkeys[0], None);
+    assert_eq!(account.offchain_signer_commitment, U256::from(300));
 }
 
 /// Test AccountRecovered event
@@ -259,7 +288,7 @@ async fn test_account_recovered() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     let leaf_index = 1u64;
     let create_event =
@@ -273,7 +302,8 @@ async fn test_account_recovered() {
         U256::from(100),
         U256::from(300),
     );
-    let root_event = mock_root_recorded_event(100, 2, U256::from(999), U256::from(1000));
+    let root = compute_root_after_events(&[create_event.clone(), recover_event.clone()]).await;
+    let root_event = mock_root_recorded_event(100, 2, root, U256::from(1000));
 
     committer.handle_event(create_event).await.unwrap();
     committer.handle_event(recover_event).await.unwrap();
@@ -285,6 +315,18 @@ async fn test_account_recovered() {
         event_count, 2,
         "AccountCreated and AccountRecovered should be recorded"
     );
+
+    // Verify account was recovered: single authenticator at slot 0 with new values
+    let account = db
+        .accounts()
+        .get_account(leaf_index)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.authenticator_addresses.len(), 1);
+    assert_eq!(account.authenticator_addresses[0], Some(Address::ZERO));
+    assert_eq!(account.authenticator_pubkeys[0], Some(U256::from(200)));
+    assert_eq!(account.offchain_signer_commitment, U256::from(300));
 }
 
 /// Test that transaction rollback works on error
@@ -298,7 +340,7 @@ async fn test_transaction_rollback_on_error() {
         .await
         .unwrap();
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     // Try to create an account that already exists (duplicate), which should cause unique constraint error
     let duplicate_create_event = mock_account_created_event(
@@ -308,7 +350,8 @@ async fn test_transaction_rollback_on_error() {
         Address::from([1u8; 20]),
         U256::from(789),
     );
-    let root_event = mock_root_recorded_event(100, 1, U256::from(999), U256::from(1000));
+    let root = compute_root_after_events(std::slice::from_ref(&duplicate_create_event)).await;
+    let root_event = mock_root_recorded_event(100, 1, root, U256::from(1000));
 
     committer
         .handle_event(duplicate_create_event)
@@ -337,19 +380,17 @@ async fn test_buffer_cleared_after_commit() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db);
+    let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
-    // First batch
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
-    let root1 = mock_root_recorded_event(100, 1, U256::from(500), U256::from(1000));
+    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
+    let roots =
+        compute_batch_roots(&[std::slice::from_ref(&event1), std::slice::from_ref(&event2)]).await;
+    let root1 = mock_root_recorded_event(100, 1, roots[0], U256::from(1000));
+    let root2 = mock_root_recorded_event(101, 1, roots[1], U256::from(2000));
 
     committer.handle_event(event1).await.unwrap();
     committer.handle_event(root1).await.unwrap();
-
-    // Second batch - buffer should be empty, so only this event should be committed
-    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
-    let root2 = mock_root_recorded_event(101, 1, U256::from(600), U256::from(2000));
-
     committer.handle_event(event2).await.unwrap();
     committer.handle_event(root2).await.unwrap();
 
