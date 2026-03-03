@@ -179,10 +179,11 @@ fn derive_keys_from_seed(seed: [u8; 32]) -> (EdDSAPublicKey, Address) {
 async fn register_and_init(
     gw: &TestGateway,
     seed: [u8; 32],
+    recovery_address: Option<Address>,
 ) -> (Authenticator, MutableIndexerStub) {
     ensure_crypto_provider();
     let config = make_config(gw, "http://127.0.0.1:0");
-    let initializing = Authenticator::register(&seed, config, None)
+    let initializing = Authenticator::register(&seed, config, recovery_address)
         .await
         .expect("register failed");
     wait_for_finalized(&gw.client, &gw.base_url, initializing.request_id()).await;
@@ -386,7 +387,8 @@ async fn test_lock_created_on_submit() {
         let op_seed: [u8; 32] = rand::random();
         let recovery_signer = PrivateKeySigner::from_bytes(&op_seed.into()).unwrap();
 
-        let (mut auth, _stub) = register_and_init(&gw, op_seed).await;
+        let (mut auth, _stub) =
+            register_and_init(&gw, op_seed, Some(recovery_signer.address())).await;
         let leaf_index = auth.leaf_index();
 
         let aux_seed: [u8; 32] = rand::random();
@@ -414,7 +416,8 @@ async fn test_same_leaf_conflict_matrix() {
         let op_seed: [u8; 32] = rand::random();
         let recovery_signer = PrivateKeySigner::from_bytes(&op_seed.into()).unwrap();
 
-        let (mut auth, _stub) = register_and_init(&gw, op_seed).await;
+        let (mut auth, _stub) =
+            register_and_init(&gw, op_seed, Some(recovery_signer.address())).await;
         let leaf_index = auth.leaf_index();
 
         let aux_seed: [u8; 32] = rand::random();
