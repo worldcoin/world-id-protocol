@@ -15,7 +15,7 @@ pub struct RequestRecord {
     pub kind: GatewayRequestKind,
     pub status: GatewayRequestState,
     pub updated_at: u64,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inflight_keys: Vec<String>,
 }
 
@@ -272,9 +272,6 @@ impl RequestTracker {
             local decoded = cjson.decode(record)
             decoded.status = cjson.decode(ARGV[1])
             decoded.updated_at = tonumber(ARGV[2])
-            if decoded.inflight_keys and #decoded.inflight_keys == 0 then
-                setmetatable(decoded.inflight_keys, cjson.empty_array_mt)
-            end
             local updated = cjson.encode(decoded)
 
             redis.call('SET', KEYS[1], updated, 'KEEPTTL')
