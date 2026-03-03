@@ -27,6 +27,7 @@ pub mod db;
 mod error;
 pub mod events_committer;
 pub mod events_processor;
+pub mod metrics;
 pub mod rollback_executor;
 mod routes;
 mod sanity_check;
@@ -303,6 +304,9 @@ async unsafe fn run_both(
         let committed_batches = save_events(&db, backfill_stream).await?;
         let backfill_up_to_block = last_block.load(Ordering::Relaxed);
 
+        crate::metrics::set_chain_head_block(backfill_up_to_block);
+        crate::metrics::set_chain_processed_block(backfill_up_to_block);
+
         tracing::info!(
             committed_batches,
             backfill_up_to_block,
@@ -423,7 +427,11 @@ async fn save_events(
     while let Some(event_result) = stream.next().await {
         let event = event_result?;
         tracing::info!(?event, "processing backfill event");
+
+        let block_number = event.block_number;
         let committed = events_committer.handle_event(event).await?;
+        crate::metrics::set_chain_processed_block(block_number);
+
         if committed {
             committed_batches += 1;
         }
@@ -471,6 +479,7 @@ pub async fn process_registry_events(
             match event {
                 Ok(event) => {
                     handle_registry_event(db, &mut events_committer, &event, tree_state).await?;
+                    crate::metrics::set_chain_processed_block(event.block_number);
                 }
                 Err(e) => {
                     tracing::error!(?e, "blockchain event stream error");

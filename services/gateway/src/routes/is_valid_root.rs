@@ -1,9 +1,4 @@
-use crate::{
-    error::GatewayErrorResponse,
-    metrics::{METRICS_ROOT_CACHE_HITS, METRICS_ROOT_CACHE_MISSES},
-    request::Registry,
-    types::AppState,
-};
+use crate::{error::GatewayErrorResponse, metrics, request::Registry, types::AppState};
 use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use std::{
@@ -90,10 +85,10 @@ pub(crate) async fn is_valid_root(
 ) -> Result<Json<IsValidRootResponse>, GatewayErrorResponse> {
     let root = req_u256("root", &q.root)?;
     if is_cached_root(&state, root).await {
-        ::metrics::counter!(METRICS_ROOT_CACHE_HITS).increment(1);
+        metrics::increment_root_cache_hit();
         return Ok(Json(IsValidRootResponse { valid: true }));
     }
-    ::metrics::counter!(METRICS_ROOT_CACHE_MISSES).increment(1);
+    metrics::increment_root_cache_miss();
     let now = now_timestamp()?;
 
     let valid = state

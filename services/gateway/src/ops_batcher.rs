@@ -9,10 +9,7 @@ use crate::{
     batch_policy::BaseFeeCache,
     config::BatchPolicyConfig,
     error::parse_contract_error,
-    metrics::{
-        METRICS_BATCH_FAILURE, METRICS_BATCH_LATENCY_MS, METRICS_BATCH_SIZE,
-        METRICS_BATCH_SUBMITTED, METRICS_BATCH_SUCCESS,
-    },
+    metrics,
     policy_batcher::{PolicyBatchLoopRunner, TimedEnvelope},
     request_tracker::BacklogScope,
 };
@@ -97,8 +94,7 @@ impl OpsBatcherRunner {
         let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
         let inflight_leaf_indices: Vec<u64> = batch.iter().map(|env| env.leaf_index).collect();
 
-        ::metrics::counter!(METRICS_BATCH_SUBMITTED, "type" => "ops").increment(1);
-        ::metrics::histogram!(METRICS_BATCH_SIZE, "type" => "ops").record(batch_size as f64);
+        metrics::record_batch_submitted("ops", batch_size);
 
         self.tracker
             .set_status_batch(&ids, GatewayRequestState::Batching)
@@ -118,8 +114,7 @@ impl OpsBatcherRunner {
         match res {
             Ok(builder) => {
                 let latency_ms = start.elapsed().as_millis() as f64;
-                ::metrics::histogram!(METRICS_BATCH_LATENCY_MS, "type" => "ops").record(latency_ms);
-                ::metrics::counter!(METRICS_BATCH_SUCCESS, "type" => "ops").increment(1);
+                metrics::record_batch_result("ops", true, latency_ms);
 
                 let hash = format!("0x{:x}", builder.tx_hash());
                 self.tracker
@@ -157,8 +152,7 @@ impl OpsBatcherRunner {
             }
             Err(e) => {
                 let latency_ms = start.elapsed().as_millis() as f64;
-                ::metrics::histogram!(METRICS_BATCH_LATENCY_MS, "type" => "ops").record(latency_ms);
-                ::metrics::counter!(METRICS_BATCH_FAILURE, "type" => "ops").increment(1);
+                metrics::record_batch_result("ops", false, latency_ms);
 
                 tracing::warn!(error = %e, "multicall3 send failed");
                 let error_str = e.to_string();
