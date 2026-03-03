@@ -1,6 +1,5 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use alloy::primitives::Address;
 use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -16,6 +15,8 @@ pub struct RequestRecord {
     pub kind: GatewayRequestKind,
     pub status: GatewayRequestState,
     pub updated_at: u64,
+    #[serde(default)]
+    pub inflight_keys: Vec<String>,
 }
 
 const REQUESTS_TTL: Duration = Duration::from_secs(86_400); // 24 hours
@@ -80,18 +81,37 @@ impl RequestTracker {
         format!("gateway:request:{}", id)
     }
 
-    /// Creates a new request with a specific ID.
+    /// Returns the Redis key for an in-flight lock given a raw identifier.
+    fn inflight_redis_key(kind: GatewayRequestKind, raw: &str) -> String {
+        let tag = match kind {
+            GatewayRequestKind::CreateAccount => "auth",
+            _ => "leaf",
+        };
+        format!("gateway:inflight:{tag}:{raw}")
+    }
+
+    /// Creates a new request with a specific ID, atomically acquiring in-flight
+    /// lock keys via `SET NX`.
     ///
-    /// Expects the request ID to be unique, returns an error if it already exists.
+    /// If any inflight key already exists, the entire operation is aborted and a
+    /// `DuplicateRequestInFlight` error is returned. On success, both the request
+    /// record and all inflight keys are guaranteed to exist in Redis.
     pub async fn new_request_with_id(
         &self,
         id: String,
         kind: GatewayRequestKind,
+        inflight_keys: Vec<String>,
     ) -> Result<(), GatewayErrorResponse> {
+        let redis_inflight_keys: Vec<String> = inflight_keys
+            .iter()
+            .map(|raw| Self::inflight_redis_key(kind, raw))
+            .collect();
+
         let record = RequestRecord {
             kind,
             status: GatewayRequestState::Queued,
             updated_at: now_unix_secs(),
+            inflight_keys: redis_inflight_keys.clone(),
         };
 
         let mut manager = self.redis_manager.clone();
@@ -101,31 +121,72 @@ impl RequestTracker {
             GatewayErrorResponse::internal_server_error()
         })?;
 
+        // KEYS: [request_key, pending_set_key, inflight_key_1, ..., inflight_key_N]
+        // ARGV: [record_json, request_ttl, request_id, inflight_ttl]
         let script = r#"
+            -- KEYS: [request_key, pending_set_key, inflight_key_1, ..., inflight_key_N]
+            local inflight_start = 3
+            local inflight_ttl = tonumber(ARGV[4])
+
+            -- Atomically check if any inflight key already exists
+            -- When the any key exists, return it immediately.
+            for i = inflight_start, #KEYS do
+                if redis.call('EXISTS', KEYS[i]) == 1 then
+                    return KEYS[i]
+                end
+            end
+
+            -- Set all inflight keys
+            for i = inflight_start, #KEYS do
+                redis.call('SET', KEYS[i], '1', 'EX', inflight_ttl)
+            end
+
+            -- Create the request record if record for this ID does not exist
             local ok = redis.call('SET', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[2])
             if not ok then
+                -- Rollback inflight keys
+                for i = inflight_start, #KEYS do
+                    redis.call('DEL', KEYS[i])
+                end
                 return redis.error_reply('request already exists')
             end
 
             -- Add the request ID to the pending set
             redis.call('SADD', KEYS[2], ARGV[3])
-            return redis.status_reply('OK')
+            return nil
         "#;
 
-        redis::Script::new(script)
-            .key(&key)
-            .key(PENDING_SET_KEY)
-            .arg(&json_str)
-            .arg(REQUESTS_TTL.as_secs())
-            .arg(&id)
-            .invoke_async::<()>(&mut manager)
-            .await
-            .map_err(|e| {
-                tracing::error!("Error creating request {id}: {e}");
-                GatewayErrorResponse::internal_server_error()
-            })?;
+        let script = redis::Script::new(script);
+        let mut invocation = script.prepare_invoke();
+        invocation.key(&key);
+        invocation.key(PENDING_SET_KEY);
+        for inflight_key in &redis_inflight_keys {
+            invocation.key(inflight_key);
+        }
+        invocation.arg(&json_str);
+        invocation.arg(REQUESTS_TTL.as_secs());
+        invocation.arg(&id);
+        invocation.arg(INFLIGHT_TTL.as_secs());
 
-        Ok(())
+        let result: Result<Option<String>, redis::RedisError> =
+            invocation.invoke_async(&mut manager).await;
+
+        match result {
+            Ok(None) => Ok(()),
+            Ok(Some(duplicate_key)) => {
+                tracing::info!(
+                    key = %duplicate_key,
+                    "Duplicate in-flight request detected"
+                );
+                Err(GatewayErrorResponse::bad_request(
+                    GatewayErrorCode::DuplicateRequestInFlight,
+                ))
+            }
+            Err(e) => {
+                tracing::error!("Error creating request {id}: {e}");
+                Err(GatewayErrorResponse::internal_server_error())
+            }
+        }
     }
 
     /// Updates the status of multiple requests in a batch.
@@ -216,9 +277,16 @@ impl RequestTracker {
             redis.call('SET', KEYS[1], updated, 'KEEPTTL')
 
             -- If the request is finalized or failed, remove it from the pending set
+            -- and atomically clean up any associated in-flight lock keys.
             local state = decoded.status.state
             if state == 'finalized' or state == 'failed' then
                 redis.call('SREM', KEYS[2], ARGV[3])
+                local inflight = decoded.inflight_keys
+                if inflight then
+                    for _, k in ipairs(inflight) do
+                        redis.call('DEL', k)
+                    end
+                end
             end
 
             return redis.status_reply('OK')
@@ -335,153 +403,6 @@ impl RequestTracker {
         let result: Result<usize, redis::RedisError> = manager.srem(PENDING_SET_KEY, id).await;
         if let Err(e) = result {
             tracing::error!("Failed to SREM {id} from pending set: {e}");
-        }
-    }
-
-    // =========================================================================
-    // In-flight authenticator address tracking
-    // =========================================================================
-
-    /// Redis key for an in-flight authenticator address.
-    fn inflight_key(addr: &Address) -> String {
-        format!("gateway:inflight:auth:{addr}")
-    }
-
-    /// Attempts to atomically insert all addresses as in-flight.
-    ///
-    /// Returns `Ok(())` if all addresses were successfully inserted.
-    /// Returns `Err(GatewayErrorResponse)` with `DuplicateRequestInFlight` code if any address
-    /// was already in-flight.
-    /// Returns `Err(GatewayErrorResponse)` with internal server error if a Redis/infrastructure
-    /// error occurred.
-    ///
-    /// If insertion fails partway through, already-inserted addresses are rolled back.
-    pub async fn try_insert_inflight(
-        &self,
-        addresses: &[Address],
-    ) -> Result<(), GatewayErrorResponse> {
-        // Lua script that atomically:
-        // 1. Checks if any key already exists
-        // 2. If none exist, sets all keys with TTL
-        // Returns nil on success, or the duplicate key on failure
-        let script = redis::Script::new(
-            r#"
-            for i, key in ipairs(KEYS) do
-                if redis.call('EXISTS', key) == 1 then
-                    return key
-                end
-            end
-            local ttl = tonumber(ARGV[1])
-            for i, key in ipairs(KEYS) do
-                redis.call('SET', key, '1', 'EX', ttl)
-            end
-            return nil
-            "#,
-        );
-
-        let keys: Vec<String> = addresses.iter().map(Self::inflight_key).collect();
-        let mut manager = self.redis_manager.clone();
-
-        let mut invocation = script.prepare_invoke();
-        for key in &keys {
-            invocation.key(key);
-        }
-        invocation.arg(INFLIGHT_TTL.as_secs());
-
-        let result: Result<Option<String>, redis::RedisError> =
-            invocation.invoke_async(&mut manager).await;
-
-        match result {
-            Ok(None) => Ok(()),
-            Ok(Some(duplicate_key)) => {
-                tracing::warn!(
-                    key = %duplicate_key,
-                    "Duplicate in-flight request detected"
-                );
-                Err(GatewayErrorResponse::bad_request(
-                    GatewayErrorCode::DuplicateRequestInFlight,
-                ))
-            }
-            Err(e) => {
-                tracing::error!("Redis error during in-flight insert: {e}");
-                Err(GatewayErrorResponse::internal_server_error())
-            }
-        }
-    }
-
-    /// Remove all addresses from the in-flight tracker.
-    pub async fn remove_inflight(&self, addresses: &[Address]) {
-        let mut manager = self.redis_manager.clone();
-        for addr in addresses {
-            let key = Self::inflight_key(addr);
-            let result: Result<usize, redis::RedisError> = manager.del(&key).await;
-            if let Err(e) = result {
-                tracing::error!("Failed to delete Redis key {key}: {e}");
-            }
-        }
-    }
-
-    // =========================================================================
-    // In-flight leaf-index tracking (for insert/update/remove/recover ops)
-    // =========================================================================
-
-    /// Redis key for an in-flight leaf index.
-    fn inflight_leaf_key(leaf_index: u64) -> String {
-        format!("gateway:inflight:leaf:{leaf_index}")
-    }
-
-    /// Attempts to mark a leaf index as in-flight.
-    ///
-    /// Returns `Ok(())` if the leaf index was not already in-flight.
-    /// Returns `Err` with `DuplicateRequestInFlight` if another operation
-    /// targeting the same account is already pending.
-    pub async fn try_insert_inflight_leaf(
-        &self,
-        leaf_index: u64,
-    ) -> Result<(), GatewayErrorResponse> {
-        let key = Self::inflight_leaf_key(leaf_index);
-        let mut manager = self.redis_manager.clone();
-
-        let result: Result<bool, redis::RedisError> = redis::cmd("SET")
-            .arg(&key)
-            .arg("1")
-            .arg("NX")
-            .arg("EX")
-            .arg(INFLIGHT_TTL.as_secs())
-            .query_async(&mut manager)
-            .await;
-
-        match result {
-            Ok(true) => Ok(()),
-            Ok(false) => {
-                tracing::warn!(
-                    leaf_index = leaf_index,
-                    "Duplicate in-flight request detected for leaf index"
-                );
-                Err(GatewayErrorResponse::bad_request(
-                    GatewayErrorCode::DuplicateRequestInFlight,
-                ))
-            }
-            Err(e) => {
-                tracing::error!("Redis error during in-flight leaf insert: {e}");
-                Err(GatewayErrorResponse::internal_server_error())
-            }
-        }
-    }
-
-    /// Remove a leaf index from the in-flight tracker.
-    pub async fn remove_inflight_leaf(&self, leaf_index: u64) {
-        let key = Self::inflight_leaf_key(leaf_index);
-        let mut manager = self.redis_manager.clone();
-        let result: Result<usize, redis::RedisError> = manager.del(&key).await;
-        if let Err(e) = result {
-            tracing::error!("Failed to delete Redis key {key}: {e}");
-        }
-    }
-
-    pub async fn remove_inflight_leaves(&self, leaf_indices: &[u64]) {
-        for leaf_index in leaf_indices {
-            self.remove_inflight_leaf(*leaf_index).await;
         }
     }
 

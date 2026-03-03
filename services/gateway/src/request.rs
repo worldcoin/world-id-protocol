@@ -49,23 +49,6 @@ pub struct Request<T> {
     calldata: Bytes,
 }
 
-impl<T> Request<T> {
-    /// Get the request ID.
-    pub fn id(&self) -> Uuid {
-        self.id
-    }
-
-    /// Get the request kind.
-    pub fn kind(&self) -> GatewayRequestKind {
-        self.kind
-    }
-
-    /// Calldata for the contract call.
-    pub fn calldata(&self) -> Bytes {
-        self.calldata.clone()
-    }
-}
-
 /// Response type after successful submission.
 pub struct SubmittedRequest {
     id: Uuid,
@@ -87,6 +70,26 @@ impl SubmittedRequest {
 pub trait HasLeafIndex {
     /// Get the leaf_index for this request.
     fn leaf_index(&self) -> u64;
+}
+
+/// Trait for request types that acquire in-flight lock keys in Redis.
+pub trait HasInflightKeys {
+    fn inflight_keys(&self) -> Vec<String>;
+}
+
+impl HasInflightKeys for CreateAccountRequest {
+    fn inflight_keys(&self) -> Vec<String> {
+        self.authenticator_addresses
+            .iter()
+            .map(|addr| addr.to_string())
+            .collect()
+    }
+}
+
+impl<T: HasLeafIndex> HasInflightKeys for T {
+    fn inflight_keys(&self) -> Vec<String> {
+        vec![self.leaf_index().to_string()]
+    }
 }
 
 /// Trait for converting API payloads into tracked Requests.
@@ -150,41 +153,9 @@ impl Request<CreateAccountRequest> {
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        // Atomically check and insert all authenticator addresses to prevent duplicates
-        let auth_addresses = self.payload.authenticator_addresses.clone();
-
-        ctx.tracker.try_insert_inflight(&auth_addresses).await?;
-
-        // Register in tracker
-        if let Err(err) = ctx
-            .tracker
-            .new_request_with_id(self.id().to_string(), self.kind())
-            .await
-        {
-            // Remove from inflight tracker if an error appears
-            ctx.tracker.remove_inflight(&auth_addresses).await;
-            return Err(err);
-        };
-
-        // Queue to batcher with typed request for createManyAccounts batching
+        let inflight_keys = self.payload.inflight_keys();
         let cmd = Command::create_account(self.id, self.payload, DEFAULT_CREATE_ACCOUNT_GAS);
-
-        if !ctx.batcher.submit(cmd).await {
-            // Remove from inflight tracker if batcher submission fails
-            ctx.tracker.remove_inflight(&auth_addresses).await;
-            ctx.tracker
-                .set_status(
-                    &self.id.to_string(),
-                    GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
-                )
-                .await;
-            return Err(GatewayErrorResponse::batcher_unavailable());
-        }
-
-        Ok(SubmittedRequest {
-            id: self.id,
-            kind: self.kind,
-        })
+        submit_request(self.id, self.kind, inflight_keys, cmd, ctx).await
     }
 }
 
@@ -209,15 +180,9 @@ impl Request<InsertAuthenticatorRequest> {
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        submit_leaf_operation(
-            self.id(),
-            self.kind(),
-            self.calldata(),
-            self.payload.leaf_index,
-            DEFAULT_INSERT_AUTHENTICATOR_GAS,
-            ctx,
-        )
-        .await
+        let inflight_keys = self.payload.inflight_keys();
+        let cmd = Command::operation(self.id, self.calldata, DEFAULT_INSERT_AUTHENTICATOR_GAS);
+        submit_request(self.id, self.kind, inflight_keys, cmd, ctx).await
     }
 }
 
@@ -242,15 +207,9 @@ impl Request<UpdateAuthenticatorRequest> {
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        submit_leaf_operation(
-            self.id(),
-            self.kind(),
-            self.calldata(),
-            self.payload.leaf_index,
-            DEFAULT_UPDATE_AUTHENTICATOR_GAS,
-            ctx,
-        )
-        .await
+        let inflight_keys = self.payload.inflight_keys();
+        let cmd = Command::operation(self.id, self.calldata, DEFAULT_UPDATE_AUTHENTICATOR_GAS);
+        submit_request(self.id, self.kind, inflight_keys, cmd, ctx).await
     }
 }
 
@@ -275,15 +234,9 @@ impl Request<RemoveAuthenticatorRequest> {
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        submit_leaf_operation(
-            self.id(),
-            self.kind(),
-            self.calldata(),
-            self.payload.leaf_index,
-            DEFAULT_REMOVE_AUTHENTICATOR_GAS,
-            ctx,
-        )
-        .await
+        let inflight_keys = self.payload.inflight_keys();
+        let cmd = Command::operation(self.id, self.calldata, DEFAULT_REMOVE_AUTHENTICATOR_GAS);
+        submit_request(self.id, self.kind, inflight_keys, cmd, ctx).await
     }
 }
 
@@ -308,42 +261,28 @@ impl Request<RecoverAccountRequest> {
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        submit_leaf_operation(
-            self.id(),
-            self.kind(),
-            self.calldata(),
-            self.payload.leaf_index,
-            DEFAULT_RECOVER_ACCOUNT_GAS,
-            ctx,
-        )
-        .await
+        let inflight_keys = self.payload.inflight_keys();
+        let cmd = Command::operation(self.id, self.calldata, DEFAULT_RECOVER_ACCOUNT_GAS);
+        submit_request(self.id, self.kind, inflight_keys, cmd, ctx).await
     }
 }
 
-/// Shared submission logic for leaf-index-based operations (insert/update/remove/recover).
+/// Shared submission logic for all request types.
 ///
-/// Acquires an in-flight lock on the leaf index, registers the request in Redis,
-/// and submits to the ops batcher. Rolls back the lock on any failure.
-async fn submit_leaf_operation(
+/// Atomically registers the request with the tracker (acquiring in-flight
+/// locks), then submits the pre-built command to the batcher.
+async fn submit_request(
     id: Uuid,
     kind: GatewayRequestKind,
-    calldata: Bytes,
-    leaf_index: u64,
-    gas: u64,
+    inflight_keys: Vec<String>,
+    cmd: Command,
     ctx: &GatewayContext,
 ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-    ctx.tracker.try_insert_inflight_leaf(leaf_index).await?;
-
-    if let Err(err) = ctx.tracker.new_request_with_id(id.to_string(), kind).await {
-        // Rollback in-flight lock on error
-        ctx.tracker.remove_inflight_leaf(leaf_index).await;
-        return Err(err);
-    }
-
-    let cmd = Command::operation(id, calldata, gas, leaf_index);
+    ctx.tracker
+        .new_request_with_id(id.to_string(), kind, inflight_keys)
+        .await?;
 
     if !ctx.batcher.submit(cmd).await {
-        ctx.tracker.remove_inflight_leaf(leaf_index).await;
         ctx.tracker
             .set_status(
                 &id.to_string(),

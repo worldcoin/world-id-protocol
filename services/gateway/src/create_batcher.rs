@@ -68,22 +68,6 @@ impl CreateBatcherRunner {
         self.run_policy_loop().await;
     }
 
-    async fn drop_local_queue_and_inflight(
-        &self,
-        queue: &mut VecDeque<TimedEnvelope<CreateReqEnvelope>>,
-    ) -> usize {
-        let mut inflight_addresses = Vec::new();
-        for timed in queue.drain(..) {
-            inflight_addresses.extend(timed.envelope.req.authenticator_addresses);
-        }
-
-        let removed = inflight_addresses.len();
-        if removed > 0 {
-            self.tracker.remove_inflight(&inflight_addresses).await;
-        }
-        removed
-    }
-
     async fn submit_create_batch(&self, batch: Vec<CreateReqEnvelope>) {
         if batch.is_empty() {
             return;
@@ -104,10 +88,7 @@ impl CreateBatcherRunner {
         let mut pubkeys: Vec<Vec<U256>> = Vec::new();
         let mut commits: Vec<U256> = Vec::new();
 
-        // Collect all authenticator addresses from this batch for cache cleanup
-        let mut all_addresses: Vec<Address> = Vec::new();
         for env in batch {
-            all_addresses.extend(env.req.authenticator_addresses.iter());
             recovery_addresses.push(env.req.recovery_address.unwrap_or(Address::ZERO));
             auths.push(env.req.authenticator_addresses);
             pubkeys.push(env.req.authenticator_pubkeys);
@@ -138,7 +119,6 @@ impl CreateBatcherRunner {
 
                 let tracker = self.tracker.clone();
                 let ids_for_receipt = ids;
-                let addresses_for_cleanup = all_addresses;
                 tokio::spawn(async move {
                     match builder.get_receipt().await {
                         Ok(receipt) => {
@@ -158,8 +138,6 @@ impl CreateBatcherRunner {
                                 .await;
                         }
                     }
-                    // Remove all addresses from the in-flight tracker after finalization
-                    tracker.remove_inflight(&addresses_for_cleanup).await;
                 });
             }
             Err(err) => {
@@ -174,8 +152,6 @@ impl CreateBatcherRunner {
                 self.tracker
                     .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
                     .await;
-                // Remove all addresses from the in-flight tracker on send failure
-                self.tracker.remove_inflight(&all_addresses).await;
             }
         }
     }
@@ -222,11 +198,10 @@ impl PolicyBatchLoopRunner for CreateBatcherRunner {
 
     async fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<Self::Envelope>>) {
         let dropped = queue.len();
-        let inflight_removed = self.drop_local_queue_and_inflight(queue).await;
         tracing::warn!(
             dropped,
-            inflight_removed,
             "redis reports no queued backlog, dropping local create queue entries to resync state"
         );
+        queue.clear();
     }
 }

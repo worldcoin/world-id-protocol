@@ -35,16 +35,10 @@ impl BatcherHandle {
                 };
                 self.create.tx.send(envelope).await.is_ok()
             }
-            Command::Operation {
-                id,
-                calldata,
-                leaf_index,
-                ..
-            } => {
+            Command::Operation { id, calldata, .. } => {
                 let envelope = OpsEnvelope {
                     id: id.to_string(),
                     calldata,
-                    leaf_index,
                 };
                 self.ops.tx.send(envelope).await.is_ok()
             }
@@ -65,7 +59,6 @@ pub enum Command {
         calldata: Bytes,
         #[allow(dead_code)]
         gas: u64,
-        leaf_index: u64,
     },
 }
 
@@ -76,12 +69,7 @@ impl Command {
     }
 
     /// Create a new operation command (insert/update/remove/recover).
-    pub fn operation(id: Uuid, calldata: Bytes, gas: u64, leaf_index: u64) -> Self {
-        Self::Operation {
-            id,
-            calldata,
-            gas,
-            leaf_index,
-        }
+    pub fn operation(id: Uuid, calldata: Bytes, gas: u64) -> Self {
+        Self::Operation { id, calldata, gas }
     }
 }
