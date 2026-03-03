@@ -237,8 +237,15 @@ async fn test_authenticator_removed() {
     let mut committer = EventsCommitter::new(db, make_versioned_tree());
 
     let leaf_index = 1u64;
-    let create_event =
-        mock_account_created_event(100, 0, leaf_index, Address::ZERO, U256::from(100));
+    let create_event = mock_account_created_event_with_authenticators(
+        100,
+        0,
+        leaf_index,
+        Address::ZERO,
+        vec![Address::ZERO],
+        vec![U256::from(200)],
+        U256::from(100),
+    );
     let remove_event = mock_authenticator_removed_event(
         100,
         1,
