@@ -11,10 +11,7 @@ use alloy::{
 use tokio::sync::mpsc;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
-use crate::{
-    RequestTracker, batch_policy::BaseFeeCache, config::BatchPolicyConfig,
-    request_tracker::BacklogScope,
-};
+use crate::request_tracker::BacklogScope;
 
 use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx};
 
@@ -48,6 +45,7 @@ impl BatcherEnvelope for OpsEnvelope {
     }
 }
 
+#[derive(Default)]
 pub(crate) struct OpsStrategy;
 
 impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
@@ -89,26 +87,3 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
 }
 
 pub type OpsBatcherRunner = GenericBatcherRunner<OpsEnvelope, OpsStrategy>;
-
-impl OpsBatcherRunner {
-    pub fn new_ops(
-        registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-        max_batch_size: usize,
-        local_queue_limit: usize,
-        rx: mpsc::Receiver<OpsEnvelope>,
-        tracker: RequestTracker,
-        batch_policy: BatchPolicyConfig,
-        base_fee_cache: BaseFeeCache,
-    ) -> Self {
-        Self::new(
-            registry,
-            max_batch_size,
-            local_queue_limit,
-            rx,
-            tracker,
-            batch_policy,
-            base_fee_cache,
-            OpsStrategy,
-        )
-    }
-}

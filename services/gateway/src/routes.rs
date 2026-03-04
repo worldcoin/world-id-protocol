@@ -79,7 +79,7 @@ pub(crate) async fn build_app(
 
     let (tx, rx) = mpsc::channel(CREATE_BATCHER_CHANNEL_CAPACITY);
     let batcher = CreateBatcherHandle { tx };
-    let runner = CreateBatcherRunner::new_create(
+    let runner = CreateBatcherRunner::new(
         registry.clone(),
         batcher_config.max_create_batch_size,
         CREATE_BATCHER_CHANNEL_CAPACITY,
@@ -93,7 +93,7 @@ pub(crate) async fn build_app(
     // ops batcher (insert/remove/recover/update)
     let (otx, orx) = mpsc::channel(OPS_BATCHER_CHANNEL_CAPACITY);
     let ops_batcher = OpsBatcherHandle { tx: otx };
-    let ops_runner = OpsBatcherRunner::new_ops(
+    let ops_runner = OpsBatcherRunner::new(
         registry.clone(),
         batcher_config.max_ops_batch_size,
         OPS_BATCHER_CHANNEL_CAPACITY,

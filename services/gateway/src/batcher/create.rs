@@ -9,10 +9,7 @@ use world_id_core::{
     api_types::CreateAccountRequest, world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 
-use crate::{
-    RequestTracker, batch_policy::BaseFeeCache, config::BatchPolicyConfig,
-    request_tracker::BacklogScope,
-};
+use crate::request_tracker::BacklogScope;
 
 use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx};
 
@@ -33,6 +30,7 @@ impl BatcherEnvelope for CreateReqEnvelope {
     }
 }
 
+#[derive(Default)]
 pub(crate) struct CreateStrategy;
 
 impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
@@ -75,26 +73,3 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
 }
 
 pub type CreateBatcherRunner = GenericBatcherRunner<CreateReqEnvelope, CreateStrategy>;
-
-impl CreateBatcherRunner {
-    pub fn new_create(
-        registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-        max_batch_size: usize,
-        local_queue_limit: usize,
-        rx: mpsc::Receiver<CreateReqEnvelope>,
-        tracker: RequestTracker,
-        batch_policy: BatchPolicyConfig,
-        base_fee_cache: BaseFeeCache,
-    ) -> Self {
-        Self::new(
-            registry,
-            max_batch_size,
-            local_queue_limit,
-            rx,
-            tracker,
-            batch_policy,
-            base_fee_cache,
-            CreateStrategy,
-        )
-    }
-}

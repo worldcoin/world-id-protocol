@@ -46,7 +46,7 @@ pub(crate) struct PendingBatchTx {
 /// Strategy trait that captures the only per-batcher differences:
 ///   - batch label / backlog scope (for metrics / policy)
 ///   - the actual on-chain send call
-pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>: Send + 'static {
+pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>: Send + Default + 'static {
     fn batch_type(&self) -> &'static str;
     fn backlog_scope(&self) -> BacklogScope;
 
@@ -96,7 +96,6 @@ where
         tracker: RequestTracker,
         batch_policy: BatchPolicyConfig,
         base_fee_cache: BaseFeeCache,
-        strategy: S,
     ) -> Self {
         Self {
             rx,
@@ -106,7 +105,7 @@ where
             tracker,
             batch_policy,
             base_fee_cache,
-            strategy,
+            strategy: S::default(),
         }
     }
 
