@@ -154,22 +154,21 @@ impl CommitmentLog {
         }
 
         // Monotonicity check against the last entry.
-        {
-            let entries = self.entries.read();
-            if let Some(last) = entries.back() {
-                ensure!(
-                    commitment.chain_id == last.chain_id,
-                    "chain ID mismatch: expected {}, got {}",
-                    last.chain_id,
-                    commitment.chain_id,
-                );
-                ensure!(
-                    commitment.block_number >= last.block_number,
-                    "block number regression: last={}, got={}",
-                    last.block_number,
-                    commitment.block_number,
-                );
-            }
+
+        let entries = self.entries.read();
+        if let Some(last) = entries.back() {
+            ensure!(
+                commitment.chain_id == last.chain_id,
+                "chain ID mismatch: expected {}, got {}",
+                last.chain_id,
+                commitment.chain_id,
+            );
+            ensure!(
+                commitment.block_number >= last.block_number,
+                "block number regression: last={}, got={}",
+                last.block_number,
+                commitment.block_number,
+            );
         }
 
         // Hash chain verification.

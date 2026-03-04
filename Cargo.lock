@@ -3615,7 +3615,7 @@ checksum = "42012b0f064e01aa58b545fe3727f90f7dd4020f4a3ea735b50344965f5a57e9"
 
 [[package]]
 name = "generate-solidity-fixtures"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "eyre",
@@ -5586,9 +5586,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro-crate"
-version = "3.4.0"
+version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "219cb19e96be00ab2e37d6e299658a0cfa83e52429179969b0f0121b4ac46983"
+checksum = "e67ba7e9b2b56446f1d419b1d807906278ffa1a658a8a5d8a39dcb1f5a78614f"
 dependencies = [
  "toml_edit",
 ]
@@ -7256,9 +7256,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-ark-serde-compat"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07528b4dd1a0c9e49ef352f96219c611af0aa2f7cbd97ddb7276dcf3c2cf8dd0"
+checksum = "0a9a63a8ccb028bc47205f82ef207be4950c3f8afc39a6515d4c2b530bf41e3e"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -7271,9 +7271,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-circom-types"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "677eb3ed8275b2f179d4b1a93126a51c5b4f409c5ea9d7bc50398b13e517e30b"
+checksum = "0ad03e9d126fb248cc8f8bfecd5f1220195e0a6694b4d605f051cc3ac78f36ad"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -7332,9 +7332,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-groth16-material"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "936b1e6b8a77f931796917501fe13a2ae93304e7eb384ed29d80ddc370b011bd"
+checksum = "124a8757ed58c5772a0b8e06ad431e7f1a2af1cbfe1f92c7428c2e1e8925ce8c"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -7357,9 +7357,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-groth16-sol"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c6a7b90f2ecb6db1212557550890d9d9d114447688f6146d726024ec7a3410b"
+checksum = "1f2c005a2303bfcd0cf47dc0e2320c80418d685c00d84c322194e7f47320eae8"
 dependencies = [
  "alloy-primitives",
  "ark-bn254 0.5.0",
@@ -8017,7 +8017,7 @@ checksum = "cf92845e79fc2e2def6a5d828f0801e29a2f8acc037becc5ab08595c7d5e9863"
 dependencies = [
  "serde_core",
  "serde_spanned",
- "toml_datetime",
+ "toml_datetime 0.7.5+spec-1.1.0",
  "toml_parser",
  "winnow",
 ]
@@ -8032,13 +8032,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "toml_edit"
-version = "0.23.10+spec-1.0.0"
+name = "toml_datetime"
+version = "1.0.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84c8b9f757e028cee9fa244aea147aab2a9ec09d5325a9b01e0a49730c2b5269"
+checksum = "32c2555c699578a4f59f0cc68e5116c8d7cabbd45e1409b989d4be085b53f13e"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
+name = "toml_edit"
+version = "0.25.3+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0a07913e63758bc95142d9863a5a45173b71515e68b690cad70cf99c3255ce1"
 dependencies = [
  "indexmap 2.13.0",
- "toml_datetime",
+ "toml_datetime 1.0.0+spec-1.1.0",
  "toml_parser",
  "winnow",
 ]
@@ -9186,7 +9195,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-authenticator"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -9215,7 +9224,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-core"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "backon",
@@ -9343,7 +9352,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-issuer"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -9424,7 +9433,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-primitives"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -9461,7 +9470,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-proof"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -9488,7 +9497,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-relay"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
