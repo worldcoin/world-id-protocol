@@ -165,7 +165,7 @@ fn make_inclusion_proof(
         inclusion_proof,
         ..
     } = single_leaf_merkle_fixture(pubkeys, leaf_index).unwrap();
-    AccountInclusionProof::<{ TREE_DEPTH }>::new(inclusion_proof, key_set).unwrap()
+    AccountInclusionProof::<{ TREE_DEPTH }>::new(inclusion_proof, key_set)
 }
 
 fn derive_keys_from_seed(seed: [u8; 32]) -> (EdDSAPublicKey, Address) {

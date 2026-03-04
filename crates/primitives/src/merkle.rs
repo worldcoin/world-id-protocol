@@ -1,6 +1,4 @@
-use crate::{
-    FieldElement, PrimitiveError, authenticator::AuthenticatorPublicKeySet, serde_utils::hex_u64,
-};
+use crate::{FieldElement, authenticator::AuthenticatorPublicKeySet, serde_utils::hex_u64};
 use ark_bn254::Fr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
@@ -96,18 +94,14 @@ pub struct AccountInclusionProof<const TREE_DEPTH: usize> {
 
 impl<const TREE_DEPTH: usize> AccountInclusionProof<TREE_DEPTH> {
     /// Creates a new account inclusion proof.
-    ///
-    /// # Errors
-    /// Returns an error if the number of authenticator public keys exceeds `MAX_AUTHENTICATOR_KEYS`.
-    #[allow(clippy::missing_const_for_fn)]
-    pub fn new(
+    pub const fn new(
         inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
         authenticator_pubkeys: AuthenticatorPublicKeySet,
-    ) -> Result<Self, PrimitiveError> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             inclusion_proof,
             authenticator_pubkeys,
-        })
+        }
     }
 }
 

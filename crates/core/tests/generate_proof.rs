@@ -181,8 +181,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .wrap_err("failed to construct merkle fixture")?;
 
     let inclusion_proof =
-        AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone())
-            .wrap_err("failed to build inclusion proof")?;
+        AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone());
 
     let (indexer_url, indexer_handle) = spawn_indexer_stub(leaf_index, inclusion_proof.clone())
         .await
