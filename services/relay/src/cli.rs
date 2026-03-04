@@ -1,15 +1,12 @@
 use clap::Args;
 use serde::Deserialize;
 
-use std::{path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr, sync::Arc};
 
 use alloy_primitives::Address;
 use world_id_services_common::ProviderArgs;
 
-use crate::{
-    cli::chain::{Ethereum, SatelliteChainConfig, WorldChain},
-    engine::Engine,
-};
+use crate::{engine::Engine, satellite::EthereumMptSatellite};
 
 pub mod chain;
 
@@ -116,21 +113,30 @@ impl FromStr for ChainConfig {
 
 impl Cli {
     pub async fn run(self) -> eyre::Result<()> {
-        let world_chain = WorldChain::new(&self.world_chain).await;
-        let ethereum = Ethereum::new(self.world_chain, self.ethereum_chain).await;
+        let shutdown = tokio::signal::ctrl_c();
 
-        let satellites = vec![ethereum.satellite()];
+        // Build providers once at the top level, then share via Arc.
+        let wc_provider = Arc::new(self.world_chain.provider.clone().http().await?);
+        let eth_provider = Arc::new(self.ethereum_chain.base.provider.clone().http().await?);
+
+        let world_chain = chain::WorldChain::new(&self.world_chain, wc_provider.clone());
+
+        let ethereum = EthereumMptSatellite::from_config(
+            &self.world_chain,
+            &self.ethereum_chain,
+            wc_provider,
+            eth_provider,
+        );
 
         let mut engine = Engine::new(world_chain);
+        engine.spawn_satellite(ethereum);
 
-        for satellite in satellites {
-            engine.spawn_satellite(satellite);
+        tokio::select! {
+            result = engine.run() => result,
+            _ = shutdown => {
+                tracing::info!("received shutdown signal");
+                Ok(())
+            }
         }
-
-        if let Err(e) = engine.run().await {
-            eyre::bail!("engine error: {e}");
-        }
-
-        Ok(())
     }
 }

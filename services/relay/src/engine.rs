@@ -1,29 +1,26 @@
 use std::sync::Arc;
 
-use alloy::providers::{DynProvider, Provider};
-use alloy_primitives::U160;
 use eyre::Result;
 use futures_util::StreamExt;
 use tokio::task::JoinSet;
 use tracing::{error, info, warn};
 
-use crate::{
-    cli::chain::WorldChain,
-    log::{CommitmentEventHook, SourceStateLog},
-    satellite::Satellite,
-    stream::{self, RegistryEventHooks},
-};
+use crate::{cli::chain::WorldChain, log::CommitmentLog, satellite::Satellite, stream};
 
 /// The core relay engine.
-pub struct Engine<P: Provider = Arc<DynProvider>> {
-    world_chain: WorldChain<P>,
-    log: Arc<SourceStateLog>,
+///
+/// Monitors World Chain registry events, maintains the commitment log, and
+/// coordinates satellite relay tasks. Uses concrete `WorldChain` (no generics)
+/// since the provider is always `Arc<DynProvider>`.
+pub struct Engine {
+    world_chain: WorldChain,
+    log: Arc<CommitmentLog>,
     tasks: JoinSet<(String, Result<()>)>,
 }
 
-impl<P: Provider> Engine<P> {
-    pub fn new(world_chain: WorldChain<P>) -> Self {
-        let log = Arc::new(SourceStateLog::new());
+impl Engine {
+    pub fn new(world_chain: WorldChain) -> Self {
+        let log = Arc::new(CommitmentLog::new());
         Self {
             world_chain,
             log,
@@ -32,7 +29,7 @@ impl<P: Provider> Engine<P> {
     }
 
     /// Access the shared commitment log (for satellite task construction).
-    pub fn log(&self) -> &Arc<SourceStateLog> {
+    pub fn log(&self) -> &Arc<CommitmentLog> {
         &self.log
     }
 
@@ -47,15 +44,43 @@ impl<P: Provider> Engine<P> {
         });
     }
 
+    /// Calls `propagateState` on the WorldIDSource contract for any pending
+    /// issuer and OPRF key updates.
+    ///
+    /// Returns `Ok(())` if there is nothing to propagate or if the transaction
+    /// succeeds. Propagation failures are logged but never fatal -- the engine
+    /// will retry on the next tick.
+    async fn propagate(&self) -> Result<()> {
+        let (issuers, oprfs) = self.log.pending_propagation_ids();
+        if issuers.is_empty() && oprfs.is_empty() {
+            return Ok(());
+        }
+
+        info!(issuers = issuers.len(), oprfs = oprfs.len(), "propagating");
+
+        let receipt = self
+            .world_chain
+            .world_id_source()
+            .propagateState(issuers, oprfs)
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+
+        if receipt.status() {
+            info!(hash = %receipt.transaction_hash, "propagateState succeeded");
+        } else {
+            warn!(hash = %receipt.transaction_hash, "propagateState reverted");
+        }
+
+        Ok(())
+    }
+
     /// Runs the relay engine loop. Never returns under normal operation.
     pub async fn run(&mut self) -> Result<()> {
         stream::backfill_commitments(&self.world_chain, &self.log, 0).await?;
 
-        let hooks = RegistryEventHooks::new().register(CommitmentEventHook {
-            log: self.log.clone(),
-        });
-
-        let mut state_stream = stream::merged_registry_stream(&self.world_chain, hooks).await?;
+        let mut events = stream::registry_stream(&self.world_chain).await?;
 
         let mut tick = tokio::time::interval(self.world_chain.bridge_interval());
 
@@ -67,29 +92,16 @@ impl<P: Provider> Engine<P> {
 
         loop {
             tokio::select! {
-                _ = state_stream.next() => {}
+                Some(result) = events.next() => {
+                    match result {
+                        Ok(commitment) => self.log.insert(commitment),
+                        Err(e) => warn!(error = %e, "failed to decode event"),
+                    }
+                }
 
                 _ = tick.tick() => {
-                    if !self.log.has_pending() {
-                        continue;
-                    }
-
-                    let (issuers, oprfs) = self.log.pending_propagation_ids();
-                    if issuers.is_empty() && oprfs.is_empty() {
-                        continue;
-                    }
-
-                    info!(issuers = issuers.len(), oprfs = oprfs.len(), "propagating");
-
-                    let pending = self.world_chain.world_id_source().propagateState(issuers, oprfs.iter().map(|id| U160::from(*id)).collect()).send().await?;
-                    let tx = *pending.tx_hash();
-
-                    let receipt = pending.get_receipt().await?;
-
-                    if receipt.status() {
-                        info!(hash = %&tx, "propagateState succeeded");
-                    } else {
-                        warn!(hash = %&tx, "propagateState transaction reverted");
+                    if let Err(e) = self.propagate().await {
+                        warn!(error = %e, "propagation failed");
                     }
                 }
 
@@ -111,8 +123,7 @@ mod tests {
     use super::*;
     use crate::{
         bindings::{ICommitment, IWorldIDSource},
-        primitives::{BlockTimestampAndLogIndex, KeccakChain, reduce},
-        proof::ChainCommitment,
+        primitives::{ChainCommitment, KeccakChain, reduce},
     };
     use alloy::sol_types::{SolCall, SolValue};
     use alloy_primitives::{B256, Bytes, U256};
@@ -151,10 +162,7 @@ mod tests {
             block_number,
             chain_id: 480,
             commitment_payload: commits.abi_encode_params().into(),
-            position: BlockTimestampAndLogIndex {
-                timestamp: block_number * 100,
-                log_index: 0,
-            },
+            timestamp: block_number * 100,
         }
     }
 
@@ -179,7 +187,7 @@ mod tests {
         assert_eq!(merged.chain_head, c2.chain_head);
         assert_eq!(merged.block_number, c2.block_number);
         assert_eq!(merged.chain_id, c2.chain_id);
-        assert_eq!(merged.position.timestamp, c2.position.timestamp);
+        assert_eq!(merged.timestamp, c2.timestamp);
 
         // Decode the merged payload and verify it contains both commitments.
         let decoded =

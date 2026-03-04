@@ -17,8 +17,8 @@ use alloy_primitives::B256;
 use eyre::Result;
 use world_id_relay::{
     bindings::{ICommitment, IWorldIDSource},
-    log::SourceStateLog,
-    primitives::{BlockTimestampAndLogIndex, ChainCommitment, KeccakChain},
+    log::CommitmentLog,
+    primitives::{ChainCommitment, KeccakChain},
     relay::send_relay_tx,
 };
 
@@ -84,10 +84,7 @@ fn make_chain_commitment(
         block_number,
         chain_id: 480,
         commitment_payload: commits.abi_encode_params().into(),
-        position: BlockTimestampAndLogIndex {
-            timestamp: block_number * 100,
-            log_index: 0,
-        },
+        timestamp: block_number * 100,
     }
 }
 
@@ -200,12 +197,12 @@ async fn e2e_send_relay_tx_delivers_payload_to_mock_gateway() -> Result<()> {
     Ok(())
 }
 
-/// Tests the `SourceStateLog` subscription + satellite task loop:
+/// Tests the `CommitmentLog` subscription + satellite task loop:
 /// insert a commitment, verify the satellite loop picks it up via the
 /// watch channel, and confirm the relay is attempted.
 #[tokio::test]
 async fn e2e_source_state_log_tracks_chain_commitments() -> Result<()> {
-    let log = SourceStateLog::new();
+    let log = CommitmentLog::new();
     let mut rx = log.subscribe();
 
     // Initially the head is zero.
@@ -259,8 +256,8 @@ async fn e2e_satellite_task_relays_on_new_commitment() -> Result<()> {
     // 2. Deploy MockGateway.
     let gateway_address = deploy_mock_gateway(&provider).await?;
 
-    // 3. Create SourceStateLog.
-    let log = Arc::new(SourceStateLog::new());
+    // 3. Create CommitmentLog.
+    let log = Arc::new(CommitmentLog::new());
 
     // 4. Create a minimal satellite that uses our mock gateway.
     //    We use a custom implementation instead of EthereumMptSatellite since that

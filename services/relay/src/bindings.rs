@@ -306,6 +306,11 @@ sol! {
         function setOprfPubkey(uint160,uint256,uint256,bytes32);
     }
 
+    /// Aggregated event interface for stream decoding.
+    ///
+    /// Alloy's `SolEventInterface::decode_raw_log` requires all events in a single
+    /// interface to decode heterogeneous event streams. This duplicates event
+    /// signatures from the individual registry interfaces above.
     interface IChainCommitment {
         #[derive(Debug)]
         struct Pubkey {

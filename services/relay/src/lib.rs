@@ -8,3 +8,7 @@ pub mod proof;
 pub mod relay;
 pub mod satellite;
 pub mod stream;
+
+// Re-export the relay crate's public API items used by integration tests.
+pub use log::CommitmentLog;
+pub use primitives::{ChainCommitment, KeccakChain};

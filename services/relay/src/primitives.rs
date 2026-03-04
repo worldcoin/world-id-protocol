@@ -1,9 +1,105 @@
 use std::sync::Arc;
 
 use alloy::sol_types::SolValue;
-use alloy_primitives::{B256, Bytes, U256, Uint, keccak256};
+use alloy_primitives::{B256, Bytes, Keccak256, U256, Uint, keccak256};
 
 use crate::bindings::IWorldIDSource;
+
+// ── Identity types ──────────────────────────────────────────────────────────
+
+/// Convenience alias for `Uint<160, 3>`.
+pub type U160 = Uint<160, 3>;
+
+/// Issuer schema identifier -- `uint64` on-chain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct IssuerSchemaId(pub u64);
+
+/// OPRF key identifier -- `uint160` on-chain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OprfKeyId(pub U160);
+
+// ── Commitment types ────────────────────────────────────────────────────────
+
+/// A decoded `ChainCommitted` event with everything needed for relay.
+#[derive(Debug, Clone)]
+pub struct ChainCommitment {
+    /// The new keccak chain head after this commitment.
+    pub chain_head: B256,
+    /// The WC block number at which the commitment was made.
+    pub block_number: u64,
+    /// The WC chain ID.
+    pub chain_id: u64,
+    /// The raw ABI-encoded `Commitment[]` payload from the event.
+    pub commitment_payload: Bytes,
+    /// The block timestamp at which the commitment was observed.
+    pub timestamp: u64,
+}
+
+/// A pending merkle-root update.
+#[derive(Debug, Clone)]
+pub struct RootCommitment {
+    pub root: U256,
+    pub timestamp: u64,
+}
+
+/// A pending credential-issuer public-key update.
+#[derive(Debug, Clone)]
+pub struct IssuerKeyUpdate {
+    pub affine: IWorldIDSource::Affine,
+    pub timestamp: u64,
+    pub id: IssuerSchemaId,
+}
+
+/// A pending OPRF public-key update.
+#[derive(Debug, Clone)]
+pub struct OprfKeyUpdate {
+    pub affine: IWorldIDSource::Affine,
+    pub timestamp: u64,
+    pub id: OprfKeyId,
+}
+
+// ── StateCommitment enum ────────────────────────────────────────────────────
+
+/// A commitment key used for deduplication and indexing.
+pub type CommitmentKey = B256;
+
+/// Union of every commitment variant the relay tracks.
+#[derive(Debug, Clone)]
+pub enum StateCommitment {
+    ChainCommitted(ChainCommitment),
+    RootCommitment(RootCommitment),
+    IssuerPubKey(IssuerKeyUpdate),
+    OprfPubKey(OprfKeyUpdate),
+}
+
+impl StateCommitment {
+    /// Returns a deterministic key that uniquely identifies this commitment.
+    pub fn key(&self) -> CommitmentKey {
+        match self {
+            Self::ChainCommitted(c) => c.chain_head,
+            Self::RootCommitment(r) => keccak256(r.root.as_le_bytes_trimmed()),
+            Self::IssuerPubKey(p) => keccak256(p.id.0.to_be_bytes()),
+            Self::OprfPubKey(p) => keccak256(p.id.0.as_le_bytes_trimmed()),
+        }
+    }
+
+    /// Returns `true` if this is a `ChainCommitted` variant.
+    pub fn is_chain_commitment(&self) -> bool {
+        matches!(self, Self::ChainCommitted(_))
+    }
+
+    /// Returns the block timestamp at which this commitment was observed.
+    pub fn timestamp(&self) -> u64 {
+        match self {
+            Self::ChainCommitted(c) => c.timestamp,
+            Self::RootCommitment(r) => r.timestamp,
+            Self::IssuerPubKey(p) => p.timestamp,
+            Self::OprfPubKey(p) => p.timestamp,
+        }
+    }
+}
+
+// ── KeccakChain ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct KeccakChain {
@@ -18,15 +114,12 @@ impl KeccakChain {
 
     /// Updates the chain head by applying the given commitments in order.
     pub fn commit_chained(&mut self, commitments: &[IWorldIDSource::Commitment]) {
-        for commitment in commitments {
-            self.head = alloy_primitives::keccak256(
-                [
-                    self.head.as_slice(),
-                    commitment.blockHash.as_slice(),
-                    commitment.data.as_ref(),
-                ]
-                .concat(),
-            );
+        for c in commitments {
+            let mut hasher = Keccak256::new();
+            hasher.update(self.head.as_slice());
+            hasher.update(c.blockHash.as_slice());
+            hasher.update(c.data.as_ref());
+            self.head = hasher.finalize();
             self.length += 1;
         }
     }
@@ -35,37 +128,20 @@ impl KeccakChain {
     /// without modifying the chain itself.
     pub fn hash_chained(&self, commitments: &[IWorldIDSource::Commitment]) -> B256 {
         let mut hash = self.head;
-        for commitment in commitments {
-            hash = alloy_primitives::keccak256(
-                [
-                    hash.as_slice(),
-                    commitment.blockHash.as_slice(),
-                    commitment.data.as_ref(),
-                ]
-                .concat(),
-            );
+        for c in commitments {
+            let mut hasher = Keccak256::new();
+            hasher.update(hash.as_slice());
+            hasher.update(c.blockHash.as_slice());
+            hasher.update(c.data.as_ref());
+            hash = hasher.finalize();
         }
         hash
     }
 }
 
-// ── ChainCommitment ──────────────────────────────────────────────────────────
+// ── reduce ──────────────────────────────────────────────────────────────────
 
-/// A decoded `ChainCommitted` event with everything needed for relay.
-#[derive(Debug, Clone)]
-pub struct ChainCommitment {
-    /// The new keccak chain head after this commitment.
-    pub chain_head: B256,
-    /// The WC block number at which the commitment was made.
-    pub block_number: u64,
-    /// The WC chain ID.
-    pub chain_id: u64,
-    /// The raw ABI-encoded `Commitment[]` payload from the event.
-    pub commitment_payload: Bytes,
-    /// The position
-    pub position: BlockTimestampAndLogIndex,
-}
-
+/// Merges a sequence of chain commitments into a single combined commitment.
 pub fn reduce(delta: &[Arc<ChainCommitment>]) -> eyre::Result<ChainCommitment> {
     let last = delta.last().ok_or_else(|| eyre::eyre!("empty delta"))?;
 
@@ -81,85 +157,8 @@ pub fn reduce(delta: &[Arc<ChainCommitment>]) -> eyre::Result<ChainCommitment> {
         block_number: last.block_number,
         chain_id: last.chain_id,
         commitment_payload: merged.abi_encode_params().into(),
-        position: last.position.clone(),
+        timestamp: last.timestamp,
     })
-}
-
-pub type PubKeyId = Uint<160, 3>;
-
-#[derive(Debug, Clone)]
-pub struct BlockTimestampAndLogIndex {
-    pub timestamp: u64,
-    pub log_index: usize,
-}
-
-#[derive(Debug, Clone)]
-pub struct PubKeyCommitment {
-    pub affine: IWorldIDSource::Affine,
-    pub position: BlockTimestampAndLogIndex,
-    pub id: PubKeyId,
-}
-
-#[derive(Debug, Clone)]
-pub struct RootCommitment {
-    pub position: BlockTimestampAndLogIndex,
-    pub root: U256,
-}
-
-/// Generates the `StateCommitment` enum and its core methods from a declarative
-/// table of variants.
-///
-/// The macro always produces a distinguished `ChainCommitted` arm (whose key is
-/// the chain head hash) plus an arbitrary number of additional "pending update"
-/// variants, each with a custom key-extraction closure.
-macro_rules! define_state_commitments {
-    (
-        chain_committed => $chain_ty:ty,
-        $( $variant:ident ( $inner:ty ) => { key: $key_expr:expr $(,)? } ),* $(,)?
-    ) => {
-        #[derive(Debug, Clone)]
-        pub enum StateCommitment {
-            ChainCommitted($chain_ty),
-            $( $variant($inner), )*
-        }
-
-        impl StateCommitment {
-            pub fn key(&self) -> $crate::log::CommitmentKey {
-                match self {
-                    Self::ChainCommitted(c) => c.chain_head,
-                    $( Self::$variant(inner) => ($key_expr)(inner), )*
-                }
-            }
-
-            pub fn is_chain_commitment(&self) -> bool {
-                matches!(self, Self::ChainCommitted(_))
-            }
-
-            pub fn is_pending_update(&self) -> bool {
-                !self.is_chain_commitment()
-            }
-
-            pub fn position(&self) -> &BlockTimestampAndLogIndex {
-                match self {
-                    Self::ChainCommitted(c) => &c.position,
-                    $( Self::$variant(inner) => &inner.position, )*
-                }
-            }
-        }
-    };
-}
-
-define_state_commitments! {
-    chain_committed => ChainCommitment,
-    RootCommitment(RootCommitment) => {
-        key: |r: &RootCommitment| keccak256(r.root.as_le_bytes_trimmed()),
-    },
-    CredentialIssuerPubKey(PubKeyCommitment) => {
-        key: |p: &PubKeyCommitment| keccak256(p.id.as_le_bytes_trimmed()),
-    },
-    OprfPubKey(PubKeyCommitment) => {
-        key: |p: &PubKeyCommitment| keccak256(p.id.as_le_bytes_trimmed()),
-    },
 }
 
 #[cfg(test)]
@@ -173,34 +172,36 @@ mod tests {
             block_number: 1,
             chain_id: 480,
             commitment_payload: Bytes::from(vec![0u8; 4]),
-            position: BlockTimestampAndLogIndex {
-                timestamp: 100,
-                log_index: 0,
-            },
+            timestamp: 100,
         }
     }
 
     fn make_root_commitment(root: U256) -> RootCommitment {
         RootCommitment {
-            position: BlockTimestampAndLogIndex {
-                timestamp: 200,
-                log_index: 1,
-            },
             root,
+            timestamp: 200,
         }
     }
 
-    fn make_pubkey_commitment(id: u64) -> PubKeyCommitment {
-        PubKeyCommitment {
+    fn make_issuer_update(id: u64) -> IssuerKeyUpdate {
+        IssuerKeyUpdate {
             affine: IWorldIDSource::Affine {
                 x: U256::from(1u64),
                 y: U256::from(2u64),
             },
-            position: BlockTimestampAndLogIndex {
-                timestamp: 300,
-                log_index: 2,
+            timestamp: 300,
+            id: IssuerSchemaId(id),
+        }
+    }
+
+    fn make_oprf_update(id: u64) -> OprfKeyUpdate {
+        OprfKeyUpdate {
+            affine: IWorldIDSource::Affine {
+                x: U256::from(1u64),
+                y: U256::from(2u64),
             },
-            id: PubKeyId::from(id),
+            timestamp: 400,
+            id: OprfKeyId(U160::from(id)),
         }
     }
 
@@ -208,8 +209,8 @@ mod tests {
     fn state_commitment_key_distinct() {
         let chain = StateCommitment::ChainCommitted(make_chain_commitment(B256::from([1u8; 32])));
         let root = StateCommitment::RootCommitment(make_root_commitment(U256::from(42u64)));
-        let issuer = StateCommitment::CredentialIssuerPubKey(make_pubkey_commitment(10));
-        let oprf = StateCommitment::OprfPubKey(make_pubkey_commitment(20));
+        let issuer = StateCommitment::IssuerPubKey(make_issuer_update(10));
+        let oprf = StateCommitment::OprfPubKey(make_oprf_update(20));
 
         let keys = [chain.key(), root.key(), issuer.key(), oprf.key()];
 
@@ -225,84 +226,52 @@ mod tests {
     fn is_chain_commitment() {
         let chain = StateCommitment::ChainCommitted(make_chain_commitment(B256::ZERO));
         assert!(chain.is_chain_commitment());
-        assert!(!chain.is_pending_update());
 
         let root = StateCommitment::RootCommitment(make_root_commitment(U256::from(1u64)));
         assert!(!root.is_chain_commitment());
 
-        let issuer = StateCommitment::CredentialIssuerPubKey(make_pubkey_commitment(1));
+        let issuer = StateCommitment::IssuerPubKey(make_issuer_update(1));
         assert!(!issuer.is_chain_commitment());
 
-        let oprf = StateCommitment::OprfPubKey(make_pubkey_commitment(2));
+        let oprf = StateCommitment::OprfPubKey(make_oprf_update(2));
         assert!(!oprf.is_chain_commitment());
     }
 
     #[test]
-    fn is_pending_update() {
-        let chain = StateCommitment::ChainCommitted(make_chain_commitment(B256::ZERO));
-        assert!(!chain.is_pending_update());
-
-        let root = StateCommitment::RootCommitment(make_root_commitment(U256::from(1u64)));
-        assert!(root.is_pending_update());
-
-        let issuer = StateCommitment::CredentialIssuerPubKey(make_pubkey_commitment(1));
-        assert!(issuer.is_pending_update());
-
-        let oprf = StateCommitment::OprfPubKey(make_pubkey_commitment(2));
-        assert!(oprf.is_pending_update());
-    }
-
-    #[test]
-    fn position_access() {
+    fn timestamp_access() {
         let chain = StateCommitment::ChainCommitted(ChainCommitment {
             chain_head: B256::ZERO,
             block_number: 1,
             chain_id: 480,
             commitment_payload: Bytes::new(),
-            position: BlockTimestampAndLogIndex {
-                timestamp: 111,
-                log_index: 5,
-            },
+            timestamp: 111,
         });
-        assert_eq!(chain.position().timestamp, 111);
-        assert_eq!(chain.position().log_index, 5);
+        assert_eq!(chain.timestamp(), 111);
 
         let root = StateCommitment::RootCommitment(RootCommitment {
-            position: BlockTimestampAndLogIndex {
-                timestamp: 222,
-                log_index: 10,
-            },
             root: U256::from(1u64),
+            timestamp: 222,
         });
-        assert_eq!(root.position().timestamp, 222);
-        assert_eq!(root.position().log_index, 10);
+        assert_eq!(root.timestamp(), 222);
 
-        let issuer = StateCommitment::CredentialIssuerPubKey(PubKeyCommitment {
+        let issuer = StateCommitment::IssuerPubKey(IssuerKeyUpdate {
             affine: IWorldIDSource::Affine {
                 x: U256::ZERO,
                 y: U256::ZERO,
             },
-            position: BlockTimestampAndLogIndex {
-                timestamp: 333,
-                log_index: 15,
-            },
-            id: PubKeyId::from(1u64),
+            timestamp: 333,
+            id: IssuerSchemaId(1),
         });
-        assert_eq!(issuer.position().timestamp, 333);
-        assert_eq!(issuer.position().log_index, 15);
+        assert_eq!(issuer.timestamp(), 333);
 
-        let oprf = StateCommitment::OprfPubKey(PubKeyCommitment {
+        let oprf = StateCommitment::OprfPubKey(OprfKeyUpdate {
             affine: IWorldIDSource::Affine {
                 x: U256::ZERO,
                 y: U256::ZERO,
             },
-            position: BlockTimestampAndLogIndex {
-                timestamp: 444,
-                log_index: 20,
-            },
-            id: PubKeyId::from(2u64),
+            timestamp: 444,
+            id: OprfKeyId(U160::from(2u64)),
         });
-        assert_eq!(oprf.position().timestamp, 444);
-        assert_eq!(oprf.position().log_index, 20);
+        assert_eq!(oprf.timestamp(), 444);
     }
 }

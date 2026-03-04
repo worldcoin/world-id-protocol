@@ -2,7 +2,7 @@ use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use alloy::{
     primitives::{Address, B256, Bytes},
-    providers::{DynProvider, Provider},
+    providers::DynProvider,
 };
 use eyre::Result;
 
@@ -11,7 +11,9 @@ use crate::{
         IDisputeGameFactory::IDisputeGameFactoryInstance, IGateway::IGatewayInstance,
         IWorldIDSatellite::IWorldIDSatelliteInstance, IWorldIDSource::IWorldIDSourceInstance,
     },
-    proof::{ChainCommitment, ethereum_mpt::build_l1_proof_attributes},
+    cli::{EthereumChainConfig, WorldChainConfig},
+    primitives::ChainCommitment,
+    proof::ethereum_mpt::build_l1_proof_attributes,
     relay::send_relay_tx,
 };
 
@@ -28,25 +30,25 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(3600);
 /// This is the most complex proof path. It waits for an OP Stack dispute game that covers
 /// the target World Chain block, then constructs MPT storage proofs against the game's
 /// proven state root. The relay transaction is sent on L1.
-pub struct EthereumMptSatellite<P: Provider = Arc<DynProvider>> {
+pub struct EthereumMptSatellite {
     /// Human-readable name for logging (e.g. "ethereum-mainnet", "base-sepolia").
     name: String,
     /// The L1 chain ID for this satellite (e.g. 1 for mainnet, 11155111 for sepolia).
     chain_id: u64,
-    /// The gateway contract address on L1.
-    gateway: IGatewayInstance<P>,
-    /// The satellite (bridge) contract address on L1.
-    satellite: IWorldIDSatelliteInstance<P>,
+    /// The gateway contract on L1.
+    gateway: IGatewayInstance<Arc<DynProvider>>,
+    /// The satellite (bridge) contract on L1.
+    satellite: IWorldIDSatelliteInstance<Arc<DynProvider>>,
     /// The chain ID of the anchor (source) chain, used for ERC-7930 address encoding.
     anchor_chain_id: u64,
-    /// L1 provider for sending the relay transaction.
-    provider: P,
+    /// L1 provider -- kept separately for raw `send_transaction` calls in `send_relay_tx`.
+    provider: Arc<DynProvider>,
     /// World Chain provider for fetching MPT proofs and block data.
-    source_provider: P,
-    /// WorldIDSource contract address on World Chain.
-    world_id_source: IWorldIDSourceInstance<P>,
-    /// DisputeGameFactory contract address on L1.
-    dispute_game_factory: IDisputeGameFactoryInstance<P>,
+    source_provider: Arc<DynProvider>,
+    /// WorldIDSource contract on World Chain.
+    world_id_source: IWorldIDSourceInstance<Arc<DynProvider>>,
+    /// DisputeGameFactory contract on L1.
+    dispute_game_factory: IDisputeGameFactoryInstance<Arc<DynProvider>>,
     /// The dispute game type to look for (e.g. 0 = CANNON).
     game_type: u32,
     /// Whether to require games to be finalized (DEFENDER_WINS) before using them.
@@ -57,19 +59,52 @@ pub struct EthereumMptSatellite<P: Provider = Arc<DynProvider>> {
     timeout: Duration,
 }
 
-impl<P: Provider> EthereumMptSatellite<P> {
-    /// Creates a new Ethereum MPT satellite with default poll interval and timeout.
+impl EthereumMptSatellite {
+    /// Creates a new Ethereum MPT satellite from CLI configs and pre-built providers.
+    ///
+    /// Providers are constructed once at startup and shared via `Arc`, so this
+    /// constructor is synchronous and allocation-free beyond the `format!` for the name.
+    pub fn from_config(
+        wc_config: &WorldChainConfig,
+        eth_config: &EthereumChainConfig,
+        wc_provider: Arc<DynProvider>,
+        eth_provider: Arc<DynProvider>,
+    ) -> Self {
+        Self {
+            name: format!("ethereum-{}", eth_config.base.chain_id),
+            chain_id: eth_config.base.chain_id,
+            gateway: IGatewayInstance::new(eth_config.base.gateway, eth_provider.clone()),
+            satellite: IWorldIDSatelliteInstance::new(
+                eth_config.base.satellite,
+                eth_provider.clone(),
+            ),
+            anchor_chain_id: wc_config.chain_id,
+            provider: eth_provider.clone(),
+            source_provider: wc_provider.clone(),
+            world_id_source: IWorldIDSourceInstance::new(wc_config.world_id_source, wc_provider),
+            dispute_game_factory: IDisputeGameFactoryInstance::new(
+                eth_config.dispute_game_factory,
+                eth_provider,
+            ),
+            game_type: eth_config.game_type,
+            require_finalized: eth_config.require_finalized,
+            poll_interval: DEFAULT_POLL_INTERVAL,
+            timeout: DEFAULT_TIMEOUT,
+        }
+    }
+
+    /// Creates a new Ethereum MPT satellite with explicit parameters.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: impl Into<String>,
         chain_id: u64,
-        gateway: IGatewayInstance<P>,
-        bridge: IWorldIDSatelliteInstance<P>,
+        gateway: IGatewayInstance<Arc<DynProvider>>,
+        bridge: IWorldIDSatelliteInstance<Arc<DynProvider>>,
         anchor_chain_id: u64,
-        provider: P,
-        source_provider: P,
-        world_id_source: IWorldIDSourceInstance<P>,
-        dispute_game_factory: IDisputeGameFactoryInstance<P>,
+        provider: Arc<DynProvider>,
+        source_provider: Arc<DynProvider>,
+        world_id_source: IWorldIDSourceInstance<Arc<DynProvider>>,
+        dispute_game_factory: IDisputeGameFactoryInstance<Arc<DynProvider>>,
         game_type: u32,
         require_finalized: bool,
     ) -> Self {

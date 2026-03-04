@@ -1,9 +1,13 @@
 use std::sync::Arc;
 
-use alloy::{providers::Provider, rpc::types::{Filter, Log}, sol_types::SolEventInterface};
+use alloy::{
+    providers::{DynProvider, Provider},
+    rpc::types::{Filter, Log},
+    sol_types::SolEventInterface,
+};
 use alloy_primitives::U256;
 use eyre::Result;
-use futures::{Stream, stream::BoxStream};
+use futures::stream::BoxStream;
 use futures_util::StreamExt;
 
 use crate::{
@@ -18,120 +22,70 @@ use crate::{
         OPRF_REGISTRY_EVENTS, WORLD_ID_REGISTRY_EVENTS,
     },
     cli::chain::WorldChain,
+    log::CommitmentLog,
     primitives::{
-        BlockTimestampAndLogIndex, ChainCommitment, PubKeyCommitment, PubKeyId, RootCommitment,
+        ChainCommitment, IssuerKeyUpdate, IssuerSchemaId, OprfKeyId, OprfKeyUpdate, RootCommitment,
         StateCommitment,
     },
 };
 
-pub type StateStream<'a, T> = Box<dyn Stream<Item = Result<T>> + Send + Unpin + 'a>;
+/// Creates a filtered event stream for a single contract address and event set.
+async fn watch_events(
+    provider: &Arc<DynProvider>,
+    address: alloy_primitives::Address,
+    events: &[alloy_primitives::B256],
+) -> Result<BoxStream<'static, Result<StateCommitment>>> {
+    let filter = Filter::new()
+        .address(address)
+        .event_signature(events.to_vec());
 
-pub struct MappedStream<S, F> {
-    pub stream: S,
-    f: F,
+    let poller = provider.watch_logs(&filter).await?;
+
+    Ok(poller
+        .into_stream()
+        .flat_map(futures::stream::iter)
+        .map(decode_state_commitment)
+        .boxed())
 }
 
-impl<T, R, S, F> MappedStream<S, F>
-where
-    F: Fn(T) -> Result<R> + Send + Sync + 'static,
-    S: Stream<Item = T> + Send + 'static,
-    T: Send + 'static,
-    R: Send + 'static,
-{
-    pub fn new(stream: S, f: F) -> Self {
-        Self { stream, f }
-    }
-
-    pub fn map_stream<'a>(self) -> BoxStream<'a, Result<R>> {
-        self.stream.map(self.f).boxed()
-    }
-}
-
-pub struct MergedStream<S, F> {
-    streams: Vec<MappedStream<S, F>>,
-    hooks: RegistryEventHooks,
-}
-
-impl<S, F> MergedStream<S, F> {
-    pub fn new(streams: Vec<MappedStream<S, F>>, hooks: RegistryEventHooks) -> Self {
-        Self { streams, hooks }
-    }
-}
-
-impl<T, S, F> MergedStream<S, F>
-where
-    F: Fn(T) -> Result<StateCommitment> + Send + Sync + 'static,
-    S: Stream<Item = T> + Send + 'static,
-    T: Send + 'static,
-{
-    pub fn into_stream<'a>(self) -> StateStream<'a, StateCommitment> {
-        let hooks = Arc::new(self.hooks);
-        let mapped = self
-            .streams
-            .into_iter()
-            .map(|s| s.map_stream() as BoxStream<'a, Result<StateCommitment>>);
-
-        Box::new(futures::stream::select_all(mapped).inspect(move |result| {
-            if let Ok(item) = result {
-                hooks.dispatch(item);
-            }
-        }))
-    }
-}
-
-macro_rules! state_stream {
-    ($provider:expr, $address:expr, $events:expr) => {{
-        let filter = Filter::new()
-            .address($address)
-            .event_signature($events.to_vec());
-
-        let poller = $provider.watch_logs(&filter).await?;
-
-        let stream = poller
-            .into_stream()
-            .flat_map(|batch| futures::stream::iter(batch))
-            .boxed();
-
-        MappedStream::new(
-            stream,
-            decode_state_commitment as fn(alloy::rpc::types::Log) -> Result<StateCommitment>,
-        )
-    }};
-}
-
-pub async fn merged_registry_stream<P: Provider>(
-    world_chain: &WorldChain<P>,
-    hooks: RegistryEventHooks,
-) -> Result<StateStream<'static, StateCommitment>> {
+/// Creates a merged stream of all registry events from World Chain.
+pub async fn registry_stream(
+    world_chain: &WorldChain,
+) -> Result<BoxStream<'static, Result<StateCommitment>>> {
     let streams = vec![
-        state_stream!(
+        watch_events(
             world_chain.provider(),
             *world_chain.world_id_registry().address(),
-            WORLD_ID_REGISTRY_EVENTS
-        ),
-        state_stream!(
+            &WORLD_ID_REGISTRY_EVENTS,
+        )
+        .await?,
+        watch_events(
             world_chain.provider(),
             *world_chain.credential_issuer_schema_registry().address(),
-            ISSUER_REGISTRY_EVENTS
-        ),
-        state_stream!(
+            &ISSUER_REGISTRY_EVENTS,
+        )
+        .await?,
+        watch_events(
             world_chain.provider(),
             *world_chain.oprf_key_registry().address(),
-            OPRF_REGISTRY_EVENTS
-        ),
-        state_stream!(
+            &OPRF_REGISTRY_EVENTS,
+        )
+        .await?,
+        watch_events(
             world_chain.provider(),
             *world_chain.world_id_source().address(),
-            CHAIN_COMMITTED_EVENTS
-        ),
+            &CHAIN_COMMITTED_EVENTS,
+        )
+        .await?,
     ];
 
-    Ok(MergedStream::new(streams, hooks).into_stream())
+    Ok(futures::stream::select_all(streams).boxed())
 }
 
-pub async fn backfill_commitments<P: Provider>(
-    world_chain: &WorldChain<P>,
-    log: &crate::log::SourceStateLog,
+/// Backfills the commitment log with historical events from World Chain.
+pub async fn backfill_commitments(
+    world_chain: &WorldChain,
+    log: &CommitmentLog,
     from_block: u64,
 ) -> Result<()> {
     let registry_filters = vec![
@@ -177,7 +131,7 @@ pub async fn backfill_commitments<P: Provider>(
             Ok(StateCommitment::ChainCommitted(cc)) => {
                 let _ = log.commit_chained(Arc::new(cc));
             }
-            Ok(StateCommitment::OprfPubKey(_) | StateCommitment::CredentialIssuerPubKey(_)) => {
+            Ok(StateCommitment::OprfPubKey(_) | StateCommitment::IssuerPubKey(_)) => {
                 // For simplicity, we only backfill the keccak chain from historical logs.
                 // Backfilling pubkey commitments would require additional logic to handle
                 // pending/finalized states and potential duplicates, so we rely on the
@@ -213,90 +167,66 @@ fn decode_typed_log(
     })
 }
 
-/// Free function used as `fn(Log) -> Result<StateCommitment>` pointer in the macro.
+/// Free function used as `fn(Log) -> Result<StateCommitment>` pointer.
 fn decode_state_commitment(log: alloy::rpc::types::Log) -> Result<StateCommitment> {
     decode_typed_log(log).and_then(StateCommitment::try_from)
 }
-
 
 impl TryFrom<Log<IChainCommitmentEvents>> for StateCommitment {
     type Error = eyre::Report;
 
     fn try_from(log: alloy::rpc::types::Log<IChainCommitmentEvents>) -> Result<Self, Self::Error> {
         let event = log.data();
+        let timestamp = log.block_timestamp.unwrap_or_default();
 
         let state_commitment = match event {
             IChainCommitmentEvents::RootRecorded(e) => Self::RootCommitment(RootCommitment {
-                position: BlockTimestampAndLogIndex {
-                    timestamp: log.block_timestamp.unwrap_or_default(),
-                    log_index: log.log_index.unwrap_or_default() as usize,
-                },
                 root: e.root,
+                timestamp,
             }),
             IChainCommitmentEvents::IssuerSchemaPubkeyUpdated(IssuerSchemaPubkeyUpdated {
                 newPubkey,
                 issuerSchemaId,
                 ..
-            }) => {
-                let affine = Affine {
+            }) => Self::IssuerPubKey(IssuerKeyUpdate {
+                affine: Affine {
                     x: newPubkey.x,
                     y: newPubkey.y,
-                };
-                Self::CredentialIssuerPubKey(PubKeyCommitment {
-                    affine,
-                    position: BlockTimestampAndLogIndex {
-                        timestamp: log.block_timestamp.unwrap_or_default(),
-                        log_index: log.log_index.unwrap_or_default() as usize,
-                    },
-                    id: PubKeyId::from(*issuerSchemaId),
-                })
-            }
+                },
+                timestamp,
+                id: IssuerSchemaId(*issuerSchemaId),
+            }),
             IChainCommitmentEvents::IssuerSchemaRegistered(IssuerSchemaRegistered {
                 issuerSchemaId,
                 pubkey,
                 ..
-            }) => {
-                let affine = Affine {
+            }) => Self::IssuerPubKey(IssuerKeyUpdate {
+                affine: Affine {
                     x: pubkey.x,
                     y: pubkey.y,
-                };
-                Self::CredentialIssuerPubKey(PubKeyCommitment {
-                    affine,
-                    position: BlockTimestampAndLogIndex {
-                        timestamp: log.block_timestamp.unwrap_or_default(),
-                        log_index: log.log_index.unwrap_or_default() as usize,
-                    },
-                    id: PubKeyId::from(*issuerSchemaId),
-                })
-            }
+                },
+                timestamp,
+                id: IssuerSchemaId(*issuerSchemaId),
+            }),
             IChainCommitmentEvents::IssuerSchemaRemoved(IssuerSchemaRemoved {
                 issuerSchemaId,
-                pubkey: _,
                 ..
-            }) => Self::CredentialIssuerPubKey(PubKeyCommitment {
+            }) => Self::IssuerPubKey(IssuerKeyUpdate {
                 affine: Affine {
                     x: U256::ZERO,
                     y: U256::ZERO,
                 },
-                position: BlockTimestampAndLogIndex {
-                    timestamp: log.block_timestamp.unwrap_or_default(),
-                    log_index: log.log_index.unwrap_or_default() as usize,
-                },
-                id: PubKeyId::from(*issuerSchemaId),
+                timestamp,
+                id: IssuerSchemaId(*issuerSchemaId),
             }),
-            IChainCommitmentEvents::SecretGenFinalize(e) => {
-                Self::OprfPubKey(PubKeyCommitment {
-                    affine: Affine {
-                        x: U256::ZERO,
-                        y: U256::ZERO,
-                    }, // OPRF pubkey value is not included in event, relay must fetch from registry.
-                    position: BlockTimestampAndLogIndex {
-                        timestamp: log.block_timestamp.unwrap_or_default(),
-                        log_index: log.log_index.unwrap_or_default() as usize,
-                    },
-                    id: PubKeyId::from(e.oprfKeyId),
-                })
-            }
+            IChainCommitmentEvents::SecretGenFinalize(e) => Self::OprfPubKey(OprfKeyUpdate {
+                affine: Affine {
+                    x: U256::ZERO,
+                    y: U256::ZERO,
+                },
+                timestamp,
+                id: OprfKeyId(e.oprfKeyId),
+            }),
             IChainCommitmentEvents::ChainCommitted(ChainCommitted {
                 keccakChain,
                 blockNumber,
@@ -307,46 +237,10 @@ impl TryFrom<Log<IChainCommitmentEvents>> for StateCommitment {
                 block_number: blockNumber.to::<u64>(),
                 chain_id: chainId.to::<u64>(),
                 commitment_payload: commitment.clone(),
-                position: BlockTimestampAndLogIndex {
-                    timestamp: log.block_timestamp.unwrap_or_default(),
-                    log_index: log.log_index.unwrap_or_default() as usize,
-                },
+                timestamp,
             }),
         };
 
         Ok(state_commitment)
-    }
-}
-
-// ── StateHook trait + concrete implementations ──────────────────────────────
-
-pub trait EventHook: Send + Sync + 'static {
-    fn matches(&self, commitment: &StateCommitment) -> bool;
-    fn on_event(&self, commitment: &StateCommitment);
-}
-
-// ── HookRegistry ────────────────────────────────────────────────────────────
-
-#[derive(Default)]
-pub struct RegistryEventHooks {
-    hooks: Vec<Box<dyn EventHook>>,
-}
-
-impl RegistryEventHooks {
-    pub fn new() -> Self {
-        Self { hooks: Vec::new() }
-    }
-
-    pub fn register(mut self, hook: impl EventHook) -> Self {
-        self.hooks.push(Box::new(hook));
-        self
-    }
-
-    pub fn dispatch(&self, item: &StateCommitment) {
-        for hook in &self.hooks {
-            if hook.matches(item) {
-                hook.on_event(item);
-            }
-        }
     }
 }

@@ -3,15 +3,18 @@ mod ethereum_mpt;
 pub use ethereum_mpt::EthereumMptSatellite;
 use tracing::Instrument;
 
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use alloy::primitives::{Address, B256, Bytes};
 use eyre::Result;
 
 use crate::{
-    log::SourceStateLog,
+    log::CommitmentLog,
     primitives::{ChainCommitment, reduce},
 };
+
+/// Maximum time to wait for a single relay attempt (proof + transaction).
+const RELAY_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// A destination chain that can receive bridged World ID state.
 #[auto_impl::auto_impl(Box, Arc, &)]
@@ -49,7 +52,7 @@ pub trait Satellite: Send + Sync {
 
 pub fn spawn_satellite(
     satellite: impl Satellite + 'static,
-    log: Arc<SourceStateLog>,
+    log: Arc<CommitmentLog>,
 ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
     Box::pin(async move {
         let span = tracing::info_span!(
@@ -80,13 +83,18 @@ pub fn spawn_satellite(
                     "relaying delta"
                 );
 
-                match satellite.relay(&merged).await {
-                    Ok(tx_hash) => {
+                match tokio::time::timeout(RELAY_TIMEOUT, satellite.relay(&merged)).await {
+                    Ok(Ok(tx_hash)) => {
                         local_head = target_head;
                         tracing::info!(%tx_hash, head = %local_head, "relay succeeded");
                     }
-                    Err(e) => {
+                    Ok(Err(e)) => {
                         tracing::warn!(error = %e, "relay failed, will retry on next head");
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            "relay timed out after {RELAY_TIMEOUT:?}, will retry on next head"
+                        );
                     }
                 }
             }
