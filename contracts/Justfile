@@ -1,2 +1,14 @@
-import 'script/crosschain/it.just'
-import 'script/core/deploy.just'
+# Contract on-chain operations.
+# Called as: just contracts <recipe>
+ROOT             := justfile_directory() / ".."
+CONTRACTS_DIR    := justfile_directory()
+WORLDCHAIN_RPC   := env_var_or_default("WORLDCHAIN_PROVIDER", "https://worldchain-mainnet.g.alchemy.com/public")
+WORLDCHAIN_CHAIN := "480"
+VERIFIER_URL     := env_var_or_default("VERIFIER_URL", "https://api.etherscan.io/v2/api?chainid=480")
+CORE_DEPLOY_DIR  := justfile_directory() / "deployments" / "core"
+XC_DEPLOY_DIR    := justfile_directory() / "deployments" / "crosschain"
+XC_CFG_DIR       := justfile_directory() / "script" / "crosschain" / "config"
+CORE_SCRIPT      := "script/core/Deploy.s.sol:Deploy"
+XC_SCRIPT        := "script/crosschain/Deploy.s.sol:Deploy"
+
+import 'just/ops.just'
