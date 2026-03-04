@@ -689,7 +689,7 @@ impl Authenticator {
                 request_item.identifier.clone(),
                 request_item.issuer_schema_id,
                 proof,
-                nullifier_fe,
+                nullifier_fe.into(),
                 expires_at_min,
             )
         };
