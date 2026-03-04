@@ -167,6 +167,15 @@ impl GatewayErrorResponse {
     }
 
     #[must_use]
+    pub fn request_timeout(timeout_secs: u64) -> Self {
+        Self::new(
+            GatewayErrorCode::RequestTimeout,
+            format!("Request timed out after {timeout_secs}s"),
+            StatusCode::GATEWAY_TIMEOUT,
+        )
+    }
+
+    #[must_use]
     pub fn rate_limit_exceeded(window_secs: u64, max_requests: u64) -> Self {
         Self::new(
             GatewayErrorCode::RateLimitExceeded,

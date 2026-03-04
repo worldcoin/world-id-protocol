@@ -367,6 +367,8 @@ pub enum IndexerErrorCode {
     Locked,
     /// The account does not exist.
     AccountDoesNotExist,
+    /// The request timed out.
+    RequestTimeout,
 }
 
 /// Gateway error codes.
@@ -403,6 +405,8 @@ pub enum GatewayErrorCode {
     DuplicateRequestInFlight,
     /// Rate limit exceeded for this leaf_index.
     RateLimitExceeded,
+    /// The request timed out.
+    RequestTimeout,
 }
 
 /// Error object returned by the services APIs (indexer, gateway).
