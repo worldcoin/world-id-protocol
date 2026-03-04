@@ -1,0 +1,317 @@
+//! Integration tests for `rollback_to_last_valid_root`.
+//!
+//! These tests require a PostgreSQL database and Anvil.
+//!
+//! ```bash
+//! docker compose up -d postgres
+//! cargo test -p world-id-indexer --test rollback_to_last_valid_root_tests
+//! ```
+
+mod helpers;
+
+use alloy::primitives::{Address, U256};
+use helpers::{db_helpers::*, mock_blockchain::*};
+use world_id_indexer::{
+    db::WorldIdRegistryEventId,
+    rollback_executor::rollback_to_last_valid_root,
+    tree::{TreeState, VersionedTreeState},
+};
+
+fn make_versioned_tree() -> VersionedTreeState {
+    let path = {
+        let mut p = std::env::temp_dir();
+        p.push(format!("rollback_test_{}.tmp", uuid::Uuid::new_v4()));
+        p
+    };
+    let state = unsafe { TreeState::new_empty(30, path).expect("failed to create tree") };
+    VersionedTreeState::new(state, 1000)
+}
+
+use alloy::providers::{Provider, ProviderBuilder};
+use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_test_utils::anvil::TestAnvil;
+
+/// Spin up Anvil, deploy the registry, and return a registry instance + test DB.
+async fn setup() -> (
+    TestAnvil,
+    world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance<
+        alloy::providers::DynProvider,
+    >,
+    helpers::db_helpers::TestDatabase,
+) {
+    let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
+    let deployer = anvil.signer(0).expect("failed to obtain deployer signer");
+    let registry_address = anvil
+        .deploy_world_id_registry_with_depth(deployer, 30)
+        .await
+        .expect("failed to deploy WorldIDRegistry");
+
+    let provider = ProviderBuilder::new()
+        .connect_http(anvil.endpoint().parse().unwrap())
+        .erased();
+    let registry = WorldIdRegistry::new(registry_address, provider);
+
+    let test_db = create_unique_test_db().await;
+    (anvil, registry, test_db)
+}
+
+/// No RootRecorded events in DB → returns None (nothing to roll back).
+#[tokio::test]
+async fn test_empty_db_returns_none() {
+    let (_anvil, registry, test_db) = setup().await;
+    let db = &test_db.db;
+
+    let result = rollback_to_last_valid_root(
+        db,
+        registry.provider(),
+        *registry.address(),
+        &make_versioned_tree(),
+    )
+    .await
+    .expect("rollback_to_last_valid_root should not error on empty DB");
+
+    assert!(result.is_none(), "expected None for empty DB");
+}
+
+/// All roots in DB are invalid on-chain (fabricated roots) → returns None,
+/// no data is deleted.
+#[tokio::test]
+async fn test_all_invalid_roots_returns_none() {
+    let (_anvil, registry, test_db) = setup().await;
+    let db = &test_db.db;
+
+    // Insert events directly to bypass root validation — we intentionally want
+    // a fabricated (on-chain-invalid) root in the DB to test the rollback logic.
+    let account_event = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(1));
+    let root_event = mock_root_recorded_event(100, 1, U256::from(0xdeadbeef_u64), U256::from(100));
+
+    insert_test_world_tree_event(db, &account_event)
+        .await
+        .unwrap();
+    insert_test_world_tree_event(db, &root_event).await.unwrap();
+    insert_test_account(db, 1, Address::ZERO, U256::from(1))
+        .await
+        .unwrap();
+
+    assert_account_count(db.pool(), 1).await;
+    assert_root_count(db.pool(), 1).await;
+
+    let result = rollback_to_last_valid_root(
+        db,
+        registry.provider(),
+        *registry.address(),
+        &make_versioned_tree(),
+    )
+    .await
+    .expect("should not error");
+
+    assert!(
+        result.is_none(),
+        "expected None — no roots are valid on-chain"
+    );
+
+    // Nothing should have been deleted.
+    assert_account_count(db.pool(), 1).await;
+    assert_root_count(db.pool(), 1).await;
+}
+
+/// Two batches committed; the second batch's root is fabricated (invalid on-chain).
+/// rollback_to_last_valid_root should find the first batch's root valid and roll
+/// back to it, removing the second batch's data.
+#[tokio::test]
+async fn test_rolls_back_to_last_valid_root() {
+    let (anvil, registry, test_db) = setup().await;
+    let db = &test_db.db;
+
+    // Commit a real account to the on-chain registry so its root is valid.
+    let deployer = anvil.signer(0).unwrap();
+    let onchain_registry = WorldIdRegistry::new(
+        *registry.address(),
+        ProviderBuilder::new()
+            .wallet(alloy::network::EthereumWallet::from(deployer))
+            .connect_http(anvil.endpoint().parse().unwrap()),
+    );
+    let receipt = onchain_registry
+        .createAccount(
+            helpers::common::RECOVERY_ADDRESS,
+            vec![Address::from([1u8; 20])],
+            vec![U256::from(111)],
+            U256::from(42),
+        )
+        .send()
+        .await
+        .expect("createAccount failed")
+        .get_receipt()
+        .await
+        .expect("receipt failed");
+
+    let valid_root = onchain_registry
+        .currentRoot()
+        .call()
+        .await
+        .expect("currentRoot failed");
+
+    let root_log = receipt
+        .inner
+        .logs()
+        .iter()
+        .rev()
+        .find(|l| {
+            use alloy::sol_types::SolEvent;
+            l.topics().first() == Some(&world_id_core::world_id_registry::WorldIdRegistry::RootRecorded::SIGNATURE_HASH)
+        })
+        .expect("RootRecorded log not in receipt");
+    let valid_block = receipt.block_number.expect("missing block number");
+    let valid_log_index = root_log.log_index.expect("missing log index");
+
+    // Batch 1: insert the valid root directly into DB (bypassing root validation since
+    // the local tree's account data differs from on-chain — we just need to test rollback logic).
+    let account_event1 = mock_account_created_event(
+        valid_block,
+        valid_log_index.saturating_sub(1),
+        1,
+        Address::ZERO,
+        U256::from(1),
+    );
+    let root_event1 =
+        mock_root_recorded_event(valid_block, valid_log_index, valid_root, U256::from(100));
+    insert_test_world_tree_event(db, &account_event1)
+        .await
+        .unwrap();
+    insert_test_world_tree_event(db, &root_event1)
+        .await
+        .unwrap();
+    insert_test_account(db, 1, Address::ZERO, U256::from(1))
+        .await
+        .unwrap();
+
+    // Batch 2: insert a fabricated (invalid) root directly.
+    let account_event2 =
+        mock_account_created_event(valid_block + 1, 0, 2, Address::ZERO, U256::from(2));
+    let root_event2 = mock_root_recorded_event(
+        valid_block + 1,
+        1,
+        U256::from(0xdeadbeef_u64),
+        U256::from(101),
+    );
+    insert_test_world_tree_event(db, &account_event2)
+        .await
+        .unwrap();
+    insert_test_world_tree_event(db, &root_event2)
+        .await
+        .unwrap();
+    insert_test_account(db, 2, Address::ZERO, U256::from(2))
+        .await
+        .unwrap();
+
+    assert_account_count(db.pool(), 2).await;
+    assert_root_count(db.pool(), 2).await;
+
+    let result = rollback_to_last_valid_root(
+        db,
+        registry.provider(),
+        *registry.address(),
+        &make_versioned_tree(),
+    )
+    .await
+    .expect("rollback_to_last_valid_root failed");
+
+    // Should have rolled back to the first batch's root event.
+    assert!(result.is_some(), "expected a rollback target");
+    let target = result.unwrap();
+    assert_eq!(target.block_number, valid_block);
+    assert_eq!(target.log_index, valid_log_index);
+
+    // Second batch data should be gone.
+    assert_account_count(db.pool(), 1).await;
+    assert_root_count(db.pool(), 1).await;
+    assert_account_exists(db.pool(), 1).await;
+    assert_account_not_exists(db.pool(), 2).await;
+}
+
+/// If the latest root is already valid (no reorg), rollback_to_last_valid_root
+/// rolls back to it — effectively a no-op on the data.
+#[tokio::test]
+async fn test_no_rollback_needed_when_latest_root_is_valid() {
+    let (anvil, registry, test_db) = setup().await;
+    let db = &test_db.db;
+
+    let deployer = anvil.signer(0).unwrap();
+    let onchain_registry = WorldIdRegistry::new(
+        *registry.address(),
+        ProviderBuilder::new()
+            .wallet(alloy::network::EthereumWallet::from(deployer))
+            .connect_http(anvil.endpoint().parse().unwrap()),
+    );
+    let receipt = onchain_registry
+        .createAccount(
+            helpers::common::RECOVERY_ADDRESS,
+            vec![Address::from([2u8; 20])],
+            vec![U256::from(222)],
+            U256::from(99),
+        )
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+
+    let valid_root = onchain_registry.currentRoot().call().await.unwrap();
+
+    let root_log = receipt
+        .inner
+        .logs()
+        .iter()
+        .rev()
+        .find(|l| {
+            use alloy::sol_types::SolEvent;
+            l.topics().first() == Some(&world_id_core::world_id_registry::WorldIdRegistry::RootRecorded::SIGNATURE_HASH)
+        })
+        .expect("RootRecorded log not in receipt");
+    let valid_block = receipt.block_number.expect("missing block number");
+    let valid_log_index = root_log.log_index.expect("missing log index");
+
+    // Insert the valid root directly into DB.
+    let account_event = mock_account_created_event(
+        valid_block,
+        valid_log_index.saturating_sub(1),
+        1,
+        Address::ZERO,
+        U256::from(1),
+    );
+    let root_event =
+        mock_root_recorded_event(valid_block, valid_log_index, valid_root, U256::from(200));
+    insert_test_world_tree_event(db, &account_event)
+        .await
+        .unwrap();
+    insert_test_world_tree_event(db, &root_event).await.unwrap();
+    insert_test_account(db, 1, Address::ZERO, U256::from(1))
+        .await
+        .unwrap();
+
+    assert_account_count(db.pool(), 1).await;
+
+    let result = rollback_to_last_valid_root(
+        db,
+        registry.provider(),
+        *registry.address(),
+        &make_versioned_tree(),
+    )
+    .await
+    .expect("should not fail");
+
+    // Rolled back to the last (and only) root — data intact.
+    assert!(result.is_some());
+    let target = result.unwrap();
+    assert_eq!(
+        target,
+        WorldIdRegistryEventId {
+            block_number: valid_block,
+            log_index: valid_log_index,
+        }
+    );
+
+    assert_account_count(db.pool(), 1).await;
+    assert_root_count(db.pool(), 1).await;
+}

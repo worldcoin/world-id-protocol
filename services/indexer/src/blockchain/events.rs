@@ -9,6 +9,7 @@ use super::{BlockchainError, BlockchainResult};
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockchainEvent<T: Clone> {
     pub block_number: u64,
+    pub block_hash: U256,
     pub tx_hash: U256,
     pub log_index: u64,
     pub details: T,
@@ -99,6 +100,7 @@ impl RegistryEvent {
         let event_sig = lg.topics()[0];
 
         let block_number = lg.block_number.ok_or(BlockchainError::MissingBlockNumber)?;
+        let block_hash = lg.block_hash.ok_or(BlockchainError::MissingBlockHash)?;
         let tx_hash = lg.transaction_hash.ok_or(BlockchainError::MissingTxHash)?;
         let log_index = lg.log_index.ok_or(BlockchainError::MissingLogIndex)?;
 
@@ -126,6 +128,7 @@ impl RegistryEvent {
 
         Ok(BlockchainEvent {
             block_number,
+            block_hash: block_hash.into(),
             tx_hash: tx_hash.into(),
             log_index,
             details,

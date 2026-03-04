@@ -7,7 +7,7 @@ use alloy::{
 use redis::{AsyncTypedCommands, IntegerReplyOrNoOp, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
 use world_id_core::api_types::GatewayStatusResponse;
-use world_id_gateway::{GatewayConfig, spawn_gateway_for_tests};
+use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway_for_tests};
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
@@ -50,13 +50,17 @@ async fn redis_integration() {
             signer: Some(signer_args),
             ..Default::default()
         },
-        batch_ms: 200,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4103).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: Some(redis_url),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4103).into(),
+        redis_url,
+        request_timeout_secs: 10,
         rate_limit_window_secs: Some(5),
         rate_limit_max_requests: Some(10),
+        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
+        batch_policy: BatchPolicyConfig::default(),
     };
 
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
@@ -91,6 +95,20 @@ async fn redis_integration() {
 
     assert_eq!(stored_data["kind"], "create_account");
     assert_eq!(stored_data["status"]["state"], "queued");
+    assert!(
+        stored_data["updated_at"].is_number(),
+        "updated_at should be present and numeric"
+    );
+
+    // Verify the request was added to the pending set atomically with the record
+    let is_pending: bool = redis
+        .sismember("gateway:pending_requests", &request_id)
+        .await
+        .unwrap();
+    assert!(
+        is_pending,
+        "new request should be in the pending set immediately after creation"
+    );
 
     // Check that TTL is set (should be ~86400 seconds)
     match redis.ttl(&redis_key).await.unwrap() {
@@ -110,6 +128,18 @@ async fn redis_integration() {
 
     assert_eq!(updated_data["status"]["state"], "finalized");
     assert!(updated_data["status"]["tx_hash"].is_string());
+    assert!(
+        updated_data["updated_at"].is_number(),
+        "updated_at should still be present after finalization"
+    );
+
+    // Verify the request was removed from the pending set after finalization
+    let pending_members: std::collections::HashSet<String> =
+        redis.smembers("gateway:pending_requests").await.unwrap();
+    assert!(
+        !pending_members.contains(&request_id),
+        "finalized request should have been removed from the pending set"
+    );
 
     // Cleanup
     let _ = gw.shutdown().await;

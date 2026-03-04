@@ -5,7 +5,9 @@ use std::sync::Arc;
 use alloy::primitives::U256;
 use backon::{ExponentialBuilder, Retryable};
 use world_id_core::{Authenticator, AuthenticatorError, api_types::GatewayRequestState};
-use world_id_gateway::{GatewayConfig, SignerArgs, spawn_gateway_for_tests};
+use world_id_gateway::{
+    BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
+};
 use world_id_primitives::Config;
 use world_id_test_utils::anvil::TestAnvil;
 
@@ -43,13 +45,18 @@ async fn test_authenticator_registration() {
             signer: Some(signer_args),
             ..Default::default()
         },
-        batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: None,
+        redis_url: std::env::var("REDIS_URL")
+            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
+        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
+        batch_policy: BatchPolicyConfig::default(),
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
@@ -104,7 +111,7 @@ async fn test_authenticator_registration() {
             .await
             .unwrap();
     let elapsed = start.elapsed();
-    println!("Account creation successful in {elapsed:?}");
+    tracing::info!("Account creation successful in {elapsed:?}");
     assert_eq!(authenticator.leaf_index(), 1);
     assert_eq!(authenticator.recovery_counter(), U256::from(0));
 

@@ -52,12 +52,18 @@ pub enum GatewayError {
         source: redis::RedisError,
         backtrace: String,
     },
-    #[error("redis not configured")]
-    RedisNotConfigured,
     #[error("join error: {source}")]
     Join {
         #[source]
         source: tokio::task::JoinError,
+        backtrace: String,
+    },
+    #[error("config error: {0}")]
+    Config(String),
+    #[error("redis nonce manager error: {source}")]
+    RedisNonceManager {
+        #[source]
+        source: redis::RedisError,
         backtrace: String,
     },
 }

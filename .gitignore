@@ -5,7 +5,6 @@ target/
 **/contracts/deployments/core/local.json
 **/contracts/deployments/crosschain/local.json
 
-**/contracts/lib/*
 **/contracts/out/*
 **/contracts/cache/
 **/contracts/broadcast/
@@ -17,6 +16,9 @@ contracts/script/crosschain/config/local.json
 
 # Node (if used later)
 node_modules/
+
+# Scripts
+contracts/deploy.sh
 
 # Misc
 .env
@@ -33,3 +35,6 @@ logs/
 crates/core/contracts/out/*.sol/*.json
 !crates/core/contracts/out/WorldIDRegistry.sol/WorldIDRegistryAbi.json
 !crates/core/contracts/out/CredentialSchemaIssuerRegistry.sol/CredentialSchemaIssuerRegistryAbi.json
+
+# Trusted setup generated media
+docs/world-id-4-trusted-setup/manim/media/

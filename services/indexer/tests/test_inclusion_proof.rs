@@ -11,6 +11,7 @@ use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
 };
+use world_id_services_common::ProviderArgs;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
@@ -47,22 +48,24 @@ async fn test_backfill_and_live_sync() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8080".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: TreeCacheConfig {
-                    cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
-                    tree_depth: 6,
-                    http_cache_refresh_interval_secs: 30,
-                },
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: TreeCacheConfig {
+            cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
+            tree_depth: 6,
+            http_cache_refresh_interval_secs: 30,
+        },
     };
 
     let indexer_task = tokio::spawn(async move {
@@ -175,22 +178,24 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8082".parse().unwrap(),
                 db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: TreeCacheConfig {
-                    cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
-                    tree_depth: 6,
-                    http_cache_refresh_interval_secs: 1,
-                },
             },
         },
         db_url: setup.db_url.clone(),
-        http_rpc_url: setup.rpc_url(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: TreeCacheConfig {
+            cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
+            tree_depth: 6,
+            http_cache_refresh_interval_secs: 1,
+        },
     };
 
     let http_task = tokio::spawn(async move {

@@ -64,19 +64,13 @@ impl SessionNullifier {
         Ok(Self { nullifier, action })
     }
 
-    /// Converts to compressed bytes (64 bytes total: 2 x 32-byte field elements).
-    ///
-    /// # Errors
-    /// Returns an error if field element serialization fails.
-    pub fn to_compressed_bytes(&self) -> Result<Vec<u8>, String> {
-        let mut bytes = Vec::with_capacity(64);
-        self.nullifier
-            .serialize_as_bytes(&mut bytes)
-            .map_err(|e| format!("failed to serialize nullifier: {e}"))?;
-        self.action
-            .serialize_as_bytes(&mut bytes)
-            .map_err(|e| format!("failed to serialize action: {e}"))?;
-        Ok(bytes)
+    /// Returns the 64-byte big-endian representation (2 x 32-byte field elements).
+    #[must_use]
+    pub fn to_compressed_bytes(&self) -> [u8; 64] {
+        let mut bytes = [0u8; 64];
+        bytes[..32].copy_from_slice(&self.nullifier.to_be_bytes());
+        bytes[32..].copy_from_slice(&self.action.to_be_bytes());
+        bytes
     }
 
     /// Constructs from compressed bytes (must be exactly 64 bytes).
@@ -91,9 +85,9 @@ impl SessionNullifier {
             ));
         }
 
-        let nullifier = FieldElement::deserialize_from_bytes(&mut &bytes[..32])
+        let nullifier = FieldElement::from_be_bytes(bytes[..32].try_into().unwrap())
             .map_err(|e| format!("invalid nullifier: {e}"))?;
-        let action = FieldElement::deserialize_from_bytes(&mut &bytes[32..])
+        let action = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
             .map_err(|e| format!("invalid action: {e}"))?;
 
         Ok(Self { nullifier, action })
@@ -114,12 +108,10 @@ impl Serialize for SessionNullifier {
     where
         S: Serializer,
     {
-        let bytes = self
-            .to_compressed_bytes()
-            .map_err(serde::ser::Error::custom)?;
+        let bytes = self.to_compressed_bytes();
         if serializer.is_human_readable() {
             // JSON: prefixed hex-encoded compressed bytes for explicit typing.
-            serializer.serialize_str(&format!("{}{}", Self::JSON_PREFIX, hex::encode(&bytes)))
+            serializer.serialize_str(&format!("{}{}", Self::JSON_PREFIX, hex::encode(bytes)))
         } else {
             // Binary: compressed bytes
             serializer.serialize_bytes(&bytes)
@@ -226,9 +218,9 @@ mod tests {
     }
 
     #[test]
-    fn test_compressed_bytes_roundtrip() {
+    fn test_bytes_roundtrip() {
         let session = SessionNullifier::new(test_field_element(1001), test_field_element(42));
-        let bytes = session.to_compressed_bytes().unwrap();
+        let bytes = session.to_compressed_bytes();
 
         assert_eq!(bytes.len(), 64); // 32 + 32 bytes
 
@@ -237,16 +229,13 @@ mod tests {
     }
 
     #[test]
-    fn test_compressed_bytes_use_field_element_encoding() {
+    fn test_bytes_use_field_element_encoding() {
         let session = SessionNullifier::new(test_field_element(1001), test_field_element(42));
-        let bytes = session.to_compressed_bytes().unwrap();
+        let bytes = session.to_compressed_bytes();
 
-        let mut expected = Vec::new();
-        session
-            .nullifier()
-            .serialize_as_bytes(&mut expected)
-            .unwrap();
-        session.action().serialize_as_bytes(&mut expected).unwrap();
+        let mut expected = [0u8; 64];
+        expected[..32].copy_from_slice(&session.nullifier().to_be_bytes());
+        expected[32..].copy_from_slice(&session.action().to_be_bytes());
         assert_eq!(bytes, expected);
     }
 

@@ -34,6 +34,7 @@ pub fn mock_account_created_event_with_authenticators(
 ) -> BlockchainEvent<RegistryEvent> {
     BlockchainEvent {
         block_number,
+        block_hash: U256::from(1),
         tx_hash: U256::from(1),
         log_index,
         details: RegistryEvent::AccountCreated(world_id_indexer::blockchain::AccountCreatedEvent {
@@ -60,6 +61,7 @@ pub fn mock_account_updated_event(
 ) -> BlockchainEvent<RegistryEvent> {
     BlockchainEvent {
         block_number,
+        block_hash: U256::from(1),
         tx_hash: U256::from(1),
         log_index,
         details: RegistryEvent::AccountUpdated(world_id_indexer::blockchain::AccountUpdatedEvent {
@@ -88,6 +90,7 @@ pub fn mock_authenticator_inserted_event(
 ) -> BlockchainEvent<RegistryEvent> {
     BlockchainEvent {
         block_number,
+        block_hash: U256::from(1),
         tx_hash: U256::from(1),
         log_index,
         details: RegistryEvent::AuthenticatorInserted(
@@ -117,6 +120,7 @@ pub fn mock_authenticator_removed_event(
 ) -> BlockchainEvent<RegistryEvent> {
     BlockchainEvent {
         block_number,
+        block_hash: U256::from(1),
         tx_hash: U256::from(1),
         log_index,
         details: RegistryEvent::AuthenticatorRemoved(
@@ -144,6 +148,7 @@ pub fn mock_account_recovered_event(
 ) -> BlockchainEvent<RegistryEvent> {
     BlockchainEvent {
         block_number,
+        block_hash: U256::from(1),
         tx_hash: U256::from(1),
         log_index,
         details: RegistryEvent::AccountRecovered(
@@ -167,6 +172,7 @@ pub fn mock_root_recorded_event(
 ) -> BlockchainEvent<RegistryEvent> {
     BlockchainEvent {
         block_number,
+        block_hash: U256::from(1),
         tx_hash: U256::from(1),
         log_index,
         details: RegistryEvent::RootRecorded(world_id_indexer::blockchain::RootRecordedEvent {

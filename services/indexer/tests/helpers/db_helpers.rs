@@ -3,7 +3,11 @@
 use alloy::primitives::{Address, U256};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
-use world_id_indexer::db::{DB, DBResult, WorldTreeEventType, WorldTreeRootEventType};
+use world_id_indexer::{
+    blockchain::{BlockchainEvent, RegistryEvent, RootRecordedEvent},
+    db::{DB, DBResult},
+    tree::{self, TreeState, VersionedTreeState},
+};
 
 /// RAII guard that ensures test database cleanup on drop
 pub struct TestDatabase {
@@ -133,30 +137,16 @@ pub async fn insert_test_account(
     commitment: U256,
 ) -> DBResult<()> {
     db.accounts()
-        .insert(leaf_index, &recovery_address, &[], &[], &commitment)
+        .insert(leaf_index, &recovery_address, &[], &[], &commitment, 100, 0)
         .await
 }
 
 /// Insert a test world tree event directly into the database
 pub async fn insert_test_world_tree_event(
     db: &DB,
-    block_number: u64,
-    log_index: u64,
-    leaf_index: u64,
-    event_type: WorldTreeEventType,
-    tx_hash: U256,
-    commitment: U256,
+    event: &BlockchainEvent<RegistryEvent>,
 ) -> DBResult<()> {
-    db.world_tree_events()
-        .insert_event(
-            leaf_index,
-            event_type,
-            &commitment,
-            block_number,
-            &tx_hash,
-            log_index,
-        )
-        .await
+    db.world_id_registry_events().insert_event(event).await
 }
 
 /// Insert a test world tree root event directly into the database
@@ -167,16 +157,14 @@ pub async fn insert_test_world_tree_root(
     root: U256,
     timestamp: U256,
 ) -> DBResult<()> {
-    db.world_tree_roots()
-        .insert_event(
-            block_number,
-            log_index,
-            WorldTreeRootEventType::RootRecorded,
-            &U256::ZERO,
-            &root,
-            &timestamp,
-        )
-        .await
+    let event = BlockchainEvent {
+        block_number,
+        block_hash: U256::ZERO,
+        tx_hash: U256::ZERO,
+        log_index,
+        details: RegistryEvent::RootRecorded(RootRecordedEvent { root, timestamp }),
+    };
+    db.world_id_registry_events().insert_event(&event).await
 }
 
 /// Count accounts in the database
@@ -190,19 +178,21 @@ pub async fn count_accounts(pool: &PgPool) -> DBResult<i64> {
 
 /// Count world tree events in the database
 pub async fn count_world_tree_events(pool: &PgPool) -> DBResult<i64> {
-    let (count,): (i64,) =
-        sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM world_tree_events")
-            .fetch_one(pool)
-            .await?;
+    let (count,): (i64,) = sqlx::query_as::<sqlx::Postgres, (i64,)>(
+        "SELECT COUNT(*) FROM world_id_registry_events WHERE event_type != 'root_recorded'",
+    )
+    .fetch_one(pool)
+    .await?;
     Ok(count)
 }
 
 /// Count world tree roots in the database
 pub async fn count_world_tree_roots(pool: &PgPool) -> DBResult<i64> {
-    let (count,): (i64,) =
-        sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM world_tree_roots")
-            .fetch_one(pool)
-            .await?;
+    let (count,): (i64,) = sqlx::query_as::<sqlx::Postgres, (i64,)>(
+        "SELECT COUNT(*) FROM world_id_registry_events WHERE event_type = 'root_recorded'",
+    )
+    .fetch_one(pool)
+    .await?;
     Ok(count)
 }
 
@@ -278,4 +268,45 @@ pub async fn assert_account_not_exists(pool: &PgPool, leaf_index: u64) {
         "Expected account with leaf_index {} to not exist",
         leaf_index
     );
+}
+
+/// Create a throw-away `VersionedTreeState` backed by a temp file.
+/// Depth 10 is sufficient for all tests (capacity 1024 leaves).
+pub fn make_versioned_tree() -> VersionedTreeState {
+    let path = {
+        let mut p = std::env::temp_dir();
+        p.push(format!("test_versioned_tree_{}.tmp", Uuid::new_v4()));
+        p
+    };
+    let state = unsafe { TreeState::new_empty(10, path).expect("failed to create tree") };
+    VersionedTreeState::new(state, 1000)
+}
+
+/// Apply a slice of events to a fresh tree and return the resulting root.
+/// Useful for constructing a correct `RootRecorded` event in unit tests.
+pub async fn compute_root_after_events(events: &[BlockchainEvent<RegistryEvent>]) -> U256 {
+    let versioned = make_versioned_tree();
+    for event in events {
+        tree::apply_event_to_tree(&versioned, event)
+            .await
+            .expect("failed to apply event to tree");
+    }
+    versioned.root().await
+}
+
+/// Apply batches of events to a shared tree and return the root after each batch.
+/// `batches` is a slice of slices where each inner slice is the events in one batch
+/// (excluding the RootRecorded event itself). Roots are returned in batch order.
+pub async fn compute_batch_roots(batches: &[&[BlockchainEvent<RegistryEvent>]]) -> Vec<U256> {
+    let versioned = make_versioned_tree();
+    let mut roots = Vec::with_capacity(batches.len());
+    for batch in batches {
+        for event in *batch {
+            tree::apply_event_to_tree(&versioned, event)
+                .await
+                .expect("failed to apply event to tree");
+        }
+        roots.push(versioned.root().await);
+    }
+    roots
 }

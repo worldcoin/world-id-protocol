@@ -88,7 +88,7 @@ run_indexer_and_gateway() {
     echo "started indexer with PID $indexer_pid"
     wait_for_health 8080 "world-id-indexer" 300
 
-    REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WALLET_PRIVATE_KEY=$PK cargo run --release -p world-id-gateway > logs/world-id-gateway.log 2>&1 &
+    REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WALLET_PRIVATE_KEY=$PK REDIS_URL=redis://localhost:6379 cargo run --release -p world-id-gateway > logs/world-id-gateway.log 2>&1 &
     gateway_pid=$!
     echo "started gateway with PID $gateway_pid"
     wait_for_health 8081 "world-id-gateway" 300
@@ -110,7 +110,7 @@ setup() {
 
     anvil &
 
-    docker compose up -d localstack postgres oprf-node-db0 oprf-node-db1 oprf-node-db2
+    docker compose up -d localstack postgres redis oprf-node-db0 oprf-node-db1 oprf-node-db2
 
     echo -e "${GREEN}deploying contracts..${NOCOLOR}"
     deploy_contracts
@@ -148,11 +148,15 @@ client() {
     if [ -z "${OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT+x}" ]; then
         export OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/core/local.json)
     fi
-    if [ -z "${OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT+x}" ]; then
-        export OPRF_DEV_CLIENT_CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/core/local.json)
+    if [ -z "${OPRF_DEV_CLIENT_ISSUER_SCHEMA_REGISTRY_CONTRACT+x}" ]; then
+        export OPRF_DEV_CLIENT_ISSUER_SCHEMA_REGISTRY_CONTRACT=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/core/local.json)
+    fi
+    if [ -z "${RUST_LOG+x}" ]; then
+        export RUST_LOG="world_id_dev_client_rp=trace,world_id_dev_client_issuer_blinding=trace,world_id_oprf_dev_client=trace,taceo_oprf_dev_client=trace,taceo_oprf_client=trace,warn"
     fi
 
-    cargo run --release --bin world-id-oprf-dev-client -- "$@"
+    RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- "$@"
+    RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-issuer-blinding -- "$@"
 }
 
 main() {

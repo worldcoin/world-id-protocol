@@ -385,7 +385,7 @@ impl ProofRequest {
     /// # Errors
     /// Returns a `PrimitiveError` if `FieldElement` serialization fails (which should never occur in practice).
     ///
-    /// The digest is computed as: `SHA256(nonce || action || created_at || expires_at)`.
+    /// The digest is computed as: `SHA256(version || nonce || created_at || expires_at)`.
     /// This mirrors the RP signature message format from `rp::compute_rp_signature_msg`.
     /// Note: the timestamp is encoded as big-endian to mirror the RP-side signing
     /// performed in test fixtures and the OPRF stub.
@@ -437,8 +437,23 @@ impl ProofRequest {
             return Err(ValidationError::SessionIdMismatch);
         }
 
-        // Validate nullifier presence based on proof type
+        // Validate response items correspond to request items and are unique.
+        let mut provided: HashSet<&str> = HashSet::new();
         for response_item in &response.responses {
+            if !provided.insert(response_item.identifier.as_str()) {
+                return Err(ValidationError::DuplicateCredential(
+                    response_item.identifier.clone(),
+                ));
+            }
+
+            let request_item = self
+                .requests
+                .iter()
+                .find(|r| r.identifier == response_item.identifier)
+                .ok_or_else(|| {
+                    ValidationError::UnexpectedCredential(response_item.identifier.clone())
+                })?;
+
             if self.session_id.is_some() {
                 // Session proof: must have session_nullifier
                 if response_item.session_nullifier.is_none() {
@@ -454,34 +469,16 @@ impl ProofRequest {
                     ));
                 }
             }
-        }
 
-        // Validate that expires_at_min matches for each response item
-        for response_item in &response.responses {
-            // Find the corresponding request item
-            if let Some(request_item) = self
-                .requests
-                .iter()
-                .find(|r| r.identifier == response_item.identifier)
-            {
-                let expected_expires_at_min =
-                    request_item.effective_expires_at_min(self.created_at);
-                if response_item.expires_at_min != expected_expires_at_min {
-                    return Err(ValidationError::ExpiresAtMinMismatch(
-                        response_item.identifier.clone(),
-                        expected_expires_at_min,
-                        response_item.expires_at_min,
-                    ));
-                }
+            let expected_expires_at_min = request_item.effective_expires_at_min(self.created_at);
+            if response_item.expires_at_min != expected_expires_at_min {
+                return Err(ValidationError::ExpiresAtMinMismatch(
+                    response_item.identifier.clone(),
+                    expected_expires_at_min,
+                    response_item.expires_at_min,
+                ));
             }
         }
-
-        // Build set of provided credentials by identifier
-        let provided: HashSet<&str> = response
-            .responses
-            .iter()
-            .map(|r| r.identifier.as_str())
-            .collect();
 
         match &self.constraints {
             // None => all requested credentials (via identifier) are required
@@ -588,6 +585,12 @@ pub enum ValidationError {
     /// A required credential was not provided
     #[error("Missing required credential: {0}")]
     MissingCredential(String),
+    /// A credential was returned that was not requested.
+    #[error("Unexpected credential in response: {0}")]
+    UnexpectedCredential(String),
+    /// A credential identifier was returned more than once.
+    #[error("Duplicate credential in response: {0}")]
+    DuplicateCredential(String),
     /// The provided credentials do not satisfy the request constraints
     #[error("Constraints not satisfied")]
     ConstraintNotSatisfied,
@@ -900,6 +903,69 @@ mod tests {
         };
         let err = request.validate_response(&missing).unwrap_err();
         assert!(matches!(err, ValidationError::MissingCredential(_)));
+
+        let unexpected = ProofResponse {
+            id: "req_1".into(),
+            version: RequestVersion::V1,
+            session_id: None,
+            error: None,
+            responses: vec![
+                ResponseItem::new_uniqueness(
+                    "orb".into(),
+                    1,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1001),
+                    1_735_689_600,
+                ),
+                ResponseItem::new_uniqueness(
+                    "document".into(),
+                    2,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1002),
+                    1_735_689_600,
+                ),
+                ResponseItem::new_uniqueness(
+                    "passport".into(),
+                    3,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1003),
+                    1_735_689_600,
+                ),
+            ],
+        };
+        let err = request.validate_response(&unexpected).unwrap_err();
+        assert!(matches!(
+            err,
+            ValidationError::UnexpectedCredential(ref id) if id == "passport"
+        ));
+
+        let duplicate = ProofResponse {
+            id: "req_1".into(),
+            version: RequestVersion::V1,
+            session_id: None,
+            error: None,
+            responses: vec![
+                ResponseItem::new_uniqueness(
+                    "orb".into(),
+                    1,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1001),
+                    1_735_689_600,
+                ),
+                ResponseItem::new_uniqueness(
+                    "orb".into(),
+                    1,
+                    ZeroKnowledgeProof::default(),
+                    test_field_element(1001),
+                    1_735_689_600,
+                ),
+            ],
+        };
+        let err = request.validate_response(&duplicate).unwrap_err();
+        assert!(matches!(
+            err,
+            ValidationError::DuplicateCredential(ref id) if id == "orb"
+        ));
     }
 
     #[test]

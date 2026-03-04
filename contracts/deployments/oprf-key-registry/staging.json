@@ -1,0 +1,20 @@
+{
+   "chainId":480,
+   "oprfKeyRegistry":{
+      "implementation":"0xDB8f83ffDf955500925aED5A8664CFbe058b7301",
+      "proxy":"0xb2C02253ee7bFEDF50F5D015658857099980E91F",
+      "admins":[
+         "0x0CAc06403FEE0A5579ECD3F401BF3E2F84B74C65",
+         "0x37d2462fE7B4a07987263AAd062C6593C4f567b9",
+         "0x640eb6Fd4c7348661B7DB482e1a66f4bFc7a15eE",
+         "0x9037125Ae10e9E89fDbe7001228289462EFA3eF3",
+         "0x96d55BD9c8C4706FED243c1e15825FF7854920fA",
+         "0xd335697404D033A50ac1A0763C66AbfF0153FCe9"
+      ],
+      "owner":{
+         "wallet":"0x0CAc06403FEE0A5579ECD3F401BF3E2F84B74C65",
+         "description":"This is a software wallet controlled by TACEO."
+      }
+   },
+   "verifierKeyGen25":"0xE01F24Ac3bA57Fc6E480DA2f6401166269De923C"
+}

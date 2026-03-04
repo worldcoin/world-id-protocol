@@ -2,8 +2,7 @@
 
 ## How a trusted setup works
 
-World ID 4.0 uses a Groth16 Phase 2 trusted setup ceremony for its zk-SNARK circuits. In this process, multiple participants each add their own randomness contribution (often called "toxic waste") to circuit-specific setup artifacts (`.zkey`),
-and each contribution is publicly verifiable as part of a transcript. Security relies on at least one participant contributing honestly and permanently deleting their secret randomness.
+World ID 4.0 uses a Groth16 Phase 2 trusted setup ceremony for its zk-SNARK circuits. In this process, multiple participants each add their own randomness contribution (often called "toxic waste") to circuit-specific setup artifacts (`.zkey`), and each contribution is publicly verifiable as part of a transcript. Security relies on at least one participant contributing honestly and permanently deleting their secret randomness.
 
 ## Why we are doing this for World ID 4.0
 
@@ -19,8 +18,10 @@ These circuits require Groth16 proving keys, which are produced via a Phase 2 se
 
 ## How to contribute
 
-The [`@worldcoin/world-id-trusted-setup-cli`](https://www.npmjs.com/package/@worldcoin/world-id-trusted-setup-cli) package was built as a fork of [PSE](https://pse.dev/)'s [p0tion](https://github.com/privacy-scaling-explorations/p0tion) for organizing a trusted setup ceremony with minimum work needed to
-be done by the contributors. You can perform a contribution with the following 2 easy steps:
+> [!NOTE]
+> The World ID 4.0 trusted setup ceremony is closed. New contributions are no longer accepted.
+
+The [`@worldcoin/world-id-trusted-setup-cli`](https://www.npmjs.com/package/@worldcoin/world-id-trusted-setup-cli) package was built as a fork of [PSE](https://pse.dev/)'s [p0tion](https://github.com/privacy-scaling-explorations/p0tion) for organizing a trusted setup ceremony with minimum work needed to be done by the contributors. During the active ceremony, contributors used the following flow:
 
 1. Authenticate with GitHub device-flow OAuth (used by the CLI and for ceremony identity/attestation flow):
 
@@ -34,6 +35,20 @@ npx @worldcoin/world-id-trusted-setup-cli auth
 npx @worldcoin/world-id-trusted-setup-cli contribute
 ```
 
-If you have any issues contributing to the ceremony, please contact our ceremony coordinator [dcbuilder on Telegram](https://t.me/dcbuilder).
+If you had any issues contributing to the ceremony, please contact our ceremony coordinator [dcbuilder on Telegram](https://t.me/dcbuilder).
 
+## How it was
 
+> [!NOTE]
+> If you want to learn more about the trusted setup, watch the rendered explainer video: [World Chain post](https://x.com/world_chain_/status/2023451971651596718?s=20).
+
+Contribution totals (excluding the coordinator finalization contribution) are documented in this summary tweet by [@dcbuilder](https://x.com/dcbuilder/status/2025266795691557260):
+
+- `OPRFKeyGenProof13`: `113`
+- `OPRFKeyGenProof25`: `111`
+- `OPRFKeyGenProof37`: `105`
+- `OPRFNullifierProof`: `104`
+- `OPRFQueryProof`: `104`
+
+Full ceremony artifacts, verification transcripts, the explainer video, manim source, and contribution attestations
+are stored on the [`trusted-setup`](../../tree/trusted-setup) orphan branch to keep the main branch lightweight.

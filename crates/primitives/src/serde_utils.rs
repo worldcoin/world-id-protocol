@@ -118,6 +118,45 @@ pub mod hex_u256_vec {
     }
 }
 
+/// Serialize as optional `0x`-prefixed hex strings and deserialize from decimal or `0x`/`0X` hex.
+pub mod hex_u256_opt_vec {
+    use super::*;
+
+    /// Serialize a `Vec<Option<U256>>` as a vector of optional `0x`-prefixed hex strings.
+    pub fn serialize<S>(values: &[Option<U256>], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let hex_strings: Vec<Option<String>> = values
+            .iter()
+            .map(|value| value.as_ref().map(|v| format!("{v:#x}")))
+            .collect();
+        hex_strings.serialize(serializer)
+    }
+
+    /// Deserialize a `Vec<Option<U256>>` from a vector of optional numeric strings.
+    ///
+    /// `0x`/`0X`-prefixed values are parsed as hex, while unprefixed values are parsed as decimal.
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<Option<U256>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let strings: Vec<Option<String>> = Vec::deserialize(deserializer)?;
+        strings
+            .into_iter()
+            .map(|value| match value {
+                Some(s) => {
+                    let (radix, digits) = parse_radix_and_digits(&s).map_err(D::Error::custom)?;
+                    U256::from_str_radix(digits, radix)
+                        .map(Some)
+                        .map_err(|e| D::Error::custom(format!("invalid numeric U256: {e}")))
+                }
+                None => Ok(None),
+            })
+            .collect()
+    }
+}
+
 /// Serialize as `0x`-prefixed hex and deserialize from decimal or `0x`/`0X` hex.
 pub mod hex_u64 {
     use super::*;
@@ -218,6 +257,12 @@ mod tests {
         u64_val: u64,
     }
 
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct TestOptVec {
+        #[serde(with = "hex_u256_opt_vec")]
+        values: Vec<Option<U256>>,
+    }
+
     #[test]
     fn test_hex_roundtrip() {
         let original = Test {
@@ -250,5 +295,26 @@ mod tests {
     fn test_unprefixed_hex_like_value_is_rejected() {
         let err = serde_json::from_str::<Test>(r#"{"u256_val":"ff","u64_val":"255"}"#).unwrap_err();
         assert!(err.to_string().contains("invalid numeric U256"));
+    }
+
+    #[test]
+    fn test_u256_opt_vec_roundtrip() {
+        let original = TestOptVec {
+            values: vec![Some(U256::from(1)), None, Some(U256::from(255))],
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        assert_eq!(json, r#"{"values":["0x1",null,"0xff"]}"#);
+
+        let parsed: TestOptVec = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn test_u256_opt_vec_deserialize_decimal_and_null() {
+        let parsed: TestOptVec = serde_json::from_str(r#"{"values":["42",null,"0x2a"]}"#).unwrap();
+        assert_eq!(
+            parsed.values,
+            vec![Some(U256::from(42)), None, Some(U256::from(42))]
+        );
     }
 }

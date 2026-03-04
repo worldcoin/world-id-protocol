@@ -23,7 +23,7 @@ contract CredentialSchemaIssuerRegistry is WorldIDBase, ICredentialSchemaIssuerR
     // that no reordering of these variables takes place. If reordering happens, a storage
     // clash will occur (effectively a memory safety error).
 
-    /// @dev issuerSchemaId -> off-chain public key that signs credentials
+    /// @dev issuerSchemaId -> off-chain public key that corresponds to the secret key that the issuer uses to sign credentials
     mapping(uint64 => Pubkey) internal _idToPubkey;
 
     /// @dev issuerSchemaId -> on-chain signer address authorized to perform updates in this registry

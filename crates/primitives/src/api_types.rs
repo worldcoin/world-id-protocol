@@ -6,7 +6,9 @@
 //! - responses are serialized as canonical `0x`-prefixed hex strings.
 
 pub use crate::merkle::AccountInclusionProof;
-use crate::serde_utils::{hex_u32, hex_u32_opt, hex_u64, hex_u256, hex_u256_opt, hex_u256_vec};
+use crate::serde_utils::{
+    hex_u32, hex_u32_opt, hex_u64, hex_u256, hex_u256_opt, hex_u256_opt_vec, hex_u256_vec,
+};
 use alloy_primitives::Address;
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
@@ -317,9 +319,11 @@ pub struct IndexerSignatureNonceResponse {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerAuthenticatorPubkeysResponse {
     /// The compressed authenticator public keys for the account.
-    #[serde(with = "hex_u256_vec")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
-    pub authenticator_pubkeys: Vec<U256>,
+    ///
+    /// Entries may be `null` for removed authenticator slots to preserve `pubkey_id` positions.
+    #[serde(with = "hex_u256_opt_vec")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<Option<String>>, format = "hex"))]
+    pub authenticator_pubkeys: Vec<Option<U256>>,
 }
 
 /// Health response for an API service (gateway or indexer).
