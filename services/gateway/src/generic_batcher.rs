@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use alloy::{network::Ethereum, providers::DynProvider};
 use tokio::{sync::mpsc, time::Instant};
@@ -7,8 +7,13 @@ use world_id_core::{
 };
 
 use crate::{
-    RequestTracker, batch_policy::BaseFeeCache, config::BatchPolicyConfig,
-    error::parse_contract_error, metrics, policy_batcher::PolicyBatchLoopRunner,
+    RequestTracker,
+    batch_policy::{
+        BacklogUrgencyStats, BaseFeeCache, BatchPolicyEngine, DecisionReason, record_policy_metrics,
+    },
+    config::BatchPolicyConfig,
+    error::parse_contract_error,
+    metrics,
     request_tracker::BacklogScope,
 };
 
@@ -25,7 +30,9 @@ pub(crate) struct PendingBatchTx {
     pub builder: alloy::providers::PendingTransactionBuilder<Ethereum>,
 }
 
-/// Strategy trait for submitting batches
+/// Strategy trait that captures the only per-batcher differences:
+///   - batch label / backlog scope (for metrics / policy)
+///   - the actual on-chain send call
 pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>: Send + 'static {
     fn batch_type(&self) -> &'static str;
     fn backlog_scope(&self) -> BacklogScope;
@@ -35,6 +42,16 @@ pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>: Send + 'static {
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
         batch: Vec<E>,
     ) -> impl Future<Output = Result<PendingBatchTx, String>> + Send;
+}
+
+struct TimedEnvelope<T> {
+    enqueued_at: Instant,
+    envelope: T,
+}
+
+enum PolicyLoopEvent<T> {
+    Tick,
+    Recv(Option<T>),
 }
 
 pub(crate) struct GenericBatcherRunner<E, S>
@@ -128,48 +145,127 @@ where
             }
         }
     }
-}
 
-impl<E, S> PolicyBatchLoopRunner for GenericBatcherRunner<E, S>
-where
-    E: BatcherEnvelope,
-    S: BatchSubmitStrategy<E>,
-{
-    type Envelope = E;
-
-    fn batch_type(&self) -> &'static str {
-        self.strategy.batch_type()
+    fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<E>>) {
+        let dropped = queue.len();
+        tracing::warn!(
+            batch_type = self.strategy.batch_type(),
+            dropped,
+            "redis reports no queued backlog, dropping local queue entries to resync state"
+        );
+        queue.clear();
     }
 
-    fn backlog_scope(&self) -> BacklogScope {
-        self.strategy.backlog_scope()
-    }
+    async fn run_policy_loop(&mut self) {
+        let mut policy_engine = BatchPolicyEngine::new(self.batch_policy.clone());
+        let reeval_interval = Duration::from_millis(self.batch_policy.reeval_ms);
 
-    fn max_batch_size(&self) -> usize {
-        self.max_batch_size
-    }
+        let mut queue: VecDeque<TimedEnvelope<E>> = VecDeque::new();
+        let mut next_eval = Instant::now() + reeval_interval;
+        let mut rx_open = true;
 
-    fn local_queue_limit(&self) -> usize {
-        self.local_queue_limit
-    }
+        while rx_open || !queue.is_empty() {
+            if queue.len() >= self.local_queue_limit {
+                tracing::warn!(
+                    batch_type = self.strategy.batch_type(),
+                    queue_len = queue.len(),
+                    local_queue_limit = self.local_queue_limit,
+                    "{} policy queue reached local capacity, pausing intake for backpressure",
+                    self.strategy.batch_type()
+                );
+            }
 
-    fn batch_policy(&self) -> &BatchPolicyConfig {
-        &self.batch_policy
-    }
+            if queue.is_empty() {
+                if !rx_open {
+                    break;
+                }
 
-    fn base_fee_cache(&self) -> &BaseFeeCache {
-        &self.base_fee_cache
-    }
+                let maybe_first = self.rx.recv().await;
+                match maybe_first {
+                    Some(first) => {
+                        queue.push_back(TimedEnvelope {
+                            enqueued_at: Instant::now(),
+                            envelope: first,
+                        });
+                        next_eval = Instant::now() + reeval_interval;
+                    }
+                    None => {
+                        tracing::info!("{} batcher channel closed", self.strategy.batch_type());
+                        rx_open = false;
+                    }
+                }
+                continue;
+            }
 
-    fn tracker(&self) -> &RequestTracker {
-        &self.tracker
-    }
+            let can_recv = rx_open && queue.len() < self.local_queue_limit;
+            let event = tokio::select! {
+                biased;
+                _ = tokio::time::sleep_until(next_eval) => PolicyLoopEvent::Tick,
+                maybe_req = self.rx.recv(), if can_recv => PolicyLoopEvent::Recv(maybe_req),
+            };
 
-    fn rx(&mut self) -> &mut mpsc::Receiver<Self::Envelope> {
-        &mut self.rx
-    }
+            match event {
+                PolicyLoopEvent::Tick => {
+                    let cost_score = policy_engine.update_cost_score(self.base_fee_cache.latest());
 
-    async fn submit_batch(&self, batch: Vec<Self::Envelope>) {
-        self.submit_common(batch).await;
+                    let fallback_age = queue
+                        .front()
+                        .map(|first| Instant::now().duration_since(first.enqueued_at).as_secs())
+                        .unwrap_or_default();
+
+                    let stats = match self
+                        .tracker
+                        .queued_backlog_stats_for_scope(self.strategy.backlog_scope())
+                        .await
+                    {
+                        Ok(stats) => stats,
+                        Err(err) => {
+                            tracing::warn!(
+                                batch_type = self.strategy.batch_type(),
+                                error = %err,
+                                "failed to read queued backlog stats; using local fallback"
+                            );
+                            BacklogUrgencyStats {
+                                queued_count: queue.len(),
+                                oldest_age_secs: fallback_age,
+                            }
+                        }
+                    };
+
+                    let decision = policy_engine.evaluate(stats, self.max_batch_size, cost_score);
+                    record_policy_metrics(self.strategy.batch_type(), &decision);
+
+                    if !decision.should_send {
+                        if matches!(decision.reason, DecisionReason::NoBacklog) && !queue.is_empty()
+                        {
+                            self.handle_no_backlog(&mut queue);
+                        }
+                        next_eval = Instant::now() + reeval_interval;
+                        continue;
+                    }
+
+                    let take_n = decision.target_batch_size.min(queue.len()).max(1);
+                    let batch = queue.drain(..take_n).map(|timed| timed.envelope).collect();
+                    self.submit_common(batch).await;
+
+                    next_eval = Instant::now() + reeval_interval;
+                }
+                PolicyLoopEvent::Recv(maybe_req) => match maybe_req {
+                    Some(req) => {
+                        queue.push_back(TimedEnvelope {
+                            enqueued_at: Instant::now(),
+                            envelope: req,
+                        });
+                    }
+                    None => {
+                        tracing::info!(
+                            "{} batcher channel closed while policy batching",
+                            self.strategy.batch_type()
+                        );
+                        rx_open = false;
+                    }
+                },
+            }
+        }
     }
 }
