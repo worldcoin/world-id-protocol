@@ -2,7 +2,7 @@
 //!
 //! This batcher collects operations and submits them via Multicall3.
 
-use std::{collections::VecDeque, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     RequestTracker,
@@ -10,7 +10,7 @@ use crate::{
     config::BatchPolicyConfig,
     error::parse_contract_error,
     metrics,
-    policy_batcher::{PolicyBatchLoopRunner, TimedEnvelope},
+    policy_batcher::PolicyBatchLoopRunner,
     request_tracker::BacklogScope,
 };
 use alloy::{
@@ -178,14 +178,5 @@ impl PolicyBatchLoopRunner for OpsBatcherRunner {
 
     async fn submit_batch(&self, batch: Vec<Self::Envelope>) {
         self.submit_ops_batch(batch).await;
-    }
-
-    async fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<Self::Envelope>>) {
-        let dropped = queue.len();
-        tracing::warn!(
-            dropped,
-            "redis reports no queued backlog, dropping local ops queue entries to resync state"
-        );
-        queue.clear();
     }
 }

@@ -48,11 +48,17 @@ pub(crate) trait PolicyBatchLoopRunner {
 
     /// Sends a ready batch through the concrete batcher's on-chain submit path.
     async fn submit_batch(&self, batch: Vec<Self::Envelope>);
-    /// Reconciles local queue state when Redis reports no backlog.
-    ///
-    /// This hook captures the intentional behavior difference:
-    /// create clears queue and removes in-flight authenticators, while ops only clears queue.
-    async fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<Self::Envelope>>);
+
+    /// Drops stale local queue entries when Redis reports no queued backlog.
+    async fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<Self::Envelope>>) {
+        let dropped = queue.len();
+        tracing::warn!(
+            batch_type = self.batch_type(),
+            dropped,
+            "redis reports no queued backlog, dropping local queue entries to resync state"
+        );
+        queue.clear();
+    }
 
     /// Policy-driven batching loop with periodic re-evaluation and bounded local queueing.
     async fn run_policy_loop(&mut self) {
