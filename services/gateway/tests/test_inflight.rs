@@ -362,7 +362,7 @@ fn assert_duplicate_in_flight(err: AuthenticatorError, ctx: &str) {
 /// After submitting a request (with a long batch window so it stays in-flight),
 /// the corresponding Redis lock key must exist.
 ///
-/// - create-account -> `gateway:inflight:auth:{addr}`
+/// - create-account -> `gateway:inflight:create:{addr}`
 /// - insert/update/remove/recover -> `gateway:inflight:leaf:{leaf_index}`
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lock_created_on_submit() {
@@ -376,7 +376,7 @@ async fn test_lock_created_on_submit() {
     let _initializing = Authenticator::register(&seed, config, None)
         .await
         .expect("register failed");
-    let auth_key = format!("gateway:inflight:auth:{addr}");
+    let auth_key = format!("gateway:inflight:create:{addr}");
     assert!(
         redis_key_exists(&gw, &auth_key).await,
         "auth lock key should exist after create-account"
@@ -457,7 +457,7 @@ async fn test_lock_removed_after_finalization() {
         .await
         .expect("register failed");
     wait_for_finalized(&gw.client, &gw.base_url, initializing.request_id()).await;
-    let auth_key = format!("gateway:inflight:auth:{addr}");
+    let auth_key = format!("gateway:inflight:create:{addr}");
     assert!(
         !redis_key_exists(&gw, &auth_key).await,
         "auth lock key should be removed atomically on finalization"

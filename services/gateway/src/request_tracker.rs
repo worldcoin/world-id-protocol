@@ -84,7 +84,7 @@ impl RequestTracker {
     /// Returns the Redis key for an in-flight lock given a raw identifier.
     fn inflight_redis_key(kind: GatewayRequestKind, raw: &str) -> String {
         let tag = match kind {
-            GatewayRequestKind::CreateAccount => "auth",
+            GatewayRequestKind::CreateAccount => "create",
             _ => "leaf",
         };
         format!("gateway:inflight:{tag}:{raw}")
