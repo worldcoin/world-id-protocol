@@ -11,8 +11,6 @@ pub struct MptProof {
     pub account_proof: Vec<Bytes>,
     /// RLP-encoded storage proof nodes for the requested slot.
     pub storage_proof: Vec<Bytes>,
-    /// The proven storage value.
-    pub storage_value: B256,
 }
 
 /// Fetches an MPT proof for a single storage slot via `eth_getProof`.
@@ -31,12 +29,10 @@ pub async fn fetch_storage_proof(
         .storage_proof
         .first()
         .ok_or(eyre!("no storage proof found for slot {slot:#x}"))?;
-    let storage_value = B256::from(storage.value);
 
     Ok(MptProof {
         account_proof: proof_response.account_proof,
         storage_proof: storage.proof.clone(),
-        storage_value,
     })
 }
 

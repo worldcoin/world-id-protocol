@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use alloy::{
-    primitives::{Address, B256, Bytes},
+    primitives::{B256, Bytes},
     providers::DynProvider,
 };
 use eyre::Result;
@@ -92,50 +92,6 @@ impl EthereumMptSatellite {
             timeout: DEFAULT_TIMEOUT,
         }
     }
-
-    /// Creates a new Ethereum MPT satellite with explicit parameters.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        name: impl Into<String>,
-        chain_id: u64,
-        gateway: IGatewayInstance<Arc<DynProvider>>,
-        bridge: IWorldIDSatelliteInstance<Arc<DynProvider>>,
-        anchor_chain_id: u64,
-        provider: Arc<DynProvider>,
-        source_provider: Arc<DynProvider>,
-        world_id_source: IWorldIDSourceInstance<Arc<DynProvider>>,
-        dispute_game_factory: IDisputeGameFactoryInstance<Arc<DynProvider>>,
-        game_type: u32,
-        require_finalized: bool,
-    ) -> Self {
-        Self {
-            name: name.into(),
-            chain_id,
-            gateway,
-            satellite: bridge,
-            anchor_chain_id,
-            provider,
-            source_provider,
-            world_id_source,
-            dispute_game_factory,
-            game_type,
-            require_finalized,
-            poll_interval: DEFAULT_POLL_INTERVAL,
-            timeout: DEFAULT_TIMEOUT,
-        }
-    }
-
-    /// Overrides the poll interval used when waiting for a dispute game.
-    pub fn with_poll_interval(mut self, interval: Duration) -> Self {
-        self.poll_interval = interval;
-        self
-    }
-
-    /// Overrides the maximum time to wait for a dispute game.
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
-        self
-    }
 }
 
 impl Satellite for EthereumMptSatellite {
@@ -145,14 +101,6 @@ impl Satellite for EthereumMptSatellite {
 
     fn chain_id(&self) -> u64 {
         self.chain_id
-    }
-
-    fn gateway(&self) -> Address {
-        *self.gateway.address()
-    }
-
-    fn bridge(&self) -> Address {
-        *self.satellite.address()
     }
 
     fn build_proof<'a>(

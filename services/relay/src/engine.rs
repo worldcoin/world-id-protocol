@@ -5,7 +5,7 @@ use futures_util::StreamExt;
 use tokio::task::JoinSet;
 use tracing::{error, info, warn};
 
-use crate::{cli::chain::WorldChain, log::CommitmentLog, satellite::Satellite, stream};
+use crate::{cli::WorldChain, log::CommitmentLog, satellite::Satellite, stream};
 
 /// The core relay engine.
 ///

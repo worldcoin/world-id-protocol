@@ -16,10 +16,11 @@ use alloy::{
 use alloy_primitives::B256;
 use eyre::Result;
 use world_id_relay::{
-    bindings::{ICommitment, IWorldIDSource},
-    log::CommitmentLog,
+    CommitmentLog, Satellite,
+    bindings::*,
     primitives::{ChainCommitment, KeccakChain},
     relay::send_relay_tx,
+    satellite::spawn_satellite,
 };
 
 // ── Mock Contracts ──────────────────────────────────────────────────────────
@@ -271,9 +272,7 @@ async fn e2e_satellite_task_relays_on_new_commitment() -> Result<()> {
 
     // 5. Spawn the satellite task.
     let log_clone = log.clone();
-    let task = tokio::spawn(async move {
-        world_id_relay::satellite::spawn_satellite(satellite, log_clone).await
-    });
+    let task = tokio::spawn(async move { spawn_satellite(satellite, log_clone).await });
 
     // 6. Give the task a moment to start and subscribe.
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -339,21 +338,13 @@ struct TestSatellite {
     anchor_chain_id: u64,
 }
 
-impl world_id_relay::satellite::Satellite for TestSatellite {
+impl Satellite for TestSatellite {
     fn name(&self) -> &str {
         "test-satellite"
     }
 
     fn chain_id(&self) -> u64 {
         1
-    }
-
-    fn gateway(&self) -> Address {
-        self.gateway_address
-    }
-
-    fn bridge(&self) -> Address {
-        self.satellite_address
     }
 
     fn build_proof<'a>(

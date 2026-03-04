@@ -5,7 +5,7 @@ use tracing::Instrument;
 
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
-use alloy::primitives::{Address, B256, Bytes};
+use alloy::primitives::{B256, Bytes};
 use eyre::Result;
 
 use crate::{
@@ -17,19 +17,12 @@ use crate::{
 const RELAY_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// A destination chain that can receive bridged World ID state.
-#[auto_impl::auto_impl(Box, Arc, &)]
 pub trait Satellite: Send + Sync {
     /// Human-readable name for logging (e.g. "ethereum-mainnet", "base-sepolia").
     fn name(&self) -> &str;
 
     /// The chain ID of this destination.
     fn chain_id(&self) -> u64;
-
-    /// The gateway contract address on this destination chain.
-    fn gateway(&self) -> Address;
-
-    /// The satellite (bridge) contract address on this destination chain.
-    fn bridge(&self) -> Address;
 
     /// Build the proof attributes for the given commitment.
     ///

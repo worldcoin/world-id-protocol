@@ -1,6 +1,5 @@
 use clap::Parser;
 use eyre::Result;
-
 use world_id_relay::cli::Cli;
 
 #[tokio::main]

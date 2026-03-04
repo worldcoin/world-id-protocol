@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-<<<<<<< HEAD
-=======
 ## [0.5.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.4.4...world-id-primitives-v0.5.0) - 2026-03-03
 
 ### Added
@@ -24,7 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - gateway config ([#506](https://github.com/worldcoin/world-id-protocol/pull/506))
 - *(deps)* bumped oprf versions ([#522](https://github.com/worldcoin/world-id-protocol/pull/522))
 
->>>>>>> main
 ## [0.4.4](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.4.3...world-id-primitives-v0.4.4) - 2026-02-24
 
 ### Other

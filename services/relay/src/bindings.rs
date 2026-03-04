@@ -89,43 +89,6 @@ sol! {
 sol! {
     #[sol(rpc)]
     interface IWorldIDSatellite {
-        function verify(
-            uint256 nullifier,
-            uint256 action,
-            uint64 rpId,
-            uint256 nonce,
-            uint256 signalHash,
-            uint64 expiresAtMin,
-            uint64 issuerSchemaId,
-            uint256 credentialGenesisIssuedAtMin,
-            uint256[5] calldata zeroKnowledgeProof
-        ) external view;
-
-        function verifySession(
-            uint64 rpId,
-            uint256 nonce,
-            uint256 signalHash,
-            uint64 expiresAtMin,
-            uint64 issuerSchemaId,
-            uint256 credentialGenesisIssuedAtMin,
-            uint256 sessionId,
-            uint256[2] calldata sessionNullifier,
-            uint256[5] calldata zeroKnowledgeProof
-        ) external view;
-
-        function verifyProofAndSignals(
-            uint256 nullifier,
-            uint256 action,
-            uint64 rpId,
-            uint256 nonce,
-            uint256 signalHash,
-            uint64 expiresAtMin,
-            uint64 issuerSchemaId,
-            uint256 credentialGenesisIssuedAtMin,
-            uint256 sessionId,
-            uint256[5] calldata zeroKnowledgeProof
-        ) external view;
-
         function isValidRoot(uint256 root) external view returns (bool);
 
         function VERIFIER() external view returns (address);

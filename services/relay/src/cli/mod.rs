@@ -9,6 +9,7 @@ use world_id_services_common::ProviderArgs;
 use crate::{engine::Engine, satellite::EthereumMptSatellite};
 
 pub mod chain;
+pub use chain::WorldChain;
 
 /// World ID Bridge Relay Service.
 #[derive(clap::Parser, Debug, Deserialize)]

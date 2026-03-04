@@ -15,6 +15,7 @@ members = [
   "tools/generate-solidity-fixtures",
   "services/relay",
 ]
+
 resolver = "2"
 
 [workspace.package]
@@ -88,7 +89,9 @@ webpki-roots = "1.0"
 zeroize = "1"
 zstd = "0.13"
 axum = { version = "0.8", features = ["macros", "json"] }
-moka = { version = "0.12.13", features = ["future", "sync"] }
+moka = { version = "0.12.13", features = ["future"] }
+dashmap = { version = "6.1.0" }
+parking_lot = { version = "0.12.5"}
 metrics = "0.24"
 secrecy = "0.10"
 mockito = "1"
@@ -120,7 +123,6 @@ tar = "0.4"
 taceo-nodes-common = "0.2.1"
 taceo-nodes-observability = "0.1"
 tempfile = "3"
-testcontainers = "0.27"
 tokio-util = "0.7"
 tower = "0.5.3"
 
@@ -133,3 +135,4 @@ world-id-primitives = { version = "0.5.0", path = "crates/primitives", default-f
 world-id-oprf-node = { version = "0.1.0", path = "services/oprf-node" }
 world-id-test-utils = { version = "0.1.0", path = "crates/test-utils" }
 world-id-services-common = { path = "services/common" }
+world-id-relay = { path = "services/relay" }
