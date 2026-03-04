@@ -17,8 +17,13 @@ alloy = { workspace = true, features = [
     "signer-local",
     "provider-http",
 ] }
+auto_impl = { version = "*"}
+crossbeam-channel = { version = "*"}
+parking_lot = { version = "*"}
 alloy-primitives = { workspace = true }
+async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
+dashmap = "6"
 dotenvy = { workspace = true }
 eyre = { workspace = true }
 futures = { workspace = true }
@@ -35,6 +40,7 @@ url = { workspace = true }
 world-id-services-common = { workspace = true }
 config = { workspace = true }
 futures-util = { workspace = true }
+moka = { workspace = true }
 tokio-util = { workspace = true }
 tokio-stream = { version = "*" }
 async-stream = { version = "*" }

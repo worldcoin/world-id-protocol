@@ -1,4 +1,5 @@
-use alloy::sol;
+use alloy::{sol, sol_types::SolEvent};
+use alloy_primitives::B256;
 
 // ── World ID Source (WorldIDSource.sol + StateBridge.sol + IStateBridge.sol) ──
 
@@ -17,7 +18,7 @@ sol! {
             bytes data;
         }
 
-        #[derive(Debug)]
+        #[derive(Debug, PartialEq, Eq, Hash)]
         struct Affine {
             uint256 x;
             uint256 y;
@@ -144,26 +145,6 @@ sol! {
     }
 }
 
-// ── Permissioned Gateway Adapter (PermissionedGatewayAdapter.sol) ────────────
-
-sol! {
-    #[sol(rpc)]
-    interface IPermissionedGatewayAdapter {
-        function sendMessage(
-            bytes calldata recipient,
-            bytes calldata payload,
-            bytes[] calldata attributes
-        ) external payable returns (bytes32 sendId);
-
-        function ATTRIBUTE() external view returns (bytes4);
-        function STATE_BRIDGE() external view returns (address);
-        function ANCHOR_BRIDGE() external view returns (address);
-        function ANCHOR_CHAIN_ID() external view returns (uint256);
-        function supportsAttribute(bytes4 selector) external view returns (bool);
-        function owner() external view returns (address);
-    }
-}
-
 // ── Ethereum MPT Gateway Adapter (EthereumMPTGatewayAdapter.sol) ─────────────
 
 sol! {
@@ -215,61 +196,6 @@ sol! {
     }
 }
 
-// ── Light Client Gateway Adapter (LightClientGatewayAdapter.sol) ─────────────
-
-sol! {
-    #[derive(Debug)]
-    struct StorageSlot {
-        bytes32 key;
-        bytes32 value;
-    }
-
-    #[derive(Debug)]
-    struct ProofOutputs {
-        bytes32 prevHeader;
-        uint256 prevHead;
-        bytes32 prevSyncCommitteeHash;
-        uint256 newHead;
-        bytes32 newHeader;
-        bytes32 executionStateRoot;
-        uint256 executionBlockNumber;
-        bytes32 syncCommitteeHash;
-        bytes32 nextSyncCommitteeHash;
-        StorageSlot[] storageSlots;
-    }
-
-    #[sol(rpc)]
-    interface ILightClientGatewayAdapter {
-        function sendMessage(
-            bytes calldata recipient,
-            bytes calldata payload,
-            bytes[] calldata attributes
-        ) external payable returns (bytes32 sendId);
-
-        function ATTRIBUTE() external view returns (bytes4);
-        function STATE_BRIDGE() external view returns (address);
-        function ANCHOR_BRIDGE() external view returns (address);
-        function ANCHOR_CHAIN_ID() external view returns (uint256);
-        function supportsAttribute(bytes4 selector) external view returns (bool);
-        function owner() external view returns (address);
-
-        function verifier() external view returns (address);
-        function programVKey() external view returns (bytes32);
-        function head() external view returns (uint256);
-        function headers(uint256 slot) external view returns (bytes32);
-        function syncCommitteeHashes(uint256 period) external view returns (bytes32);
-
-        function setVerifier(address newVerifier) external;
-        function setProgramVKey(bytes32 newVKey) external;
-        function setSyncCommitteeHash(uint256 period, bytes32 hash) external;
-
-        event LightClientUpdated(uint256 indexed slot, bytes32 executionStateRoot);
-        event SyncCommitteeUpdated(uint256 indexed period, bytes32 syncCommitteeHash);
-        event VerifierUpdated(address indexed oldVerifier, address indexed newVerifier);
-        event ProgramVKeyUpdated(bytes32 indexed oldVKey, bytes32 indexed newVKey);
-    }
-}
-
 // ── World Chain Registry Interfaces ──────────────────────────────────────────
 
 sol! {
@@ -291,8 +217,6 @@ sol! {
         event IssuerSchemaRegistered(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer, uint160 oprfKeyId);
         event IssuerSchemaRemoved(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer);
         event IssuerSchemaPubkeyUpdated(uint64 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
-        event IssuerSchemaSignerUpdated(uint64 indexed issuerSchemaId, address oldSigner, address newSigner);
-        event IssuerSchemaUpdated(uint64 indexed issuerSchemaId, string oldSchemaUri, string newSchemaUri);
 
         function issuerSchemaIdToPubkey(uint64 issuerSchemaId) external view returns (Pubkey memory);
     }
@@ -372,6 +296,53 @@ sol! {
     error InvalidTreeDepth();
     error InvalidMinExpirationThreshold();
 }
+
+// ── Sol interfaces ──────────────────────────────────────────────────────────
+
+sol! {
+    interface ICommitment {
+        function updateRoot(uint256,uint256,bytes32);
+        function setIssuerPubkey(uint64,uint256,uint256,bytes32);
+        function setOprfPubkey(uint160,uint256,uint256,bytes32);
+    }
+
+    interface IChainCommitment {
+        #[derive(Debug)]
+        struct Pubkey {
+            uint256 x;
+            uint256 y;
+        }
+
+        event RootRecorded(uint256 indexed root, uint256 timestamp);
+        event ChainCommitted(
+            bytes32 indexed keccakChain,
+            uint256 indexed blockNumber,
+            uint256 indexed chainId,
+            bytes commitment
+        );
+        event IssuerSchemaRegistered(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer, uint160 oprfKeyId);
+        event IssuerSchemaRemoved(uint64 indexed issuerSchemaId, Pubkey pubkey, address signer);
+        event IssuerSchemaPubkeyUpdated(uint64 indexed issuerSchemaId, Pubkey oldPubkey, Pubkey newPubkey);
+        event SecretGenFinalize(uint160 indexed oprfKeyId, uint32 indexed epoch);
+    }
+}
+
+// ── Event signature arrays ──────────────────────────────────────────────────
+
+pub const WORLD_ID_REGISTRY_EVENTS: [B256; 1] =
+    [<IWorldIDRegistry::RootRecorded as SolEvent>::SIGNATURE_HASH];
+
+pub const ISSUER_REGISTRY_EVENTS: [B256; 3] = [
+    <ICredentialSchemaIssuerRegistry::IssuerSchemaRegistered as SolEvent>::SIGNATURE_HASH,
+    <ICredentialSchemaIssuerRegistry::IssuerSchemaRemoved as SolEvent>::SIGNATURE_HASH,
+    <ICredentialSchemaIssuerRegistry::IssuerSchemaPubkeyUpdated as SolEvent>::SIGNATURE_HASH,
+];
+
+pub const OPRF_REGISTRY_EVENTS: [B256; 1] =
+    [<IOprfKeyRegistry::SecretGenFinalize as SolEvent>::SIGNATURE_HASH];
+
+pub const CHAIN_COMMITTED_EVENTS: [B256; 1] =
+    [<IChainCommitment::ChainCommitted as SolEvent>::SIGNATURE_HASH];
 
 // ── Constants ────────────────────────────────────────────────────────────────
 

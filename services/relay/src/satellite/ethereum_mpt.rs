@@ -1,12 +1,16 @@
-use std::{future::Future, pin::Pin, time::Duration};
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use alloy::{
     primitives::{Address, B256, Bytes},
-    providers::DynProvider,
+    providers::{DynProvider, Provider},
 };
 use eyre::Result;
 
 use crate::{
+    bindings::{
+        IDisputeGameFactory::IDisputeGameFactoryInstance, IGateway::IGatewayInstance,
+        IWorldIDSatellite::IWorldIDSatelliteInstance, IWorldIDSource::IWorldIDSourceInstance,
+    },
     proof::{ChainCommitment, ethereum_mpt::build_l1_proof_attributes},
     relay::send_relay_tx,
 };
@@ -24,21 +28,25 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(3600);
 /// This is the most complex proof path. It waits for an OP Stack dispute game that covers
 /// the target World Chain block, then constructs MPT storage proofs against the game's
 /// proven state root. The relay transaction is sent on L1.
-pub struct EthereumMptSatellite {
+pub struct EthereumMptSatellite<P: Provider = Arc<DynProvider>> {
+    /// Human-readable name for logging (e.g. "ethereum-mainnet", "base-sepolia").
     name: String,
+    /// The L1 chain ID for this satellite (e.g. 1 for mainnet, 11155111 for sepolia).
     chain_id: u64,
-    gateway_address: Address,
-    bridge_address: Address,
+    /// The gateway contract address on L1.
+    gateway: IGatewayInstance<P>,
+    /// The satellite (bridge) contract address on L1.
+    satellite: IWorldIDSatelliteInstance<P>,
     /// The chain ID of the anchor (source) chain, used for ERC-7930 address encoding.
     anchor_chain_id: u64,
     /// L1 provider for sending the relay transaction.
-    provider: DynProvider,
+    provider: P,
     /// World Chain provider for fetching MPT proofs and block data.
-    wc_provider: DynProvider,
+    source_provider: P,
     /// WorldIDSource contract address on World Chain.
-    wc_source_address: Address,
+    world_id_source: IWorldIDSourceInstance<P>,
     /// DisputeGameFactory contract address on L1.
-    dispute_game_factory: Address,
+    dispute_game_factory: IDisputeGameFactoryInstance<P>,
     /// The dispute game type to look for (e.g. 0 = CANNON).
     game_type: u32,
     /// Whether to require games to be finalized (DEFENDER_WINS) before using them.
@@ -49,45 +57,31 @@ pub struct EthereumMptSatellite {
     timeout: Duration,
 }
 
-impl EthereumMptSatellite {
+impl<P: Provider> EthereumMptSatellite<P> {
     /// Creates a new Ethereum MPT satellite with default poll interval and timeout.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - Human-readable name for logging.
-    /// * `chain_id` - The L1 chain ID.
-    /// * `gateway` - The Ethereum MPT gateway contract address on L1.
-    /// * `bridge` - The satellite bridge contract address on L1.
-    /// * `anchor_chain_id` - The chain ID of World Chain (source).
-    /// * `provider` - An L1 provider with signing capability.
-    /// * `wc_provider` - A World Chain provider for MPT proof fetching.
-    /// * `wc_source_address` - The WorldIDSource contract address on World Chain.
-    /// * `dispute_game_factory` - The DisputeGameFactory address on L1.
-    /// * `game_type` - The dispute game type to use.
-    /// * `require_finalized` - Whether to require DEFENDER_WINS before relaying.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: impl Into<String>,
         chain_id: u64,
-        gateway: Address,
-        bridge: Address,
+        gateway: IGatewayInstance<P>,
+        bridge: IWorldIDSatelliteInstance<P>,
         anchor_chain_id: u64,
-        provider: DynProvider,
-        wc_provider: DynProvider,
-        wc_source_address: Address,
-        dispute_game_factory: Address,
+        provider: P,
+        source_provider: P,
+        world_id_source: IWorldIDSourceInstance<P>,
+        dispute_game_factory: IDisputeGameFactoryInstance<P>,
         game_type: u32,
         require_finalized: bool,
     ) -> Self {
         Self {
             name: name.into(),
             chain_id,
-            gateway_address: gateway,
-            bridge_address: bridge,
+            gateway,
+            satellite: bridge,
             anchor_chain_id,
             provider,
-            wc_provider,
-            wc_source_address,
+            source_provider,
+            world_id_source,
             dispute_game_factory,
             game_type,
             require_finalized,
@@ -119,11 +113,11 @@ impl Satellite for EthereumMptSatellite {
     }
 
     fn gateway(&self) -> Address {
-        self.gateway_address
+        *self.gateway.address()
     }
 
     fn bridge(&self) -> Address {
-        self.bridge_address
+        *self.satellite.address()
     }
 
     fn build_proof<'a>(
@@ -132,10 +126,10 @@ impl Satellite for EthereumMptSatellite {
     ) -> Pin<Box<dyn Future<Output = Result<(Bytes, Bytes)>> + Send + 'a>> {
         Box::pin(async move {
             build_l1_proof_attributes(
-                &self.wc_provider,
+                &self.source_provider,
                 &self.provider,
-                self.wc_source_address,
-                self.dispute_game_factory,
+                *self.world_id_source.address(),
+                *self.dispute_game_factory.address(),
                 self.game_type,
                 self.require_finalized,
                 commitment,
@@ -154,8 +148,8 @@ impl Satellite for EthereumMptSatellite {
             let (attribute, payload) = self.build_proof(commitment).await?;
             send_relay_tx(
                 &self.provider,
-                self.gateway_address,
-                self.bridge_address,
+                *self.gateway.address(),
+                *self.satellite.address(),
                 self.anchor_chain_id,
                 payload,
                 attribute,

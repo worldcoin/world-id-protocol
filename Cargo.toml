@@ -88,7 +88,7 @@ webpki-roots = "1.0"
 zeroize = "1"
 zstd = "0.13"
 axum = { version = "0.8", features = ["macros", "json"] }
-moka = { version = "0.12.13", features = ["future"] }
+moka = { version = "0.12.13", features = ["future", "sync"] }
 metrics = "0.24"
 secrecy = "0.10"
 mockito = "1"

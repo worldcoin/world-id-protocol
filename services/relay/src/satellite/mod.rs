@@ -1,27 +1,20 @@
 mod ethereum_mpt;
-mod light_client;
-mod permissioned;
 
 pub use ethereum_mpt::EthereumMptSatellite;
-pub use light_client::LightClientSatellite;
-pub use permissioned::PermissionedSatellite;
+use tracing::Instrument;
 
-use std::{future::Future, pin::Pin};
+use std::{future::Future, pin::Pin, sync::Arc};
 
 use alloy::primitives::{Address, B256, Bytes};
 use eyre::Result;
 
-use crate::proof::ChainCommitment;
+use crate::{
+    log::SourceStateLog,
+    primitives::{ChainCommitment, reduce},
+};
 
 /// A destination chain that can receive bridged World ID state.
-///
-/// Different satellites use different proof strategies (permissioned, MPT, ZK light client)
-/// but all ultimately deliver commitments to a `WorldIDSatellite` contract via an ERC-7786
-/// gateway.
-///
-/// This trait is object-safe so it can be used as `dyn Satellite`. Async methods return
-/// boxed futures to support dynamic dispatch.
-#[allow(clippy::type_complexity)]
+#[auto_impl::auto_impl(Box, Arc, &)]
 pub trait Satellite: Send + Sync {
     /// Human-readable name for logging (e.g. "ethereum-mainnet", "base-sepolia").
     fn name(&self) -> &str;
@@ -38,6 +31,7 @@ pub trait Satellite: Send + Sync {
     /// Build the proof attributes for the given commitment.
     ///
     /// Returns `(attribute, payload)` ready for `gateway.sendMessage()`.
+    #[allow(clippy::type_complexity)]
     fn build_proof<'a>(
         &'a self,
         commitment: &'a ChainCommitment,
@@ -51,4 +45,53 @@ pub trait Satellite: Send + Sync {
         &'a self,
         commitment: &'a ChainCommitment,
     ) -> Pin<Box<dyn Future<Output = Result<B256>> + Send + 'a>>;
+}
+
+pub fn spawn_satellite(
+    satellite: impl Satellite + 'static,
+    log: Arc<SourceStateLog>,
+) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
+    Box::pin(async move {
+        let span = tracing::info_span!(
+            "satellite",
+            name = satellite.name(),
+            chain_id = satellite.chain_id(),
+        );
+
+        let mut chain_head = log.subscribe();
+        let mut local_head = B256::ZERO;
+
+        async {
+            loop {
+                chain_head.changed().await?;
+
+                let delta = match log.since(local_head) {
+                    Some(d) if !d.is_empty() => d,
+                    _ => continue,
+                };
+
+                let count = delta.len();
+                let merged = reduce(&delta)?;
+                let target_head = merged.chain_head;
+
+                tracing::debug!(
+                    commitments = count,
+                    target = %target_head,
+                    "relaying delta"
+                );
+
+                match satellite.relay(&merged).await {
+                    Ok(tx_hash) => {
+                        local_head = target_head;
+                        tracing::info!(%tx_hash, head = %local_head, "relay succeeded");
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "relay failed, will retry on next head");
+                    }
+                }
+            }
+        }
+        .instrument(span)
+        .await
+    })
 }

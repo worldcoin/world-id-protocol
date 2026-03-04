@@ -1,258 +1,104 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::sync::Arc;
 
-use alloy::{primitives::Address, providers::DynProvider};
+use alloy::providers::{DynProvider, Provider};
+use alloy_primitives::U160;
 use eyre::Result;
-use futures::stream::BoxStream;
 use futures_util::StreamExt;
+use tokio::task::JoinSet;
 use tracing::{error, info, warn};
 
-use crate::{proof::merge_commitments, propagate, satellite::Satellite, stream};
-
-// ── Registry change types ────────────────────────────────────────────────────
-
-#[derive(Debug, Clone)]
-pub enum RegistryChange {
-    Issuer(u64),
-    OprfKey(u64),
-    RpRegistration(u64),
-}
-
-#[derive(Debug, Default)]
-pub struct PendingChanges {
-    pub issuer_schema_ids: HashSet<u64>,
-    pub oprf_key_ids: HashSet<u64>,
-}
-
-impl PendingChanges {
-    pub fn is_empty(&self) -> bool {
-        self.issuer_schema_ids.is_empty() && self.oprf_key_ids.is_empty()
-    }
-
-    pub fn clear(&mut self) {
-        self.issuer_schema_ids.clear();
-        self.oprf_key_ids.clear();
-    }
-
-    pub fn drain_ids(&mut self) -> (Vec<u64>, Vec<u64>) {
-        (
-            self.issuer_schema_ids.drain().collect(),
-            self.oprf_key_ids.drain().collect(),
-        )
-    }
-
-    fn apply(&mut self, change: RegistryChange) {
-        match change {
-            RegistryChange::Issuer(id) => {
-                self.issuer_schema_ids.insert(id);
-            }
-            RegistryChange::OprfKey(id) | RegistryChange::RpRegistration(id) => {
-                self.oprf_key_ids.insert(id);
-            }
-        }
-    }
-}
-
-// ── Engine ───────────────────────────────────────────────────────────────────
-
-pub struct WcRegistries {
-    pub source: Address,
-    pub issuer_registry: Address,
-    pub oprf_registry: Address,
-    pub rp_registry: Address,
-}
-
-/// Maximum number of `ChainCommitted` events to merge into a single relay batch.
-const MAX_COMMITMENT_BATCH: usize = 64;
+use crate::{
+    cli::chain::WorldChain,
+    log::{CommitmentEventHook, SourceStateLog},
+    satellite::Satellite,
+    stream::{self, RegistryEventHooks},
+};
 
 /// The core relay engine.
-///
-/// `ChainCommitted` events are batched over a configurable window, merged
-/// into a single combined `Commitment[]` payload, then stream-mapped through
-/// each satellite's proof builder and relayed concurrently.
-pub struct Engine {
-    wc_provider: DynProvider,
-    registries: WcRegistries,
-    satellites: Vec<Arc<dyn Satellite>>,
-    batch_interval: Duration,
-    /// How long to accumulate `ChainCommitted` events before merging and relaying.
-    commitment_batch_window: Duration,
+pub struct Engine<P: Provider = Arc<DynProvider>> {
+    world_chain: WorldChain<P>,
+    log: Arc<SourceStateLog>,
+    tasks: JoinSet<(String, Result<()>)>,
 }
 
-impl Engine {
-    pub fn new(
-        wc_provider: DynProvider,
-        registries: WcRegistries,
-        satellites: Vec<Arc<dyn Satellite>>,
-        batch_interval: Duration,
-        commitment_batch_window: Duration,
-    ) -> Self {
+impl<P: Provider> Engine<P> {
+    pub fn new(world_chain: WorldChain<P>) -> Self {
+        let log = Arc::new(SourceStateLog::new());
         Self {
-            wc_provider,
-            registries,
-            satellites,
-            batch_interval,
-            commitment_batch_window,
+            world_chain,
+            log,
+            tasks: JoinSet::new(),
         }
     }
 
-    pub fn add_satellite(&mut self, satellite: Arc<dyn Satellite>) {
-        self.satellites.push(satellite);
+    /// Access the shared commitment log (for satellite task construction).
+    pub fn log(&self) -> &Arc<SourceStateLog> {
+        &self.log
     }
 
-    async fn subscribe_registry_changes(
-        &self,
-    ) -> Result<futures::stream::SelectAll<BoxStream<'_, Result<RegistryChange>>>> {
-        let p = &self.wc_provider;
-        let r = &self.registries;
+    /// Spawns a satellite task that listens for new commitments and relays them.
+    pub fn spawn_satellite(&mut self, satellite: impl Satellite + 'static) {
+        let name = satellite.name().to_owned();
+        let log = self.log().clone();
 
-        Ok(futures::stream::select_all(vec![
-            Box::pin(
-                stream::watch_issuer_changes(p, r.issuer_registry)
-                    .await?
-                    .map(|r| r.map(RegistryChange::Issuer)),
-            ) as BoxStream<'_, _>,
-            Box::pin(
-                stream::watch_oprf_key_changes(p, r.oprf_registry)
-                    .await?
-                    .map(|r| r.map(RegistryChange::OprfKey)),
-            ),
-            Box::pin(
-                stream::watch_rp_registrations(p, r.rp_registry)
-                    .await?
-                    .map(|r| r.map(RegistryChange::RpRegistration)),
-            ),
-        ]))
+        self.tasks.spawn(async move {
+            let result = crate::satellite::spawn_satellite(satellite, log).await;
+            (name, result)
+        });
     }
 
     /// Runs the relay engine loop. Never returns under normal operation.
-    ///
-    /// The relay pipeline:
-    /// ```text
-    /// ChainCommitted stream
-    ///     → filter errors
-    ///     → chunks_timeout(batch_window)   // accumulate sequential commits
-    ///     → merge_commitments              // concat Commitment[] payloads
-    ///     → flat_map(N satellites)          // fan out to each destination
-    ///     → buffer_unordered               // build proofs + relay concurrently
-    /// ```
-    pub async fn run(&self) -> Result<()> {
-        let mut registry_changes = self.subscribe_registry_changes().await?;
+    pub async fn run(&mut self) -> Result<()> {
+        stream::backfill_commitments(&self.world_chain, &self.log, 0).await?;
 
-        // ── Relay pipeline ───────────────────────────────────────────────
-        let satellites = self.satellites.clone();
-        let concurrency = satellites.len().max(1);
+        let hooks = RegistryEventHooks::new().register(CommitmentEventHook {
+            log: self.log.clone(),
+        });
 
-        // Stage 1: raw commitment stream, filter decode errors.
-        let committed = stream::watch_chain_committed(&self.wc_provider, self.registries.source)
-            .await?
-            .filter_map(|r| async {
-                match r {
-                    Ok(c) => Some(c),
-                    Err(e) => {
-                        error!(error = %e, "chain committed stream error");
-                        None
-                    }
-                }
-            });
+        let mut state_stream = stream::merged_registry_stream(&self.world_chain, hooks).await?;
 
-        // Stage 2: batch sequential commitments over a time window.
-        // Uses tokio_stream's chunks_timeout (UFCS to avoid trait conflict
-        // with futures_util::StreamExt).
-        let batched = tokio_stream::StreamExt::chunks_timeout(
-            Box::pin(committed),
-            MAX_COMMITMENT_BATCH,
-            self.commitment_batch_window,
-        );
-
-        // Stage 3: merge each batch → fan out to satellites → buffer.
-        let mut relays = Box::pin(
-            batched
-                .filter_map(|batch| async move {
-                    let n = batch.len();
-                    match merge_commitments(batch) {
-                        Ok(merged) => {
-                            info!(
-                                merged = n,
-                                chain_head = %merged.chain_head,
-                                block = merged.block_number,
-                                "commitment batch merged"
-                            );
-                            Some(Arc::new(merged))
-                        }
-                        Err(e) => {
-                            error!(error = %e, "failed to merge commitment batch");
-                            None
-                        }
-                    }
-                })
-                .flat_map(move |commitment| {
-                    let sats = satellites.clone();
-                    futures::stream::iter(sats.into_iter().map(move |sat| {
-                        let commitment = Arc::clone(&commitment);
-                        async move {
-                            let name = sat.name().to_owned();
-                            (name, sat.relay(&commitment).await)
-                        }
-                    }))
-                })
-                .buffer_unordered(concurrency),
-        );
-
-        // ── Engine state ─────────────────────────────────────────────────
-        let mut pending = PendingChanges::default();
-        let mut batch_ticker = tokio::time::interval(self.batch_interval);
+        let mut tick = tokio::time::interval(self.world_chain.bridge_interval());
 
         info!(
-            source = %self.registries.source,
-            satellite_count = self.satellites.len(),
-            batch_interval = ?self.batch_interval,
-            commitment_batch_window = ?self.commitment_batch_window,
+            source = %self.world_chain.world_id_source().address(),
+            tick = ?self.world_chain.bridge_interval(),
             "relay engine started"
         );
 
-        // ── Main loop ────────────────────────────────────────────────────
         loop {
             tokio::select! {
-                Some(result) = registry_changes.next() => {
-                    match result {
-                        Ok(change) => {
-                            info!(?change, "registry change detected");
-                            pending.apply(change);
-                        }
-                        Err(e) => warn!(error = %e, "registry stream error"),
-                    }
-                }
+                _ = state_stream.next() => {}
 
-                _ = batch_ticker.tick() => {
-                    if pending.is_empty() {
+                _ = tick.tick() => {
+                    if !self.log.has_pending() {
                         continue;
                     }
 
-                    let (issuers, oprfs) = pending.drain_ids();
+                    let (issuers, oprfs) = self.log.pending_propagation_ids();
+                    if issuers.is_empty() && oprfs.is_empty() {
+                        continue;
+                    }
+
                     info!(issuers = issuers.len(), oprfs = oprfs.len(), "propagating");
 
-                    match propagate::propagate_state(
-                        &self.wc_provider,
-                        self.registries.source,
-                        &issuers,
-                        &oprfs,
-                    )
-                    .await
-                    {
-                        Ok(Some(tx)) => info!(%tx, "propagation succeeded"),
-                        Ok(None) => info!("propagation: nothing changed on-chain"),
-                        Err(e) => {
-                            error!(error = %e, "propagation failed, re-queuing");
-                            pending.issuer_schema_ids.extend(issuers);
-                            pending.oprf_key_ids.extend(oprfs);
-                        }
+                    let pending = self.world_chain.world_id_source().propagateState(issuers, oprfs.iter().map(|id| U160::from(*id)).collect()).send().await?;
+                    let tx = *pending.tx_hash();
+
+                    let receipt = pending.get_receipt().await?;
+
+                    if receipt.status() {
+                        info!(hash = %&tx, "propagateState succeeded");
+                    } else {
+                        warn!(hash = %&tx, "propagateState transaction reverted");
                     }
                 }
 
-                Some((name, outcome)) = relays.next() => {
-                    match outcome {
-                        Ok(tx) => info!(satellite = %name, %tx, "relay successful"),
-                        Err(e) => error!(satellite = %name, error = %e, "relay failed"),
+                // Monitor satellite tasks.
+                Some(result) = self.tasks.join_next() => {
+                    match result {
+                        Ok((name, Ok(()))) => info!(%name, "satellite task exited"),
+                        Ok((name, Err(e))) => error!(%name, error = %e, "satellite task failed"),
+                        Err(e) => error!(error = %e, "satellite task panicked"),
                     }
                 }
             }
@@ -263,38 +109,90 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        bindings::{ICommitment, IWorldIDSource},
+        primitives::{BlockTimestampAndLogIndex, KeccakChain, reduce},
+        proof::ChainCommitment,
+    };
+    use alloy::sol_types::{SolCall, SolValue};
+    use alloy_primitives::{B256, Bytes, U256};
 
-    #[test]
-    fn pending_changes_empty_by_default() {
-        let changes = PendingChanges::default();
-        assert!(changes.is_empty());
+    /// Builds a valid ABI-encoded `updateRoot(root, timestamp, proofId)` call.
+    fn encode_update_root(root: U256) -> Bytes {
+        ICommitment::updateRootCall {
+            _0: root,
+            _1: U256::from(1u64),
+            _2: B256::ZERO,
+        }
+        .abi_encode()
+        .into()
+    }
+
+    fn make_sol_commitment(block_hash: B256, root: U256) -> IWorldIDSource::Commitment {
+        IWorldIDSource::Commitment {
+            blockHash: block_hash,
+            data: encode_update_root(root),
+        }
+    }
+
+    fn make_chain_commitment_from(
+        chain: &mut KeccakChain,
+        block_number: u64,
+        root: U256,
+    ) -> ChainCommitment {
+        let commits = vec![make_sol_commitment(
+            B256::from([block_number as u8; 32]),
+            root,
+        )];
+        let head = chain.hash_chained(&commits);
+        chain.commit_chained(&commits);
+        ChainCommitment {
+            chain_head: head,
+            block_number,
+            chain_id: 480,
+            commitment_payload: commits.abi_encode_params().into(),
+            position: BlockTimestampAndLogIndex {
+                timestamp: block_number * 100,
+                log_index: 0,
+            },
+        }
     }
 
     #[test]
-    fn pending_changes_apply_and_drain() {
-        let mut changes = PendingChanges::default();
-        changes.apply(RegistryChange::Issuer(1));
-        changes.apply(RegistryChange::Issuer(1));
-        changes.apply(RegistryChange::OprfKey(2));
-        changes.apply(RegistryChange::RpRegistration(3));
+    fn merge_arc_commitments_concatenates_payloads() {
+        let mut chain = KeccakChain::new(B256::ZERO, 0);
 
-        assert!(!changes.is_empty());
-        assert_eq!(changes.issuer_schema_ids.len(), 1);
-        assert_eq!(changes.oprf_key_ids.len(), 2);
+        let c1 = Arc::new(make_chain_commitment_from(
+            &mut chain,
+            1,
+            U256::from(100u64),
+        ));
+        let c2 = Arc::new(make_chain_commitment_from(
+            &mut chain,
+            2,
+            U256::from(200u64),
+        ));
 
-        let (issuers, oprfs) = changes.drain_ids();
-        assert_eq!(issuers, vec![1]);
-        assert!(oprfs.contains(&2));
-        assert!(oprfs.contains(&3));
-        assert!(changes.is_empty());
-    }
+        let merged = reduce(&[c1.clone(), c2.clone()]).expect("merge should succeed");
 
-    #[test]
-    fn pending_changes_clear() {
-        let mut changes = PendingChanges::default();
-        changes.apply(RegistryChange::Issuer(10));
-        changes.apply(RegistryChange::OprfKey(20));
-        changes.clear();
-        assert!(changes.is_empty());
+        // The merged commitment should inherit metadata from the last entry.
+        assert_eq!(merged.chain_head, c2.chain_head);
+        assert_eq!(merged.block_number, c2.block_number);
+        assert_eq!(merged.chain_id, c2.chain_id);
+        assert_eq!(merged.position.timestamp, c2.position.timestamp);
+
+        // Decode the merged payload and verify it contains both commitments.
+        let decoded =
+            Vec::<IWorldIDSource::Commitment>::abi_decode_params(&merged.commitment_payload)
+                .expect("merged payload should decode");
+        assert_eq!(
+            decoded.len(),
+            2,
+            "merged payload should contain 2 commitments"
+        );
+
+        // Verify the block hashes match the originals.
+        assert_eq!(decoded[0].blockHash, B256::from([1u8; 32]));
+        assert_eq!(decoded[1].blockHash, B256::from([2u8; 32]));
     }
 }

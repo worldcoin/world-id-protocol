@@ -10,7 +10,8 @@ use tracing::{debug, info, warn};
 
 use crate::{
     bindings::{self, IDisputeGame, IDisputeGameFactory, L2_TO_L1_MESSAGE_PASSER},
-    proof::{ChainCommitment, mpt},
+    primitives::ChainCommitment,
+    proof::mpt,
 };
 
 /// Game status constants from OP Stack.
