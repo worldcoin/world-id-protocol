@@ -135,6 +135,7 @@ async fn inject_request(
         kind,
         status,
         updated_at,
+        inflight_keys: Vec::new(),
     };
     let key = format!("gateway:request:{id}");
     let json = serde_json::to_string(&record).unwrap();
@@ -176,7 +177,7 @@ async fn pending_set_lifecycle_finalized() {
     let id = "test-pending-lifecycle-fin".to_string();
 
     tracker
-        .new_request_with_id(id.clone(), GatewayRequestKind::CreateAccount)
+        .new_request_with_id(id.clone(), GatewayRequestKind::CreateAccount, Vec::new())
         .await
         .unwrap();
 
@@ -212,7 +213,7 @@ async fn pending_set_lifecycle_failed() {
     let id = "test-pending-lifecycle-fail".to_string();
 
     tracker
-        .new_request_with_id(id.clone(), GatewayRequestKind::CreateAccount)
+        .new_request_with_id(id.clone(), GatewayRequestKind::CreateAccount, Vec::new())
         .await
         .unwrap();
 
@@ -236,7 +237,7 @@ async fn updated_at_written_and_updated() {
     let before = now_unix_secs();
 
     tracker
-        .new_request_with_id(id.clone(), GatewayRequestKind::CreateAccount)
+        .new_request_with_id(id.clone(), GatewayRequestKind::CreateAccount, Vec::new())
         .await
         .unwrap();
 
@@ -268,13 +269,18 @@ async fn snapshot_batch_returns_records() {
     let tracker = RequestTracker::new(url.clone(), None).await;
 
     tracker
-        .new_request_with_id("batch-1".to_string(), GatewayRequestKind::CreateAccount)
+        .new_request_with_id(
+            "batch-1".to_string(),
+            GatewayRequestKind::CreateAccount,
+            Vec::new(),
+        )
         .await
         .unwrap();
     tracker
         .new_request_with_id(
             "batch-2".to_string(),
             GatewayRequestKind::UpdateAuthenticator,
+            Vec::new(),
         )
         .await
         .unwrap();
