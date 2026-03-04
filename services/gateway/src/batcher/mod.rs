@@ -103,9 +103,7 @@ pub(crate) trait BatcherEnvelope: Send + 'static {
 
 /// Return value from a successful [`BatchSubmitStrategy::send_batch`] call.
 pub(crate) struct PendingBatchTx {
-    // Hex formatted transaction hash
     pub formatted_tx_hash: String,
-    // Handle for pending transaction tracking
     pub builder: alloy::providers::PendingTransactionBuilder<Ethereum>,
 }
 
@@ -358,4 +356,3 @@ where
     }
 }
 
-// ── Public handle & command routing ─────────────────────────────────────

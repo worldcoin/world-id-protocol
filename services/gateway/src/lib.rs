@@ -16,7 +16,6 @@ mod batch_policy;
 mod batcher;
 mod config;
 mod error;
-mod generic_batcher;
 pub mod metrics;
 pub mod nonce;
 pub mod orphan_sweeper;
