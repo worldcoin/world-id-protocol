@@ -24,7 +24,7 @@ Deployments are tracked in [`contracts/deployments/`](contracts/deployments/)
 
 | Environment | Chain              | Config                                                          |
 | ----------- | ------------------ | --------------------------------------------------------------- |
-| Production  | World Chain (`480`) | [`contracts/deployments/oprf-key-registry/prod.json`](contracts/deployments/oprf-key-registry/prod.json) |
+| Production  | World Chain (`480`) | [`contracts/deployments/oprf-key-registry/production.json`](contracts/deployments/oprf-key-registry/production.json) |
 | Staging     | World Chain (`480`) | [`contracts/deployments/oprf-key-registry/staging.json`](contracts/deployments/oprf-key-registry/staging.json) |
 
 ### Reserved Credential Issuer IDs

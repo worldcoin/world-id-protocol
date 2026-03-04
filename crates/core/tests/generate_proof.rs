@@ -19,8 +19,12 @@ use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey,
     requests::{ProofRequest, RequestItem, RequestVersion},
 };
-use world_id_gateway::{GatewayConfig, OrphanSweeperConfig, SignerArgs, spawn_gateway_for_tests};
-use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
+use world_id_gateway::{
+    BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
+};
+use world_id_primitives::{
+    Config, FieldElement, Nullifier, TREE_DEPTH, merkle::AccountInclusionProof,
+};
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
     fixtures::{
@@ -88,7 +92,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             signer: Some(signer_args),
             ..Default::default()
         },
-        batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
@@ -97,7 +100,10 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
-        sweeper: OrphanSweeperConfig::default(),
+        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
+        batch_policy: BatchPolicyConfig::default(),
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
@@ -175,8 +181,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .wrap_err("failed to construct merkle fixture")?;
 
     let inclusion_proof =
-        AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone())
-            .wrap_err("failed to build inclusion proof")?;
+        AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone());
 
     let (indexer_url, indexer_handle) = spawn_indexer_stub(leaf_index, inclusion_proof.clone())
         .await
@@ -332,8 +337,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let nullifier = authenticator
         .generate_nullifier(&proof_request, inclusion_proof, key_set)
         .await?;
-    let raw_nullifier = FieldElement::from(nullifier.verifiable_oprf_output.output);
-    assert_ne!(raw_nullifier, FieldElement::ZERO);
+    assert_ne!(nullifier.nullifier, Nullifier::from(FieldElement::ZERO));
 
     // Generate session_id_r_seed for proof generation
     let session_id_r_seed = FieldElement::random(&mut rng); // Normally the authenticator would provide this from cache or (in the future) OPRF Nodes
@@ -341,7 +345,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     // Normally here the authenticator would check the nullifier is UNIQUE.
 
     let response_item = authenticator.generate_single_proof(
-        nullifier,
+        nullifier.clone(),
         request_item,
         &credential,
         credential_sub_blinding_factor,
@@ -351,7 +355,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )?;
     info!("generated uniqueness proof");
 
-    assert_eq!(response_item.nullifier, Some(raw_nullifier));
+    assert_eq!(response_item.nullifier, Some(nullifier.nullifier));
 
     // verify proof with verifier contract
     let world_id_verifier: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =

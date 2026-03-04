@@ -7,31 +7,9 @@ use tracing::{info, instrument};
 
 use super::{TreeError, TreeResult, TreeState};
 use crate::{
-    blockchain::RegistryEvent,
     db::{DB, WorldIdRegistryEventId},
     tree::MerkleTree,
 };
-
-/// Extract leaf_index and offchain_signer_commitment from a RegistryEvent
-/// Returns None for RootRecorded events which don't have a leaf_index
-fn extract_leaf_commitment(event: &RegistryEvent) -> Option<(u64, U256)> {
-    match event {
-        RegistryEvent::AccountCreated(ev) => Some((ev.leaf_index, ev.offchain_signer_commitment)),
-        RegistryEvent::AccountUpdated(ev) => {
-            Some((ev.leaf_index, ev.new_offchain_signer_commitment))
-        }
-        RegistryEvent::AuthenticatorInserted(ev) => {
-            Some((ev.leaf_index, ev.new_offchain_signer_commitment))
-        }
-        RegistryEvent::AuthenticatorRemoved(ev) => {
-            Some((ev.leaf_index, ev.new_offchain_signer_commitment))
-        }
-        RegistryEvent::AccountRecovered(ev) => {
-            Some((ev.leaf_index, ev.new_offchain_signer_commitment))
-        }
-        RegistryEvent::RootRecorded(_) => None,
-    }
-}
 
 // =============================================================================
 // Public API
@@ -72,7 +50,11 @@ pub async unsafe fn init_tree(
         build_from_db_with_cache(db, cache_path, tree_depth).await?
     };
 
-    Ok(TreeState::new(tree, tree_depth, last_event_id))
+    let tree_state = TreeState::new(tree, tree_depth, last_event_id);
+    crate::metrics::set_tree_last_synced_block(last_event_id.block_number);
+    crate::metrics::set_chain_processed_block(last_event_id.block_number);
+
+    Ok(tree_state)
 }
 
 /// Incrementally sync the in-memory tree with events committed to DB
@@ -83,6 +65,7 @@ pub async unsafe fn init_tree(
 pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> {
     const BATCH_SIZE: u64 = 10_000;
 
+    let started = std::time::Instant::now();
     let from = tree_state.last_synced_event_id().await;
 
     // Collect all pending events
@@ -114,6 +97,8 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
     }
 
     if all_events.is_empty() {
+        let latency_ms = started.elapsed().as_millis() as f64;
+        crate::metrics::record_tree_sync(0, latency_ms, from.block_number);
         return Ok(0);
     }
 
@@ -123,7 +108,7 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
     let mut leaf_final_states: HashMap<u64, U256> = HashMap::new();
     for event in &all_events {
         // Extract leaf_index and offchain_signer_commitment from event details
-        if let Some((leaf_index, commitment)) = extract_leaf_commitment(&event.details) {
+        if let Some((leaf_index, commitment)) = super::extract_leaf_commitment(&event.details) {
             leaf_final_states.insert(leaf_index, commitment);
         }
     }
@@ -151,6 +136,9 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
         ?cursor,
         "done"
     );
+
+    let latency_ms = started.elapsed().as_millis() as f64;
+    crate::metrics::record_tree_sync(total, latency_ms, cursor.block_number);
 
     Ok(total)
 }
@@ -307,7 +295,7 @@ async fn replay_events(
 
         for event in &events {
             // Extract leaf_index and offchain_signer_commitment from event details
-            if let Some((leaf_index, commitment)) = extract_leaf_commitment(&event.details) {
+            if let Some((leaf_index, commitment)) = super::extract_leaf_commitment(&event.details) {
                 leaf_final_states.insert(leaf_index, commitment);
             }
         }

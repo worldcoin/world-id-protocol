@@ -17,6 +17,7 @@ use rand::{CryptoRng, Rng};
 use std::{io::Read, path::Path};
 use world_id_primitives::{
     Credential, FieldElement, RequestItem, TREE_DEPTH, circuit_inputs::NullifierProofCircuitInput,
+    nullifier::Nullifier,
 };
 
 pub use groth16_material::circom::{
@@ -24,6 +25,8 @@ pub use groth16_material::circom::{
 };
 
 use crate::nullifier::OprfNullifier;
+
+pub mod errors;
 
 pub(crate) const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
 
@@ -79,6 +82,9 @@ pub enum ProofError {
     /// Error originating from `oprf_client`.
     #[error(transparent)]
     OprfError(#[from] taceo_oprf::client::Error),
+    /// Errors originating from proof inputs
+    #[error(transparent)]
+    ProofInputError(#[from] errors::ProofInputError),
     /// Errors originating from Groth16 proof generation or verification.
     #[error(transparent)]
     ZkError(#[from] Groth16Error),
@@ -321,7 +327,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     (
         ark_groth16::Proof<Bn254>,
         Vec<ark_babyjubjub::Fq>,
-        ark_babyjubjub::Fq,
+        Nullifier,
     ),
     ProofError,
 > {
@@ -358,13 +364,15 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         current_timestamp: expires_at_min.into(),
     };
 
+    let _ = errors::check_nullifier_input_validity(&nullifier_input)?;
+
     let (proof, public) = nullifier_material.generate_proof(&nullifier_input, rng)?;
     nullifier_material.verify_proof(&proof, &public)?;
 
-    let nullifier = public[0];
+    let nullifier: Nullifier = FieldElement::from(public[0]).into();
 
     // Verify that the computed nullifier matches the OPRF output.
-    if nullifier != oprf_nullifier.verifiable_oprf_output.output {
+    if nullifier != oprf_nullifier.nullifier {
         return Err(ProofError::InternalError(eyre::eyre!(
             "Computed nullifier does not match OPRF output"
         )));

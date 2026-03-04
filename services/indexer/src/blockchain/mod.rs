@@ -97,6 +97,17 @@ impl Blockchain {
         })
     }
 
+    /// Returns a [`WorldIdRegistryInstance`] bound to the HTTP provider.
+    pub fn world_id_registry(
+        &self,
+    ) -> world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance<DynProvider>
+    {
+        world_id_core::world_id_registry::WorldIdRegistry::new(
+            self.world_id_registry,
+            self.http_provider.clone(),
+        )
+    }
+
     /// Streams World Tree events from the blockchain.
     ///
     /// Concatenates [`Self::backfill_stream`] with [`Self::websocket_stream`] and
@@ -206,6 +217,7 @@ impl Blockchain {
             let block_number = first_log
                 .block_number
                 .ok_or(BlockchainError::MissingBlockNumber)?;
+            crate::metrics::set_chain_head_block(block_number);
 
             // Fetch any logs between the end of the backfill and the first live
             // event's block (exclusive to avoid duplicates).
@@ -223,7 +235,12 @@ impl Blockchain {
             Ok::<_, BlockchainError>(
                 missed_logs
                     .chain(stream::iter(std::iter::once(first_decoded)))
-                    .chain(ws_stream.map(|log| RegistryEvent::decode(&log)))
+                    .chain(ws_stream.map(|log| {
+                        if let Some(block_number) = log.block_number {
+                            crate::metrics::set_chain_head_block(block_number);
+                        }
+                        RegistryEvent::decode(&log)
+                    }))
                     // If the websocket subscription is closed, we return an error.
                     .chain(stream::once(async {
                         Err(BlockchainError::WsSubscriptionClosed)
@@ -268,6 +285,8 @@ impl Blockchain {
                 }
 
                 let latest_block_number = self.get_block_number().await?;
+                crate::metrics::set_chain_head_block(latest_block_number);
+
                 // We emit one more range here
                 let is_last = latest_block_number.saturating_sub(current_from) < batch_size;
                 if is_last {

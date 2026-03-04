@@ -37,7 +37,7 @@ fn cleanup_cache_files(cache_path: &PathBuf) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn test_cache_creation_and_restoration() {
-    let setup = TestSetup::new().await;
+    let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
 
     // Create some accounts
@@ -64,19 +64,20 @@ async fn test_cache_creation_and_restoration() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8090".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
     };
 
     let indexer_task = tokio::spawn(async move {
@@ -137,19 +138,20 @@ async fn test_incremental_replay() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8091".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
     };
 
     let indexer_task = tokio::spawn(async move {
@@ -194,19 +196,20 @@ async fn test_incremental_replay() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8092".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
     };
 
     let indexer_task2 = tokio::spawn(async move {
@@ -243,7 +246,7 @@ async fn test_incremental_replay() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn test_missing_cache_creates_new() {
-    let setup = TestSetup::new().await;
+    let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
 
     // Ensure cache doesn't exist
@@ -266,19 +269,20 @@ async fn test_missing_cache_creates_new() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8093".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
     };
 
     let indexer_task = tokio::spawn(async move {
@@ -330,19 +334,20 @@ async fn test_http_only_cache_refresh() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8094".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
     };
 
     let both_task = tokio::spawn(async move {
@@ -373,13 +378,13 @@ async fn test_http_only_cache_refresh() {
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
     };
 
     let http_task = tokio::spawn(async move {
@@ -451,19 +456,20 @@ async fn test_authenticator_removed_replay() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8098".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
     };
 
     let indexer_task = tokio::spawn(async move {
@@ -546,19 +552,20 @@ async fn test_authenticator_removed_replay() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8096".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([rpc_url.clone()]),
         ws_rpc_url: ws_url.clone(),
         registry_address,
+        tree_cache: tree_cache_config.clone(),
     };
 
     let indexer_task2 = tokio::spawn(async move {
@@ -576,19 +583,20 @@ async fn test_authenticator_removed_replay() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8097".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: tree_cache_config_fresh.clone(),
             },
         },
         db_url: db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([rpc_url.clone()]),
         ws_rpc_url: ws_url.clone(),
         registry_address,
+        tree_cache: tree_cache_config_fresh.clone(),
     };
 
     let indexer_task3 = tokio::spawn(async move {
@@ -645,19 +653,20 @@ async fn test_init_root_matches_contract() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8100".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
     };
 
     let indexer_task = tokio::spawn(async move {
@@ -728,19 +737,20 @@ async fn test_replay_root_matches_contract() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8101".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
     };
 
     let indexer_task1 = tokio::spawn(async move {
@@ -790,19 +800,20 @@ async fn test_replay_root_matches_contract() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8102".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
     };
 
     let indexer_task2 = tokio::spawn(async move {
@@ -881,19 +892,20 @@ async fn test_corrupted_cache_returns_error() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8103".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
     };
 
     let indexer_task1 = tokio::spawn(async move {
@@ -930,13 +942,13 @@ async fn test_corrupted_cache_returns_error() {
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
     };
 
     let result = unsafe { world_id_indexer::run_indexer(cfg2).await };
@@ -988,13 +1000,13 @@ async fn test_sanity_check_exits_on_root_mismatch() {
                 db_poll_interval_secs: 60,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: Some(1),
-                tree_cache: tree_cache_config.clone(),
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: tree_cache_config.clone(),
     };
 
     let result = tokio::time::timeout(

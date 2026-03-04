@@ -128,7 +128,7 @@ mod tests {
         types::api::{OprfRequest, OprfRequestAuthenticator as _},
     };
     use uuid::Uuid;
-    use world_id_core::FieldElement;
+    use world_id_core::{FieldElement, proof::errors};
     use world_id_primitives::{
         TREE_DEPTH, circuit_inputs::QueryProofCircuitInput,
         oprf::CredentialBlindingFactorOprfRequestAuthV1,
@@ -221,6 +221,7 @@ mod tests {
                 action: *action,
                 nonce: setup.rp_fixture.nonce,
             };
+            let _ = errors::check_query_input_validity(&query_proof_input)?;
 
             let (proof, public_inputs) =
                 query_material.generate_proof(&query_proof_input, &mut rng)?;

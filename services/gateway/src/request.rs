@@ -49,23 +49,6 @@ pub struct Request<T> {
     calldata: Bytes,
 }
 
-impl<T> Request<T> {
-    /// Get the request ID.
-    pub fn id(&self) -> Uuid {
-        self.id
-    }
-
-    /// Get the request kind.
-    pub fn kind(&self) -> GatewayRequestKind {
-        self.kind
-    }
-
-    /// Calldata for the contract call.
-    pub fn calldata(&self) -> Bytes {
-        self.calldata.clone()
-    }
-}
-
 /// Response type after successful submission.
 pub struct SubmittedRequest {
     id: Uuid,
@@ -89,6 +72,32 @@ pub trait HasLeafIndex {
     fn leaf_index(&self) -> u64;
 }
 
+/// Trait for request types that acquire in-flight lock keys in Redis.
+pub trait HasInflightKeys {
+    fn inflight_keys(&self) -> Vec<String>;
+}
+
+impl HasInflightKeys for CreateAccountRequest {
+    fn inflight_keys(&self) -> Vec<String> {
+        self.authenticator_addresses
+            .iter()
+            .map(|addr| addr.to_string())
+            .collect()
+    }
+}
+
+impl<T: HasLeafIndex> HasInflightKeys for T {
+    fn inflight_keys(&self) -> Vec<String> {
+        vec![self.leaf_index().to_string()]
+    }
+}
+
+/// Trait for request payloads that can be converted to batcher commands.
+pub trait IntoCommand: IntoRequest + HasInflightKeys + Sized {
+    /// Build the command that should be queued for this request type.
+    fn into_command(id: Uuid, payload: Self, calldata: Bytes) -> Command;
+}
+
 /// Trait for converting API payloads into tracked Requests.
 ///
 /// Validation is performed asynchronously, including contract simulation.
@@ -105,8 +114,7 @@ pub trait IntoRequest: RequestValidation + Sized {
         id: Uuid,
         ctx: &GatewayContext,
     ) -> Result<Request<Self>, GatewayErrorResponse> {
-        self.validate(&ctx.registry).await?;
-        let calldata = self.calldata(&ctx.registry);
+        let calldata = self.validate_and_calldata(&ctx.registry).await?;
 
         Ok(Request {
             id,
@@ -144,47 +152,19 @@ impl IntoRequest for CreateAccountRequest {
     const KIND: GatewayRequestKind = GatewayRequestKind::CreateAccount;
 }
 
+impl IntoCommand for CreateAccountRequest {
+    fn into_command(id: Uuid, payload: Self, _calldata: Bytes) -> Command {
+        Command::create_account(id, payload, DEFAULT_CREATE_ACCOUNT_GAS)
+    }
+}
+
 impl Request<CreateAccountRequest> {
     /// Submit the request for processing.
     pub async fn submit(
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        // Atomically check and insert all authenticator addresses to prevent duplicates
-        let auth_addresses = self.payload.authenticator_addresses.clone();
-
-        ctx.tracker.try_insert_inflight(&auth_addresses).await?;
-
-        // Register in tracker
-        if let Err(err) = ctx
-            .tracker
-            .new_request_with_id(self.id().to_string(), self.kind())
-            .await
-        {
-            // Remove from inflight tracker if an error appears
-            ctx.tracker.remove_inflight(&auth_addresses).await;
-            return Err(err);
-        };
-
-        // Queue to batcher with typed request for createManyAccounts batching
-        let cmd = Command::create_account(self.id, self.payload, DEFAULT_CREATE_ACCOUNT_GAS);
-
-        if !ctx.batcher.submit(cmd).await {
-            // Remove from inflight tracker if batcher submission fails
-            ctx.tracker.remove_inflight(&auth_addresses).await;
-            ctx.tracker
-                .set_status(
-                    &self.id.to_string(),
-                    GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
-                )
-                .await;
-            return Err(GatewayErrorResponse::batcher_unavailable());
-        }
-
-        Ok(SubmittedRequest {
-            id: self.id,
-            kind: self.kind,
-        })
+        submit_request(self, ctx).await
     }
 }
 
@@ -202,36 +182,20 @@ impl IntoRequest for InsertAuthenticatorRequest {
     const KIND: GatewayRequestKind = GatewayRequestKind::InsertAuthenticator;
 }
 
+impl IntoCommand for InsertAuthenticatorRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata, DEFAULT_INSERT_AUTHENTICATOR_GAS)
+    }
+}
+
 impl IntoRequestWithRateLimit for InsertAuthenticatorRequest {}
 
 impl Request<InsertAuthenticatorRequest> {
-    /// Submit the request for processing.
     pub async fn submit(
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        // Register in tracker
-        ctx.tracker
-            .new_request_with_id(self.id.to_string(), self.kind)
-            .await?;
-
-        // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id(), self.calldata(), DEFAULT_INSERT_AUTHENTICATOR_GAS);
-
-        if !ctx.batcher.submit(cmd).await {
-            ctx.tracker
-                .set_status(
-                    &self.id().to_string(),
-                    GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
-                )
-                .await;
-            return Err(GatewayErrorResponse::batcher_unavailable());
-        }
-
-        Ok(SubmittedRequest {
-            id: self.id(),
-            kind: self.kind(),
-        })
+        submit_request(self, ctx).await
     }
 }
 
@@ -249,36 +213,20 @@ impl IntoRequest for UpdateAuthenticatorRequest {
     const KIND: GatewayRequestKind = GatewayRequestKind::UpdateAuthenticator;
 }
 
+impl IntoCommand for UpdateAuthenticatorRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata, DEFAULT_UPDATE_AUTHENTICATOR_GAS)
+    }
+}
+
 impl IntoRequestWithRateLimit for UpdateAuthenticatorRequest {}
 
 impl Request<UpdateAuthenticatorRequest> {
-    /// Submit the request for processing.
     pub async fn submit(
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        // Register in tracker
-        ctx.tracker
-            .new_request_with_id(self.id().to_string(), self.kind())
-            .await?;
-
-        // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id(), self.calldata(), DEFAULT_UPDATE_AUTHENTICATOR_GAS);
-
-        if !ctx.batcher.submit(cmd).await {
-            ctx.tracker
-                .set_status(
-                    &self.id().to_string(),
-                    GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
-                )
-                .await;
-            return Err(GatewayErrorResponse::batcher_unavailable());
-        }
-
-        Ok(SubmittedRequest {
-            id: self.id(),
-            kind: self.kind(),
-        })
+        submit_request(self, ctx).await
     }
 }
 
@@ -296,35 +244,20 @@ impl IntoRequest for RemoveAuthenticatorRequest {
     const KIND: GatewayRequestKind = GatewayRequestKind::RemoveAuthenticator;
 }
 
+impl IntoCommand for RemoveAuthenticatorRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata, DEFAULT_REMOVE_AUTHENTICATOR_GAS)
+    }
+}
+
 impl IntoRequestWithRateLimit for RemoveAuthenticatorRequest {}
 
 impl Request<RemoveAuthenticatorRequest> {
-    /// Submit the request for processing.
     pub async fn submit(
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        // Register in tracker
-        ctx.tracker
-            .new_request_with_id(self.id().to_string(), self.kind())
-            .await?;
-
-        // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id(), self.calldata(), DEFAULT_REMOVE_AUTHENTICATOR_GAS);
-        if !ctx.batcher.submit(cmd).await {
-            ctx.tracker
-                .set_status(
-                    &self.id().to_string(),
-                    GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
-                )
-                .await;
-            return Err(GatewayErrorResponse::batcher_unavailable());
-        }
-
-        Ok(SubmittedRequest {
-            id: self.id(),
-            kind: self.kind(),
-        })
+        submit_request(self, ctx).await
     }
 }
 
@@ -342,34 +275,56 @@ impl IntoRequest for RecoverAccountRequest {
     const KIND: GatewayRequestKind = GatewayRequestKind::RecoverAccount;
 }
 
+impl IntoCommand for RecoverAccountRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata, DEFAULT_RECOVER_ACCOUNT_GAS)
+    }
+}
+
 impl IntoRequestWithRateLimit for RecoverAccountRequest {}
 
 impl Request<RecoverAccountRequest> {
-    /// Submit the request for processing.
     pub async fn submit(
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        // Register in tracker
-        ctx.tracker
-            .new_request_with_id(self.id().to_string(), self.kind())
-            .await?;
-
-        // Build command with pre-computed calldata
-        let cmd = Command::operation(self.id(), self.calldata(), DEFAULT_RECOVER_ACCOUNT_GAS);
-        if !ctx.batcher.submit(cmd).await {
-            ctx.tracker
-                .set_status(
-                    &self.id().to_string(),
-                    GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
-                )
-                .await;
-            return Err(GatewayErrorResponse::batcher_unavailable());
-        }
-
-        Ok(SubmittedRequest {
-            id: self.id(),
-            kind: self.kind(),
-        })
+        submit_request(self, ctx).await
     }
+}
+
+/// Shared submission logic for all request types.
+///
+/// Atomically registers the request with the tracker (acquiring in-flight
+/// locks), then submits the pre-built command to the batcher.
+async fn submit_request<T>(
+    request: Request<T>,
+    ctx: &GatewayContext,
+) -> Result<SubmittedRequest, GatewayErrorResponse>
+where
+    T: IntoCommand,
+{
+    let Request {
+        id,
+        kind,
+        payload,
+        calldata,
+    } = request;
+    let inflight_keys = payload.inflight_keys();
+    let cmd = T::into_command(id, payload, calldata);
+
+    ctx.tracker
+        .new_request_with_id(id.to_string(), kind, inflight_keys)
+        .await?;
+
+    if !ctx.batcher.submit(cmd).await {
+        ctx.tracker
+            .set_status(
+                &id.to_string(),
+                GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
+            )
+            .await;
+        return Err(GatewayErrorResponse::batcher_unavailable());
+    }
+
+    Ok(SubmittedRequest { id, kind })
 }
