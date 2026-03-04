@@ -10,12 +10,11 @@ use world_id_core::{
 };
 
 use crate::{
-    RequestTracker,
-    batch_policy::BaseFeeCache,
-    config::BatchPolicyConfig,
-    generic_batcher::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx},
+    RequestTracker, batch_policy::BaseFeeCache, config::BatchPolicyConfig,
     request_tracker::BacklogScope,
 };
+
+use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx};
 
 #[derive(Clone)]
 pub struct CreateBatcherHandle {

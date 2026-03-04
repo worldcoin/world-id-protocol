@@ -3,11 +3,11 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     AppState,
     batch_policy::{BaseFeeCache, spawn_base_fee_sampler},
-    batcher::BatcherHandle,
+    batcher::{
+        BatcherHandle, CreateBatcherHandle, CreateBatcherRunner, OpsBatcherHandle, OpsBatcherRunner,
+    },
     config::{BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig},
-    create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
     error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
-    ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
     orphan_sweeper::run_orphan_sweeper,
     request::GatewayContext,
     request_tracker::RequestTracker,

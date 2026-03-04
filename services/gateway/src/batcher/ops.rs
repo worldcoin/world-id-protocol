@@ -12,12 +12,11 @@ use tokio::sync::mpsc;
 use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::{
-    RequestTracker,
-    batch_policy::BaseFeeCache,
-    config::BatchPolicyConfig,
-    generic_batcher::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx},
+    RequestTracker, batch_policy::BaseFeeCache, config::BatchPolicyConfig,
     request_tracker::BacklogScope,
 };
+
+use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx};
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
