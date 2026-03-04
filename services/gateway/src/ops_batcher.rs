@@ -4,18 +4,19 @@
 
 use std::sync::Arc;
 
-use crate::{
-    RequestTracker, batch_policy::BaseFeeCache, config::BatchPolicyConfig,
-    error::parse_contract_error, metrics, policy_batcher::PolicyBatchLoopRunner,
-    request_tracker::BacklogScope,
-};
 use alloy::{
     primitives::{Address, Bytes, address},
     providers::DynProvider,
 };
-use tokio::{sync::mpsc, time::Instant};
-use world_id_core::{
-    api_types::GatewayRequestState, world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
+use tokio::sync::mpsc;
+use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+
+use crate::{
+    RequestTracker,
+    batch_policy::BaseFeeCache,
+    config::BatchPolicyConfig,
+    generic_batcher::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx},
+    request_tracker::BacklogScope,
 };
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
@@ -42,103 +43,15 @@ pub struct OpsEnvelope {
     pub calldata: Bytes,
 }
 
-pub struct OpsBatcherRunner {
-    rx: mpsc::Receiver<OpsEnvelope>,
-    registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-    max_batch_size: usize,
-    local_queue_limit: usize,
-    tracker: RequestTracker,
-    batch_policy: BatchPolicyConfig,
-    base_fee_cache: BaseFeeCache,
-}
-
-impl OpsBatcherRunner {
-    pub fn new(
-        registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-        max_batch_size: usize,
-        local_queue_limit: usize,
-        rx: mpsc::Receiver<OpsEnvelope>,
-        tracker: RequestTracker,
-        batch_policy: BatchPolicyConfig,
-        base_fee_cache: BaseFeeCache,
-    ) -> Self {
-        Self {
-            rx,
-            registry,
-            max_batch_size,
-            local_queue_limit: local_queue_limit.max(1),
-            tracker,
-            batch_policy,
-            base_fee_cache,
-        }
-    }
-
-    pub async fn run(mut self) {
-        self.run_policy_loop().await;
-    }
-
-    async fn submit_ops_batch(&self, batch: Vec<OpsEnvelope>) {
-        if batch.is_empty() {
-            return;
-        }
-
-        let mc = Multicall3::new(MULTICALL3_ADDR, self.registry.provider().clone());
-
-        let batch_size = batch.len();
-        let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
-
-        metrics::record_batch_submitted("ops", batch_size);
-
-        self.tracker
-            .set_status_batch(&ids, GatewayRequestState::Batching)
-            .await;
-
-        let calls: Vec<Multicall3::Call3> = batch
-            .into_iter()
-            .map(|env| Multicall3::Call3 {
-                target: *self.registry.address(),
-                allowFailure: false,
-                callData: env.calldata,
-            })
-            .collect();
-
-        let start = Instant::now();
-        let res = mc.aggregate3(calls).send().await;
-        match res {
-            Ok(builder) => {
-                let latency_ms = start.elapsed().as_millis() as f64;
-                metrics::record_batch_result("ops", true, latency_ms);
-
-                let hash = format!("0x{:x}", builder.tx_hash());
-                self.tracker
-                    .set_status_batch(
-                        &ids,
-                        GatewayRequestState::Submitted {
-                            tx_hash: hash.clone(),
-                        },
-                    )
-                    .await;
-
-                self.tracker.spawn_receipt_tracker(ids, builder, hash);
-            }
-            Err(e) => {
-                let latency_ms = start.elapsed().as_millis() as f64;
-                metrics::record_batch_result("ops", false, latency_ms);
-
-                tracing::warn!(error = %e, "multicall3 send failed");
-                let error_str = e.to_string();
-                let code = parse_contract_error(&error_str);
-                self.tracker
-                    .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
-                    .await;
-            }
-        }
+impl BatcherEnvelope for OpsEnvelope {
+    fn request_id(&self) -> &str {
+        &self.id
     }
 }
 
-impl PolicyBatchLoopRunner for OpsBatcherRunner {
-    type Envelope = OpsEnvelope;
+pub(crate) struct OpsStrategy;
 
+impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
     fn batch_type(&self) -> &'static str {
         "ops"
     }
@@ -147,31 +60,56 @@ impl PolicyBatchLoopRunner for OpsBatcherRunner {
         BacklogScope::Ops
     }
 
-    fn max_batch_size(&self) -> usize {
-        self.max_batch_size
-    }
+    async fn send_batch(
+        &self,
+        registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
+        batch: Vec<OpsEnvelope>,
+    ) -> Result<PendingBatchTx, String> {
+        let mc = Multicall3::new(MULTICALL3_ADDR, registry.provider().clone());
 
-    fn local_queue_limit(&self) -> usize {
-        self.local_queue_limit
-    }
+        let calls: Vec<Multicall3::Call3> = batch
+            .into_iter()
+            .map(|env| Multicall3::Call3 {
+                target: *registry.address(),
+                allowFailure: false,
+                callData: env.calldata,
+            })
+            .collect();
 
-    fn batch_policy(&self) -> &BatchPolicyConfig {
-        &self.batch_policy
-    }
+        let builder = mc
+            .aggregate3(calls)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
 
-    fn base_fee_cache(&self) -> &BaseFeeCache {
-        &self.base_fee_cache
+        Ok(PendingBatchTx {
+            tx_hash: format!("0x{:x}", builder.tx_hash()),
+            builder,
+        })
     }
+}
 
-    fn tracker(&self) -> &RequestTracker {
-        &self.tracker
-    }
+pub type OpsBatcherRunner = GenericBatcherRunner<OpsEnvelope, OpsStrategy>;
 
-    fn rx(&mut self) -> &mut mpsc::Receiver<Self::Envelope> {
-        &mut self.rx
-    }
-
-    async fn submit_batch(&self, batch: Vec<Self::Envelope>) {
-        self.submit_ops_batch(batch).await;
+impl OpsBatcherRunner {
+    pub fn new_ops(
+        registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
+        max_batch_size: usize,
+        local_queue_limit: usize,
+        rx: mpsc::Receiver<OpsEnvelope>,
+        tracker: RequestTracker,
+        batch_policy: BatchPolicyConfig,
+        base_fee_cache: BaseFeeCache,
+    ) -> Self {
+        Self::new(
+            registry,
+            max_batch_size,
+            local_queue_limit,
+            rx,
+            tracker,
+            batch_policy,
+            base_fee_cache,
+            OpsStrategy,
+        )
     }
 }

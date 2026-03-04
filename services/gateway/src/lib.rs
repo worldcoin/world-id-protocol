@@ -17,6 +17,7 @@ mod batcher;
 mod config;
 mod create_batcher;
 mod error;
+mod generic_batcher;
 pub mod metrics;
 pub mod nonce;
 mod ops_batcher;
