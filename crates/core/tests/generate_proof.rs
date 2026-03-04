@@ -22,7 +22,9 @@ use world_id_core::{
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
 };
-use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
+use world_id_primitives::{
+    Config, FieldElement, Nullifier, TREE_DEPTH, merkle::AccountInclusionProof,
+};
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
     fixtures::{
@@ -336,8 +338,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let nullifier = authenticator
         .generate_nullifier(&proof_request, inclusion_proof, key_set)
         .await?;
-    let raw_nullifier = FieldElement::from(nullifier.verifiable_oprf_output.output);
-    assert_ne!(raw_nullifier, FieldElement::ZERO);
+    assert_ne!(nullifier.nullifier, Nullifier::from(FieldElement::ZERO));
 
     // Generate session_id_r_seed for proof generation
     let session_id_r_seed = FieldElement::random(&mut rng); // Normally the authenticator would provide this from cache or (in the future) OPRF Nodes
@@ -345,7 +346,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     // Normally here the authenticator would check the nullifier is UNIQUE.
 
     let response_item = authenticator.generate_single_proof(
-        nullifier,
+        nullifier.clone(),
         request_item,
         &credential,
         credential_sub_blinding_factor,
@@ -355,7 +356,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )?;
     info!("generated uniqueness proof");
 
-    assert_eq!(response_item.nullifier, Some(raw_nullifier));
+    assert_eq!(response_item.nullifier, Some(nullifier.nullifier));
 
     // verify proof with verifier contract
     let world_id_verifier: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =

@@ -1,4 +1,4 @@
-use crate::db::DBResult;
+use crate::{db::DBResult, invalid_field};
 use alloy::primitives::{Address, U160, U256};
 use core::fmt;
 use futures_util::{Stream, StreamExt as _};
@@ -396,24 +396,46 @@ where
     ///
     /// Removed authenticators are preserved as `None` entries so caller logic keeps slot positions.
     fn map_authenticator_addresses(row: &PgRow) -> DBResult<Vec<Option<Address>>> {
-        Ok(row
-            .get::<Json<Vec<Option<String>>>, _>("authenticator_addresses")
+        row.get::<Json<Vec<Option<String>>>, _>("authenticator_addresses")
             .0
-            .iter()
-            .map(|opt| opt.as_ref().and_then(|value| value.parse::<Address>().ok()))
-            .collect())
+            .into_iter()
+            .enumerate()
+            .map(|(idx, maybe_addr)| {
+                maybe_addr
+                    .map(|value| {
+                        value.parse::<Address>().map_err(|_| {
+                            invalid_field!(
+                                format!("authenticator_addresses[{idx}]"),
+                                "failed to parse address"
+                            )
+                        })
+                    })
+                    .transpose()
+            })
+            .collect()
     }
 
     /// Maps authenticator public keys from DB JSON into the full slot list stored for the account.
     ///
     /// Removed authenticators are preserved as `None` entries so caller logic keeps slot positions.
     fn map_authenticator_pub_keys(row: &PgRow) -> DBResult<Vec<Option<U256>>> {
-        Ok(row
-            .get::<Json<Vec<Option<String>>>, _>("authenticator_pubkeys")
+        row.get::<Json<Vec<Option<String>>>, _>("authenticator_pubkeys")
             .0
-            .iter()
-            .map(|opt| opt.as_ref().and_then(|value| value.parse::<U256>().ok()))
-            .collect())
+            .into_iter()
+            .enumerate()
+            .map(|(idx, maybe_pubkey)| {
+                maybe_pubkey
+                    .map(|value| {
+                        value.parse::<U256>().map_err(|_| {
+                            invalid_field!(
+                                format!("authenticator_pubkeys[{idx}]"),
+                                "failed to parse U256"
+                            )
+                        })
+                    })
+                    .transpose()
+            })
+            .collect()
     }
 
     fn map_latest_event_id(row: &PgRow) -> DBResult<AccountLatestEventId> {
