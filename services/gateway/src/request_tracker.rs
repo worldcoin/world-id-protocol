@@ -1,5 +1,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use alloy::network::Ethereum;
+use alloy::providers::PendingTransactionBuilder;
 use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -224,6 +226,37 @@ impl RequestTracker {
             )
         };
         self.set_status_batch(ids, status).await;
+    }
+
+    /// Spawns a background task that awaits a pending transaction receipt and
+    /// finalizes the associated requests based on the outcome.
+    pub fn spawn_receipt_tracker(
+        &self,
+        ids: Vec<String>,
+        builder: PendingTransactionBuilder<Ethereum>,
+        tx_hash: String,
+    ) {
+        let tracker = self.clone();
+        tokio::spawn(async move {
+            match builder.get_receipt().await {
+                Ok(receipt) => {
+                    tracker
+                        .finalize_from_receipt(&ids, receipt.status(), &tx_hash)
+                        .await;
+                }
+                Err(err) => {
+                    tracker
+                        .set_status_batch(
+                            &ids,
+                            GatewayRequestState::failed(
+                                format!("transaction confirmation error: {err}"),
+                                Some(GatewayErrorCode::ConfirmationError),
+                            ),
+                        )
+                        .await;
+                }
+            }
+        });
     }
 
     /// Returns a snapshot of the current state of a request, if it exists.

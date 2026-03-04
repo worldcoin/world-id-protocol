@@ -15,7 +15,7 @@ use alloy::{
 };
 use tokio::{sync::mpsc, time::Instant};
 use world_id_core::{
-    api_types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState},
+    api_types::{CreateAccountRequest, GatewayRequestState},
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 
@@ -111,28 +111,7 @@ impl CreateBatcherRunner {
                     )
                     .await;
 
-                let tracker = self.tracker.clone();
-                let ids_for_receipt = ids;
-                tokio::spawn(async move {
-                    match builder.get_receipt().await {
-                        Ok(receipt) => {
-                            tracker
-                                .finalize_from_receipt(&ids_for_receipt, receipt.status(), &hash)
-                                .await;
-                        }
-                        Err(err) => {
-                            tracker
-                                .set_status_batch(
-                                    &ids_for_receipt,
-                                    GatewayRequestState::failed(
-                                        format!("transaction confirmation error: {err}"),
-                                        Some(GatewayErrorCode::ConfirmationError),
-                                    ),
-                                )
-                                .await;
-                        }
-                    }
-                });
+                self.tracker.spawn_receipt_tracker(ids, builder, hash);
             }
             Err(err) => {
                 let latency_ms = start.elapsed().as_millis() as f64;
