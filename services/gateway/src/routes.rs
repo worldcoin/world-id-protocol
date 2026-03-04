@@ -6,7 +6,7 @@ use crate::{
     batcher::BatcherHandle,
     config::{BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig},
     create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
-    error::{GatewayErrorBody, GatewayResult},
+    error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
     ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
     orphan_sweeper::run_orphan_sweeper,
     request::GatewayContext,
@@ -149,6 +149,7 @@ pub(crate) async fn build_app(
         .layer(from_fn(middleware::request_id_middleware))
         .layer(world_id_services_common::timeout_layer(
             request_timeout_secs,
+            GatewayErrorResponse::request_timeout(request_timeout_secs),
         ))
         .layer(world_id_services_common::trace_layer()))
 }

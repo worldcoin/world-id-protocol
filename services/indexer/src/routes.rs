@@ -1,4 +1,4 @@
-use crate::error::IndexerErrorBody;
+use crate::error::{IndexerErrorBody, IndexerErrorResponse};
 use axum::{Json, Router, middleware::from_fn, response::IntoResponse};
 use utoipa::OpenApi;
 use world_id_core::api_types::{
@@ -65,6 +65,7 @@ pub(crate) fn handler(state: AppState, request_timeout_secs: u64) -> Router {
         .layer(from_fn(middleware::request_latency_middleware))
         .layer(world_id_services_common::timeout_layer(
             request_timeout_secs,
+            IndexerErrorResponse::request_timeout(request_timeout_secs),
         ))
         .layer(world_id_services_common::trace_layer())
 }
