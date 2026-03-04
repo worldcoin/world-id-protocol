@@ -2,11 +2,11 @@
 #
 # All contract addresses are resolved automatically from the deployment artifact
 # for the given environment (staging | production | local).
+# From repo root, invoke recipes as: `just contracts::<recipe>`.
 
 # Simulate a contract call without broadcasting.
-# Usage: just _cast-dry-run <rpc> <proxy> <sig> [calldata...]
-# Example: just _cast-dry-run "$rpc" "$proxy" "addGateway(address)" 0xGateway
-[private]
+# Usage: just contracts::_cast-dry-run <rpc> <proxy> <sig> [calldata...]
+# Example: just contracts::_cast-dry-run "$rpc" "$proxy" "addGateway(address)" 0xGateway
 _cast-dry-run rpc proxy sig *args:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -15,9 +15,8 @@ _cast-dry-run rpc proxy sig *args:
     echo "✓ simulation passed"
 
 # Dry-run first, then broadcast. Aborts if simulation reverts.
-# Usage: just _cast-send <rpc> <proxy> <sig> [calldata...]
-# Example: just _cast-send "$rpc" "$proxy" "addGateway(address)" 0xGateway
-[private]
+# Usage: just contracts::_cast-send <rpc> <proxy> <sig> [calldata...]
+# Example: just contracts::_cast-send "$rpc" "$proxy" "addGateway(address)" 0xGateway
 _cast-send rpc proxy sig *args:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -43,6 +42,10 @@ _core-deploy-dry-run env='staging':
         --sig "run(string)" "{{ env }}" \
         --private-key "$PRIVATE_KEY" \
         --rpc-url "{{ WORLDCHAIN_RPC }}"
+
+# Public dry-run wrapper (safe, no broadcast).
+[group('core · deploy')]
+core-deploy-dry-run env='staging': (_core-deploy-dry-run env)
 
 # Deploy core contracts to World Chain (simulates first, then broadcasts).
 # Writes artifact to deployments/core/{env}.json.
@@ -358,6 +361,10 @@ _crosschain-deploy-dry-run env='staging':
         --private-key "$PRIVATE_KEY" \
         --multi
 
+# Public dry-run wrapper (safe, no broadcast).
+[group('crosschain · deploy')]
+crosschain-deploy-dry-run env='staging': (_crosschain-deploy-dry-run env)
+
 # Deploy crosschain bridge contracts (simulates first, then broadcasts).
 # Filter chains with DEPLOY_CHAINS=ethereum,base.
 # Example:
@@ -378,7 +385,6 @@ crosschain-deploy env='staging': (_crosschain-deploy-dry-run env)
 
 # Resolve the RPC URL for a crosschain chain from its config.
 # Priority: ALCHEMY_API_KEY + alchemySlug > config.rpc > public alchemySlug endpoint
-[private]
 _xc-rpc chain env:
     #!/usr/bin/env bash
     cfg="{{ XC_CFG_DIR }}/{{ env }}.json"

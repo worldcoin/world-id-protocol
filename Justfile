@@ -41,10 +41,6 @@ XC_SCRIPT        := "script/crosschain/Deploy.s.sol:Deploy"
 # CPU count for --jobs / --test-threads flags.
 PARALLEL_JOBS := num_cpus()
 
-# GNU parallel shebang runner — executes each recipe-body line as a parallel
-# `just` invocation. Use as `#! {{ MAP_JUST }}` in a recipe body.
-MAP_JUST := "/usr/bin/env -S parallel --shebang --jobs " + PARALLEL_JOBS + " --colsep ' ' -r " + just_executable()
-
 # ── Semver from git tags ─────────────────────────────────────────────────────
 RELEASE_PREFIX := env('RELEASE_PREFIX', 'world-id-core-')
 _TAG           := shell("git tag --list \"${1}v*\" --sort=-v:refname 2>/dev/null | head -1 || true", RELEASE_PREFIX)
@@ -56,6 +52,16 @@ mod contracts 'contracts/Justfile'
 import 'just/cargo.just'
 import 'just/forge.just'
 import 'just/test.just'
+
+# Internal forwarding helpers used by contracts module recipes.
+_cast-dry-run *args:
+    @just contracts::_cast-dry-run {{ args }}
+
+_cast-send *args:
+    @just contracts::_cast-send {{ args }}
+
+_xc-rpc *args:
+    @just contracts::_xc-rpc {{ args }}
 
 [group('ci')]
 ci: cargo-lint fmt-check all

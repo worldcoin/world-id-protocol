@@ -1,5 +1,5 @@
 # Testing recipes for Rust and Solidity.
-# Uses CONTRACTS_DIR, PARALLEL_JOBS, MAP_JUST, WC_RPC, ETH_RPC from the root Justfile.
+# Uses CONTRACTS_DIR, PARALLEL_JOBS, WC_RPC, ETH_RPC from the root Justfile.
 
 _FIXTURE_DIR := CONTRACTS_DIR / "test" / "crosschain" / "fixtures" / "e2e_mpt"
 _IT_SCRIPT   := "script/crosschain/E2E_MPT.s.sol"
@@ -7,40 +7,44 @@ _IT_KEY      := "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2f
 _IT_FLAGS    := "--broadcast --private-key " + _IT_KEY + " --skip-simulation"
 _IT_SLOT     := "0x8ea751544b8bbcbc8929c26e76fb7b6c3629dd0f7da849a522d50f1a3c170d00"
 
-# Run all unit tests in parallel via GNU parallel, then e2e sequentially.
-# Example:  just test
+# Run all unit tests (parallel when GNU parallel is available), then e2e sequentially.
+# Example:  just all
 [group('test')]
 all: _units it-all
 
+# Backward-compatible alias for `just all`.
+[group('test')]
+test: all
+
 # Run Rust workspace tests with nextest.
-# Example:  just test rust
-#           just test rust -- -E 'package(world-id-gateway)'
+# Example:  just rust
+#           just rust -- -E 'package(world-id-gateway)'
 [group('test')]
 rust *args='':
     cargo nextest run --workspace --test-threads {{ PARALLEL_JOBS }} {{ args }}
 
 # Run core (non-crosschain) contract tests.
-# Example:  just test core
-#           just test core -- -vvv --match-test testFoo
+# Example:  just core
+#           just core -- -vvv --match-test testFoo
 [group('test')]
 core *args='':
     cd {{ CONTRACTS_DIR }} && forge test --no-match-path 'test/crosschain/*' --jobs {{ PARALLEL_JOBS }} {{ args }}
 
 # Run crosschain bridge contract tests.
-# Example:  just test crosschain
-#           just test crosschain -- -vvv
+# Example:  just crosschain
+#           just crosschain -- -vvv
 [group('test')]
 crosschain *args='':
     cd {{ CONTRACTS_DIR }} && forge test --match-path 'test/crosschain/*' --jobs {{ PARALLEL_JOBS }} {{ args }}
 
 # Run the full multi-anvil E2E MPT proof pipeline.
-# Example:  just test it
-#           just test it 50
+# Example:  just it
+#           just it 50
 [group('test')]
 it batch='1': _it-start (_it-deploy batch) (_it-propagate batch) _it-extract-proofs _it-relay (_it-verify batch) _it-stop
 
 # Run the E2E pipeline with batch sizes 1, 50, and 100.
-# Example:  just test it-all
+# Example:  just it-all
 [group('test')]
 it-all:
     @just it "1"
@@ -48,17 +52,35 @@ it-all:
     @just it "100"
 
 # Stop anvils (manual cleanup if the pipeline fails mid-run).
-# Example:  just test stop
+# Example:  just stop
 [group('test')]
 stop: _it-stop
 
-# Run Rust + Solidity unit tests in parallel using GNU parallel.
+# Backward-compatible aliases for previous recipe names.
+[group('test')]
+test-world-id *args='':
+    @just core {{ args }}
+
+[group('test')]
+test-bridge *args='':
+    @just crosschain {{ args }}
+
+[group('test')]
+it-stop: _it-stop
+
+# Run Rust + Solidity unit tests in parallel when available.
 [private]
 _units:
-    #! {{ MAP_JUST }}
-    rust
-    core
-    crosschain
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v parallel >/dev/null 2>&1; then
+        parallel --jobs {{ PARALLEL_JOBS }} --line-buffer '{{ just_executable() }} {}' ::: rust core crosschain
+    else
+        echo "GNU parallel not found; running unit test suites sequentially."
+        {{ just_executable() }} rust
+        {{ just_executable() }} core
+        {{ just_executable() }} crosschain
+    fi
 
 [private]
 _it-start:
