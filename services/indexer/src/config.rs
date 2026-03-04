@@ -168,15 +168,29 @@ pub struct IndexerConfig {
 
 impl IndexerConfig {
     pub fn from_env() -> Self {
+        let batch_size = std::env::var("BATCH_SIZE")
+            .ok()
+            .and_then(|raw| match raw.parse::<u64>() {
+                Ok(0) => {
+                    tracing::warn!("BATCH_SIZE=0 is not allowed; defaulting to BATCH_SIZE=64");
+                    None
+                }
+                Ok(value) => Some(value),
+                Err(_) => {
+                    tracing::warn!(
+                        "Failed to parse BATCH_SIZE into u64; defaulting to BATCH_SIZE=64"
+                    );
+                    None
+                }
+            })
+            .unwrap_or(64);
+
         let config = Self {
             start_block: std::env::var("START_BLOCK")
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0),
-            batch_size: std::env::var("BATCH_SIZE")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(64),
+            batch_size,
             tree_max_block_age: std::env::var("TREE_MAX_BLOCK_AGE")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -724,6 +738,11 @@ mod tests {
         set_env("BATCH_SIZE", "10000");
         let config = IndexerConfig::from_env();
         assert_eq!(config.batch_size, 10000);
+
+        // Zero is invalid and should fall back to the default.
+        set_env("BATCH_SIZE", "0");
+        let config = IndexerConfig::from_env();
+        assert_eq!(config.batch_size, 64);
     }
 
     #[test]

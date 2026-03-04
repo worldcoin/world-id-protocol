@@ -138,6 +138,15 @@ impl IndexerErrorResponse {
     pub const fn bad_request(code: IndexerErrorCode, message: String) -> Self {
         Self::new(code, message, StatusCode::BAD_REQUEST)
     }
+
+    #[must_use]
+    pub fn request_timeout(timeout_secs: u64) -> Self {
+        Self::new(
+            IndexerErrorCode::RequestTimeout,
+            format!("Request timed out after {timeout_secs}s"),
+            StatusCode::GATEWAY_TIMEOUT,
+        )
+    }
 }
 
 impl std::fmt::Display for IndexerErrorResponse {
