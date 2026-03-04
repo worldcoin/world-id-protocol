@@ -1,12 +1,8 @@
 use std::sync::Arc;
 
 use crate::{
-    RequestTracker,
-    batch_policy::BaseFeeCache,
-    config::BatchPolicyConfig,
-    error::parse_contract_error,
-    metrics,
-    policy_batcher::PolicyBatchLoopRunner,
+    RequestTracker, batch_policy::BaseFeeCache, config::BatchPolicyConfig,
+    error::parse_contract_error, metrics, policy_batcher::PolicyBatchLoopRunner,
     request_tracker::BacklogScope,
 };
 use alloy::{

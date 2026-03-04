@@ -5,12 +5,8 @@
 use std::sync::Arc;
 
 use crate::{
-    RequestTracker,
-    batch_policy::BaseFeeCache,
-    config::BatchPolicyConfig,
-    error::parse_contract_error,
-    metrics,
-    policy_batcher::PolicyBatchLoopRunner,
+    RequestTracker, batch_policy::BaseFeeCache, config::BatchPolicyConfig,
+    error::parse_contract_error, metrics, policy_batcher::PolicyBatchLoopRunner,
     request_tracker::BacklogScope,
 };
 use alloy::{
@@ -19,8 +15,7 @@ use alloy::{
 };
 use tokio::{sync::mpsc, time::Instant};
 use world_id_core::{
-    api_types::GatewayRequestState,
-    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
+    api_types::GatewayRequestState, world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");

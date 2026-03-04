@@ -1,7 +1,6 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use alloy::network::Ethereum;
-use alloy::providers::PendingTransactionBuilder;
+use alloy::{network::Ethereum, providers::PendingTransactionBuilder};
 use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
