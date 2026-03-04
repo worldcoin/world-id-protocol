@@ -1,0 +1,67 @@
+name: Mobile Benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Platform: android, ios, or both"
+        required: false
+        type: string
+        default: "both"
+      device_profile:
+        description: "Device profile: low-spec, mid-spec, high-spec, custom"
+        required: false
+        type: string
+        default: "low-spec"
+      ios_device:
+        description: "Custom iOS device (only with device_profile=custom)"
+        required: false
+        type: string
+      ios_os_version:
+        description: "Custom iOS OS version"
+        required: false
+        type: string
+      android_device:
+        description: "Custom Android device"
+        required: false
+        type: string
+      android_os_version:
+        description: "Custom Android OS version"
+        required: false
+        type: string
+      iterations:
+        description: "Benchmark iterations"
+        required: false
+        type: string
+        default: "30"
+      warmup:
+        description: "Warmup iterations"
+        required: false
+        type: string
+        default: "5"
+      pr_number:
+        description: "PR number for reporting"
+        required: false
+        type: string
+      requested_by:
+        description: "Who triggered the run"
+        required: false
+        type: string
+
+jobs:
+  bench:
+    uses: worldcoin/mobile-bench-rs/.github/workflows/reusable-bench.yml@v0.1.15
+    with:
+      crate_path: "crates/zk-mobile-bench"
+      platform: ${{ inputs.platform }}
+      device_profile: ${{ inputs.device_profile }}
+      ios_device: ${{ inputs.ios_device || '' }}
+      ios_os_version: ${{ inputs.ios_os_version || '' }}
+      android_device: ${{ inputs.android_device || '' }}
+      android_os_version: ${{ inputs.android_os_version || '' }}
+      iterations: ${{ inputs.iterations }}
+      warmup: ${{ inputs.warmup }}
+      pr_number: ${{ inputs.pr_number || '' }}
+      requested_by: ${{ inputs.requested_by || '' }}
+      functions: '["bench_nullifier_proof_generation","bench_nullifier_witness_generation_only","bench_nullifier_proving_only","bench_query_proof_generation","bench_query_witness_generation_only","bench_query_proving_only"]'
+    secrets: inherit
