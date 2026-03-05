@@ -35,8 +35,7 @@ anyhow = { workspace = true }
 ark-babyjubjub = { workspace = true }
 ark-serialize = { workspace = true }
 groth16-material = { workspace = true }
-# Use version directly (not workspace) to avoid inheriting rustls-tls on WASM
-reqwest = { version = "0.12", default-features = false, features = ["json"] }
+reqwest = { workspace = true, features = ["json"] }
 poseidon2 = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 eyre = { workspace = true }
@@ -57,7 +56,7 @@ world-id-proof = { workspace = true }
 # Native-only dependencies (not available on wasm32)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 alloy = { workspace = true, features = ["reqwest-rustls-tls"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { workspace = true, features = ["rustls-tls"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
 rustls = { workspace = true }
 webpki-roots = { workspace = true }
