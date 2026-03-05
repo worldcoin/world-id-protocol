@@ -79,10 +79,7 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
             .await
             .map_err(|e| e.to_string())?;
 
-        Ok(PendingBatchTx {
-            tx_hash: format!("0x{:x}", builder.tx_hash()),
-            builder,
-        })
+        Ok(PendingBatchTx::new(builder))
     }
 }
 

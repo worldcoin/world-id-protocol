@@ -27,6 +27,71 @@ use crate::{
     metrics,
     request_tracker::BacklogScope,
 };
+/// Default gas estimates for operation types.
+pub(super) mod defaults {
+    pub const DEFAULT_CREATE_ACCOUNT_GAS: u64 = 600_000;
+    pub const DEFAULT_INSERT_AUTHENTICATOR_GAS: u64 = 252_784;
+    pub const DEFAULT_UPDATE_AUTHENTICATOR_GAS: u64 = 385_775;
+    pub const DEFAULT_REMOVE_AUTHENTICATOR_GAS: u64 = 721_044;
+    pub const DEFAULT_RECOVER_ACCOUNT_GAS: u64 = 516_400;
+}
+
+/// Unified batcher handle that routes to the appropriate batcher.
+#[derive(Clone)]
+pub struct BatcherHandle {
+    pub create: CreateBatcherHandle,
+    pub ops: OpsBatcherHandle,
+}
+
+impl BatcherHandle {
+    /// Submit a command to the appropriate batcher.
+    pub async fn submit(&self, cmd: Command) -> bool {
+        match cmd {
+            Command::CreateAccount { id, req, .. } => {
+                let envelope = CreateReqEnvelope {
+                    id: id.to_string(),
+                    req,
+                };
+                self.create.tx.send(envelope).await.is_ok()
+            }
+            Command::Operation { id, calldata, .. } => {
+                let envelope = OpsEnvelope {
+                    id: id.to_string(),
+                    calldata,
+                };
+                self.ops.tx.send(envelope).await.is_ok()
+            }
+        }
+    }
+}
+
+/// Unified command type for all batcher operations.
+pub enum Command {
+    CreateAccount {
+        id: Uuid,
+        req: CreateAccountRequest,
+        #[allow(dead_code)]
+        gas: u64,
+    },
+    Operation {
+        id: Uuid,
+        calldata: Bytes,
+        #[allow(dead_code)]
+        gas: u64,
+    },
+}
+
+impl Command {
+    /// Create a new account creation command.
+    pub fn create_account(id: Uuid, req: CreateAccountRequest, gas: u64) -> Self {
+        Self::CreateAccount { id, req, gas }
+    }
+
+    /// Create a new operation command (insert/update/remove/recover).
+    pub fn operation(id: Uuid, calldata: Bytes, gas: u64) -> Self {
+        Self::Operation { id, calldata, gas }
+    }
+}
 
 // ── Generic batcher core ────────────────────────────────────────────────
 
@@ -36,11 +101,21 @@ pub(crate) trait BatcherEnvelope: Send + 'static {
     fn request_id(&self) -> &str;
 }
 
-/// Return value from a successful strategy send so the generic core can
-/// update tracker state and spawn receipt tracking.
+/// Return value from a successful [`BatchSubmitStrategy::send_batch`] call.
 pub(crate) struct PendingBatchTx {
-    pub tx_hash: String,
+    // Hex formatted transaction hash
+    pub formatted_tx_hash: String,
+    // Handle for pending transaction tracking
     pub builder: alloy::providers::PendingTransactionBuilder<Ethereum>,
+}
+
+impl PendingBatchTx {
+    pub fn new(builder: alloy::providers::PendingTransactionBuilder<Ethereum>) -> Self {
+        Self {
+            formatted_tx_hash: format!("0x{:x}", builder.tx_hash()),
+            builder,
+        }
+    }
 }
 
 /// Strategy trait that captures the only per-batcher differences:
@@ -137,13 +212,13 @@ where
                     .set_status_batch(
                         &ids,
                         GatewayRequestState::Submitted {
-                            tx_hash: sent.tx_hash.clone(),
+                            tx_hash: sent.formatted_tx_hash.clone(),
                         },
                     )
                     .await;
 
                 self.tracker
-                    .spawn_receipt_tracker(ids, sent.builder, sent.tx_hash);
+                    .spawn_receipt_tracker(ids, sent.builder, sent.formatted_tx_hash);
             }
             Err(error_str) => {
                 let latency_ms = start.elapsed().as_millis() as f64;
@@ -283,69 +358,3 @@ where
 }
 
 // ── Public handle & command routing ─────────────────────────────────────
-
-/// Default gas estimates for operation types.
-pub(super) mod defaults {
-    pub const DEFAULT_CREATE_ACCOUNT_GAS: u64 = 600_000;
-    pub const DEFAULT_INSERT_AUTHENTICATOR_GAS: u64 = 252_784;
-    pub const DEFAULT_UPDATE_AUTHENTICATOR_GAS: u64 = 385_775;
-    pub const DEFAULT_REMOVE_AUTHENTICATOR_GAS: u64 = 721_044;
-    pub const DEFAULT_RECOVER_ACCOUNT_GAS: u64 = 516_400;
-}
-
-/// Unified batcher handle that routes to the appropriate batcher.
-#[derive(Clone)]
-pub struct BatcherHandle {
-    pub create: CreateBatcherHandle,
-    pub ops: OpsBatcherHandle,
-}
-
-impl BatcherHandle {
-    /// Submit a command to the appropriate batcher.
-    pub async fn submit(&self, cmd: Command) -> bool {
-        match cmd {
-            Command::CreateAccount { id, req, .. } => {
-                let envelope = CreateReqEnvelope {
-                    id: id.to_string(),
-                    req,
-                };
-                self.create.tx.send(envelope).await.is_ok()
-            }
-            Command::Operation { id, calldata, .. } => {
-                let envelope = OpsEnvelope {
-                    id: id.to_string(),
-                    calldata,
-                };
-                self.ops.tx.send(envelope).await.is_ok()
-            }
-        }
-    }
-}
-
-/// Unified command type for all batcher operations.
-pub enum Command {
-    CreateAccount {
-        id: Uuid,
-        req: CreateAccountRequest,
-        #[allow(dead_code)]
-        gas: u64,
-    },
-    Operation {
-        id: Uuid,
-        calldata: Bytes,
-        #[allow(dead_code)]
-        gas: u64,
-    },
-}
-
-impl Command {
-    /// Create a new account creation command.
-    pub fn create_account(id: Uuid, req: CreateAccountRequest, gas: u64) -> Self {
-        Self::CreateAccount { id, req, gas }
-    }
-
-    /// Create a new operation command (insert/update/remove/recover).
-    pub fn operation(id: Uuid, calldata: Bytes, gas: u64) -> Self {
-        Self::Operation { id, calldata, gas }
-    }
-}
