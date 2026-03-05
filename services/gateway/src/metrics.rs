@@ -19,6 +19,9 @@ pub const METRICS_BATCH_POLICY_DEFER: &str = "batch.policy.defer";
 pub const METRICS_BATCH_POLICY_FORCE_SEND: &str = "batch.policy.force_send";
 pub const METRICS_BATCH_POLICY_TARGET_SIZE: &str = "batch.policy.target_size";
 
+// Request rejection metrics
+pub const METRICS_REQUEST_REJECTED: &str = "request.rejected";
+
 pub fn describe_metrics() {
     ::metrics::describe_histogram!(
         METRICS_HTTP_LATENCY_MS,
@@ -88,6 +91,12 @@ pub fn describe_metrics() {
         ::metrics::Unit::Count,
         "Number of policy deferrals by reason."
     );
+
+    ::metrics::describe_counter!(
+        METRICS_REQUEST_REJECTED,
+        ::metrics::Unit::Count,
+        "Number of rejected requests by reason."
+    );
 }
 
 pub fn record_http_latency_ms(path: &str, status: u16, latency_ms: f64) {
@@ -151,6 +160,10 @@ pub fn increment_policy_force_send(batch_type: &'static str) {
 pub fn increment_policy_defer(batch_type: &'static str, reason: &'static str) {
     ::metrics::counter!(METRICS_BATCH_POLICY_DEFER, "type" => batch_type, "reason" => reason)
         .increment(1);
+}
+
+pub fn increment_request_rejected(reason: &'static str) {
+    ::metrics::counter!(METRICS_REQUEST_REJECTED, "reason" => reason).increment(1);
 }
 
 fn normalize_path(path: &str) -> String {
