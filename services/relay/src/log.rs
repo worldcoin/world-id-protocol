@@ -155,20 +155,22 @@ impl CommitmentLog {
 
         // Monotonicity check against the last entry.
 
-        let entries = self.entries.read();
-        if let Some(last) = entries.back() {
-            ensure!(
-                commitment.chain_id == last.chain_id,
-                "chain ID mismatch: expected {}, got {}",
-                last.chain_id,
-                commitment.chain_id,
-            );
-            ensure!(
-                commitment.block_number >= last.block_number,
-                "block number regression: last={}, got={}",
-                last.block_number,
-                commitment.block_number,
-            );
+        {
+            let entries = self.entries.read();
+            if let Some(last) = entries.back() {
+                ensure!(
+                    commitment.chain_id == last.chain_id,
+                    "chain ID mismatch: expected {}, got {}",
+                    last.chain_id,
+                    commitment.chain_id,
+                );
+                ensure!(
+                    commitment.block_number >= last.block_number,
+                    "block number regression: last={}, got={}",
+                    last.block_number,
+                    commitment.block_number,
+                );
+            }
         }
 
         // Hash chain verification.
@@ -186,25 +188,20 @@ impl CommitmentLog {
             chain.commit_chained(&sol_commits);
         }
 
-        // Compute the VecDeque index for this entry.
-        let index = self.entries.read().len();
+        // Append entry and capture the insertion index in one write-lock section.
+        let (index, new_head) = {
+            let mut entries = self.entries.write();
+            let index = entries.len();
+            let new_head = commitment.chain_head;
+            entries.push_back(commitment);
+            (index, new_head)
+        };
 
         // Index the chain head.
-        self.head_index.insert(commitment.chain_head, index);
-
-        // Append entry.
-        {
-            let mut entries = self.entries.write();
-            entries.push_back(commitment);
-        }
+        self.head_index.insert(new_head, index);
 
         // Broadcast new canonical head.
-        let _ = self.cursor_tx.send(
-            self.entries
-                .read()
-                .back()
-                .map_or(B256::ZERO, |e| e.chain_head),
-        );
+        let _ = self.cursor_tx.send(new_head);
 
         debug!(
             chain_head = %self.head(),
