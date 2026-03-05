@@ -129,7 +129,7 @@ pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>: Send + Default + 'stat
         &self,
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
         batch: Vec<E>,
-    ) -> impl Future<Output = Result<PendingBatchTx, String>> + Send;
+    ) -> impl Future<Output = Result<PendingBatchTx, alloy::contract::Error>> + Send;
 }
 
 struct TimedEnvelope<T> {
@@ -220,10 +220,11 @@ where
                 self.tracker
                     .spawn_receipt_tracker(ids, sent.builder, sent.formatted_tx_hash);
             }
-            Err(error_str) => {
+            Err(err) => {
                 let latency_ms = start.elapsed().as_millis() as f64;
                 metrics::record_batch_result(batch_type, false, latency_ms);
 
+                let error_str = err.to_string();
                 tracing::error!(error = %error_str, "{batch_type} batch send failed");
                 let code = parse_contract_error(&error_str);
                 self.tracker

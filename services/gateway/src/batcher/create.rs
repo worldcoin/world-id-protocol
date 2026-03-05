@@ -46,7 +46,7 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
         &self,
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
         batch: Vec<CreateReqEnvelope>,
-    ) -> Result<PendingBatchTx, String> {
+    ) -> Result<PendingBatchTx, alloy::contract::Error> {
         let mut recovery_addresses: Vec<Address> = Vec::new();
         let mut auths: Vec<Vec<Address>> = Vec::new();
         let mut pubkeys: Vec<Vec<U256>> = Vec::new();
@@ -62,8 +62,7 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
         let builder = registry
             .createManyAccounts(recovery_addresses, auths, pubkeys, commits)
             .send()
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
 
         Ok(PendingBatchTx::new(builder))
     }

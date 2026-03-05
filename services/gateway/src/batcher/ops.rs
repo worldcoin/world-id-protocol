@@ -61,7 +61,7 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
         &self,
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
         batch: Vec<OpsEnvelope>,
-    ) -> Result<PendingBatchTx, String> {
+    ) -> Result<PendingBatchTx, alloy::contract::Error> {
         let mc = Multicall3::new(MULTICALL3_ADDR, registry.provider().clone());
 
         let calls: Vec<Multicall3::Call3> = batch
@@ -76,8 +76,7 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
         let builder = mc
             .aggregate3(calls)
             .send()
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
 
         Ok(PendingBatchTx::new(builder))
     }
