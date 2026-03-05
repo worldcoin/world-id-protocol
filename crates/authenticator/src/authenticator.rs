@@ -105,7 +105,6 @@ impl Authenticator {
     ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
-        #[cfg(not(target_arch = "wasm32"))]
         let registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>> =
             config.rpc_url().map(|rpc_url| {
                 let provider = alloy::providers::ProviderBuilder::new()
@@ -116,25 +115,6 @@ impl Authenticator {
                     alloy::providers::Provider::erased(provider),
                 ))
             });
-
-        #[cfg(target_arch = "wasm32")]
-        let registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>> =
-            if let Some(rpc_url) = config.rpc_url() {
-                let provider = alloy::providers::ProviderBuilder::new()
-                    .with_chain_id(config.chain_id())
-                    .connect(rpc_url.as_str())
-                    .await
-                    .map_err(|e| {
-                        AuthenticatorError::Generic(format!("failed to connect to RPC: {e}"))
-                    })?;
-
-                Some(Arc::new(crate::registry::WorldIdRegistry::new(
-                    *config.registry_address(),
-                    alloy::providers::Provider::erased(provider),
-                )))
-            } else {
-                None
-            };
 
         let http_client = reqwest::Client::new();
 
