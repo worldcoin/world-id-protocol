@@ -443,7 +443,7 @@ async fn sweep_stale_queued_request() {
     let record = read_record(&mut redis, "stale-queued").await.unwrap();
     match &record.status {
         GatewayRequestState::Failed { error, .. } => {
-            assert!(error.contains("orphaned"));
+            assert!(error.contains("timed out in queued state"));
         }
         other => panic!("expected Failed, got {other:?}"),
     }
