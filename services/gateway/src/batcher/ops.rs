@@ -73,10 +73,7 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
             })
             .collect();
 
-        let builder = mc
-            .aggregate3(calls)
-            .send()
-            .await?;
+        let builder = mc.aggregate3(calls).send().await?;
 
         Ok(PendingBatchTx::new(builder))
     }
