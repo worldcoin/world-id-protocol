@@ -7127,7 +7127,8 @@ dependencies = [
 [[package]]
 name = "taceo-oprf"
 version = "0.7.1"
-source = "git+https://github.com/TaceoLabs/oprf-service?rev=7fa59613fca491f1ea96b2d2b0836772a1ccde31#7fa59613fca491f1ea96b2d2b0836772a1ccde31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "412211d4d43aeb060c369a69213bd7ae941f769cc4361df83195d2a7936f22d5"
 dependencies = [
  "taceo-oprf-client",
  "taceo-oprf-core",
@@ -7138,8 +7139,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-client"
-version = "0.8.0"
-source = "git+https://github.com/TaceoLabs/oprf-service?rev=7fa59613fca491f1ea96b2d2b0836772a1ccde31#7fa59613fca491f1ea96b2d2b0836772a1ccde31"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de42daf867ed4d1ed661258a4541d5dcf1ebe3f43f923acc3ec7716b8824670d"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -7162,7 +7164,8 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-core"
 version = "0.4.3"
-source = "git+https://github.com/TaceoLabs/oprf-service?rev=7fa59613fca491f1ea96b2d2b0836772a1ccde31#7fa59613fca491f1ea96b2d2b0836772a1ccde31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d2baf9c72e6687fa8839c3e3368236b36237a905b8c7fcd445250a7a57ab063"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -7183,7 +7186,8 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-dev-client"
 version = "0.6.0"
-source = "git+https://github.com/TaceoLabs/oprf-service?rev=7fa59613fca491f1ea96b2d2b0836772a1ccde31#7fa59613fca491f1ea96b2d2b0836772a1ccde31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "576de5d712f4424024e022a3b2f7916681101a72e5481bce7c867e18f35bdfe3"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -7209,7 +7213,8 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-key-gen"
 version = "0.6.1"
-source = "git+https://github.com/TaceoLabs/oprf-service?rev=7fa59613fca491f1ea96b2d2b0836772a1ccde31#7fa59613fca491f1ea96b2d2b0836772a1ccde31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2218f2bbf94e1c7932133983e12f291502583c2908dfab584ceb85ea60ace28"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -7250,8 +7255,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-service"
-version = "0.9.1"
-source = "git+https://github.com/TaceoLabs/oprf-service?rev=7fa59613fca491f1ea96b2d2b0836772a1ccde31#7fa59613fca491f1ea96b2d2b0836772a1ccde31"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f6f2677db8c142502140f1f3ae8e9f90b184c476c699ba1d6e16f94637d5820"
 dependencies = [
  "alloy",
  "ark-serialize 0.5.0",
@@ -7292,7 +7298,8 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-test-utils"
 version = "0.7.1"
-source = "git+https://github.com/TaceoLabs/oprf-service?rev=7fa59613fca491f1ea96b2d2b0836772a1ccde31#7fa59613fca491f1ea96b2d2b0836772a1ccde31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3603bebf4f2b26a0c904f37550c02b271cfebc63b31be920fafe09cf396ab09c"
 dependencies = [
  "alloy",
  "ark-ec 0.5.0",
@@ -7316,8 +7323,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-types"
-version = "0.9.1"
-source = "git+https://github.com/TaceoLabs/oprf-service?rev=7fa59613fca491f1ea96b2d2b0836772a1ccde31#7fa59613fca491f1ea96b2d2b0836772a1ccde31"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "447b96ee4bb69a16b05fa1e581501c426338698263cde39fc8fbfdbf5d24b616"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -9096,6 +9104,29 @@ dependencies = [
  "world-id-primitives",
  "zeroize",
  "zstd",
+]
+
+[[package]]
+name = "world-id-relay"
+version = "0.5.0"
+dependencies = [
+ "alloy",
+ "alloy-primitives",
+ "clap",
+ "config",
+ "dashmap",
+ "dotenvy",
+ "eyre",
+ "futures",
+ "futures-util",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "telemetry-batteries 0.2.1",
+ "tokio",
+ "tracing",
+ "world-id-relay",
+ "world-id-services-common",
 ]
 
 [[package]]
