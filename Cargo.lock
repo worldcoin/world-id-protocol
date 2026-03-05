@@ -3487,7 +3487,7 @@ checksum = "42012b0f064e01aa58b545fe3727f90f7dd4020f4a3ea735b50344965f5a57e9"
 
 [[package]]
 name = "generate-solidity-fixtures"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "eyre",
@@ -8798,7 +8798,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-authenticator"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -8827,7 +8827,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-core"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "backon",
@@ -8889,8 +8889,10 @@ dependencies = [
  "metrics",
  "moka",
  "once_cell",
+ "rand 0.8.5",
  "redis",
  "reqwest",
+ "rustls 0.23.36",
  "serde",
  "serde_json",
  "strum",
@@ -8921,6 +8923,7 @@ dependencies = [
  "futures-util",
  "hex",
  "http 1.4.0",
+ "metrics",
  "rand 0.8.5",
  "regex",
  "reqwest",
@@ -8952,7 +8955,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-issuer"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -9033,7 +9036,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-primitives"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -9070,7 +9073,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-proof"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
