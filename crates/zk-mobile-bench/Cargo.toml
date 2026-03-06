@@ -16,7 +16,7 @@ path = "src/bin/uniffi-bindgen.rs"
 
 [dependencies]
 # Benchmarking
-mobench-sdk = { git = "https://github.com/worldcoin/mobile-bench-rs", tag = "v0.1.15" }
+mobench-sdk = "0.1.15"
 inventory = "0.3"
 
 # World ID

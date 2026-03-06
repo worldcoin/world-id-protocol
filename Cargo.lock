@@ -4834,7 +4834,8 @@ dependencies = [
 [[package]]
 name = "mobench-macros"
 version = "0.1.15"
-source = "git+https://github.com/worldcoin/mobile-bench-rs?tag=v0.1.15#3b7e6b3c5182ef45338877f29eaee477e9c39f3a"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22fd6bffbc3b501113ec755b46cc0274fbe72516c701c3f5705a8ae6443553c6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4844,7 +4845,8 @@ dependencies = [
 [[package]]
 name = "mobench-sdk"
 version = "0.1.15"
-source = "git+https://github.com/worldcoin/mobile-bench-rs?tag=v0.1.15#3b7e6b3c5182ef45338877f29eaee477e9c39f3a"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37fd9a96bf017747d72d96aa20e930d497aecf9eb202ca328b3848e6b9f05da8"
 dependencies = [
  "anyhow",
  "include_dir",
