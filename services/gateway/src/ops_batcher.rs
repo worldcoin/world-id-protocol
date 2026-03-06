@@ -2,24 +2,20 @@
 //!
 //! This batcher collects operations and submits them via Multicall3.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use crate::{
-    RequestTracker,
-    error::parse_contract_error,
-    metrics::{
-        METRICS_BATCH_FAILURE, METRICS_BATCH_LATENCY_MS, METRICS_BATCH_SIZE,
-        METRICS_BATCH_SUBMITTED, METRICS_BATCH_SUCCESS,
-    },
+    RequestTracker, batch_policy::BaseFeeCache, config::BatchPolicyConfig,
+    error::parse_contract_error, metrics, policy_batcher::PolicyBatchLoopRunner,
+    request_tracker::BacklogScope,
 };
 use alloy::{
     primitives::{Address, Bytes, address},
     providers::DynProvider,
 };
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, time::Instant};
 use world_id_core::{
-    api_types::{GatewayErrorCode, GatewayRequestState},
-    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
+    api_types::GatewayRequestState, world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
@@ -49,134 +45,133 @@ pub struct OpsEnvelope {
 pub struct OpsBatcherRunner {
     rx: mpsc::Receiver<OpsEnvelope>,
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-    window: Duration,
     max_batch_size: usize,
+    local_queue_limit: usize,
     tracker: RequestTracker,
+    batch_policy: BatchPolicyConfig,
+    base_fee_cache: BaseFeeCache,
 }
 
 impl OpsBatcherRunner {
     pub fn new(
         registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-        window: Duration,
         max_batch_size: usize,
+        local_queue_limit: usize,
         rx: mpsc::Receiver<OpsEnvelope>,
         tracker: RequestTracker,
+        batch_policy: BatchPolicyConfig,
+        base_fee_cache: BaseFeeCache,
     ) -> Self {
         Self {
             rx,
             registry,
-            window,
             max_batch_size,
+            local_queue_limit: local_queue_limit.max(1),
             tracker,
+            batch_policy,
+            base_fee_cache,
         }
     }
 
     pub async fn run(mut self) {
-        let provider = self.registry.provider();
-        let mc = Multicall3::new(MULTICALL3_ADDR, provider);
+        self.run_policy_loop().await;
+    }
 
-        loop {
-            let Some(first) = self.rx.recv().await else {
-                tracing::info!("ops batcher channel closed");
-                return;
-            };
+    async fn submit_ops_batch(&self, batch: Vec<OpsEnvelope>) {
+        if batch.is_empty() {
+            return;
+        }
 
-            let mut batch = vec![first];
-            let deadline = tokio::time::Instant::now() + self.window;
+        let mc = Multicall3::new(MULTICALL3_ADDR, self.registry.provider().clone());
 
-            loop {
-                if batch.len() >= self.max_batch_size {
-                    break;
-                }
-                match tokio::time::timeout_at(deadline, self.rx.recv()).await {
-                    Ok(Some(req)) => batch.push(req),
-                    Ok(None) => {
-                        tracing::info!("ops batcher channel closed while batching");
-                        break;
-                    }
-                    Err(_) => break, // Timeout expired
-                }
+        let batch_size = batch.len();
+        let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
+
+        metrics::record_batch_submitted("ops", batch_size);
+
+        self.tracker
+            .set_status_batch(&ids, GatewayRequestState::Batching)
+            .await;
+
+        let calls: Vec<Multicall3::Call3> = batch
+            .into_iter()
+            .map(|env| Multicall3::Call3 {
+                target: *self.registry.address(),
+                allowFailure: false,
+                callData: env.calldata,
+            })
+            .collect();
+
+        let start = Instant::now();
+        let res = mc.aggregate3(calls).send().await;
+        match res {
+            Ok(builder) => {
+                let latency_ms = start.elapsed().as_millis() as f64;
+                metrics::record_batch_result("ops", true, latency_ms);
+
+                let hash = format!("0x{:x}", builder.tx_hash());
+                self.tracker
+                    .set_status_batch(
+                        &ids,
+                        GatewayRequestState::Submitted {
+                            tx_hash: hash.clone(),
+                        },
+                    )
+                    .await;
+
+                self.tracker.spawn_receipt_tracker(ids, builder, hash);
             }
+            Err(e) => {
+                let latency_ms = start.elapsed().as_millis() as f64;
+                metrics::record_batch_result("ops", false, latency_ms);
 
-            let batch_size = batch.len();
-            let ids: Vec<String> = batch.iter().map(|env| env.id.clone()).collect();
-
-            ::metrics::counter!(METRICS_BATCH_SUBMITTED, "type" => "ops").increment(1);
-            ::metrics::histogram!(METRICS_BATCH_SIZE, "type" => "ops").record(batch_size as f64);
-
-            self.tracker
-                .set_status_batch(&ids, GatewayRequestState::Batching)
-                .await;
-
-            let calls: Vec<Multicall3::Call3> = batch
-                .into_iter()
-                .map(|env| Multicall3::Call3 {
-                    target: *self.registry.address(),
-                    allowFailure: false,
-                    callData: env.calldata,
-                })
-                .collect();
-
-            let start = std::time::Instant::now();
-            let res = mc.aggregate3(calls).send().await;
-            match res {
-                Ok(builder) => {
-                    let latency_ms = start.elapsed().as_millis() as f64;
-                    ::metrics::histogram!(METRICS_BATCH_LATENCY_MS, "type" => "ops")
-                        .record(latency_ms);
-                    ::metrics::counter!(METRICS_BATCH_SUCCESS, "type" => "ops").increment(1);
-
-                    let hash = format!("0x{:x}", builder.tx_hash());
-                    self.tracker
-                        .set_status_batch(
-                            &ids,
-                            GatewayRequestState::Submitted {
-                                tx_hash: hash.clone(),
-                            },
-                        )
-                        .await;
-
-                    let tracker = self.tracker.clone();
-                    let ids_for_receipt = ids;
-                    tokio::spawn(async move {
-                        match builder.get_receipt().await {
-                            Ok(receipt) => {
-                                tracker
-                                    .finalize_from_receipt(
-                                        &ids_for_receipt,
-                                        receipt.status(),
-                                        &hash,
-                                    )
-                                    .await;
-                            }
-                            Err(err) => {
-                                tracker
-                                    .set_status_batch(
-                                        &ids_for_receipt,
-                                        GatewayRequestState::failed(
-                                            format!("transaction confirmation error: {err}"),
-                                            Some(GatewayErrorCode::ConfirmationError),
-                                        ),
-                                    )
-                                    .await;
-                            }
-                        }
-                    });
-                }
-                Err(e) => {
-                    let latency_ms = start.elapsed().as_millis() as f64;
-                    ::metrics::histogram!(METRICS_BATCH_LATENCY_MS, "type" => "ops")
-                        .record(latency_ms);
-                    ::metrics::counter!(METRICS_BATCH_FAILURE, "type" => "ops").increment(1);
-
-                    tracing::warn!(error = %e, "multicall3 send failed");
-                    let error_str = e.to_string();
-                    let code = parse_contract_error(&error_str);
-                    self.tracker
-                        .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
-                        .await;
-                }
+                tracing::warn!(error = %e, "multicall3 send failed");
+                let error_str = e.to_string();
+                let code = parse_contract_error(&error_str);
+                self.tracker
+                    .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
+                    .await;
             }
         }
+    }
+}
+
+impl PolicyBatchLoopRunner for OpsBatcherRunner {
+    type Envelope = OpsEnvelope;
+
+    fn batch_type(&self) -> &'static str {
+        "ops"
+    }
+
+    fn backlog_scope(&self) -> BacklogScope {
+        BacklogScope::Ops
+    }
+
+    fn max_batch_size(&self) -> usize {
+        self.max_batch_size
+    }
+
+    fn local_queue_limit(&self) -> usize {
+        self.local_queue_limit
+    }
+
+    fn batch_policy(&self) -> &BatchPolicyConfig {
+        &self.batch_policy
+    }
+
+    fn base_fee_cache(&self) -> &BaseFeeCache {
+        &self.base_fee_cache
+    }
+
+    fn tracker(&self) -> &RequestTracker {
+        &self.tracker
+    }
+
+    fn rx(&mut self) -> &mut mpsc::Receiver<Self::Envelope> {
+        &mut self.rx
+    }
+
+    async fn submit_batch(&self, batch: Vec<Self::Envelope>) {
+        self.submit_ops_batch(batch).await;
     }
 }

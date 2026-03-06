@@ -2,7 +2,8 @@ mod helpers;
 
 use alloy::primitives::{Address, U256};
 use helpers::db_helpers::*;
-use world_id_indexer::db::IsolationLevel;
+use serde_json::json;
+use world_id_indexer::db::{DBError, IsolationLevel};
 
 /// Test inserting an account
 #[tokio::test]
@@ -46,6 +47,78 @@ async fn test_insert_account() {
     );
     assert_eq!(account.offchain_signer_commitment, commitment);
     // Cleanup happens automatically when test_db is dropped
+}
+
+/// Invalid non-null authenticator address JSON should fail account decoding.
+#[tokio::test]
+async fn test_get_account_fails_on_invalid_authenticator_address_json() {
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
+
+    let leaf_index = 1u64;
+    db.accounts()
+        .insert(
+            leaf_index,
+            &Address::ZERO,
+            &[Address::from([1u8; 20])],
+            &[U256::from(123)],
+            &U256::from(456),
+            100,
+            0,
+        )
+        .await
+        .unwrap();
+
+    sqlx::query("UPDATE accounts SET authenticator_addresses = $1 WHERE leaf_index = $2")
+        .bind(json!(["not-an-address"]))
+        .bind(leaf_index as i64)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    let err = db.accounts().get_account(leaf_index).await.unwrap_err();
+    assert!(matches!(
+        err,
+        DBError::InvalidEventField { field, .. } if field == "authenticator_addresses[0]"
+    ));
+}
+
+/// Invalid non-null authenticator pubkey JSON should fail pubkey decoding.
+#[tokio::test]
+async fn test_get_authenticator_pubkeys_fails_on_invalid_pubkey_json() {
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
+
+    let leaf_index = 1u64;
+    db.accounts()
+        .insert(
+            leaf_index,
+            &Address::ZERO,
+            &[Address::from([1u8; 20])],
+            &[U256::from(123)],
+            &U256::from(456),
+            100,
+            0,
+        )
+        .await
+        .unwrap();
+
+    sqlx::query("UPDATE accounts SET authenticator_pubkeys = $1 WHERE leaf_index = $2")
+        .bind(json!(["not-a-u256"]))
+        .bind(leaf_index as i64)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+    let err = db
+        .accounts()
+        .get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(leaf_index)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        DBError::InvalidEventField { field, .. } if field == "authenticator_pubkeys[0]"
+    ));
 }
 
 /// Test duplicate insert is handled gracefully (idempotent)

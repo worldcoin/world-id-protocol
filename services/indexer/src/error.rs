@@ -1,4 +1,9 @@
-use crate::{blockchain::BlockchainError, config::ConfigError, db::DBError, tree::TreeError};
+use crate::{
+    blockchain::BlockchainError,
+    config::ConfigError,
+    db::{DBError, WorldIdRegistryEventId},
+    tree::TreeError,
+};
 use axum::response::IntoResponse;
 use http::StatusCode;
 use std::backtrace::Backtrace;
@@ -45,6 +50,14 @@ pub enum IndexerError {
         source: std::io::Error,
         backtrace: String,
     },
+    #[error("blockchain reorg detected at block {block_number}: {reason}")]
+    ReorgDetected { block_number: u64, reason: String },
+    #[error(
+        "cannot roll back in-memory tree to event {event_id:?}: history has been pruned past this point"
+    )]
+    RollbackTreeHistoryPruned { event_id: WorldIdRegistryEventId },
+    #[error("contract call failed: {0}")]
+    ContractCall(String),
 }
 
 impl From<BlockchainError> for IndexerError {
@@ -124,6 +137,15 @@ impl IndexerErrorResponse {
     #[must_use]
     pub const fn bad_request(code: IndexerErrorCode, message: String) -> Self {
         Self::new(code, message, StatusCode::BAD_REQUEST)
+    }
+
+    #[must_use]
+    pub fn request_timeout(timeout_secs: u64) -> Self {
+        Self::new(
+            IndexerErrorCode::RequestTimeout,
+            format!("Request timed out after {timeout_secs}s"),
+            StatusCode::GATEWAY_TIMEOUT,
+        )
     }
 }
 

@@ -99,6 +99,7 @@ pub struct GlobalConfig {
     pub provider: ProviderArgs,
     pub ws_rpc_url: String,
     pub registry_address: Address,
+    pub tree_cache: TreeCacheConfig,
 }
 
 #[derive(Debug)]
@@ -111,7 +112,6 @@ pub struct HttpConfig {
     ///
     /// The sanity check calls the `isValidRoot` function on the `WorldIDRegistry` contract to ensure the local Merkle root is valid.
     pub sanity_check_interval_secs: Option<u64>,
-    pub tree_cache: TreeCacheConfig,
 }
 
 impl HttpConfig {
@@ -133,8 +133,6 @@ impl HttpConfig {
             .and_then(|s| s.parse().ok())
             .unwrap_or(10);
 
-        let tree_cache = TreeCacheConfig::from_env()?;
-
         let config = Self {
             http_addr,
             db_poll_interval_secs,
@@ -145,7 +143,6 @@ impl HttpConfig {
                     if val == 0 { None } else { Some(val) }
                 },
             ),
-            tree_cache,
         };
 
         if config.http_addr.port() != 8080 {
@@ -166,19 +163,38 @@ impl HttpConfig {
 pub struct IndexerConfig {
     pub start_block: u64,
     pub batch_size: u64,
+    pub tree_max_block_age: u64,
 }
 
 impl IndexerConfig {
     pub fn from_env() -> Self {
+        let batch_size = std::env::var("BATCH_SIZE")
+            .ok()
+            .and_then(|raw| match raw.parse::<u64>() {
+                Ok(0) => {
+                    tracing::warn!("BATCH_SIZE=0 is not allowed; defaulting to BATCH_SIZE=64");
+                    None
+                }
+                Ok(value) => Some(value),
+                Err(_) => {
+                    tracing::warn!(
+                        "Failed to parse BATCH_SIZE into u64; defaulting to BATCH_SIZE=64"
+                    );
+                    None
+                }
+            })
+            .unwrap_or(64);
+
         let config = Self {
             start_block: std::env::var("START_BLOCK")
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0),
-            batch_size: std::env::var("BATCH_SIZE")
+            batch_size,
+            tree_max_block_age: std::env::var("TREE_MAX_BLOCK_AGE")
                 .ok()
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(64),
+                .unwrap_or(1000),
         };
         tracing::info!("✔️ Indexer config loaded from env");
         config
@@ -281,6 +297,8 @@ impl GlobalConfig {
             ConfigError::InvalidRegistryAddress(format!("{}: {}", registry_address_str, e))
         })?;
 
+        let tree_cache = TreeCacheConfig::from_env()?;
+
         Ok(Self {
             environment,
             run_mode,
@@ -288,6 +306,7 @@ impl GlobalConfig {
             provider,
             ws_rpc_url,
             registry_address,
+            tree_cache,
         })
     }
 }
@@ -335,6 +354,7 @@ mod tests {
             // Indexer config
             env::remove_var("START_BLOCK");
             env::remove_var("BATCH_SIZE");
+            env::remove_var("TREE_MAX_BLOCK_AGE");
 
             // Tree cache config
             env::remove_var("TREE_CACHE_FILE");
@@ -376,6 +396,7 @@ mod tests {
 
         set_env("RUN_MODE", "indexer");
         set_env("START_BLOCK", "100");
+        set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 
         let mode = RunMode::from_env().expect("Should load RunMode from env.");
         assert!(matches!(mode, RunMode::IndexerOnly { .. }));
@@ -446,8 +467,6 @@ mod tests {
         assert_eq!(config.db_poll_interval_secs, 1);
         assert_eq!(config.request_timeout_secs, 10);
         assert_eq!(config.sanity_check_interval_secs, None);
-        assert_eq!(config.tree_cache.cache_file_path, "/tmp/test_cache");
-        assert_eq!(config.tree_cache.tree_depth, 30); // default
     }
 
     #[test]
@@ -467,7 +486,6 @@ mod tests {
         assert_eq!(config.db_poll_interval_secs, 5);
         assert_eq!(config.request_timeout_secs, 30);
         assert_eq!(config.sanity_check_interval_secs, Some(60));
-        assert_eq!(config.tree_cache.cache_file_path, "/tmp/test_cache");
     }
 
     #[test]
@@ -491,6 +509,7 @@ mod tests {
 
         assert_eq!(config.start_block, 0);
         assert_eq!(config.batch_size, 64);
+        assert_eq!(config.tree_max_block_age, 1000);
     }
 
     #[test]
@@ -500,11 +519,13 @@ mod tests {
 
         set_env("START_BLOCK", "12345");
         set_env("BATCH_SIZE", "128");
+        set_env("TREE_MAX_BLOCK_AGE", "500");
 
         let config = IndexerConfig::from_env();
 
         assert_eq!(config.start_block, 12345);
         assert_eq!(config.batch_size, 128);
+        assert_eq!(config.tree_max_block_age, 500);
     }
 
     #[test]
@@ -514,12 +535,14 @@ mod tests {
 
         set_env("START_BLOCK", "invalid");
         set_env("BATCH_SIZE", "not_a_number");
+        set_env("TREE_MAX_BLOCK_AGE", "not_a_number");
 
         let config = IndexerConfig::from_env();
 
         // Invalid values should fall back to defaults
         assert_eq!(config.start_block, 0);
         assert_eq!(config.batch_size, 64);
+        assert_eq!(config.tree_max_block_age, 1000);
     }
 
     #[test]
@@ -715,6 +738,11 @@ mod tests {
         set_env("BATCH_SIZE", "10000");
         let config = IndexerConfig::from_env();
         assert_eq!(config.batch_size, 10000);
+
+        // Zero is invalid and should fall back to the default.
+        set_env("BATCH_SIZE", "0");
+        let config = IndexerConfig::from_env();
+        assert_eq!(config.batch_size, 64);
     }
 
     #[test]

@@ -34,23 +34,24 @@ async fn test_packed_account_endpoint() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
+                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8083".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
                 sanity_check_interval_secs: None,
-                tree_cache: TreeCacheConfig {
-                    cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
-                    tree_depth: 6,
-                    http_cache_refresh_interval_secs: 30,
-                },
             },
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
+        tree_cache: TreeCacheConfig {
+            cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
+            tree_depth: 30,
+            http_cache_refresh_interval_secs: 30,
+        },
     };
 
     let indexer_task = tokio::spawn(async move {
@@ -59,19 +60,19 @@ async fn test_packed_account_endpoint() {
 
     // Add a small delay to let initialization start
     tokio::time::sleep(Duration::from_millis(500)).await;
-    println!("Indexer task spawned, waiting for backfill...");
+    tracing::info!("Indexer task spawned, waiting for backfill...");
 
     // Wait for account to be indexed
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     loop {
         let c = query_count(&setup.pool).await;
-        println!(
+        tracing::info!(
             "Current account count: {} (elapsed: {:?})",
             c,
             deadline.saturating_duration_since(std::time::Instant::now())
         );
         if c >= 1 {
-            println!("Account found! Backfill complete.");
+            tracing::info!("Account found! Backfill complete.");
             break;
         }
         if std::time::Instant::now() > deadline {

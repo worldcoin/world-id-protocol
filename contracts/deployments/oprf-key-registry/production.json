@@ -4,6 +4,8 @@
     "implementation": "0xBe90E65A3204ca9c194b85d02e14D4C855ac87dF",
     "proxy": "0x0D8b461799474207A3d223553d4d5e6609cb0c69",
     "admins": [
+      "0xD9A213A92Bca460D56cDbBF4d775b48fB5925BbC",
+      "0x941239840F4d9668da8be76b568e836b50685d2c",
       "0x588DA525a1c7986B4BB2C521Ea67b95603Be6c26"
     ],
     "owner": {

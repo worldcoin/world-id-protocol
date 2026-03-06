@@ -22,6 +22,7 @@ alloy = { workspace = true, features = [
 
 aws-config = { workspace = true }
 aws-sdk-kms = { workspace = true }
+async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros", "json"] }
 clap = { workspace = true, features = ["derive", "env"] }
 world-id-core = { workspace = true, features = [
@@ -49,7 +50,9 @@ uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
 world-id-test-utils = { workspace = true }
+rand = { workspace = true }
 reqwest = { workspace = true }
+rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

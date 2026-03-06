@@ -29,7 +29,9 @@ use world_id_core::{
     Authenticator, EdDSAPrivateKey,
     requests::{ProofRequest, RequestItem, RequestVersion},
 };
-use world_id_gateway::{GatewayConfig, OrphanSweeperConfig, SignerArgs, spawn_gateway_for_tests};
+use world_id_gateway::{
+    BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
+};
 use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
@@ -83,7 +85,6 @@ async fn main() -> Result<()> {
             signer: Some(signer_args),
             ..Default::default()
         },
-        batch_ms: 200,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, gw_port).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
@@ -92,7 +93,10 @@ async fn main() -> Result<()> {
         request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
-        sweeper: OrphanSweeperConfig::default(),
+        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
+        batch_policy: BatchPolicyConfig::default(),
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)
         .await
@@ -141,8 +145,7 @@ async fn main() -> Result<()> {
         .wrap_err("failed to construct merkle fixture")?;
 
     let inclusion_proof =
-        AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone())
-            .wrap_err("failed to build inclusion proof")?;
+        AccountInclusionProof::<{ TREE_DEPTH }>::new(merkle_inclusion_proof, key_set.clone());
 
     let (indexer_url, indexer_handle) = spawn_indexer_stub(leaf_index, inclusion_proof.clone())
         .await

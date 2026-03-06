@@ -2,7 +2,10 @@ use std::{num::NonZeroUsize, path::Path, time::Duration};
 
 use alloy::{
     network::EthereumWallet,
-    providers::{DynProvider, Provider, ProviderBuilder, fillers::CachedNonceManager},
+    providers::{
+        DynProvider, Provider, ProviderBuilder,
+        fillers::{CachedNonceManager, NonceManager},
+    },
     rpc::{client::RpcClient, json_rpc::RpcError},
     signers::{
         Signer,
@@ -178,8 +181,26 @@ impl ProviderArgs {
         self
     }
 
-    /// Build a dynamic provider from the configuration.
+    /// Build a dynamic provider from the configuration using the default
+    /// process-local [`CachedNonceManager`].
+    ///
+    /// **Note:** This is safe only when a single process submits transactions
+    /// for a given signer address. For multi-replica deployments sharing a
+    /// signer, use [`http_with_nonce_manager`] with a distributed nonce
+    /// manager (e.g. Redis-backed) instead.
     pub async fn http(self) -> ProviderResult<DynProvider> {
+        self.http_with_nonce_manager(CachedNonceManager::default())
+            .await
+    }
+
+    /// Build a dynamic provider using a caller-supplied [`NonceManager`].
+    ///
+    /// This allows injecting a distributed nonce manager (e.g. Redis-backed)
+    /// for safe multi-replica transaction submission with a shared signer.
+    pub async fn http_with_nonce_manager<M: NonceManager + 'static>(
+        self,
+        nonce_manager: M,
+    ) -> ProviderResult<DynProvider> {
         let Some(http) = self.http else {
             return Err(ProviderError::NoHttpUrls);
         };
@@ -254,7 +275,7 @@ impl ProviderArgs {
 
         let provider = if let Some(signer) = maybe_signer {
             let provider = ProviderBuilder::new()
-                .with_nonce_management(CachedNonceManager::default())
+                .with_nonce_management(nonce_manager)
                 .wallet(signer)
                 .connect_client(client);
 

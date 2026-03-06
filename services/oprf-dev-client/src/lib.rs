@@ -12,7 +12,7 @@ use secrecy::ExposeSecret as _;
 use taceo_oprf::{core::oprf::BlindingFactor, dev_client::DevClientConfig};
 use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSASignature, FieldElement,
-    proof::CircomGroth16Material,
+    proof::{CircomGroth16Material, errors},
 };
 use world_id_primitives::{
     TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, circuit_inputs::QueryProofCircuitInput,
@@ -62,6 +62,8 @@ pub fn create_query_proof(args: CreateQueryProofArgs<'_>) -> eyre::Result<Proof<
         action: *action,
         nonce: *nonce,
     };
+
+    let _ = errors::check_query_input_validity(&query_proof_input)?;
 
     let (proof, public_inputs) =
         query_material.generate_proof(&query_proof_input, &mut rand::thread_rng())?;

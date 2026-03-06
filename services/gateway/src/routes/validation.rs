@@ -2,8 +2,9 @@ use tokio::sync::OnceCell;
 
 use crate::error::GatewayErrorResponse;
 use alloy::{
-    primitives::{Address, Bytes, Signature, U256},
+    primitives::{Address, Bytes, Signature, TxKind, U256},
     providers::Provider,
+    rpc::types::{BlockId, TransactionRequest},
     sol_types::{Eip712Domain, SolStruct, eip712_domain},
 };
 use world_id_core::{
@@ -57,20 +58,12 @@ pub(crate) trait RequestValidation: Sized + Sync {
     /// simulation and actual transaction submission.
     fn calldata(&self, registry: &Registry) -> Bytes;
 
-    /// Simulate the request against the contract.
-    ///
-    /// Calls the contract with `.call()` to check if the transaction would revert
-    /// without actually spending gas.
-    fn simulate(
+    /// Full validation: pre-flight checks (including signature verification), contract simulation,
+    /// and returns the already-encoded calldata for submission.
+    fn validate_and_calldata(
         &self,
         registry: &Registry,
-    ) -> impl Future<Output = Result<(), GatewayErrorResponse>> + Send;
-
-    /// Full validation: pre-flight checks (including signature verification), then contract simulation.
-    fn validate(
-        &self,
-        registry: &Registry,
-    ) -> impl Future<Output = Result<(), GatewayErrorResponse>> + Send {
+    ) -> impl Future<Output = Result<Bytes, GatewayErrorResponse>> + Send {
         async move {
             let chain_id = *CHAIN_ID
                 .get_or_try_init(|| async {
@@ -84,9 +77,30 @@ pub(crate) trait RequestValidation: Sized + Sync {
             let verifying_contract = *registry.address();
 
             self.pre_flight(chain_id, verifying_contract)?;
-            self.simulate(registry).await
+            let calldata = self.calldata(registry);
+            simulate_calldata(registry, &calldata).await?;
+            Ok(calldata)
         }
     }
+}
+
+async fn simulate_calldata(
+    registry: &Registry,
+    calldata: &Bytes,
+) -> Result<(), GatewayErrorResponse> {
+    let tx = TransactionRequest {
+        to: Some(TxKind::Call(*registry.address())),
+        input: calldata.clone().into(),
+        ..Default::default()
+    };
+
+    registry
+        .provider()
+        .call(tx)
+        .block(BlockId::default())
+        .await
+        .map(|_| ())
+        .map_err(GatewayErrorResponse::from_simulation_error)
 }
 
 /// Basic ECDSA signature format validation.
@@ -193,20 +207,6 @@ impl RequestValidation for CreateAccountRequest {
             .calldata()
             .clone()
     }
-
-    async fn simulate(&self, registry: &Registry) -> Result<(), GatewayErrorResponse> {
-        registry
-            .createAccount(
-                self.recovery_address.unwrap_or_default(),
-                self.authenticator_addresses.clone(),
-                self.authenticator_pubkeys.clone(),
-                self.offchain_signer_commitment,
-            )
-            .call()
-            .await
-            .map_err(GatewayErrorResponse::from_simulation_error)?;
-        Ok(())
-    }
 }
 
 // =============================================================================
@@ -270,24 +270,6 @@ impl RequestValidation for InsertAuthenticatorRequest {
             )
             .calldata()
             .clone()
-    }
-
-    async fn simulate(&self, registry: &Registry) -> Result<(), GatewayErrorResponse> {
-        registry
-            .insertAuthenticator(
-                self.leaf_index,
-                self.new_authenticator_address,
-                self.pubkey_id,
-                self.new_authenticator_pubkey,
-                self.old_offchain_signer_commitment,
-                self.new_offchain_signer_commitment,
-                Bytes::from(self.signature.clone()),
-                self.nonce,
-            )
-            .call()
-            .await
-            .map_err(GatewayErrorResponse::from_simulation_error)?;
-        Ok(())
     }
 }
 
@@ -359,26 +341,6 @@ impl RequestValidation for UpdateAuthenticatorRequest {
             )
             .calldata()
             .clone()
-    }
-
-    async fn simulate(&self, registry: &Registry) -> Result<(), GatewayErrorResponse> {
-        registry
-            .updateAuthenticator(
-                self.leaf_index,
-                self.old_authenticator_address,
-                self.new_authenticator_address,
-                self.pubkey_id,
-                self.new_authenticator_pubkey,
-                self.old_offchain_signer_commitment,
-                self.new_offchain_signer_commitment,
-                Bytes::from(self.signature.clone()),
-                self.nonce,
-            )
-            .call()
-            .await
-            .map_err(GatewayErrorResponse::from_simulation_error)?;
-
-        Ok(())
     }
 }
 
@@ -452,27 +414,6 @@ impl RequestValidation for RemoveAuthenticatorRequest {
             .calldata()
             .clone()
     }
-
-    async fn simulate(&self, registry: &Registry) -> Result<(), GatewayErrorResponse> {
-        let pubkey_id = self.pubkey_id.unwrap_or(0);
-        let authenticator_pubkey = self.authenticator_pubkey.unwrap_or(U256::ZERO);
-
-        registry
-            .removeAuthenticator(
-                self.leaf_index,
-                self.authenticator_address,
-                pubkey_id,
-                authenticator_pubkey,
-                self.old_offchain_signer_commitment,
-                self.new_offchain_signer_commitment,
-                Bytes::from(self.signature.clone()),
-                self.nonce,
-            )
-            .call()
-            .await
-            .map(|_| ())
-            .map_err(GatewayErrorResponse::from_simulation_error)
-    }
 }
 
 // =============================================================================
@@ -533,25 +474,5 @@ impl RequestValidation for RecoverAccountRequest {
             )
             .calldata()
             .clone()
-    }
-
-    async fn simulate(&self, registry: &Registry) -> Result<(), GatewayErrorResponse> {
-        let new_pubkey = self.new_authenticator_pubkey.unwrap_or(U256::ZERO);
-
-        registry
-            .recoverAccount(
-                self.leaf_index,
-                self.new_authenticator_address,
-                new_pubkey,
-                self.old_offchain_signer_commitment,
-                self.new_offchain_signer_commitment,
-                Bytes::from(self.signature.clone()),
-                self.nonce,
-            )
-            .call()
-            .await
-            .map_err(GatewayErrorResponse::from_simulation_error)?;
-
-        Ok(())
     }
 }

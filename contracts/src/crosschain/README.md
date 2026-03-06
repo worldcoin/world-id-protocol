@@ -48,7 +48,7 @@ The bridge propagates three types of state, each identified by a commitment sele
 ## Directory Structure
 
 ```
-bridge/contracts/
+contracts/
 ├── src/
 │   ├── WorldIDSource.sol                         # WorldIDSource (World Chain)
 │   ├── WorldIDSatellite.sol                      # WorldIDSatellite (destination)
@@ -85,16 +85,16 @@ bridge/contracts/
 
 ```bash
 # 1. Copy and fill in .env (only PRIVATE_KEY + ALCHEMY_API_KEY needed)
-cp bridge/contracts/script/.env.example bridge/contracts/script/.env
+cp contracts/script/crosschain/.env.example contracts/script/crosschain/.env
 
 # 2. Simulate deployment (no broadcast, no gas spent)
-just dry-run staging
+just contracts::crosschain-deploy-dry-run staging
 
 # 3. Deploy for real
-just deploy staging
+just contracts::crosschain-deploy staging
 
 # 4. Check what was deployed
-just status staging
+just contracts::crosschain-status staging
 ```
 
 ### Environment Variables
@@ -105,14 +105,13 @@ Only three env vars exist. Everything else lives in the config JSON.
 |----------|----------|-------------|
 | `PRIVATE_KEY` | Yes | Deployer key (must be funded on all target chains) |
 | `ALCHEMY_API_KEY` | Yes* | Resolves per-chain RPCs via `alchemySlug` in config |
-| `ETHERSCAN_API_KEY` | For verify | Block explorer contract verification |
 | `DEPLOY_CHAINS` | No | Comma-separated filter, e.g. `ethereum,base` |
 
 \*Not required if every chain has an explicit `"rpc"` field in config.
 
 ### Configuration
 
-Config files live in `bridge/contracts/script/config/{env}.json`. The default environment is `staging`.
+Config files live in `contracts/script/crosschain/config/{env}.json`. The default environment is `staging`.
 
 **Global parameters** apply to all chains:
 
@@ -188,28 +187,25 @@ All commands run from the repo root. Default env is `staging`.
 
 ```bash
 # ── Deploy ────────────────────────────────────────────────────
-just deploy                          # deploy all networks
-just deploy staging                  # deploy to staging env
-DEPLOY_CHAINS=ethereum just deploy   # deploy only ethereum
+just contracts::crosschain-deploy                                 # deploy all networks
+just contracts::crosschain-deploy staging                         # deploy to staging env
+DEPLOY_CHAINS=ethereum just contracts::crosschain-deploy          # deploy only ethereum
 
 # ── Simulate ──────────────────────────────────────────────────
-just dry-run                         # simulate without broadcasting
+just contracts::crosschain-deploy-dry-run                         # simulate without broadcasting
 
 # ── Inspect ───────────────────────────────────────────────────
-just status                          # print deployment artifact JSON
-
-# ── Verify on Block Explorers ─────────────────────────────────
-just verify worldchain               # verify WorldIDSource
-just verify ethereum                 # verify all ethereum contracts
+just contracts::crosschain-status                                 # print deployment artifact JSON
 
 # ── Admin ─────────────────────────────────────────────────────
-just authorize ethereum 0xGATEWAY    # authorize a gateway
-just revoke ethereum 0xGATEWAY       # revoke a gateway
-just transfer ethereum 0xADDR 0xNEW  # transfer ownership
+just contracts::crosschain-gateway-add ethereum 0xGATEWAY         # authorize a gateway
+just contracts::crosschain-gateway-remove ethereum 0xGATEWAY      # revoke a gateway
+just contracts::crosschain-transfer-ownership-world-id-source worldchain 0xNEW
+just contracts::crosschain-transfer-ownership-world-id-satellite ethereum 0xNEW
 
 # ── Testing ───────────────────────────────────────────────────
 just test                            # all tests (core + bridge + e2e)
-just test-bridge                     # bridge unit tests only
+just crosschain                      # bridge unit tests only
 just it                              # full multi-anvil E2E MPT test
 just it 50                           # E2E with batch size 50
 just it-all                          # E2E at batch sizes 1, 50, 100
@@ -217,7 +213,7 @@ just it-all                          # E2E at batch sizes 1, 50, 100
 
 ### Adding a New Chain
 
-1. Add the chain config to `bridge/contracts/script/config/{env}.json`:
+1. Add the chain config to `contracts/script/crosschain/config/{env}.json`:
    ```json
    {
      "networks": ["ethereum", "base", "mynewchain"],
@@ -230,14 +226,13 @@ just it-all                          # E2E at batch sizes 1, 50, 100
    }
    ```
 2. Ensure the deployer key is funded on the new chain.
-3. Deploy: `just deploy` (or `DEPLOY_CHAINS=mynewchain just deploy` to deploy only it).
-4. Verify: `just verify mynewchain`.
+3. Deploy: `just contracts::crosschain-deploy` (or `DEPLOY_CHAINS=mynewchain just contracts::crosschain-deploy` to deploy only it).
 
 ### Re-deploying
 
-The deployment is idempotent — re-running `just deploy` skips contracts that already exist in the artifact file. To force a fresh deploy:
+The deployment is idempotent — re-running `just contracts::crosschain-deploy` skips contracts that already exist in the artifact file. To force a fresh deploy:
 
-1. Remove the chain's entry from `bridge/contracts/deployments/{env}.json`
-2. Run `just deploy` again
+1. Remove the chain's entry from `contracts/deployments/crosschain/{env}.json`
+2. Run `just contracts::crosschain-deploy` again
 
 To redeploy everything, delete the entire artifact file.

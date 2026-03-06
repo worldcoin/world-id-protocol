@@ -117,8 +117,19 @@ pub(crate) async fn handler(
     // Convert proof siblings to FieldElement array
     let siblings_vec: Vec<FieldElement> = proof_to_vec(&proof)
         .into_iter()
-        .map(|u| u.try_into().unwrap())
-        .collect();
+        .enumerate()
+        .map(|(sibling_index, sibling)| {
+            sibling.try_into().map_err(|err| {
+                tracing::error!(
+                    leaf_index = %leaf_index,
+                    sibling_index,
+                    sibling = %sibling,
+                    "Failed to convert sibling hash to field element: {err}"
+                );
+                IndexerErrorResponse::internal_server_error()
+            })
+        })
+        .collect::<Result<_, _>>()?;
 
     // Pad the siblings array to TREE_DEPTH (the compile-time constant used in the type system)
     // This is needed because the actual tree may have a smaller depth (e.g., 6 in tests)
@@ -130,10 +141,17 @@ pub(crate) async fn handler(
         }
     }
 
-    let merkle_proof = MerkleInclusionProof::new(root.try_into().unwrap(), leaf_index, siblings);
+    let root = root.try_into().map_err(|err| {
+        tracing::error!(
+            leaf_index = %leaf_index,
+            root = %root,
+            "Failed to convert Merkle root to field element: {err}"
+        );
+        IndexerErrorResponse::internal_server_error()
+    })?;
+    let merkle_proof = MerkleInclusionProof::new(root, leaf_index, siblings);
 
-    let resp = AccountInclusionProof::new(merkle_proof, authenticator_pubkeys)
-        .expect("authenticator_pubkeys already validated");
+    let resp = AccountInclusionProof::new(merkle_proof, authenticator_pubkeys);
     Ok(Json(resp))
 }
 

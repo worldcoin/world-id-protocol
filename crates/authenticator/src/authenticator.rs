@@ -689,7 +689,7 @@ impl Authenticator {
                 request_item.identifier.clone(),
                 request_item.issuer_schema_id,
                 proof,
-                nullifier_fe,
+                nullifier_fe.into(),
                 expires_at_min,
             )
         };
@@ -937,6 +937,12 @@ pub struct InitializingAuthenticator {
 }
 
 impl InitializingAuthenticator {
+    /// Returns the gateway request ID for this pending account creation.
+    #[must_use]
+    pub fn request_id(&self) -> &str {
+        &self.request_id
+    }
+
     /// Creates a new World ID account by adding it to the registry using the gateway.
     ///
     /// # Errors

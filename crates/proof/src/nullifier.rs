@@ -1,6 +1,7 @@
 //! Logic to generate nullifiers using the OPRF Nodes.
 
 use ark_ff::PrimeField;
+use eyre::Context;
 use groth16_material::circom::CircomGroth16Material;
 
 use taceo_oprf::{
@@ -11,12 +12,13 @@ use taceo_oprf::{
 use world_id_primitives::{
     FieldElement, ProofRequest, TREE_DEPTH,
     circuit_inputs::QueryProofCircuitInput,
+    nullifier::Nullifier,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
 };
 
 use crate::{
     AuthenticatorProofInput,
-    proof::{OPRF_PROOF_DS, ProofError},
+    proof::{OPRF_PROOF_DS, ProofError, errors},
 };
 
 /// Nullifier computed using OPRF Nodes.
@@ -24,8 +26,12 @@ use crate::{
 pub struct OprfNullifier {
     /// The raw inputs to the Query Proof circuit
     pub query_proof_input: QueryProofCircuitInput<TREE_DEPTH>,
-    /// The result of the distributed OPRF protocol, including the final nullifier.
+    /// The result of the distributed OPRF protocol.
     pub verifiable_oprf_output: VerifiableOprfOutput,
+    /// The final nullifier value to be used in a Proof.
+    ///
+    /// This is equal to [`VerifiableOprfOutput::output`] and is already unblinded.
+    pub nullifier: Nullifier,
 }
 
 impl OprfNullifier {
@@ -86,6 +92,7 @@ impl OprfNullifier {
             action,
             nonce: *proof_request.nonce,
         };
+        let _ = errors::check_query_input_validity(&query_proof_input)?;
 
         tracing::debug!("generating query proof");
         let (proof, public_inputs) = query_material.generate_proof(&query_proof_input, &mut rng)?;
@@ -105,9 +112,11 @@ impl OprfNullifier {
 
         tracing::debug!("executing distributed OPRF");
 
+        let service_uris = taceo_oprf::client::to_oprf_uri_many(services, OprfModule::Nullifier)
+            .context("while building service URI for nullifier")?;
+
         let verifiable_oprf_output = taceo_oprf::client::distributed_oprf(
-            services,
-            OprfModule::Nullifier.to_string().as_str(),
+            &service_uris,
             threshold,
             *query_hash,
             query_blinding_factor,
@@ -117,9 +126,12 @@ impl OprfNullifier {
         )
         .await?;
 
+        let nullifier: Nullifier = FieldElement::from(verifiable_oprf_output.output).into();
+
         Ok(Self {
             query_proof_input,
             verifiable_oprf_output,
+            nullifier,
         })
     }
 }
