@@ -1,6 +1,8 @@
+use std::time::Instant;
+
 use tokio::sync::OnceCell;
 
-use crate::error::GatewayErrorResponse;
+use crate::{error::GatewayErrorResponse, metrics};
 use alloy::{
     primitives::{Address, Bytes, Signature, TxKind, U256},
     providers::Provider,
@@ -63,6 +65,7 @@ pub(crate) trait RequestValidation: Sized + Sync {
     fn validate_and_calldata(
         &self,
         registry: &Registry,
+        kind: &'static str,
     ) -> impl Future<Output = Result<Bytes, GatewayErrorResponse>> + Send {
         async move {
             let chain_id = *CHAIN_ID
@@ -78,7 +81,7 @@ pub(crate) trait RequestValidation: Sized + Sync {
 
             self.pre_flight(chain_id, verifying_contract)?;
             let calldata = self.calldata(registry);
-            simulate_calldata(registry, &calldata).await?;
+            simulate_calldata(registry, &calldata, kind).await?;
             Ok(calldata)
         }
     }
@@ -87,6 +90,7 @@ pub(crate) trait RequestValidation: Sized + Sync {
 async fn simulate_calldata(
     registry: &Registry,
     calldata: &Bytes,
+    kind: &'static str,
 ) -> Result<(), GatewayErrorResponse> {
     let tx = TransactionRequest {
         to: Some(TxKind::Call(*registry.address())),
@@ -94,13 +98,19 @@ async fn simulate_calldata(
         ..Default::default()
     };
 
-    registry
+    let start = Instant::now();
+    let result = registry
         .provider()
         .call(tx)
         .block(BlockId::default())
-        .await
-        .map(|_| ())
-        .map_err(GatewayErrorResponse::from_simulation_error)
+        .await;
+
+    metrics::record_simulation_latency_ms(kind, start.elapsed().as_millis() as f64);
+
+    result.map(|_| ()).map_err(|e| {
+        metrics::increment_simulation_failure(kind);
+        GatewayErrorResponse::from_simulation_error(e)
+    })
 }
 
 /// Basic ECDSA signature format validation.

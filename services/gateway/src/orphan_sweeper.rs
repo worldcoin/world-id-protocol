@@ -8,6 +8,7 @@ use world_id_core::api_types::{GatewayErrorCode, GatewayRequestState};
 
 use crate::{
     config::OrphanSweeperConfig,
+    metrics,
     request_tracker::{RequestTracker, now_unix_secs},
 };
 
@@ -42,6 +43,8 @@ pub async fn sweep_once(
         }
     };
 
+    metrics::set_sweeper_pending_count(pending_ids.len());
+
     if pending_ids.is_empty() {
         return;
     }
@@ -61,6 +64,7 @@ pub async fn sweep_once(
     for (id, maybe_record) in &records {
         // Pending set contains a request that has no status record in Redis. This likely never happens.
         let Some(record) = maybe_record else {
+            metrics::increment_sweeper_cleaned("dangling");
             tracker.remove_from_pending_set(id).await;
             continue;
         };
@@ -68,6 +72,7 @@ pub async fn sweep_once(
         match &record.status {
             // Requests that are finalized but were not removed from the pending set. This likely never happens.
             GatewayRequestState::Finalized { .. } | GatewayRequestState::Failed { .. } => {
+                metrics::increment_sweeper_cleaned("already_finalized_or_failed");
                 tracker.remove_from_pending_set(id).await;
             }
             GatewayRequestState::Queued | GatewayRequestState::Batching => {
@@ -79,6 +84,7 @@ pub async fn sweep_once(
                         "sweeper: failing stale {:?} request",
                         record.status,
                     );
+                    metrics::increment_sweeper_cleaned("stale_queued");
                     tracker
                         .set_status(
                             id,
@@ -104,8 +110,8 @@ pub async fn sweep_once(
         let Ok(hash) = tx_hash.parse::<TxHash>() else {
             // This should never happen unless there is some data corruption bug in Redis
             tracing::error!(tx_hash = %tx_hash, "sweeper: invalid tx_hash, failing group");
-            // Fail requests since we can not look up the receipt anyways and the sweeper will run into the exact same error again and again until TTL is reached.
             for (id, _) in group {
+                metrics::increment_sweeper_cleaned("corrupt_tx_hash");
                 tracker
                     .set_status(
                         id,
@@ -138,6 +144,7 @@ pub async fn sweep_once(
                             age_secs = age,
                             "sweeper: failing stale submitted request (no receipt)",
                         );
+                        metrics::increment_sweeper_cleaned("stale_submitted");
                         tracker
                             .set_status(
                                 id,

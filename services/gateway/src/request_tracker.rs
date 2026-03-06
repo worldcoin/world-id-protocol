@@ -1,4 +1,4 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use alloy::{network::Ethereum, providers::PendingTransactionBuilder};
 use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
@@ -10,6 +10,7 @@ use crate::{
     batch_policy::BacklogUrgencyStats,
     config::RateLimitConfig,
     error::{GatewayErrorResponse, GatewayResult},
+    metrics,
 };
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RequestRecord {
@@ -214,16 +215,23 @@ impl RequestTracker {
         receipt_succeeded: bool,
         tx_hash: &str,
     ) {
-        let status = if receipt_succeeded {
-            GatewayRequestState::Finalized {
-                tx_hash: tx_hash.to_string(),
-            }
+        let (status, outcome) = if receipt_succeeded {
+            (
+                GatewayRequestState::Finalized {
+                    tx_hash: tx_hash.to_string(),
+                },
+                "success",
+            )
         } else {
-            GatewayRequestState::failed(
-                format!("transaction reverted on-chain (tx: {tx_hash})"),
-                Some(GatewayErrorCode::TransactionReverted),
+            (
+                GatewayRequestState::failed(
+                    format!("transaction reverted on-chain (tx: {tx_hash})"),
+                    Some(GatewayErrorCode::TransactionReverted),
+                ),
+                "reverted",
             )
         };
+        metrics::record_request_finalized(outcome, ids.len());
         self.set_status_batch(ids, status).await;
     }
 
@@ -234,16 +242,24 @@ impl RequestTracker {
         ids: Vec<String>,
         builder: PendingTransactionBuilder<Ethereum>,
         tx_hash: String,
+        batch_type: &'static str,
     ) {
         let tracker = self.clone();
         tokio::spawn(async move {
+            let start = Instant::now();
             match builder.get_receipt().await {
                 Ok(receipt) => {
+                    metrics::record_receipt_confirmation_latency_ms(
+                        batch_type,
+                        start.elapsed().as_millis() as f64,
+                    );
                     tracker
                         .finalize_from_receipt(&ids, receipt.status(), &tx_hash)
                         .await;
                 }
                 Err(err) => {
+                    metrics::increment_receipt_failure();
+                    metrics::record_request_finalized("failed", ids.len());
                     tracker
                         .set_status_batch(
                             &ids,

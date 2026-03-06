@@ -19,6 +19,22 @@ pub const METRICS_BATCH_POLICY_DEFER: &str = "batch.policy.defer";
 pub const METRICS_BATCH_POLICY_FORCE_SEND: &str = "batch.policy.force_send";
 pub const METRICS_BATCH_POLICY_TARGET_SIZE: &str = "batch.policy.target_size";
 
+// Simulation metrics
+pub const METRICS_SIMULATION_LATENCY_MS: &str = "simulation.latency_ms";
+pub const METRICS_SIMULATION_FAILURE: &str = "simulation.failure";
+
+// Receipt confirmation metrics
+pub const METRICS_RECEIPT_CONFIRMATION_LATENCY_MS: &str = "receipt.confirmation_latency_ms";
+pub const METRICS_RECEIPT_FAILURE: &str = "receipt.failure";
+
+// Request lifecycle metrics
+pub const METRICS_REQUEST_FINALIZED: &str = "request.finalized";
+pub const METRICS_REQUEST_FINALIZED_BATCH_SIZE: &str = "request.finalized_batch_size";
+
+// Orphan sweeper metrics
+pub const METRICS_SWEEPER_CLEANED: &str = "sweeper.cleaned";
+pub const METRICS_SWEEPER_PENDING_COUNT: &str = "sweeper.pending_count";
+
 pub fn describe_metrics() {
     ::metrics::describe_histogram!(
         METRICS_HTTP_LATENCY_MS,
@@ -88,6 +104,50 @@ pub fn describe_metrics() {
         ::metrics::Unit::Count,
         "Number of policy deferrals by reason."
     );
+
+    ::metrics::describe_histogram!(
+        METRICS_SIMULATION_LATENCY_MS,
+        ::metrics::Unit::Milliseconds,
+        "Contract simulation (eth_call) latency in milliseconds."
+    );
+    ::metrics::describe_counter!(
+        METRICS_SIMULATION_FAILURE,
+        ::metrics::Unit::Count,
+        "Number of failed contract simulations."
+    );
+
+    ::metrics::describe_histogram!(
+        METRICS_RECEIPT_CONFIRMATION_LATENCY_MS,
+        ::metrics::Unit::Milliseconds,
+        "Time from transaction submission to receipt confirmation in milliseconds."
+    );
+    ::metrics::describe_counter!(
+        METRICS_RECEIPT_FAILURE,
+        ::metrics::Unit::Count,
+        "Number of receipt polling RPC failures."
+    );
+
+    ::metrics::describe_counter!(
+        METRICS_REQUEST_FINALIZED,
+        ::metrics::Unit::Count,
+        "Number of requests reaching a terminal state."
+    );
+    ::metrics::describe_histogram!(
+        METRICS_REQUEST_FINALIZED_BATCH_SIZE,
+        ::metrics::Unit::Count,
+        "Number of requests resolved per finalization event."
+    );
+
+    ::metrics::describe_counter!(
+        METRICS_SWEEPER_CLEANED,
+        ::metrics::Unit::Count,
+        "Number of requests cleaned up by the orphan sweeper."
+    );
+    ::metrics::describe_gauge!(
+        METRICS_SWEEPER_PENDING_COUNT,
+        ::metrics::Unit::Count,
+        "Number of requests in the pending set at the start of each sweep pass."
+    );
 }
 
 pub fn record_http_latency_ms(path: &str, status: u16, latency_ms: f64) {
@@ -151,6 +211,37 @@ pub fn increment_policy_force_send(batch_type: &'static str) {
 pub fn increment_policy_defer(batch_type: &'static str, reason: &'static str) {
     ::metrics::counter!(METRICS_BATCH_POLICY_DEFER, "type" => batch_type, "reason" => reason)
         .increment(1);
+}
+
+pub fn record_simulation_latency_ms(kind: &'static str, latency_ms: f64) {
+    ::metrics::histogram!(METRICS_SIMULATION_LATENCY_MS, "kind" => kind).record(latency_ms);
+}
+
+pub fn increment_simulation_failure(kind: &'static str) {
+    ::metrics::counter!(METRICS_SIMULATION_FAILURE, "kind" => kind).increment(1);
+}
+
+pub fn record_receipt_confirmation_latency_ms(batch_type: &'static str, latency_ms: f64) {
+    ::metrics::histogram!(METRICS_RECEIPT_CONFIRMATION_LATENCY_MS, "type" => batch_type)
+        .record(latency_ms);
+}
+
+pub fn increment_receipt_failure() {
+    ::metrics::counter!(METRICS_RECEIPT_FAILURE).increment(1);
+}
+
+pub fn record_request_finalized(outcome: &'static str, count: usize) {
+    ::metrics::counter!(METRICS_REQUEST_FINALIZED, "outcome" => outcome).increment(count as u64);
+    ::metrics::histogram!(METRICS_REQUEST_FINALIZED_BATCH_SIZE, "outcome" => outcome)
+        .record(count as f64);
+}
+
+pub fn set_sweeper_pending_count(count: usize) {
+    ::metrics::gauge!(METRICS_SWEEPER_PENDING_COUNT).set(count as f64);
+}
+
+pub fn increment_sweeper_cleaned(reason: &'static str) {
+    ::metrics::counter!(METRICS_SWEEPER_CLEANED, "reason" => reason).increment(1);
 }
 
 fn normalize_path(path: &str) -> String {

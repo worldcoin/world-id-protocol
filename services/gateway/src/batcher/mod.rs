@@ -215,8 +215,12 @@ where
                     )
                     .await;
 
-                self.tracker
-                    .spawn_receipt_tracker(ids, sent.builder, sent.formatted_tx_hash);
+                self.tracker.spawn_receipt_tracker(
+                    ids,
+                    sent.builder,
+                    sent.formatted_tx_hash,
+                    batch_type,
+                );
             }
             Err(err) => {
                 let latency_ms = start.elapsed().as_millis() as f64;
