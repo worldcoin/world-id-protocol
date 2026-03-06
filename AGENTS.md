@@ -48,3 +48,4 @@
 - `crates/signer/`: Signer functionality for World ID.
 - `crates/test-utils/`: Shared test helpers for integration/e2e tests across crates and services.
 - `crates/types/`: Shared types for World ID.
+- `crates/zk-mobile-bench/`: Mobile benchmarks for World ID ZK proof generation, used by CI via mobench.

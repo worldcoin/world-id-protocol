@@ -17,10 +17,12 @@ All benchmark functions are defined in `crates/zk-mobile-bench/src/lib.rs`.
   - Measures witness generation only.
 - `zk_mobile_bench::bench_query_proving_only`
   - Measures Groth16 proving from cached witness.
+- `zk_mobile_bench::bench_query_proof_only`
+  - Measures full proof generation with cached input (excludes fixture setup).
 - `zk_mobile_bench::bench_query_proof_generation`
   - Measures full path (witness generation + proving).
 
 ## CI Benchmark Selection
 
-CI runs all six functions by default. The function list is specified directly in the
+CI runs all seven functions by default. The function list is specified directly in the
 caller workflow (`mobile-bench.yml`) via the `functions` input to the reusable workflow.

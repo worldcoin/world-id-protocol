@@ -91,7 +91,7 @@ The caller passes these to the reusable workflow:
 
 The `functions` list is specified directly in the caller workflow:
 ```json
-["bench_nullifier_proof_generation","bench_nullifier_witness_generation_only","bench_nullifier_proving_only","bench_query_proof_generation","bench_query_witness_generation_only","bench_query_proving_only"]
+["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_proof_only","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only"]
 ```
 
 Secrets are passed via `secrets: inherit`.
