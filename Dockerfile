@@ -24,11 +24,12 @@ RUN apt-get update && apt-get install -y \
 ENV RUSTUP_TMP=/root/.rustup/tmp
 
 # Remove the pre-installed toolchain and add the MUSL target
+COPY rust-toolchain.toml .
+
 RUN mkdir -p $RUSTUP_TMP \
- && rustup set profile minimal \
- && rustup toolchain uninstall stable || true \
- && rustup toolchain install stable --profile minimal \
- && rustup target add x86_64-unknown-linux-musl
+   && rustup set profile minimal \
+   && rustup show \
+   && rustup target add x86_64-unknown-linux-musl
 
 # Install Foundry
 RUN curl -L https://foundry.paradigm.xyz | bash \
