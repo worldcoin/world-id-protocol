@@ -302,12 +302,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: stable
           targets: wasm32-unknown-unknown
 
       - name: Check primitives compiles for WASM
         run: cargo check -p world-id-primitives --target wasm32-unknown-unknown
+        env:
+          RUSTUP_TOOLCHAIN: stable
 
   docs:
     name: Check docs
