@@ -68,7 +68,13 @@ pub(crate) async fn build_app(
     orphan_sweeper_config: OrphanSweeperConfig,
     batch_policy_config: BatchPolicyConfig,
 ) -> GatewayResult<Router> {
-    let tracker = RequestTracker::new(redis_url, rate_limit).await;
+    let tracker = RequestTracker::new(
+        redis_url,
+        rate_limit,
+        // Timeout for receirpt polling tasks. Same as sweeper timeout for submitted transactions.
+        orphan_sweeper_config.stale_submitted_threshold_secs,
+    )
+    .await;
     let base_fee_cache = BaseFeeCache::default();
 
     spawn_base_fee_sampler(
