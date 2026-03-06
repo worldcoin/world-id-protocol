@@ -9117,7 +9117,6 @@ dependencies = [
  "telemetry-batteries 0.2.1",
  "tokio",
  "tracing",
- "world-id-relay",
  "world-id-services-common",
 ]
 
