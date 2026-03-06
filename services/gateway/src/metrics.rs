@@ -29,7 +29,6 @@ pub const METRICS_RECEIPT_FAILURE: &str = "receipt.failure";
 
 // Request lifecycle metrics
 pub const METRICS_REQUEST_FINALIZED: &str = "request.finalized";
-pub const METRICS_REQUEST_FINALIZED_BATCH_SIZE: &str = "request.finalized_batch_size";
 
 // Orphan sweeper metrics
 pub const METRICS_SWEEPER_CLEANED: &str = "sweeper.cleaned";
@@ -132,12 +131,6 @@ pub fn describe_metrics() {
         ::metrics::Unit::Count,
         "Number of requests reaching a terminal state."
     );
-    ::metrics::describe_histogram!(
-        METRICS_REQUEST_FINALIZED_BATCH_SIZE,
-        ::metrics::Unit::Count,
-        "Number of requests resolved per finalization event."
-    );
-
     ::metrics::describe_counter!(
         METRICS_SWEEPER_CLEANED,
         ::metrics::Unit::Count,
@@ -231,8 +224,6 @@ pub fn increment_receipt_failure() {
 
 pub fn record_request_finalized(outcome: &'static str, count: usize) {
     ::metrics::counter!(METRICS_REQUEST_FINALIZED, "outcome" => outcome).increment(count as u64);
-    ::metrics::histogram!(METRICS_REQUEST_FINALIZED_BATCH_SIZE, "outcome" => outcome)
-        .record(count as f64);
 }
 
 pub fn set_sweeper_pending_count(count: usize) {
