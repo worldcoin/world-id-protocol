@@ -1,4 +1,4 @@
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use alloy::{network::Ethereum, providers::PendingTransactionBuilder};
 use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
@@ -242,7 +242,6 @@ impl RequestTracker {
         ids: Vec<String>,
         builder: PendingTransactionBuilder<Ethereum>,
         tx_hash: String,
-        batch_type: &'static str,
     ) {
         let tracker = self.clone();
         tokio::spawn(async move {
@@ -250,7 +249,6 @@ impl RequestTracker {
             match builder.get_receipt().await {
                 Ok(receipt) => {
                     metrics::record_receipt_confirmation_latency_ms(
-                        batch_type,
                         start.elapsed().as_millis() as f64,
                     );
                     tracker

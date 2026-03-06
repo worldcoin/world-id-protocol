@@ -221,9 +221,8 @@ pub fn increment_simulation_failure() {
     ::metrics::counter!(METRICS_SIMULATION_FAILURE).increment(1);
 }
 
-pub fn record_receipt_confirmation_latency_ms(batch_type: &'static str, latency_ms: f64) {
-    ::metrics::histogram!(METRICS_RECEIPT_CONFIRMATION_LATENCY_MS, "type" => batch_type)
-        .record(latency_ms);
+pub fn record_receipt_confirmation_latency_ms(latency_ms: f64) {
+    ::metrics::histogram!(METRICS_RECEIPT_CONFIRMATION_LATENCY_MS).record(latency_ms);
 }
 
 pub fn increment_receipt_failure() {
