@@ -97,11 +97,7 @@ async fn simulate_calldata(
     };
 
     let start = Instant::now();
-    let result = registry
-        .provider()
-        .call(tx)
-        .block(BlockId::default())
-        .await;
+    let result = registry.provider().call(tx).block(BlockId::default()).await;
 
     metrics::record_simulation_latency_ms(start.elapsed().as_millis() as f64);
 

@@ -114,9 +114,7 @@ pub trait IntoRequest: RequestValidation + Sized {
         id: Uuid,
         ctx: &GatewayContext,
     ) -> Result<Request<Self>, GatewayErrorResponse> {
-        let calldata = self
-            .validate_and_calldata(&ctx.registry)
-            .await?;
+        let calldata = self.validate_and_calldata(&ctx.registry).await?;
 
         Ok(Request {
             id,

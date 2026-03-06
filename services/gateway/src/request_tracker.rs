@@ -249,7 +249,7 @@ impl RequestTracker {
             match builder.get_receipt().await {
                 Ok(receipt) => {
                     metrics::record_receipt_confirmation_latency_ms(
-                        start.elapsed().as_millis() as f64,
+                        start.elapsed().as_millis() as f64
                     );
                     tracker
                         .finalize_from_receipt(&ids, receipt.status(), &tx_hash)
