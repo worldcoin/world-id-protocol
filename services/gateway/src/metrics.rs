@@ -213,12 +213,12 @@ pub fn increment_policy_defer(batch_type: &'static str, reason: &'static str) {
         .increment(1);
 }
 
-pub fn record_simulation_latency_ms(kind: &'static str, latency_ms: f64) {
-    ::metrics::histogram!(METRICS_SIMULATION_LATENCY_MS, "kind" => kind).record(latency_ms);
+pub fn record_simulation_latency_ms(latency_ms: f64) {
+    ::metrics::histogram!(METRICS_SIMULATION_LATENCY_MS).record(latency_ms);
 }
 
-pub fn increment_simulation_failure(kind: &'static str) {
-    ::metrics::counter!(METRICS_SIMULATION_FAILURE, "kind" => kind).increment(1);
+pub fn increment_simulation_failure() {
+    ::metrics::counter!(METRICS_SIMULATION_FAILURE).increment(1);
 }
 
 pub fn record_receipt_confirmation_latency_ms(batch_type: &'static str, latency_ms: f64) {

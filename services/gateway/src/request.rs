@@ -98,17 +98,6 @@ pub trait IntoCommand: IntoRequest + HasInflightKeys + Sized {
     fn into_command(id: Uuid, payload: Self, calldata: Bytes) -> Command;
 }
 
-/// Returns a static label string for a [`GatewayRequestKind`] variant.
-pub(crate) fn kind_label(kind: GatewayRequestKind) -> &'static str {
-    match kind {
-        GatewayRequestKind::CreateAccount => "create_account",
-        GatewayRequestKind::InsertAuthenticator => "insert_authenticator",
-        GatewayRequestKind::UpdateAuthenticator => "update_authenticator",
-        GatewayRequestKind::RemoveAuthenticator => "remove_authenticator",
-        GatewayRequestKind::RecoverAccount => "recover_account",
-    }
-}
-
 /// Trait for converting API payloads into tracked Requests.
 ///
 /// Validation is performed asynchronously, including contract simulation.
@@ -126,7 +115,7 @@ pub trait IntoRequest: RequestValidation + Sized {
         ctx: &GatewayContext,
     ) -> Result<Request<Self>, GatewayErrorResponse> {
         let calldata = self
-            .validate_and_calldata(&ctx.registry, kind_label(Self::KIND))
+            .validate_and_calldata(&ctx.registry)
             .await?;
 
         Ok(Request {
