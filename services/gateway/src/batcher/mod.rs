@@ -357,5 +357,3 @@ where
         }
     }
 }
-
-// ── Public handle & command routing ─────────────────────────────────────

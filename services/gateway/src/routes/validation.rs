@@ -1,6 +1,8 @@
+use std::time::Instant;
+
 use tokio::sync::OnceCell;
 
-use crate::error::GatewayErrorResponse;
+use crate::{error::GatewayErrorResponse, metrics};
 use alloy::{
     primitives::{Address, Bytes, Signature, TxKind, U256},
     providers::Provider,
@@ -94,13 +96,15 @@ async fn simulate_calldata(
         ..Default::default()
     };
 
-    registry
-        .provider()
-        .call(tx)
-        .block(BlockId::default())
-        .await
-        .map(|_| ())
-        .map_err(GatewayErrorResponse::from_simulation_error)
+    let start = Instant::now();
+    let result = registry.provider().call(tx).block(BlockId::default()).await;
+
+    metrics::record_simulation_latency_ms(start.elapsed().as_millis() as f64);
+
+    result.map(|_| ()).map_err(|e| {
+        metrics::increment_simulation_failure();
+        GatewayErrorResponse::from_simulation_error(e)
+    })
 }
 
 /// Basic ECDSA signature format validation.
