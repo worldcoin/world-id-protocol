@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.5.0...world-id-primitives-v0.5.1) - 2026-03-07
+
+### Added
+
+- structured timeout errors ([#532](https://github.com/worldcoin/world-id-protocol/pull/532))
+- in-flight locks for all gateway operations ([#519](https://github.com/worldcoin/world-id-protocol/pull/519))
+
+### Fixed
+
+- encode signature hex-nicely ([#500](https://github.com/worldcoin/world-id-protocol/pull/500))
+- *(indexer)* prevent panics in inclusion-proof handler ([#529](https://github.com/worldcoin/world-id-protocol/pull/529))
+
 ## [0.5.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.4.4...world-id-primitives-v0.5.0) - 2026-03-03
 
 ### Added
