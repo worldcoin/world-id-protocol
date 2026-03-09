@@ -20,6 +20,7 @@ include = [
 [features]
 default = ["embed-zkeys"]
 embed-zkeys = ["world-id-proof/embed-zkeys"]
+ohttp = ["dep:ohttp", "dep:bhttp", "dep:hex"]
 
 [dependencies]
 alloy = { workspace = true, features = [
@@ -53,11 +54,18 @@ serde_json = { workspace = true }
 rustls = { workspace = true }
 webpki-roots = { workspace = true }
 
+# OHTTP (optional, behind "ohttp" feature flag)
+ohttp = { workspace = true, optional = true, features = ["client", "rust-hpke"] }
+bhttp = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+
 # Internal
 world-id-proof = { workspace = true }
 
 [dev-dependencies]
+axum = { workspace = true }
 backon = { workspace = true }
+hex = { workspace = true }
 ruint = { workspace = true }
 rand = { workspace = true }
 mockito = { workspace = true }
