@@ -80,13 +80,6 @@ impl std::fmt::Debug for Authenticator {
 }
 
 impl Authenticator {
-    async fn response_body_or_fallback(response: reqwest::Response) -> String {
-        response
-            .text()
-            .await
-            .unwrap_or_else(|e| format!("Unable to read response body: {e}"))
-    }
-
     /// Initialize an Authenticator from a seed and config.
     ///
     /// This method will error if the World ID account does not exist on the registry.
@@ -290,7 +283,7 @@ impl Authenticator {
             let resp = http_client.post(&url).json(&req).send().await?;
             let status = resp.status();
             if !status.is_success() {
-                let body = Self::response_body_or_fallback(resp).await;
+                let body = response_body_or_fallback(resp).await;
                 if let Ok(error_resp) =
                     serde_json::from_str::<ServiceApiError<IndexerErrorCode>>(&body)
                 {
@@ -397,19 +390,17 @@ impl Authenticator {
         &self,
     ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, AuthenticatorPublicKeySet), AuthenticatorError>
     {
-        let url = format!("{}/inclusion-proof", self.config.indexer_url());
         let req = IndexerQueryRequest {
             leaf_index: self.leaf_index(),
         };
-        let response = self.http_client.post(&url).json(&req).send().await?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(AuthenticatorError::IndexerError {
-                status,
-                body: Self::response_body_or_fallback(response).await,
-            });
-        }
-        let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
+        let resp = post_to_indexer(
+            &self.http_client,
+            self.config.indexer_url(),
+            "/inclusion-proof",
+            &req,
+        )
+        .await?;
+        let response = resp.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
         Ok((response.inclusion_proof, response.authenticator_pubkeys))
     }
@@ -425,19 +416,17 @@ impl Authenticator {
     pub async fn fetch_authenticator_pubkeys(
         &self,
     ) -> Result<AuthenticatorPublicKeySet, AuthenticatorError> {
-        let url = format!("{}/authenticator-pubkeys", self.config.indexer_url());
         let req = IndexerQueryRequest {
             leaf_index: self.leaf_index(),
         };
-        let response = self.http_client.post(&url).json(&req).send().await?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(AuthenticatorError::IndexerError {
-                status,
-                body: Self::response_body_or_fallback(response).await,
-            });
-        }
-        let response = response
+        let resp = post_to_indexer(
+            &self.http_client,
+            self.config.indexer_url(),
+            "/authenticator-pubkeys",
+            &req,
+        )
+        .await?;
+        let response = resp
             .json::<IndexerAuthenticatorPubkeysResponse>()
             .await?;
         Self::decode_indexer_pubkeys(response.authenticator_pubkeys)
@@ -453,20 +442,16 @@ impl Authenticator {
             let nonce = registry.getSignatureNonce(self.leaf_index()).call().await?;
             Ok(nonce)
         } else {
-            let url = format!("{}/signature-nonce", self.config.indexer_url());
             let req = IndexerQueryRequest {
                 leaf_index: self.leaf_index(),
             };
-            let resp = self.http_client.post(&url).json(&req).send().await?;
-
-            let status = resp.status();
-            if !status.is_success() {
-                return Err(AuthenticatorError::IndexerError {
-                    status,
-                    body: Self::response_body_or_fallback(resp).await,
-                });
-            }
-
+            let resp = post_to_indexer(
+                &self.http_client,
+                self.config.indexer_url(),
+                "/signature-nonce",
+                &req,
+            )
+            .await?;
             let response: IndexerSignatureNonceResponse = resp.json().await?;
             Ok(response.signature_nonce)
         }
@@ -751,27 +736,15 @@ impl Authenticator {
             nonce,
         };
 
-        let resp = self
-            .http_client
-            .post(format!(
-                "{}/insert-authenticator",
-                self.config.gateway_url()
-            ))
-            .json(&req)
-            .send()
-            .await?;
-
-        let status = resp.status();
-        if status.is_success() {
-            let body: GatewayStatusResponse = resp.json().await?;
-            Ok(body.request_id)
-        } else {
-            let body_text = Self::response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        let resp = post_to_gateway(
+            &self.http_client,
+            self.config.gateway_url(),
+            "/insert-authenticator",
+            &req,
+        )
+        .await?;
+        let body: GatewayStatusResponse = resp.json().await?;
+        Ok(body.request_id)
     }
 
     /// Updates an existing authenticator slot with a new authenticator.
@@ -827,27 +800,15 @@ impl Authenticator {
             new_authenticator_pubkey: encoded_offchain_pubkey,
         };
 
-        let resp = self
-            .http_client
-            .post(format!(
-                "{}/update-authenticator",
-                self.config.gateway_url()
-            ))
-            .json(&req)
-            .send()
-            .await?;
-
-        let status = resp.status();
-        if status.is_success() {
-            let gateway_resp: GatewayStatusResponse = resp.json().await?;
-            Ok(gateway_resp.request_id)
-        } else {
-            let body_text = Self::response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        let resp = post_to_gateway(
+            &self.http_client,
+            self.config.gateway_url(),
+            "/update-authenticator",
+            &req,
+        )
+        .await?;
+        let gateway_resp: GatewayStatusResponse = resp.json().await?;
+        Ok(gateway_resp.request_id)
     }
 
     /// Removes an authenticator from the account.
@@ -904,27 +865,15 @@ impl Authenticator {
             authenticator_pubkey: Some(encoded_old_offchain_pubkey),
         };
 
-        let resp = self
-            .http_client
-            .post(format!(
-                "{}/remove-authenticator",
-                self.config.gateway_url()
-            ))
-            .json(&req)
-            .send()
-            .await?;
-
-        let status = resp.status();
-        if status.is_success() {
-            let gateway_resp: GatewayStatusResponse = resp.json().await?;
-            Ok(gateway_resp.request_id)
-        } else {
-            let body_text = Self::response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        let resp = post_to_gateway(
+            &self.http_client,
+            self.config.gateway_url(),
+            "/remove-authenticator",
+            &req,
+        )
+        .await?;
+        let gateway_resp: GatewayStatusResponse = resp.json().await?;
+        Ok(gateway_resp.request_id)
     }
 }
 
@@ -975,27 +924,19 @@ impl InitializingAuthenticator {
             offchain_signer_commitment: leaf_hash.into(),
         };
 
-        let resp = http_client
-            .post(format!("{}/create-account", config.gateway_url()))
-            .json(&req)
-            .send()
-            .await?;
-
-        let status = resp.status();
-        if status.is_success() {
-            let body: GatewayStatusResponse = resp.json().await?;
-            Ok(Self {
-                request_id: body.request_id,
-                http_client,
-                config,
-            })
-        } else {
-            let body_text = Authenticator::response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        let resp = post_to_gateway(
+            &http_client,
+            config.gateway_url(),
+            "/create-account",
+            &req,
+        )
+        .await?;
+        let body: GatewayStatusResponse = resp.json().await?;
+        Ok(Self {
+            request_id: body.request_id,
+            http_client,
+            config,
+        })
     }
 
     /// Poll the status of the World ID creation request.
@@ -1004,28 +945,11 @@ impl InitializingAuthenticator {
     /// - Will error if the network request fails.
     /// - Will error if the gateway returns an error response.
     pub async fn poll_status(&self) -> Result<GatewayRequestState, AuthenticatorError> {
-        let resp = self
-            .http_client
-            .get(format!(
-                "{}/status/{}",
-                self.config.gateway_url(),
-                self.request_id
-            ))
-            .send()
-            .await?;
-
-        let status = resp.status();
-
-        if status.is_success() {
-            let body: GatewayStatusResponse = resp.json().await?;
-            Ok(body.status)
-        } else {
-            let body_text = Authenticator::response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        let path = format!("/status/{}", self.request_id);
+        let resp =
+            get_from_gateway(&self.http_client, self.config.gateway_url(), &path).await?;
+        let body: GatewayStatusResponse = resp.json().await?;
+        Ok(body.status)
     }
 }
 
@@ -1158,6 +1082,69 @@ pub enum AuthenticatorError {
 enum PollResult {
     Retryable,
     TerminalError(AuthenticatorError),
+}
+
+async fn response_body_or_fallback(response: reqwest::Response) -> String {
+    response
+        .text()
+        .await
+        .unwrap_or_else(|e| format!("Unable to read response body: {e}"))
+}
+
+async fn post_to_gateway<Req: serde::Serialize>(
+    http_client: &reqwest::Client,
+    gateway_url: &str,
+    path: &str,
+    body: &Req,
+) -> Result<reqwest::Response, AuthenticatorError> {
+    let url = format!("{gateway_url}{path}");
+    let resp = http_client.post(&url).json(body).send().await?;
+    if resp.status().is_success() {
+        Ok(resp)
+    } else {
+        let status = resp.status();
+        Err(AuthenticatorError::GatewayError {
+            status,
+            body: response_body_or_fallback(resp).await,
+        })
+    }
+}
+
+async fn get_from_gateway(
+    http_client: &reqwest::Client,
+    gateway_url: &str,
+    path: &str,
+) -> Result<reqwest::Response, AuthenticatorError> {
+    let url = format!("{gateway_url}{path}");
+    let resp = http_client.get(&url).send().await?;
+    if resp.status().is_success() {
+        Ok(resp)
+    } else {
+        let status = resp.status();
+        Err(AuthenticatorError::GatewayError {
+            status,
+            body: response_body_or_fallback(resp).await,
+        })
+    }
+}
+
+async fn post_to_indexer<Req: serde::Serialize>(
+    http_client: &reqwest::Client,
+    indexer_url: &str,
+    path: &str,
+    body: &Req,
+) -> Result<reqwest::Response, AuthenticatorError> {
+    let url = format!("{indexer_url}{path}");
+    let resp = http_client.post(&url).json(body).send().await?;
+    if resp.status().is_success() {
+        Ok(resp)
+    } else {
+        let status = resp.status();
+        Err(AuthenticatorError::IndexerError {
+            status,
+            body: response_body_or_fallback(resp).await,
+        })
+    }
 }
 
 #[cfg(all(test, feature = "embed-zkeys"))]
