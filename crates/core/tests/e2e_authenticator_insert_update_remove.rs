@@ -97,6 +97,8 @@ fn make_config(
         gateway_url.to_string(),
         Vec::new(),
         2,
+        None,
+        None,
     )
     .unwrap()
 }

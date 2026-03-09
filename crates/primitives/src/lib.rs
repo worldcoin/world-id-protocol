@@ -24,7 +24,7 @@ pub mod authenticator;
 
 /// Contains the global configuration for interacting with the World ID Protocol.
 mod config;
-pub use config::Config;
+pub use config::{Config, OhttpGatewayConfig};
 
 /// Contains the raw circuit input types for the World ID Protocol.
 ///

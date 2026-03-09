@@ -117,6 +117,8 @@ async fn main() -> Result<()> {
         format!("http://127.0.0.1:{gw_port}"),
         Vec::new(),
         3,
+        None,
+        None,
     )
     .unwrap();
     let (query_material, nullifier_material) = load_embedded_materials();
@@ -231,6 +233,8 @@ async fn main() -> Result<()> {
         format!("http://127.0.0.1:{gw_port}"),
         nodes.to_vec(),
         3,
+        None,
+        None,
     )
     .unwrap();
 

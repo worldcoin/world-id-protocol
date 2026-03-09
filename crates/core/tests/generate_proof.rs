@@ -125,6 +125,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         format!("http://127.0.0.1:{GW_PORT}"),
         Vec::new(),
         3,
+        None,
+        None,
     )
     .unwrap();
     let (query_material, nullifier_material) = load_embedded_materials();
@@ -275,6 +277,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         format!("http://127.0.0.1:{GW_PORT}"),
         nodes.to_vec(),
         3,
+        None,
+        None,
     )
     .unwrap();
 

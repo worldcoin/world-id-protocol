@@ -1272,6 +1272,8 @@ mod tests {
             "http://gateway.example.com".to_string(),
             Vec::new(),
             2,
+            None,
+            None,
         )
         .unwrap();
 
@@ -1320,6 +1322,8 @@ mod tests {
             "http://gateway.example.com".to_string(),
             Vec::new(),
             2,
+            None,
+            None,
         )
         .unwrap();
 
@@ -1372,6 +1376,8 @@ mod tests {
             "http://gateway.example.com".to_string(),
             Vec::new(),
             2,
+            None,
+            None,
         )
         .unwrap();
 
@@ -1421,6 +1427,8 @@ mod tests {
             "http://gateway.example.com".to_string(),
             Vec::new(),
             2,
+            None,
+            None,
         )
         .unwrap();
 

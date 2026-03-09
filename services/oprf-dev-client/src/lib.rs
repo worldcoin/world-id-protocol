@@ -187,6 +187,8 @@ pub async fn init_authenticator(
         gateway_url.clone(),
         config.nodes.clone(),
         config.threshold,
+        None,
+        None,
     )
     .context("while creating world config")?;
 

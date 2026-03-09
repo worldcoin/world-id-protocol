@@ -70,6 +70,8 @@ async fn test_authenticator_registration() {
         format!("http://127.0.0.1:{GW_PORT}"),
         Vec::new(),
         2,
+        None,
+        None,
     )
     .unwrap();
 

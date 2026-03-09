@@ -9,6 +9,21 @@ const fn default_nullifier_oracle_threshold() -> usize {
     2
 }
 
+/// Configuration for routing requests through an OHTTP (Oblivious HTTP) relay.
+///
+/// Each instance describes a single OHTTP gateway that can encrypt and forward
+/// requests to a backend service, hiding the client's identity from that service.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OhttpGatewayConfig {
+    /// URL of the OHTTP relay that receives encrypted requests.
+    pub relay_url: String,
+    /// Hex-encoded OHTTP key configuration advertised by the relay.
+    pub key_config_hex: String,
+    /// The authority (Host header) placed in the inner bhttp message,
+    /// used by the relay to route decrypted traffic to the correct backend.
+    pub authority: String,
+}
+
 /// Global configuration to interact with the different components of the Protocol.
 ///
 /// Used by Authenticators and RPs.
@@ -31,6 +46,14 @@ pub struct Config {
     /// Minimum number of Nullifier Oracle responses required to build a nullifier.
     #[serde(default = "default_nullifier_oracle_threshold")]
     nullifier_oracle_threshold: usize,
+    /// Optional OHTTP relay configuration for indexer requests.
+    /// When set, requests to the indexer will be forwarded through this OHTTP gateway.
+    #[serde(default)]
+    ohttp_indexer: Option<OhttpGatewayConfig>,
+    /// Optional OHTTP relay configuration for gateway requests.
+    /// When set, requests to the gateway will be forwarded through this OHTTP gateway.
+    #[serde(default)]
+    ohttp_gateway: Option<OhttpGatewayConfig>,
 }
 
 impl Config {
@@ -47,6 +70,8 @@ impl Config {
         gateway_url: String,
         nullifier_oracle_urls: Vec<String>,
         nullifier_oracle_threshold: usize,
+        ohttp_indexer: Option<OhttpGatewayConfig>,
+        ohttp_gateway: Option<OhttpGatewayConfig>,
     ) -> Result<Self, PrimitiveError> {
         let rpc_url = rpc_url
             .map(|url| {
@@ -65,6 +90,8 @@ impl Config {
             gateway_url,
             nullifier_oracle_urls,
             nullifier_oracle_threshold,
+            ohttp_indexer,
+            ohttp_gateway,
         })
     }
 
@@ -118,5 +145,17 @@ impl Config {
     #[must_use]
     pub const fn nullifier_oracle_threshold(&self) -> usize {
         self.nullifier_oracle_threshold
+    }
+
+    /// Optional OHTTP relay configuration for indexer requests.
+    #[must_use]
+    pub const fn ohttp_indexer(&self) -> Option<&OhttpGatewayConfig> {
+        self.ohttp_indexer.as_ref()
+    }
+
+    /// Optional OHTTP relay configuration for gateway requests.
+    #[must_use]
+    pub const fn ohttp_gateway(&self) -> Option<&OhttpGatewayConfig> {
+        self.ohttp_gateway.as_ref()
     }
 }

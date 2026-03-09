@@ -152,6 +152,8 @@ fn make_config(gw: &TestGateway, indexer_url: &str) -> Config {
         gw.base_url.clone(),
         Vec::new(),
         2,
+        None,
+        None,
     )
     .unwrap()
 }
