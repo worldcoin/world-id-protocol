@@ -106,6 +106,7 @@ services:
       - POSTGRES_DB=postgres
   ohttp-gateway:
     image: ghcr.io/worldcoin/world-id-protocol/ohttp-gateway:latest
+    platform: linux/amd64
     ports:
       - "9090:8080"
     environment:
