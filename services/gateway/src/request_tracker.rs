@@ -10,6 +10,7 @@ use crate::{
     batch_policy::BacklogUrgencyStats,
     config::RateLimitConfig,
     error::{GatewayErrorResponse, GatewayResult},
+    metrics,
 };
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RequestRecord {
@@ -186,6 +187,7 @@ impl RequestTracker {
                     key = %duplicate_key,
                     "Duplicate in-flight request detected"
                 );
+                metrics::increment_request_rejected("duplicate_inflight");
                 Err(GatewayErrorResponse::bad_request(
                     GatewayErrorCode::DuplicateRequestInFlight,
                 ))
@@ -530,6 +532,7 @@ impl RequestTracker {
                     request_id = request_id,
                     "Rate limit exceeded"
                 );
+                metrics::increment_request_rejected("rate_limited");
                 Err(GatewayErrorResponse::rate_limit_exceeded(
                     window_secs,
                     max_requests,
