@@ -57,6 +57,8 @@ pub struct RequestTracker {
     redis_manager: ConnectionManager,
     /// Rate limiting configuration, if enabled.
     rate_limit: Option<RateLimitConfig>,
+    /// Safety timeout for receipt polling tasks so they don't run forever.
+    receipt_timeout_secs: u64,
 }
 
 impl RequestTracker {
@@ -64,7 +66,11 @@ impl RequestTracker {
     ///
     /// # Panics
     /// If the connection to Redis fails.
-    pub async fn new(redis_url: String, rate_limit: Option<RateLimitConfig>) -> Self {
+    pub async fn new(
+        redis_url: String,
+        rate_limit: Option<RateLimitConfig>,
+        receipt_timeout_secs: u64,
+    ) -> Self {
         let client = Client::open(redis_url.as_str()).expect("Unable to connect to Redis");
         let redis_manager = ConnectionManager::new(client)
             .await
@@ -75,6 +81,7 @@ impl RequestTracker {
         Self {
             redis_manager,
             rate_limit,
+            receipt_timeout_secs,
         }
     }
 
@@ -238,14 +245,16 @@ impl RequestTracker {
         tx_hash: String,
     ) {
         let tracker = self.clone();
+        let timeout = Duration::from_secs(self.receipt_timeout_secs);
         tokio::spawn(async move {
-            match builder.get_receipt().await {
-                Ok(receipt) => {
+            let result = tokio::time::timeout(timeout, builder.get_receipt()).await;
+            match result {
+                Ok(Ok(receipt)) => {
                     tracker
                         .finalize_from_receipt(&ids, receipt.status(), &tx_hash)
                         .await;
                 }
-                Err(err) => {
+                Ok(Err(err)) => {
                     tracker
                         .set_status_batch(
                             &ids,
@@ -255,6 +264,12 @@ impl RequestTracker {
                             ),
                         )
                         .await;
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        tx_hash = %tx_hash,
+                        "receipt polling timed out, orphan sweeper will handle cleanup",
+                    );
                 }
             }
         });
