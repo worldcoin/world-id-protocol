@@ -32,7 +32,7 @@ use secrecy::ExposeSecret;
 use taceo_oprf::client::Connector;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
-    PrimitiveError, ZeroKnowledgeProof,
+    PrimitiveError, SessionId, ZeroKnowledgeProof,
     authenticator::{
         AuthenticatorPublicKeySet, SparseAuthenticatorPubkeysError,
         decode_sparse_authenticator_pubkeys,
@@ -631,6 +631,8 @@ impl Authenticator {
     /// - The OPRF nodes will use the same `oprfKeyId` for the RP, with a different domain separator.
     /// - Requesting this seed requires a properly signed request from the RP and a complete query proof. The
     ///   query proof can be re-used once to generate a nullifier as well (separate requests to OPRF nodes).
+    /// - The seed generation is based on a specific RP-provided `action` for the initial Uniqueness Proof. Note
+    ///   this `action` is different than the action used inthernally by [`SessionNullifier`]s to verify Session Proofs.
     pub async fn generate_session_id_r_seed(
         &self,
         _proof_request: &ProofRequest,
@@ -668,7 +670,7 @@ impl Authenticator {
         credential: &Credential,
         credential_sub_blinding_factor: FieldElement,
         session_id_r_seed: FieldElement,
-        session_id: Option<FieldElement>,
+        session_id: Option<SessionId>,
         request_timestamp: u64,
     ) -> Result<ResponseItem, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
@@ -685,7 +687,7 @@ impl Authenticator {
             credential_sub_blinding_factor,
             oprf_nullifier,
             request_item,
-            session_id,
+            session_id.map(|v| v.commitment()),
             session_id_r_seed,
             expires_at_min,
         )?;

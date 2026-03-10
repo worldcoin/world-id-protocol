@@ -3,6 +3,124 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 use crate::FieldElement;
 
+/// An identifier for a session (can be re-used).
+///
+/// A session allows RPs to ensure that it's still the same World ID
+/// interacting with them across multiple interactions.
+///
+/// A `SessionId` is obtained from an initial Uniqueness Proof, and subsequently
+/// can be used in Session Proofs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SessionId {
+    /// The actual commitment being verified in the ZK-circuit.
+    ///
+    /// It is computed as H(DS_C || leaf_index || session_id_r_seed), see
+    /// `signal computed_id_commitment` in `oprf_nullifier.circom`.
+    commitment: FieldElement,
+    /// The original action used to initiate the session. This is required to
+    /// re-derive the `session_id_r_seed` from the OPRF nodes if the Authenticator
+    /// does not have it cached.
+    action: FieldElement,
+}
+
+impl SessionId {
+    const JSON_PREFIX: &str = "session_";
+
+    /// Creates a new session id.
+    #[must_use]
+    pub const fn new(commitment: FieldElement, action: FieldElement) -> Self {
+        Self { commitment, action }
+    }
+
+    /// Returns the commitment value.
+    #[must_use]
+    pub const fn commitment(&self) -> FieldElement {
+        self.commitment
+    }
+
+    /// Returns the action value.
+    #[must_use]
+    pub const fn action(&self) -> FieldElement {
+        self.action
+    }
+
+    /// Returns the 64-byte big-endian representation (2 x 32-byte field elements).
+    #[must_use]
+    pub fn as_compressed_bytes(&self) -> [u8; 64] {
+        let mut bytes = [0u8; 64];
+        bytes[..32].copy_from_slice(&self.commitment.to_be_bytes());
+        bytes[32..].copy_from_slice(&self.action.to_be_bytes());
+        bytes
+    }
+
+    /// Constructs from compressed bytes (must be exactly 64 bytes).
+    ///
+    /// # Errors
+    /// Returns an error if the input is not exactly 64 bytes or if values are not valid field elements.
+    pub fn from_compressed_bytes(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() != 64 {
+            return Err(format!(
+                "Invalid length: expected 64 bytes, got {}",
+                bytes.len()
+            ));
+        }
+
+        let commitment = FieldElement::from_be_bytes(bytes[..32].try_into().unwrap())
+            .map_err(|e| format!("invalid nullifier: {e}"))?;
+        let action = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
+            .map_err(|e| format!("invalid action: {e}"))?;
+
+        Ok(Self { commitment, action })
+    }
+}
+
+impl Default for SessionId {
+    fn default() -> Self {
+        Self {
+            commitment: FieldElement::ZERO,
+            action: FieldElement::ZERO,
+        }
+    }
+}
+
+impl Serialize for SessionId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let bytes = self.as_compressed_bytes();
+        if serializer.is_human_readable() {
+            // JSON: prefixed hex-encoded compressed bytes for explicit typing.
+            serializer.serialize_str(&format!("{}{}", Self::JSON_PREFIX, hex::encode(bytes)))
+        } else {
+            // Binary: compressed bytes
+            serializer.serialize_bytes(&bytes)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SessionId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = if deserializer.is_human_readable() {
+            let value = String::deserialize(deserializer)?;
+            let hex_str = value.strip_prefix(Self::JSON_PREFIX).ok_or_else(|| {
+                D::Error::custom(format!(
+                    "session nullifier must start with '{}'",
+                    Self::JSON_PREFIX
+                ))
+            })?;
+            hex::decode(hex_str).map_err(D::Error::custom)?
+        } else {
+            Vec::deserialize(deserializer)?
+        };
+
+        Self::from_compressed_bytes(&bytes).map_err(D::Error::custom)
+    }
+}
+
 /// A session nullifier for World ID Session proofs. It is analogous to a request nonce,
 /// it **does NOT guarantee uniqueness of a World ID** as a [`Nullifier`] does.
 ///

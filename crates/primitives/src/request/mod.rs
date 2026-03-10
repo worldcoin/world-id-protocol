@@ -6,7 +6,7 @@ mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
 use crate::{
-    FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, nullifier::Nullifier,
+    FieldElement, Nullifier, PrimitiveError, SessionId, SessionNullifier, ZeroKnowledgeProof,
     rp::RpId,
 };
 use serde::{Deserialize, Serialize, de::Error as _};
@@ -67,7 +67,7 @@ pub struct ProofRequest {
     /// If provided, a Session Proof will be generated instead of a Uniqueness Proof.
     /// The proof will only be valid if the session ID is meant for this context and this
     /// particular World ID holder.
-    pub session_id: Option<FieldElement>,
+    pub session_id: Option<SessionId>,
     /// An RP-defined context that scopes what the user is proving uniqueness on.
     ///
     /// This parameter expects a field element. When dealing with strings or bytes,
@@ -186,7 +186,7 @@ pub struct ProofResponse {
     /// When session proofs are enabled, this is the hex-encoded field element
     /// emitted by the session circuit; otherwise it is omitted.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<FieldElement>,
+    pub session_id: Option<SessionId>,
     /// Error message if the entire proof request failed.
     /// When present, the responses array will be empty.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1340,7 +1340,7 @@ mod tests {
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: Some(test_field_element(55)),
+            session_id: Some(SessionId::default()),
             action: Some(test_field_element(1)),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -1361,7 +1361,7 @@ mod tests {
         let resp = ProofResponse {
             id: req.id.clone(),
             version: RequestVersion::V1,
-            session_id: Some(test_field_element(55)),
+            session_id: Some(SessionId::default()),
             error: None,
             responses: vec![ResponseItem::new_session(
                 "test_req_1".into(),
@@ -2175,7 +2175,7 @@ mod tests {
             expires_at: 1_700_100_000,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: Some(test_field_element(99)),
+            session_id: Some(SessionId::default()),
             action: None,
             signature: test_signature(),
             nonce: test_nonce(),
@@ -2199,7 +2199,7 @@ mod tests {
             expires_at: 1_735_689_900,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: Some(test_field_element(123)), // Session proof
+            session_id: Some(SessionId::default()), // Session proof
             action: Some(test_field_element(42)),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -2244,7 +2244,7 @@ mod tests {
             expires_at: 1_735_689_900,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: Some(test_field_element(123)), // Session proof
+            session_id: Some(SessionId::default()), // Session proof
             action: Some(test_field_element(42)),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -2262,7 +2262,7 @@ mod tests {
         let response_wrong_nullifier_type = ProofResponse {
             id: "req_session".into(),
             version: RequestVersion::V1,
-            session_id: Some(test_field_element(123)),
+            session_id: Some(SessionId::default()),
             error: None,
             responses: vec![ResponseItem::new_uniqueness(
                 "orb".into(),
