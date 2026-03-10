@@ -87,8 +87,8 @@ impl<'a> EventsCommitter<'a> {
                     return Err(e);
                 }
                 Err(e) => {
-                    let delay = Duration::from_millis(500 * (1u64 << attempt))
-                        .min(Duration::from_secs(3));
+                    let delay =
+                        Duration::from_millis(500 * (1u64 << attempt)).min(Duration::from_secs(3));
                     tracing::warn!(
                         ?e,
                         root_recorded_block,
