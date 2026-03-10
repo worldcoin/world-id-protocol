@@ -67,27 +67,28 @@ impl<'a> EventsCommitter<'a> {
     }
 
     async fn commit_events(&mut self) -> IndexerResult<()> {
-        const MAX_RETRIES: u32 = 5;
+        const MAX_ATTEMPTS: u32 = 3;
 
         let root_recorded_block = self.buffered_events.last().map(|e| e.block_number);
 
         let mut attempt = 0u32;
         loop {
+            attempt += 1;
             match self.attempt_commit().await {
                 Ok(()) => return Ok(()),
                 Err(e @ IndexerError::ReorgDetected { .. }) => return Err(e),
-                Err(e) if attempt >= MAX_RETRIES => {
+                Err(e) if attempt >= MAX_ATTEMPTS => {
                     tracing::error!(
                         ?e,
                         root_recorded_block,
                         attempt,
-                        "DB commit failed after max retries"
+                        "DB commit failed after max attempts"
                     );
                     return Err(e);
                 }
                 Err(e) => {
-                    attempt += 1;
-                    let delay = Duration::from_millis(100 * (1u64 << attempt));
+                    let delay = Duration::from_millis(500 * (1u64 << attempt))
+                        .min(Duration::from_secs(3));
                     tracing::warn!(
                         ?e,
                         root_recorded_block,
