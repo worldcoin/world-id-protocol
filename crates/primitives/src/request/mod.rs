@@ -105,7 +105,8 @@ pub struct RequestItem {
     /// When present, the Authenticator hashes this via `signal_hash` and commits it into the
     /// proof circuit so the RP can tie the proof to a particular context.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub signal: Option<String>,
+    #[serde(with = "crate::serde_utils::hex_bytes_opt")]
+    pub signal: Option<Vec<u8>>,
 
     /// Minimum `genesis_issued_at` timestamp that the used Credential must meet.
     ///
@@ -136,7 +137,7 @@ impl RequestItem {
     pub const fn new(
         identifier: String,
         issuer_schema_id: u64,
-        signal: Option<String>,
+        signal: Option<Vec<u8>>,
         genesis_issued_at_min: Option<u64>,
         expires_at_min: Option<u64>,
     ) -> Self {
@@ -153,7 +154,7 @@ impl RequestItem {
     #[must_use]
     pub fn signal_hash(&self) -> FieldElement {
         if let Some(signal) = &self.signal {
-            FieldElement::from_arbitrary_raw_bytes(signal.as_bytes())
+            FieldElement::from_arbitrary_raw_bytes(signal)
         } else {
             FieldElement::ZERO
         }

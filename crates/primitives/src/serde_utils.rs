@@ -268,6 +268,51 @@ pub mod hex_signature {
     }
 }
 
+/// Serializes an optional byte array as a `0x`-prefixed hex string if using a human-readable serializer
+pub mod hex_bytes_opt {
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
+
+    /// Serialize a byte array.
+    ///
+    /// - For human-readable serializers, this is emitted as a `0x`-prefixed hex string.
+    /// - For non-human-readable serializers, this is emitted as raw bytes.
+    pub fn serialize<S>(v: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match v {
+            Some(v) => {
+                if serializer.is_human_readable() {
+                    serializer.serialize_some(&format!("0x{}", hex::encode(v)))
+                } else {
+                    serializer.serialize_some(v)
+                }
+            }
+            None => serializer.serialize_none(),
+        }
+    }
+
+    /// Deserialize a byte array.
+    ///
+    /// - For human-readable serializers, this is expected as a `0x`-prefixed hex string.
+    /// - For non-human-readable serializers, this is expected as raw bytes.
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            let s = Option::<String>::deserialize(deserializer)?;
+            s.map(|s| {
+                let s = s.strip_prefix("0x").unwrap_or(&s);
+                hex::decode(s).map_err(D::Error::custom)
+            })
+            .transpose()
+        } else {
+            Option::<Vec<u8>>::deserialize(deserializer)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
