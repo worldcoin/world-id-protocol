@@ -51,7 +51,7 @@ pub mod oprf;
 mod nullifier;
 pub use nullifier::Nullifier;
 
-/// Contains types relevanat for Session Proofs.
+/// Contains types relevant for Session Proofs.
 mod session;
 pub use session::{SessionId, SessionNullifier};
 

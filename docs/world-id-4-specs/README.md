@@ -243,10 +243,10 @@ Session Proofs use the same zero-knowledge circuits as Uniqueness Proofs, but au
 Session Proofs work in the following manner:
 
 - An RP initiates a request for a Uniqueness Proof as usual, with its relevant `action`.
-- The proof outputs a `sessionId`. A unique identifier bound to the user's World ID for that RP and that action. **Note** that an RP can only request a `sessionId` once. Using the same `action` will fail as the `nullifier` output from the Uniqueness Proof will not be unique.
+- The proof outputs a `sessionId`. A unique identifier bound to the user's World ID for that RP and that action. **Note** that an RP can only request a `sessionId` once per action. Using the same `action` again will fail because the `nullifier` output from the Uniqueness Proof is scoped to `(rpId, action)` and will already have been used.
 - The RP stores this `sessionId` alongside their account for the user.
 - For subsequent interactions, the RP includes the `sessionId` in proof requests. The user can then generate a session proof to demonstrate they have the same World ID.
-- The `sessionId` is generated as outlined below, where `r` is computational indistinguishability from random.
+- The `sessionId` is generated as outlined below, where `r` is computationally indistinguishable from random.
 
 ```mermaid
 sequenceDiagram
@@ -267,15 +267,21 @@ end
 
 rp->>a: session proof request (incl. sessionId)
 
+alt [Recover r from sessionId.action]
+a->>o: $$r=\texttt{OPRF}(DS_C || \texttt{leafIndex} || \texttt{sessionId.action}, pk_{rpId})$$
+end
 a->>a: C'=H($$DS_C$$ || leafIndex || r) as public output of proof
 a->>a: check if sessionId == C' (in ZK-circuit)
 a->>rp: proof + sessionNullifier
 rp->>rp: verify proof (checking sessionId == C' in verifier contract)
 ```
 
+**Recovering `r` for subsequent Session Proofs.** The OPRF is deterministic: the same input and key always produce the same output. This means `r` can be re-derived at any time by calling the OPRF nodes with the original `action` (stored in `sessionId`). Caching `r` is an optimization, not a requirement. The OPRF call to derive `r` and the OPRF call to derive the nullifier can be made in parallel.
+
 **Session Nullifiers**
-- A [`sessionNullifier`](https://docs.rs/world-id-primitives/latest/world_id_primitives/nullifier/struct.SessionNullifier.html) is used for verifying Uniqueness Proofs. It must be passed to the verification contract. Internally, the [`sessionNullifier`](https://docs.rs/world-id-primitives/latest/world_id_primitives/nullifier/struct.SessionNullifier.html) implements custom encoding on the Authenticator and on the `WorldIDVerifier` contract.
+- A [`sessionNullifier`](https://docs.rs/world-id-primitives/latest/world_id_primitives/session/struct.SessionNullifier.html) is used for verifying Session Proofs. It must be passed to the verification contract. Internally, the [`sessionNullifier`](https://docs.rs/world-id-primitives/latest/world_id_primitives/session/struct.SessionNullifier.html) implements custom encoding on the Authenticator and on the `WorldIDVerifier` contract.
 - The raison d'être is simply to allow usage of the same ZK circuit as for Uniqueness Proofs. Reducing the number of circuits is currently a priority because of the size of the circuits needed to be bundled in Authenticator clients. As World ID moves to a different proving system, this type will no longer be required.
+- Session Proofs use a randomized `action` as circuit input (different from the RP-provided `action` stored in `sessionId`). This randomized action ensures the circuit's nullifier output is unique per proof, preserving the one-time use property. It does not affect `r` derivation.
 
 ### Web-based Authenticator Provider
 

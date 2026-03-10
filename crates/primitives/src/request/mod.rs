@@ -183,8 +183,12 @@ pub struct ProofResponse {
     /// RP session identifier that links multiple proofs for the same
     /// user/RP pair across requests.
     ///
-    /// When session proofs are enabled, this is the hex-encoded field element
-    /// emitted by the session circuit; otherwise it is omitted.
+    /// For the initial Uniqueness Proof that creates a session, this contains
+    /// the newly generated `SessionId`. For subsequent Session Proofs, this
+    /// echoes back the `SessionId` from the request for convenience.
+    ///
+    /// This is optional as Authenticators may opt to not expose it
+    /// in Uniqueness Proofs unless explicitly requested.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<SessionId>,
     /// Error message if the entire proof request failed.

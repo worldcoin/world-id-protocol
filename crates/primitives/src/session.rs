@@ -10,6 +10,17 @@ use crate::FieldElement;
 ///
 /// A `SessionId` is obtained from an initial Uniqueness Proof, and subsequently
 /// can be used in Session Proofs.
+///
+/// It encodes two values:
+/// - `commitment`: The value verified inside the ZK-circuit, computed as
+///   `H(DS_C || leaf_index || r)` where `r` is the OPRF-derived seed.
+/// - `action`: The original RP-provided action from the initial Uniqueness Proof.
+///   This is stored so the Authenticator can re-derive `r` from the OPRF nodes
+///   if needed (the OPRF is deterministic for the same input and key).
+///
+/// Note that the `action` stored here is unrelated to the randomized action used
+/// internally by [`SessionNullifier`]s — that randomized action exists only to ensure
+/// the circuit's nullifier output is unique per Session Proof.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SessionId {
     /// The actual commitment being verified in the ZK-circuit.
@@ -17,9 +28,12 @@ pub struct SessionId {
     /// It is computed as H(DS_C || leaf_index || session_id_r_seed), see
     /// `signal computed_id_commitment` in `oprf_nullifier.circom`.
     commitment: FieldElement,
-    /// The original action used to initiate the session. This is required to
-    /// re-derive the `session_id_r_seed` from the OPRF nodes if the Authenticator
-    /// does not have it cached.
+    /// The original RP-provided action from the initial Uniqueness Proof.
+    ///
+    /// Stored so the Authenticator can re-derive `session_id_r_seed` (`r`) from the
+    /// OPRF nodes without needing to cache `r` locally. The OPRF is deterministic:
+    /// `r = OPRF(DS_C || leafIndex || action, pk_rpId)`, so the same action always
+    /// yields the same `r`.
     action: FieldElement,
 }
 
@@ -66,7 +80,7 @@ impl SessionId {
         }
 
         let commitment = FieldElement::from_be_bytes(bytes[..32].try_into().unwrap())
-            .map_err(|e| format!("invalid nullifier: {e}"))?;
+            .map_err(|e| format!("invalid commitment: {e}"))?;
         let action = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
             .map_err(|e| format!("invalid action: {e}"))?;
 
@@ -108,7 +122,7 @@ impl<'de> Deserialize<'de> for SessionId {
             let value = String::deserialize(deserializer)?;
             let hex_str = value.strip_prefix(Self::JSON_PREFIX).ok_or_else(|| {
                 D::Error::custom(format!(
-                    "session nullifier must start with '{}'",
+                    "session id must start with '{}'",
                     Self::JSON_PREFIX
                 ))
             })?;
@@ -275,6 +289,96 @@ impl From<SessionNullifier> for [U256; 2] {
 impl From<(FieldElement, FieldElement)> for SessionNullifier {
     fn from((nullifier, action): (FieldElement, FieldElement)) -> Self {
         Self::new(nullifier, action)
+    }
+}
+
+#[cfg(test)]
+mod session_id_tests {
+    use super::*;
+
+    fn test_field_element(value: u64) -> FieldElement {
+        FieldElement::from(value)
+    }
+
+    #[test]
+    fn test_new_and_accessors() {
+        let commitment = test_field_element(1001);
+        let action = test_field_element(42);
+        let id = SessionId::new(commitment, action);
+
+        assert_eq!(id.commitment(), commitment);
+        assert_eq!(id.action(), action);
+    }
+
+    #[test]
+    fn test_default() {
+        let id = SessionId::default();
+        assert_eq!(id.commitment(), FieldElement::ZERO);
+        assert_eq!(id.action(), FieldElement::ZERO);
+    }
+
+    #[test]
+    fn test_bytes_roundtrip() {
+        let id = SessionId::new(test_field_element(1001), test_field_element(42));
+        let bytes = id.as_compressed_bytes();
+
+        assert_eq!(bytes.len(), 64);
+
+        let decoded = SessionId::from_compressed_bytes(&bytes).unwrap();
+        assert_eq!(id, decoded);
+    }
+
+    #[test]
+    fn test_bytes_use_field_element_encoding() {
+        let id = SessionId::new(test_field_element(1001), test_field_element(42));
+        let bytes = id.as_compressed_bytes();
+
+        let mut expected = [0u8; 64];
+        expected[..32].copy_from_slice(&id.commitment().to_be_bytes());
+        expected[32..].copy_from_slice(&id.action().to_be_bytes());
+        assert_eq!(bytes, expected);
+    }
+
+    #[test]
+    fn test_invalid_bytes_length() {
+        let too_short = vec![0u8; 63];
+        let result = SessionId::from_compressed_bytes(&too_short);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid length"));
+
+        let too_long = vec![0u8; 65];
+        let result = SessionId::from_compressed_bytes(&too_long);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid length"));
+    }
+
+    #[test]
+    fn test_json_roundtrip() {
+        let id = SessionId::new(test_field_element(1001), test_field_element(42));
+        let json = serde_json::to_string(&id).unwrap();
+
+        assert!(json.starts_with("\"session_"));
+        assert!(json.ends_with('"'));
+
+        let decoded: SessionId = serde_json::from_str(&json).unwrap();
+        assert_eq!(id, decoded);
+    }
+
+    #[test]
+    fn test_json_format() {
+        let id = SessionId::new(test_field_element(1), test_field_element(2));
+        let json = serde_json::to_string(&id).unwrap();
+
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(parsed.is_string());
+        let value = parsed.as_str().unwrap();
+        assert!(value.starts_with("session_"));
+    }
+
+    #[test]
+    fn test_json_wrong_prefix_rejected() {
+        let result = serde_json::from_str::<SessionId>("\"snil_00\"");
+        assert!(result.is_err());
     }
 }
 

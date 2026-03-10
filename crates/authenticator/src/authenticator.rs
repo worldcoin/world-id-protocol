@@ -623,16 +623,23 @@ impl Authenticator {
 
     /// Generates the session's randomness seed (`r`) using OPRF Nodes.
     ///
-    /// This seed is used to compute the `session_id` for Session Proofs.
+    /// This seed is used to compute the `session_id` commitment for Session Proofs.
     ///
     /// # Details
-    /// - Importantly, the seed is and MUST be computationally indistinguishable from random,
+    /// - The seed is and MUST be computationally indistinguishable from random,
     ///   i.e. uniformly distributed because it uses OPRF.
     /// - The OPRF nodes will use the same `oprfKeyId` for the RP, with a different domain separator.
     /// - Requesting this seed requires a properly signed request from the RP and a complete query proof. The
     ///   query proof can be re-used once to generate a nullifier as well (separate requests to OPRF nodes).
+    ///   Both calls can be made in parallel.
     /// - The seed generation is based on a specific RP-provided `action` for the initial Uniqueness Proof. Note
-    ///   this `action` is different than the action used inthernally by [`SessionNullifier`]s to verify Session Proofs.
+    ///   this `action` is different than the randomized action used internally by [`SessionNullifier`]s.
+    ///
+    /// # Determinism and Recovery
+    /// Because the OPRF is deterministic for the same input and key, calling this function again with the
+    /// same `action` and RP will produce the same `r`. This means caching `r` is optional but recommended, `r` can
+    /// be recovered by calling this function with the original `action` (which is stored in [`SessionId::action`]).
+    /// Caching behavior is the responsibility of the Authenticator (and/or its releavnt SDKs), not this crate.
     pub async fn generate_session_id_r_seed(
         &self,
         _proof_request: &ProofRequest,
@@ -654,7 +661,9 @@ impl Authenticator {
     /// - `request_item`: The specific `RequestItem` that is being resolved from the RP's `ProofRequest`.
     /// - `credential`: The Credential to be used for the proof that fulfills the `RequestItem`.
     /// - `credential_sub_blinding_factor`: The blinding factor for the Credential's sub.
-    /// - `session_id_r_seed`: The session ID random seed. Obtained from the RP's [`ProofRequest`].
+    /// - `session_id_r_seed`: The session ID random seed, obtained via [`generate_session_id_r_seed`](Self::generate_session_id_r_seed).
+    ///   For Uniqueness Proofs (when `session_id` is `None`), this value is ignored by the circuit
+    ///   but must still be provided.
     /// - `session_id`: The expected session ID provided by the RP. Only needed for Session Proofs. Obtained from the RP's [`ProofRequest`].
     /// - `request_timestamp`: The timestamp of the request. Obtained from the RP's [`ProofRequest`].
     ///
