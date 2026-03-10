@@ -136,7 +136,7 @@ impl<'de> Deserialize<'de> for SessionId {
 }
 
 /// A session nullifier for World ID Session proofs. It is analogous to a request nonce,
-/// it **does NOT guarantee uniqueness of a World ID** as a [`Nullifier`] does.
+/// it **does NOT guarantee uniqueness of a World ID** as a `Nullifier` does.
 ///
 /// This type is intended to be opaque for RPs. For an RP context, they should only
 /// be concerned of this needing to be passthrough to the `verifySession()` contract function.
