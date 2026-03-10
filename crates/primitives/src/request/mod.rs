@@ -104,6 +104,13 @@ pub struct RequestItem {
     ///
     /// When present, the Authenticator hashes this via `signal_hash` and commits it into the
     /// proof circuit so the RP can tie the proof to a particular context.
+    ///
+    /// The reason why the signal is expected as raw bytes and hashed by the Authenticator instead
+    /// of directly as a field element is so that in the future it can be displayed to the user in
+    /// a human-readable way.
+    ///
+    /// Raw bytes provides maximum flexibility because for on-chain use cases any arbitrary set of
+    /// inputs can be ABI-encoded to be verified on-chain.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(with = "crate::serde_utils::hex_bytes_opt")]
     pub signal: Option<Vec<u8>>,
