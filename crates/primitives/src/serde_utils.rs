@@ -303,7 +303,10 @@ pub mod hex_bytes_opt {
         if deserializer.is_human_readable() {
             let s = Option::<String>::deserialize(deserializer)?;
             s.map(|s| {
-                let s = s.strip_prefix("0x").unwrap_or(&s);
+                let s = s
+                    .strip_prefix("0x")
+                    .or_else(|| s.strip_prefix("0X"))
+                    .unwrap_or(&s);
                 hex::decode(s).map_err(D::Error::custom)
             })
             .transpose()
