@@ -621,6 +621,25 @@ impl Authenticator {
         Ok(blinding_factor.verifiable_oprf_output.output.into())
     }
 
+    /// Generates the session's randomness seed (`r`) using OPRF Nodes.
+    ///
+    /// This seed is used to compute the `session_id` for Session Proofs.
+    ///
+    /// # Details
+    /// - Importantly, the seed is and MUST be computationally indistinguishable from random,
+    ///   i.e. uniformly distributed because it uses OPRF.
+    /// - The OPRF nodes will use the same `oprfKeyId` for the RP, with a different domain separator.
+    /// - Requesting this seed requires a properly signed request from the RP and a complete query proof. The
+    ///   query proof can be re-used once to generate a nullifier as well (separate requests to OPRF nodes).
+    pub async fn generate_session_id_r_seed(
+        &self,
+        _proof_request: &ProofRequest,
+    ) -> Result<FieldElement, AuthenticatorError> {
+        // FIXME: Generate using OPRF Nodes
+        let mut rng = rand::rngs::OsRng;
+        Ok(FieldElement::random(&mut rng))
+    }
+
     /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`. This
     /// method generates the raw proof to be translated into a Uniqueness Proof or a Session Proof for the RP.
     ///

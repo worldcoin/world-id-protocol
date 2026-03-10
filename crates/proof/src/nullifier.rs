@@ -10,9 +10,8 @@ use taceo_oprf::{
 };
 
 use world_id_primitives::{
-    FieldElement, ProofRequest, TREE_DEPTH,
+    FieldElement, Nullifier, ProofRequest, TREE_DEPTH,
     circuit_inputs::QueryProofCircuitInput,
-    nullifier::Nullifier,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
 };
 

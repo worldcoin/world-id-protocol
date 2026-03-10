@@ -403,6 +403,11 @@ impl ProofRequest {
     /// - For session proofs (action is `None`), a random action is generated.
     ///
     /// Callers should cache the action during proof generation to ensure consistency across proof steps.
+    ///
+    /// # Note on Session Proofs
+    /// A randomized action is required on Session Proofs to ensure the output nullifier from the Uniqueness Proof
+    /// circuit is unique (otherwise the one-time use property of nullifiers would fail). Please see the "Future"
+    /// section in the [`SessionNullifier`] documentation for more details on how this is expected to be removed.
     #[must_use]
     pub fn computed_action<R: rand::CryptoRng + rand::RngCore>(&self, rng: &mut R) -> FieldElement {
         match self.action {

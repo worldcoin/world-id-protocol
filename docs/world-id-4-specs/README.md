@@ -232,21 +232,21 @@ Both the Relying Party Registry and the Credential Schema Issuer Registry charge
 
 ### Session Proofs
 
-RPs can create sessions for their app to ensure that it's still the same World ID interacting with them across multiple interactions. Session proofs intentionally allow the RP to link multiple interactions in their app to the same World ID. Potential use cases include:
+RPs can create sessions for their app to ensure that it's still the same World ID interacting with them across multiple interactions. Session Proofs intentionally allow the RP to link multiple interactions in their app to the same World ID. Potential use cases include:
 
-- Credential upgrade: A user verified previously with one credential and now wants to prove using another one (e.g. unlocking additional rewards). RP needs to be ensure that the new credential actually belongs to the same holder.
-- Credential expiration check: A user previously enrolled with one credential; on each consecutive log in the RP wants to make sure the user's credential is still valid (for example not expired).
-- (Future). RP-level Face Auth: Currently, Face Auth only ensures that the whoever produces the proof is the same person that received the credential. However, for some applications you also want to ensure that over the course of multiple interactions an RP can make sure that it was always the same person.
+- Credential upgrade: A user verified previously with one credential and now wants to prove using another one (e.g. unlocking additional benefits). **Important Note**. While this can be used to prove a new Credential belongs to the same World ID, the implications must be carefully considered when it comes to uniqueness. **Uniqueness sets are independent**, e.g. users may have both a PoH and a government document Credential, but this doesn't mean that by accepting both as an RP you can get guarantees that only a single human is behind each. A user may choose to obtain a PoH Credential and a document Credential in different World IDs.
+- Credential expiration check: A user previously enrolled with one Credential; periodically,the RP wants to make sure the user's Credential is still valid (for example not expired).
+- (Future). RP-level Face Auth: Currently, Face Auth only ensures that the whoever produces the proof is the same person that received the Credential. However, for some applications an RP may want to make sure the same person is behind multiple interactions.
 
-Session proofs use the same zero-knowledge circuits as uniqueness proofs, but authenticators must clearly distinguish them to users since they involve a reusable identifier that can link interactions. Session proofs are scoped at the RP level and do not require an action from the RP. Instead of a nullifier, session proofs return a `sessionNullifier` which is required for verification but does not provide the same uniqueness guarantee.
+Session Proofs use the same zero-knowledge circuits as Uniqueness Proofs, but authenticators MUST clearly distinguish them to users since they involve a reusable identifier that can link interactions. Instead of a nullifier, Session Proofs return a `sessionNullifier` which is required for verification but does **not** provide the same uniqueness guarantee (see below on `sessionNullifier`).
 
 Session Proofs work in the following manner:
 
-- An RP initiates a request for a proof.
-- The proof outputs a `sessionId`. A unique identifier bound to the user's World ID for that RP.
-- The RP stores this `sessionId` alongside their account information for the user.
-- For subsequent interactions, the RP includes the `sessionId` in proof requests. The user can then generate a session proof to demonstrate they're the same World ID.
-- The `sessionId` is generated as outlined below, where `r` is a uniformly distributed number derived from the `rpId`.
+- An RP initiates a request for a Uniqueness Proof as usual, with its relevant `action`.
+- The proof outputs a `sessionId`. A unique identifier bound to the user's World ID for that RP and that action. **Note** that an RP can only request a `sessionId` once. Using the same `action` will fail as the `nullifier` output from the Uniqueness Proof will not be unique.
+- The RP stores this `sessionId` alongside their account for the user.
+- For subsequent interactions, the RP includes the `sessionId` in proof requests. The user can then generate a session proof to demonstrate they have the same World ID.
+- The `sessionId` is generated as outlined below, where `r` is computational indistinguishability from random.
 
 ```mermaid
 sequenceDiagram
@@ -256,14 +256,11 @@ participant rp as RP
 
 critical initial/enrollment
 rp ->> a: initial Proof request
-alt [Derive blinding factor ($$r$$) locally]
-a->>a: derive random blinding factor, $$r$$=KDF(rpId)
-a->>a: store r
+alt [Derive r]
+a->>o: $$r=\texttt{OPRF}(DS_C || \texttt{leafIndex} || \texttt{action}, pk_{rpId})$$
 end
-alt [FUTURE - Derive blinding factor remotely]
-a->>o: $$r$$=OPRF(rpId || Domain Separator)
-end
-a->>a: Compute C = H($$DS_C$$ || leafIndex || r) = sessionId
+a->>a: Compute C = H($$DS_C$$ || leafIndex || r)
+a->>a: sessionId = encode(C, action)
 Note over a, rp: [...] remainder of Proof flow omitted
 a ->> rp: Initial Proof with nullifier + sessionId
 end
@@ -271,11 +268,14 @@ end
 rp->>a: session proof request (incl. sessionId)
 
 a->>a: C'=H($$DS_C$$ || leafIndex || r) as public output of proof
-a->>a: check if sessionId == C'
-a->>rp: proof + sessionNullifier + sessionId
-rp->>rp: verify proof (checking sessionId == C')
-
+a->>a: check if sessionId == C' (in ZK-circuit)
+a->>rp: proof + sessionNullifier
+rp->>rp: verify proof (checking sessionId == C' in verifier contract)
 ```
+
+**Session Nullifiers**
+- A [`sessionNullifier`](https://docs.rs/world-id-primitives/latest/world_id_primitives/nullifier/struct.SessionNullifier.html) is used for verifying Uniqueness Proofs. It must be passed to the verification contract. Internally, the [`sessionNullifier`](https://docs.rs/world-id-primitives/latest/world_id_primitives/nullifier/struct.SessionNullifier.html) implements custom encoding on the Authenticator and on the `WorldIDVerifier` contract.
+- The raison d'être is simply to allow usage of the same ZK circuit as for Uniqueness Proofs. Reducing the number of circuits is currently a priority because of the size of the circuits needed to be bundled in Authenticator clients. As World ID moves to a different proving system, this type will no longer be required.
 
 ### Web-based Authenticator Provider
 

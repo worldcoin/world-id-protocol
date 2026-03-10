@@ -47,9 +47,13 @@ pub mod api_types;
 /// Contains types specifically related to the OPRF services.
 pub mod oprf;
 
-/// Contains the session nullifier type for session proof responses.
-pub mod nullifier;
-pub use nullifier::{Nullifier, SessionNullifier};
+/// A nullifier is a unique, one-time identifier. See [`Nullifier`] for more details.
+mod nullifier;
+pub use nullifier::Nullifier;
+
+/// Contains types relevanat for Session Proofs.
+mod session;
+pub use session::SessionNullifier;
 
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;
