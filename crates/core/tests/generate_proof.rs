@@ -323,7 +323,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
             issuer_schema_id,
-            signal: Some("my_signal".to_string()),
+            signal: Some(b"my_signal".to_vec()),
             genesis_issued_at_min: None,
             expires_at_min: None,
         }],
