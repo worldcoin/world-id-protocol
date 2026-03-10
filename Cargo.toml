@@ -48,6 +48,7 @@ ark-ff = "0.5"
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
 backon = "1"
+base64 = "0.22"
 circom-types = { package = "taceo-circom-types", version = "0.2", default-features = false }
 criterion = "0.8"
 eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5.4" }

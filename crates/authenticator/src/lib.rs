@@ -3,6 +3,8 @@ pub use authenticator::*;
 
 pub mod api_types;
 
+pub mod ohttp;
+
 pub mod registry;
 pub use registry::{
     WorldIdRegistry, domain, sign_insert_authenticator, sign_recover_account,

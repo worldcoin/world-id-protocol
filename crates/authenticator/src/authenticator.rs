@@ -426,9 +426,7 @@ impl Authenticator {
             &req,
         )
         .await?;
-        let response = resp
-            .json::<IndexerAuthenticatorPubkeysResponse>()
-            .await?;
+        let response = resp.json::<IndexerAuthenticatorPubkeysResponse>().await?;
         Self::decode_indexer_pubkeys(response.authenticator_pubkeys)
     }
 
@@ -471,7 +469,7 @@ impl Authenticator {
         let requested_threshold = self.config.nullifier_oracle_threshold();
         if requested_threshold == 0 {
             return Err(AuthenticatorError::InvalidConfig {
-                attribute: "nullifier_oracle_threshold",
+                attribute: "nullifier_oracle_threshold".to_string(),
                 reason: "must be at least 1".to_string(),
             });
         }
@@ -924,13 +922,8 @@ impl InitializingAuthenticator {
             offchain_signer_commitment: leaf_hash.into(),
         };
 
-        let resp = post_to_gateway(
-            &http_client,
-            config.gateway_url(),
-            "/create-account",
-            &req,
-        )
-        .await?;
+        let resp =
+            post_to_gateway(&http_client, config.gateway_url(), "/create-account", &req).await?;
         let body: GatewayStatusResponse = resp.json().await?;
         Ok(Self {
             request_id: body.request_id,
@@ -946,8 +939,7 @@ impl InitializingAuthenticator {
     /// - Will error if the gateway returns an error response.
     pub async fn poll_status(&self) -> Result<GatewayRequestState, AuthenticatorError> {
         let path = format!("/status/{}", self.request_id);
-        let resp =
-            get_from_gateway(&self.http_client, self.config.gateway_url(), &path).await?;
+        let resp = get_from_gateway(&self.http_client, self.config.gateway_url(), &path).await?;
         let body: GatewayStatusResponse = resp.json().await?;
         Ok(body.status)
     }
@@ -1038,7 +1030,7 @@ pub enum AuthenticatorError {
     #[error("Invalid configuration for {attribute}: {reason}")]
     InvalidConfig {
         /// The config attribute that is invalid.
-        attribute: &'static str,
+        attribute: String,
         /// Description of why it is invalid.
         reason: String,
     },
@@ -1071,6 +1063,23 @@ pub enum AuthenticatorError {
         slot_index: usize,
         /// Highest supported slot index.
         max_supported_slot: usize,
+    },
+
+    /// OHTTP encapsulation or decapsulation error.
+    #[error("OHTTP encapsulation error: {0}")]
+    OhttpEncapsulationError(#[from] ohttp::Error),
+
+    /// Binary HTTP framing error.
+    #[error("Binary HTTP error: {0}")]
+    BhttpError(#[from] bhttp::Error),
+
+    /// The OHTTP relay itself returned a non-success status.
+    #[error("OHTTP relay error (status {status}): {body}")]
+    OhttpRelayError {
+        /// HTTP status code from the relay.
+        status: StatusCode,
+        /// Response body from the relay.
+        body: String,
     },
 
     /// Generic error for other unexpected issues.

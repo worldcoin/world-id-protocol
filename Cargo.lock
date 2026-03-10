@@ -9033,6 +9033,7 @@ dependencies = [
  "ark-serialize 0.5.0",
  "axum",
  "backon",
+ "base64",
  "bhttp",
  "eyre",
  "hex",
