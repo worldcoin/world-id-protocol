@@ -1606,7 +1606,7 @@ mod tests {
             r#"{{
   "id": "req_18c0f7f03e7d",
   "version": 1,
-  "session_id": "0x00000000000000000000000000000000000000000000000000000000000003ea",
+  "session_id": "session_00000000000000000000000000000000000000000000000000000000000003ea0000000000000000000000000000000000000000000000000000000000000001",
   "responses": [
     {{
       "identifier": "orb",
@@ -1621,6 +1621,10 @@ mod tests {
         let sess_canonical = ProofResponse::from_json(&sess_json_canonical).unwrap();
         assert_eq!(sess_canonical.successful_credentials(), vec![100]);
         assert!(sess_canonical.responses[0].is_session());
+        assert_eq!(
+            sess_canonical.session_id.unwrap().action(),
+            FieldElement::from(1u64)
+        );
     }
     /// Test duplicate detection by creating a serialized `ProofRequest` with duplicates
     /// and then trying to parse it with `from_json` which should detect the duplicates
