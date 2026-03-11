@@ -1,28 +1,27 @@
 use crate::error::IndexerErrorResponse;
 use axum::{Json, extract::State};
 use world_id_core::api_types::{
-    IndexerErrorCode, IndexerQueryRequest, IndexerSignatureNonceResponse,
+    IndexerErrorCode, IndexerQueryRequest, IndexerRecoveryAgentResponse,
 };
 
 use crate::config::AppState;
 
-/// Get Signature Nonce
+/// Get the Recovery Agent for a particular World ID given its leaf index.
 ///
-/// Returns the current signature nonce for a given World ID based on its leaf index. The nonce is
-/// used to perform on-chain operations for the World ID.
+/// If the provided leaf index is invalid, the nonce will still be returned as zero.
 #[utoipa::path(
     post,
-    path = "/signature-nonce",
+    path = "/recovery-agent",
     request_body = IndexerQueryRequest,
     responses(
-        (status = 200, body = IndexerSignatureNonceResponse),
+        (status = 200, body = IndexerRecoveryAgentResponse),
     ),
     tag = "indexer"
 )]
 pub(crate) async fn handler(
     State(state): State<AppState>,
     Json(req): Json<IndexerQueryRequest>,
-) -> Result<Json<IndexerSignatureNonceResponse>, IndexerErrorResponse> {
+) -> Result<Json<IndexerRecoveryAgentResponse>, IndexerErrorResponse> {
     if req.leaf_index == 0 {
         return Err(IndexerErrorResponse::bad_request(
             IndexerErrorCode::InvalidLeafIndex,
@@ -46,15 +45,15 @@ pub(crate) async fn handler(
         ));
     }
 
-    let signature_nonce = state
+    let recovery_agent = state
         .registry
-        .getSignatureNonce(req.leaf_index)
+        .getRecoveryAgent(req.leaf_index)
         .call()
         .await
         .map_err(|e| {
-            tracing::error!("RPC error getting signature nonce: {}", e);
+            tracing::error!("RPC error getting recovery agent: {}", e);
             IndexerErrorResponse::internal_server_error()
         })?;
 
-    Ok(Json(IndexerSignatureNonceResponse { signature_nonce }))
+    Ok(Json(IndexerRecoveryAgentResponse { recovery_agent }))
 }

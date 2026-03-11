@@ -3,12 +3,14 @@ use axum::{Json, Router, middleware::from_fn, response::IntoResponse};
 use utoipa::OpenApi;
 use world_id_core::api_types::{
     AccountInclusionProofSchema, IndexerAuthenticatorPubkeysResponse, IndexerPackedAccountRequest,
-    IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
+    IndexerPackedAccountResponse, IndexerQueryRequest, IndexerRecoveryAgentResponse,
+    IndexerSignatureNonceResponse,
 };
 
 use crate::config::AppState;
 mod get_authenticator_pubkeys;
 mod get_packed_account;
+mod get_recovery_agent;
 mod get_signature_nonce;
 mod health;
 mod inclusion_proof;
@@ -28,6 +30,7 @@ mod middleware;
         IndexerPackedAccountResponse,
         IndexerQueryRequest,
         IndexerSignatureNonceResponse,
+        IndexerRecoveryAgentResponse,
         AccountInclusionProofSchema,
         IndexerErrorBody,
     )),
@@ -58,6 +61,10 @@ pub(crate) fn handler(state: AppState, request_timeout_secs: u64) -> Router {
         .route(
             "/signature-nonce",
             axum::routing::post(get_signature_nonce::handler),
+        )
+        .route(
+            "/get-recovery-agent",
+            axum::routing::post(get_recovery_agent::handler),
         )
         .route("/health", axum::routing::get(health::handler))
         .route("/openapi.json", axum::routing::get(openapi))
