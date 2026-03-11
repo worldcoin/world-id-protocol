@@ -125,8 +125,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         format!("http://127.0.0.1:{GW_PORT}"),
         Vec::new(),
         3,
-        None,
-        None,
     )
     .unwrap();
     let (query_material, nullifier_material) = load_embedded_materials();
@@ -134,7 +132,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     // World ID should not yet exist.
     let init_result = Authenticator::init(
         &seed,
-        creation_config.clone(),
+        creation_config.clone().into(),
         query_material,
         nullifier_material,
     )
@@ -149,7 +147,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let (query_material, nullifier_material) = load_embedded_materials();
     let authenticator = Authenticator::init_or_register(
         &seed,
-        creation_config.clone(),
+        creation_config.into(),
         query_material,
         nullifier_material,
         Some(recovery_address),
@@ -277,16 +275,18 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         format!("http://127.0.0.1:{GW_PORT}"),
         nodes.to_vec(),
         3,
-        None,
-        None,
     )
     .unwrap();
 
     let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator =
-        Authenticator::init(&seed, proof_config, query_material, nullifier_material)
-            .await
-            .wrap_err("failed to reinitialize authenticator with proof config")?;
+    let authenticator = Authenticator::init(
+        &seed,
+        proof_config.into(),
+        query_material,
+        nullifier_material,
+    )
+    .await
+    .wrap_err("failed to reinitialize authenticator with proof config")?;
     assert_eq!(authenticator.leaf_index(), 1);
 
     let leaf_index = authenticator.leaf_index();

@@ -3,6 +3,8 @@ pub use authenticator::*;
 
 pub mod api_types;
 
+mod service_client;
+
 pub mod ohttp;
 
 pub mod registry;

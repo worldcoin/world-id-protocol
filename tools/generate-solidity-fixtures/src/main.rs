@@ -117,14 +117,12 @@ async fn main() -> Result<()> {
         format!("http://127.0.0.1:{gw_port}"),
         Vec::new(),
         3,
-        None,
-        None,
     )
     .unwrap();
     let (query_material, nullifier_material) = load_embedded_materials();
     let _authenticator = Authenticator::init_or_register(
         &seed,
-        creation_config.clone(),
+        creation_config.clone().into(),
         query_material,
         nullifier_material,
         Some(recovery_address),
@@ -133,10 +131,14 @@ async fn main() -> Result<()> {
     .unwrap();
 
     let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator =
-        Authenticator::init(&seed, creation_config, query_material, nullifier_material)
-            .await
-            .wrap_err("expected authenticator to initialize after account creation")?;
+    let authenticator = Authenticator::init(
+        &seed,
+        creation_config.into(),
+        query_material,
+        nullifier_material,
+    )
+    .await
+    .wrap_err("expected authenticator to initialize after account creation")?;
 
     let leaf_index = authenticator.leaf_index();
     let MerkleFixture {
@@ -233,16 +235,18 @@ async fn main() -> Result<()> {
         format!("http://127.0.0.1:{gw_port}"),
         nodes.to_vec(),
         3,
-        None,
-        None,
     )
     .unwrap();
 
     let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator =
-        Authenticator::init(&seed, proof_config, query_material, nullifier_material)
-            .await
-            .wrap_err("failed to reinitialize authenticator with proof config")?;
+    let authenticator = Authenticator::init(
+        &seed,
+        proof_config.into(),
+        query_material,
+        nullifier_material,
+    )
+    .await
+    .wrap_err("failed to reinitialize authenticator with proof config")?;
 
     let credential_sub_blinding_factor = authenticator
         .generate_credential_blinding_factor(issuer_schema_id)

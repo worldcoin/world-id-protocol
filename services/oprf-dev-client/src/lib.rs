@@ -187,8 +187,6 @@ pub async fn init_authenticator(
         gateway_url.clone(),
         config.nodes.clone(),
         config.threshold,
-        None,
-        None,
     )
     .context("while creating world config")?;
 
@@ -199,7 +197,7 @@ pub async fn init_authenticator(
     let seed = [7u8; 32];
     let authenticator = Authenticator::init_or_register(
         &seed,
-        world_config.clone(),
+        world_config.into(),
         query_material,
         Arc::new(nullifier_material),
         None,
