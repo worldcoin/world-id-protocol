@@ -1,16 +1,13 @@
 use std::sync::Arc;
 
-use axum::body::Bytes;
-use axum::extract::Request;
-use axum::http::StatusCode as AxumStatusCode;
-use axum::{Router, body};
+use axum::{Router, body, body::Bytes, extract::Request, http::StatusCode as AxumStatusCode};
 use base64::Engine as _;
-use testcontainers::core::wait::HttpWaitStrategy;
-use testcontainers::core::{IntoContainerPort, WaitFor};
-use testcontainers::runners::AsyncRunner;
-use testcontainers::{GenericImage, ImageExt};
-use tokio::net::TcpListener;
-use tokio::sync::Mutex;
+use testcontainers::{
+    GenericImage, ImageExt,
+    core::{IntoContainerPort, WaitFor, wait::HttpWaitStrategy},
+    runners::AsyncRunner,
+};
+use tokio::{net::TcpListener, sync::Mutex};
 use world_id_authenticator::ohttp::{OhttpClient, OhttpClientConfig};
 
 const OHTTP_GATEWAY_IMAGE: &str = "ghcr.io/worldcoin/world-id-protocol/ohttp-gateway";

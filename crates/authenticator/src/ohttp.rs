@@ -3,7 +3,6 @@ use bhttp::{Message, Mode};
 use ohttp::ClientRequest;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
-use world_id_primitives::PrimitiveError;
 
 use crate::AuthenticatorError;
 
@@ -186,7 +185,6 @@ impl OhttpClient {
 mod tests {
     use super::*;
     use crate::AuthenticatorError;
-    use base64::Engine as _;
 
     #[test]
     fn invalid_base64_key_config_returns_invalid_config() {
