@@ -22,6 +22,7 @@ use crate::registry::{
 use alloy::{
     primitives::{Address, U256},
     providers::DynProvider,
+    signers::{Signature, SignerSync},
     uint,
 };
 use ark_serialize::CanonicalSerialize;
@@ -470,6 +471,27 @@ impl Authenticator {
             let response: IndexerSignatureNonceResponse = resp.json().await?;
             Ok(response.signature_nonce)
         }
+    }
+
+    /// Signs an arbitrary challenge with the authenticator's on-chain key following
+    /// [ERC-191](https://eips.ethereum.org/EIPS/eip-191).
+    ///
+    /// # Warning
+    /// This is considered a dangerous operation because it leaks the user's on-chain key,
+    /// hence its `leaf_index`. The only acceptable use is to prove the user's `leaf_index`
+    /// to a Recovery Agent. The Recovery Agent is the only party beyond the user who needs
+    /// to know the `leaf_index`.
+    ///
+    /// # Use
+    /// - This method is used to prove ownership over a leaf index **only for Recovery Agents**.
+    pub fn danger_sign_challenge(
+        &mut self,
+        challenge: &[u8],
+    ) -> Result<Signature, AuthenticatorError> {
+        self.signer
+            .onchain_signer()
+            .sign_message_sync(challenge)
+            .map_err(|e| AuthenticatorError::Generic(format!("signature error: {e}")))
     }
 
     /// Checks that the OPRF Nodes configuration is valid and returns the list of URLs and the threshold to use.
@@ -1405,6 +1427,95 @@ mod tests {
         assert_eq!(nonce, expected_nonce);
         mock.assert_async().await;
         drop(server);
+    }
+
+    #[test]
+    fn test_danger_sign_challenge_returns_valid_signature() {
+        let (query_material, nullifier_material) = test_materials();
+        let mut authenticator = Authenticator {
+            config: Config::new(
+                None,
+                1,
+                address!("0x0000000000000000000000000000000000000001"),
+                "http://indexer.example.com".to_string(),
+                "http://gateway.example.com".to_string(),
+                Vec::new(),
+                2,
+            )
+            .unwrap(),
+            packed_account_data: U256::from(1),
+            signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
+            registry: None,
+            http_client: reqwest::Client::new(),
+            ws_connector: Connector::Plain,
+            query_material,
+            nullifier_material,
+        };
+
+        let challenge = b"test challenge";
+        let signature = authenticator.danger_sign_challenge(challenge).unwrap();
+
+        let recovered = signature
+            .recover_address_from_msg(challenge)
+            .expect("should recover address");
+        assert_eq!(recovered, authenticator.onchain_address());
+    }
+
+    #[test]
+    fn test_danger_sign_challenge_different_challenges_different_signatures() {
+        let (query_material, nullifier_material) = test_materials();
+        let mut authenticator = Authenticator {
+            config: Config::new(
+                None,
+                1,
+                address!("0x0000000000000000000000000000000000000001"),
+                "http://indexer.example.com".to_string(),
+                "http://gateway.example.com".to_string(),
+                Vec::new(),
+                2,
+            )
+            .unwrap(),
+            packed_account_data: U256::from(1),
+            signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
+            registry: None,
+            http_client: reqwest::Client::new(),
+            ws_connector: Connector::Plain,
+            query_material,
+            nullifier_material,
+        };
+
+        let sig_a = authenticator.danger_sign_challenge(b"challenge A").unwrap();
+        let sig_b = authenticator.danger_sign_challenge(b"challenge B").unwrap();
+        assert_ne!(sig_a, sig_b);
+    }
+
+    #[test]
+    fn test_danger_sign_challenge_deterministic() {
+        let (query_material, nullifier_material) = test_materials();
+        let mut authenticator = Authenticator {
+            config: Config::new(
+                None,
+                1,
+                address!("0x0000000000000000000000000000000000000001"),
+                "http://indexer.example.com".to_string(),
+                "http://gateway.example.com".to_string(),
+                Vec::new(),
+                2,
+            )
+            .unwrap(),
+            packed_account_data: U256::from(1),
+            signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
+            registry: None,
+            http_client: reqwest::Client::new(),
+            ws_connector: Connector::Plain,
+            query_material,
+            nullifier_material,
+        };
+
+        let challenge = b"deterministic test";
+        let sig1 = authenticator.danger_sign_challenge(challenge).unwrap();
+        let sig2 = authenticator.danger_sign_challenge(challenge).unwrap();
+        assert_eq!(sig1, sig2);
     }
 
     #[tokio::test]
