@@ -124,6 +124,24 @@ where
         result.map(|row| Self::map_account(&row)).transpose()
     }
 
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_account_exists(self, leaf_index: u64) -> DBResult<bool> {
+        let result = sqlx::query(
+            r#"
+                SELECT
+                    leaf_index
+                FROM accounts
+                WHERE
+                    leaf_index = $1
+            "#,
+        )
+        .bind(leaf_index as i64)
+        .fetch_optional(self.executor)
+        .await?;
+
+        Ok(result.is_some())
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[instrument(level = "info", skip(self))]
     pub async fn insert(
