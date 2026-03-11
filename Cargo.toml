@@ -126,6 +126,7 @@ tar = "0.4"
 taceo-nodes-common = "0.2.1"
 taceo-nodes-observability = "0.1"
 tempfile = "3"
+testcontainers = { version = "0.27", features = ["http_wait_plain"] }
 tokio-util = "0.7"
 tower = "0.5.3"
 
