@@ -163,17 +163,10 @@ impl OhttpFixture {
         let gateway_target_url = format!("http://{gw_authority}");
         let indexer_target_url = format!("http://{idx_authority}");
 
-        let ohttp_gateway_config = OhttpClientConfig::new(
-            format!("{relay_base}/gateway"),
-            gateway_target_url.clone(),
-            key_b64.clone(),
-        );
+        let ohttp_gateway_config =
+            OhttpClientConfig::new(format!("{relay_base}/gateway"), key_b64.clone());
 
-        let ohttp_indexer_config = OhttpClientConfig::new(
-            format!("{relay_base}/gateway"),
-            indexer_target_url.clone(),
-            key_b64,
-        );
+        let ohttp_indexer_config = OhttpClientConfig::new(format!("{relay_base}/gateway"), key_b64);
 
         Ok(Self {
             gateway_state,

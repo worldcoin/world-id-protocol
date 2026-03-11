@@ -105,13 +105,13 @@ impl TestFixture {
             .bytes()
             .await?;
 
+        let target_url = format!("http://localhost:{authority_port}");
         let config = OhttpClientConfig::new(
             format!("{gateway_base}/gateway"),
-            format!("http://localhost:{authority_port}"),
             base64::engine::general_purpose::STANDARD.encode(&key_bytes),
         );
 
-        let client = OhttpClient::new(reqwest::Client::new(), "test", config)?;
+        let client = OhttpClient::new(reqwest::Client::new(), "test", &target_url, config)?;
 
         Ok(Self {
             client,

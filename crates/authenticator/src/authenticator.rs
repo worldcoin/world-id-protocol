@@ -149,10 +149,19 @@ impl Authenticator {
 
         let http_client = reqwest::Client::new();
 
-        let indexer_client =
-            ServiceClient::new(http_client.clone(), ServiceKind::Indexer, ohttp_indexer)?;
+        let indexer_client = ServiceClient::new(
+            http_client.clone(),
+            ServiceKind::Indexer,
+            config.indexer_url(),
+            ohttp_indexer,
+        )?;
 
-        let gateway_client = ServiceClient::new(http_client, ServiceKind::Gateway, ohttp_gateway)?;
+        let gateway_client = ServiceClient::new(
+            http_client,
+            ServiceKind::Gateway,
+            config.gateway_url(),
+            ohttp_gateway,
+        )?;
 
         let packed_account_data = Self::get_packed_account_data(
             signer.onchain_signer_address(),
@@ -199,8 +208,12 @@ impl Authenticator {
             ohttp_gateway,
             ..
         } = config;
-        let gateway_client =
-            ServiceClient::new(reqwest::Client::new(), ServiceKind::Gateway, ohttp_gateway)?;
+        let gateway_client = ServiceClient::new(
+            reqwest::Client::new(),
+            ServiceKind::Gateway,
+            config.gateway_url(),
+            ohttp_gateway,
+        )?;
         InitializingAuthenticator::new(seed, config, recovery_address, gateway_client).await
     }
 
@@ -236,6 +249,7 @@ impl Authenticator {
                 let gateway_client = ServiceClient::new(
                     reqwest::Client::new(),
                     ServiceKind::Gateway,
+                    config.config.gateway_url(),
                     config.ohttp_gateway.clone(),
                 )?;
                 let initializing_authenticator = InitializingAuthenticator::new(
@@ -1261,8 +1275,13 @@ mod tests {
         )
         .unwrap();
 
-        let indexer_client =
-            ServiceClient::new(reqwest::Client::new(), ServiceKind::Indexer, None).unwrap();
+        let indexer_client = ServiceClient::new(
+            reqwest::Client::new(),
+            ServiceKind::Indexer,
+            config.indexer_url(),
+            None,
+        )
+        .unwrap();
 
         let result = Authenticator::get_packed_account_data(
             test_address,
@@ -1310,8 +1329,13 @@ mod tests {
         )
         .unwrap();
 
-        let indexer_client =
-            ServiceClient::new(reqwest::Client::new(), ServiceKind::Indexer, None).unwrap();
+        let indexer_client = ServiceClient::new(
+            reqwest::Client::new(),
+            ServiceKind::Indexer,
+            config.indexer_url(),
+            None,
+        )
+        .unwrap();
 
         let result =
             Authenticator::get_packed_account_data(test_address, None, &config, &indexer_client)
@@ -1371,9 +1395,20 @@ mod tests {
             packed_account_data: leaf_index, // This sets leaf_index() to 1
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None, // No registry - forces indexer usage
-            indexer_client: ServiceClient::new(http_client.clone(), ServiceKind::Indexer, None)
-                .unwrap(),
-            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, None).unwrap(),
+            indexer_client: ServiceClient::new(
+                http_client.clone(),
+                ServiceKind::Indexer,
+                config.indexer_url(),
+                None,
+            )
+            .unwrap(),
+            gateway_client: ServiceClient::new(
+                http_client,
+                ServiceKind::Gateway,
+                config.gateway_url(),
+                None,
+            )
+            .unwrap(),
             ws_connector: Connector::Plain,
             query_material,
             nullifier_material,
@@ -1423,9 +1458,20 @@ mod tests {
             packed_account_data: U256::ZERO,
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
-            indexer_client: ServiceClient::new(http_client.clone(), ServiceKind::Indexer, None)
-                .unwrap(),
-            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, None).unwrap(),
+            indexer_client: ServiceClient::new(
+                http_client.clone(),
+                ServiceKind::Indexer,
+                config.indexer_url(),
+                None,
+            )
+            .unwrap(),
+            gateway_client: ServiceClient::new(
+                http_client,
+                ServiceKind::Gateway,
+                config.gateway_url(),
+                None,
+            )
+            .unwrap(),
             ws_connector: Connector::Plain,
             query_material,
             nullifier_material,

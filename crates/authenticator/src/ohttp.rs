@@ -8,23 +8,22 @@ use crate::AuthenticatorError;
 
 /// Configuration for routing requests through a single OHTTP relay endpoint.
 ///
-/// Stores the relay URL, the target origin for inner BHTTP routing, and the
-/// relay's `application/ohttp-keys` payload as a base64-encoded string.
+/// Stores the relay URL and the relay's `application/ohttp-keys` payload as a
+/// base64-encoded string. The target origin is supplied separately (from the
+/// service URL already present in [`Config`]) when constructing an
+/// [`OhttpClient`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OhttpClientConfig {
     /// URL of the OHTTP relay that receives encrypted requests.
     pub relay_url: String,
-    /// Target origin (`scheme://authority`) placed in the inner BHTTP message.
-    pub target_url: String,
     /// Base64-encoded `application/ohttp-keys` payload which contains a list of lengthy prefixed HPKE configs
     pub key_config_base64: String,
 }
 
 impl OhttpClientConfig {
-    pub fn new(relay_url: String, target_url: String, key_config_base64: String) -> Self {
+    pub fn new(relay_url: String, key_config_base64: String) -> Self {
         Self {
             relay_url,
-            target_url,
             key_config_base64,
         }
     }
@@ -53,6 +52,10 @@ pub struct OhttpClient {
 impl OhttpClient {
     /// Constructs a new OHTTP client from the given configuration.
     ///
+    /// `target_url` is the origin (`scheme://authority`) of the upstream
+    /// service; it is placed inside the encrypted BHTTP message so the
+    /// OHTTP gateway can route to the correct backend.
+    ///
     /// Decodes the base64 key config and validates it eagerly by
     /// parsing the `application/ohttp-keys` payload. Returns
     /// [`AuthenticatorError::InvalidConfig`] if the config is malformed.
@@ -60,19 +63,19 @@ impl OhttpClient {
     /// `config_scope` identifies which service this client is for
     /// (e.g. `"ohttp_indexer"` or `"ohttp_gateway"`), and is used to
     /// build fully qualified error attributes.
-    /// `"ohttp_indexer.key_config_base64"`.
     pub fn new(
         client: Client,
         config_scope: &str,
+        target_url: &str,
         config: OhttpClientConfig,
     ) -> Result<Self, AuthenticatorError> {
         let (target_scheme, target_authority) =
-            config.target_url.split_once("://").ok_or_else(|| {
-                AuthenticatorError::InvalidConfig {
+            target_url
+                .split_once("://")
+                .ok_or_else(|| AuthenticatorError::InvalidConfig {
                     attribute: format!("{config_scope}.target_url"),
-                    reason: format!("expected scheme://authority, got {:?}", config.target_url),
-                }
-            })?;
+                    reason: format!("expected scheme://authority, got {:?}", target_url),
+                })?;
 
         let target_scheme = target_scheme.to_owned();
         let target_authority = target_authority.trim_end_matches('/').to_owned();
@@ -190,11 +193,15 @@ mod tests {
     fn invalid_base64_key_config_returns_invalid_config() {
         let config = OhttpClientConfig::new(
             "http://localhost:1234".into(),
-            "https://localhost:9999".into(),
             "not valid base64 !!!".into(),
         );
 
-        let result = OhttpClient::new(reqwest::Client::new(), "test_scope", config);
+        let result = OhttpClient::new(
+            reqwest::Client::new(),
+            "test_scope",
+            "https://localhost:9999",
+            config,
+        );
         match result {
             Err(AuthenticatorError::InvalidConfig { attribute, reason }) => {
                 assert_eq!(attribute, "test_scope.key_config_base64");
@@ -211,12 +218,16 @@ mod tests {
     fn invalid_ohttp_keys_payload_returns_invalid_config() {
         let config = OhttpClientConfig::new(
             "http://localhost:1234".into(),
-            "https://localhost:9999".into(),
             base64::engine::general_purpose::STANDARD
                 .encode(b"definitely not an ohttp-keys payload"),
         );
 
-        let result = OhttpClient::new(reqwest::Client::new(), "my_scope", config);
+        let result = OhttpClient::new(
+            reqwest::Client::new(),
+            "my_scope",
+            "https://localhost:9999",
+            config,
+        );
         match result {
             Err(AuthenticatorError::InvalidConfig { attribute, reason }) => {
                 assert_eq!(attribute, "my_scope.key_config_base64");
@@ -233,11 +244,15 @@ mod tests {
     fn garbage_ohttp_keys_bytes_returns_invalid_config() {
         let config = OhttpClientConfig::new(
             "http://127.0.0.1:0/does-not-exist".into(),
-            "http://localhost:1234".into(),
             base64::engine::general_purpose::STANDARD.encode(b"not-a-valid-ohttp-keys"),
         );
 
-        let result = OhttpClient::new(reqwest::Client::new(), "test", config);
+        let result = OhttpClient::new(
+            reqwest::Client::new(),
+            "test",
+            "http://localhost:1234",
+            config,
+        );
         assert!(
             matches!(result, Err(AuthenticatorError::InvalidConfig { .. })),
             "expected InvalidConfig for garbage key config, got: {result:?}"

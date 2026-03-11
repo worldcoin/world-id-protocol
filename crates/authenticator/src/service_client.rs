@@ -41,15 +41,21 @@ struct TransportResponse {
 impl ServiceClient {
     /// Creates a new [`ServiceClient`] that routes through OHTTP when `ohttp_config` is
     /// `Some`, and falls back to direct HTTP otherwise.
+    ///
+    /// `target_url` is the origin of the upstream service (e.g. the gateway or
+    /// indexer URL). It is forwarded into the encrypted BHTTP envelope when
+    /// OHTTP is enabled.
     pub(crate) fn new(
         client: reqwest::Client,
         service_kind: ServiceKind,
+        target_url: &str,
         ohttp_config: Option<OhttpClientConfig>,
     ) -> Result<Self, AuthenticatorError> {
         let transport = match ohttp_config {
             Some(config) => HttpTransport::Ohttp(OhttpClient::new(
                 client,
                 service_kind.ohttp_config_scope(),
+                target_url,
                 config,
             )?),
             None => HttpTransport::Direct(client),
@@ -94,19 +100,6 @@ impl ServiceClient {
                 body,
             },
         }
-    }
-
-    pub(crate) async fn post<Req, Res>(
-        &self,
-        base_url: &str,
-        path: &str,
-        body: &Req,
-    ) -> Result<Res, AuthenticatorError>
-    where
-        Req: serde::Serialize,
-        Res: DeserializeOwned,
-    {
-        self.post_json(base_url, path, body).await
     }
 
     pub(crate) async fn post_json<Req, Res>(
