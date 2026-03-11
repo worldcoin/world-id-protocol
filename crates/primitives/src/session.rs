@@ -34,7 +34,7 @@ pub struct SessionId {
     /// OPRF nodes without needing to cache `r` locally. The OPRF is deterministic:
     /// `r = OPRF(DS_C || leafIndex || action, pk_rpId)`, so the same action always
     /// yields the same `r`.
-    action: FieldElement,
+    action_seed: FieldElement,
 }
 
 impl SessionId {
@@ -42,8 +42,11 @@ impl SessionId {
 
     /// Creates a new session id.
     #[must_use]
-    pub const fn new(commitment: FieldElement, action: FieldElement) -> Self {
-        Self { commitment, action }
+    pub const fn new(commitment: FieldElement, action_seed: FieldElement) -> Self {
+        Self {
+            commitment,
+            action_seed,
+        }
     }
 
     /// Returns the commitment value.
@@ -54,8 +57,8 @@ impl SessionId {
 
     /// Returns the action value.
     #[must_use]
-    pub const fn action(&self) -> FieldElement {
-        self.action
+    pub const fn action_seed(&self) -> FieldElement {
+        self.action_seed
     }
 
     /// Returns the 64-byte big-endian representation (2 x 32-byte field elements).
@@ -63,7 +66,7 @@ impl SessionId {
     pub fn as_compressed_bytes(&self) -> [u8; 64] {
         let mut bytes = [0u8; 64];
         bytes[..32].copy_from_slice(&self.commitment.to_be_bytes());
-        bytes[32..].copy_from_slice(&self.action.to_be_bytes());
+        bytes[32..].copy_from_slice(&self.action_seed.to_be_bytes());
         bytes
     }
 
@@ -81,10 +84,13 @@ impl SessionId {
 
         let commitment = FieldElement::from_be_bytes(bytes[..32].try_into().unwrap())
             .map_err(|e| format!("invalid commitment: {e}"))?;
-        let action = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
+        let action_seed = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
             .map_err(|e| format!("invalid action: {e}"))?;
 
-        Ok(Self { commitment, action })
+        Ok(Self {
+            commitment,
+            action_seed,
+        })
     }
 }
 
@@ -92,7 +98,7 @@ impl Default for SessionId {
     fn default() -> Self {
         Self {
             commitment: FieldElement::ZERO,
-            action: FieldElement::ZERO,
+            action_seed: FieldElement::ZERO,
         }
     }
 }
@@ -307,14 +313,14 @@ mod session_id_tests {
         let id = SessionId::new(commitment, action);
 
         assert_eq!(id.commitment(), commitment);
-        assert_eq!(id.action(), action);
+        assert_eq!(id.action_seed(), action);
     }
 
     #[test]
     fn test_default() {
         let id = SessionId::default();
         assert_eq!(id.commitment(), FieldElement::ZERO);
-        assert_eq!(id.action(), FieldElement::ZERO);
+        assert_eq!(id.action_seed(), FieldElement::ZERO);
     }
 
     #[test]
@@ -335,7 +341,7 @@ mod session_id_tests {
 
         let mut expected = [0u8; 64];
         expected[..32].copy_from_slice(&id.commitment().to_be_bytes());
-        expected[32..].copy_from_slice(&id.action().to_be_bytes());
+        expected[32..].copy_from_slice(&id.action_seed().to_be_bytes());
         assert_eq!(bytes, expected);
     }
 

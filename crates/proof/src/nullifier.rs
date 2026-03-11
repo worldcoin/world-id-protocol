@@ -1,7 +1,7 @@
 //! Logic to generate nullifiers using the OPRF Nodes.
 
-use ark_ff::PrimeField;
-use eyre::Context;
+use ark_ff::{PrimeField, UniformRand};
+use eyre::{Context, eyre};
 use groth16_material::circom::CircomGroth16Material;
 
 use taceo_oprf::{
@@ -14,6 +14,9 @@ use world_id_primitives::{
     circuit_inputs::QueryProofCircuitInput,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
 };
+
+#[expect(unused_imports, reason = "used for docs")]
+use world_id_primitives::SessionNullifier;
 
 use crate::{
     AuthenticatorProofInput,
@@ -31,6 +34,12 @@ pub struct OprfNullifier {
     ///
     /// This is equal to [`VerifiableOprfOutput::output`] and is already unblinded.
     pub nullifier: Nullifier,
+    /// The action used in the OPRF Query. This is relevant for Session Proofs as the action is used
+    /// as a local random seed for the nullifier generation so the nullifier is always different on
+    /// each Session Proof verification.
+    ///
+    /// For Uniqueness Proofs, this simply echoes the action provided by the RP.
+    pub action: FieldElement,
 }
 
 impl OprfNullifier {
@@ -39,6 +48,12 @@ impl OprfNullifier {
     ///
     /// This method will handle the signature from the Authenticator authorizing the
     /// request for the OPRF nodes.
+    ///
+    /// # Note on Session Proofs
+    /// A randomized action is required on Session Proofs to ensure the output nullifier from the Uniqueness Proof
+    /// circuit is unique (otherwise the one-time use property of nullifiers would fail). Please see the "Future"
+    /// section in the [`SessionNullifier`] documentation for more details on how this is expected to be deprecated with
+    /// a future update.
     ///
     /// # Arguments
     /// - `services`: The list of endpoints of all OPRF nodes.
@@ -54,22 +69,30 @@ impl OprfNullifier {
     /// * `PublicKeyNotFound` - the public key for the given authenticator private key is not found in the `key_set`.
     /// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
     /// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
-    pub async fn generate(
+    pub async fn generate<R: rand::CryptoRng + rand::RngCore>(
         services: &[String],
         threshold: usize,
         query_material: &CircomGroth16Material,
         authenticator_input: AuthenticatorProofInput,
         proof_request: &ProofRequest,
         connector: Connector,
+        rng: &mut R,
     ) -> Result<Self, ProofError> {
-        let mut rng = rand::rngs::OsRng;
-
+        let mut rng = rng;
         let query_blinding_factor = BlindingFactor::rand(&mut rng);
 
         let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] =
             authenticator_input.inclusion_proof.siblings.map(|s| *s);
 
-        let action = *proof_request.computed_action(&mut rng);
+        let action = if proof_request.is_session_proof() {
+            ark_babyjubjub::Fq::rand(&mut rng)
+        } else {
+            *proof_request.action.ok_or(ProofError::InternalError(
+                // this is an internal error because this should have been verified before
+                eyre!("action not provided for uniqueness proof"),
+            ))?
+        };
+
         let query_hash = world_id_primitives::authenticator::oprf_query_digest(
             authenticator_input.inclusion_proof.leaf_index,
             action.into(),
@@ -131,6 +154,7 @@ impl OprfNullifier {
             query_proof_input,
             verifiable_oprf_output,
             nullifier,
+            action: action.into(),
         })
     }
 }

@@ -128,7 +128,7 @@ impl DevClient for WorldIdRpDevClient {
             .context("while creating proof request")?;
 
         let request_id = Uuid::new_v4();
-        let action = proof_request.computed_action(rng);
+        let action = proof_request.action.unwrap();
         let query_hash = world_id_primitives::authenticator::oprf_query_digest(
             leaf_index,
             action,

@@ -401,23 +401,10 @@ impl ProofRequest {
         Ok(hasher.finalize().into())
     }
 
-    /// Gets the action value to use in the proof.
-    ///
-    /// - When an explicit action is provided, it is returned directly.
-    /// - For session proofs (action is `None`), a random action is generated.
-    ///
-    /// Callers should cache the action during proof generation to ensure consistency across proof steps.
-    ///
-    /// # Note on Session Proofs
-    /// A randomized action is required on Session Proofs to ensure the output nullifier from the Uniqueness Proof
-    /// circuit is unique (otherwise the one-time use property of nullifiers would fail). Please see the "Future"
-    /// section in the [`SessionNullifier`] documentation for more details on how this is expected to be removed.
+    /// Returns true if this request is for a Session proof (i.e., has a session ID).
     #[must_use]
-    pub fn computed_action<R: rand::CryptoRng + rand::RngCore>(&self, rng: &mut R) -> FieldElement {
-        match self.action {
-            Some(action) => action,
-            None => FieldElement::random(rng),
-        }
+    pub const fn is_session_proof(&self) -> bool {
+        self.session_id.is_some()
     }
 
     /// Validate that a response satisfies this request: id match and constraints semantics.
@@ -1622,7 +1609,7 @@ mod tests {
         assert_eq!(sess_canonical.successful_credentials(), vec![100]);
         assert!(sess_canonical.responses[0].is_session());
         assert_eq!(
-            sess_canonical.session_id.unwrap().action(),
+            sess_canonical.session_id.unwrap().action_seed(),
             FieldElement::from(1u64)
         );
     }
@@ -2152,49 +2139,6 @@ mod tests {
             assert_eq!(expected, custom_expires_at);
             assert_eq!(got, request_created_at);
         }
-    }
-
-    #[test]
-    fn computed_action_returns_explicit_action() {
-        let action = test_field_element(42);
-        let request = ProofRequest {
-            id: "req".into(),
-            version: RequestVersion::V1,
-            created_at: 1_700_000_000,
-            expires_at: 1_700_100_000,
-            rp_id: RpId::new(1),
-            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(action),
-            signature: test_signature(),
-            nonce: test_nonce(),
-            requests: vec![],
-            constraints: None,
-        };
-        assert_eq!(request.computed_action(&mut rand::rngs::OsRng), action);
-    }
-
-    #[test]
-    fn computed_action_generates_random_when_none() {
-        let request = ProofRequest {
-            id: "req".into(),
-            version: RequestVersion::V1,
-            created_at: 1_700_000_000,
-            expires_at: 1_700_100_000,
-            rp_id: RpId::new(1),
-            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: Some(SessionId::default()),
-            action: None,
-            signature: test_signature(),
-            nonce: test_nonce(),
-            requests: vec![],
-            constraints: None,
-        };
-
-        let action1 = request.computed_action(&mut rand::rngs::OsRng);
-        let action2 = request.computed_action(&mut rand::rngs::OsRng);
-        // Each call generates a different random action
-        assert_ne!(action1, action2);
     }
 
     #[test]

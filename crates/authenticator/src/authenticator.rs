@@ -544,6 +544,8 @@ impl Authenticator {
         inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
         key_set: AuthenticatorPublicKeySet,
     ) -> Result<OprfNullifier, AuthenticatorError> {
+        let mut rng = rand::rngs::OsRng;
+
         let (services, threshold) = self.check_oprf_config()?;
         let key_index = key_set
             .iter()
@@ -570,6 +572,7 @@ impl Authenticator {
             authenticator_input,
             proof_request,
             self.ws_connector.clone(),
+            &mut rng,
         )
         .await?)
     }
