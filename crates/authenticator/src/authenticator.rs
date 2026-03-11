@@ -46,9 +46,6 @@ use world_id_proof::{
     proof::{ProofError, generate_nullifier_proof},
 };
 
-#[expect(unused_imports, reason = "used for docs")]
-use world_id_primitives::SessionId;
-
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
 static MASK_PUBKEY_ID: U256 =
@@ -644,7 +641,7 @@ impl Authenticator {
     /// # Determinism and Recovery
     /// Because the OPRF is deterministic for the same input and key, calling this function again with the
     /// same `action` and RP will produce the same `r`. This means caching `r` is optional but recommended, `r` can
-    /// be recovered by calling this function with the original `action` (which is stored in [`SessionId::action`]).
+    /// be recovered by calling this function with the original `action` (which is stored in [`SessionId::action_seed`]).
     /// Caching behavior is the responsibility of the Authenticator (and/or its releavnt SDKs), not this crate.
     pub async fn generate_session_id_r_seed(
         &self,
