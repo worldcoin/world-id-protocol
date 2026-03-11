@@ -70,7 +70,7 @@ type SharedState = Arc<Mutex<StubState>>;
 // ---------------------------------------------------------------------------
 
 async fn start_stub_server(state: SharedState) -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = TcpListener::bind("0.0.0.0:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
 
     let app = Router::new().fallback(move |req: Request| {

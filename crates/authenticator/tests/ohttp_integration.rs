@@ -41,7 +41,7 @@ impl TestFixture {
         let state = Arc::new(Mutex::new(BackendState::default()));
         let state_clone = Arc::clone(&state);
 
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let listener = TcpListener::bind("0.0.0.0:0").await?;
         let backend_port = listener.local_addr()?.port();
 
         let app = Router::new().fallback(move |req: Request| {
