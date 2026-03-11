@@ -147,7 +147,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let (query_material, nullifier_material) = load_embedded_materials();
     let authenticator = Authenticator::init_or_register(
         &seed,
-        creation_config.into(),
+        creation_config.clone().into(),
         query_material,
         nullifier_material,
         Some(recovery_address),
@@ -165,7 +165,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     // Re-initialize to ensure account metadata is persisted.
     let (query_material, nullifier_material) = load_embedded_materials();
     let authenticator =
-        Authenticator::init(&seed, creation_config, query_material, nullifier_material)
+        Authenticator::init(&seed, creation_config.into(), query_material, nullifier_material)
             .await
             .wrap_err("expected authenticator to initialize after account creation")?;
     assert_eq!(authenticator.leaf_index(), 1);
