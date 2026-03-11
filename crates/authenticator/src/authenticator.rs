@@ -46,6 +46,9 @@ use world_id_proof::{
     proof::{ProofError, generate_nullifier_proof},
 };
 
+#[expect(unused_imports, reason = "used for docs")]
+use world_id_primitives::SessionId;
+
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
 static MASK_PUBKEY_ID: U256 =
