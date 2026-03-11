@@ -139,13 +139,7 @@ where
         .fetch_optional(self.executor)
         .await?;
 
-        if let Some(row) = &result {
-            let fetched_leaf_index = row.get::<i64, _>("leaf_index") as u64;
-            if fetched_leaf_index == leaf_index {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+        Ok(result.is_some())
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -22,6 +22,7 @@ mod middleware;
         get_authenticator_pubkeys::handler,
         get_packed_account::handler,
         get_signature_nonce::handler,
+        get_recovery_agent::handler,
         inclusion_proof::handler,
     ),
     components(schemas(
