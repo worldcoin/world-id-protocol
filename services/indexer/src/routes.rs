@@ -63,7 +63,7 @@ pub(crate) fn handler(state: AppState, request_timeout_secs: u64) -> Router {
             axum::routing::post(get_signature_nonce::handler),
         )
         .route(
-            "/get-recovery-agent",
+            "/recovery-agent",
             axum::routing::post(get_recovery_agent::handler),
         )
         .route("/health", axum::routing::get(health::handler))

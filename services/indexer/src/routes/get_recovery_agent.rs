@@ -8,7 +8,7 @@ use crate::config::AppState;
 
 /// Get the Recovery Agent for a particular World ID given its leaf index.
 ///
-/// If the provided leaf index is invalid, the nonce will still be returned as zero.
+/// If no recovery agent is set, the zero address is returned.
 #[utoipa::path(
     post,
     path = "/recovery-agent",
