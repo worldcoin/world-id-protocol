@@ -164,10 +164,14 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // Re-initialize to ensure account metadata is persisted.
     let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator =
-        Authenticator::init(&seed, creation_config.into(), query_material, nullifier_material)
-            .await
-            .wrap_err("expected authenticator to initialize after account creation")?;
+    let authenticator = Authenticator::init(
+        &seed,
+        creation_config.into(),
+        query_material,
+        nullifier_material,
+    )
+    .await
+    .wrap_err("expected authenticator to initialize after account creation")?;
     assert_eq!(authenticator.leaf_index(), 1);
 
     // Local indexer stub serving inclusion proof.
