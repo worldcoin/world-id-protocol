@@ -781,7 +781,7 @@ impl Authenticator {
 
         let body: GatewayStatusResponse = self
             .gateway_client
-            .post(self.config.gateway_url(), "/insert-authenticator", &req)
+            .post_json(self.config.gateway_url(), "/insert-authenticator", &req)
             .await?;
         Ok(body.request_id)
     }
@@ -841,7 +841,7 @@ impl Authenticator {
 
         let gateway_resp: GatewayStatusResponse = self
             .gateway_client
-            .post(self.config.gateway_url(), "/update-authenticator", &req)
+            .post_json(self.config.gateway_url(), "/update-authenticator", &req)
             .await?;
         Ok(gateway_resp.request_id)
     }
@@ -902,7 +902,7 @@ impl Authenticator {
 
         let gateway_resp: GatewayStatusResponse = self
             .gateway_client
-            .post(self.config.gateway_url(), "/remove-authenticator", &req)
+            .post_json(self.config.gateway_url(), "/remove-authenticator", &req)
             .await?;
         Ok(gateway_resp.request_id)
     }
@@ -956,7 +956,7 @@ impl InitializingAuthenticator {
         };
 
         let body: GatewayStatusResponse = gateway_client
-            .post(config.gateway_url(), "/create-account", &req)
+            .post_json(config.gateway_url(), "/create-account", &req)
             .await?;
         Ok(Self {
             request_id: body.request_id,
