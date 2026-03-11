@@ -10,7 +10,7 @@ use crate::AuthenticatorError;
 ///
 /// Stores the relay URL and the relay's `application/ohttp-keys` payload as a
 /// base64-encoded string. The target origin is supplied separately (from the
-/// service URL already present in [`Config`]) when constructing an
+/// service URL already present in [`AuthenticatorConfig`](crate::AuthenticatorConfig)) when constructing an
 /// [`OhttpClient`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OhttpClientConfig {
