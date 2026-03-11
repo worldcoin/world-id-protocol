@@ -58,11 +58,8 @@ static MASK_PUBKEY_ID: U256 =
 static MASK_LEAF_INDEX: U256 =
     uint!(0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF_U256);
 
-/// Configuration for an [`Authenticator`], bundling the base protocol [`Config`] with
+/// Configuration for an [`Authenticator`], extends base protocol [`Config`] by
 /// optional OHTTP relay settings for the indexer and gateway services.
-///
-/// Uses `#[serde(flatten)]` so that existing JSON configs that embed OHTTP fields at
-/// the top level continue to parse correctly.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuthenticatorConfig {
     /// Base protocol configuration (indexer URL, gateway URL, RPC, etc.).
@@ -784,7 +781,7 @@ impl Authenticator {
 
         let body: GatewayStatusResponse = self
             .gateway_client
-            .post_json(self.config.gateway_url(), "/insert-authenticator", &req)
+            .post(self.config.gateway_url(), "/insert-authenticator", &req)
             .await?;
         Ok(body.request_id)
     }
@@ -844,7 +841,7 @@ impl Authenticator {
 
         let gateway_resp: GatewayStatusResponse = self
             .gateway_client
-            .post_json(self.config.gateway_url(), "/update-authenticator", &req)
+            .post(self.config.gateway_url(), "/update-authenticator", &req)
             .await?;
         Ok(gateway_resp.request_id)
     }
@@ -905,7 +902,7 @@ impl Authenticator {
 
         let gateway_resp: GatewayStatusResponse = self
             .gateway_client
-            .post_json(self.config.gateway_url(), "/remove-authenticator", &req)
+            .post(self.config.gateway_url(), "/remove-authenticator", &req)
             .await?;
         Ok(gateway_resp.request_id)
     }
@@ -959,7 +956,7 @@ impl InitializingAuthenticator {
         };
 
         let body: GatewayStatusResponse = gateway_client
-            .post_json(config.gateway_url(), "/create-account", &req)
+            .post(config.gateway_url(), "/create-account", &req)
             .await?;
         Ok(Self {
             request_id: body.request_id,
