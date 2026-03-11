@@ -96,6 +96,19 @@ impl ServiceClient {
         }
     }
 
+    pub(crate) async fn post<Req, Res>(
+        &self,
+        base_url: &str,
+        path: &str,
+        body: &Req,
+    ) -> Result<Res, AuthenticatorError>
+    where
+        Req: serde::Serialize,
+        Res: DeserializeOwned,
+    {
+        self.post_json(base_url, path, body).await
+    }
+
     pub(crate) async fn post_json<Req, Res>(
         &self,
         base_url: &str,
