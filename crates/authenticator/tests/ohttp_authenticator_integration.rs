@@ -18,10 +18,9 @@ use tokio::{net::TcpListener, sync::Mutex};
 use world_id_authenticator::{
     Authenticator, AuthenticatorConfig, AuthenticatorError,
     api_types::{
-        CreateAccountRequest, GatewayRequestState,
-        IndexerAuthenticatorPubkeysResponse, IndexerPackedAccountResponse, IndexerQueryRequest,
-        IndexerSignatureNonceResponse, InsertAuthenticatorRequest, RemoveAuthenticatorRequest,
-        UpdateAuthenticatorRequest,
+        CreateAccountRequest, GatewayRequestState, IndexerAuthenticatorPubkeysResponse,
+        IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
+        InsertAuthenticatorRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
     ohttp::OhttpClientConfig,
 };
@@ -316,9 +315,7 @@ fn build_test_inclusion_proof(
 
     let signer = world_id_primitives::Signer::from_seed_bytes(&TEST_SEED).unwrap();
     let mut key_set = AuthenticatorPublicKeySet::default();
-    key_set
-        .try_push(signer.offchain_signer_pubkey())
-        .unwrap();
+    key_set.try_push(signer.offchain_signer_pubkey()).unwrap();
 
     AccountInclusionProof::new(merkle_proof, key_set)
 }
@@ -332,9 +329,8 @@ fn test_materials() -> (
     static NULLIFIER: OnceLock<Arc<groth16_material::circom::CircomGroth16Material>> =
         OnceLock::new();
 
-    let query = QUERY.get_or_init(|| {
-        Arc::new(world_id_proof::proof::load_embedded_query_material().unwrap())
-    });
+    let query = QUERY
+        .get_or_init(|| Arc::new(world_id_proof::proof::load_embedded_query_material().unwrap()));
     let nullifier = NULLIFIER.get_or_init(|| {
         Arc::new(world_id_proof::proof::load_embedded_nullifier_material().unwrap())
     });
@@ -626,9 +622,7 @@ async fn insert_authenticator_roundtrips_through_ohttp() -> eyre::Result<()> {
     let new_pubkey = new_signer.offchain_signer_pubkey();
     let new_address = new_signer.onchain_signer_address();
 
-    let request_id = auth
-        .insert_authenticator(new_pubkey, new_address)
-        .await?;
+    let request_id = auth.insert_authenticator(new_pubkey, new_address).await?;
     assert_eq!(request_id, "insert-001");
 
     let gw_req = f
@@ -702,9 +696,7 @@ async fn remove_authenticator_roundtrips_through_ohttp() -> eyre::Result<()> {
     )
     .await;
 
-    let request_id = auth
-        .remove_authenticator(test_onchain_address(), 0)
-        .await?;
+    let request_id = auth.remove_authenticator(test_onchain_address(), 0).await?;
     assert_eq!(request_id, "remove-001");
 
     let gw_req = f
