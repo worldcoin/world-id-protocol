@@ -173,7 +173,8 @@ async fn is_in_pending_set(redis: &mut ConnectionManager, id: &str) -> bool {
 #[tokio::test]
 async fn pending_set_lifecycle_finalized() {
     let (url, lock_token, _redis) = setup_isolated_redis_for_test().await;
-    let tracker = RequestTracker::new(url.clone(), None).await;
+    let tracker =
+        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
     let id = "test-pending-lifecycle-fin".to_string();
 
     tracker
@@ -209,7 +210,8 @@ async fn pending_set_lifecycle_finalized() {
 #[tokio::test]
 async fn pending_set_lifecycle_failed() {
     let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker = RequestTracker::new(url.clone(), None).await;
+    let tracker =
+        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
     let id = "test-pending-lifecycle-fail".to_string();
 
     tracker
@@ -232,7 +234,8 @@ async fn pending_set_lifecycle_failed() {
 #[tokio::test]
 async fn updated_at_written_and_updated() {
     let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker = RequestTracker::new(url.clone(), None).await;
+    let tracker =
+        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
     let id = "test-updated-at".to_string();
     let before = now_unix_secs();
 
@@ -266,7 +269,8 @@ async fn updated_at_written_and_updated() {
 #[tokio::test]
 async fn snapshot_batch_returns_records() {
     let (url, lock_token, _redis) = setup_isolated_redis_for_test().await;
-    let tracker = RequestTracker::new(url.clone(), None).await;
+    let tracker =
+        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
 
     tracker
         .new_request_with_id(
@@ -308,7 +312,8 @@ async fn snapshot_batch_returns_records() {
 async fn queued_backlog_stats_from_updated_at() {
     let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
 
-    let tracker = RequestTracker::new(url.clone(), None).await;
+    let tracker =
+        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
     let now = now_unix_secs();
 
     inject_request(
@@ -356,7 +361,8 @@ async fn queued_backlog_stats_from_updated_at() {
 async fn queued_backlog_stats_scoped_by_kind() {
     let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
 
-    let tracker = RequestTracker::new(url.clone(), None).await;
+    let tracker =
+        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
     let now = now_unix_secs();
 
     // create backlog
@@ -420,7 +426,8 @@ async fn queued_backlog_stats_scoped_by_kind() {
 #[tokio::test]
 async fn sweep_stale_queued_request() {
     let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker = RequestTracker::new(url.clone(), None).await;
+    let tracker =
+        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
     let five_min_ago = now_unix_secs() - 300;
 
     inject_request(
@@ -456,7 +463,8 @@ async fn sweep_stale_queued_request() {
 #[tokio::test]
 async fn sweep_fresh_queued_untouched() {
     let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker = RequestTracker::new(url.clone(), None).await;
+    let tracker =
+        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
 
     inject_request(
         &mut redis,
@@ -486,7 +494,8 @@ async fn sweep_fresh_queued_untouched() {
 #[tokio::test]
 async fn sweep_stale_batching_request() {
     let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker = RequestTracker::new(url.clone(), None).await;
+    let tracker =
+        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
     let five_min_ago = now_unix_secs() - 300;
 
     inject_request(
@@ -517,7 +526,8 @@ async fn sweep_stale_batching_request() {
 #[tokio::test]
 async fn sweep_dangling_set_member() {
     let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker = RequestTracker::new(url.clone(), None).await;
+    let tracker =
+        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
 
     inject_dangling_set_member(&mut redis, "dangling-id").await;
     assert!(is_in_pending_set(&mut redis, "dangling-id").await);
@@ -542,7 +552,8 @@ async fn sweep_dangling_set_member() {
 #[tokio::test]
 async fn sweep_already_terminal_in_set() {
     let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker = RequestTracker::new(url.clone(), None).await;
+    let tracker =
+        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
 
     inject_request(
         &mut redis,
@@ -580,7 +591,8 @@ async fn sweep_already_terminal_in_set() {
 #[tokio::test]
 async fn sweep_submitted_no_receipt_stale() {
     let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker = RequestTracker::new(url.clone(), None).await;
+    let tracker =
+        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
     let five_min_ago = now_unix_secs() - 300;
 
     inject_request(
@@ -622,7 +634,8 @@ async fn sweep_submitted_no_receipt_stale() {
 #[tokio::test]
 async fn sweep_submitted_no_receipt_fresh() {
     let (url, lock_token, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker = RequestTracker::new(url.clone(), None).await;
+    let tracker =
+        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
 
     inject_request(
         &mut redis,
@@ -727,7 +740,8 @@ async fn sweep_submitted_with_real_receipt() {
     )
     .await;
 
-    let tracker = RequestTracker::new(url.clone(), None).await;
+    let tracker =
+        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
     let provider = alloy::providers::ProviderBuilder::new().connect_http(rpc_url.parse().unwrap());
     let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
