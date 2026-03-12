@@ -173,6 +173,12 @@ impl ProviderArgs {
         self
     }
 
+    /// Set the signer configuration.
+    pub fn with_signer(mut self, signer: SignerArgs) -> Self {
+        self.signer = Some(signer);
+        self
+    }
+
     /// Set the maximum number of RPC retries. Set to 0 to disable retries.
     pub fn with_max_rpc_retries(mut self, max_retries: u32) -> Self {
         self.retry

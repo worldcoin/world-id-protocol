@@ -9112,6 +9112,7 @@ dependencies = [
  "futures",
  "futures-util",
  "parking_lot",
+ "regex",
  "serde",
  "serde_json",
  "telemetry-batteries 0.2.1",
@@ -9119,6 +9120,7 @@ dependencies = [
  "tracing",
  "world-id-relay",
  "world-id-services-common",
+ "world-id-test-utils",
 ]
 
 [[package]]

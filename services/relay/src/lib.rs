@@ -60,6 +60,7 @@
 
 use config as _;
 use dotenvy as _;
+use serde_json as _;
 use telemetry_batteries as _;
 
 // ---------------------------------------------------------------------------
@@ -85,7 +86,7 @@ pub mod bindings;
 /// CLI entry point and per-chain configuration structs.
 ///
 /// [`Cli`] is the top-level clap parser. [`WorldChainConfig`] and
-/// [`EthereumChainConfig`] carry the addresses, RPC endpoints, and tuning
+/// [`SatelliteConfig`] carry the addresses, RPC endpoints, and tuning
 /// knobs for each chain the relay connects to.
 pub mod cli;
 
@@ -127,10 +128,10 @@ pub use bindings::{
 
 // -- Engine & satellite --
 pub use engine::Engine;
-pub use satellite::{Satellite, spawn_satellite};
+pub use satellite::{PermissionedSatellite, Satellite, spawn_satellite};
 
 // -- CLI --
-pub use cli::{Cli, EthereumChainConfig, WorldChainConfig};
+pub use cli::{AdapterType, Cli, RelayConfig, SatelliteConfig, SourceConfig, WorldChainConfig};
 
 // -- Log --
 pub use log::CommitmentLog;
