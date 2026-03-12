@@ -7,7 +7,7 @@ use alloy::{
     rpc::types::{Filter, TransactionRequest},
     signers::{SignerSync as _, local::PrivateKeySigner},
     sol,
-    sol_types::{Eip712Domain, SolCall, SolEvent as _, SolStruct as _, SolValue, eip712_domain},
+    sol_types::{Eip712Domain, SolCall, SolEvent as _, SolStruct as _, eip712_domain},
     uint,
 };
 use alloy_node_bindings::{Anvil, AnvilInstance};
@@ -154,53 +154,50 @@ sol!(
     )
 );
 
-// ── State bridge sol! interfaces ──────────────────────────────────────────
+// ── State bridge contract bindings ────────────────────────────────────────
+// Each lives in its own module to avoid name collisions on shared internal
+// types (BabyJubJub, IStateBridge, Lib, …).
 
-sol! {
-    #[sol(rpc)]
-    interface IInitializable {
-        struct InitConfig {
-            string name;
-            string version;
-            address owner;
-            address[] authorizedGateways;
-        }
-
-        function initialize(InitConfig memory cfg) external;
-    }
+pub mod world_id_source {
+    use alloy::sol;
+    sol!(
+        #[allow(clippy::too_many_arguments)]
+        #[sol(rpc, ignore_unlinked)]
+        WorldIDSource,
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/WorldIDSource.sol/WorldIDSource.json"
+        )
+    );
+    pub use WorldIDSource::*;
 }
 
-sol! {
-    #[sol(rpc)]
-    interface IWorldIDSource {
-        struct Chain {
-            bytes32 head;
-            uint64 length;
-        }
+pub mod world_id_satellite {
+    use alloy::sol;
+    sol!(
+        #[allow(clippy::too_many_arguments)]
+        #[sol(rpc, ignore_unlinked)]
+        WorldIDSatellite,
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/WorldIDSatellite.sol/WorldIDSatellite.json"
+        )
+    );
+    pub use WorldIDSatellite::*;
+}
 
-        function propagateState(uint64[] calldata issuerSchemaIds, uint160[] calldata oprfKeyIds) external;
-        function KECCAK_CHAIN() external view returns (Chain memory);
-    }
-
-    #[sol(rpc)]
-    interface IWorldIDSatellite {
-        function isValidRoot(uint256 root) external view returns (bool);
-        function addGateway(address gateway) external;
-        function removeGateway(address gateway) external;
-        function KECCAK_CHAIN() external view returns (bytes32 head, uint64 length);
-        function LATEST_ROOT() external view returns (uint256);
-        function issuerSchemaIdToPubkeyAndProofId(uint64 schemaId) external view returns (uint256 pubKeyX, uint256 pubKeyY, bytes32 proofId);
-        function oprfKeyIdToPubkeyAndProofId(uint160 oprfKeyId) external view returns (uint256 pubKeyX, uint256 pubKeyY, bytes32 proofId);
-    }
-
-    interface IChainCommitment {
-        event ChainCommitted(
-            bytes32 indexed keccakChain,
-            uint256 indexed blockNumber,
-            uint256 indexed chainId,
-            bytes commitment
-        );
-    }
+pub mod permissioned_gateway {
+    use alloy::sol;
+    sol!(
+        #[allow(clippy::too_many_arguments)]
+        #[sol(rpc, ignore_unlinked)]
+        PermissionedGatewayAdapter,
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/PermissionedGatewayAdapter.sol/PermissionedGatewayAdapter.json"
+        )
+    );
+    pub use PermissionedGatewayAdapter::*;
 }
 
 // ── State bridge types ───────────────────────────────────────────────────
@@ -236,55 +233,12 @@ pub struct CoreContracts {
     pub deployer: Address,
 }
 
-// ── Forge artifact helpers ───────────────────────────────────────────────
-
-/// Returns the absolute path to the forge artifact output directory.
-pub fn artifact_dir() -> String {
-    format!("{}/../../contracts/out", env!("CARGO_MANIFEST_DIR"))
-}
-
-/// Reads compiled bytecode from a forge artifact JSON file.
-pub fn read_forge_bytecode(artifact_dir: &str, contract_file: &str, contract_name: &str) -> Bytes {
-    let path = format!("{artifact_dir}/{contract_file}/{contract_name}.json");
-    let contents = std::fs::read_to_string(&path)
-        .unwrap_or_else(|_| panic!("missing artifact: {path}. Run `forge build` in contracts/ first."));
-    let json: serde_json::Value = serde_json::from_str(&contents).expect("invalid JSON");
-    let hex_str = json["bytecode"]["object"]
-        .as_str()
-        .expect("missing bytecode.object");
-    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-    let bytes: Vec<u8> = (0..hex_str.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&hex_str[i..i + 2], 16).expect("invalid hex"))
-        .collect();
-    bytes.into()
-}
-
-/// Deploys a contract from forge bytecode + constructor args.
-pub async fn deploy_contract(
-    provider: &DynProvider,
-    bytecode: Bytes,
-    constructor_args: Bytes,
-) -> Result<Address> {
-    let mut data = bytecode.to_vec();
-    data.extend_from_slice(&constructor_args);
-    let tx = TransactionRequest {
-        to: Some(TxKind::Create),
-        input: data.into(),
-        ..Default::default()
-    };
-    let receipt = provider.send_transaction(tx).await?.get_receipt().await?;
-    receipt
-        .contract_address
-        .ok_or_else(|| eyre::eyre!("no contract address in receipt"))
-}
-
 /// Reads the latest `ChainCommitted` event from the source contract.
 pub async fn get_latest_chain_commitment(
     provider: &DynProvider,
     source_address: Address,
 ) -> Result<RawChainCommitment> {
-    let source = IWorldIDSource::IWorldIDSourceInstance::new(source_address, provider);
+    let source = world_id_source::WorldIDSourceInstance::new(source_address, provider);
     let chain = source.KECCAK_CHAIN().call().await?;
     let latest_block = provider.get_block_number().await?;
 
@@ -294,14 +248,14 @@ pub async fn get_latest_chain_commitment(
         .to_block(latest_block);
     let logs = provider.get_logs(&filter).await?;
 
-    let chain_committed_topic = IChainCommitment::ChainCommitted::SIGNATURE_HASH;
+    let chain_committed_topic = world_id_source::ChainCommitted::SIGNATURE_HASH;
     let event_log = logs
         .iter()
         .rev()
         .find(|l| l.topics().first() == Some(&chain_committed_topic))
         .ok_or_else(|| eyre::eyre!("ChainCommitted event not found"))?;
 
-    let decoded = IChainCommitment::ChainCommitted::decode_log(event_log.as_ref())?;
+    let decoded = world_id_source::ChainCommitted::decode_log(event_log.as_ref())?;
 
     Ok(RawChainCommitment {
         chain_head: chain.head,
@@ -987,71 +941,68 @@ impl TestAnvil {
         // Fresh provider — all TestAnvil deploys above used their own internal providers,
         // so this one picks up the correct nonce from the chain.
         let provider = self.wallet_provider(&deployer)?;
-        let artifact_dir = artifact_dir();
 
         // 2. Deploy WorldIDSource implementation
-        let source_impl_bytecode =
-            read_forge_bytecode(&artifact_dir, "WorldIDSource.sol", "WorldIDSource");
-        let source_impl_args =
-            (world_id_registry, credential_registry, oprf_key_registry).abi_encode_params();
-        let source_impl =
-            deploy_contract(&provider, source_impl_bytecode, source_impl_args.into()).await?;
+        let source_impl = world_id_source::WorldIDSource::deploy(
+            &provider,
+            world_id_registry,
+            credential_registry,
+            oprf_key_registry,
+        )
+        .await
+        .context("failed to deploy WorldIDSource impl")?;
 
         // 3. Deploy WorldIDSource proxy
-        let proxy_bytecode =
-            read_forge_bytecode(&artifact_dir, "ERC1967Proxy.sol", "ERC1967Proxy");
-
-        let src_init_cfg = IInitializable::InitConfig {
+        let src_init_cfg = world_id_source::IStateBridge::InitConfig {
             name: "World ID Source".into(),
             version: "1".into(),
             owner: deployer.address(),
             authorizedGateways: vec![],
         };
         let src_init_data: Bytes =
-            SolCall::abi_encode(&IInitializable::initializeCall { cfg: src_init_cfg }).into();
-        let source_proxy = deploy_contract(
+            SolCall::abi_encode(&world_id_source::initializeCall { cfg: src_init_cfg }).into();
+        let source_proxy_contract = ERC1967Proxy::deploy(
             &provider,
-            proxy_bytecode.clone(),
-            (source_impl, src_init_data).abi_encode_params().into(),
+            *source_impl.address(),
+            src_init_data,
         )
-        .await?;
+        .await
+        .context("failed to deploy WorldIDSource proxy")?;
+        let source_proxy = *source_proxy_contract.address();
 
         // 4. Deploy Verifier
-        let verifier = deploy_contract(
-            &provider,
-            read_forge_bytecode(&artifact_dir, "Verifier.sol", "Verifier"),
-            Bytes::new(),
-        )
-        .await?;
+        let verifier_contract = Verifier::deploy(&provider)
+            .await
+            .context("failed to deploy Verifier")?;
 
         // 5. Deploy WorldIDSatellite implementation
-        let sat_impl_bytecode =
-            read_forge_bytecode(&artifact_dir, "WorldIDSatellite.sol", "WorldIDSatellite");
-        let sat_impl_args = (
-            verifier,
+        let sat_impl = world_id_satellite::WorldIDSatellite::deploy(
+            &provider,
+            *verifier_contract.address(),
             U256::from(3600u64), // rootValidityWindow
             U256::from(30u64),   // treeDepth
             60u64,               // minExpirationThreshold
         )
-            .abi_encode_params();
-        let sat_impl =
-            deploy_contract(&provider, sat_impl_bytecode, sat_impl_args.into()).await?;
+        .await
+        .context("failed to deploy WorldIDSatellite impl")?;
 
         // 6. Deploy WorldIDSatellite proxy
-        let sat_init_cfg = IInitializable::InitConfig {
+        let sat_init_cfg = world_id_satellite::IStateBridge::InitConfig {
             name: "World ID Bridge".into(),
             version: "1".into(),
             owner: deployer.address(),
             authorizedGateways: vec![],
         };
         let sat_init_data: Bytes =
-            SolCall::abi_encode(&IInitializable::initializeCall { cfg: sat_init_cfg }).into();
-        let satellite_proxy = deploy_contract(
+            SolCall::abi_encode(&world_id_satellite::initializeCall { cfg: sat_init_cfg }).into();
+        let satellite_proxy_contract = ERC1967Proxy::deploy(
             &provider,
-            proxy_bytecode,
-            (sat_impl, sat_init_data).abi_encode_params().into(),
+            *sat_impl.address(),
+            sat_init_data,
         )
-        .await?;
+        .await
+        .context("failed to deploy WorldIDSatellite proxy")?;
+        let satellite_proxy = *satellite_proxy_contract.address();
 
         Ok(CoreContracts {
             source_proxy,
@@ -1071,7 +1022,7 @@ impl TestAnvil {
     ) -> Result<()> {
         let deployer = self.signer(0)?;
         let provider = self.wallet_provider(&deployer)?;
-        let sat = IWorldIDSatellite::IWorldIDSatelliteInstance::new(satellite_proxy, &provider);
+        let sat = world_id_satellite::WorldIDSatelliteInstance::new(satellite_proxy, &provider);
         sat.addGateway(gateway).send().await?.get_receipt().await?;
         Ok(())
     }
@@ -1138,7 +1089,7 @@ impl TestAnvil {
     ) -> Result<RawChainCommitment> {
         let deployer = self.signer(0)?;
         let provider = self.wallet_provider(&deployer)?;
-        let source = IWorldIDSource::IWorldIDSourceInstance::new(source_address, &provider);
+        let source = world_id_source::WorldIDSourceInstance::new(source_address, &provider);
         source
             .propagateState(issuer_ids, oprf_ids)
             .send()

@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use alloy::{primitives::U256, sol_types::SolValue};
+use alloy::primitives::U256;
 use alloy_primitives::B256;
 use eyre::Result;
 use world_id_relay::{
@@ -14,9 +14,11 @@ use world_id_relay::{
     satellite::PermissionedSatellite,
     Satellite,
 };
-use world_id_test_utils::anvil::TestAnvil;
+use world_id_test_utils::anvil::{
+    CoreContracts, TestAnvil, WC_CHAIN_ID, permissioned_gateway, world_id_satellite,
+};
 
-use crate::helpers::{self, CoreContracts, IWorldIDSatellite, WC_CHAIN_ID};
+use crate::helpers;
 
 // ── Permissioned gateway deployment ────────────────────────────────────────
 
@@ -26,25 +28,20 @@ async fn deploy_permissioned_gateway(
 ) -> Result<alloy::primitives::Address> {
     let deployer = anvil.signer(0)?;
     let provider = anvil.wallet_provider(&deployer)?;
-    let artifact_dir = helpers::artifact_dir();
-    let gateway_bytecode = helpers::read_forge_bytecode(
-        &artifact_dir,
-        "PermissionedGatewayAdapter.sol",
-        "PermissionedGatewayAdapter",
-    );
-    let gateway_args = (
+
+    let gateway = permissioned_gateway::PermissionedGatewayAdapter::deploy(
+        &provider,
         core.deployer,
         core.satellite_proxy,
         core.source_proxy,
         U256::from(WC_CHAIN_ID),
     )
-        .abi_encode_params();
-    let gateway =
-        helpers::deploy_contract(&provider, gateway_bytecode, gateway_args.into()).await?;
+    .await?;
+    let gateway_addr = *gateway.address();
 
-    anvil.authorize_gateway(core.satellite_proxy, gateway).await?;
+    anvil.authorize_gateway(core.satellite_proxy, gateway_addr).await?;
 
-    Ok(gateway)
+    Ok(gateway_addr)
 }
 
 fn make_satellite(
@@ -100,7 +97,7 @@ async fn e2e_permissioned_full_pipeline() -> Result<()> {
 
     // Verify satellite state (read-only provider is fine here)
     let read_provider = anvil.provider()?;
-    let sat = IWorldIDSatellite::IWorldIDSatelliteInstance::new(core.satellite_proxy, &read_provider);
+    let sat = world_id_satellite::WorldIDSatelliteInstance::new(core.satellite_proxy, &read_provider);
 
     assert_eq!(sat.LATEST_ROOT().call().await?, root);
 
@@ -109,8 +106,8 @@ async fn e2e_permissioned_full_pipeline() -> Result<()> {
     assert_eq!(chain.length, 2); // root + issuer (no oprf)
 
     let sat_issuer = sat.issuerSchemaIdToPubkeyAndProofId(1u64).call().await?;
-    assert_eq!(sat_issuer.pubKeyX, issuer.x);
-    assert_eq!(sat_issuer.pubKeyY, issuer.y);
+    assert_eq!(sat_issuer.pubKey.x, issuer.x);
+    assert_eq!(sat_issuer.pubKey.y, issuer.y);
 
     assert!(sat.isValidRoot(root).call().await?);
     assert!(!sat.isValidRoot(U256::from(9999u64)).call().await?);
@@ -127,7 +124,7 @@ async fn e2e_permissioned_sequential_rounds() -> Result<()> {
     let satellite_impl = make_satellite(&anvil, &core, gateway)?;
 
     let read_provider = anvil.provider()?;
-    let sat = IWorldIDSatellite::IWorldIDSatelliteInstance::new(core.satellite_proxy, &read_provider);
+    let sat = world_id_satellite::WorldIDSatelliteInstance::new(core.satellite_proxy, &read_provider);
 
     // ── Round 1 ──
     let root1 = anvil.create_bridge_root(&core).await?;
@@ -167,8 +164,8 @@ async fn e2e_permissioned_sequential_rounds() -> Result<()> {
 
     // Issuer key unchanged (same schema ID, same key)
     let sat_issuer = sat.issuerSchemaIdToPubkeyAndProofId(1u64).call().await?;
-    assert_eq!(sat_issuer.pubKeyX, issuer1.x);
-    assert_eq!(sat_issuer.pubKeyY, issuer1.y);
+    assert_eq!(sat_issuer.pubKey.x, issuer1.x);
+    assert_eq!(sat_issuer.pubKey.y, issuer1.y);
 
     Ok(())
 }
