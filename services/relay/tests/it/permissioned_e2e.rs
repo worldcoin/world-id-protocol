@@ -4,12 +4,16 @@
 //! WorldIDRegistry, CredentialSchemaIssuerRegistry, and OprfKeyRegistry
 //! contracts on a local anvil instance.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
-use alloy::primitives::{Address, Bytes, U256};
-use alloy::providers::{Provider, ProviderBuilder};
-use alloy::sol_types::SolCall;
+use alloy::{
+    primitives::{Address, Bytes, U256},
+    providers::{Provider, ProviderBuilder},
+    sol_types::SolCall,
+};
 use alloy_primitives::B256;
 use ark_ff::PrimeField as _;
 use eyre::{Context, Result};
