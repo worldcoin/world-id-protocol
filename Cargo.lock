@@ -9084,6 +9084,7 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "reqwest",
+ "serde",
  "taceo-ark-babyjubjub",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",

@@ -27,7 +27,7 @@ pub use groth16_material::circom::{
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::SessionId;
 
-use crate::nullifier::GenericOprfOutput;
+use crate::oprf_query::FullOprfOutput;
 
 pub mod errors;
 
@@ -91,11 +91,6 @@ pub enum ProofError {
     /// Errors originating from Groth16 proof generation or verification.
     #[error(transparent)]
     ZkError(#[from] Groth16Error),
-    /// The provided query request is invalid for a nullifier generation. This usually happens
-    /// when requesting a Session Proof without passing a correct `oprf_seed` (see [`SessionId::oprf_seed`]) or
-    /// a Uniqueness Proof without an `action`.
-    #[error("invalid_query")]
-    InvalidQuery,
     /// Catch-all for other internal errors.
     #[error(transparent)]
     InternalError(#[from] eyre::Report),
@@ -326,7 +321,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     rng: &mut R,
     credential: &Credential,
     credential_sub_blinding_factor: FieldElement,
-    oprf_output: GenericOprfOutput,
+    oprf_output: FullOprfOutput,
     request_item: &RequestItem,
     session_id: Option<FieldElement>,
     session_id_r_seed: FieldElement,
@@ -344,7 +339,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         .clone()
         .ok_or_else(|| ProofError::InternalError(eyre::eyre!("Credential not signed")))?;
 
-    let nullifier = oprf_output.as_nullifier();
+    let nullifier_from_opf_output = oprf_output.verifiable_oprf_output.output;
 
     let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH> {
         query_input: oprf_output.query_proof_input,
@@ -376,14 +371,14 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     let (proof, public) = nullifier_material.generate_proof(&nullifier_input, rng)?;
     nullifier_material.verify_proof(&proof, &public)?;
 
-    let computed_nullifier: Nullifier = FieldElement::from(public[0]).into();
-
     // Verify that the computed nullifier matches the OPRF output.
-    if computed_nullifier != nullifier {
+    if public[0] != nullifier_from_opf_output {
         return Err(ProofError::InternalError(eyre::eyre!(
             "Computed nullifier does not match OPRF output"
         )));
     }
+
+    let nullifier: Nullifier = FieldElement::from(public[0]).into();
 
     Ok((proof, public, nullifier))
 }

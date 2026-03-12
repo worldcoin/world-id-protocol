@@ -40,11 +40,12 @@ use world_id_primitives::{
     merkle::MerkleInclusionProof,
 };
 use world_id_proof::{
-    AuthenticatorProofInput,
-    credential_blinding_factor::OprfCredentialBlindingFactor,
-    nullifier::GenericOprfOutput,
+    AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint,
     proof::{ProofError, generate_nullifier_proof},
 };
+
+#[expect(unused_imports, reason = "used for docs")]
+use world_id_primitives::Nullifier;
 
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
@@ -529,9 +530,13 @@ impl Authenticator {
 
     /// Generates a nullifier for a World ID Proof (through OPRF Nodes).
     ///
-    /// A nullifier is a unique, one-time use, anonymous identifier for a World ID
-    /// on a specific RP context. It is used to ensure that a single World ID can only
-    /// perform an action once.
+    /// A [`Nullifier`] is a unique, one-time use, anonymous identifier for a World ID
+    /// on a specific RP context. See [`Nullifier`] for more details.
+    ///
+    /// A Nullifier takes an `action` as input:
+    /// - If `proof_request` is for a Session Proof, a random `action` is generated.
+    /// - If `proof_request` is for a Uniqueness Proof, the `action` is provided by the RP,
+    ///   if not provided a default of [`FieldElement::ZERO`] is used.
     ///
     /// # Errors
     ///
@@ -543,7 +548,7 @@ impl Authenticator {
         proof_request: &ProofRequest,
         inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
         key_set: AuthenticatorPublicKeySet,
-    ) -> Result<GenericOprfOutput, AuthenticatorError> {
+    ) -> Result<FullOprfOutput, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
         let (services, threshold) = self.check_oprf_config()?;
@@ -565,16 +570,16 @@ impl Authenticator {
             key_index,
         );
 
-        Ok(GenericOprfOutput::generate_nullifier(
+        let oprf_entry_point = OprfEntrypoint::new(
             services,
             threshold,
             &self.query_material,
-            authenticator_input,
-            proof_request,
-            self.ws_connector.clone(),
-            &mut rng,
-        )
-        .await?)
+            &authenticator_input,
+            &self.ws_connector,
+        );
+        Ok(oprf_entry_point
+            .gen_nullifier(&mut rng, proof_request)
+            .await?)
     }
 
     // TODO add more docs
@@ -589,6 +594,7 @@ impl Authenticator {
         &self,
         issuer_schema_id: u64,
     ) -> Result<FieldElement, AuthenticatorError> {
+        let mut rng = rand::rngs::OsRng;
         let (services, threshold) = self.check_oprf_config()?;
 
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
@@ -610,18 +616,17 @@ impl Authenticator {
             key_index,
         );
 
-        let blinding_factor = OprfCredentialBlindingFactor::generate(
+        let oprf_entry_point = OprfEntrypoint::new(
             services,
             threshold,
             &self.query_material,
-            authenticator_input,
-            issuer_schema_id,
-            FieldElement::ZERO, // for now action is always zero, might change in future
-            self.ws_connector.clone(),
-        )
-        .await?;
+            &authenticator_input,
+            &self.ws_connector,
+        );
 
-        Ok(blinding_factor.verifiable_oprf_output.output.into())
+        Ok(oprf_entry_point
+            .gen_credential_blinding_factor(&mut rng, issuer_schema_id)
+            .await?)
     }
 
     /// Generates the session's randomness seed (`r`) using OPRF Nodes.
@@ -639,8 +644,8 @@ impl Authenticator {
     ///   this `action` is different than the randomized action used internally by [`SessionNullifier`]s.
     ///
     /// # Determinism and Recovery
-    /// Because the OPRF is deterministic for the same input and key, calling this function again with the
-    /// same `action` and RP will produce the same `r`. This means caching `r` is optional but recommended, `r` can
+    /// Because the OPRF is deterministic for the same input and key, calling this function again with a
+    /// correct `sessionId` and RP will produce the same `r`. This means caching `r` is optional but recommended, `r` can
     /// be recovered by calling this function with the original `action` (which is stored in [`SessionId::action_seed`]).
     /// Caching behavior is the responsibility of the Authenticator (and/or its releavnt SDKs), not this crate.
     pub async fn generate_session_id_r_seed(
@@ -677,7 +682,7 @@ impl Authenticator {
     #[allow(clippy::too_many_arguments)]
     pub fn generate_single_proof(
         &self,
-        oprf_nullifier: GenericOprfOutput,
+        oprf_nullifier: FullOprfOutput,
         request_item: &RequestItem,
         credential: &Credential,
         credential_sub_blinding_factor: FieldElement,

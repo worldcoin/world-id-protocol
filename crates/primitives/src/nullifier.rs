@@ -1,5 +1,6 @@
 use std::{fmt::Display, ops::Deref, str::FromStr};
 
+use ark_babyjubjub::Fq;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
@@ -146,6 +147,14 @@ impl From<Nullifier> for FieldElement {
 impl From<FieldElement> for Nullifier {
     fn from(value: FieldElement) -> Self {
         Self { inner: value }
+    }
+}
+
+impl From<Fq> for Nullifier {
+    fn from(value: Fq) -> Self {
+        Self {
+            inner: FieldElement::from(value),
+        }
     }
 }
 

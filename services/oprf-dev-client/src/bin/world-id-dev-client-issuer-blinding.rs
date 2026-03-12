@@ -24,9 +24,7 @@ use world_id_primitives::{
     merkle::MerkleInclusionProof,
     oprf::{CredentialBlindingFactorOprfRequestAuthV1, OprfModule},
 };
-use world_id_proof::{
-    AuthenticatorProofInput, credential_blinding_factor::OprfCredentialBlindingFactor,
-};
+use world_id_proof::{AuthenticatorProofInput, OprfEntrypoint};
 use world_id_test_utils::anvil::{CredentialSchemaIssuerRegistry, ICredentialSchemaIssuerRegistry};
 
 #[derive(Parser, Debug)]
@@ -100,6 +98,8 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
         setup: Self::Setup,
         connector: Connector,
     ) -> eyre::Result<ShareEpoch> {
+        let mut rng = rand::rngs::OsRng;
+
         let authenticator_input = AuthenticatorProofInput::new(
             setup.key_set.clone(),
             setup.inclusion_proof.clone(),
@@ -107,18 +107,19 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
             setup.key_index,
         );
 
-        let blinding_factor = OprfCredentialBlindingFactor::generate(
+        let oprf_entry_point = OprfEntrypoint::new(
             &config.nodes,
             config.threshold,
             &self.components.query_material,
-            authenticator_input,
-            setup.issuer_schema_id,
-            FieldElement::ZERO, // for now action is always zero, might change in future
-            connector,
-        )
-        .await?;
+            &authenticator_input,
+            &connector,
+        );
 
-        Ok(blinding_factor.verifiable_oprf_output.epoch)
+        oprf_entry_point
+            .gen_credential_blinding_factor(&mut rng, setup.issuer_schema_id)
+            .await?;
+
+        Ok(ShareEpoch::default())
     }
 
     async fn prepare_stress_test_item<R: Rng + CryptoRng + Send>(
