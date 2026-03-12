@@ -64,7 +64,6 @@ pub struct Cli {
 ///     {
 ///       "name": "BASE_SEPOLIA",
 ///       "destination_chain_id": 84532,
-///       "source_address": "0x...",
 ///       "gateway": "0x...",
 ///       "satellite": "0x..."
 ///     }
@@ -73,7 +72,6 @@ pub struct Cli {
 ///     {
 ///       "name": "SEPOLIA",
 ///       "destination_chain_id": 11155111,
-///       "source_address": "0x...",
 ///       "gateway": "0x...",
 ///       "satellite": "0x...",
 ///       "dispute_game_factory": "0x...",
@@ -150,9 +148,6 @@ pub struct PermissionedGatewayConfig {
     /// The destination chain ID.
     pub destination_chain_id: u64,
 
-    /// WorldIDSource contract address on the source chain.
-    pub source_address: Address,
-
     /// The ERC-7786 gateway address on the destination chain.
     pub gateway: Address,
 
@@ -176,9 +171,6 @@ pub struct EthereumMptGatewayConfig {
 
     /// The destination chain ID.
     pub destination_chain_id: u64,
-
-    /// WorldIDSource contract address on the source chain.
-    pub source_address: Address,
 
     /// The ERC-7786 gateway address on the destination chain.
     pub gateway: Address,
@@ -383,7 +375,6 @@ mod tests {
                 {
                     "name": "SEPOLIA",
                     "destination_chain_id": 11155111,
-                    "source_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "gateway": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                     "satellite": "0xcccccccccccccccccccccccccccccccccccccccc",
                     "dispute_game_factory": "0xdddddddddddddddddddddddddddddddddddddddd",
@@ -395,7 +386,6 @@ mod tests {
                 {
                     "name": "BASE_SEPOLIA",
                     "destination_chain_id": 84532,
-                    "source_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "gateway": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                     "satellite": "0xffffffffffffffffffffffffffffffffffffffff"
                 }

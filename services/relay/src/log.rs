@@ -82,10 +82,11 @@ impl CommitmentLog {
         (issuers, oprfs)
     }
 
-    /// Clears all pending issuer and OPRF key IDs after a successful `propagateState`.
+    /// Clears all pending state after a successful `propagateState`.
     pub fn clear_pending_propagation(&self) {
         self.pending_issuers.clear();
         self.pending_oprfs.clear();
+        self.pending_roots.clear();
     }
 
     /// Returns `true` if there are any pending (non-chain) updates.

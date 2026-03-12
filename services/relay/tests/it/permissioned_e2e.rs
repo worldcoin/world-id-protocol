@@ -162,7 +162,6 @@ async fn deploy_gateway(
 /// Creates a `PermissionedSatellite` with a fresh provider.
 fn make_satellite(
     anvil: &TestAnvil,
-    source_proxy: Address,
     satellite_proxy: Address,
     gateway: Address,
 ) -> Result<PermissionedSatellite> {
@@ -174,7 +173,6 @@ fn make_satellite(
     let config = PermissionedGatewayConfig {
         name: "test-permissioned".into(),
         destination_chain_id: 31337,
-        source_address: source_proxy,
         gateway,
         satellite: satellite_proxy,
     };
@@ -270,7 +268,7 @@ async fn e2e_permissioned_full_pipeline() -> Result<()> {
         deployer,
     ) = deploy_state_bridge(&anvil).await?;
     let gateway = deploy_gateway(&anvil, deployer, source_proxy, satellite_proxy).await?;
-    let satellite = make_satellite(&anvil, source_proxy, satellite_proxy, gateway)?;
+    let satellite = make_satellite(&anvil, satellite_proxy, gateway)?;
 
     let root = create_root(&anvil, world_id_registry).await?;
     let (issuer_x, issuer_y) = register_issuer(&anvil, credential_registry, 1).await?;
@@ -324,7 +322,7 @@ async fn e2e_permissioned_sequential_rounds() -> Result<()> {
         deployer,
     ) = deploy_state_bridge(&anvil).await?;
     let gateway = deploy_gateway(&anvil, deployer, source_proxy, satellite_proxy).await?;
-    let satellite_impl = make_satellite(&anvil, source_proxy, satellite_proxy, gateway)?;
+    let satellite_impl = make_satellite(&anvil, satellite_proxy, gateway)?;
 
     let read_provider = anvil.provider()?;
     let sat = world_id_satellite::WorldIDSatelliteInstance::new(satellite_proxy, &read_provider);
@@ -365,7 +363,7 @@ async fn e2e_permissioned_sequential_rounds() -> Result<()> {
     assert_ne!(c1.chain_head, c2.chain_head);
 
     // Recreate satellite with a fresh provider to avoid stale nonce cache.
-    let satellite_impl = make_satellite(&anvil, source_proxy, satellite_proxy, gateway)?;
+    let satellite_impl = make_satellite(&anvil, satellite_proxy, gateway)?;
     satellite_impl.relay(&c2).await?;
 
     assert_eq!(sat.LATEST_ROOT().call().await?, root2);
@@ -389,7 +387,10 @@ async fn e2e_permissioned_sequential_rounds() -> Result<()> {
 
 /// Runs the relay Engine as a background service and verifies that it
 /// automatically detects registry events, calls propagateState, and relays
-/// the resulting commitment to the satellite.
+/// the resulting commitment to the satellite — one operation at a time.
+///
+/// Round 1: create an account → root changes → engine propagates → satellite updated.
+/// Round 2: register an issuer → key changes → engine propagates → satellite updated.
 #[tokio::test]
 async fn e2e_engine_driven_pipeline() -> Result<()> {
     let anvil = TestAnvil::spawn()?;
@@ -403,16 +404,16 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
     ) = deploy_state_bridge(&anvil).await?;
     let gateway = deploy_gateway(&anvil, deployer, source_proxy, satellite_proxy).await?;
 
-    // Build a wallet-backed provider for the engine (needs to send propagateState txs).
-    let engine_signer = anvil.signer(0)?;
-    let engine_provider = Arc::new(
+    // Share a single wallet-backed provider between the engine and satellite
+    // so nonce management is sequential (both send txs via signer(0)).
+    let shared_signer = anvil.signer(0)?;
+    let shared_provider = Arc::new(
         ProviderBuilder::new()
-            .wallet(alloy::network::EthereumWallet::from(engine_signer))
+            .wallet(alloy::network::EthereumWallet::from(shared_signer))
             .connect_http(anvil.endpoint().parse().unwrap())
             .erased(),
     );
 
-    // WorldChain config with a 1-second bridge interval for fast test ticks.
     let wc_config = WorldChainConfig {
         chain_id: WC_CHAIN_ID,
         world_id_source: source_proxy,
@@ -422,51 +423,100 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
         bridge_interval: 1,
     };
 
-    let world_chain = WorldChain::new(&wc_config, engine_provider);
+    let world_chain = WorldChain::new(&wc_config, shared_provider.clone());
     let mut engine = Engine::new(world_chain);
+    let log = engine.log().clone();
 
-    // Spawn the permissioned satellite into the engine.
-    let satellite = make_satellite(&anvil, source_proxy, satellite_proxy, gateway)?;
+    let sat_config = PermissionedGatewayConfig {
+        name: "test-permissioned".into(),
+        destination_chain_id: 31337,
+        gateway,
+        satellite: satellite_proxy,
+    };
+    let satellite = PermissionedSatellite::new(
+        "test-permissioned",
+        WC_CHAIN_ID,
+        &sat_config,
+        shared_provider,
+    );
     engine.spawn_satellite(satellite);
 
-    // Run the engine in a background task.
     let engine_handle = tokio::spawn(async move { engine.run().await });
 
     // Give the engine a moment to initialize event streams.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Trigger state changes — the engine should detect these events automatically.
-    let root = create_root(&anvil, world_id_registry).await?;
-    let (issuer_x, issuer_y) = register_issuer(&anvil, credential_registry, 1).await?;
-
-    // Poll satellite contract until the relay completes (timeout 30s).
     let read_provider = anvil.provider()?;
     let sat = world_id_satellite::WorldIDSatelliteInstance::new(satellite_proxy, &read_provider);
 
+    // ── Round 1: create account → root update ───────────────────────────────
+    let root = create_root(&anvil, world_id_registry).await?;
+
+    // Wait for the root to be relayed to the satellite.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         if tokio::time::Instant::now() > deadline {
             engine_handle.abort();
-            eyre::bail!("timed out waiting for satellite to receive relayed state");
+            eyre::bail!("timed out waiting for root to be relayed");
         }
-        let sat_root = sat.LATEST_ROOT().call().await?;
-        if sat_root == root {
+        if sat.LATEST_ROOT().call().await? == root {
             break;
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    // Verify full satellite state.
-    let chain = sat.KECCAK_CHAIN().call().await?;
-    assert_ne!(chain.head, B256::ZERO);
-    assert_eq!(chain.length, 2); // root + issuer (no oprf)
+    assert!(sat.isValidRoot(root).call().await?);
+    assert!(!sat.isValidRoot(U256::from(9999u64)).call().await?);
+
+    let chain_after_root = sat.KECCAK_CHAIN().call().await?;
+    assert_ne!(chain_after_root.head, B256::ZERO);
+    assert_eq!(chain_after_root.length, 1); // root only
+
+    // Pending state should be cleared after round 1.
+    assert!(
+        !log.has_pending(),
+        "pending state should be cleared after root propagation"
+    );
+
+    // ── Round 2: register issuer → key update ───────────────────────────────
+    let (issuer_x, issuer_y) = register_issuer(&anvil, credential_registry, 1).await?;
+
+    // Wait for the issuer to be relayed to the satellite.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        if tokio::time::Instant::now() > deadline {
+            engine_handle.abort();
+            eyre::bail!("timed out waiting for issuer to be relayed");
+        }
+        let sat_issuer = sat.issuerSchemaIdToPubkeyAndProofId(1u64).call().await?;
+        if sat_issuer.pubKey.x == issuer_x {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
 
     let sat_issuer = sat.issuerSchemaIdToPubkeyAndProofId(1u64).call().await?;
     assert_eq!(sat_issuer.pubKey.x, issuer_x);
     assert_eq!(sat_issuer.pubKey.y, issuer_y);
 
+    let chain_after_issuer = sat.KECCAK_CHAIN().call().await?;
+    assert_ne!(chain_after_issuer.head, chain_after_root.head);
+    assert_eq!(chain_after_issuer.length, 2); // root + issuer
+
+    // Root from round 1 should still be valid.
     assert!(sat.isValidRoot(root).call().await?);
-    assert!(!sat.isValidRoot(U256::from(9999u64)).call().await?);
+
+    // Pending state should be cleared after round 2.
+    assert!(
+        !log.has_pending(),
+        "pending state should be cleared after issuer propagation"
+    );
+    let (pending_issuers, pending_oprfs) = log.pending_propagation_ids();
+    assert!(pending_issuers.is_empty());
+    assert!(pending_oprfs.is_empty());
+
+    // Commitment log head should match the satellite.
+    assert_eq!(log.head(), chain_after_issuer.head);
 
     engine_handle.abort();
     Ok(())
