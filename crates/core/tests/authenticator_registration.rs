@@ -78,8 +78,13 @@ async fn test_authenticator_registration() {
     let (query_material, nullifier_material) = load_embedded_materials();
 
     // Account doesn't exist, so init will error
-    let result =
-        Authenticator::init(&seed, config.clone(), query_material, nullifier_material).await;
+    let result = Authenticator::init(
+        &seed,
+        config.clone().into(),
+        query_material,
+        nullifier_material,
+    )
+    .await;
     assert!(matches!(
         result,
         Err(AuthenticatorError::AccountDoesNotExist)
@@ -89,7 +94,7 @@ async fn test_authenticator_registration() {
     // NOTE how we use `register()` instead of `init_or_register()` to test this specific flow.
     let start = std::time::Instant::now();
     let initializing_account =
-        Authenticator::register(&seed, config.clone(), Some(recovery_address))
+        Authenticator::register(&seed, config.clone().into(), Some(recovery_address))
             .await
             .unwrap();
 
@@ -106,10 +111,14 @@ async fn test_authenticator_registration() {
         .unwrap();
 
     let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator =
-        Authenticator::init(&seed, config.clone(), query_material, nullifier_material)
-            .await
-            .unwrap();
+    let authenticator = Authenticator::init(
+        &seed,
+        config.clone().into(),
+        query_material,
+        nullifier_material,
+    )
+    .await
+    .unwrap();
     let elapsed = start.elapsed();
     tracing::info!("Account creation successful in {elapsed:?}");
     assert_eq!(authenticator.leaf_index(), 1);
@@ -117,8 +126,9 @@ async fn test_authenticator_registration() {
 
     // If we initialize again, it will work
     let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator = Authenticator::init(&seed, config, query_material, nullifier_material)
-        .await
-        .unwrap();
+    let authenticator =
+        Authenticator::init(&seed, config.into(), query_material, nullifier_material)
+            .await
+            .unwrap();
     assert_eq!(authenticator.leaf_index(), 1);
 }

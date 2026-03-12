@@ -161,7 +161,7 @@ async fn e2e_authenticator_insert_update_remove() {
     let (query_material, nullifier_material) = load_embedded_materials();
     let result = Authenticator::init(
         &primary_seed,
-        config.clone(),
+        config.clone().into(),
         query_material,
         nullifier_material,
     )
@@ -174,7 +174,7 @@ async fn e2e_authenticator_insert_update_remove() {
     let (query_material, nullifier_material) = load_embedded_materials();
     let primary = Authenticator::init_or_register(
         &primary_seed,
-        config.clone(),
+        config.into(),
         query_material,
         nullifier_material,
         Some(recovery_address),
@@ -207,9 +207,14 @@ async fn e2e_authenticator_insert_update_remove() {
         &gateway_url,
     );
     let (query_material, nullifier_material) = load_embedded_materials();
-    let mut auth = Authenticator::init(&primary_seed, config, query_material, nullifier_material)
-        .await
-        .unwrap();
+    let mut auth = Authenticator::init(
+        &primary_seed,
+        config.into(),
+        query_material,
+        nullifier_material,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(0));
     let req_id = auth
@@ -248,9 +253,14 @@ async fn e2e_authenticator_insert_update_remove() {
         &gateway_url,
     );
     let (query_material, nullifier_material) = load_embedded_materials();
-    let mut auth = Authenticator::init(&primary_seed, config, query_material, nullifier_material)
-        .await
-        .unwrap();
+    let mut auth = Authenticator::init(
+        &primary_seed,
+        config.into(),
+        query_material,
+        nullifier_material,
+    )
+    .await
+    .unwrap();
 
     let updated_pubkey = EdDSAPrivateKey::random(&mut rand::thread_rng()).public();
     let updated_address = anvil.signer(3).unwrap().address();
@@ -304,9 +314,14 @@ async fn e2e_authenticator_insert_update_remove() {
         &gateway_url,
     );
     let (query_material, nullifier_material) = load_embedded_materials();
-    let mut auth = Authenticator::init(&secondary_seed, config, query_material, nullifier_material)
-        .await
-        .unwrap();
+    let mut auth = Authenticator::init(
+        &secondary_seed,
+        config.into(),
+        query_material,
+        nullifier_material,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(2));
     let req_id = auth.remove_authenticator(updated_address, 0).await.unwrap();

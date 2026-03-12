@@ -22,7 +22,7 @@ path = "examples/issuer.rs"
 required-features = ["issuer"]
 
 [features]
-default = ["authenticator", "embed-zkeys"]
+default = ["authenticator", "embed-zkeys", "ohttp"]
 
 authenticator = [
     "dep:world-id-proof",
@@ -35,6 +35,9 @@ embed-zkeys = ["authenticator", "world-id-proof/embed-zkeys"]
 compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/compress-zkeys"]
 # Compress the tar archive with zstd
 zstd-compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/zstd-compress-zkeys"]
+
+# OHTTP relay support (requires authenticator feature)
+ohttp = ["authenticator", "world-id-authenticator/ohttp"]
 
 issuer = [
     "dep:world-id-issuer",
