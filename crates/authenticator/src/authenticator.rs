@@ -1446,21 +1446,36 @@ mod tests {
     #[test]
     fn test_danger_sign_challenge_returns_valid_signature() {
         let (query_material, nullifier_material) = test_materials();
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            "http://indexer.example.com".to_string(),
+            "http://gateway.example.com".to_string(),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+        let http_client = reqwest::Client::new();
         let mut authenticator = Authenticator {
-            config: Config::new(
+            indexer_client: ServiceClient::new(
+                http_client.clone(),
+                ServiceKind::Indexer,
+                config.indexer_url(),
                 None,
-                1,
-                address!("0x0000000000000000000000000000000000000001"),
-                "http://indexer.example.com".to_string(),
-                "http://gateway.example.com".to_string(),
-                Vec::new(),
-                2,
             )
             .unwrap(),
+            gateway_client: ServiceClient::new(
+                http_client,
+                ServiceKind::Gateway,
+                config.gateway_url(),
+                None,
+            )
+            .unwrap(),
+            config,
             packed_account_data: U256::from(1),
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
-            http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
             query_material,
             nullifier_material,
@@ -1478,21 +1493,36 @@ mod tests {
     #[test]
     fn test_danger_sign_challenge_different_challenges_different_signatures() {
         let (query_material, nullifier_material) = test_materials();
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            "http://indexer.example.com".to_string(),
+            "http://gateway.example.com".to_string(),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+        let http_client = reqwest::Client::new();
         let mut authenticator = Authenticator {
-            config: Config::new(
+            indexer_client: ServiceClient::new(
+                http_client.clone(),
+                ServiceKind::Indexer,
+                config.indexer_url(),
                 None,
-                1,
-                address!("0x0000000000000000000000000000000000000001"),
-                "http://indexer.example.com".to_string(),
-                "http://gateway.example.com".to_string(),
-                Vec::new(),
-                2,
             )
             .unwrap(),
+            gateway_client: ServiceClient::new(
+                http_client,
+                ServiceKind::Gateway,
+                config.gateway_url(),
+                None,
+            )
+            .unwrap(),
+            config,
             packed_account_data: U256::from(1),
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
-            http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
             query_material,
             nullifier_material,
@@ -1506,21 +1536,36 @@ mod tests {
     #[test]
     fn test_danger_sign_challenge_deterministic() {
         let (query_material, nullifier_material) = test_materials();
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            "http://indexer.example.com".to_string(),
+            "http://gateway.example.com".to_string(),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+        let http_client = reqwest::Client::new();
         let mut authenticator = Authenticator {
-            config: Config::new(
+            indexer_client: ServiceClient::new(
+                http_client.clone(),
+                ServiceKind::Indexer,
+                config.indexer_url(),
                 None,
-                1,
-                address!("0x0000000000000000000000000000000000000001"),
-                "http://indexer.example.com".to_string(),
-                "http://gateway.example.com".to_string(),
-                Vec::new(),
-                2,
             )
             .unwrap(),
+            gateway_client: ServiceClient::new(
+                http_client,
+                ServiceKind::Gateway,
+                config.gateway_url(),
+                None,
+            )
+            .unwrap(),
+            config,
             packed_account_data: U256::from(1),
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
-            http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
             query_material,
             nullifier_material,
