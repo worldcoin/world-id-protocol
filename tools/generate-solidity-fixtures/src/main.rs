@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 //! Generates Solidity test fixtures for `WorldIDVerifierTest.t.sol`.
 //!
 //! Spins up a local Anvil node, gateway, OPRF nodes, and indexer stub, then
@@ -21,7 +23,6 @@ use alloy::{
     signers::local::LocalSigner,
 };
 use eyre::{Context as _, Result, eyre};
-use futures_util::FutureExt as _;
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 use taceo_oprf_test_utils::health_checks;
 use tracing::info;
@@ -54,10 +55,6 @@ fn load_embedded_materials() -> (
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    run().boxed().await
-}
-
-async fn run() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .init();
