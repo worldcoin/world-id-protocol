@@ -16,7 +16,7 @@ use crate::AuthenticatorError;
 pub struct OhttpClientConfig {
     /// URL of the OHTTP relay that receives encrypted requests.
     pub relay_url: String,
-    /// Base64-encoded `application/ohttp-keys` payload which contains a list of lengthy prefixed HPKE configs
+    /// Base64-encoded `application/ohttp-keys` payload which contains a list of length prefixed HPKE configs
     pub key_config_base64: String,
 }
 
