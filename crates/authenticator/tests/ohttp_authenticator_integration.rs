@@ -131,8 +131,8 @@ impl OhttpFixture {
         let idx_authority = format!("indexer.test:{idx_port}");
 
         let target_rewrites = serde_json::json!({
-            &gw_authority: {"Scheme": "http", "Host": format!("host.docker.internal:{gw_port}")},
-            &idx_authority: {"Scheme": "http", "Host": format!("host.docker.internal:{idx_port}")},
+            &gw_authority: {"Scheme": "http", "Host": format!("host.testcontainers.internal:{gw_port}")},
+            &idx_authority: {"Scheme": "http", "Host": format!("host.testcontainers.internal:{idx_port}")},
         });
 
         let allowed_origins = format!("{gw_authority},{idx_authority}");
@@ -142,6 +142,7 @@ impl OhttpFixture {
             .with_wait_for(WaitFor::Http(Box::new(
                 HttpWaitStrategy::new("/health").with_expected_status_code(200_u16),
             )))
+            .with_exposed_host_ports([gw_port, idx_port])
             .with_env_var(
                 "SEED_SECRET_KEY",
                 "0000000000000000000000000000000000000000000000000000000000000001",

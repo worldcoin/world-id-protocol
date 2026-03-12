@@ -77,7 +77,7 @@ impl TestFixture {
 
         let authority_port: u16 = 9999;
         let target_rewrites = format!(
-            r#"{{"localhost:{authority_port}": {{"Scheme": "http", "Host": "host.docker.internal:{backend_port}"}}}}"#
+            r#"{{"localhost:{authority_port}": {{"Scheme": "http", "Host": "host.testcontainers.internal:{backend_port}"}}}}"#
         );
 
         let container = GenericImage::new(OHTTP_GATEWAY_IMAGE, OHTTP_GATEWAY_TAG)
@@ -85,6 +85,7 @@ impl TestFixture {
             .with_wait_for(WaitFor::Http(Box::new(
                 HttpWaitStrategy::new("/health").with_expected_status_code(200_u16),
             )))
+            .with_exposed_host_port(backend_port)
             .with_env_var(
                 "SEED_SECRET_KEY",
                 "0000000000000000000000000000000000000000000000000000000000000001",
