@@ -284,20 +284,22 @@ impl Cli {
 
         let config = parse_config(&self.config)?;
 
-        // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
-        let wc_rpc_url = rpc_url_from_env(SOURCE_RPC_ENV)?;
-        let wc_provider_args = ProviderArgs::new().with_http_urls([wc_rpc_url.as_str()]);
-        let wc_provider = Arc::new(wc_provider_args.http().await?);
-
-        let wc_config = WorldChainConfig::from(&config.source);
-        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone());
-
-        // Build a signer for destination chain transactions.
+        // Build a signer for relay transactions.
         // The signer key is loaded from WALLET_PRIVATE_KEY env var (via secrets manager).
         let wallet_key = std::env::var("WALLET_PRIVATE_KEY").map_err(|_| {
             eyre::eyre!("WALLET_PRIVATE_KEY env var is required for signing relay transactions")
         })?;
         let shared_signer = SignerArgs::from_wallet(wallet_key);
+
+        // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
+        let wc_rpc_url = rpc_url_from_env(SOURCE_RPC_ENV)?;
+        let wc_provider_args = ProviderArgs::new()
+            .with_http_urls([wc_rpc_url.as_str()])
+            .with_signer(shared_signer.clone());
+        let wc_provider = Arc::new(wc_provider_args.http().await?);
+
+        let wc_config = WorldChainConfig::from(&config.source);
+        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone());
 
         let mut engine = Engine::new(world_chain);
         let mut satellite_count = 0usize;
