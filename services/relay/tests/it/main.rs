@@ -1,4 +1,3 @@
-mod helpers;
 mod permissioned_e2e;
 mod testsuite;
 

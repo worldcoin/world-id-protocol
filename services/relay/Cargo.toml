@@ -45,5 +45,7 @@ eyre = { workspace = true }
 config = { workspace = true }
 
 [dev-dependencies]
+ark-ff = { workspace = true }
+world-id-primitives = { workspace = true }
 world-id-relay = { workspace = true }
 world-id-test-utils = { workspace = true }

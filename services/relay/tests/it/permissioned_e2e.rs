@@ -5,62 +5,169 @@
 //! contracts on a local anvil instance.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use alloy::primitives::U256;
+use alloy::primitives::{Address, Bytes, U256};
+use alloy::providers::{Provider, ProviderBuilder};
+use alloy::sol_types::SolCall;
 use alloy_primitives::B256;
-use eyre::Result;
+use ark_ff::PrimeField as _;
+use eyre::{Context, Result};
+use world_id_primitives::Signer;
 use world_id_relay::{
-    cli::{AdapterType, SatelliteConfig},
+    Satellite, cli::PermissionedGatewayConfig, primitives::ChainCommitment,
     satellite::PermissionedSatellite,
-    Satellite,
 };
 use world_id_test_utils::anvil::{
-    CoreContracts, TestAnvil, WC_CHAIN_ID, permissioned_gateway, world_id_satellite,
+    ERC1967Proxy, MockOprfKeyRegistry, TestAnvil, Verifier, WC_CHAIN_ID,
+    get_latest_chain_commitment, permissioned_gateway, world_id_satellite, world_id_source,
 };
 
-use crate::helpers;
+/// Counter to generate unique accounts across test calls.
+static ACCOUNT_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-// ── Permissioned gateway deployment ────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────────
 
-async fn deploy_permissioned_gateway(
+/// Deploys the full state bridge stack and returns the key addresses:
+/// (source_proxy, satellite_proxy, world_id_registry, credential_registry, oprf_key_registry, deployer).
+async fn deploy_state_bridge(
     anvil: &TestAnvil,
-    core: &CoreContracts,
-) -> Result<alloy::primitives::Address> {
+) -> Result<(Address, Address, Address, Address, Address, Address)> {
     let deployer = anvil.signer(0)?;
-    let provider = anvil.wallet_provider(&deployer)?;
+
+    let world_id_registry = anvil
+        .deploy_world_id_registry(deployer.clone())
+        .await
+        .context("failed to deploy WorldIDRegistry")?;
+
+    let oprf_key_registry = anvil
+        .deploy_mock_oprf_key_registry(deployer.clone())
+        .await
+        .context("failed to deploy MockOprfKeyRegistry")?;
+
+    let credential_registry = anvil
+        .deploy_credential_schema_issuer_registry(deployer.clone(), oprf_key_registry)
+        .await
+        .context("failed to deploy CredentialSchemaIssuerRegistry")?;
+
+    let provider = ProviderBuilder::new()
+        .wallet(alloy::network::EthereumWallet::from(deployer.clone()))
+        .connect_http(anvil.endpoint().parse().unwrap());
+
+    // WorldIDSource impl + proxy
+    let source_impl = world_id_source::WorldIDSource::deploy(
+        &provider,
+        world_id_registry,
+        credential_registry,
+        oprf_key_registry,
+    )
+    .await
+    .context("failed to deploy WorldIDSource impl")?;
+
+    let src_init_cfg = world_id_source::IStateBridge::InitConfig {
+        name: "World ID Source".into(),
+        version: "1".into(),
+        owner: deployer.address(),
+        authorizedGateways: vec![],
+    };
+    let src_init_data: Bytes =
+        SolCall::abi_encode(&world_id_source::initializeCall { cfg: src_init_cfg }).into();
+
+    let source_proxy = *ERC1967Proxy::deploy(&provider, *source_impl.address(), src_init_data)
+        .await
+        .context("failed to deploy WorldIDSource proxy")?
+        .address();
+
+    // Verifier + WorldIDSatellite impl + proxy
+    let verifier = Verifier::deploy(&provider)
+        .await
+        .context("failed to deploy Verifier")?;
+
+    let sat_impl = world_id_satellite::WorldIDSatellite::deploy(
+        &provider,
+        *verifier.address(),
+        U256::from(3600u64),
+        U256::from(30u64),
+        60u64,
+    )
+    .await
+    .context("failed to deploy WorldIDSatellite impl")?;
+
+    let sat_init_cfg = world_id_satellite::IStateBridge::InitConfig {
+        name: "World ID Bridge".into(),
+        version: "1".into(),
+        owner: deployer.address(),
+        authorizedGateways: vec![],
+    };
+    let sat_init_data: Bytes =
+        SolCall::abi_encode(&world_id_satellite::initializeCall { cfg: sat_init_cfg }).into();
+
+    let satellite_proxy = *ERC1967Proxy::deploy(&provider, *sat_impl.address(), sat_init_data)
+        .await
+        .context("failed to deploy WorldIDSatellite proxy")?
+        .address();
+
+    Ok((
+        source_proxy,
+        satellite_proxy,
+        world_id_registry,
+        credential_registry,
+        oprf_key_registry,
+        deployer.address(),
+    ))
+}
+
+/// Deploys the permissioned gateway and authorizes it on the satellite.
+async fn deploy_gateway(
+    anvil: &TestAnvil,
+    deployer: Address,
+    source_proxy: Address,
+    satellite_proxy: Address,
+) -> Result<Address> {
+    let signer = anvil.signer(0)?;
+    let provider = ProviderBuilder::new()
+        .wallet(alloy::network::EthereumWallet::from(signer))
+        .connect_http(anvil.endpoint().parse().unwrap());
 
     let gateway = permissioned_gateway::PermissionedGatewayAdapter::deploy(
         &provider,
-        core.deployer,
-        core.satellite_proxy,
-        core.source_proxy,
+        deployer,
+        satellite_proxy,
+        source_proxy,
         U256::from(WC_CHAIN_ID),
     )
     .await?;
     let gateway_addr = *gateway.address();
 
-    anvil.authorize_gateway(core.satellite_proxy, gateway_addr).await?;
+    // Authorize the gateway on the satellite
+    let sat = world_id_satellite::WorldIDSatelliteInstance::new(satellite_proxy, &provider);
+    sat.addGateway(gateway_addr)
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
 
     Ok(gateway_addr)
 }
 
+/// Creates a `PermissionedSatellite` with a fresh provider.
 fn make_satellite(
     anvil: &TestAnvil,
-    core: &CoreContracts,
-    gateway: alloy::primitives::Address,
+    source_proxy: Address,
+    satellite_proxy: Address,
+    gateway: Address,
 ) -> Result<PermissionedSatellite> {
     let deployer = anvil.signer(0)?;
-    let provider = anvil.wallet_provider(&deployer)?;
-    let config = SatelliteConfig {
+    let provider = ProviderBuilder::new()
+        .wallet(alloy::network::EthereumWallet::from(deployer))
+        .connect_http(anvil.endpoint().parse().unwrap())
+        .erased();
+    let config = PermissionedGatewayConfig {
         name: "test-permissioned".into(),
-        adapter: AdapterType::PermissionedWorldchain,
         destination_chain_id: 31337,
-        source_address: core.source_proxy,
+        source_address: source_proxy,
         gateway,
-        satellite: core.satellite_proxy,
-        dispute_game_factory: None,
-        game_type: 0,
-        require_finalized: false,
+        satellite: satellite_proxy,
     };
     Ok(PermissionedSatellite::new(
         "test-permissioned",
@@ -70,34 +177,114 @@ fn make_satellite(
     ))
 }
 
+/// Creates an account in WorldIDRegistry and returns the latest root.
+async fn create_root(anvil: &TestAnvil, world_id_registry: Address) -> Result<U256> {
+    let deployer = anvil.signer(0)?;
+    let n = ACCOUNT_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let auth_signer = anvil.signer(n as usize % 9 + 1)?;
+    let root = anvil
+        .create_account(
+            world_id_registry,
+            deployer,
+            auth_signer.address(),
+            U256::from(n),
+            U256::from(n),
+        )
+        .await;
+    Ok(U256::from_be_bytes(root.to_be_bytes()))
+}
+
+/// Registers an issuer and returns (pubkey_x, pubkey_y).
+async fn register_issuer(
+    anvil: &TestAnvil,
+    credential_registry: Address,
+    schema_id: u64,
+) -> Result<(U256, U256)> {
+    let deployer = anvil.signer(0)?;
+    let signer =
+        Signer::from_seed_bytes(&[schema_id as u8; 32]).context("failed to create signer")?;
+    let pubkey = signer.offchain_signer_pubkey();
+
+    anvil
+        .register_issuer(credential_registry, deployer, schema_id, pubkey.clone())
+        .await
+        .context("failed to register issuer")?;
+
+    Ok((
+        U256::from_limbs(pubkey.pk.x.into_bigint().0),
+        U256::from_limbs(pubkey.pk.y.into_bigint().0),
+    ))
+}
+
+/// Propagates state and returns the chain commitment.
+async fn propagate(
+    anvil: &TestAnvil,
+    source_proxy: Address,
+    issuer_ids: Vec<u64>,
+) -> Result<ChainCommitment> {
+    let deployer = anvil.signer(0)?;
+    let provider = ProviderBuilder::new()
+        .wallet(alloy::network::EthereumWallet::from(deployer))
+        .connect_http(anvil.endpoint().parse().unwrap())
+        .erased();
+
+    let source = world_id_source::WorldIDSourceInstance::new(source_proxy, &provider);
+    source
+        .propagateState(issuer_ids, vec![])
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+
+    let raw = get_latest_chain_commitment(&provider, source_proxy).await?;
+    Ok(ChainCommitment {
+        chain_head: raw.chain_head,
+        block_number: raw.block_number,
+        chain_id: raw.chain_id,
+        commitment_payload: raw.commitment_payload,
+        timestamp: raw.timestamp,
+    })
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
-/// Full pipeline: createAccount → registerIssuer → propagateState → relay → verify.
+/// Full pipeline: createAccount → registerIssuer → initKeyGen → propagateState → relay → verify.
 #[tokio::test]
 async fn e2e_permissioned_full_pipeline() -> Result<()> {
     let anvil = TestAnvil::spawn()?;
-    let core = anvil.deploy_state_bridge().await?;
-    let gateway = deploy_permissioned_gateway(&anvil, &core).await?;
-    let satellite = make_satellite(&anvil, &core, gateway)?;
+    let (
+        source_proxy,
+        satellite_proxy,
+        world_id_registry,
+        credential_registry,
+        oprf_key_registry,
+        deployer,
+    ) = deploy_state_bridge(&anvil).await?;
+    let gateway = deploy_gateway(&anvil, deployer, source_proxy, satellite_proxy).await?;
+    let satellite = make_satellite(&anvil, source_proxy, satellite_proxy, gateway)?;
 
-    // Seed registries with real contract interactions
-    let root = anvil.create_bridge_root(&core).await?;
-    let issuer = anvil.register_bridge_issuer(&core, 1).await?;
+    let root = create_root(&anvil, world_id_registry).await?;
+    let (issuer_x, issuer_y) = register_issuer(&anvil, credential_registry, 1).await?;
 
-    // Propagate (no OPRF keys — DKG not performed in test)
-    let raw = anvil
-        .propagate_and_get_commitment(core.source_proxy, vec![1u64], vec![])
-        .await?;
+    // Verify that issuer registration triggered initKeyGen on the mock OPRF registry.
+    // CredentialSchemaIssuerRegistry.register() calls initKeyGen(uint160(issuerSchemaId)).
+    let read_provider = anvil.provider()?;
+    let oprf =
+        MockOprfKeyRegistry::MockOprfKeyRegistryInstance::new(oprf_key_registry, &read_provider);
+    assert!(
+        oprf.registeredKeys(alloy::primitives::Uint::<160, 3>::from(1u64))
+            .call()
+            .await?
+    );
 
-    assert_ne!(raw.chain_head, B256::ZERO);
+    let commitment = propagate(&anvil, source_proxy, vec![1u64]).await?;
+    assert_ne!(commitment.chain_head, B256::ZERO);
 
-    let commitment = helpers::into_chain_commitment(raw);
     let tx_hash = satellite.relay(&commitment).await?;
     assert_ne!(tx_hash, B256::ZERO);
 
-    // Verify satellite state (read-only provider is fine here)
-    let read_provider = anvil.provider()?;
-    let sat = world_id_satellite::WorldIDSatelliteInstance::new(core.satellite_proxy, &read_provider);
+    // Verify satellite state
+    let sat = world_id_satellite::WorldIDSatelliteInstance::new(satellite_proxy, &read_provider);
 
     assert_eq!(sat.LATEST_ROOT().call().await?, root);
 
@@ -106,8 +293,8 @@ async fn e2e_permissioned_full_pipeline() -> Result<()> {
     assert_eq!(chain.length, 2); // root + issuer (no oprf)
 
     let sat_issuer = sat.issuerSchemaIdToPubkeyAndProofId(1u64).call().await?;
-    assert_eq!(sat_issuer.pubKey.x, issuer.x);
-    assert_eq!(sat_issuer.pubKey.y, issuer.y);
+    assert_eq!(sat_issuer.pubKey.x, issuer_x);
+    assert_eq!(sat_issuer.pubKey.y, issuer_y);
 
     assert!(sat.isValidRoot(root).call().await?);
     assert!(!sat.isValidRoot(U256::from(9999u64)).call().await?);
@@ -119,40 +306,57 @@ async fn e2e_permissioned_full_pipeline() -> Result<()> {
 #[tokio::test]
 async fn e2e_permissioned_sequential_rounds() -> Result<()> {
     let anvil = TestAnvil::spawn()?;
-    let core = anvil.deploy_state_bridge().await?;
-    let gateway = deploy_permissioned_gateway(&anvil, &core).await?;
-    let satellite_impl = make_satellite(&anvil, &core, gateway)?;
+    let (
+        source_proxy,
+        satellite_proxy,
+        world_id_registry,
+        credential_registry,
+        oprf_key_registry,
+        deployer,
+    ) = deploy_state_bridge(&anvil).await?;
+    let gateway = deploy_gateway(&anvil, deployer, source_proxy, satellite_proxy).await?;
+    let satellite_impl = make_satellite(&anvil, source_proxy, satellite_proxy, gateway)?;
 
     let read_provider = anvil.provider()?;
-    let sat = world_id_satellite::WorldIDSatelliteInstance::new(core.satellite_proxy, &read_provider);
+    let sat = world_id_satellite::WorldIDSatelliteInstance::new(satellite_proxy, &read_provider);
+    let oprf =
+        MockOprfKeyRegistry::MockOprfKeyRegistryInstance::new(oprf_key_registry, &read_provider);
 
     // ── Round 1 ──
-    let root1 = anvil.create_bridge_root(&core).await?;
-    let issuer1 = anvil.register_bridge_issuer(&core, 1).await?;
+    let root1 = create_root(&anvil, world_id_registry).await?;
+    let (issuer1_x, issuer1_y) = register_issuer(&anvil, credential_registry, 1).await?;
 
-    let c1 = helpers::into_chain_commitment(
-        anvil
-            .propagate_and_get_commitment(core.source_proxy, vec![1u64], vec![])
-            .await?,
+    // Verify issuer registration triggered initKeyGen
+    assert!(
+        oprf.registeredKeys(alloy::primitives::Uint::<160, 3>::from(1u64))
+            .call()
+            .await?
     );
+
+    let c1 = propagate(&anvil, source_proxy, vec![1u64]).await?;
     satellite_impl.relay(&c1).await?;
 
     assert_eq!(sat.LATEST_ROOT().call().await?, root1);
     assert_eq!(sat.KECCAK_CHAIN().call().await?.head, c1.chain_head);
 
-    // ── Round 2: new account (updates root) ──
-    let root2 = anvil.create_bridge_root(&core).await?;
+    // ── Round 2: new account + second issuer (updates root, new OPRF key) ──
+    let root2 = create_root(&anvil, world_id_registry).await?;
     assert_ne!(root1, root2);
 
-    let c2 = helpers::into_chain_commitment(
-        anvil
-            .propagate_and_get_commitment(core.source_proxy, vec![1u64], vec![])
-            .await?,
+    let (issuer2_x, issuer2_y) = register_issuer(&anvil, credential_registry, 2).await?;
+
+    // Verify second issuer also triggered initKeyGen
+    assert!(
+        oprf.registeredKeys(alloy::primitives::Uint::<160, 3>::from(2u64))
+            .call()
+            .await?
     );
+
+    let c2 = propagate(&anvil, source_proxy, vec![1u64, 2u64]).await?;
     assert_ne!(c1.chain_head, c2.chain_head);
 
     // Recreate satellite with a fresh provider to avoid stale nonce cache.
-    let satellite_impl = make_satellite(&anvil, &core, gateway)?;
+    let satellite_impl = make_satellite(&anvil, source_proxy, satellite_proxy, gateway)?;
     satellite_impl.relay(&c2).await?;
 
     assert_eq!(sat.LATEST_ROOT().call().await?, root2);
@@ -162,10 +366,14 @@ async fn e2e_permissioned_sequential_rounds() -> Result<()> {
     assert!(sat.isValidRoot(root1).call().await?);
     assert!(sat.isValidRoot(root2).call().await?);
 
-    // Issuer key unchanged (same schema ID, same key)
-    let sat_issuer = sat.issuerSchemaIdToPubkeyAndProofId(1u64).call().await?;
-    assert_eq!(sat_issuer.pubKey.x, issuer1.x);
-    assert_eq!(sat_issuer.pubKey.y, issuer1.y);
+    // Both issuers propagated
+    let sat_issuer1 = sat.issuerSchemaIdToPubkeyAndProofId(1u64).call().await?;
+    assert_eq!(sat_issuer1.pubKey.x, issuer1_x);
+    assert_eq!(sat_issuer1.pubKey.y, issuer1_y);
+
+    let sat_issuer2 = sat.issuerSchemaIdToPubkeyAndProofId(2u64).call().await?;
+    assert_eq!(sat_issuer2.pubKey.x, issuer2_x);
+    assert_eq!(sat_issuer2.pubKey.y, issuer2_y);
 
     Ok(())
 }

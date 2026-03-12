@@ -8,10 +8,8 @@ use alloy::{
 use eyre::Result;
 
 use crate::{
-    bindings::IGateway::IGatewayInstance,
-    cli::SatelliteConfig,
-    primitives::ChainCommitment,
-    relay::send_relay_tx,
+    bindings::IGateway::IGatewayInstance, cli::PermissionedGatewayConfig,
+    primitives::ChainCommitment, relay::send_relay_tx,
 };
 
 use super::Satellite;
@@ -36,11 +34,11 @@ pub struct PermissionedSatellite {
 }
 
 impl PermissionedSatellite {
-    /// Creates a new permissioned satellite from a satellite config and provider.
+    /// Creates a new permissioned satellite from a gateway config and provider.
     pub fn new(
         name: impl Into<String>,
         anchor_chain_id: u64,
-        config: &SatelliteConfig,
+        config: &PermissionedGatewayConfig,
         provider: Arc<DynProvider>,
     ) -> Self {
         Self {

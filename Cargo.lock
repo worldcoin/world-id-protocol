@@ -9104,6 +9104,7 @@ version = "0.5.1"
 dependencies = [
  "alloy",
  "alloy-primitives",
+ "ark-ff 0.5.0",
  "clap",
  "config",
  "dashmap",
@@ -9117,6 +9118,7 @@ dependencies = [
  "telemetry-batteries 0.2.1",
  "tokio",
  "tracing",
+ "world-id-primitives",
  "world-id-relay",
  "world-id-services-common",
  "world-id-test-utils",

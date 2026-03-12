@@ -1,5 +1,3 @@
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use alloy::{
     network::EthereumWallet,
     primitives::{Address, B256, Bytes, TxKind, U256, address},
@@ -7,7 +5,7 @@ use alloy::{
     rpc::types::{Filter, TransactionRequest},
     signers::{SignerSync as _, local::PrivateKeySigner},
     sol,
-    sol_types::{Eip712Domain, SolCall, SolEvent as _, SolStruct as _, eip712_domain},
+    sol_types::{Eip712Domain, SolCall as _, SolEvent as _, SolStruct as _, eip712_domain},
     uint,
 };
 use alloy_node_bindings::{Anvil, AnvilInstance};
@@ -15,7 +13,7 @@ use ark_ff::PrimeField as _;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::{Context, ContextCompat, Result};
 use taceo_oprf_test_utils::TestOprfKeyRegistry;
-use world_id_primitives::{FieldElement, Signer, TREE_DEPTH, rp::RpId};
+use world_id_primitives::{FieldElement, TREE_DEPTH, rp::RpId};
 
 /// Canonical Multicall3 address (same on all EVM chains).
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
@@ -30,9 +28,6 @@ pub const WC_CHAIN_ID: u64 = 480;
 
 /// Convenience alias for `Uint<160, 3>`.
 pub type U160 = alloy::primitives::Uint<160, 3>;
-
-/// Global counter to generate unique account parameters across `create_bridge_root` calls.
-static ACCOUNT_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 sol!(
     #[sol(rpc, ignore_unlinked)]
@@ -213,24 +208,6 @@ pub struct RawChainCommitment {
     pub chain_id: u64,
     pub commitment_payload: Bytes,
     pub timestamp: u64,
-}
-
-/// Issuer public key coordinates returned from registration.
-#[derive(Debug, Clone, Copy)]
-pub struct IssuerPubKey {
-    pub x: U256,
-    pub y: U256,
-}
-
-/// Addresses for the gateway-agnostic core contracts.
-pub struct CoreContracts {
-    pub source_proxy: Address,
-    pub satellite_proxy: Address,
-    pub world_id_registry: Address,
-    pub credential_registry: Address,
-    pub oprf_key_registry: Address,
-    /// The deployer/owner address (first anvil account).
-    pub deployer: Address,
 }
 
 /// Reads the latest `ChainCommitted` event from the source contract.
@@ -901,203 +878,6 @@ impl TestAnvil {
             .get_receipt()
             .await
             .expect("setRootValidityWindow transaction failed");
-    }
-
-    // ── State bridge methods ──────────────────────────────────────────────
-
-    /// Creates a wallet-backed `DynProvider` from a signer.
-    pub fn wallet_provider(&self, signer: &PrivateKeySigner) -> Result<DynProvider> {
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(signer.clone()))
-            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?)
-            .erased();
-        Ok(provider)
-    }
-
-    /// Deploys the full state bridge stack: real registries, WorldIDSource (impl + proxy),
-    /// WorldIDSatellite (impl + proxy), and the Verifier.
-    ///
-    /// Does NOT deploy or authorize any gateway — that's the caller's job.
-    /// Uses a **mock** `OprfKeyRegistry` to avoid requiring a full DKG ceremony.
-    pub async fn deploy_state_bridge(&self) -> Result<CoreContracts> {
-        let deployer = self.signer(0).context("failed to get deployer signer")?;
-
-        // 1. Deploy real registries (mock OPRF to skip DKG)
-        let world_id_registry = self
-            .deploy_world_id_registry(deployer.clone())
-            .await
-            .context("failed to deploy WorldIDRegistry")?;
-
-        let oprf_key_registry = self
-            .deploy_mock_oprf_key_registry(deployer.clone())
-            .await
-            .context("failed to deploy MockOprfKeyRegistry")?;
-
-        let credential_registry = self
-            .deploy_credential_schema_issuer_registry(deployer.clone(), oprf_key_registry)
-            .await
-            .context("failed to deploy CredentialSchemaIssuerRegistry")?;
-
-        // Fresh provider — all TestAnvil deploys above used their own internal providers,
-        // so this one picks up the correct nonce from the chain.
-        let provider = self.wallet_provider(&deployer)?;
-
-        // 2. Deploy WorldIDSource implementation
-        let source_impl = world_id_source::WorldIDSource::deploy(
-            &provider,
-            world_id_registry,
-            credential_registry,
-            oprf_key_registry,
-        )
-        .await
-        .context("failed to deploy WorldIDSource impl")?;
-
-        // 3. Deploy WorldIDSource proxy
-        let src_init_cfg = world_id_source::IStateBridge::InitConfig {
-            name: "World ID Source".into(),
-            version: "1".into(),
-            owner: deployer.address(),
-            authorizedGateways: vec![],
-        };
-        let src_init_data: Bytes =
-            SolCall::abi_encode(&world_id_source::initializeCall { cfg: src_init_cfg }).into();
-        let source_proxy_contract = ERC1967Proxy::deploy(
-            &provider,
-            *source_impl.address(),
-            src_init_data,
-        )
-        .await
-        .context("failed to deploy WorldIDSource proxy")?;
-        let source_proxy = *source_proxy_contract.address();
-
-        // 4. Deploy Verifier
-        let verifier_contract = Verifier::deploy(&provider)
-            .await
-            .context("failed to deploy Verifier")?;
-
-        // 5. Deploy WorldIDSatellite implementation
-        let sat_impl = world_id_satellite::WorldIDSatellite::deploy(
-            &provider,
-            *verifier_contract.address(),
-            U256::from(3600u64), // rootValidityWindow
-            U256::from(30u64),   // treeDepth
-            60u64,               // minExpirationThreshold
-        )
-        .await
-        .context("failed to deploy WorldIDSatellite impl")?;
-
-        // 6. Deploy WorldIDSatellite proxy
-        let sat_init_cfg = world_id_satellite::IStateBridge::InitConfig {
-            name: "World ID Bridge".into(),
-            version: "1".into(),
-            owner: deployer.address(),
-            authorizedGateways: vec![],
-        };
-        let sat_init_data: Bytes =
-            SolCall::abi_encode(&world_id_satellite::initializeCall { cfg: sat_init_cfg }).into();
-        let satellite_proxy_contract = ERC1967Proxy::deploy(
-            &provider,
-            *sat_impl.address(),
-            sat_init_data,
-        )
-        .await
-        .context("failed to deploy WorldIDSatellite proxy")?;
-        let satellite_proxy = *satellite_proxy_contract.address();
-
-        Ok(CoreContracts {
-            source_proxy,
-            satellite_proxy,
-            world_id_registry,
-            credential_registry,
-            oprf_key_registry,
-            deployer: deployer.address(),
-        })
-    }
-
-    /// Authorizes a gateway on the satellite. Must be called by the owner.
-    pub async fn authorize_gateway(
-        &self,
-        satellite_proxy: Address,
-        gateway: Address,
-    ) -> Result<()> {
-        let deployer = self.signer(0)?;
-        let provider = self.wallet_provider(&deployer)?;
-        let sat = world_id_satellite::WorldIDSatelliteInstance::new(satellite_proxy, &provider);
-        sat.addGateway(gateway).send().await?.get_receipt().await?;
-        Ok(())
-    }
-
-    /// Creates an account in the WorldIDRegistry to generate a new Merkle root.
-    ///
-    /// Each call uses a unique auth address, pubkey, and commitment to avoid
-    /// duplicate-account reverts. Returns the latest root as `U256`.
-    pub async fn create_bridge_root(&self, core: &CoreContracts) -> Result<U256> {
-        let deployer = self.signer(0)?;
-        let n = ACCOUNT_COUNTER.fetch_add(1, Ordering::Relaxed);
-
-        // Derive a unique auth address from the counter (anvil signers beyond index 0).
-        let auth_signer = self.signer(n as usize % 9 + 1)?;
-        let root = self
-            .create_account(
-                core.world_id_registry,
-                deployer.clone(),
-                auth_signer.address(),
-                U256::from(n),
-                U256::from(n),
-            )
-            .await;
-        // Convert FieldElement → U256 via big-endian bytes.
-        Ok(U256::from_be_bytes(root.to_be_bytes()))
-    }
-
-    /// Registers an issuer in the CredentialSchemaIssuerRegistry with a generated keypair.
-    ///
-    /// Returns the public key coordinates.
-    pub async fn register_bridge_issuer(
-        &self,
-        core: &CoreContracts,
-        schema_id: u64,
-    ) -> Result<IssuerPubKey> {
-        let deployer = self.signer(0)?;
-        let signer = Signer::from_seed_bytes(&[schema_id as u8; 32])
-            .context("failed to create signer from seed")?;
-        let pubkey = signer.offchain_signer_pubkey();
-
-        self.register_issuer(
-            core.credential_registry,
-            deployer,
-            schema_id,
-            pubkey.clone(),
-        )
-        .await
-        .context("failed to register issuer")?;
-
-        Ok(IssuerPubKey {
-            x: U256::from_limbs(pubkey.pk.x.into_bigint().0),
-            y: U256::from_limbs(pubkey.pk.y.into_bigint().0),
-        })
-    }
-
-    /// Calls `propagateState` on the source and returns the resulting commitment.
-    ///
-    /// Creates a fresh provider internally to avoid nonce conflicts with other `TestAnvil` methods.
-    pub async fn propagate_and_get_commitment(
-        &self,
-        source_address: Address,
-        issuer_ids: Vec<u64>,
-        oprf_ids: Vec<U160>,
-    ) -> Result<RawChainCommitment> {
-        let deployer = self.signer(0)?;
-        let provider = self.wallet_provider(&deployer)?;
-        let source = world_id_source::WorldIDSourceInstance::new(source_address, &provider);
-        source
-            .propagateState(issuer_ids, oprf_ids)
-            .send()
-            .await?
-            .get_receipt()
-            .await?;
-
-        get_latest_chain_commitment(&provider, source_address).await
     }
 
     /// Links a library to bytecode hex string and returns the hex string (no decoding).

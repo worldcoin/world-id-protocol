@@ -131,7 +131,10 @@ pub use engine::Engine;
 pub use satellite::{PermissionedSatellite, Satellite, spawn_satellite};
 
 // -- CLI --
-pub use cli::{AdapterType, Cli, RelayConfig, SatelliteConfig, SourceConfig, WorldChainConfig};
+pub use cli::{
+    Cli, EthereumMptGatewayConfig, PermissionedGatewayConfig, RelayConfig, SourceConfig,
+    WorldChainConfig,
+};
 
 // -- Log --
 pub use log::CommitmentLog;

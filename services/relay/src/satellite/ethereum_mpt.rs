@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use alloy::{
-    primitives::{Address, B256, Bytes},
+    primitives::{B256, Bytes},
     providers::DynProvider,
 };
 use eyre::Result;
@@ -11,7 +11,7 @@ use crate::{
         IDisputeGameFactory::IDisputeGameFactoryInstance, IGateway::IGatewayInstance,
         IWorldIDSatellite::IWorldIDSatelliteInstance, IWorldIDSource::IWorldIDSourceInstance,
     },
-    cli::{SatelliteConfig, WorldChainConfig},
+    cli::{EthereumMptGatewayConfig, WorldChainConfig},
     primitives::ChainCommitment,
     proof::ethereum_mpt::build_l1_proof_attributes,
     relay::send_relay_tx,
@@ -60,34 +60,28 @@ pub struct EthereumMptSatellite {
 }
 
 impl EthereumMptSatellite {
-    /// Creates a new Ethereum MPT satellite from a `SatelliteConfig` and pre-built providers.
-    pub fn from_satellite_config(
+    /// Creates a new Ethereum MPT satellite from an [`EthereumMptGatewayConfig`] and providers.
+    pub fn from_config(
         wc_config: &WorldChainConfig,
-        sat_config: &SatelliteConfig,
-        dispute_game_factory: Address,
-        game_type: u32,
-        require_finalized: bool,
+        config: &EthereumMptGatewayConfig,
         wc_provider: Arc<DynProvider>,
         eth_provider: Arc<DynProvider>,
     ) -> Self {
         Self {
-            name: format!("ethereum-mpt-{}", sat_config.destination_chain_id),
-            chain_id: sat_config.destination_chain_id,
-            gateway: IGatewayInstance::new(sat_config.gateway, eth_provider.clone()),
-            satellite: IWorldIDSatelliteInstance::new(
-                sat_config.satellite,
-                eth_provider.clone(),
-            ),
+            name: format!("ethereum-mpt-{}", config.destination_chain_id),
+            chain_id: config.destination_chain_id,
+            gateway: IGatewayInstance::new(config.gateway, eth_provider.clone()),
+            satellite: IWorldIDSatelliteInstance::new(config.satellite, eth_provider.clone()),
             anchor_chain_id: wc_config.chain_id,
             provider: eth_provider.clone(),
             source_provider: wc_provider.clone(),
             world_id_source: IWorldIDSourceInstance::new(wc_config.world_id_source, wc_provider),
             dispute_game_factory: IDisputeGameFactoryInstance::new(
-                dispute_game_factory,
+                config.dispute_game_factory,
                 eth_provider,
             ),
-            game_type,
-            require_finalized,
+            game_type: config.game_type,
+            require_finalized: config.require_finalized,
             poll_interval: DEFAULT_POLL_INTERVAL,
             timeout: DEFAULT_TIMEOUT,
         }
