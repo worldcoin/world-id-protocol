@@ -9112,7 +9112,6 @@ dependencies = [
  "futures",
  "futures-util",
  "parking_lot",
- "regex",
  "serde",
  "serde_json",
  "telemetry-batteries 0.2.1",

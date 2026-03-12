@@ -71,8 +71,8 @@ impl EthereumMptSatellite {
         eth_provider: Arc<DynProvider>,
     ) -> Self {
         Self {
-            name: format!("ethereum-mpt-{}", sat_config.chain_id),
-            chain_id: sat_config.chain_id,
+            name: format!("ethereum-mpt-{}", sat_config.destination_chain_id),
+            chain_id: sat_config.destination_chain_id,
             gateway: IGatewayInstance::new(sat_config.gateway, eth_provider.clone()),
             satellite: IWorldIDSatelliteInstance::new(
                 sat_config.satellite,

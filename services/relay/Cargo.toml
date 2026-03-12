@@ -43,7 +43,6 @@ clap = { workspace = true, features = ["derive", "env"] }
 dotenvy = { workspace = true }
 eyre = { workspace = true }
 config = { workspace = true }
-regex.workspace = true
 
 [dev-dependencies]
 world-id-relay = { workspace = true }

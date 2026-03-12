@@ -1,6 +1,5 @@
 use std::{fmt, path::PathBuf, sync::Arc};
 
-use regex::Regex;
 use serde::Deserialize;
 
 use alloy_primitives::Address;
@@ -47,13 +46,30 @@ pub struct Cli {
 // Config file schema
 // ---------------------------------------------------------------------------
 
-/// Top-level relay configuration, loaded from a single JSON file.
+/// Top-level relay configuration, loaded from a single JSON file or
+/// the `RELAY_CONFIG` environment variable.
+///
+/// # RPC URL resolution
+///
+/// RPC endpoints are **not** specified in the config. Instead, they are
+/// resolved automatically from environment variables based on the chain name:
+///
+/// - **Source chain**: reads `WORLDCHAIN_RPC_URL`
+/// - **Satellite chains**: reads `{NAME}_RPC_URL` where `{NAME}` is the
+///   satellite's `name` field converted to **UPPER_CASE**.
+///
+/// For example, a satellite with `"name": "SEPOLIA"` reads `SEPOLIA_RPC_URL`,
+/// and `"name": "BASE_SEPOLIA"` reads `BASE_SEPOLIA_RPC_URL`.
+///
+/// This convention keeps secret RPC URLs out of the config and lets them be
+/// injected via a secrets manager (e.g. AWS Secrets Manager → env vars in k8s).
+///
+/// # Example config
 ///
 /// ```json
 /// {
 ///   "source": {
 ///     "chain_id": 480,
-///     "rpc_url": "https://...",
 ///     "world_id_source": "0x...",
 ///     "world_id_registry": "0x...",
 ///     "oprf_key_registry": "0x...",
@@ -62,10 +78,9 @@ pub struct Cli {
 ///   },
 ///   "satellite_chains": [
 ///     {
-///       "name": "sepolia",
+///       "name": "SEPOLIA",
 ///       "type": "ethereum_mpt",
-///       "chain_id": 11155111,
-///       "rpc_url": "https://...",
+///       "destination_chain_id": 11155111,
 ///       "source_address": "0x...",
 ///       "gateway": "0x...",
 ///       "satellite": "0x...",
@@ -74,10 +89,9 @@ pub struct Cli {
 ///       "require_finalized": false
 ///     },
 ///     {
-///       "name": "base_sepolia",
-///       "type": "permissioned",
-///       "chain_id": 84532,
-///       "rpc_url": "https://...",
+///       "name": "BASE_SEPOLIA",
+///       "type": "permissioned_worldchain",
+///       "destination_chain_id": 84532,
 ///       "source_address": "0x...",
 ///       "gateway": "0x...",
 ///       "satellite": "0x..."
@@ -95,14 +109,14 @@ pub struct RelayConfig {
 }
 
 /// World Chain source configuration.
+///
+/// The RPC endpoint is read from the `WORLDCHAIN_RPC_URL` environment variable
+/// (not from the config).
 #[derive(Debug, Clone, Deserialize)]
 pub struct SourceConfig {
     /// Chain ID of the source chain (default: 480 for World Chain).
     #[serde(default = "default_source_chain_id")]
     pub chain_id: u64,
-
-    /// RPC endpoint for the source chain.
-    pub rpc_url: String,
 
     /// WorldIDSource proxy address.
     pub world_id_source: Address,
@@ -133,8 +147,9 @@ fn default_bridge_interval() -> u64 {
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AdapterType {
-    /// Owner-attested chain head (no proofs required).
-    Permissioned,
+    /// Owner-attested chain head relayed from World Chain (no proofs required).
+    /// The relay operator is the gateway owner; source is always World Chain.
+    PermissionedWorldchain,
     /// OP Stack dispute game + MPT storage proofs.
     EthereumMpt,
 }
@@ -142,7 +157,7 @@ pub enum AdapterType {
 impl fmt::Display for AdapterType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Permissioned => write!(f, "permissioned"),
+            Self::PermissionedWorldchain => write!(f, "permissioned_worldchain"),
             Self::EthereumMpt => write!(f, "ethereum_mpt"),
         }
     }
@@ -152,20 +167,23 @@ impl fmt::Display for AdapterType {
 ///
 /// Common fields are always required. The `type` field determines which
 /// adapter is used and which additional fields are required.
+///
+/// The RPC endpoint is derived from the `name` field: the env var
+/// `{NAME}_RPC_URL` is read at startup (e.g. `SEPOLIA_RPC_URL`).
 #[derive(Debug, Clone, Deserialize)]
 pub struct SatelliteConfig {
-    /// Human-readable name for logging (e.g. "sepolia", "base_sepolia").
+    /// Satellite identifier, also used to derive the RPC URL env var.
+    ///
+    /// The relay reads `{name}_RPC_URL` from the environment to get the
+    /// RPC endpoint. Use UPPER_CASE (e.g. `"SEPOLIA"`, `"BASE_SEPOLIA"`).
     pub name: String,
 
-    /// The adapter type: `"permissioned"` or `"ethereum_mpt"`.
+    /// The adapter type: `"permissioned_worldchain"` or `"ethereum_mpt"`.
     #[serde(rename = "type")]
     pub adapter: AdapterType,
 
     /// The destination chain ID.
-    pub chain_id: u64,
-
-    /// RPC endpoint for the destination chain.
-    pub rpc_url: String,
+    pub destination_chain_id: u64,
 
     /// WorldIDSource contract address on the source chain.
     pub source_address: Address,
@@ -194,26 +212,7 @@ pub struct SatelliteConfig {
 // Config loading
 // ---------------------------------------------------------------------------
 
-/// Expands `${VAR_NAME}` references in a string with values from the environment.
-fn expand_env_vars(input: &str) -> eyre::Result<String> {
-    let re = Regex::new(r"\$\{([^}]+)\}").expect("valid regex");
-    let mut result = input.to_string();
-    for cap in re.captures_iter(input) {
-        let var_name = &cap[1];
-        let value = std::env::var(var_name).map_err(|_| {
-            eyre::eyre!("relay config references ${{{}}} but it is not set", var_name)
-        })?;
-        result = result.replace(&cap[0], &value);
-    }
-    Ok(result)
-}
-
 /// Loads and validates the relay config from a JSON file or inline string.
-///
-/// String values in the JSON may contain `${ENV_VAR}` references which are
-/// expanded from the process environment before parsing. This allows secrets
-/// (e.g. RPC URLs) to be injected via environment variables while the rest of
-/// the config remains plain text.
 fn load_config(path: Option<&PathBuf>, inline: Option<&str>) -> eyre::Result<RelayConfig> {
     let raw = match (path, inline) {
         (Some(p), None) => std::fs::read_to_string(p)
@@ -231,9 +230,7 @@ fn load_config(path: Option<&PathBuf>, inline: Option<&str>) -> eyre::Result<Rel
         }
     };
 
-    let contents = expand_env_vars(&raw)?;
-
-    let config: RelayConfig = serde_json::from_str(&contents)
+    let config: RelayConfig = serde_json::from_str(&raw)
         .map_err(|e| eyre::eyre!("failed to parse relay config: {e}"))?;
 
     // Validate adapter-specific required fields.
@@ -242,7 +239,7 @@ fn load_config(path: Option<&PathBuf>, inline: Option<&str>) -> eyre::Result<Rel
             return Err(eyre::eyre!(
                 "satellite `{}` (chain {}) uses ethereum_mpt adapter but is missing `dispute_game_factory`",
                 sat.name,
-                sat.chain_id
+                sat.destination_chain_id
             ));
         }
     }
@@ -250,12 +247,39 @@ fn load_config(path: Option<&PathBuf>, inline: Option<&str>) -> eyre::Result<Rel
     Ok(config)
 }
 
-/// Builds a [`ProviderArgs`] for a satellite chain from its RPC URL
-/// and the shared signer.
-fn satellite_provider_args(rpc_url: &str, signer: &SignerArgs) -> ProviderArgs {
-    ProviderArgs::new()
-        .with_http_urls([rpc_url])
-        .with_signer(signer.clone())
+/// The env var name used for the World Chain (source) RPC endpoint.
+const SOURCE_RPC_ENV: &str = "WORLDCHAIN_RPC_URL";
+
+/// Reads an RPC URL from the environment.
+///
+/// For the source chain this is `WORLDCHAIN_RPC_URL`. For satellite chains
+/// the var name is `{name}_RPC_URL` (e.g. `SEPOLIA_RPC_URL`).
+fn rpc_url_from_env(env_var: &str) -> eyre::Result<String> {
+    std::env::var(env_var).map_err(|_| {
+        eyre::eyre!(
+            "{env_var} env var is required but not set — \
+             set it to the RPC endpoint for this chain"
+        )
+    })
+}
+
+impl SatelliteConfig {
+    /// Returns the env var name that supplies this satellite's RPC URL.
+    ///
+    /// Derived from the `name` field: `{NAME}_RPC_URL` (upper-cased).
+    pub fn rpc_env_var(&self) -> String {
+        format!("{}_RPC_URL", self.name.to_uppercase())
+    }
+}
+
+/// Builds a [`ProviderArgs`] for a satellite chain, reading the RPC URL from
+/// the environment and attaching the shared signer.
+fn satellite_provider_args(sat: &SatelliteConfig, signer: &SignerArgs) -> eyre::Result<ProviderArgs> {
+    let env_var = sat.rpc_env_var();
+    let rpc_url = rpc_url_from_env(&env_var)?;
+    Ok(ProviderArgs::new()
+        .with_http_urls([rpc_url.as_str()])
+        .with_signer(signer.clone()))
 }
 
 // ---------------------------------------------------------------------------
@@ -296,9 +320,9 @@ impl Cli {
         // Load the unified config (from file or inline JSON).
         let config = load_config(self.config.as_ref(), self.config_json.as_deref())?;
 
-        // Build the World Chain (source) provider.
-        let wc_provider_args =
-            ProviderArgs::new().with_http_urls([config.source.rpc_url.as_str()]);
+        // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
+        let wc_rpc_url = rpc_url_from_env(SOURCE_RPC_ENV)?;
+        let wc_provider_args = ProviderArgs::new().with_http_urls([wc_rpc_url.as_str()]);
         let wc_provider = Arc::new(wc_provider_args.http().await?);
 
         let wc_config = WorldChainConfig::from(&config.source);
@@ -315,11 +339,11 @@ impl Cli {
 
         // Spawn a satellite task for each configured chain.
         for sat_config in &config.satellite_chains {
-            let provider_args = satellite_provider_args(&sat_config.rpc_url, &shared_signer);
+            let provider_args = satellite_provider_args(sat_config, &shared_signer)?;
             let provider = Arc::new(provider_args.http().await?);
 
             match sat_config.adapter {
-                AdapterType::Permissioned => {
+                AdapterType::PermissionedWorldchain => {
                     let satellite = PermissionedSatellite::new(
                         &sat_config.name,
                         config.source.chain_id,
@@ -349,7 +373,7 @@ impl Cli {
             tracing::info!(
                 name = %sat_config.name,
                 adapter = %sat_config.adapter,
-                chain_id = sat_config.chain_id,
+                chain_id = sat_config.destination_chain_id,
                 "registered satellite"
             );
         }
@@ -379,7 +403,6 @@ mod tests {
         let json = r#"{
             "source": {
                 "chain_id": 480,
-                "rpc_url": "https://worldchain.example.com",
                 "world_id_source": "0x1111111111111111111111111111111111111111",
                 "world_id_registry": "0x2222222222222222222222222222222222222222",
                 "oprf_key_registry": "0x3333333333333333333333333333333333333333",
@@ -388,10 +411,9 @@ mod tests {
             },
             "satellite_chains": [
                 {
-                    "name": "sepolia",
+                    "name": "SEPOLIA",
                     "type": "ethereum_mpt",
-                    "chain_id": 11155111,
-                    "rpc_url": "https://eth-sepolia.example.com",
+                    "destination_chain_id": 11155111,
                     "source_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "gateway": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                     "satellite": "0xcccccccccccccccccccccccccccccccccccccccc",
@@ -400,10 +422,9 @@ mod tests {
                     "require_finalized": false
                 },
                 {
-                    "name": "base_sepolia",
-                    "type": "permissioned",
-                    "chain_id": 84532,
-                    "rpc_url": "https://base-sepolia.example.com",
+                    "name": "BASE_SEPOLIA",
+                    "type": "permissioned_worldchain",
+                    "destination_chain_id": 84532,
                     "source_address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "gateway": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                     "satellite": "0xffffffffffffffffffffffffffffffffffffffff"
@@ -418,13 +439,15 @@ mod tests {
         assert_eq!(config.satellite_chains.len(), 2);
 
         let sepolia = &config.satellite_chains[0];
-        assert_eq!(sepolia.name, "sepolia");
+        assert_eq!(sepolia.name, "SEPOLIA");
+        assert_eq!(sepolia.rpc_env_var(), "SEPOLIA_RPC_URL");
         assert_eq!(sepolia.adapter, AdapterType::EthereumMpt);
         assert!(sepolia.dispute_game_factory.is_some());
 
         let base = &config.satellite_chains[1];
-        assert_eq!(base.name, "base_sepolia");
-        assert_eq!(base.adapter, AdapterType::Permissioned);
+        assert_eq!(base.name, "BASE_SEPOLIA");
+        assert_eq!(base.rpc_env_var(), "BASE_SEPOLIA_RPC_URL");
+        assert_eq!(base.adapter, AdapterType::PermissionedWorldchain);
         assert!(base.dispute_game_factory.is_none());
     }
 
@@ -432,7 +455,6 @@ mod tests {
     fn defaults_applied() {
         let json = r#"{
             "source": {
-                "rpc_url": "https://worldchain.example.com",
                 "world_id_source": "0x1111111111111111111111111111111111111111",
                 "world_id_registry": "0x2222222222222222222222222222222222222222",
                 "oprf_key_registry": "0x3333333333333333333333333333333333333333",

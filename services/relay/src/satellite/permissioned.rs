@@ -45,7 +45,7 @@ impl PermissionedSatellite {
     ) -> Self {
         Self {
             name: name.into(),
-            chain_id: config.chain_id,
+            chain_id: config.destination_chain_id,
             gateway: IGatewayInstance::new(config.gateway, provider.clone()),
             satellite_address: config.satellite,
             anchor_chain_id,

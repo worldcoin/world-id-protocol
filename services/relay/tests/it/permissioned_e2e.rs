@@ -56,9 +56,8 @@ fn make_satellite(
     let provider = anvil.wallet_provider(&deployer)?;
     let config = SatelliteConfig {
         name: "test-permissioned".into(),
-        adapter: AdapterType::Permissioned,
-        chain_id: 31337,
-        rpc_url: String::new(),
+        adapter: AdapterType::PermissionedWorldchain,
+        destination_chain_id: 31337,
         source_address: core.source_proxy,
         gateway,
         satellite: core.satellite_proxy,
