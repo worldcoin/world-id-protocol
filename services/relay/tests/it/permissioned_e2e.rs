@@ -4,9 +4,12 @@
 //! WorldIDRegistry, CredentialSchemaIssuerRegistry, and OprfKeyRegistry
 //! contracts on a local anvil instance.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
 };
 
 use alloy::{
@@ -19,7 +22,9 @@ use ark_ff::PrimeField as _;
 use eyre::{Context, Result};
 use world_id_primitives::Signer;
 use world_id_relay::{
-    Satellite, cli::PermissionedGatewayConfig, primitives::ChainCommitment,
+    Engine, Satellite, WorldChainConfig,
+    cli::{PermissionedGatewayConfig, WorldChain},
+    primitives::ChainCommitment,
     satellite::PermissionedSatellite,
 };
 use world_id_test_utils::anvil::{
@@ -379,5 +384,90 @@ async fn e2e_permissioned_sequential_rounds() -> Result<()> {
     assert_eq!(sat_issuer2.pubKey.x, issuer2_x);
     assert_eq!(sat_issuer2.pubKey.y, issuer2_y);
 
+    Ok(())
+}
+
+/// Runs the relay Engine as a background service and verifies that it
+/// automatically detects registry events, calls propagateState, and relays
+/// the resulting commitment to the satellite.
+#[tokio::test]
+async fn e2e_engine_driven_pipeline() -> Result<()> {
+    let anvil = TestAnvil::spawn()?;
+    let (
+        source_proxy,
+        satellite_proxy,
+        world_id_registry,
+        credential_registry,
+        oprf_key_registry,
+        deployer,
+    ) = deploy_state_bridge(&anvil).await?;
+    let gateway = deploy_gateway(&anvil, deployer, source_proxy, satellite_proxy).await?;
+
+    // Build a wallet-backed provider for the engine (needs to send propagateState txs).
+    let engine_signer = anvil.signer(0)?;
+    let engine_provider = Arc::new(
+        ProviderBuilder::new()
+            .wallet(alloy::network::EthereumWallet::from(engine_signer))
+            .connect_http(anvil.endpoint().parse().unwrap())
+            .erased(),
+    );
+
+    // WorldChain config with a 1-second bridge interval for fast test ticks.
+    let wc_config = WorldChainConfig {
+        chain_id: WC_CHAIN_ID,
+        world_id_source: source_proxy,
+        oprf_key_registry,
+        credential_issuer_schema_registry: credential_registry,
+        world_id_registry,
+        bridge_interval: 1,
+    };
+
+    let world_chain = WorldChain::new(&wc_config, engine_provider);
+    let mut engine = Engine::new(world_chain);
+
+    // Spawn the permissioned satellite into the engine.
+    let satellite = make_satellite(&anvil, source_proxy, satellite_proxy, gateway)?;
+    engine.spawn_satellite(satellite);
+
+    // Run the engine in a background task.
+    let engine_handle = tokio::spawn(async move { engine.run().await });
+
+    // Give the engine a moment to initialize event streams.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Trigger state changes — the engine should detect these events automatically.
+    let root = create_root(&anvil, world_id_registry).await?;
+    let (issuer_x, issuer_y) = register_issuer(&anvil, credential_registry, 1).await?;
+
+    // Poll satellite contract until the relay completes (timeout 30s).
+    let read_provider = anvil.provider()?;
+    let sat = world_id_satellite::WorldIDSatelliteInstance::new(satellite_proxy, &read_provider);
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        if tokio::time::Instant::now() > deadline {
+            engine_handle.abort();
+            eyre::bail!("timed out waiting for satellite to receive relayed state");
+        }
+        let sat_root = sat.LATEST_ROOT().call().await?;
+        if sat_root == root {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+    // Verify full satellite state.
+    let chain = sat.KECCAK_CHAIN().call().await?;
+    assert_ne!(chain.head, B256::ZERO);
+    assert_eq!(chain.length, 2); // root + issuer (no oprf)
+
+    let sat_issuer = sat.issuerSchemaIdToPubkeyAndProofId(1u64).call().await?;
+    assert_eq!(sat_issuer.pubKey.x, issuer_x);
+    assert_eq!(sat_issuer.pubKey.y, issuer_y);
+
+    assert!(sat.isValidRoot(root).call().await?);
+    assert!(!sat.isValidRoot(U256::from(9999u64)).call().await?);
+
+    engine_handle.abort();
     Ok(())
 }

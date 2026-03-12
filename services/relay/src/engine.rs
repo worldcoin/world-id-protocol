@@ -69,6 +69,7 @@ impl Engine {
 
         if receipt.status() {
             info!(hash = %receipt.transaction_hash, "propagateState succeeded");
+            self.log.clear_pending_propagation();
         } else {
             warn!(hash = %receipt.transaction_hash, "propagateState reverted");
         }
