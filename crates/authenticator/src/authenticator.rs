@@ -165,8 +165,7 @@ impl Authenticator {
             ohttp_indexer,
         )?;
         #[cfg(not(feature = "ohttp"))]
-        let indexer_client =
-            ServiceClient::new(http_client.clone(), ServiceKind::Indexer)?;
+        let indexer_client = ServiceClient::new(http_client.clone(), ServiceKind::Indexer)?;
 
         #[cfg(feature = "ohttp")]
         let gateway_client = ServiceClient::new(
@@ -176,8 +175,7 @@ impl Authenticator {
             ohttp_gateway,
         )?;
         #[cfg(not(feature = "ohttp"))]
-        let gateway_client =
-            ServiceClient::new(http_client, ServiceKind::Gateway)?;
+        let gateway_client = ServiceClient::new(http_client, ServiceKind::Gateway)?;
 
         let packed_account_data = Self::get_packed_account_data(
             signer.onchain_signer_address(),
@@ -233,8 +231,7 @@ impl Authenticator {
             ohttp_gateway,
         )?;
         #[cfg(not(feature = "ohttp"))]
-        let gateway_client =
-            ServiceClient::new(reqwest::Client::new(), ServiceKind::Gateway)?;
+        let gateway_client = ServiceClient::new(reqwest::Client::new(), ServiceKind::Gateway)?;
         InitializingAuthenticator::new(seed, config, recovery_address, gateway_client).await
     }
 
