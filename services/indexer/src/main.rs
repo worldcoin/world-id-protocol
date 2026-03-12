@@ -1,6 +1,6 @@
-#![recursion_limit = "256"]
-
 use std::path::Path;
+
+use futures_util::FutureExt as _;
 use world_id_indexer::GlobalConfig;
 
 #[tokio::main]
@@ -15,7 +15,8 @@ async fn main() -> eyre::Result<()> {
     tracing::info!("Starting world-id-indexer...");
 
     let config = GlobalConfig::from_env()?;
-    if let Err(error) = unsafe { world_id_indexer::run_indexer(config).await } {
+    let indexer_run = unsafe { world_id_indexer::run_indexer(config) }.boxed();
+    if let Err(error) = indexer_run.await {
         tracing::error!(error = ?error, "indexer terminated with error");
         return Err(error);
     }
