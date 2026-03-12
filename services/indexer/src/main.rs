@@ -1,5 +1,3 @@
-#![recursion_limit = "256"]
-
 use std::path::Path;
 
 use futures_util::FutureExt as _;

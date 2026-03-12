@@ -1,5 +1,3 @@
-#![recursion_limit = "256"]
-
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy::{

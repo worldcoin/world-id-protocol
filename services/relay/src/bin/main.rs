@@ -1,5 +1,3 @@
-#![recursion_limit = "256"]
-
 use clap::Parser;
 use eyre::Result;
 use futures_util::FutureExt as _;
