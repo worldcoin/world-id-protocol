@@ -1,7 +1,7 @@
+use crate::FieldElement;
+use embed_doc_image::embed_doc_image;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
-
-use crate::FieldElement;
 
 /// An identifier for a session (can be re-used).
 ///
@@ -10,6 +10,9 @@ use crate::FieldElement;
 ///
 /// A `SessionId` is obtained from an initial Uniqueness Proof, and subsequently
 /// can be used in Session Proofs.
+///
+/// See the diagram below on how Session Proofs work, the [`SessionId`] and the `r` seed
+/// ![Session Proofs Diagram][session-proofs.png]
 ///
 /// It encodes two values:
 /// - `commitment`: The value verified inside the ZK-circuit, computed as
@@ -21,6 +24,7 @@ use crate::FieldElement;
 /// Note that the `action` stored here is unrelated to the randomized action used
 /// internally by [`SessionNullifier`]s — that randomized action exists only to ensure
 /// the circuit's nullifier output is unique per Session Proof.
+#[embed_doc_image("session-proofs.png", "assets/session-proofs.png")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SessionId {
     /// The actual commitment being verified in the ZK-circuit.
@@ -45,6 +49,25 @@ impl SessionId {
     /// Creates a new session id.
     #[must_use]
     pub const fn new(commitment: FieldElement, oprf_seed: FieldElement) -> Self {
+        Self {
+            commitment,
+            oprf_seed,
+        }
+    }
+
+    /// Initializes a `SessionId` from the OPRF-output seed (`r`), and the `oprf_seed`
+    /// used as input for the OPRF computation.
+    ///
+    /// This matches the logic in `oprf_nullifier.circom` for computing the `commitment` from the OPRF seed.
+    pub fn from_r_seed(
+        leaf_index: u64,
+        session_id_r_seed: FieldElement,
+        oprf_seed: FieldElement,
+    ) -> Self {
+        let sub_ds = FieldElement::from_be_bytes_mod_order(b"H(id, r)");
+        let mut input = [*sub_ds, leaf_index.into(), *session_id_r_seed];
+        poseidon2::bn254::t3::permutation_in_place(&mut input);
+        let commitment = input[1].into();
         Self {
             commitment,
             oprf_seed,

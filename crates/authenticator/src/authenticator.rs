@@ -631,7 +631,10 @@ impl Authenticator {
 
     /// Generates the session's randomness seed (`r`) using OPRF Nodes.
     ///
-    /// This seed is used to compute the `session_id` commitment for Session Proofs.
+    /// This seed is used to compute the [`SessionId::commitment`] for Session Proofs.
+    ///
+    /// This method should not be called if the `session_id_r_seed` is already cached by
+    /// the Authenticator.
     ///
     /// # Details
     /// - The seed is and MUST be computationally indistinguishable from random,
@@ -646,15 +649,33 @@ impl Authenticator {
     /// # Determinism and Recovery
     /// Because the OPRF is deterministic for the same input and key, calling this function again with a
     /// correct `sessionId` and RP will produce the same `r`. This means caching `r` is optional but recommended, `r` can
-    /// be recovered by calling this function with the original `action` (which is stored in [`SessionId::action_seed`]).
+    /// be recovered by calling this function with the original `action` (which is stored in [`SessionId::oprf_seed`]).
     /// Caching behavior is the responsibility of the Authenticator (and/or its releavnt SDKs), not this crate.
     pub async fn generate_session_id_r_seed(
         &self,
-        _proof_request: &ProofRequest,
-    ) -> Result<FieldElement, AuthenticatorError> {
-        // FIXME: Generate using OPRF Nodes
+        proof_request: &ProofRequest,
+    ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
-        Ok(FieldElement::random(&mut rng))
+
+        let oprf_seed = if let Some(session_id) = proof_request.session_id {
+            // Session is not new, re-computing from existing seed
+            session_id.oprf_seed()
+        } else {
+            FieldElement::random(&mut rng)
+        };
+
+        // TODO: Generate using OPRF Nodes with `oprf_seed` as input
+        let session_id_r_seed = FieldElement::random(&mut rng);
+
+        let session_id = SessionId::from_r_seed(self.leaf_index(), session_id_r_seed, oprf_seed);
+
+        if let Some(request_session_id) = proof_request.session_id {
+            if request_session_id != session_id {
+                return Err(AuthenticatorError::SessionIdMismatch);
+            }
+        }
+
+        Ok((session_id, session_id_r_seed))
     }
 
     /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`. This
@@ -665,7 +686,8 @@ impl Authenticator {
     /// specific `[RequestItem]` (a `[ProofRequest]` may contain multiple items).
     ///
     /// # Arguments
-    /// - `oprf_nullifier`: The `[OprfNullifier]` output generated from the `generate_nullifier` function.
+    /// - `oprf_nullifier`: The output representing the nullifier, generated from the `generate_nullifier` function. All proofs
+    ///   require this attribute.
     /// - `request_item`: The specific `RequestItem` that is being resolved from the RP's `ProofRequest`.
     /// - `credential`: The Credential to be used for the proof that fulfills the `RequestItem`.
     /// - `credential_sub_blinding_factor`: The blinding factor for the Credential's sub.
@@ -1186,6 +1208,13 @@ pub enum AuthenticatorError {
         /// Highest supported slot index.
         max_supported_slot: usize,
     },
+
+    /// The generated session ID does not match the expected session ID from the proof request.
+    ///
+    /// This indicates the `session_id` provided by the RP is invalid or compromised, as
+    /// the only other failure option is OPRFs not having performed correct computations.
+    #[error("the expected session id and the generated session id do not match")]
+    SessionIdMismatch,
 
     /// Generic error for other unexpected issues.
     #[error("{0}")]
