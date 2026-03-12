@@ -19,6 +19,7 @@ use world_id_primitives::{
     Credential, FieldElement, ProofRequest, RequestItem, ResponseItem, SessionNullifier, Signer,
 };
 
+#[cfg(feature = "ohttp")]
 pub use crate::ohttp::OhttpClientConfig;
 use crate::registry::{
     WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
@@ -67,9 +68,11 @@ pub struct AuthenticatorConfig {
     #[serde(flatten)]
     pub config: Config,
     /// Optional OHTTP relay configuration for indexer requests.
+    #[cfg(feature = "ohttp")]
     #[serde(default)]
     pub ohttp_indexer: Option<OhttpClientConfig>,
     /// Optional OHTTP relay configuration for gateway requests.
+    #[cfg(feature = "ohttp")]
     #[serde(default)]
     pub ohttp_gateway: Option<OhttpClientConfig>,
 }
@@ -78,7 +81,9 @@ impl From<Config> for AuthenticatorConfig {
     fn from(config: Config) -> Self {
         Self {
             config,
+            #[cfg(feature = "ohttp")]
             ohttp_indexer: None,
+            #[cfg(feature = "ohttp")]
             ohttp_gateway: None,
         }
     }
@@ -129,7 +134,9 @@ impl Authenticator {
     ) -> Result<Self, AuthenticatorError> {
         let AuthenticatorConfig {
             config,
+            #[cfg(feature = "ohttp")]
             ohttp_indexer,
+            #[cfg(feature = "ohttp")]
             ohttp_gateway,
         } = config;
 
@@ -150,19 +157,27 @@ impl Authenticator {
 
         let http_client = reqwest::Client::new();
 
+        #[cfg(feature = "ohttp")]
         let indexer_client = ServiceClient::new(
             http_client.clone(),
             ServiceKind::Indexer,
             config.indexer_url(),
             ohttp_indexer,
         )?;
+        #[cfg(not(feature = "ohttp"))]
+        let indexer_client =
+            ServiceClient::new(http_client.clone(), ServiceKind::Indexer)?;
 
+        #[cfg(feature = "ohttp")]
         let gateway_client = ServiceClient::new(
             http_client,
             ServiceKind::Gateway,
             config.gateway_url(),
             ohttp_gateway,
         )?;
+        #[cfg(not(feature = "ohttp"))]
+        let gateway_client =
+            ServiceClient::new(http_client, ServiceKind::Gateway)?;
 
         let packed_account_data = Self::get_packed_account_data(
             signer.onchain_signer_address(),
@@ -206,15 +221,20 @@ impl Authenticator {
     ) -> Result<InitializingAuthenticator, AuthenticatorError> {
         let AuthenticatorConfig {
             config,
+            #[cfg(feature = "ohttp")]
             ohttp_gateway,
             ..
         } = config;
+        #[cfg(feature = "ohttp")]
         let gateway_client = ServiceClient::new(
             reqwest::Client::new(),
             ServiceKind::Gateway,
             config.gateway_url(),
             ohttp_gateway,
         )?;
+        #[cfg(not(feature = "ohttp"))]
+        let gateway_client =
+            ServiceClient::new(reqwest::Client::new(), ServiceKind::Gateway)?;
         InitializingAuthenticator::new(seed, config, recovery_address, gateway_client).await
     }
 
@@ -247,12 +267,16 @@ impl Authenticator {
         {
             Ok(authenticator) => Ok(authenticator),
             Err(AuthenticatorError::AccountDoesNotExist) => {
+                #[cfg(feature = "ohttp")]
                 let gateway_client = ServiceClient::new(
                     reqwest::Client::new(),
                     ServiceKind::Gateway,
                     config.config.gateway_url(),
                     config.ohttp_gateway.clone(),
                 )?;
+                #[cfg(not(feature = "ohttp"))]
+                let gateway_client =
+                    ServiceClient::new(reqwest::Client::new(), ServiceKind::Gateway)?;
                 let initializing_authenticator = InitializingAuthenticator::new(
                     seed,
                     config.config.clone(),
@@ -1137,14 +1161,17 @@ pub enum AuthenticatorError {
     },
 
     /// OHTTP encapsulation or decapsulation error.
+    #[cfg(feature = "ohttp")]
     #[error("OHTTP encapsulation error: {0}")]
     OhttpEncapsulationError(#[from] ohttp::Error),
 
     /// Binary HTTP framing error.
+    #[cfg(feature = "ohttp")]
     #[error("Binary HTTP error: {0}")]
     BhttpError(#[from] bhttp::Error),
 
     /// The OHTTP relay itself returned a non-success status.
+    #[cfg(feature = "ohttp")]
     #[error("OHTTP relay error (status {status}): {body}")]
     OhttpRelayError {
         /// HTTP status code from the relay.

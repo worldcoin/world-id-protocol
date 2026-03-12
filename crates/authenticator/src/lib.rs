@@ -5,6 +5,7 @@ pub mod api_types;
 
 mod service_client;
 
+#[cfg(feature = "ohttp")]
 pub mod ohttp;
 
 pub mod registry;

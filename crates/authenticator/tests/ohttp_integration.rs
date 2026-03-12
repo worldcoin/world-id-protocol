@@ -1,3 +1,5 @@
+#![cfg(feature = "ohttp")]
+
 use std::sync::Arc;
 
 use axum::{Router, body, body::Bytes, extract::Request, http::StatusCode as AxumStatusCode};
