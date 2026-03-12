@@ -1,7 +1,7 @@
 //! Logic to generate nullifiers using the OPRF Nodes.
 
-use ark_ff::{PrimeField, UniformRand};
-use eyre::{Context, eyre};
+use ark_ff::PrimeField;
+use eyre::Context;
 use groth16_material::circom::CircomGroth16Material;
 
 use taceo_oprf::{
@@ -25,24 +25,14 @@ use crate::{
 
 /// Nullifier computed using OPRF Nodes.
 #[derive(Debug, Clone)]
-pub struct OprfNullifier {
+pub struct GenericOprfOutput {
     /// The raw inputs to the Query Proof circuit
     pub query_proof_input: QueryProofCircuitInput<TREE_DEPTH>,
     /// The result of the distributed OPRF protocol.
     pub verifiable_oprf_output: VerifiableOprfOutput,
-    /// The final nullifier value to be used in a Proof.
-    ///
-    /// This is equal to [`VerifiableOprfOutput::output`] and is already unblinded.
-    pub nullifier: Nullifier,
-    /// The action used in the OPRF Query. This is relevant for Session Proofs as the action is used
-    /// as a local random seed for the nullifier generation so the nullifier is always different on
-    /// each Session Proof verification.
-    ///
-    /// For Uniqueness Proofs, this simply echoes the action provided by the RP.
-    pub action: FieldElement,
 }
 
-impl OprfNullifier {
+impl GenericOprfOutput {
     /// Generates a nullifier through the provided OPRF nodes for
     /// a specific proof request.
     ///
@@ -55,6 +45,7 @@ impl OprfNullifier {
     /// section in the [`SessionNullifier`] documentation for more details on how this is expected to be deprecated with
     /// a future update.
     ///
+    ///
     /// # Arguments
     /// - `services`: The list of endpoints of all OPRF nodes.
     /// - `threshold`: The minimum number of OPRF nodes responses required to compute a valid nullifier. The
@@ -62,14 +53,13 @@ impl OprfNullifier {
     /// - `query_material`: The material for the query proof circuit.
     /// - `authenticator_input`: See [`AuthenticatorProofInput`] for more details.
     /// - `proof_request`: The proof request provided by the RP.
+    /// - `connector`: The network connector to make requests.
+    /// - `rng`: The random number generator to use for the proof generation and OPRF protocol.
     ///
     /// # Errors
     ///
-    /// Returns [`ProofError`] in the following cases:
-    /// * `PublicKeyNotFound` - the public key for the given authenticator private key is not found in the `key_set`.
-    /// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
-    /// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
-    pub async fn generate<R: rand::CryptoRng + rand::RngCore>(
+    /// See [`Self::execute_oprf`] for error details.
+    pub async fn generate_nullifier<R: rand::CryptoRng + rand::RngCore>(
         services: &[String],
         threshold: usize,
         query_material: &CircomGroth16Material,
@@ -78,24 +68,54 @@ impl OprfNullifier {
         connector: Connector,
         rng: &mut R,
     ) -> Result<Self, ProofError> {
+        let query = if proof_request.is_session_proof() {
+            // For session proofs a random action is used internally. This is opaque to RPs who receive
+            // it within the encoded `SessionNullifier`
+            FieldElement::random(rng)
+        } else {
+            proof_request.action.ok_or(ProofError::InvalidQuery)?
+        };
+        Self::execute_oprf(
+            services,
+            threshold,
+            query_material,
+            authenticator_input,
+            proof_request,
+            connector,
+            query,
+            rng,
+        )
+        .await
+    }
+
+    /// Queries the OPRF nodes to compute an output based on an authenticated query.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProofError`] in the following cases:
+    /// * `PublicKeyNotFound` - the public key for the given authenticator private key is not found in the `key_set`.
+    /// * `InvalidDLogProof` – the `DLog` equality proof could not be verified.
+    /// * Other errors may propagate from network requests, proof generation, or Groth16 verification.
+    #[expect(clippy::too_many_arguments)]
+    async fn execute_oprf<R: rand::CryptoRng + rand::RngCore>(
+        services: &[String],
+        threshold: usize,
+        query_material: &CircomGroth16Material,
+        authenticator_input: AuthenticatorProofInput,
+        proof_request: &ProofRequest,
+        connector: Connector,
+        query: FieldElement,
+        rng: &mut R,
+    ) -> Result<Self, ProofError> {
         let mut rng = rng;
         let query_blinding_factor = BlindingFactor::rand(&mut rng);
 
         let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] =
             authenticator_input.inclusion_proof.siblings.map(|s| *s);
 
-        let action = if proof_request.is_session_proof() {
-            ark_babyjubjub::Fq::rand(&mut rng)
-        } else {
-            *proof_request.action.ok_or(ProofError::InternalError(
-                // this is an internal error because this should have been verified before
-                eyre!("action not provided for uniqueness proof"),
-            ))?
-        };
-
         let query_hash = world_id_primitives::authenticator::oprf_query_digest(
             authenticator_input.inclusion_proof.leaf_index,
-            action.into(),
+            query,
             proof_request.rp_id.into(),
         );
         let signature = authenticator_input.private_key.sign(*query_hash);
@@ -111,7 +131,7 @@ impl OprfNullifier {
             siblings,
             beta: query_blinding_factor.beta(),
             rp_id: *FieldElement::from(proof_request.rp_id),
-            action,
+            action: *query,
             nonce: *proof_request.nonce,
         };
         let _ = errors::check_query_input_validity(&query_proof_input)?;
@@ -123,7 +143,7 @@ impl OprfNullifier {
 
         let auth = NullifierOprfRequestAuthV1 {
             proof: proof.into(),
-            action,
+            action: *query,
             nonce: *proof_request.nonce,
             merkle_root: *authenticator_input.inclusion_proof.root,
             current_time_stamp: proof_request.created_at,
@@ -148,13 +168,13 @@ impl OprfNullifier {
         )
         .await?;
 
-        let nullifier: Nullifier = FieldElement::from(verifiable_oprf_output.output).into();
-
         Ok(Self {
             query_proof_input,
             verifiable_oprf_output,
-            nullifier,
-            action: action.into(),
         })
+    }
+
+    pub fn as_nullifier(&self) -> Nullifier {
+        FieldElement::from(self.verifiable_oprf_output.output).into()
     }
 }

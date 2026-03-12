@@ -42,7 +42,7 @@ use world_id_primitives::{
 use world_id_proof::{
     AuthenticatorProofInput,
     credential_blinding_factor::OprfCredentialBlindingFactor,
-    nullifier::OprfNullifier,
+    nullifier::GenericOprfOutput,
     proof::{ProofError, generate_nullifier_proof},
 };
 
@@ -543,7 +543,7 @@ impl Authenticator {
         proof_request: &ProofRequest,
         inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
         key_set: AuthenticatorPublicKeySet,
-    ) -> Result<OprfNullifier, AuthenticatorError> {
+    ) -> Result<GenericOprfOutput, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
         let (services, threshold) = self.check_oprf_config()?;
@@ -565,7 +565,7 @@ impl Authenticator {
             key_index,
         );
 
-        Ok(OprfNullifier::generate(
+        Ok(GenericOprfOutput::generate_nullifier(
             services,
             threshold,
             &self.query_material,
@@ -677,7 +677,7 @@ impl Authenticator {
     #[allow(clippy::too_many_arguments)]
     pub fn generate_single_proof(
         &self,
-        oprf_nullifier: OprfNullifier,
+        oprf_nullifier: GenericOprfOutput,
         request_item: &RequestItem,
         credential: &Credential,
         credential_sub_blinding_factor: FieldElement,

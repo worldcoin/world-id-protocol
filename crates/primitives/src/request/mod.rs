@@ -1609,7 +1609,7 @@ mod tests {
         assert_eq!(sess_canonical.successful_credentials(), vec![100]);
         assert!(sess_canonical.responses[0].is_session());
         assert_eq!(
-            sess_canonical.session_id.unwrap().action_seed(),
+            sess_canonical.session_id.unwrap().oprf_seed(),
             FieldElement::from(1u64)
         );
     }
