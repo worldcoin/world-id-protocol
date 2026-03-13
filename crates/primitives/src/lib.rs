@@ -529,4 +529,66 @@ mod tests {
         let back: U256 = fe.into();
         assert_eq!(original, back);
     }
+
+    /// Illustrates the session action prefix scheme for the spec.
+    ///
+    /// Hashed actions use `keccak256(string) >> 8` which always produces a top byte of 0x00.
+    /// Session actions set the top byte to 0x01, which is still a valid field element
+    /// but can never be produced by the hashing construction — zero collision by design.
+    #[test]
+    fn test_session_action_prefix_scheme() {
+        // --- Hashed actions always have MSB = 0x00 ---
+        let action_strings = [
+            "verify-humanity",
+            "login",
+            "vote-proposal-42",
+            "some-really-long-action-string-that-could-be-anything",
+        ];
+        for action_str in action_strings {
+            let fe = FieldElement::from_arbitrary_raw_bytes(action_str.as_bytes());
+            let bytes = fe.to_be_bytes();
+            assert_eq!(
+                bytes[0], 0x00,
+                "hashed action '{action_str}' must have top byte 0x00, got 0x{:02x}",
+                bytes[0]
+            );
+        }
+
+        // --- Session action with top byte = 0x01: valid field element ---
+        let mut session_bytes = [0xABu8; 32];
+        session_bytes[0] = 0x01; // set MSB to session prefix
+        let session_action = FieldElement::from_be_bytes(&session_bytes);
+        assert!(
+            session_action.is_ok(),
+            "0x01 prefixed value must be a valid field element"
+        );
+
+        // --- Top byte = 0x01 is well under the field prime (0x30...) ---
+        // So any 32-byte value with top byte 0x01 is always < p
+        let max_session = {
+            let mut b = [0xFF; 32];
+            b[0] = 0x01;
+            FieldElement::from_be_bytes(&b)
+        };
+        assert!(
+            max_session.is_ok(),
+            "even 0x01_FFFF...FFFF must be a valid field element (it's far below p = 0x30...)"
+        );
+
+        // --- Top byte >= 0x31 is NEVER a valid field element ---
+        let invalid = {
+            let mut b = [0x00; 32];
+            b[0] = 0x31;
+            FieldElement::from_be_bytes(&b)
+        };
+        assert!(
+            invalid.is_err(),
+            "0x31 prefixed value exceeds the field prime"
+        );
+
+        // --- The two ranges never overlap ---
+        // Hashed:  0x00_0000...0000 to 0x00_FFFF...FFFF  (top byte always 0x00)
+        // Session: 0x01_0000...0000 to 0x01_FFFF...FFFF  (top byte always 0x01)
+        // Both are valid field elements, but structurally disjoint.
+    }
 }
