@@ -488,10 +488,7 @@ impl Authenticator {
     ///
     /// # Use
     /// - This method is used to prove ownership over a leaf index **only for Recovery Agents**.
-    pub fn danger_sign_challenge(
-        &mut self,
-        challenge: &[u8],
-    ) -> Result<Signature, AuthenticatorError> {
+    pub fn danger_sign_challenge(&self, challenge: &[u8]) -> Result<Signature, AuthenticatorError> {
         self.signer
             .onchain_signer()
             .sign_message_sync(challenge)
