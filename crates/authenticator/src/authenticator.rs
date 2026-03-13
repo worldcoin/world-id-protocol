@@ -33,7 +33,7 @@ use secrecy::ExposeSecret;
 use taceo_oprf::client::Connector;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
-    PrimitiveError, ZeroKnowledgeProof,
+    PrimitiveError, SessionId, ZeroKnowledgeProof,
     authenticator::{
         AuthenticatorPublicKeySet, SparseAuthenticatorPubkeysError,
         decode_sparse_authenticator_pubkeys,
@@ -41,11 +41,12 @@ use world_id_primitives::{
     merkle::MerkleInclusionProof,
 };
 use world_id_proof::{
-    AuthenticatorProofInput,
-    credential_blinding_factor::OprfCredentialBlindingFactor,
-    nullifier::OprfNullifier,
+    AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint,
     proof::{ProofError, generate_nullifier_proof},
 };
+
+#[expect(unused_imports, reason = "used for docs")]
+use world_id_primitives::Nullifier;
 
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
@@ -555,9 +556,13 @@ impl Authenticator {
 
     /// Generates a nullifier for a World ID Proof (through OPRF Nodes).
     ///
-    /// A nullifier is a unique, one-time use, anonymous identifier for a World ID
-    /// on a specific RP context. It is used to ensure that a single World ID can only
-    /// perform an action once.
+    /// A [`Nullifier`] is a unique, one-time use, anonymous identifier for a World ID
+    /// on a specific RP context. See [`Nullifier`] for more details.
+    ///
+    /// A Nullifier takes an `action` as input:
+    /// - If `proof_request` is for a Session Proof, a random `action` is generated.
+    /// - If `proof_request` is for a Uniqueness Proof, the `action` is provided by the RP,
+    ///   if not provided a default of [`FieldElement::ZERO`] is used.
     ///
     /// # Errors
     ///
@@ -569,7 +574,9 @@ impl Authenticator {
         proof_request: &ProofRequest,
         inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
         key_set: AuthenticatorPublicKeySet,
-    ) -> Result<OprfNullifier, AuthenticatorError> {
+    ) -> Result<FullOprfOutput, AuthenticatorError> {
+        let mut rng = rand::rngs::OsRng;
+
         let (services, threshold) = self.check_oprf_config()?;
         let key_index = key_set
             .iter()
@@ -589,15 +596,16 @@ impl Authenticator {
             key_index,
         );
 
-        Ok(OprfNullifier::generate(
+        let oprf_entry_point = OprfEntrypoint::new(
             services,
             threshold,
             &self.query_material,
-            authenticator_input,
-            proof_request,
-            self.ws_connector.clone(),
-        )
-        .await?)
+            &authenticator_input,
+            &self.ws_connector,
+        );
+        Ok(oprf_entry_point
+            .gen_nullifier(&mut rng, proof_request)
+            .await?)
     }
 
     // TODO add more docs
@@ -612,6 +620,7 @@ impl Authenticator {
         &self,
         issuer_schema_id: u64,
     ) -> Result<FieldElement, AuthenticatorError> {
+        let mut rng = rand::rngs::OsRng;
         let (services, threshold) = self.check_oprf_config()?;
 
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
@@ -633,18 +642,68 @@ impl Authenticator {
             key_index,
         );
 
-        let blinding_factor = OprfCredentialBlindingFactor::generate(
+        let oprf_entry_point = OprfEntrypoint::new(
             services,
             threshold,
             &self.query_material,
-            authenticator_input,
-            issuer_schema_id,
-            FieldElement::ZERO, // for now action is always zero, might change in future
-            self.ws_connector.clone(),
-        )
-        .await?;
+            &authenticator_input,
+            &self.ws_connector,
+        );
 
-        Ok(blinding_factor.verifiable_oprf_output.output.into())
+        let (blinding_factor, _share_epoch) = oprf_entry_point
+            .gen_credential_blinding_factor(&mut rng, issuer_schema_id)
+            .await?;
+
+        Ok(blinding_factor)
+    }
+
+    /// Generates the session's randomness seed (`r`) using OPRF Nodes.
+    ///
+    /// This seed is used to compute the [`SessionId::commitment`] for Session Proofs.
+    ///
+    /// This method should not be called if the `session_id_r_seed` is already cached by
+    /// the Authenticator.
+    ///
+    /// # Details
+    /// - The seed is and MUST be computationally indistinguishable from random,
+    ///   i.e. uniformly distributed because it uses OPRF.
+    /// - The OPRF nodes will use the same `oprfKeyId` for the RP, with a different domain separator.
+    /// - Requesting this seed requires a properly signed request from the RP and a complete query proof. The
+    ///   query proof can be re-used once to generate a nullifier as well (separate requests to OPRF nodes).
+    ///   Both calls can be made in parallel.
+    /// - The seed generation is based on a specific RP-provided `action` for the initial Uniqueness Proof. Note
+    ///   this `action` is different than the randomized action used internally by [`SessionNullifier`]s.
+    ///
+    /// # Determinism and Recovery
+    /// Because the OPRF is deterministic for the same input and key, calling this function again with a
+    /// correct `sessionId` and RP will produce the same `r`. This means caching `r` is optional but recommended, `r` can
+    /// be recovered by calling this function with the original `action` (which is stored in [`SessionId::oprf_seed`]).
+    /// Caching behavior is the responsibility of the Authenticator (and/or its releavnt SDKs), not this crate.
+    pub async fn generate_session_id_r_seed(
+        &self,
+        proof_request: &ProofRequest,
+    ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
+        let mut rng = rand::rngs::OsRng;
+
+        let oprf_seed = if let Some(session_id) = proof_request.session_id {
+            // Session is not new, re-computing from existing seed
+            session_id.oprf_seed()
+        } else {
+            FieldElement::random(&mut rng)
+        };
+
+        // TODO: Generate using OPRF Nodes with `oprf_seed` as input
+        let session_id_r_seed = FieldElement::random(&mut rng);
+
+        let session_id = SessionId::from_r_seed(self.leaf_index(), session_id_r_seed, oprf_seed);
+
+        if let Some(request_session_id) = proof_request.session_id {
+            if request_session_id != session_id {
+                return Err(AuthenticatorError::SessionIdMismatch);
+            }
+        }
+
+        Ok((session_id, session_id_r_seed))
     }
 
     /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`. This
@@ -655,11 +714,14 @@ impl Authenticator {
     /// specific `[RequestItem]` (a `[ProofRequest]` may contain multiple items).
     ///
     /// # Arguments
-    /// - `oprf_nullifier`: The `[OprfNullifier]` output generated from the `generate_nullifier` function.
+    /// - `oprf_nullifier`: The output representing the nullifier, generated from the `generate_nullifier` function. All proofs
+    ///   require this attribute.
     /// - `request_item`: The specific `RequestItem` that is being resolved from the RP's `ProofRequest`.
     /// - `credential`: The Credential to be used for the proof that fulfills the `RequestItem`.
     /// - `credential_sub_blinding_factor`: The blinding factor for the Credential's sub.
-    /// - `session_id_r_seed`: The session ID random seed. Obtained from the RP's [`ProofRequest`].
+    /// - `session_id_r_seed`: The session ID random seed, obtained via [`generate_session_id_r_seed`](Self::generate_session_id_r_seed).
+    ///   For Uniqueness Proofs (when `session_id` is `None`), this value is ignored by the circuit
+    ///   but must still be provided.
     /// - `session_id`: The expected session ID provided by the RP. Only needed for Session Proofs. Obtained from the RP's [`ProofRequest`].
     /// - `request_timestamp`: The timestamp of the request. Obtained from the RP's [`ProofRequest`].
     ///
@@ -670,12 +732,12 @@ impl Authenticator {
     #[allow(clippy::too_many_arguments)]
     pub fn generate_single_proof(
         &self,
-        oprf_nullifier: OprfNullifier,
+        oprf_nullifier: FullOprfOutput,
         request_item: &RequestItem,
         credential: &Credential,
         credential_sub_blinding_factor: FieldElement,
         session_id_r_seed: FieldElement,
-        session_id: Option<FieldElement>,
+        session_id: Option<SessionId>,
         request_timestamp: u64,
     ) -> Result<ResponseItem, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
@@ -692,7 +754,7 @@ impl Authenticator {
             credential_sub_blinding_factor,
             oprf_nullifier,
             request_item,
-            session_id,
+            session_id.map(|v| v.commitment()),
             session_id_r_seed,
             expires_at_min,
         )?;
@@ -1174,6 +1236,13 @@ pub enum AuthenticatorError {
         /// Highest supported slot index.
         max_supported_slot: usize,
     },
+
+    /// The generated session ID does not match the expected session ID from the proof request.
+    ///
+    /// This indicates the `session_id` provided by the RP is invalid or compromised, as
+    /// the only other failure option is OPRFs not having performed correct computations.
+    #[error("the expected session id and the generated session id do not match")]
+    SessionIdMismatch,
 
     /// Generic error for other unexpected issues.
     #[error("{0}")]

@@ -32,7 +32,9 @@ use world_id_core::{
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
 };
-use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
+use world_id_primitives::{
+    Config, FieldElement, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
+};
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
     fixtures::{
@@ -340,7 +342,9 @@ async fn main() -> Result<()> {
     let mt_index = ark_babyjubjub::Fq::from(leaf_index);
     let mut id_state = [ds_c, mt_index, *session_id_r_seed2];
     poseidon2::bn254::t3::permutation_in_place(&mut id_state);
-    let session_id: FieldElement = id_state[1].into();
+    let session_commitment: FieldElement = id_state[1].into();
+    let session_action: FieldElement = rp_fixture.action.into();
+    let session_id = SessionId::new(session_commitment, session_action);
     let session_response = authenticator.generate_single_proof(
         nullifier_data_for_session,
         request_item,
@@ -369,7 +373,7 @@ async fn main() -> Result<()> {
                 .unwrap_or_default()
                 .try_into()
                 .expect("u64 fits into U256"),
-            session_id.into(),
+            session_id.commitment().into(),
             session_nullifier.as_ethereum_representation(),
             session_response.proof.as_ethereum_representation(),
         )
@@ -446,7 +450,7 @@ async fn main() -> Result<()> {
     println!();
 
     println!("// ── Session Proof inputs ──");
-    let session_id_u256: U256 = session_id.into();
+    let session_id_u256: U256 = session_id.commitment().into();
     let s_proof = session_response.proof.as_ethereum_representation();
     let s_null = session_nullifier.as_ethereum_representation();
     println!("uint256 sessionId = {:#x};", session_id_u256);

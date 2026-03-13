@@ -6,7 +6,7 @@ mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
 use crate::{
-    FieldElement, PrimitiveError, SessionNullifier, ZeroKnowledgeProof, nullifier::Nullifier,
+    FieldElement, Nullifier, PrimitiveError, SessionId, SessionNullifier, ZeroKnowledgeProof,
     rp::RpId,
 };
 use serde::{Deserialize, Serialize, de::Error as _};
@@ -67,7 +67,7 @@ pub struct ProofRequest {
     /// If provided, a Session Proof will be generated instead of a Uniqueness Proof.
     /// The proof will only be valid if the session ID is meant for this context and this
     /// particular World ID holder.
-    pub session_id: Option<FieldElement>,
+    pub session_id: Option<SessionId>,
     /// An RP-defined context that scopes what the user is proving uniqueness on.
     ///
     /// This parameter expects a field element. When dealing with strings or bytes,
@@ -191,10 +191,14 @@ pub struct ProofResponse {
     /// RP session identifier that links multiple proofs for the same
     /// user/RP pair across requests.
     ///
-    /// When session proofs are enabled, this is the hex-encoded field element
-    /// emitted by the session circuit; otherwise it is omitted.
+    /// For the initial Uniqueness Proof that creates a session, this contains
+    /// the newly generated `SessionId`. For subsequent Session Proofs, this
+    /// echoes back the `SessionId` from the request for convenience.
+    ///
+    /// This is optional as Authenticators may opt to not expose it
+    /// in Uniqueness Proofs unless explicitly requested.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<FieldElement>,
+    pub session_id: Option<SessionId>,
     /// Error message if the entire proof request failed.
     /// When present, the responses array will be empty.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -405,18 +409,10 @@ impl ProofRequest {
         Ok(hasher.finalize().into())
     }
 
-    /// Gets the action value to use in the proof.
-    ///
-    /// - When an explicit action is provided, it is returned directly.
-    /// - For session proofs (action is `None`), a random action is generated.
-    ///
-    /// Callers should cache the action during proof generation to ensure consistency across proof steps.
+    /// Returns true if this request is for a Session proof (i.e., has a session ID).
     #[must_use]
-    pub fn computed_action<R: rand::CryptoRng + rand::RngCore>(&self, rng: &mut R) -> FieldElement {
-        match self.action {
-            Some(action) => action,
-            None => FieldElement::random(rng),
-        }
+    pub const fn is_session_proof(&self) -> bool {
+        self.session_id.is_some()
     }
 
     /// Validate that a response satisfies this request: id match and constraints semantics.
@@ -1343,7 +1339,7 @@ mod tests {
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: Some(test_field_element(55)),
+            session_id: Some(SessionId::default()),
             action: Some(test_field_element(1)),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -1364,7 +1360,7 @@ mod tests {
         let resp = ProofResponse {
             id: req.id.clone(),
             version: RequestVersion::V1,
-            session_id: Some(test_field_element(55)),
+            session_id: Some(SessionId::default()),
             error: None,
             responses: vec![ResponseItem::new_session(
                 "test_req_1".into(),
@@ -1661,7 +1657,7 @@ mod tests {
             r#"{{
   "id": "req_18c0f7f03e7d",
   "version": 1,
-  "session_id": "0x00000000000000000000000000000000000000000000000000000000000003ea",
+  "session_id": "session_00000000000000000000000000000000000000000000000000000000000003ea0000000000000000000000000000000000000000000000000000000000000001",
   "responses": [
     {{
       "identifier": "orb",
@@ -1676,6 +1672,10 @@ mod tests {
         let sess_canonical = ProofResponse::from_json(&sess_json_canonical).unwrap();
         assert_eq!(sess_canonical.successful_credentials(), vec![100]);
         assert!(sess_canonical.responses[0].is_session());
+        assert_eq!(
+            sess_canonical.session_id.unwrap().oprf_seed(),
+            FieldElement::from(1u64)
+        );
     }
     /// Test duplicate detection by creating a serialized `ProofRequest` with duplicates
     /// and then trying to parse it with `from_json` which should detect the duplicates
@@ -2206,49 +2206,6 @@ mod tests {
     }
 
     #[test]
-    fn computed_action_returns_explicit_action() {
-        let action = test_field_element(42);
-        let request = ProofRequest {
-            id: "req".into(),
-            version: RequestVersion::V1,
-            created_at: 1_700_000_000,
-            expires_at: 1_700_100_000,
-            rp_id: RpId::new(1),
-            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(action),
-            signature: test_signature(),
-            nonce: test_nonce(),
-            requests: vec![],
-            constraints: None,
-        };
-        assert_eq!(request.computed_action(&mut rand::rngs::OsRng), action);
-    }
-
-    #[test]
-    fn computed_action_generates_random_when_none() {
-        let request = ProofRequest {
-            id: "req".into(),
-            version: RequestVersion::V1,
-            created_at: 1_700_000_000,
-            expires_at: 1_700_100_000,
-            rp_id: RpId::new(1),
-            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: Some(test_field_element(99)),
-            action: None,
-            signature: test_signature(),
-            nonce: test_nonce(),
-            requests: vec![],
-            constraints: None,
-        };
-
-        let action1 = request.computed_action(&mut rand::rngs::OsRng);
-        let action2 = request.computed_action(&mut rand::rngs::OsRng);
-        // Each call generates a different random action
-        assert_ne!(action1, action2);
-    }
-
-    #[test]
     fn test_validate_response_requires_session_id_in_response() {
         // Request with session_id should require response to also have session_id
         let request = ProofRequest {
@@ -2258,7 +2215,7 @@ mod tests {
             expires_at: 1_735_689_900,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: Some(test_field_element(123)), // Session proof
+            session_id: Some(SessionId::default()), // Session proof
             action: Some(test_field_element(42)),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -2303,7 +2260,7 @@ mod tests {
             expires_at: 1_735_689_900,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: Some(test_field_element(123)), // Session proof
+            session_id: Some(SessionId::default()), // Session proof
             action: Some(test_field_element(42)),
             signature: test_signature(),
             nonce: test_nonce(),
@@ -2321,7 +2278,7 @@ mod tests {
         let response_wrong_nullifier_type = ProofResponse {
             id: "req_session".into(),
             version: RequestVersion::V1,
-            session_id: Some(test_field_element(123)),
+            session_id: Some(SessionId::default()),
             error: None,
             responses: vec![ResponseItem::new_uniqueness(
                 "orb".into(),
