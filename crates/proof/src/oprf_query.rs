@@ -11,6 +11,7 @@ use serde::Serialize;
 use taceo_oprf::{
     client::{Connector, VerifiableOprfOutput},
     core::oprf::BlindingFactor,
+    types::ShareEpoch,
 };
 
 use world_id_primitives::{
@@ -88,7 +89,7 @@ impl<'a> OprfEntrypoint<'a> {
         &self,
         rng: &mut R,
         issuer_schema_id: u64,
-    ) -> Result<FieldElement, ProofError> {
+    ) -> Result<(FieldElement, ShareEpoch), ProofError> {
         // Currently, the `action` (i.e. query) is always zero, this may change in future
         let action = FieldElement::ZERO;
 
@@ -119,7 +120,10 @@ impl<'a> OprfEntrypoint<'a> {
             self.connector.clone(),
         )
         .await?;
-        Ok(verifiable_oprf_output.output.into())
+        Ok((
+            verifiable_oprf_output.output.into(),
+            verifiable_oprf_output.epoch,
+        ))
     }
 
     /// Generates a nullifier through the provided OPRF nodes for

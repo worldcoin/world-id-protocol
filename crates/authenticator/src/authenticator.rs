@@ -624,9 +624,11 @@ impl Authenticator {
             &self.ws_connector,
         );
 
-        Ok(oprf_entry_point
+        let (blinding_factor, _share_epoch) = oprf_entry_point
             .gen_credential_blinding_factor(&mut rng, issuer_schema_id)
-            .await?)
+            .await?;
+
+        Ok(blinding_factor)
     }
 
     /// Generates the session's randomness seed (`r`) using OPRF Nodes.

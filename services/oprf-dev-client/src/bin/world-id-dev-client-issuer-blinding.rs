@@ -115,11 +115,11 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
             &connector,
         );
 
-        oprf_entry_point
+        let (_blinding_factor, share_epoch) = oprf_entry_point
             .gen_credential_blinding_factor(&mut rng, setup.issuer_schema_id)
             .await?;
 
-        Ok(ShareEpoch::default())
+        Ok(share_epoch)
     }
 
     async fn prepare_stress_test_item<R: Rng + CryptoRng + Send>(

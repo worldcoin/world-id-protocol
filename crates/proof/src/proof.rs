@@ -339,7 +339,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         .clone()
         .ok_or_else(|| ProofError::InternalError(eyre::eyre!("Credential not signed")))?;
 
-    let nullifier_from_opf_output = oprf_output.verifiable_oprf_output.output;
+    let nullifier_from_oprf_output = oprf_output.verifiable_oprf_output.output;
 
     let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH> {
         query_input: oprf_output.query_proof_input,
@@ -372,7 +372,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     nullifier_material.verify_proof(&proof, &public)?;
 
     // Verify that the computed nullifier matches the OPRF output.
-    if public[0] != nullifier_from_opf_output {
+    if public[0] != nullifier_from_oprf_output {
         return Err(ProofError::InternalError(eyre::eyre!(
             "Computed nullifier does not match OPRF output"
         )));
