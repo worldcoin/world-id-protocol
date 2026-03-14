@@ -181,7 +181,6 @@ async fn e2e_gateway_full_flow() {
         nonce,
         &domain,
     )
-    .await
     .unwrap();
     let body_ins = InsertAuthenticatorRequest {
         leaf_index: 1,
@@ -246,7 +245,6 @@ async fn e2e_gateway_full_flow() {
         nonce,
         &domain,
     )
-    .await
     .unwrap();
     let body_rem = RemoveAuthenticatorRequest {
         leaf_index: 1,
@@ -308,7 +306,6 @@ async fn e2e_gateway_full_flow() {
         nonce,
         &domain,
     )
-    .await
     .unwrap();
     let body_rec = RecoverAccountRequest {
         leaf_index: 1,
@@ -373,7 +370,6 @@ async fn e2e_gateway_full_flow() {
         nonce,
         &domain,
     )
-    .await
     .unwrap();
     let body_upd = UpdateAuthenticatorRequest {
         leaf_index: 1,
@@ -493,7 +489,6 @@ async fn test_authenticator_already_exists_error_code() {
         nonce,
         &domain,
     )
-    .await
     .unwrap();
     let body_ins = InsertAuthenticatorRequest {
         leaf_index: 1,

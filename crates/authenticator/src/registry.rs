@@ -5,7 +5,7 @@
 
 use alloy::{
     primitives::{Address, Signature, U256},
-    signers::Signer,
+    signers::SignerSync,
     sol,
     sol_types::{Eip712Domain, SolStruct, eip712_domain},
 };
@@ -101,7 +101,7 @@ pub const fn domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain 
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
 #[allow(clippy::too_many_arguments)]
-pub async fn sign_update_authenticator<S: Signer + Sync>(
+pub fn sign_update_authenticator<S: SignerSync + Sync>(
     signer: &S,
     leaf_index: u64,
     old_authenticator_address: Address,
@@ -122,7 +122,7 @@ pub async fn sign_update_authenticator<S: Signer + Sync>(
         nonce,
     };
     let digest = payload.eip712_signing_hash(domain);
-    Ok(signer.sign_hash(&digest).await?)
+    Ok(signer.sign_hash_sync(&digest)?)
 }
 
 /// Signs the EIP-712 payload for an `insertAuthenticator` contract call.
@@ -130,7 +130,7 @@ pub async fn sign_update_authenticator<S: Signer + Sync>(
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
 #[allow(clippy::too_many_arguments)]
-pub async fn sign_insert_authenticator<S: Signer + Sync>(
+pub fn sign_insert_authenticator<S: SignerSync + Sync>(
     signer: &S,
     leaf_index: u64,
     new_authenticator_address: Address,
@@ -149,7 +149,7 @@ pub async fn sign_insert_authenticator<S: Signer + Sync>(
         nonce,
     };
     let digest = payload.eip712_signing_hash(domain);
-    Ok(signer.sign_hash(&digest).await?)
+    Ok(signer.sign_hash_sync(&digest)?)
 }
 
 /// Signs the EIP-712 payload for a `removeAuthenticator` contract call.
@@ -157,7 +157,7 @@ pub async fn sign_insert_authenticator<S: Signer + Sync>(
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
 #[allow(clippy::too_many_arguments)]
-pub async fn sign_remove_authenticator<S: Signer + Sync>(
+pub fn sign_remove_authenticator<S: SignerSync + Sync>(
     signer: &S,
     leaf_index: u64,
     authenticator_address: Address,
@@ -176,14 +176,14 @@ pub async fn sign_remove_authenticator<S: Signer + Sync>(
         nonce,
     };
     let digest = payload.eip712_signing_hash(domain);
-    Ok(signer.sign_hash(&digest).await?)
+    Ok(signer.sign_hash_sync(&digest)?)
 }
 
 /// Signs the EIP-712 payload for a `recoverAccount` contract call.
 ///
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
-pub async fn sign_recover_account<S: Signer + Sync>(
+pub fn sign_recover_account<S: SignerSync + Sync>(
     signer: &S,
     leaf_index: u64,
     new_authenticator_address: Address,
@@ -200,5 +200,5 @@ pub async fn sign_recover_account<S: Signer + Sync>(
         nonce,
     };
     let digest = payload.eip712_signing_hash(domain);
-    Ok(signer.sign_hash(&digest).await?)
+    Ok(signer.sign_hash_sync(&digest)?)
 }

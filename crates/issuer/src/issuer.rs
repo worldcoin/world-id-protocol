@@ -48,7 +48,7 @@ impl Issuer {
     ) -> Result<Self, IssuerError> {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
-        let mut signer = Signer::from_seed_bytes(seed)?;
+        let signer = Signer::from_seed_bytes(seed)?;
 
         let rpc_url = Url::parse(&rpc_url).map_err(|e| PrimitiveError::InvalidInput {
             reason: e.to_string(),

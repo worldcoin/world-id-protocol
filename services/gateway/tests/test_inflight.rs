@@ -253,7 +253,6 @@ async fn send_recover_via_auth(
         nonce,
         &eip712_domain,
     )
-    .await
     .map_err(|e| AuthenticatorError::Generic(format!("Failed to sign recover account: {e}")))?;
 
     let req = RecoverAccountRequest {

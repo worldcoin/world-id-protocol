@@ -488,10 +488,7 @@ impl Authenticator {
     ///
     /// # Use
     /// - This method is used to prove ownership over a leaf index **only for Recovery Agents**.
-    pub fn danger_sign_challenge(
-        &mut self,
-        challenge: &[u8],
-    ) -> Result<Signature, AuthenticatorError> {
+    pub fn danger_sign_challenge(&self, challenge: &[u8]) -> Result<Signature, AuthenticatorError> {
         self.signer
             .onchain_signer()
             .sign_message_sync(challenge)
@@ -759,7 +756,6 @@ impl Authenticator {
             nonce,
             &eip712_domain,
         )
-        .await
         .map_err(|e| {
             AuthenticatorError::Generic(format!("Failed to sign insert authenticator: {e}"))
         })?;
@@ -836,7 +832,6 @@ impl Authenticator {
             nonce,
             &eip712_domain,
         )
-        .await
         .map_err(|e| {
             AuthenticatorError::Generic(format!("Failed to sign update authenticator: {e}"))
         })?;
@@ -914,7 +909,6 @@ impl Authenticator {
             nonce,
             &eip712_domain,
         )
-        .await
         .map_err(|e| {
             AuthenticatorError::Generic(format!("Failed to sign remove authenticator: {e}"))
         })?;
@@ -1437,7 +1431,7 @@ mod tests {
     #[test]
     fn test_danger_sign_challenge_returns_valid_signature() {
         let (query_material, nullifier_material) = test_materials();
-        let mut authenticator = Authenticator {
+        let authenticator = Authenticator {
             config: Config::new(
                 None,
                 1,
@@ -1469,7 +1463,7 @@ mod tests {
     #[test]
     fn test_danger_sign_challenge_different_challenges_different_signatures() {
         let (query_material, nullifier_material) = test_materials();
-        let mut authenticator = Authenticator {
+        let authenticator = Authenticator {
             config: Config::new(
                 None,
                 1,
@@ -1497,7 +1491,7 @@ mod tests {
     #[test]
     fn test_danger_sign_challenge_deterministic() {
         let (query_material, nullifier_material) = test_materials();
-        let mut authenticator = Authenticator {
+        let authenticator = Authenticator {
             config: Config::new(
                 None,
                 1,
