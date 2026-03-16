@@ -1,7 +1,6 @@
 {
   "worldchain": {
     "chainId": 480,
-    "commit": "\b��e�\u0016\u0003:�ZJ�{�b�\u0002ے",
     "deployer": "0x6348A4a4dF173F68eB28A452Ca6c13493e447aF1",
     "tag": "world-id-core-v0.5.2-3-g088ae76",
     "timestamp": 1773700695,
@@ -12,7 +11,6 @@
   },
   "base": {
     "chainId": 8453,
-    "commit": "\b��e�\u0016\u0003:�ZJ�{�b�\u0002ے",
     "deployer": "0x6348A4a4dF173F68eB28A452Ca6c13493e447aF1",
     "gateways": {
       "permissionedGateway": "0xd87a1be0C2aFB90906426b960a2aCDB1165d5426"
