@@ -44,8 +44,19 @@ dotenvy = { workspace = true }
 eyre = { workspace = true }
 config = { workspace = true }
 
+[[example]]
+name = "create_account"
+path = "scripts/create_account.rs"
+
+[[example]]
+name = "register_issuer_schema"
+path = "scripts/register_issuer_schema.rs"
+
 [dev-dependencies]
 ark-ff = { workspace = true }
+ark-serialize = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
 world-id-primitives = { workspace = true }
 world-id-relay = { workspace = true }
 world-id-test-utils = { workspace = true }
