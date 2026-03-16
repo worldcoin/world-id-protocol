@@ -118,8 +118,8 @@ impl CommitmentLog {
         self.pending_oprfs.clear();
     }
 
-    /// Returns `true` if there are pending issuer or OPRF key updates to propagate.
-    pub fn has_pending(&self) -> bool {
+    /// Returns `true` if there are pending issuer or OPRF key updates.
+    pub fn has_pending_keys(&self) -> bool {
         !self.pending_issuers.is_empty() || !self.pending_oprfs.is_empty()
     }
 
@@ -465,13 +465,13 @@ mod tests {
     fn has_pending_empty_and_nonempty() {
         let log = CommitmentLog::new();
         assert!(
-            !log.has_pending(),
+            !log.has_pending_keys(),
             "fresh log should have no pending entries"
         );
 
         log.insert_pending_issuer(make_issuer_update(1, 1000));
         assert!(
-            log.has_pending(),
+            log.has_pending_keys(),
             "log with a pending key should report has_pending"
         );
     }

@@ -44,16 +44,54 @@ impl Engine {
         });
     }
 
+    /// Checks whether there is new state to propagate by comparing the
+    /// latest root on WorldIDSource vs WorldIDRegistry, and checking for
+    /// pending issuer/OPRF key updates.
+    async fn should_propagate(&self) -> Result<bool> {
+        // Check if the registry has a newer root than the source.
+        let source_root = self
+            .world_chain
+            .world_id_source()
+            .LATEST_ROOT()
+            .call()
+            .await?;
+        let registry_root = self
+            .world_chain
+            .world_id_registry()
+            .getLatestRoot()
+            .call()
+            .await?;
+
+        let root_changed = source_root != registry_root;
+        let has_keys = self.log.has_pending_keys();
+
+        if root_changed {
+            debug!(source = %source_root, registry = %registry_root, "root changed");
+        }
+        if has_keys {
+            debug!("pending issuer/OPRF key updates");
+        }
+
+        Ok(root_changed || has_keys)
+    }
+
     /// Calls `propagateState` on the WorldIDSource contract for any pending
-    /// issuer and OPRF key updates.
+    /// state (root changes, issuer keys, OPRF keys).
     ///
     /// Returns `Ok(())` if there is nothing to propagate or if the transaction
     /// succeeds. Propagation failures are logged but never fatal -- the engine
     /// will retry on the next tick.
     async fn propagate(&self) -> Result<()> {
-        if !self.log.has_pending() {
-            debug!("propagation tick: nothing pending, skipping");
-            return Ok(());
+        match self.should_propagate().await {
+            Ok(false) => {
+                debug!("propagation tick: nothing to propagate");
+                return Ok(());
+            }
+            Err(e) => {
+                warn!(error = %e, "failed to check propagation state");
+                return Ok(());
+            }
+            Ok(true) => {}
         }
 
         let (issuers, oprfs) = self.log.pending_propagation_ids();
@@ -91,22 +129,21 @@ impl Engine {
 
     /// Runs the relay engine loop. Never returns under normal operation.
     pub async fn run(&mut self) -> Result<()> {
-        // Always backfill historical ChainCommitted events from genesis
-        // so the in-memory log contains every commit the source has ever made.
+        // Start the live event stream BEFORE backfill so we don't miss
+        // events that occur during backfill. Duplicate ChainCommitted events
+        // are harmless — commit_chained deduplicates by chain head.
+        let mut events = stream::registry_stream(&self.world_chain).await?;
+
+        // Backfill historical ChainCommitted events from genesis so the
+        // in-memory log contains every commit the source has ever made.
         // Satellites query the destination chain's head and use log.since()
         // to send any commits the destination hasn't received yet.
-        //
-        // The local keccak chain starts at (0x00, 0) and each replayed
-        // ChainCommitted advances it, so by the end of backfill the local
-        // head matches the on-chain head.
         info!("backfilling historical ChainCommitted events");
         stream::backfill_commitments(&self.world_chain, &self.log).await?;
 
         // Signal satellites that the log is ready — they can now safely
         // query log.since() and get the full historical delta.
         self.log.mark_ready();
-
-        let mut events = stream::registry_stream(&self.world_chain).await?;
 
         let mut tick = tokio::time::interval(self.world_chain.bridge_interval());
 

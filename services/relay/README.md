@@ -60,7 +60,7 @@ Pending entries use an `insert_if_newer` strategy -- only the latest update per 
 
 ### 3. State propagation (`propagateState`)
 
-On a configurable tick (default 1 hour, set via `bridge_interval_secs`) the engine checks if there are any pending issuer or OPRF key updates. If so, it calls `WorldIDSource.propagateState(issuerSchemaIds, oprfKeyIds)` on World Chain. This on-chain call batches the pending updates into a new `ChainCommitted` event, which the live stream picks up and commits to the log.
+On a configurable tick (default 1 hour, set via `bridge_interval_secs`) the engine checks if there are any pending issuer or OPRF key updates. If so, it calls `WorldIDSource.propagateState(issuerSchemaIds, oprfKeyIds)` on World Chain. The relay only passes issuer schema IDs and OPRF key IDs -- the `WorldIDSource` contract itself queries the `WorldIDRegistry` for the latest merkle root, so root updates are handled entirely on-chain without the relay needing to pass them in. This on-chain call batches all the updates (root + issuer keys + OPRF keys) into a new `ChainCommitted` event, which the live stream picks up and commits to the log.
 
 If the call reverts with `NothingChanged()` (state was already propagated), the pending maps are cleared silently. Pending state is **always cleared after each attempt** to avoid retrying the same data indefinitely.
 
@@ -83,7 +83,7 @@ Each satellite runs as an independent async task that:
 3. **Computes the delta** via `log.since(local_head)` -- all entries the destination hasn't received yet.
 4. **Merges the delta** using `reduce()`, which concatenates all `Commitment[]` payloads into a single `ChainCommitment` that advances from `local_head` to the log's current head in one transaction.
 5. **Builds a proof** and **sends a relay transaction** through an ERC-7786 gateway on the destination chain.
-6. **Subscribes to future updates** via the watch channel and repeats from step 3 whenever a new chain head is broadcast.
+6. **Subscribes to future updates** via the watch channel and repeats from step 3 whenever a new `ChainCommitted` event is emitted by the `WorldIDSource` contract.
 
 ### 6. Out-of-sync recovery
 

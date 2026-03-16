@@ -474,7 +474,7 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
 
     // Pending state should be cleared after round 1.
     assert!(
-        !log.has_pending(),
+        !log.has_pending_keys(),
         "pending state should be cleared after root propagation"
     );
 
@@ -508,7 +508,7 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
 
     // Pending state should be cleared after round 2.
     assert!(
-        !log.has_pending(),
+        !log.has_pending_keys(),
         "pending state should be cleared after issuer propagation"
     );
     let (pending_issuers, pending_oprfs) = log.pending_propagation_ids();
