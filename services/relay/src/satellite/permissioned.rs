@@ -8,8 +8,10 @@ use alloy::{
 use eyre::Result;
 
 use crate::{
-    bindings::IGateway::IGatewayInstance, cli::PermissionedGatewayConfig,
-    primitives::ChainCommitment, relay::send_relay_tx,
+    bindings::{IGateway::IGatewayInstance, IWorldIDSatellite::IWorldIDSatelliteInstance},
+    cli::PermissionedGatewayConfig,
+    primitives::ChainCommitment,
+    relay::send_relay_tx,
 };
 
 use super::Satellite;
@@ -25,6 +27,8 @@ pub struct PermissionedSatellite {
     chain_id: u64,
     /// The gateway contract on the destination chain.
     gateway: IGatewayInstance<Arc<DynProvider>>,
+    /// The satellite (bridge) contract on the destination chain.
+    satellite: IWorldIDSatelliteInstance<Arc<DynProvider>>,
     /// The satellite (bridge) contract address on the destination chain.
     satellite_address: Address,
     /// The chain ID of the anchor (source) chain, used for ERC-7930 address encoding.
@@ -45,6 +49,7 @@ impl PermissionedSatellite {
             name: name.into(),
             chain_id: config.destination_chain_id,
             gateway: IGatewayInstance::new(config.gateway, provider.clone()),
+            satellite: IWorldIDSatelliteInstance::new(config.satellite, provider.clone()),
             satellite_address: config.satellite,
             anchor_chain_id,
             provider,
@@ -69,6 +74,15 @@ impl Satellite for PermissionedSatellite {
 
     fn chain_id(&self) -> u64 {
         self.chain_id
+    }
+
+    fn remote_chain_head<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<B256>> + Send + 'a>> {
+        Box::pin(async move {
+            let result = self.satellite.KECCAK_CHAIN().call().await?;
+            Ok(result.head)
+        })
     }
 
     fn build_proof<'a>(

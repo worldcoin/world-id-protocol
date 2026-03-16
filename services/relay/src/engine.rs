@@ -3,7 +3,7 @@ use std::sync::Arc;
 use eyre::Result;
 use futures_util::StreamExt;
 use tokio::task::JoinSet;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{cli::WorldChain, log::CommitmentLog, satellite::Satellite, stream};
 
@@ -52,6 +52,7 @@ impl Engine {
     /// will retry on the next tick.
     async fn propagate(&self) -> Result<()> {
         if !self.log.has_pending() {
+            debug!("propagation tick: nothing pending, skipping");
             return Ok(());
         }
 
@@ -59,28 +60,51 @@ impl Engine {
 
         info!(issuers = issuers.len(), oprfs = oprfs.len(), "propagating");
 
-        let receipt = self
+        let result = self
             .world_chain
             .world_id_source()
             .propagateState(issuers, oprfs)
             .send()
-            .await?
-            .get_receipt()
-            .await?;
+            .await;
 
-        if receipt.status() {
-            info!(hash = %receipt.transaction_hash, "propagateState succeeded");
-            self.log.clear_pending_propagation();
-        } else {
-            warn!(hash = %receipt.transaction_hash, "propagateState reverted");
+        match result {
+            Ok(pending) => {
+                let receipt = pending.get_receipt().await?;
+                if receipt.status() {
+                    info!(hash = %receipt.transaction_hash, "propagateState succeeded");
+                } else {
+                    warn!(hash = %receipt.transaction_hash, "propagateState reverted on-chain");
+                }
+            }
+            // Simulation reverts are expected when nothing has changed.
+            // Always clear pending regardless of the error to avoid retrying
+            // the same state indefinitely.
+            Err(e) => {
+                debug!(error = %e, "propagateState simulation reverted");
+            }
         }
+
+        self.log.clear_pending_propagation();
 
         Ok(())
     }
 
     /// Runs the relay engine loop. Never returns under normal operation.
     pub async fn run(&mut self) -> Result<()> {
-        stream::backfill_commitments(&self.world_chain, &self.log, 0).await?;
+        // Always backfill historical ChainCommitted events from genesis
+        // so the in-memory log contains every commit the source has ever made.
+        // Satellites query the destination chain's head and use log.since()
+        // to send any commits the destination hasn't received yet.
+        //
+        // The local keccak chain starts at (0x00, 0) and each replayed
+        // ChainCommitted advances it, so by the end of backfill the local
+        // head matches the on-chain head.
+        info!("backfilling historical ChainCommitted events");
+        stream::backfill_commitments(&self.world_chain, &self.log).await?;
+
+        // Signal satellites that the log is ready — they can now safely
+        // query log.since() and get the full historical delta.
+        self.log.mark_ready();
 
         let mut events = stream::registry_stream(&self.world_chain).await?;
 
@@ -96,7 +120,10 @@ impl Engine {
             tokio::select! {
                 Some(result) = events.next() => {
                     match result {
-                        Ok(commitment) => self.log.insert(commitment),
+                        Ok(commitment) => {
+                            info!(event = %commitment, "received event from World Chain");
+                            self.log.insert(commitment);
+                        }
                         Err(e) => warn!(error = %e, "failed to decode event"),
                     }
                 }

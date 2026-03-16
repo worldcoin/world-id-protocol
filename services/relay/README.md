@@ -26,6 +26,76 @@ The relay follows a **source -> log -> fan-out** pipeline:
 - **Permissioned** -- Owner-attested chain head relayed from World Chain (no proofs required).
 - **Ethereum MPT** -- OP Stack dispute game + Merkle Patricia Trie storage proofs for bridging to L1.
 
+## How It Works
+
+The relay service runs a continuous loop with the following phases:
+
+### 1. Backfill (startup)
+
+On every startup the engine replays **all** historical events from block 0 to the current block. Four contract log filters are issued in parallel:
+
+- `WorldIDRegistry` -- `RootRecorded`
+- `CredentialSchemaIssuerRegistry` -- `IssuerSchemaRegistered`, `IssuerSchemaPubkeyUpdated`, `IssuerSchemaRemoved`
+- `OprfKeyRegistry` -- `SecretGenFinalize`
+- `WorldIDSource` -- `ChainCommitted`
+
+All logs are sorted by `(block_number, log_index)` and replayed sequentially. **Only `ChainCommitted` events are committed** to the in-memory log during backfill; pubkey and root updates are skipped because handling their pending/finalized semantics during replay would add unnecessary complexity -- they will arrive via the live stream instead.
+
+Each replayed `ChainCommitted` event is verified against the local keccak chain replica (`KeccakChain`), so by the end of backfill the local chain head matches the on-chain head. There is **no checkpoint persistence** -- every restart does a full backfill, which is safe because the replay is idempotent.
+
+Once backfill completes the engine calls `log.mark_ready()`, which unblocks any waiting satellite tasks.
+
+### 2. Live event streaming
+
+After backfill the engine opens a polling-based event stream (`poll_events`) that queries all four contracts every 2 seconds for new logs. Each decoded `StateCommitment` is dispatched into the `CommitmentLog`:
+
+| Variant | Storage | Purpose |
+|---|---|---|
+| `ChainCommitted` | append-only `entries` deque + keccak chain | Verified chain commitments that satellites relay |
+| `RootCommitment` | `pending_roots` map | Merkle root updates waiting to be propagated |
+| `IssuerPubKey` | `pending_issuers` map | Issuer key changes waiting to be propagated |
+| `OprfPubKey` | `pending_oprfs` map | OPRF key changes waiting to be propagated |
+
+Pending entries use an `insert_if_newer` strategy -- only the latest update per key is kept, and updates older than the most recent chain entry timestamp are dropped.
+
+### 3. State propagation (`propagateState`)
+
+On a configurable tick (default 1 hour, set via `bridge_interval_secs`) the engine checks if there are any pending issuer or OPRF key updates. If so, it calls `WorldIDSource.propagateState(issuerSchemaIds, oprfKeyIds)` on World Chain. This on-chain call batches the pending updates into a new `ChainCommitted` event, which the live stream picks up and commits to the log.
+
+If the call reverts with `NothingChanged()` (state was already propagated), the pending maps are cleared silently. Pending state is **always cleared after each attempt** to avoid retrying the same data indefinitely.
+
+### 4. Commitment log
+
+The `CommitmentLog` is the central data structure -- an append-only, hash-chain-verified log that all satellites read from:
+
+- **Keccak chain replica** -- every `ChainCommitted` entry is verified by computing `keccak256(prev_head || blockHash || data)` and checking it matches the event's `keccakChain` field. Invalid entries are rejected.
+- **Head index** -- a `DashMap<B256, usize>` maps each chain head to its position in the deque, enabling O(1) delta queries via `log.since(cursor)`.
+- **Watch channel** -- a `tokio::sync::watch` broadcasts each new chain head to all subscribed satellites.
+- **Deduplication** -- duplicate chain heads are silently skipped (idempotent).
+- **Monotonicity** -- chain ID must stay constant and block numbers must be non-decreasing.
+
+### 5. Satellite relay (source-to-destination sync)
+
+Each satellite runs as an independent async task that:
+
+1. **Waits for backfill** via `log.wait_ready()`.
+2. **Queries the destination chain's current chain head** by calling `satellite.KECCAK_CHAIN()` on the destination contract. This becomes its `local_head` cursor.
+3. **Computes the delta** via `log.since(local_head)` -- all entries the destination hasn't received yet.
+4. **Merges the delta** using `reduce()`, which concatenates all `Commitment[]` payloads into a single `ChainCommitment` that advances from `local_head` to the log's current head in one transaction.
+5. **Builds a proof** and **sends a relay transaction** through an ERC-7786 gateway on the destination chain.
+6. **Subscribes to future updates** via the watch channel and repeats from step 3 whenever a new chain head is broadcast.
+
+### 6. Out-of-sync recovery
+
+If a satellite's `local_head` is not found in the log (e.g. another relay instance or manual tx advanced the destination), the satellite:
+
+1. Re-queries the destination chain's current head via `remote_chain_head()`.
+2. If the remote head exists in the log, adopts it as the new `local_head` and continues.
+3. If the remote head equals the log's head, there's nothing to relay -- it updates `local_head` and waits.
+4. If the remote head is not in the log either, it logs a warning and waits for the next chain head update to try again.
+
+Relay failures (transaction reverts, timeouts up to 10 minutes) are logged but non-fatal -- the satellite retries on the next chain head change.
+
 ## Configuration
 
 The relay is configured via a single JSON string passed through the `RELAY_CONFIG` environment variable (or `--config` CLI flag). RPC endpoints and the wallet key are passed as separate environment variables.
@@ -104,10 +174,15 @@ cp .env.example .env
 
 ```bash
 cd services/relay
-cargo run -p world-id-relay
+RUST_LOG=world_id_relay=debug cargo run -p world-id-relay
 ```
 
 The service loads `.env` automatically via `dotenvy`. Send `SIGINT` (Ctrl+C) for graceful shutdown.
+
+Set `RUST_LOG` to control log verbosity:
+- `RUST_LOG=world_id_relay=info` — default, major state changes only
+- `RUST_LOG=world_id_relay=debug` — includes event processing, backfill progress, propagation ticks, and satellite relay details
+- `RUST_LOG=world_id_relay=trace` — full detail including duplicate skips and hash chain verification
 
 > **Note:** The `RELAY_CONFIG` value in `.env` must be wrapped in single quotes (`'...'`) because dotenvy interprets double quotes as delimiters, which would strip the JSON's `"` characters.
 

@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, hash::Hash, sync::Arc};
 
 use alloy::sol_types::SolValue;
-use alloy_primitives::{B256, keccak256};
+use alloy_primitives::B256;
 use dashmap::DashMap;
 use eyre::{Result, ensure};
 use parking_lot::{Mutex, RwLock};
@@ -12,7 +12,7 @@ use crate::{
     bindings::IWorldIDSource,
     primitives::{
         ChainCommitment, IssuerKeyUpdate, IssuerSchemaId, KeccakChain, OprfKeyId, OprfKeyUpdate,
-        RootCommitment, StateCommitment, U160,
+        U160, StateCommitment,
     },
 };
 
@@ -30,14 +30,18 @@ pub struct CommitmentLog {
     pending_issuers: DashMap<IssuerSchemaId, IssuerKeyUpdate>,
     /// Pending OPRF key updates that have yet to be finalized on-chain.
     pending_oprfs: DashMap<OprfKeyId, OprfKeyUpdate>,
-    /// Pending merkle roots that have yet to be finalized on-chain.
-    pending_roots: DashMap<B256, RootCommitment>,
     /// Maps `chain_head` to the index of the entry in the VecDeque.
     head_index: DashMap<B256, usize>,
     /// Local keccak chain replica used for hash-chain integrity verification.
     local_chain: Mutex<KeccakChain>,
     /// Canonical chain head broadcaster.
     cursor_tx: watch::Sender<B256>,
+    /// Keeps the watch channel open even when no satellites have subscribed yet.
+    /// Without this, `cursor_tx.send()` silently fails during backfill because
+    /// the channel is "closed" (all receivers dropped).
+    _cursor_rx: watch::Receiver<B256>,
+    /// Signals that the log is ready for satellite consumption (backfill complete).
+    ready: tokio::sync::Notify,
 }
 
 impl Default for CommitmentLog {
@@ -49,29 +53,55 @@ impl Default for CommitmentLog {
 impl CommitmentLog {
     /// Creates a new empty log starting from the zero chain head.
     pub fn new() -> Self {
-        let (cursor_tx, _) = watch::channel(B256::ZERO);
+        let (cursor_tx, cursor_rx) = watch::channel(B256::ZERO);
         Self {
             entries: RwLock::new(VecDeque::new()),
             head_index: DashMap::new(),
             local_chain: Mutex::new(KeccakChain::new(B256::ZERO, 0)),
             cursor_tx,
+            _cursor_rx: cursor_rx,
             pending_issuers: DashMap::new(),
             pending_oprfs: DashMap::new(),
-            pending_roots: DashMap::new(),
+            ready: tokio::sync::Notify::new(),
         }
+    }
+
+    /// Signals that backfill is complete and the log is ready for satellite use.
+    pub fn mark_ready(&self) {
+        self.ready.notify_waiters();
+    }
+
+    /// Waits until the log is ready (backfill complete).
+    pub async fn wait_ready(&self) {
+        self.ready.notified().await;
     }
 
     /// Dispatches a `StateCommitment` into the appropriate log storage.
     pub fn insert(&self, commitment: StateCommitment) {
         match commitment {
             StateCommitment::ChainCommitted(cc) => {
+                debug!(
+                    block = cc.block_number,
+                    chain_head = %cc.chain_head,
+                    "processing ChainCommitted event"
+                );
                 if let Err(e) = self.commit_chained(Arc::new(cc)) {
                     tracing::error!(error = %e, "failed to commit chain commitment");
                 }
             }
-            StateCommitment::IssuerPubKey(p) => self.insert_pending_issuer(p),
-            StateCommitment::OprfPubKey(p) => self.insert_pending_oprf(p),
-            StateCommitment::RootCommitment(r) => self.insert_pending_root(r),
+            StateCommitment::IssuerPubKey(p) => {
+                debug!(issuer_schema_id = p.id.0, "received IssuerPubKey update");
+                self.insert_pending_issuer(p);
+            }
+            StateCommitment::OprfPubKey(p) => {
+                debug!(oprf_key_id = %p.id.0, "received OprfPubKey update");
+                self.insert_pending_oprf(p);
+            }
+            StateCommitment::RootCommitment(r) => {
+                debug!(root = %r.root, timestamp = r.timestamp, "received RootRecorded event");
+                // Roots are propagated automatically via ChainCommitted — no
+                // pending state needed. We just log the event.
+            }
         }
     }
 
@@ -82,29 +112,18 @@ impl CommitmentLog {
         (issuers, oprfs)
     }
 
-    /// Clears all pending state after a successful `propagateState`.
+    /// Clears all pending state after a `propagateState` attempt.
     pub fn clear_pending_propagation(&self) {
         self.pending_issuers.clear();
         self.pending_oprfs.clear();
-        self.pending_roots.clear();
     }
 
-    /// Returns `true` if there are any pending (non-chain) updates.
+    /// Returns `true` if there are pending issuer or OPRF key updates to propagate.
     pub fn has_pending(&self) -> bool {
-        !self.pending_issuers.is_empty()
-            || !self.pending_oprfs.is_empty()
-            || !self.pending_roots.is_empty()
+        !self.pending_issuers.is_empty() || !self.pending_oprfs.is_empty()
     }
 
     // ── Pending insert methods ──────────────────────────────────────────────
-
-    /// Insert a pending merkle-root update.
-    pub fn insert_pending_root(&self, root: RootCommitment) {
-        let ts = root.timestamp;
-        let key = keccak256(root.root.as_le_bytes_trimmed());
-        let tail_ts = self.tail_timestamp();
-        insert_if_newer(&self.pending_roots, key, root, ts, |r| r.timestamp, tail_ts);
-    }
 
     /// Insert a pending credential issuer key update.
     pub fn insert_pending_issuer(&self, update: IssuerKeyUpdate) {
@@ -292,8 +311,6 @@ mod tests {
     use alloy::sol_types::SolCall;
     use alloy_primitives::{Bytes, U256};
 
-    /// Builds a valid ABI-encoded `updateRoot(root, timestamp, proofId)` call
-    /// suitable for use as the `data` field in an `IWorldIDSource::Commitment`.
     fn encode_update_root(root: U256) -> Bytes {
         use crate::bindings::ICommitment;
         ICommitment::updateRootCall {
@@ -305,7 +322,6 @@ mod tests {
         .into()
     }
 
-    /// Builds a single `IWorldIDSource::Commitment` with a valid inner call payload.
     fn make_sol_commitment(block_hash: B256) -> IWorldIDSource::Commitment {
         IWorldIDSource::Commitment {
             blockHash: block_hash,
@@ -313,8 +329,6 @@ mod tests {
         }
     }
 
-    /// Builds a `ChainCommitment` whose hash chain is valid relative to the
-    /// supplied `KeccakChain`. Advances the chain as a side effect.
     fn make_chain_commitment(chain: &mut KeccakChain, block_number: u64) -> ChainCommitment {
         let commits = vec![make_sol_commitment(B256::from([block_number as u8; 32]))];
         let head = chain.hash_chained(&commits);
@@ -350,8 +364,6 @@ mod tests {
         }
     }
 
-    // ── commit_chained tests ────────────────────────────────────────────────
-
     #[test]
     fn commit_chained_verifies_hash() {
         let log = CommitmentLog::new();
@@ -370,7 +382,6 @@ mod tests {
         let log = CommitmentLog::new();
         let mut chain = KeccakChain::new(B256::ZERO, 0);
         let mut commitment = make_chain_commitment(&mut chain, 1);
-        // Corrupt the chain head so it no longer matches the hash chain.
         commitment.chain_head = B256::from([0xffu8; 32]);
         let result = log.commit_chained(Arc::new(commitment));
         assert!(
@@ -390,13 +401,10 @@ mod tests {
         assert!(r1.is_ok());
         assert_eq!(log.len(), 1);
 
-        // Second insertion of the same commitment should be silently skipped.
         let r2 = log.commit_chained(commitment);
         assert!(r2.is_ok());
         assert_eq!(log.len(), 1);
     }
-
-    // ── since tests ─────────────────────────────────────────────────────────
 
     #[test]
     fn since_returns_delta() {
@@ -442,8 +450,6 @@ mod tests {
         assert_eq!(all.len(), 3, "since(ZERO) should return all entries");
     }
 
-    // ── pending propagation tests ───────────────────────────────────────────
-
     #[test]
     fn pending_propagation_ids_separates_types() {
         let log = CommitmentLog::new();
@@ -454,8 +460,6 @@ mod tests {
         assert_eq!(issuers, vec![1u64]);
         assert_eq!(oprfs, vec![U160::from(2u64)]);
     }
-
-    // ── has_pending tests ───────────────────────────────────────────────────
 
     #[test]
     fn has_pending_empty_and_nonempty() {

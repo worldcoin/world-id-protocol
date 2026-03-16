@@ -347,6 +347,12 @@ impl Satellite for TestSatellite {
         1
     }
 
+    fn remote_chain_head<'a>(
+        &'a self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<B256>> + Send + 'a>> {
+        Box::pin(async { Ok(B256::ZERO) })
+    }
+
     fn build_proof<'a>(
         &'a self,
         _commitment: &'a ChainCommitment,

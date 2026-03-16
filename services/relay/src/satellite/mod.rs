@@ -26,6 +26,14 @@ pub trait Satellite: Send + Sync {
     /// The chain ID of this destination.
     fn chain_id(&self) -> u64;
 
+    /// Queries the destination chain's current keccak chain head.
+    ///
+    /// Used on startup to determine which commitments the destination has
+    /// already received, so the relay can send any missing ones.
+    fn remote_chain_head<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<B256>> + Send + 'a>>;
+
     /// Build the proof attributes for the given commitment.
     ///
     /// Returns `(attribute, payload)` ready for `gateway.sendMessage()`.
@@ -36,9 +44,6 @@ pub trait Satellite: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<(Bytes, Bytes)>> + Send + 'a>>;
 
     /// Send the relay transaction to the destination chain.
-    ///
-    /// The default pattern is to call [`build_proof`](Satellite::build_proof) and then
-    /// forward the result to [`relay::send_relay_tx`](crate::relay::send_relay_tx).
     fn relay<'a>(
         &'a self,
         commitment: &'a ChainCommitment,
@@ -56,8 +61,26 @@ pub fn spawn_satellite(
             chain_id = satellite.chain_id(),
         );
 
+        // Wait for backfill to complete so the log has all historical commits.
+        log.wait_ready().await;
+        tracing::info!("backfill complete, starting satellite relay loop");
+
+        // Subscribe and immediately mark as changed so the first loop
+        // iteration checks for a delta without waiting.
         let mut chain_head = log.subscribe();
-        let mut local_head = B256::ZERO;
+        chain_head.mark_changed();
+
+        // Initialize from the destination chain's current state.
+        let mut local_head = match satellite.remote_chain_head().await {
+            Ok(head) => {
+                tracing::info!(remote_head = %head, "fetched destination chain head");
+                head
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to fetch destination chain head, starting from zero");
+                B256::ZERO
+            }
+        };
 
         async {
             loop {
@@ -65,7 +88,13 @@ pub fn spawn_satellite(
 
                 let delta = match log.since(local_head) {
                     Some(d) if !d.is_empty() => d,
-                    _ => continue,
+                    Some(_) => continue,
+                    None if local_head == B256::ZERO => continue,
+                    None => {
+                        // local_head not in log — re-sync from destination.
+                        local_head = resync_head(&satellite, &log, local_head).await;
+                        continue;
+                    }
                 };
 
                 let count = delta.len();
@@ -97,4 +126,41 @@ pub fn spawn_satellite(
         .instrument(span)
         .await
     })
+}
+
+/// Re-queries the destination chain when the local head is not found in the log.
+async fn resync_head(
+    satellite: &impl Satellite,
+    log: &CommitmentLog,
+    stale_head: B256,
+) -> B256 {
+    tracing::warn!(
+        local_head = %stale_head,
+        "local head not found in log, re-syncing from destination chain"
+    );
+
+    let remote = match satellite.remote_chain_head().await {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to re-query destination head");
+            return stale_head;
+        }
+    };
+
+    if log.contains_head(&remote) {
+        tracing::info!(new_head = %remote, "re-synced from destination chain");
+        return remote;
+    }
+
+    if remote == log.head() {
+        tracing::info!("destination is already at source head, nothing to relay");
+        return remote;
+    }
+
+    tracing::warn!(
+        remote = %remote,
+        log_head = %log.head(),
+        "destination head not found in log either, waiting"
+    );
+    stale_head
 }

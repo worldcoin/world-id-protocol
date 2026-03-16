@@ -52,6 +52,18 @@ path = "scripts/create_account.rs"
 name = "register_issuer_schema"
 path = "scripts/register_issuer_schema.rs"
 
+[[example]]
+name = "check_tx_events"
+path = "scripts/check_tx_events.rs"
+
+[[example]]
+name = "test_watch_logs"
+path = "scripts/test_watch_logs.rs"
+
+[[example]]
+name = "debug_chain_committed"
+path = "scripts/debug_chain_committed.rs"
+
 [dev-dependencies]
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
