@@ -16,7 +16,7 @@ use crate::{
 };
 
 /// Maximum time to wait for a single relay attempt (proof + transaction).
-const RELAY_TIMEOUT: Duration = Duration::from_secs(600);
+const RELAY_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// A destination chain that can receive bridged World ID state.
 pub trait Satellite: Send + Sync {

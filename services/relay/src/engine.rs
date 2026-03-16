@@ -141,6 +141,8 @@ impl Engine {
         info!("backfilling historical ChainCommitted events");
         stream::backfill_commitments(&self.world_chain, &self.log).await?;
 
+        info!("backfill complete, starting satellite relay loop");
+
         // Signal satellites that the log is ready — they can now safely
         // query log.since() and get the full historical delta.
         self.log.mark_ready();
