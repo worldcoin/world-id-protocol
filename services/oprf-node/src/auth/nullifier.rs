@@ -128,6 +128,7 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
             request.auth.nonce,
             request.auth.current_time_stamp,
             request.auth.expiration_timestamp,
+            request.auth.action,
         );
 
         let recovered = request.auth.signature.recover_address_from_msg(&msg)?;

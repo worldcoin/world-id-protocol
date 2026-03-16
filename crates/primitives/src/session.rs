@@ -3,6 +3,9 @@ use embed_doc_image::embed_doc_image;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
+#[expect(unused_imports, reason = "used in doc comments")]
+use crate::circuit_inputs::QueryProofCircuitInput;
+
 /// An identifier for a session (can be re-used).
 ///
 /// A session allows RPs to ensure that it's still the same World ID
@@ -37,18 +40,37 @@ pub struct SessionId {
     /// This seed is the input to the OPRF Query to derive `session_id_r_seed` (`r`). It
     /// is part of the `session_id` so the RP can provide it when requesting a Session Proof.
     ///
-    /// The Authenticator can deterministically re-derive `session_id_r_seed` (`r`)
-    /// from the OPRF nodes without needing to cache `r` locally as:
-    /// `r = OPRF(pk_rpId, DS_C || leafIndex || oprf_seed)`
+    /// # Important: Prefix
+    /// To ensure there are no collisions between the generated `r`s and the nullifiers
+    /// for Uniqueness Proofs (as they use the same OPRF Key and query structure), the
+    /// `oprf_seed`s which are plugged as `action` in the Query Proof (see [`QueryProofCircuitInput`]),
+    /// MUST be prefixed with an explicit byte of `0x01`. All other actions have a `0x00` byte prefix. This
+    /// collision avoidance is important because it ensures that any requests for nullifiers meant
+    /// for Uniqueness Proofs are always signed by the RP (otherwise, an RP signature for a Session Proof
+    /// could be used for requesting computation of _any_ nullifier).
+    ///
+    /// The Authenticator can deterministically re-derive `r` from the OPRF nodes without
+    /// needing to cache `r` locally as:
+    /// ```
+    /// r = OPRF(pk_rpId, DS_C || leafIndex || oprf_seed)
+    /// ```
     oprf_seed: FieldElement,
 }
 
 impl SessionId {
     const JSON_PREFIX: &str = "session_";
 
-    /// Creates a new session id.
+    /// Creates a new session id. Most uses should default to `from_r_seed` instead.
+    ///
+    /// # Panics
+    /// If the provided `oprf_seed` is not prefixed with a `0x01` byte.
     #[must_use]
-    pub const fn new(commitment: FieldElement, oprf_seed: FieldElement) -> Self {
+    pub fn new(commitment: FieldElement, oprf_seed: FieldElement) -> Self {
+        // OPRF Seeds must always start with a bit of `1`. See [`Self::oprf_seed`]
+        // for details. Panic is acceptable as `oprf_seed` generation should
+        // generally be done with `Self::from_r_seed`
+        let oprf_seed_num = <U256 as From<FieldElement>>::from(oprf_seed);
+        assert!(oprf_seed_num.bit(7));
         Self {
             commitment,
             oprf_seed,
@@ -59,12 +81,26 @@ impl SessionId {
     /// used as input for the OPRF computation.
     ///
     /// This matches the logic in `oprf_nullifier.circom` for computing the `commitment` from the OPRF seed.
-    pub fn from_r_seed(
+    pub fn from_r_seed<R: rand::CryptoRng + rand::RngCore>(
         leaf_index: u64,
-        session_id_r_seed: FieldElement,
+        session_id_r_seed: Option<FieldElement>,
         oprf_seed: FieldElement,
+        rng: &mut R,
     ) -> Self {
         let sub_ds = FieldElement::from_be_bytes_mod_order(b"H(id, r)");
+
+        let session_id_r_seed = if let Some(seed) = session_id_r_seed {
+            seed
+        } else {
+            let fe = FieldElement::random(rng);
+            // Explicitly set the first byte = `0x01` (i.e. 7th bit position to 1); this is
+            // done to namespace actions that are generated for Session Proofs, i.e. actions
+            // for Uniqueness Proofs will always have the first byte = `0x00` given how SDKs
+            // always shift by 8 bits.
+            let fe: U256 = <U256 as From<FieldElement>>::from(fe) | U256::from(128);
+            fe.try_into().unwrap()
+        };
+
         let mut input = [*sub_ds, leaf_index.into(), *session_id_r_seed];
         poseidon2::bn254::t3::permutation_in_place(&mut input);
         let commitment = input[1].into();

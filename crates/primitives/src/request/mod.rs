@@ -395,7 +395,12 @@ impl ProofRequest {
         use crate::rp::compute_rp_signature_msg;
         use k256::sha2::{Digest, Sha256};
 
-        let msg = compute_rp_signature_msg(*self.nonce, self.created_at, self.expires_at);
+        let msg = compute_rp_signature_msg(
+            *self.nonce,
+            self.created_at,
+            self.expires_at,
+            self.action.map(|v| *v),
+        );
         let mut hasher = Sha256::new();
         hasher.update(&msg);
         Ok(hasher.finalize().into())

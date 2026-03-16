@@ -252,6 +252,7 @@ fn create_proof_request<R: Rng + CryptoRng>(
         nonce,
         current_timestamp,
         expiration_timestamp,
+        Some(action),
     );
     let signature = signer.sign_message_sync(&msg)?;
 
