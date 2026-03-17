@@ -35,6 +35,7 @@ use world_id_gateway::{
 use world_id_primitives::{
     Config, FieldElement, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
 };
+use ruint::{aliases::U256 as RuintU256, uint};
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
     fixtures::{
@@ -343,8 +344,14 @@ async fn main() -> Result<()> {
     let mut id_state = [ds_c, mt_index, *session_id_r_seed2];
     poseidon2::bn254::t3::permutation_in_place(&mut id_state);
     let session_commitment: FieldElement = id_state[1].into();
-    let session_action: FieldElement = rp_fixture.action.into();
-    let session_id = SessionId::new(session_commitment, session_action);
+    
+    // Generate a properly prefixed OPRF seed (with 0x01 prefix byte at bit 248)
+    let mask_session_oprf_seed: RuintU256 = uint!(0x0100000000000000000000000000000000000000000000000000000000000000_U256);
+    let random_low_bits = RuintU256::from(rp_fixture.action) & (mask_session_oprf_seed - uint!(1_U256));
+    let session_oprf_seed_u256 = random_low_bits | mask_session_oprf_seed;
+    let session_oprf_seed = FieldElement::try_from(session_oprf_seed_u256)
+        .expect("prefixed seed should fit in field");
+    let session_id = SessionId::new(session_commitment, session_oprf_seed);
     let session_response = authenticator.generate_single_proof(
         nullifier_data_for_session,
         request_item,
