@@ -1,4 +1,9 @@
-use std::{collections::VecDeque, hash::Hash, sync::Arc};
+use std::{
+    collections::VecDeque,
+    hash::Hash,
+    sync::Arc,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use alloy::sol_types::SolValue;
 use alloy_primitives::B256;
@@ -12,7 +17,7 @@ use crate::{
     bindings::IWorldIDSource,
     primitives::{
         ChainCommitment, IssuerKeyUpdate, IssuerSchemaId, KeccakChain, OprfKeyId, OprfKeyUpdate,
-        U160, StateCommitment,
+        StateCommitment, U160,
     },
 };
 
@@ -40,8 +45,10 @@ pub struct CommitmentLog {
     /// Without this, `cursor_tx.send()` silently fails during backfill because
     /// the channel is "closed" (all receivers dropped).
     _cursor_rx: watch::Receiver<B256>,
+    /// Flag indicating backfill is complete and the log is ready.
+    ready_flag: AtomicBool,
     /// Signals that the log is ready for satellite consumption (backfill complete).
-    ready: tokio::sync::Notify,
+    ready_notify: tokio::sync::Notify,
 }
 
 impl Default for CommitmentLog {
@@ -62,18 +69,23 @@ impl CommitmentLog {
             _cursor_rx: cursor_rx,
             pending_issuers: DashMap::new(),
             pending_oprfs: DashMap::new(),
-            ready: tokio::sync::Notify::new(),
+            ready_flag: AtomicBool::new(false),
+            ready_notify: tokio::sync::Notify::new(),
         }
     }
 
     /// Signals that backfill is complete and the log is ready for satellite use.
     pub fn mark_ready(&self) {
-        self.ready.notify_waiters();
+        self.ready_flag.store(true, Ordering::Release);
+        self.ready_notify.notify_waiters();
     }
 
     /// Waits until the log is ready (backfill complete).
     pub async fn wait_ready(&self) {
-        self.ready.notified().await;
+        if self.ready_flag.load(Ordering::Acquire) {
+            return;
+        }
+        self.ready_notify.notified().await;
     }
 
     /// Dispatches a `StateCommitment` into the appropriate log storage.

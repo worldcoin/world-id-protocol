@@ -94,6 +94,7 @@ fn poll_events(
             );
 
             let mut results = Vec::new();
+            let mut all_succeeded = true;
             for f in &filters {
                 let filter = Filter::new()
                     .address(f.address)
@@ -118,13 +119,15 @@ fn poll_events(
                         tracing::warn!(
                             error = %e,
                             source = f.label,
-                            "get_logs failed"
+                            "get_logs failed, will retry this block range"
                         );
+                        all_succeeded = false;
                     }
                 }
             }
 
-            Some((results, (provider, filters, Some(latest), new_poll_count)))
+            let next_from_block = if all_succeeded { Some(latest) } else { Some(from_block) };
+            Some((results, (provider, filters, next_from_block, new_poll_count)))
         },
     )
     .flat_map(futures::stream::iter);
@@ -175,10 +178,7 @@ pub async fn registry_stream(
 ///
 /// Only fetches from the `WorldIDSource` contract — registry events (roots,
 /// issuer keys, OPRF keys) are picked up by the live event stream.
-pub async fn backfill_commitments(
-    world_chain: &WorldChain,
-    log: &CommitmentLog,
-) -> Result<()> {
+pub async fn backfill_commitments(world_chain: &WorldChain, log: &CommitmentLog) -> Result<()> {
     let filter = Filter::new()
         .address(*world_chain.world_id_source().address())
         .event_signature(CHAIN_COMMITTED_EVENTS.to_vec())

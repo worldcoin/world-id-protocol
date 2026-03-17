@@ -71,8 +71,7 @@ async fn main() -> Result<()> {
         std::env::var("WALLET_PRIVATE_KEY").expect("WALLET_PRIVATE_KEY must be set in .env");
     let rpc_url =
         std::env::var("WORLDCHAIN_RPC_URL").expect("WORLDCHAIN_RPC_URL must be set in .env");
-    let relay_config_str =
-        std::env::var("RELAY_CONFIG").expect("RELAY_CONFIG must be set in .env");
+    let relay_config_str = std::env::var("RELAY_CONFIG").expect("RELAY_CONFIG must be set in .env");
 
     // Parse registry address from RELAY_CONFIG
     let relay_config: serde_json::Value = serde_json::from_str(&relay_config_str)?;
@@ -90,8 +89,7 @@ async fn main() -> Result<()> {
             .connect_http(rpc_url.parse()?),
     );
 
-    let registry =
-        ICredentialSchemaIssuerRegistry::new(registry_address, provider.clone());
+    let registry = ICredentialSchemaIssuerRegistry::new(registry_address, provider.clone());
 
     // --- Handle fee approval if needed ---
     let fee = registry.getRegistrationFee().call().await?;
@@ -99,10 +97,7 @@ async fn main() -> Result<()> {
         let fee_token_addr = registry.getFeeToken().call().await?;
         let fee_token = IERC20::new(fee_token_addr, provider.clone());
 
-        let current_allowance = fee_token
-            .allowance(sender, registry_address)
-            .call()
-            .await?;
+        let current_allowance = fee_token.allowance(sender, registry_address).call().await?;
 
         if current_allowance < fee {
             println!("Fee token:   {fee_token_addr}");
@@ -136,8 +131,8 @@ async fn main() -> Result<()> {
     let offchain_pubkey = issuer_signer.offchain_signer_pubkey();
 
     // The pubkey is a BN254 affine point (x, y)
-    let pubkey_x = U256::from_limbs(offchain_pubkey.pk.x.0 .0);
-    let pubkey_y = U256::from_limbs(offchain_pubkey.pk.y.0 .0);
+    let pubkey_x = U256::from_limbs(offchain_pubkey.pk.x.0.0);
+    let pubkey_y = U256::from_limbs(offchain_pubkey.pk.y.0.0);
     let pubkey = ICredentialSchemaIssuerRegistry::Pubkey {
         x: pubkey_x,
         y: pubkey_y,
@@ -189,7 +184,9 @@ async fn main() -> Result<()> {
     println!();
     println!("=== Verify on satellite chains ===");
     println!("The relay should bridge the following via propagateState():");
-    println!("  - setIssuerPubkey(issuerSchemaId={issuer_schema_id}, pubkey=({pubkey_x}, {pubkey_y}))");
+    println!(
+        "  - setIssuerPubkey(issuerSchemaId={issuer_schema_id}, pubkey=({pubkey_x}, {pubkey_y}))"
+    );
     println!("  - setOprfPubkey(oprfKeyId={issuer_schema_id}, ...) once OPRF key gen finalizes");
     println!();
     println!("Query on satellite: issuerSchemaIdToPubkey({issuer_schema_id})");

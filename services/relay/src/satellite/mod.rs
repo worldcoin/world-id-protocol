@@ -30,9 +30,7 @@ pub trait Satellite: Send + Sync {
     ///
     /// Used on startup to determine which commitments the destination has
     /// already received, so the relay can send any missing ones.
-    fn remote_chain_head<'a>(
-        &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<B256>> + Send + 'a>>;
+    fn remote_chain_head<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<B256>> + Send + 'a>>;
 
     /// Build the proof attributes for the given commitment.
     ///
@@ -129,11 +127,7 @@ pub fn spawn_satellite(
 }
 
 /// Re-queries the destination chain when the local head is not found in the log.
-async fn resync_head(
-    satellite: &impl Satellite,
-    log: &CommitmentLog,
-    stale_head: B256,
-) -> B256 {
+async fn resync_head(satellite: &impl Satellite, log: &CommitmentLog, stale_head: B256) -> B256 {
     tracing::warn!(
         local_head = %stale_head,
         "local head not found in log, re-syncing from destination chain"
