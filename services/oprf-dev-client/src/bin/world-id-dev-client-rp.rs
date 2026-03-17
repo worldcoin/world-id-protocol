@@ -1,11 +1,11 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy::{
-    primitives::{Address, U160},
+    primitives::{Address, U160, U256, ruint::uint},
     providers::DynProvider,
     signers::{SignerSync as _, k256::ecdsa::SigningKey, local::LocalSigner},
 };
-use ark_ff::UniformRand as _;
+use ark_ff::{PrimeField, UniformRand as _};
 use clap::Parser;
 use eyre::Context as _;
 use rand::{CryptoRng, Rng, SeedableRng as _};
@@ -239,7 +239,10 @@ fn create_proof_request<R: Rng + CryptoRng>(
     signer: &LocalSigner<SigningKey>,
     rng: &mut R,
 ) -> eyre::Result<ProofRequest> {
-    let action = ark_babyjubjub::Fq::rand(rng);
+    // The first byte is cleared as that is reserved for Session Proofs
+    let action = U256::random()
+        & uint!(0x00FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
+    let action = ark_babyjubjub::Fq::from_bigint(action.into()).unwrap();
     let nonce = ark_babyjubjub::Fq::rand(rng);
 
     let current_timestamp = SystemTime::now()

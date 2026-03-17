@@ -3,8 +3,6 @@ use crate::auth::{
     rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
     signature_history::{DuplicateSignatureError, SignatureHistory},
 };
-use alloy::primitives::U256;
-use ark_ff::PrimeField;
 use async_trait::async_trait;
 use axum::{http::StatusCode, response::IntoResponse};
 use std::time::{Duration, SystemTime};
@@ -124,25 +122,14 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
         // fetch the RP info
         let rp = self.rp_registry_watcher.get_rp(&request.auth.rp_id).await?;
 
-        let action = {
-            // If the action is prefixed with a `0x01` byte, it means it's used for
-            // a Session Proof. Hence the `action` is not part of the signature.
-            let action_val: U256 = request.auth.action.into_bigint().into();
-            // check last byte as `Uint::byte()` uses little-endian encoding
-            if action_val.byte(31) == 0x01 {
-                None
-            } else {
-                Some(request.auth.action)
-            }
-        };
-
         tracing::trace!("check RP signature...");
         // check the RP nonce signature
         let msg = world_id_primitives::rp::compute_rp_signature_msg(
             request.auth.nonce,
             request.auth.current_time_stamp,
             request.auth.expiration_timestamp,
-            action,
+            // Note that for this nullifier route, the requested action MUST always be signed
+            Some(request.auth.action),
         );
 
         let recovered = request.auth.signature.recover_address_from_msg(&msg)?;

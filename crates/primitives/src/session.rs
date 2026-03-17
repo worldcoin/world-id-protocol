@@ -6,6 +6,27 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 #[expect(unused_imports, reason = "used in doc comments")]
 use crate::circuit_inputs::QueryProofCircuitInput;
 
+/// Allows field element generation for Session Proofs
+pub trait SessionFieldElement {
+    /// Generaate a randomized field element with a a specific prefix used
+    /// only for Session Proofs.
+    ///
+    /// This is generally used to:
+    /// - Generate the [`SessionId::oprf_seed`] used as input for the OPRF derivation of `session_id_r_seed`
+    /// - Generate a randomized action for the nullifier input of a Session Proof
+    fn random_for_session<R: rand::CryptoRng + rand::RngCore>(rng: &mut R) -> FieldElement;
+}
+
+impl SessionFieldElement for FieldElement {
+    fn random_for_session<R: rand::CryptoRng + rand::RngCore>(rng: &mut R) -> FieldElement {
+        let mut bytes = [0u8; 32];
+        rng.fill_bytes(&mut bytes);
+        bytes[0] = 0x01;
+        let seed = U256::from_be_bytes(bytes);
+        Self::try_from(seed).expect("should always fit in the field")
+    }
+}
+
 /// An identifier for a session (can be re-used).
 ///
 /// A session allows RPs to ensure that it's still the same World ID
@@ -93,11 +114,7 @@ impl SessionId {
         let oprf_seed = if let Some(seed) = oprf_seed {
             seed
         } else {
-            let mut bytes = [0u8; 32];
-            rng.fill_bytes(&mut bytes);
-            bytes[0] = 0x01;
-            let seed = U256::from_be_bytes(bytes);
-            FieldElement::try_from(seed).expect("should always fit in the field")
+            FieldElement::random_for_session(rng)
         };
 
         let mut input = [*sub_ds, leaf_index.into(), *session_id_r_seed];
@@ -475,11 +492,27 @@ mod session_id_tests {
             let id = SessionId::from_r_seed(0, r_seed, None, &mut rng);
             let seed_u256 = <U256 as From<FieldElement>>::from(id.oprf_seed());
             // Top byte must be exactly 0x01: bit 248 set, bits 249-255 clear
-            assert!(seed_u256.bit(248), "bit 248 must be set");
-            for bit in 249..=255 {
-                assert!(!seed_u256.bit(bit), "bit {bit} must be clear");
-            }
+            assert_eq!(seed_u256 >> 248, U256::from(1));
         }
+    }
+
+    #[test]
+    fn test_from_r_seed_commitment_snapshot() {
+        let leaf_index = 42u64;
+        let r_seed = test_field_element(123);
+        let oprf_seed = test_oprf_seed(456);
+
+        let id =
+            SessionId::from_r_seed(leaf_index, r_seed, Some(oprf_seed), &mut rand::rngs::OsRng);
+
+        let expected = "0x1e7853ebd4fc9d9f0232fdcfae116023610bdf66a22e2700445d7a2e0e7e6152"
+            .parse::<U256>()
+            .unwrap();
+        assert_eq!(
+            <U256 as From<FieldElement>>::from(id.commitment()),
+            expected,
+            "commitment changed — verify the domain separator and hash are correct"
+        );
     }
 }
 

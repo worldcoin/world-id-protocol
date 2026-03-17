@@ -298,13 +298,12 @@ async fn main() -> Result<()> {
     // Clone the nullifier data before it's consumed — we reuse it for the session proof.
     let nullifier_data_for_session = nullifier_data.clone();
 
-    let session_id_r_seed = FieldElement::random(&mut rng);
     let uniqueness_response = authenticator.generate_single_proof(
         nullifier_data,
         request_item,
         &credential,
         credential_sub_blinding_factor,
-        session_id_r_seed,
+        FieldElement::ZERO, // for uniqueness proofs this can be zero
         uniqueness_request.session_id,
         uniqueness_request.created_at,
     )?;
@@ -336,21 +335,17 @@ async fn main() -> Result<()> {
         .await?;
     info!("Uniqueness proof verified ✓");
 
+    //  ── CREATE SESSION
+    let session_id_r_seed = FieldElement::random(&mut rng); // TODO: Create through OPRF
+    let session_id = SessionId::from_r_seed(leaf_index, session_id_r_seed, None, &mut rng);
+
     // ── SESSION PROOF (reuse cloned OPRF data with a non-zero session_id) ──
-    let session_id_r_seed2 = FieldElement::random(&mut rng);
-    let ds_c = ark_babyjubjub::Fq::from(5199521648757207593u64); // b"H(id, r)"
-    let mt_index = ark_babyjubjub::Fq::from(leaf_index);
-    let mut id_state = [ds_c, mt_index, *session_id_r_seed2];
-    poseidon2::bn254::t3::permutation_in_place(&mut id_state);
-    let session_commitment: FieldElement = id_state[1].into();
-    let session_action: FieldElement = rp_fixture.action.into();
-    let session_id = SessionId::new(session_commitment, session_action);
     let session_response = authenticator.generate_single_proof(
         nullifier_data_for_session,
         request_item,
         &credential,
         credential_sub_blinding_factor,
-        session_id_r_seed2,
+        session_id_r_seed,
         Some(session_id),
         uniqueness_request.created_at,
     )?;
