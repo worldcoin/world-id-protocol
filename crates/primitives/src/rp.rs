@@ -92,7 +92,7 @@ impl<'de> Deserialize<'de> for RpId {
 
 /// Computes the message to be signed for the RP signature that must be included in every [`ProofRequest`].
 ///
-/// The message format is: `version || nonce || created_at || expires_at || `action` (49 - 81 bytes total).
+/// The message format is: `version || nonce || created_at || expires_at || action` (49 - 81 bytes total).
 /// - `version`: 1 byte (currently hardcoded to `0x01`)
 /// - `nonce`: 32 bytes (big-endian)
 /// - `created_at`: 8 bytes (big-endian)

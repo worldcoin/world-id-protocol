@@ -10,7 +10,7 @@ const SESSION_FIELD_ELEMENT_PREFIX: u8 = 0x01;
 
 /// Allows field element generation for Session Proofs
 pub trait SessionFieldElement {
-    /// Generaate a randomized field element with a a specific prefix used
+    /// Generate a randomized field element with a specific prefix used
     /// only for Session Proofs.
     ///
     /// This is generally used to:
@@ -28,7 +28,9 @@ impl SessionFieldElement for FieldElement {
         rng.fill_bytes(&mut bytes);
         bytes[0] = SESSION_FIELD_ELEMENT_PREFIX;
         let seed = U256::from_be_bytes(bytes);
-        Self::try_from(seed).expect("should always fit in the field")
+        Self::try_from(seed).expect(
+            "should always fit in the field because with 0x01 as the MSB, the field element < babyjubjub modulus",
+        )
     }
 
     fn is_valid_for_session(&self) -> bool {
@@ -45,13 +47,6 @@ impl SessionFieldElement for FieldElement {
 ///
 /// See the diagram below on how Session Proofs work, the [`SessionId`] and the `r` seed
 /// ![Session Proofs Diagram][session-proofs.png]
-///
-/// It encodes two values:
-/// - `commitment`: The value verified inside the ZK-circuit, computed as
-///   `H(DS_C || leaf_index || r)` where `r` is the OPRF-derived seed.
-/// - `action`: The original RP-provided action from the initial Uniqueness Proof.
-///   This is stored so the Authenticator can re-derive `r` from the OPRF nodes
-///   if needed (the OPRF is deterministic for the same input and key).
 ///
 /// Note that the `action` stored here is unrelated to the randomized action used
 /// internally by [`SessionNullifier`]s — that randomized action exists only to ensure
@@ -145,13 +140,13 @@ impl SessionId {
         })
     }
 
-    /// Returns the commitment value.
+    /// Returns the `commitment` value.
     #[must_use]
     pub const fn commitment(&self) -> FieldElement {
         self.commitment
     }
 
-    /// Returns the action value.
+    /// Returns the `oprf_seed` value.
     #[must_use]
     pub const fn oprf_seed(&self) -> FieldElement {
         self.oprf_seed
@@ -159,7 +154,7 @@ impl SessionId {
 
     /// Returns the 64-byte big-endian representation (2 x 32-byte field elements).
     #[must_use]
-    pub fn as_compressed_bytes(&self) -> [u8; 64] {
+    pub fn to_compressed_bytes(&self) -> [u8; 64] {
         let mut bytes = [0u8; 64];
         bytes[..32].copy_from_slice(&self.commitment.to_be_bytes());
         bytes[32..].copy_from_slice(&self.oprf_seed.to_be_bytes());
@@ -181,7 +176,7 @@ impl SessionId {
         let commitment = FieldElement::from_be_bytes(bytes[..32].try_into().unwrap())
             .map_err(|e| format!("invalid commitment: {e}"))?;
         let oprf_seed = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
-            .map_err(|e| format!("invalid action: {e}"))?;
+            .map_err(|e| format!("invalid oprf_seed: {e}"))?;
 
         if bytes[32] != SESSION_FIELD_ELEMENT_PREFIX {
             return Err("invalid prefix for oprf_seed".to_string());
@@ -213,7 +208,7 @@ impl Serialize for SessionId {
     where
         S: Serializer,
     {
-        let bytes = self.as_compressed_bytes();
+        let bytes = self.to_compressed_bytes();
         if serializer.is_human_readable() {
             // JSON: prefixed hex-encoded compressed bytes for explicit typing.
             serializer.serialize_str(&format!("{}{}", Self::JSON_PREFIX, hex::encode(bytes)))
@@ -414,7 +409,8 @@ mod session_id_tests {
 
     /// Creates an oprf_seed with the right prefix
     fn test_oprf_seed(value: u64) -> FieldElement {
-        let n = U256::from(value) << 8
+        // set the first byte to 0x01; no need to clear the first bits as the input is u64
+        let n = U256::from(value)
             | uint!(0x0100000000000000000000000000000000000000000000000000000000000000_U256);
         FieldElement::try_from(n).expect("test value fits in field")
     }
@@ -439,7 +435,7 @@ mod session_id_tests {
     #[test]
     fn test_bytes_roundtrip() {
         let id = SessionId::new(test_field_element(1001), test_oprf_seed(42));
-        let bytes = id.as_compressed_bytes();
+        let bytes = id.to_compressed_bytes();
 
         assert_eq!(bytes.len(), 64);
 
@@ -450,7 +446,7 @@ mod session_id_tests {
     #[test]
     fn test_bytes_use_field_element_encoding() {
         let id = SessionId::new(test_field_element(1001), test_oprf_seed(42));
-        let bytes = id.as_compressed_bytes();
+        let bytes = id.to_compressed_bytes();
 
         let mut expected = [0u8; 64];
         expected[..32].copy_from_slice(&id.commitment().to_be_bytes());
@@ -469,6 +465,20 @@ mod session_id_tests {
         let result = SessionId::from_compressed_bytes(&too_long);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid length"));
+    }
+
+    #[test]
+    fn test_from_compressed_bytes_rejects_wrong_oprf_seed_prefix() {
+        let mut bytes = [0u8; 64];
+        // Valid commitment (zero is a valid field element)
+        // oprf_seed with wrong prefix: 0x00 instead of 0x01
+        bytes[32] = 0x00;
+        let result = SessionId::from_compressed_bytes(&bytes);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("invalid prefix"),
+            "should reject oprf_seed without 0x01 prefix"
+        );
     }
 
     #[test]

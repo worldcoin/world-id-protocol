@@ -278,8 +278,8 @@ impl<'a> OprfEntrypoint<'a> {
 
 /// Intermediate result from query proof generation.
 struct QueryProofResult {
-    pub query_proof_input: QueryProofCircuitInput<TREE_DEPTH>,
-    pub proof: Proof<Bn254>,
-    pub query_hash: ark_babyjubjub::Fq,
-    pub blinding_factor: BlindingFactor,
+    query_proof_input: QueryProofCircuitInput<TREE_DEPTH>,
+    proof: Proof<Bn254>,
+    query_hash: ark_babyjubjub::Fq,
+    blinding_factor: BlindingFactor,
 }
