@@ -23,7 +23,7 @@ Stemming from the enablement of other Authenticators to exist, a reference open-
 - **Action**: *Maintains definition from previous Protocol version.*
 - **Nullifier**: *Maintains definition from previous Protocol version.* A nullifier is a one-time use identifier that guarantees an action can only be taken once. It’s analogous to a one-time use ticket, a user generates a nullifier through a Proof, and presents it to an RP. A nullifier will always be the same for the same user and the same RP+Action.
 - **Uniqueness Proof**: A statement where a user proves they are performing an action once and they own a particular credential (e.g. *I’m a unique person with a PoH credential voting on this proposal once*). These proofs cannot be cryptographically associated with any other proof (e.g. not across RP, or even to the same RP).
-- **Session Proofs**: Used after an initial Uniqueness Proof—where a `sessionId` is generated— and subsequently provided by an RP to receive a statement that cryptographically guarantees the same World ID is being used (e.g. *I have an account with an RP and I want to prove I now have a new Credential*). These proofs cannot be associated across RPs, across sessions with the same RP, or with any other proof.
+- **Session Proofs**: Used with a `sessionId` provided by an Authenticator and subsequently provided by an RP to receive a statement that cryptographically guarantees the same World ID is being used (e.g. *I have an account with an RP and I want to prove I now have a new Credential*). These proofs cannot be associated across RPs, across sessions with the same RP, or with any other proof.
 
 ## Key Product Functionality
 
@@ -78,7 +78,7 @@ This notes the key **new** features or functionality for this **release** of Wor
     - Also implies that the on-chain trees of identity commitments is gone in favor of a single `WorldIDRegistry`.
 - Creating a World ID now occurs through on-chain registration (vs. as an offline keypair generation previously), and issuing Credentials is now done without on-chain interaction. Credentials are now issued by the Issuer signing them. Previously, the Issuer would add the user’s identity commitment to the relevant on-chain tree.
 - Nullifiers are enforced one-time use. Previously there was no enforcement of nullifiers being one-time use and they could become pseudonymous identifiers for an RP, now Authenticators will not issue a nullifier more than once.
-- [**For RPs only**]. When RPs require users to prove they are still the same World ID that originally performed an action, they will be able to store an identifier from the original action (a `sessionId`) and provide it to the user for subsequent proves. With Proof of Human, this allows RPs to establish they are interacting with the same World ID, potentially with different credentials too. See *Session Proofs* for further details.
+- [**For RPs only**]. When RPs require users to prove they are still the same World ID that originally performed an action, they will be able to store an identifier (a `sessionId`) and provide it to the user for subsequent proofs. With Proof of Human, this allows RPs to establish they are interacting with the same World ID, potentially with different credentials too. See *Session Proofs* for further details.
 - [**For Issuers only**]. Authentication based on using nullifiers from ZKPs as identifiers is no longer supported. A new authentication mechanism is introduced for issuers.
 - Access to a World ID can be recovered. A user can designate a *Recovery Agent* for their account which will allow for recovery in case of access to all Authenticators is lost.
     - [**Recovery Agent Scope**]. Users may designate the *PoH AMPC* system as their Recovery Agent to recover their World ID. In the future, other Recovery Agents are expected to be available.
@@ -137,7 +137,7 @@ User ->> User: Generate final Proof ($$\pi_{F}$$)
 alt
 User <<->> Oblivious Nullifier Pool: check if nullifier exists and insert
 end
-User ->> RP: $$\pi_{F}$$ + nullifier + sessionId
+User ->> RP: $$\pi_{F}$$ + nullifier
 alt
 RP ->> Indexer: Verify ZKP
 else
@@ -242,10 +242,10 @@ Session Proofs use the same zero-knowledge circuits as Uniqueness Proofs, but au
 
 Session Proofs work in the following manner:
 
-- An RP initiates a request for a Uniqueness Proof as usual, with its relevant `action`.
-- The proof outputs a `sessionId`. A unique identifier bound to the user's World ID for that RP. **Note** that an RP can only request a `sessionId` once per action. Using the same `action` again will fail because the `nullifier` output from the Uniqueness Proof is scoped to `(rpId, action)` and will already have been used.
+- An RP requests an authenticator to create a session.
+- The authenticator provides a `sessionId`. A unique identifier bound to the user's World ID for that RP.
 - The RP stores this `sessionId` alongside their account for the user.
-- For subsequent interactions, the RP includes the `sessionId` in proof requests. The user can then generate a session proof to prove they have the same World ID.
+- For subsequent interactions, the RP includes the `sessionId` in proof requests. The user can then generate a Session Proof to prove they have the same World ID. Different proofs over time with the same `sessionId` may use different credentials.
 - The `sessionId` is generated as outlined below, where `r` is computationally indistinguishable from random.
 
 ```mermaid
@@ -255,13 +255,12 @@ participant a as Authenticator
 participant rp as RP
 
 critical initial/enrollment
-rp ->> a: initial Proof request
+rp ->> a: Initial session request
 a->>a: Generate oprf_seed locally (CSPRNG)
 a->>o: $$r=\texttt{OPRF}(pk_{rpId}, DS_C || \texttt{leafIndex} || \texttt{oprf_seed})$$
 a->>a: Compute C = H($$DS_C$$ || leafIndex || r)
 a->>a: sessionId = encode(C, oprf_seed)
-Note over a, rp: [...] remainder of Proof flow omitted
-a ->> rp: Initial Proof with nullifier + sessionId
+a ->> rp: sessionId
 end
 
 rp->>a: session proof request (incl. sessionId)

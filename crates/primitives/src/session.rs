@@ -15,8 +15,7 @@ use crate::circuit_inputs::QueryProofCircuitInput;
 /// A session allows RPs to ensure that it's still the same World ID
 /// interacting with them across multiple interactions.
 ///
-/// A `SessionId` is obtained from an initial Uniqueness Proof, and subsequently
-/// can be used in Session Proofs.
+/// A `SessionId` is obtained after creating an initial session.
 ///
 /// See the diagram below on how Session Proofs work, the [`SessionId`] and the `r` seed
 /// ![Session Proofs Diagram][session-proofs.png]

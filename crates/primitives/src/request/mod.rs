@@ -183,12 +183,11 @@ pub struct ProofResponse {
     /// RP session identifier that links multiple proofs for the same
     /// user/RP pair across requests.
     ///
-    /// For the initial Uniqueness Proof that creates a session, this contains
+    /// For an initial request which creates a session, this contains
     /// the newly generated `SessionId`. For subsequent Session Proofs, this
     /// echoes back the `SessionId` from the request for convenience.
     ///
-    /// This is optional as Authenticators may opt to not expose it
-    /// in Uniqueness Proofs unless explicitly requested.
+    /// This is optional as it's not provided in Uniqueness Proofs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<SessionId>,
     /// Error message if the entire proof request failed.

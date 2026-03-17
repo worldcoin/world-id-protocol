@@ -531,7 +531,8 @@ impl Authenticator {
     /// on a specific RP context. See [`Nullifier`] for more details.
     ///
     /// A Nullifier takes an `action` as input:
-    /// - If `proof_request` is for a Session Proof, a random `action` is generated.
+    /// - If `proof_request` is for a Session Proof, a random internal `action` is generated. This
+    ///   is opaque to RPs, and verified internally in the verification contract.
     /// - If `proof_request` is for a Uniqueness Proof, the `action` is provided by the RP,
     ///   if not provided a default of [`FieldElement::ZERO`] is used.
     ///
@@ -639,10 +640,8 @@ impl Authenticator {
     /// - The seed is and MUST be computationally indistinguishable from random,
     ///   i.e. uniformly distributed because it uses OPRF.
     /// - The OPRF nodes will use the same `oprfKeyId` for the RP, with a different domain separator.
-    /// - Requesting this seed requires a properly signed request from the RP and a complete query proof. The
-    ///   query proof can be re-used once to generate a nullifier as well (separate requests to OPRF nodes).
-    ///   Both calls can be made in parallel.
-    /// - The seed generation is based on a specific RP-provided `action` for the initial Uniqueness Proof. Note
+    /// - Requesting this seed requires a properly signed request from the RP and a complete query proof.
+    /// - The seed generation is based on a randomly generated seed used as an "action" in a Query Proof. Note
     ///   this `action` is different than the randomized action used internally by [`SessionNullifier`]s.
     ///
     /// # Determinism and Recovery
