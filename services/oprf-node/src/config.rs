@@ -11,6 +11,7 @@ use taceo_oprf::service::{VersionReq, config::OprfNodeServiceConfig};
 ///
 /// It can be configured via environment variables or command line arguments using `clap`.
 #[derive(Clone, Debug, Deserialize)]
+#[non_exhaustive]
 pub struct WorldOprfNodeConfig {
     /// The address of the WorldIDRegistry smart contract
     pub world_id_registry_contract: Address,
@@ -89,6 +90,11 @@ impl WorldOprfNodeConfig {
     }
 
     /// Initialize with default values for all optional fields
+    #[must_use]
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "We want to consume the contracts"
+    )]
     pub fn with_default_values(
         environment: taceo_oprf::service::Environment,
         contracts: WorldIdNodeContracts,
@@ -124,6 +130,10 @@ impl WorldOprfNodeConfig {
 /// Holds the Ethereum contract addresses used by the World ID node.
 ///
 /// Each field corresponds to a deployed contract that the node interacts with. This struct is primarily used to provide type-safe access to the contracts when initializing the node configuration.
+#[allow(
+    clippy::exhaustive_structs,
+    reason = "If we add another contract it must be a breaking change anyways"
+)]
 pub struct WorldIdNodeContracts {
     /// Address of the World ID Registry contract.
     pub world_id_registry_contract: Address,

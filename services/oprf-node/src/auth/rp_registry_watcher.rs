@@ -29,7 +29,7 @@ use tracing::instrument;
 use world_id_primitives::rp::RpId;
 
 alloy::sol! {
-    #[allow(missing_docs, clippy::too_many_arguments)]
+    #[allow(missing_docs, clippy::too_many_arguments, reason="Get this errors from sol macro")]
     #[sol(rpc)]
     RpRegistry,
     "abi/RpRegistryAbi.json"
@@ -110,7 +110,7 @@ impl RpRegistryWatcher {
                                 eyre::eyre!("RpRegistry subscribe stream was closed")
                             })?
                         }
-                        _ = cancellation_token.cancelled() => {
+                        () = cancellation_token.cancelled() => {
                             break;
                         }
                     };

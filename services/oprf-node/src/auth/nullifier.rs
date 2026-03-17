@@ -162,6 +162,7 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::large_futures, reason = "Is ok in tests")]
     use std::time::Duration;
 
     use alloy::signers::local::LocalSigner;
@@ -239,7 +240,8 @@ mod tests {
                 current_time_stamp_max_difference,
             );
 
-            let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
+            let query_material = world_id_core::proof::load_embedded_query_material()
+                .expect("Can load query material");
 
             let query_blinding_factor = BlindingFactor::rand(&mut rng);
 
@@ -271,7 +273,7 @@ mod tests {
                 action: setup.rp_fixture.action,
                 nonce: setup.rp_fixture.nonce,
             };
-            let _ = errors::check_query_input_validity(&query_proof_input)?;
+            let _affine = errors::check_query_input_validity(&query_proof_input)?;
 
             let (proof, public_inputs) =
                 query_material.generate_proof(&query_proof_input, &mut rng)?;
@@ -325,7 +327,7 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
+            .expect_err("Should fail");
         assert!(matches!(
             err,
             NullifierOprfRequestAuthError::TimeStampDifference
@@ -341,7 +343,7 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
+            .expect_err("Should fail");
         assert!(matches!(
             err,
             NullifierOprfRequestAuthError::Common(OprfRequestAuthError::InvalidMerkleRoot)
@@ -358,12 +360,12 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
+            .expect_err("Should fail");
         assert!(matches!(
             err,
             NullifierOprfRequestAuthError::RpRegistryWatcherError(
                 RpRegistryWatcherError::AlloyError(err)
-            ) if matches!(err.as_decoded_interface_error::<RpRegistryErrors>().unwrap(), RpRegistryErrors::RpIdDoesNotExist(RpIdDoesNotExist))
+            ) if matches!(err.as_decoded_interface_error::<RpRegistryErrors>().expect("Can decode to RpRegistryError"), RpRegistryErrors::RpIdDoesNotExist(RpIdDoesNotExist))
         ));
         Ok(())
     }
@@ -376,7 +378,7 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
+            .expect_err("Should fail");
         assert!(matches!(err, NullifierOprfRequestAuthError::InvalidSigner));
         Ok(())
     }
@@ -389,7 +391,7 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
+            .expect_err("Should fail");
         assert!(matches!(
             err,
             NullifierOprfRequestAuthError::Common(OprfRequestAuthError::InvalidProof)
@@ -408,7 +410,7 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
+            .expect_err("Should fail");
         assert!(matches!(
             err,
             NullifierOprfRequestAuthError::DuplicateSignatureError(DuplicateSignatureError)
@@ -440,12 +442,12 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
+            .expect_err("Should fail");
         assert!(matches!(
             err,
             NullifierOprfRequestAuthError::RpRegistryWatcherError(
                 RpRegistryWatcherError::AlloyError(err)
-            ) if matches!(err.as_decoded_interface_error::<RpRegistryErrors>().unwrap(), RpRegistryErrors::RpIdInactive(RpIdInactive))
+            ) if matches!(err.as_decoded_interface_error::<RpRegistryErrors>().expect("Can decode to RpRegistryError"), RpRegistryErrors::RpIdInactive(RpIdInactive))
         ));
         Ok(())
     }

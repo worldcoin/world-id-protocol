@@ -26,7 +26,8 @@ use alloy::{
     eips::BlockNumberOrTag,
     primitives::Address,
     providers::{DynProvider, Provider as _, ProviderBuilder, WsConnect},
-    rpc::types::Filter,
+    pubsub::Subscription,
+    rpc::types::{Filter, Log},
     sol_types::SolEvent as _,
 };
 use eyre::Context;
@@ -129,8 +130,7 @@ impl MerkleWatcher {
                 RootRecorded::SIGNATURE_HASH,
                 RootValidityWindowUpdated::SIGNATURE_HASH,
             ]);
-        let sub = provider.subscribe_logs(&filter).await?;
-        let mut stream = sub.into_stream();
+        let subscription = provider.subscribe_logs(&filter).await?;
 
         let get_latest_root = contract.getLatestRoot();
         let get_root_validity_window = contract.getRootValidityWindow();
@@ -177,87 +177,13 @@ impl MerkleWatcher {
         started.store(true, Ordering::Relaxed);
 
         tracing::info!("listening for events...");
-        let subscribe_task = tokio::spawn({
-            let latest_root = Arc::clone(&latest_root);
-            let merkle_root_cache = merkle_root_cache.clone();
-            let root_validity_window = Arc::clone(&root_validity_window);
-            async move {
-                // shutdown service if merkle watcher encounters an error and drops this guard
-                let _drop_guard = cancellation_token.clone().drop_guard();
-                loop {
-                    let log = tokio::select! {
-                        log = stream.next() => {
-                            log.ok_or_else(||{
-                                tracing::warn!("MerkleWatcher subscribe stream was closed");
-                                eyre::eyre!("MerkleWatcher subscribe stream was closed")
-                            })?
-                        }
-                        _ = cancellation_token.cancelled() => {
-                            break;
-                        }
-                    };
-
-                    match log.topic0() {
-                        Some(&RootRecorded::SIGNATURE_HASH) => {
-                            match RootRecorded::decode_log(log.as_ref()) {
-                                Ok(event) => {
-                                    tracing::info!("got root {}", event.root,);
-                                    let root = FieldElement::try_from(event.root)
-                                        .expect("root is in field");
-
-                                    // update latest root
-                                    *latest_root.write().expect("not poisoned") = root;
-
-                                    let root_validity_window = Duration::from_secs(
-                                        root_validity_window.load(Ordering::Relaxed),
-                                    );
-                                    tracing::debug!(
-                                        "insert root with current validity window {root_validity_window:?}"
-                                    );
-                                    merkle_root_cache.insert(root, root_validity_window).await;
-                                }
-                                Err(err) => {
-                                    tracing::warn!("failed to decode contract event: {err:?}");
-                                }
-                            }
-                        }
-                        Some(&RootValidityWindowUpdated::SIGNATURE_HASH) => {
-                            match RootValidityWindowUpdated::decode_log(log.as_ref()) {
-                                Ok(event) => {
-                                    tracing::info!("got root validity window update");
-                                    let old_window =
-                                        u64::try_from(event.oldWindow).expect("fits in u64");
-                                    let new_window =
-                                        u64::try_from(event.newWindow).expect("fits in u64");
-
-                                    tracing::info!(
-                                        "root validity window updated from {old_window}s to {new_window}s"
-                                    );
-                                    root_validity_window.store(new_window, Ordering::Relaxed);
-
-                                    // invalidate all cached roots if the validity window decreased
-                                    if new_window < old_window {
-                                        merkle_root_cache.invalidate_all();
-                                    }
-
-                                    // could theoretically be optimized to only invalidate roots that are expired after the update.
-                                    // in case the validity window increased, all existing roots are still valid but should be valid for longer.
-                                    // could re-insert them with the remaining validity time, but not strictly necessary.
-                                }
-                                Err(err) => {
-                                    tracing::warn!("failed to decode contract event: {err:?}");
-                                }
-                            }
-                        }
-                        x => {
-                            tracing::warn!("received unknown event {x:?}");
-                        }
-                    }
-                }
-                tracing::info!("Successfully shutdown MerkleWatcher");
-                eyre::Ok(())
-            }
-        });
+        let subscribe_task = tokio::spawn(subscribe_task(
+            subscription,
+            Arc::clone(&latest_root),
+            merkle_root_cache.clone(),
+            Arc::clone(&root_validity_window),
+            cancellation_token,
+        ));
 
         // periodically run maintenance tasks on the cache and update metrics
         tokio::spawn({
@@ -343,6 +269,86 @@ impl MerkleWatcher {
     }
 }
 
+async fn subscribe_task(
+    subscription: Subscription<Log>,
+    latest_root: Arc<RwLock<FieldElement>>,
+    merkle_root_cache: Cache<FieldElement, Duration>,
+    root_validity_window: Arc<AtomicU64>,
+    cancellation_token: CancellationToken,
+) -> eyre::Result<()> {
+    // shutdown service if merkle watcher encounters an error and drops this guard
+    let _drop_guard = cancellation_token.clone().drop_guard();
+    let mut stream = subscription.into_stream();
+    loop {
+        let log = tokio::select! {
+            log = stream.next() => {
+                log.ok_or_else(||{
+                    tracing::warn!("MerkleWatcher subscribe stream was closed");
+                    eyre::eyre!("MerkleWatcher subscribe stream was closed")
+                })?
+            }
+            () = cancellation_token.cancelled() => {
+                break;
+            }
+        };
+
+        match log.topic0() {
+            Some(&RootRecorded::SIGNATURE_HASH) => {
+                match RootRecorded::decode_log(log.as_ref()) {
+                    Ok(event) => {
+                        tracing::info!("got root {}", event.root,);
+                        let root = FieldElement::try_from(event.root).expect("root is in field");
+
+                        // update latest root
+                        *latest_root.write().expect("not poisoned") = root;
+
+                        let root_validity_window =
+                            Duration::from_secs(root_validity_window.load(Ordering::Relaxed));
+                        tracing::debug!(
+                            "insert root with current validity window {root_validity_window:?}"
+                        );
+                        merkle_root_cache.insert(root, root_validity_window).await;
+                    }
+                    Err(err) => {
+                        tracing::warn!("failed to decode contract event: {err:?}");
+                    }
+                }
+            }
+            Some(&RootValidityWindowUpdated::SIGNATURE_HASH) => {
+                match RootValidityWindowUpdated::decode_log(log.as_ref()) {
+                    Ok(event) => {
+                        tracing::info!("got root validity window update");
+                        let old_window = u64::try_from(event.oldWindow).expect("fits in u64");
+                        let new_window = u64::try_from(event.newWindow).expect("fits in u64");
+
+                        tracing::info!(
+                            "root validity window updated from {old_window}s to {new_window}s"
+                        );
+                        root_validity_window.store(new_window, Ordering::Relaxed);
+
+                        // invalidate all cached roots if the validity window decreased
+                        if new_window < old_window {
+                            merkle_root_cache.invalidate_all();
+                        }
+
+                        // could theoretically be optimized to only invalidate roots that are expired after the update.
+                        // in case the validity window increased, all existing roots are still valid but should be valid for longer.
+                        // could re-insert them with the remaining validity time, but not strictly necessary.
+                    }
+                    Err(err) => {
+                        tracing::warn!("failed to decode contract event: {err:?}");
+                    }
+                }
+            }
+            x => {
+                tracing::warn!("received unknown event {x:?}");
+            }
+        }
+    }
+    tracing::info!("Successfully shutdown MerkleWatcher");
+    eyre::Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -391,7 +397,10 @@ mod tests {
             .deploy_world_id_registry(signer)
             .await
             .expect("failed to deploy WorldIDRegistry");
-        let contract = WorldIdRegistry::new(registry_address, anvil.provider().unwrap());
+        let contract = WorldIdRegistry::new(
+            registry_address,
+            anvil.provider().expect("Can get anvil provider"),
+        );
 
         let started_services = StartedServices::default();
 
@@ -432,7 +441,10 @@ mod tests {
             .deploy_world_id_registry(signer.clone())
             .await
             .expect("failed to deploy WorldIDRegistry");
-        let contract = WorldIdRegistry::new(registry_address, anvil.provider().unwrap());
+        let contract = WorldIdRegistry::new(
+            registry_address,
+            anvil.provider().expect("Can get anvil provider"),
+        );
         anvil
             .set_root_validity_window(registry_address, signer.clone(), 5)
             .await;
@@ -495,7 +507,10 @@ mod tests {
             .deploy_world_id_registry(signer.clone())
             .await
             .expect("failed to deploy WorldIDRegistry");
-        let contract = WorldIdRegistry::new(registry_address, anvil.provider().unwrap());
+        let contract = WorldIdRegistry::new(
+            registry_address,
+            anvil.provider().expect("Can get anvil provider"),
+        );
         anvil
             .set_root_validity_window(registry_address, signer.clone(), 5)
             .await;
