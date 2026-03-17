@@ -3,7 +3,8 @@ use crate::auth::{
     rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
     signature_history::{DuplicateSignatureError, SignatureHistory},
 };
-use ark_ff::{BigInteger, PrimeField};
+use alloy::primitives::U256;
+use ark_ff::PrimeField;
 use async_trait::async_trait;
 use axum::{http::StatusCode, response::IntoResponse};
 use std::time::{Duration, SystemTime};
@@ -126,8 +127,9 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
         let action = {
             // If the action is prefixed with a `0x01` byte, it means it's used for
             // a Session Proof. Hence the `action` is not part of the signature.
-            let action_val = request.auth.action.into_bigint();
-            if action_val.get_bit(248) {
+            let action_val: U256 = request.auth.action.into_bigint().into();
+            // check last byte as `Uint::byte()` uses little-endian encoding
+            if action_val.byte(31) == 0x01 {
                 None
             } else {
                 Some(request.auth.action)

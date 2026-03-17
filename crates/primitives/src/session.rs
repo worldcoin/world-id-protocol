@@ -1,11 +1,7 @@
 use crate::FieldElement;
 use embed_doc_image::embed_doc_image;
 use ruint::aliases::U256;
-use ruint::uint;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
-
-static MASK_SESSION_OPRF_SEED: U256 =
-    uint!(0x0100000000000000000000000000000000000000000000000000000000000000_U256);
 
 #[expect(unused_imports, reason = "used in doc comments")]
 use crate::circuit_inputs::QueryProofCircuitInput;
@@ -75,7 +71,7 @@ impl SessionId {
         // for details. Panic is acceptable as `oprf_seed` generation should
         // generally be done with `Self::from_r_seed`
         let oprf_seed_num = <U256 as From<FieldElement>>::from(oprf_seed);
-        assert!(oprf_seed_num.bit(248));
+        assert!(oprf_seed_num.byte(31) == 0x01);
         Self {
             commitment,
             oprf_seed,
@@ -97,7 +93,10 @@ impl SessionId {
         let oprf_seed = if let Some(seed) = oprf_seed {
             seed
         } else {
-            let seed = (U256::random_with(rng) >> 8) | MASK_SESSION_OPRF_SEED;
+            let mut bytes = [0u8; 32];
+            rng.fill_bytes(&mut bytes);
+            bytes[0] = 0x01;
+            let seed = U256::from_be_bytes(bytes);
             FieldElement::try_from(seed).expect("should always fit in the field")
         };
 
@@ -362,14 +361,16 @@ impl From<(FieldElement, FieldElement)> for SessionNullifier {
 #[cfg(test)]
 mod session_id_tests {
     use super::*;
+    use ruint::uint;
 
     fn test_field_element(value: u64) -> FieldElement {
         FieldElement::from(value)
     }
 
-    /// Creates an oprf_seed with the `MASK_SESSION_OPRF_SEED` prefix applied.
+    /// Creates an oprf_seed with the right prefix
     fn test_oprf_seed(value: u64) -> FieldElement {
-        let n = U256::from(value) | MASK_SESSION_OPRF_SEED;
+        let n = U256::from(value) << 8
+            | uint!(0x0100000000000000000000000000000000000000000000000000000000000000_U256);
         FieldElement::try_from(n).expect("test value fits in field")
     }
 
@@ -452,6 +453,33 @@ mod session_id_tests {
     fn test_json_wrong_prefix_rejected() {
         let result = serde_json::from_str::<SessionId>("\"snil_00\"");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_r_seed_generates_random_seed() {
+        let mut rng = rand::rngs::OsRng;
+        let r_seed = test_field_element(999);
+
+        let id1 = SessionId::from_r_seed(0, r_seed, None, &mut rng);
+        let id2 = SessionId::from_r_seed(0, r_seed, None, &mut rng);
+
+        assert_ne!(id1.oprf_seed(), id2.oprf_seed());
+    }
+
+    #[test]
+    fn test_from_r_seed_generated_seed_has_session_prefix() {
+        let mut rng = rand::rngs::OsRng;
+        let r_seed = test_field_element(999);
+
+        for _ in 0..50 {
+            let id = SessionId::from_r_seed(0, r_seed, None, &mut rng);
+            let seed_u256 = <U256 as From<FieldElement>>::from(id.oprf_seed());
+            // Top byte must be exactly 0x01: bit 248 set, bits 249-255 clear
+            assert!(seed_u256.bit(248), "bit 248 must be set");
+            for bit in 249..=255 {
+                assert!(!seed_u256.bit(bit), "bit {bit} must be clear");
+            }
+        }
     }
 }
 
