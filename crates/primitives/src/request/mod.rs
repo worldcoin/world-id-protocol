@@ -1661,7 +1661,7 @@ mod tests {
             r#"{{
   "id": "req_18c0f7f03e7d",
   "version": 1,
-  "session_id": "session_00000000000000000000000000000000000000000000000000000000000003ea0000000000000000000000000000000000000000000000000000000000000001",
+  "session_id": "session_00000000000000000000000000000000000000000000000000000000000003ea0100000000000000000000000000000000000000000000000000000000000001",
   "responses": [
     {{
       "identifier": "orb",
@@ -1677,8 +1677,8 @@ mod tests {
         assert_eq!(sess_canonical.successful_credentials(), vec![100]);
         assert!(sess_canonical.responses[0].is_session());
         assert_eq!(
-            sess_canonical.session_id.unwrap().oprf_seed(),
-            FieldElement::from(1u64)
+            sess_canonical.session_id.unwrap().oprf_seed().to_u256(),
+            uint!(0x0100000000000000000000000000000000000000000000000000000000000001_U256)
         );
     }
     /// Test duplicate detection by creating a serialized `ProofRequest` with duplicates

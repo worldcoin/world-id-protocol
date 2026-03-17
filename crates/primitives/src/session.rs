@@ -429,7 +429,12 @@ mod session_id_tests {
     fn test_default() {
         let id = SessionId::default();
         assert_eq!(id.commitment(), FieldElement::ZERO);
-        assert_eq!(id.oprf_seed(), FieldElement::ZERO);
+        assert_eq!(
+            id.oprf_seed(),
+            uint!(0x0100000000000000000000000000000000000000000000000000000000000000_U256)
+                .try_into()
+                .unwrap()
+        );
     }
 
     #[test]
