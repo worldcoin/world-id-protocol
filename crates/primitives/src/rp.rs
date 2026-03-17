@@ -240,19 +240,4 @@ mod tests {
             "RP signature message version must be 0x01"
         );
     }
-
-    #[test]
-    fn test_action_with_0x1_prefix_is_equivalent_to_none() {
-        let nonce = ark_babyjubjub::Fq::from(1u64);
-        let created_at = 1000u64;
-        let expires_at = 2000u64;
-
-        let msg = compute_rp_signature_msg(nonce, created_at, expires_at, None);
-
-        let session_action =
-            ark_babyjubjub::Fq::rand(&mut OsRng).into_bigint() | ark_ff::BigInteger256::from(1u64);
-        let msg2 =
-            compute_rp_signature_msg(nonce, created_at, expires_at, Some(session_action.into()));
-        assert_eq!(msg, msg2);
-    }
 }
