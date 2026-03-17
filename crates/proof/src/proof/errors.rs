@@ -315,10 +315,7 @@ pub fn check_nullifier_input_validity<const TREE_DEPTH: usize>(
     }
 
     // check dlog eq proof is valid
-    let dlog_proof = DLogEqualityProof {
-        e: inputs.dlog_e,
-        s: inputs.dlog_s,
-    };
+    let dlog_proof = DLogEqualityProof::new(inputs.dlog_e, inputs.dlog_s);
     dlog_proof
         .verify(
             inputs.oprf_pk,

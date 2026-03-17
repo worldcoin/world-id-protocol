@@ -290,10 +290,8 @@ mod tests {
 
             let request_id = Uuid::new_v4();
 
-            let blinded_request = taceo_oprf::core::oprf::client::blind_query(
-                *query_hash,
-                query_blinding_factor.clone(),
-            );
+            let blinded_request =
+                taceo_oprf::core::oprf::client::blind_query(*query_hash, query_blinding_factor);
 
             let request = OprfRequest {
                 request_id,

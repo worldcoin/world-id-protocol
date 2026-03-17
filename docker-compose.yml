@@ -31,85 +31,70 @@ services:
       - DEBUG=1
   oprf-key-gen0:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.7
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.1.0-rc.1
     network_mode: "host"
     environment:
-      OPRF_KEY_GEN_ENVIRONMENT: dev
-      OPRF_KEY_GEN_BIND_ADDR: 0.0.0.0:20000
-      OPRF_KEY_GEN_OPRF_KEY_REGISTRY_CONTRACT:
-      OPRF_KEY_GEN_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
-      OPRF_KEY_GEN_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n0
-      OPRF_KEY_GEN_ZKEY_PATH: /app/circom/OPRFKeyGen.13.arks.zkey
-      OPRF_KEY_GEN_WITNESS_GRAPH_PATH: /app/circom/OPRFKeyGenGraph.13.bin
-      OPRF_KEY_GEN_TRANSACTION_CONFIRMATIONS: 1
-      OPRF_KEY_GEN_DB_CONNECTION_STRING: postgres://postgres:postgres@localhost:5440/postgres
-      OPRF_KEY_GEN_DB_SCHEMA: oprf
+      RUST_LOG: "taceo=trace,warn"
+      TACEO_OPRF_KEY_GEN__SERVICE__ENVIRONMENT: dev
+      TACEO_OPRF_KEY_GEN__BIND_ADDR: 0.0.0.0:20000
+      TACEO_OPRF_KEY_GEN__SERVICE__OPRF_KEY_REGISTRY_CONTRACT:
+      TACEO_OPRF_KEY_GEN__SERVICE__RPC__HTTP_URLS: http://127.0.0.1:8545
+      TACEO_OPRF_KEY_GEN__SERVICE__RPC__WS_URL: ws://127.0.0.1:8545
+      TACEO_OPRF_KEY_GEN__WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n0
+      TACEO_OPRF_KEY_GEN__SERVICE__ZKEY_PATH: /app/circom/OPRFKeyGen.13.arks.zkey
+      TACEO_OPRF_KEY_GEN__SERVICE__WITNESS_GRAPH_PATH: /app/circom/OPRFKeyGenGraph.13.bin
+      TACEO_OPRF_KEY_GEN__SERVICE__CONFIRMATIONS_FOR_TRANSACTION: 1
+      TACEO_OPRF_KEY_GEN__POSTGRES__CONNECTION_STRING: postgres://postgres:postgres@localhost:5432/postgres
+      TACEO_OPRF_KEY_GEN__POSTGRES__SCHEMA: oprf0
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_ENDPOINT_URL: http://localhost:4566
     volumes:
       - ./circom:/app/circom:ro
   oprf-key-gen1:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.7
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.1.0-rc.1
     network_mode: "host"
     environment:
-      OPRF_KEY_GEN_ENVIRONMENT: dev
-      OPRF_KEY_GEN_BIND_ADDR: 0.0.0.0:20001
-      OPRF_KEY_GEN_OPRF_KEY_REGISTRY_CONTRACT:
-      OPRF_KEY_GEN_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
-      OPRF_KEY_GEN_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n1
-      OPRF_KEY_GEN_ZKEY_PATH: /app/circom/OPRFKeyGen.13.arks.zkey
-      OPRF_KEY_GEN_WITNESS_GRAPH_PATH: /app/circom/OPRFKeyGenGraph.13.bin
-      OPRF_KEY_GEN_TRANSACTION_CONFIRMATIONS: 1
-      OPRF_KEY_GEN_DB_CONNECTION_STRING: postgres://postgres:postgres@localhost:5441/postgres
-      OPRF_KEY_GEN_DB_SCHEMA: oprf
+      RUST_LOG: "taceo=trace,warn"
+      TACEO_OPRF_KEY_GEN__SERVICE__ENVIRONMENT: dev
+      TACEO_OPRF_KEY_GEN__BIND_ADDR: 0.0.0.0:20001
+      TACEO_OPRF_KEY_GEN__SERVICE__OPRF_KEY_REGISTRY_CONTRACT:
+      TACEO_OPRF_KEY_GEN__SERVICE__RPC__HTTP_URLS: http://127.0.0.1:8545
+      TACEO_OPRF_KEY_GEN__SERVICE__RPC__WS_URL: ws://127.0.0.1:8545
+      TACEO_OPRF_KEY_GEN__WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n1
+      TACEO_OPRF_KEY_GEN__SERVICE__ZKEY_PATH: /app/circom/OPRFKeyGen.13.arks.zkey
+      TACEO_OPRF_KEY_GEN__SERVICE__WITNESS_GRAPH_PATH: /app/circom/OPRFKeyGenGraph.13.bin
+      TACEO_OPRF_KEY_GEN__SERVICE__CONFIRMATIONS_FOR_TRANSACTION: 1
+      TACEO_OPRF_KEY_GEN__POSTGRES__CONNECTION_STRING: postgres://postgres:postgres@localhost:5432/postgres
+      TACEO_OPRF_KEY_GEN__POSTGRES__SCHEMA: oprf1
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_ENDPOINT_URL: http://localhost:4566
     volumes:
       - ./circom:/app/circom:ro
   oprf-key-gen2:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.0.0-rc.7
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.1.0-rc.1
     network_mode: "host"
     environment:
-      OPRF_KEY_GEN_ENVIRONMENT: dev
-      OPRF_KEY_GEN_BIND_ADDR: 0.0.0.0:20002
-      OPRF_KEY_GEN_OPRF_KEY_REGISTRY_CONTRACT:
-      OPRF_KEY_GEN_CHAIN_WS_RPC_URL: ws://127.0.0.1:8545
-      OPRF_KEY_GEN_WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n2
-      OPRF_KEY_GEN_ZKEY_PATH: /app/circom/OPRFKeyGen.13.arks.zkey
-      OPRF_KEY_GEN_WITNESS_GRAPH_PATH: /app/circom/OPRFKeyGenGraph.13.bin
-      OPRF_KEY_GEN_TRANSACTION_CONFIRMATIONS: 1
-      OPRF_KEY_GEN_DB_CONNECTION_STRING: postgres://postgres:postgres@localhost:5442/postgres
-      OPRF_KEY_GEN_DB_SCHEMA: oprf
+      RUST_LOG: "taceo=trace,warn"
+      TACEO_OPRF_KEY_GEN__SERVICE__ENVIRONMENT: dev
+      TACEO_OPRF_KEY_GEN__BIND_ADDR: 0.0.0.0:20002
+      TACEO_OPRF_KEY_GEN__SERVICE__OPRF_KEY_REGISTRY_CONTRACT:
+      TACEO_OPRF_KEY_GEN__SERVICE__RPC__HTTP_URLS: http://127.0.0.1:8545
+      TACEO_OPRF_KEY_GEN__SERVICE__RPC__WS_URL: ws://127.0.0.1:8545
+      TACEO_OPRF_KEY_GEN__WALLET_PRIVATE_KEY_SECRET_ID: oprf/eth/n2
+      TACEO_OPRF_KEY_GEN__SERVICE__ZKEY_PATH: /app/circom/OPRFKeyGen.13.arks.zkey
+      TACEO_OPRF_KEY_GEN__SERVICE__WITNESS_GRAPH_PATH: /app/circom/OPRFKeyGenGraph.13.bin
+      TACEO_OPRF_KEY_GEN__SERVICE__CONFIRMATIONS_FOR_TRANSACTION: 1
+      TACEO_OPRF_KEY_GEN__POSTGRES__CONNECTION_STRING: postgres://postgres:postgres@localhost:5432/postgres
+      TACEO_OPRF_KEY_GEN__POSTGRES__SCHEMA: oprf2
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_ENDPOINT_URL: http://localhost:4566
     volumes:
       - ./circom:/app/circom:ro
-  oprf-node-db0:
-    image: postgres:latest
-    ports:
-      - "5440:5432"
-    environment:
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_DB=postgres
-  oprf-node-db1:
-    image: postgres:latest
-    ports:
-      - "5441:5432"
-    environment:
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_DB=postgres
-  oprf-node-db2:
-    image: postgres:latest
-    ports:
-      - "5442:5432"
-    environment:
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_DB=postgres
-  ohttp-gateway:
-    image: ghcr.io/worldcoin/world-id-protocol/ohttp-gateway:latest
-    platform: linux/amd64
-    ports:
-      - "9090:8080"
-    environment:
-      SEED_SECRET_KEY: "0000000000000000000000000000000000000000000000000000000000000001"
-      ALLOWED_TARGET_ORIGINS: "localhost:8080,localhost:8081"
-      TARGET_REWRITES: '{"localhost:8080": {"Scheme": "http", "Host": "host.docker.internal:8080"}, "localhost:8081": {"Scheme": "http", "Host": "host.docker.internal:8081"}}'

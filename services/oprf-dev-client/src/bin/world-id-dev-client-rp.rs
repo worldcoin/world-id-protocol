@@ -141,13 +141,13 @@ impl DevClient for WorldIdRpDevClient {
             setup,
             &proof_request,
             action,
-            &oprf_blinding_factor,
+            oprf_blinding_factor,
             signature,
             &self.components.query_material,
         )?;
 
         let blinded_query =
-            taceo_oprf::core::oprf::client::blind_query(*query_hash, oprf_blinding_factor.clone());
+            taceo_oprf::core::oprf::client::blind_query(*query_hash, oprf_blinding_factor);
 
         let init_request = OprfRequest {
             request_id,
@@ -285,7 +285,7 @@ fn generate_oprf_auth_request(
     setup: &WorldIdRpDevClientSetup,
     proof_request: &ProofRequest,
     action: FieldElement,
-    blinding_factor: &BlindingFactor,
+    blinding_factor: BlindingFactor,
     authenticator_signature: EdDSASignature,
     query_material: &CircomGroth16Material,
 ) -> eyre::Result<NullifierOprfRequestAuthV1> {
@@ -293,7 +293,7 @@ fn generate_oprf_auth_request(
         world_id_oprf_dev_client::CreateQueryProofArgs {
             authenticator_signature,
             action,
-            blinding_factor: blinding_factor.clone(),
+            blinding_factor,
             inclusion_proof: setup.inclusion_proof.clone(),
             key_set: setup.key_set.clone(),
             key_index: setup.key_index,

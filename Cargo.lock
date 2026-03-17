@@ -2577,7 +2577,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3969,6 +3969,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
 
 [[package]]
+name = "humantime-serde"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57a3db5ea5923d99402c94e9feb261dc5ee9b4efa158b0315f788cf549cc200c"
+dependencies = [
+ "humantime",
+ "serde",
+]
+
+[[package]]
 name = "hyper"
 version = "0.14.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4065,7 +4075,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.2",
  "tokio",
  "tower-service",
  "tracing",
@@ -5489,7 +5499,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls 0.23.36",
- "socket2 0.5.10",
+ "socket2 0.6.2",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -5526,7 +5536,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.2",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -6227,6 +6237,7 @@ version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e891af845473308773346dc847b2c23ee78fe442e0472ac50e22a18a93d3ae5a"
 dependencies = [
+ "serde",
  "zeroize",
 ]
 
@@ -7113,15 +7124,24 @@ dependencies = [
 
 [[package]]
 name = "taceo-nodes-common"
-version = "0.2.1"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b367a1b249843f1f58f9a9fde1830b3754959e9df64d94ef5764381d5df4b0ec"
+checksum = "9faae853c9877475a4b50731ed80fe5325227d26acca1ad82092dac592400b4b"
 dependencies = [
+ "alloy",
  "aws-config",
  "aws-sdk-secretsmanager",
+ "axum",
+ "backon",
  "git-version",
+ "humantime-serde",
+ "secrecy",
+ "serde",
+ "sqlx",
  "tokio",
  "tokio-util",
+ "tower",
+ "tower-http",
  "tracing",
 ]
 
@@ -7145,9 +7165,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf"
-version = "0.7.1"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "412211d4d43aeb060c369a69213bd7ae941f769cc4361df83195d2a7936f22d5"
+checksum = "be862ba49094098f945f1375f704a2c47b4e267a6e564462a43ad142b4b1469e"
 dependencies = [
  "taceo-oprf-client",
  "taceo-oprf-core",
@@ -7158,9 +7178,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-client"
-version = "0.8.1"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de42daf867ed4d1ed661258a4541d5dcf1ebe3f43f923acc3ec7716b8824670d"
+checksum = "696c4b03e8b570d1d0486f7bc2273b85951b316d7f720fc2f95e79f2b053f649"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -7182,9 +7202,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-core"
-version = "0.4.3"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d2baf9c72e6687fa8839c3e3368236b36237a905b8c7fcd445250a7a57ab063"
+checksum = "e55cbbe8357f837939f9cec171f44a217db4d897bea679521d555a24296ee39b"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -7204,9 +7224,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-dev-client"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "576de5d712f4424024e022a3b2f7916681101a72e5481bce7c867e18f35bdfe3"
+checksum = "6a9b283cdbfff7f15c7f88c87ab954d8a6d81707901fe4ff19b5dbf04f184690"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -7231,9 +7251,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-key-gen"
-version = "0.6.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2218f2bbf94e1c7932133983e12f291502583c2908dfab584ceb85ea60ace28"
+checksum = "e8d3afa88b044f57bbbbb8f65d11e78c5119c26e188f1b4b9fdf80ff30f0f2b6"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -7245,10 +7265,11 @@ dependencies = [
  "aws-sdk-secretsmanager",
  "axum",
  "backon",
- "clap",
+ "config",
  "eyre",
  "futures",
  "humantime",
+ "humantime-serde",
  "itertools 0.14.0",
  "k256",
  "metrics",
@@ -7256,6 +7277,7 @@ dependencies = [
  "reqwest",
  "rustls 0.23.36",
  "secrecy",
+ "serde",
  "serde_json",
  "sqlx",
  "taceo-ark-babyjubjub",
@@ -7274,9 +7296,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-service"
-version = "0.9.2"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f6f2677db8c142502140f1f3ae8e9f90b184c476c699ba1d6e16f94637d5820"
+checksum = "eac00350fce865739c210fa6888164abde7d7b44bfab0950ba412e97c4e66582"
 dependencies = [
  "alloy",
  "ark-serialize 0.5.0",
@@ -7287,11 +7309,11 @@ dependencies = [
  "axum-extra",
  "backon",
  "ciborium",
- "clap",
  "eyre",
  "futures",
  "http 1.4.0",
  "humantime",
+ "humantime-serde",
  "metrics",
  "parking_lot",
  "rand 0.8.5",
@@ -7316,9 +7338,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-test-utils"
-version = "0.7.1"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3603bebf4f2b26a0c904f37550c02b271cfebc63b31be920fafe09cf396ab09c"
+checksum = "56688241fa91ffd6a8166d6b3219a3231c5dcaced3efc469226506451c4341ad"
 dependencies = [
  "alloy",
  "ark-ec 0.5.0",
@@ -7342,9 +7364,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-types"
-version = "0.9.2"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "447b96ee4bb69a16b05fa1e581501c426338698263cde39fc8fbfdbf5d24b616"
+checksum = "413e74344b087aa0cac1c155f980f7cbb0a248b1b39d20594ac50ecbea98d946"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -8427,7 +8449,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9036,15 +9058,17 @@ dependencies = [
  "async-trait",
  "aws-config",
  "axum",
- "clap",
+ "config",
  "eyre",
  "futures",
  "humantime",
+ "humantime-serde",
  "metrics",
  "moka",
  "rand 0.8.5",
  "rustls 0.23.36",
  "secrecy",
+ "serde",
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-circom-types",
