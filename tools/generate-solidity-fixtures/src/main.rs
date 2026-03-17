@@ -337,7 +337,7 @@ async fn main() -> Result<()> {
 
     //  ── CREATE SESSION
     let session_id_r_seed = FieldElement::random(&mut rng); // TODO: Create through OPRF
-    let session_id = SessionId::from_r_seed(leaf_index, session_id_r_seed, None, &mut rng);
+    let session_id = SessionId::from_r_seed(leaf_index, session_id_r_seed, None, &mut rng).unwrap();
 
     // ── SESSION PROOF (reuse cloned OPRF data with a non-zero session_id) ──
     let session_response = authenticator.generate_single_proof(

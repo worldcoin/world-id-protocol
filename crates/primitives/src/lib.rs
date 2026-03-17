@@ -104,7 +104,7 @@ impl FieldElement {
     /// Returns the 32-byte big-endian representation of this field element.
     #[must_use]
     pub fn to_be_bytes(&self) -> [u8; 32] {
-        let as_num: U256 = self.0.into();
+        let as_num: U256 = self.to_u256();
         as_num.to_be_bytes()
     }
 
@@ -158,6 +158,11 @@ impl FieldElement {
     pub fn random<R: rand::CryptoRng + rand::RngCore>(rng: &mut R) -> Self {
         let field_element = Fq::rand(rng);
         Self(field_element)
+    }
+
+    /// Converts the field element to a `U256`.
+    pub fn to_u256(&self) -> U256 {
+        self.0.into()
     }
 }
 

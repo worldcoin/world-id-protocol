@@ -655,41 +655,38 @@ impl Authenticator {
         Ok(blinding_factor)
     }
 
-    /// Generates the session's randomness seed (`r`) using OPRF Nodes.
+    /// Creates a Session for a World ID with an RP.
     ///
-    /// This seed is used to compute the [`SessionId::commitment`] for Session Proofs.
+    /// Internally, this generates the session's random seed (`r`) using OPRF Nodes. This seed is used to
+    /// compute the [`SessionId::commitment`] for Session Proofs.
     ///
-    /// This method should not be called if the `session_id_r_seed` is already cached by
-    /// the Authenticator.
+    /// # Returns
+    /// - `session_id`: The generated [`SessionId`] to be shared with the requesting RP.
+    /// - `session_id_r_seed`: The `r` value used for this session so the Authenticator can cache it.
     ///
-    /// # Details
-    /// - The seed is and MUST be computationally indistinguishable from random,
-    ///   i.e. uniformly distributed because it uses OPRF.
-    /// - The OPRF nodes will use the same `oprfKeyId` for the RP, with a different domain separator.
-    /// - Requesting this seed requires a properly signed request from the RP and a complete query proof.
-    /// - The seed generation is based on a randomly generated seed used as an "action" in a Query Proof. Note
-    ///   this `action` is different than the randomized action used internally by [`SessionNullifier`]s.
-    ///
-    /// # Determinism and Recovery
-    /// Because the OPRF is deterministic for the same input and key, calling this function again with a
-    /// correct `sessionId` and RP will produce the same `r`. This means caching `r` is optional but recommended, `r` can
-    /// be recovered by calling this function with the original `action` (which is stored in [`SessionId::oprf_seed`]).
-    /// Caching behavior is the responsibility of the Authenticator (and/or its releavnt SDKs), not this crate.
-    pub async fn generate_session_id_r_seed(
+    /// # Seed (`session_id_r_seed`)
+    /// - If a `session_id_r_seed` (`r`) is not provided, it'll be derived/re-derived with the OPRF nodes.
+    /// - Even if `r` has been generated before, the same `r` will be computed agaian for the same
+    ///   context (i.e. `rpId`, [`SessionId::oprf_seed`]). This means caching `r` is optional but recommended.
+    /// -  Caching behavior is the responsibility of the Authenticator (and/or its relevant SDKs), not this crate.
+    /// - More information about the seed can be found in [`SessionId::from_r_seed`].
+    pub async fn generate_session_id(
         &self,
         proof_request: &ProofRequest,
+        session_id_r_seed: Option<FieldElement>,
     ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
         // TODO: Generate using OPRF Nodes with `oprf_seed` as input
-        let session_id_r_seed = FieldElement::random(&mut rng);
+        let session_id_r_seed = session_id_r_seed.unwrap_or(FieldElement::random(&mut rng));
 
         let session_id = SessionId::from_r_seed(
             self.leaf_index(),
             session_id_r_seed,
             proof_request.session_id.map(|v| v.oprf_seed()),
             &mut rng,
-        );
+        )
+        .map_err(|_| AuthenticatorError::InvalidSessionId)?;
 
         if let Some(request_session_id) = proof_request.session_id {
             if request_session_id != session_id {
@@ -1228,12 +1225,16 @@ pub enum AuthenticatorError {
         max_supported_slot: usize,
     },
 
-    /// The generated session ID does not match the expected session ID from the proof request.
+    /// The session ID computed for this proof does not match the expected session ID from the proof request.
     ///
     /// This indicates the `session_id` provided by the RP is invalid or compromised, as
     /// the only other failure option is OPRFs not having performed correct computations.
     #[error("the expected session id and the generated session id do not match")]
     SessionIdMismatch,
+
+    /// The provided session ID is invalid.
+    #[error("invalid session id")]
+    InvalidSessionId,
 
     /// Generic error for other unexpected issues.
     #[error("{0}")]
