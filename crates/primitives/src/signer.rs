@@ -45,9 +45,12 @@ impl Signer {
     }
 
     /// Returns a mutable reference to the internal signer.
-    #[allow(clippy::missing_const_for_fn)] // requires a mutable
-    pub fn onchain_signer(&mut self) -> &mut PrivateKeySigner {
-        &mut self.onchain_signer
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "cannot be initialized at compile time"
+    )]
+    pub fn onchain_signer(&self) -> &PrivateKeySigner {
+        &self.onchain_signer
     }
 
     /// Returns a reference to the internal offchain signer.

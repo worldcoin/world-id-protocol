@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.5.1...world-id-primitives-v0.5.2) - 2026-03-13
+
+### Added
+
+- /get-recovery-agent endpoint ([#550](https://github.com/worldcoin/world-id-protocol/pull/550))
+- *(authenticator,proof)* make dependencies WASM-compatible ([#512](https://github.com/worldcoin/world-id-protocol/pull/512))
+- introduce sign for leaf index verification ([#551](https://github.com/worldcoin/world-id-protocol/pull/551))
+
+### Fixed
+
+- signal as raw bytes ([#548](https://github.com/worldcoin/world-id-protocol/pull/548))
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [0.5.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.5.0...world-id-primitives-v0.5.1) - 2026-03-07
 
 ### Added

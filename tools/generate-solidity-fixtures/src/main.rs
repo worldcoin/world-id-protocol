@@ -281,7 +281,7 @@ async fn main() -> Result<()> {
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
             issuer_schema_id,
-            signal: Some(signal_str.to_string()),
+            signal: Some(signal_str.as_bytes().to_vec()),
             genesis_issued_at_min: None,
             expires_at_min: None,
         }],

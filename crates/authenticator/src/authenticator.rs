@@ -19,7 +19,11 @@ use crate::registry::{
     WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
     sign_remove_authenticator, sign_update_authenticator,
 };
-use alloy::{primitives::Address, providers::DynProvider};
+use alloy::{
+    primitives::Address,
+    providers::DynProvider,
+    signers::{Signature, SignerSync},
+};
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use groth16_material::circom::CircomGroth16Material;
@@ -102,41 +106,45 @@ impl Authenticator {
     ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
-        let registry = config.rpc_url().map_or_else(
-            || None,
-            |rpc_url| {
+        let registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>> =
+            config.rpc_url().map(|rpc_url| {
                 let provider = alloy::providers::ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
                     .connect_http(rpc_url.clone());
-                Some(crate::registry::WorldIdRegistry::new(
+                Arc::new(crate::registry::WorldIdRegistry::new(
                     *config.registry_address(),
                     alloy::providers::Provider::erased(provider),
                 ))
-            },
-        );
+            });
 
         let http_client = reqwest::Client::new();
 
         let packed_account_data = Self::get_packed_account_data(
             signer.onchain_signer_address(),
-            registry.as_ref(),
+            registry.as_deref(),
             &config,
             &http_client,
         )
         .await?;
 
-        let mut root_store = rustls::RootCertStore::empty();
-        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let rustls_config = rustls::ClientConfig::builder()
-            .with_root_certificates(root_store)
-            .with_no_client_auth();
-        let ws_connector = Connector::Rustls(Arc::new(rustls_config));
+        #[cfg(not(target_arch = "wasm32"))]
+        let ws_connector = {
+            let mut root_store = rustls::RootCertStore::empty();
+            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            let rustls_config = rustls::ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth();
+            Connector::Rustls(Arc::new(rustls_config))
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        let ws_connector = Connector;
 
         Ok(Self {
             packed_account_data,
             signer,
             config,
-            registry: registry.map(Arc::new),
+            registry,
             http_client,
             ws_connector,
             query_material,
@@ -470,6 +478,24 @@ impl Authenticator {
         }
     }
 
+    /// Signs an arbitrary challenge with the authenticator's on-chain key following
+    /// [ERC-191](https://eips.ethereum.org/EIPS/eip-191).
+    ///
+    /// # Warning
+    /// This is considered a dangerous operation because it leaks the user's on-chain key,
+    /// hence its `leaf_index`. The only acceptable use is to prove the user's `leaf_index`
+    /// to a Recovery Agent. The Recovery Agent is the only party beyond the user who needs
+    /// to know the `leaf_index`.
+    ///
+    /// # Use
+    /// - This method is used to prove ownership over a leaf index **only for Recovery Agents**.
+    pub fn danger_sign_challenge(&self, challenge: &[u8]) -> Result<Signature, AuthenticatorError> {
+        self.signer
+            .onchain_signer()
+            .sign_message_sync(challenge)
+            .map_err(|e| AuthenticatorError::Generic(format!("signature error: {e}")))
+    }
+
     /// Checks that the OPRF Nodes configuration is valid and returns the list of URLs and the threshold to use.
     ///
     /// # Errors
@@ -789,7 +815,6 @@ impl Authenticator {
             nonce,
             &eip712_domain,
         )
-        .await
         .map_err(|e| {
             AuthenticatorError::Generic(format!("Failed to sign insert authenticator: {e}"))
         })?;
@@ -866,7 +891,6 @@ impl Authenticator {
             nonce,
             &eip712_domain,
         )
-        .await
         .map_err(|e| {
             AuthenticatorError::Generic(format!("Failed to sign update authenticator: {e}"))
         })?;
@@ -944,7 +968,6 @@ impl Authenticator {
             nonce,
             &eip712_domain,
         )
-        .await
         .map_err(|e| {
             AuthenticatorError::Generic(format!("Failed to sign remove authenticator: {e}"))
         })?;
@@ -1413,6 +1436,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn test_signing_nonce_from_indexer() {
         let mut server = mockito::Server::new_async().await;
         let indexer_url = server.url();
@@ -1470,7 +1494,97 @@ mod tests {
         drop(server);
     }
 
+    #[test]
+    fn test_danger_sign_challenge_returns_valid_signature() {
+        let (query_material, nullifier_material) = test_materials();
+        let authenticator = Authenticator {
+            config: Config::new(
+                None,
+                1,
+                address!("0x0000000000000000000000000000000000000001"),
+                "http://indexer.example.com".to_string(),
+                "http://gateway.example.com".to_string(),
+                Vec::new(),
+                2,
+            )
+            .unwrap(),
+            packed_account_data: U256::from(1),
+            signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
+            registry: None,
+            http_client: reqwest::Client::new(),
+            ws_connector: Connector::Plain,
+            query_material,
+            nullifier_material,
+        };
+
+        let challenge = b"test challenge";
+        let signature = authenticator.danger_sign_challenge(challenge).unwrap();
+
+        let recovered = signature
+            .recover_address_from_msg(challenge)
+            .expect("should recover address");
+        assert_eq!(recovered, authenticator.onchain_address());
+    }
+
+    #[test]
+    fn test_danger_sign_challenge_different_challenges_different_signatures() {
+        let (query_material, nullifier_material) = test_materials();
+        let authenticator = Authenticator {
+            config: Config::new(
+                None,
+                1,
+                address!("0x0000000000000000000000000000000000000001"),
+                "http://indexer.example.com".to_string(),
+                "http://gateway.example.com".to_string(),
+                Vec::new(),
+                2,
+            )
+            .unwrap(),
+            packed_account_data: U256::from(1),
+            signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
+            registry: None,
+            http_client: reqwest::Client::new(),
+            ws_connector: Connector::Plain,
+            query_material,
+            nullifier_material,
+        };
+
+        let sig_a = authenticator.danger_sign_challenge(b"challenge A").unwrap();
+        let sig_b = authenticator.danger_sign_challenge(b"challenge B").unwrap();
+        assert_ne!(sig_a, sig_b);
+    }
+
+    #[test]
+    fn test_danger_sign_challenge_deterministic() {
+        let (query_material, nullifier_material) = test_materials();
+        let authenticator = Authenticator {
+            config: Config::new(
+                None,
+                1,
+                address!("0x0000000000000000000000000000000000000001"),
+                "http://indexer.example.com".to_string(),
+                "http://gateway.example.com".to_string(),
+                Vec::new(),
+                2,
+            )
+            .unwrap(),
+            packed_account_data: U256::from(1),
+            signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
+            registry: None,
+            http_client: reqwest::Client::new(),
+            ws_connector: Connector::Plain,
+            query_material,
+            nullifier_material,
+        };
+
+        let challenge = b"deterministic test";
+        let sig1 = authenticator.danger_sign_challenge(challenge).unwrap();
+        let sig2 = authenticator.danger_sign_challenge(challenge).unwrap();
+        assert_eq!(sig1, sig2);
+    }
+
     #[tokio::test]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn test_signing_nonce_from_indexer_error() {
         let mut server = mockito::Server::new_async().await;
         let indexer_url = server.url();

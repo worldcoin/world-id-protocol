@@ -314,6 +314,19 @@ pub struct IndexerSignatureNonceResponse {
     pub signature_nonce: U256,
 }
 
+/// Response containing the recovery agent from the indexer.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct IndexerRecoveryAgentResponse {
+    /// The recovery agent for the World ID.
+    ///
+    /// Please note this may be the zero address if no recovery agent is set for the account.
+    ///
+    /// Serialized as a canonical `0x`-prefixed hex string.
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x0"))]
+    pub recovery_agent: Address,
+}
+
 /// Response containing authenticator public keys for an account from the indexer.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]

@@ -104,8 +104,16 @@ pub struct RequestItem {
     ///
     /// When present, the Authenticator hashes this via `signal_hash` and commits it into the
     /// proof circuit so the RP can tie the proof to a particular context.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub signal: Option<String>,
+    ///
+    /// The reason why the signal is expected as raw bytes and hashed by the Authenticator instead
+    /// of directly as a field element is so that in the future it can be displayed to the user in
+    /// a human-readable way.
+    ///
+    /// Raw bytes provides maximum flexibility because for on-chain use cases any arbitrary set of
+    /// inputs can be ABI-encoded to be verified on-chain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "crate::serde_utils::hex_bytes_opt")]
+    pub signal: Option<Vec<u8>>,
 
     /// Minimum `genesis_issued_at` timestamp that the used Credential must meet.
     ///
@@ -136,7 +144,7 @@ impl RequestItem {
     pub const fn new(
         identifier: String,
         issuer_schema_id: u64,
-        signal: Option<String>,
+        signal: Option<Vec<u8>>,
         genesis_issued_at_min: Option<u64>,
         expires_at_min: Option<u64>,
     ) -> Self {
@@ -153,7 +161,7 @@ impl RequestItem {
     #[must_use]
     pub fn signal_hash(&self) -> FieldElement {
         if let Some(signal) = &self.signal {
-            FieldElement::from_arbitrary_raw_bytes(signal.as_bytes())
+            FieldElement::from_arbitrary_raw_bytes(signal)
         } else {
             FieldElement::ZERO
         }
@@ -1564,6 +1572,62 @@ mod tests {
         };
         let err = req.validate_response(&fail_resp).unwrap_err();
         assert!(matches!(err, ValidationError::ConstraintNotSatisfied));
+    }
+
+    #[test]
+    fn request_json_parse() {
+        // Happy path with signal present
+        let with_signal = r#"{
+  "id": "req_abc123",
+  "version": 1,
+  "created_at": 1725381192,
+  "expires_at": 1725381492,
+  "rp_id": "rp_0000000000000001",
+  "oprf_key_id": "0x1",
+  "session_id": null,
+  "action": "0x000000000000000000000000000000000000000000000000000000000000002a",
+  "signature": "0xa1fd06f0d8ceb541f6096fe2e865063eac1ff085c9d2bac2eedcc9ed03804bfc18d956b38c5ac3a8f7e71fde43deff3bda254d369c699f3c7a3f8e6b8477a5f51c",
+  "nonce": "0x0000000000000000000000000000000000000000000000000000000000000001",
+  "proof_requests": [
+    {
+      "identifier": "orb",
+      "issuer_schema_id": 1,
+      "signal": "0xdeadbeef",
+      "genesis_issued_at_min": 1725381192,
+      "expires_at_min": 1725381492
+    }
+  ]
+}"#;
+
+        let req = ProofRequest::from_json(with_signal).expect("parse with signal");
+        assert_eq!(req.id, "req_abc123");
+        assert_eq!(req.requests.len(), 1);
+        assert_eq!(req.requests[0].signal, Some(b"\xde\xad\xbe\xef".to_vec()));
+        assert_eq!(req.requests[0].genesis_issued_at_min, Some(1_725_381_192));
+        assert_eq!(req.requests[0].expires_at_min, Some(1_725_381_492));
+
+        let without_signal = r#"{
+  "id": "req_abc123",
+  "version": 1,
+  "created_at": 1725381192,
+  "expires_at": 1725381492,
+  "rp_id": "rp_0000000000000001",
+  "oprf_key_id": "0x1",
+  "session_id": null,
+  "action": "0x000000000000000000000000000000000000000000000000000000000000002a",
+  "signature": "0xa1fd06f0d8ceb541f6096fe2e865063eac1ff085c9d2bac2eedcc9ed03804bfc18d956b38c5ac3a8f7e71fde43deff3bda254d369c699f3c7a3f8e6b8477a5f51c",
+  "nonce": "0x0000000000000000000000000000000000000000000000000000000000000001",
+  "proof_requests": [
+    {
+      "identifier": "orb",
+      "issuer_schema_id": 1
+    }
+  ]
+}"#;
+
+        let req = ProofRequest::from_json(without_signal).expect("parse without signal");
+        assert!(req.requests[0].signal.is_none());
+        assert_eq!(req.requests[0].signal_hash(), FieldElement::ZERO);
     }
 
     #[test]

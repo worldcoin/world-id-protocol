@@ -43,9 +43,7 @@ This notes the key **new** features or functionality for this **release** of Wor
 
 - Privacy.
     - Assuming **non-collusion** of nodes of each multi-party system, the user’s privacy cannot be compromised by any single party, neither correlation of multiple actions nor direct identification of a user. For example, it’s impossible to know that a specific user performed a specific action (identification) or that two different Actions were performed by the same user (correlation).
-    - Addressing the attack vector of collusion of a threshold (or all) nodes, which in the case of the OPRF Nodes it could potentially allow de-anonymization of past activity, the following holds true:
-        - Scaling to a very large number of nodes (e.g. n = 50-100) is technically and pragmatically feasible.
-        - Rigorous key management (e.g. HSMs preventing key extraction and destruction of rotated out-of-use keys) should be established in an auditable way.
+    - Addressing the attack vector of collusion of a threshold (or all) nodes is covered in the [Other Risk Considerations](#other-risk-considerations) section.
     - Strict requirements for the identifiers handed off by the Protocol are introduced. See details in Tech Specs.
     - No human super-cookies. Permanent state or linkable state is as privacy-preserving as possible and is protocol-enforced. Privacy preserving in this context means that it’s not possible to identify a single person, even pseudonymously, across a long period of time without ongoing consent. Any exposed long-living / constant IDs should be protected as secrets.
 - Security.
@@ -305,18 +303,22 @@ At a high level, every user and RP will need to migrate to the new Protocol. Det
     | Compromised user’s secret | ⚠️ Potentially reveals all past activity if the attacker knows the public app IDs and actions. | ✅ Cannot reveal past activity on its own |
     | Malicious RP | ✅ A malicious RP on its own doesn’t reveal past activity | ✅ A malicious RP on its own doesn’t reveal past activity |
     | Malicious OPRF node | N/A | ✅ Cannot compromise user’s past activity |
-    | Collusion of threshold+ OPRF nodes | N/A | ⚠️ Could reveal user’s past activity (but requires having nullifiers to match against, e.g. through RP collusion) |
+    | Collusion of threshold OPRF nodes | N/A | ⚠️ Could reveal user’s past activity (but requires having nullifiers to match against, e.g. through RP collusion) |
     | Compromised user’s secret + RP collusion | ⚠️ Potentially reveals all past activity. Offline attack. | ⚠️ Can reveal user’s past activity for that RP. Online attack (requires calls to OPRF nodes). |
     | Malicious Authenticator | ⚠️ Potentially reveals all past activity if the attacker knows the public app IDs and actions. | ⚠️ A malicious or compromised authenticator could reveal user’s activity. *This could likely translate in users putting their trust in OSS authenticators.* |
     | User coercion | ⚠️ Potentially reveals all past activity. Offline attack. | ⚠️ Can force reveal of non-expired nullifiers which in combination with RPs or other information may reveal past activity. |
 
 ## Other Risk Considerations
 
-- The OPRF nodes work with an `m-of-n` threshold. If $n-m+1$ nodes loses their keys, the state of the Protocol will be lost, there won’t be a way to generate the correct nullifiers and the state of “consumed” or performed actions will be lost.
-- Censoring by OPRF nodes. OPRF nodes could reject generating nullifiers for users. It’s difficult for this to be a targeted attack because the `leafIndex` is blinded, but they could censor specific RPs or actions.
-- Authenticator Risk. Aside from having access to the user’s credentials, an Authenticator must learn of a user’s raw `leafIndex` to be able to generate Proofs. A malicious Authenticator can misuse this to track the user, even though that tracking cannot be correlated to nullifiers provided to RPs on its own. Different strategies to mitigate Authenticator risk are being explored.
-- Recovery Agent Risk. Should a user designate a Recovery Agent, this entity has a special permission that allows it to gain access to the user’s World ID, which introduces its own set of risks. Users need to consider the different risks associated with different Recovery Agents, and not all risks will be the same.
-- [Issuer Scope]. For the specific case of the Orb & PoH AMPC credential, users who opt-out of biometric recovery and lose all their authenticator keys will not be able to get a new PoH credential for the time being. This may change in the future at the Issuers’ discretion.
+- **Loss of State**. The OPRF nodes work with an `m-of-n` threshold. If $n-m+1$ nodes loses their keys, the state of the Protocol will be lost, there won’t be a way to generate the correct nullifiers and the state of "consumed" or performed actions will be lost.
+- **Censoring by OPRF nodes**. OPRF nodes could reject generating nullifiers for users. It’s difficult for this to be a targeted attack because the `leafIndex` is blinded, but they could censor specific RPs or actions.
+- **Compromised OPRF nodes**. Should a threshold of nodes' key materials be compromised, or a threshold of nodes collude maliciously, users' past and/or ongoing activity could be compromised, i.e. these nodes could arbitrary compute any nullifier because the `leafIndex`es are known and the domain space is relatively low. To be useful, this would require matching nullifiers to actual usage with RPs, or knowing a user's `leafIndex`, at least the second not being straightforward. This is a risk that will be progressively mitigated, and the following strategies are being researched for upcoming minor Protocol version updates:
+  1. **Provable secure environments for OPRF nodes**. Running OPRF nodes in attestable secure environments backed by secure hardware where the key material is securely stored and the execution provable. Given the nature of the computations of OPRF nodes, it is quite feasible that a plurality of enviroments and hardware providers could be supported. Authenticators would be able to verify attestations from OPRF nodes on every proof request.
+  2. **Increase on the number of OPRF nodes**. Increasing the number of OPRF nodes and the threshold required to generate nullifiers reduces the risk of compromise. It is also very feasible to significantly extend the number of nodes over time. The cost of running a node is relatively low.
+  3. **Strict key management policies**. RPs will be able to specify their policies for action duration such that keys are destroyed after their utility period has elapsed.
+- **Authenticator Risk**. Aside from having access to the user’s credentials, an Authenticator must learn of a user’s raw `leafIndex` to be able to generate Proofs. A malicious Authenticator can misuse this to track the user, even though that tracking cannot be correlated to nullifiers provided to RPs on its own. Different strategies to mitigate Authenticator risk are being explored.
+- **Recovery Agent Risk**. Should a user designate a Recovery Agent, this entity has a special permission that allows it to gain access to the user’s World ID, which could be misused. Beyond the explicit risk of a malicious Recovery Agent compromising a user's World ID, users need to consider the different risks associated with different Recovery Agents based on how they perform authentication.
+
 
 ## Future Proofing Notes (World ID 4.x future releases and beyond)
 
