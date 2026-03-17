@@ -207,7 +207,7 @@ async fn e2e_authenticator_insert_update_remove() {
         &gateway_url,
     );
     let (query_material, nullifier_material) = load_embedded_materials();
-    let mut auth = Authenticator::init(&primary_seed, config, query_material, nullifier_material)
+    let auth = Authenticator::init(&primary_seed, config, query_material, nullifier_material)
         .await
         .unwrap();
 
@@ -248,7 +248,7 @@ async fn e2e_authenticator_insert_update_remove() {
         &gateway_url,
     );
     let (query_material, nullifier_material) = load_embedded_materials();
-    let mut auth = Authenticator::init(&primary_seed, config, query_material, nullifier_material)
+    let auth = Authenticator::init(&primary_seed, config, query_material, nullifier_material)
         .await
         .unwrap();
 
@@ -304,7 +304,7 @@ async fn e2e_authenticator_insert_update_remove() {
         &gateway_url,
     );
     let (query_material, nullifier_material) = load_embedded_materials();
-    let mut auth = Authenticator::init(&secondary_seed, config, query_material, nullifier_material)
+    let auth = Authenticator::init(&secondary_seed, config, query_material, nullifier_material)
         .await
         .unwrap();
 
