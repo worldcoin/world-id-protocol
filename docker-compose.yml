@@ -98,3 +98,12 @@ services:
       AWS_ENDPOINT_URL: http://localhost:4566
     volumes:
       - ./circom:/app/circom:ro
+  ohttp-gateway:
+    image: ghcr.io/worldcoin/world-id-protocol/ohttp-gateway:latest
+    platform: linux/amd64
+    ports:
+      - "9090:8080"
+    environment:
+      SEED_SECRET_KEY: "0000000000000000000000000000000000000000000000000000000000000001"
+      ALLOWED_TARGET_ORIGINS: "localhost:8080,localhost:8081"
+      TARGET_REWRITES: '{"localhost:8080": {"Scheme": "http", "Host": "host.docker.internal:8080"}, "localhost:8081": {"Scheme": "http", "Host": "host.docker.internal:8081"}}'
