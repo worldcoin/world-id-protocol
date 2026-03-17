@@ -729,7 +729,7 @@ impl Authenticator {
     /// TODO: After successfully inserting an authenticator, the `packed_account_data` should be
     /// refreshed from the registry to reflect the new `pubkey_id` commitment.
     pub async fn insert_authenticator(
-        &mut self,
+        &self,
         new_authenticator_pubkey: EdDSAPublicKey,
         new_authenticator_address: Address,
     ) -> Result<String, AuthenticatorError> {
@@ -805,7 +805,7 @@ impl Authenticator {
     /// TODO: After successfully updating an authenticator, the `packed_account_data` should be
     /// refreshed from the registry to reflect the new `pubkey_id` commitment.
     pub async fn update_authenticator(
-        &mut self,
+        &self,
         old_authenticator_address: Address,
         new_authenticator_address: Address,
         new_authenticator_pubkey: EdDSAPublicKey,
@@ -880,7 +880,7 @@ impl Authenticator {
     /// TODO: After successfully removing an authenticator, the `packed_account_data` should be
     /// refreshed from the registry to reflect the new `pubkey_id` commitment.
     pub async fn remove_authenticator(
-        &mut self,
+        &self,
         authenticator_address: Address,
         index: u32,
     ) -> Result<String, AuthenticatorError> {
@@ -1091,10 +1091,6 @@ pub enum AuthenticatorError {
     /// for this authenticator. Call `create_account` first to register it.
     #[error("Account is not registered for this authenticator.")]
     AccountDoesNotExist,
-
-    /// The account already exists for this authenticator. Call `leaf_index` to get the leaf index.
-    #[error("Account already exists for this authenticator.")]
-    AccountAlreadyExists,
 
     /// An error occurred while interacting with the EVM contract.
     #[error("Error interacting with EVM contract: {0}")]
