@@ -117,17 +117,7 @@ pub fn compute_rp_signature_msg(
     msg.extend(expires_at.to_be_bytes());
 
     if let Some(action) = action {
-        if !action.into_bigint().get_bit(0) {
-            // When the action is set, if the first bit is `0x01` it indicates this is a
-            // randomly generated action for a session proof, as such, those actions are
-            // not included in the signature message.
-            //
-            // NOTE: This is equivalent to passing a `None` action. Both are supported because
-            // when the RP calls this method, they'll pass a `None` action for Session Proofs,
-            // but OPRF nodes will call with the randomly generated action which the authenticator
-            // computed.
-            msg.extend(action.into_bigint().to_bytes_be());
-        }
+        msg.extend(action.into_bigint().to_bytes_be());
     }
 
     msg

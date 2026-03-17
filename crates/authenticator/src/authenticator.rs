@@ -19,15 +19,12 @@ use crate::registry::{
     WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
     sign_remove_authenticator, sign_update_authenticator,
 };
-use alloy::{
-    primitives::{Address, U256},
-    providers::DynProvider,
-    uint,
-};
+use alloy::{primitives::Address, providers::DynProvider};
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use groth16_material::circom::CircomGroth16Material;
 use reqwest::StatusCode;
+use ruint::{aliases::U256, uint};
 use secrecy::ExposeSecret;
 use taceo_oprf::client::Connector;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
@@ -659,17 +656,15 @@ impl Authenticator {
     ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
-        let oprf_seed = if let Some(session_id) = proof_request.session_id {
-            // Session is not new, re-computing from existing seed
-            session_id.oprf_seed()
-        } else {
-            FieldElement::random(&mut rng)
-        };
-
         // TODO: Generate using OPRF Nodes with `oprf_seed` as input
         let session_id_r_seed = FieldElement::random(&mut rng);
 
-        let session_id = SessionId::from_r_seed(self.leaf_index(), session_id_r_seed, oprf_seed);
+        let session_id = SessionId::from_r_seed(
+            self.leaf_index(),
+            session_id_r_seed,
+            proof_request.session_id.map(|v| v.oprf_seed()),
+            &mut rng,
+        );
 
         if let Some(request_session_id) = proof_request.session_id {
             if request_session_id != session_id {
