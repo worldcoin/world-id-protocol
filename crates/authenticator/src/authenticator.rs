@@ -1092,10 +1092,6 @@ pub enum AuthenticatorError {
     #[error("Account is not registered for this authenticator.")]
     AccountDoesNotExist,
 
-    /// The account already exists for this authenticator. Call `leaf_index` to get the leaf index.
-    #[error("Account already exists for this authenticator.")]
-    AccountAlreadyExists,
-
     /// An error occurred while interacting with the EVM contract.
     #[error("Error interacting with EVM contract: {0}")]
     ContractError(#[from] alloy::contract::Error),
