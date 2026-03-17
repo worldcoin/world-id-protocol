@@ -205,7 +205,7 @@ pub fn generate_rp_fixture() -> RpFixture {
         nonce,
         current_timestamp,
         expiration_timestamp,
-        action,
+        Some(action),
     );
     let signature = signer.sign_message_sync(&msg).expect("can sign");
 

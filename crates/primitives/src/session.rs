@@ -75,7 +75,7 @@ impl SessionId {
         // for details. Panic is acceptable as `oprf_seed` generation should
         // generally be done with `Self::from_r_seed`
         let oprf_seed_num = <U256 as From<FieldElement>>::from(oprf_seed);
-        assert!(oprf_seed_num.bit(7));
+        assert!(oprf_seed_num.bit(248));
         Self {
             commitment,
             oprf_seed,
@@ -97,7 +97,7 @@ impl SessionId {
         let oprf_seed = if let Some(seed) = oprf_seed {
             seed
         } else {
-            let seed = U256::random_with(rng) | MASK_SESSION_OPRF_SEED;
+            let seed = (U256::random_with(rng) >> 8) | MASK_SESSION_OPRF_SEED;
             FieldElement::try_from(seed).expect("should always fit in the field")
         };
 
@@ -367,14 +367,20 @@ mod session_id_tests {
         FieldElement::from(value)
     }
 
+    /// Creates an oprf_seed with the `MASK_SESSION_OPRF_SEED` prefix applied.
+    fn test_oprf_seed(value: u64) -> FieldElement {
+        let n = U256::from(value) | MASK_SESSION_OPRF_SEED;
+        FieldElement::try_from(n).expect("test value fits in field")
+    }
+
     #[test]
     fn test_new_and_accessors() {
         let commitment = test_field_element(1001);
-        let action = test_field_element(42);
-        let id = SessionId::new(commitment, action);
+        let seed = test_oprf_seed(42);
+        let id = SessionId::new(commitment, seed);
 
         assert_eq!(id.commitment(), commitment);
-        assert_eq!(id.oprf_seed(), action);
+        assert_eq!(id.oprf_seed(), seed);
     }
 
     #[test]
@@ -386,7 +392,7 @@ mod session_id_tests {
 
     #[test]
     fn test_bytes_roundtrip() {
-        let id = SessionId::new(test_field_element(1001), test_field_element(42));
+        let id = SessionId::new(test_field_element(1001), test_oprf_seed(42));
         let bytes = id.as_compressed_bytes();
 
         assert_eq!(bytes.len(), 64);
@@ -397,7 +403,7 @@ mod session_id_tests {
 
     #[test]
     fn test_bytes_use_field_element_encoding() {
-        let id = SessionId::new(test_field_element(1001), test_field_element(42));
+        let id = SessionId::new(test_field_element(1001), test_oprf_seed(42));
         let bytes = id.as_compressed_bytes();
 
         let mut expected = [0u8; 64];
@@ -421,7 +427,7 @@ mod session_id_tests {
 
     #[test]
     fn test_json_roundtrip() {
-        let id = SessionId::new(test_field_element(1001), test_field_element(42));
+        let id = SessionId::new(test_field_element(1001), test_oprf_seed(42));
         let json = serde_json::to_string(&id).unwrap();
 
         assert!(json.starts_with("\"session_"));
@@ -433,7 +439,7 @@ mod session_id_tests {
 
     #[test]
     fn test_json_format() {
-        let id = SessionId::new(test_field_element(1), test_field_element(2));
+        let id = SessionId::new(test_field_element(1), test_oprf_seed(2));
         let json = serde_json::to_string(&id).unwrap();
 
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();

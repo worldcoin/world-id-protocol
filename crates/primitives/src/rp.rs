@@ -125,9 +125,6 @@ pub fn compute_rp_signature_msg(
 
 #[cfg(test)]
 mod tests {
-    use ark_ff::UniformRand;
-    use rand::rngs::OsRng;
-
     use super::*;
 
     #[test]

@@ -127,7 +127,7 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
             // If the action is prefixed with a `0x01` byte, it means it's used for
             // a Session Proof. Hence the `action` is not part of the signature.
             let action_val = request.auth.action.into_bigint();
-            if action_val.get_bit(7) {
+            if action_val.get_bit(248) {
                 None
             } else {
                 Some(request.auth.action)
