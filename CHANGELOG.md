@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.5.3...world-id-primitives-v0.5.4) - 2026-03-17
+
+### Fixed
+
+- authenticator management methods no longer require &mut self ([#564](https://github.com/worldcoin/world-id-protocol/pull/564))
+
 ## [0.5.3](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.5.2...world-id-primitives-v0.5.3) - 2026-03-17
 
 ### Fixed
