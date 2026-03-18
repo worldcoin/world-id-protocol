@@ -16,7 +16,6 @@
     clippy::unnecessary_safety_comment,
     clippy::unwrap_used
 )]
-#![allow(clippy::doc_markdown, reason = "todo will fix")]
 #![allow(
     clippy::cast_precision_loss,
     reason = "Is ok due to API limitations for metrics"

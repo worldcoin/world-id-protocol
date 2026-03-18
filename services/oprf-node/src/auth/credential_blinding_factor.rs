@@ -19,7 +19,7 @@ use world_id_primitives::oprf::CredentialBlindingFactorOprfRequestAuthV1;
 /// Errors returned by the [`CredentialBlindingFactorOprfReqAuthenticator`].
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CredentialBlindingFactorOprfRequestAuthError {
-    /// An error returned from the CredentialSchemaIssuerRegistry watcher service.
+    /// An error returned from the `CredentialSchemaIssuerRegistry` watcher service.
     #[error(transparent)]
     SchemaIssuerRegistryWatcherError(#[from] SchemaIssuerRegistryWatcherError),
     /// The provided action is not valid (must be 0 for now, might change in the future)

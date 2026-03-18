@@ -53,14 +53,14 @@ pub(crate) enum RpRegistryWatcherError {
     UnknownRp(RpId),
 }
 
-/// Monitors the RPs from the RpRegistry contract.
+/// Monitors the RPs from the `RpRegistry` contract.
 ///
 /// RPs are lazily loaded, meaning in the beginning the store will be empty.
 ///
 /// When valid requests are coming in from users, this service will go to chain
 /// and try fetching the ecdsa keys and store them up to a configurable maximum.
 ///
-/// Additionally, will subscribe to chain events to handle RpUpdate events.
+/// Additionally, will subscribe to chain events to handle `RpUpdate` events.
 #[derive(Clone)]
 pub(crate) struct RpRegistryWatcher {
     rp_store: Cache<RpId, RelyingParty>,

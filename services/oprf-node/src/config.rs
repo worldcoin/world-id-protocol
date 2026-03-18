@@ -13,13 +13,13 @@ use taceo_oprf::service::{VersionReq, config::OprfNodeServiceConfig};
 #[derive(Clone, Debug, Deserialize)]
 #[non_exhaustive]
 pub struct WorldOprfNodeConfig {
-    /// The address of the WorldIDRegistry smart contract
+    /// The address of the `WorldIDRegistry` smart contract
     pub world_id_registry_contract: Address,
 
-    /// The address of the RpRegistry smart contract
+    /// The address of the `RpRegistry` smart contract
     pub rp_registry_contract: Address,
 
-    /// The address of the CredentialSchemaIssuerRegistry smart contract
+    /// The address of the `CredentialSchemaIssuerRegistry` smart contract
     pub credential_schema_issuer_registry_contract: Address,
 
     /// The OPRF service config
@@ -30,13 +30,13 @@ pub struct WorldOprfNodeConfig {
     #[serde(default = "WorldOprfNodeConfig::default_max_merkle_cache_size")]
     pub max_merkle_cache_size: u64,
 
-    /// Maximum size of the RpRegistry store
+    /// Maximum size of the `RpRegistry` store
     ///
     /// Will drop old Rps if this capacity is reached.
     #[serde(default = "WorldOprfNodeConfig::default_max_rp_registry_store_size")]
     pub max_rp_registry_store_size: u64,
 
-    /// Maximum size of the CredentialSchemaIssuerRegistry store
+    /// Maximum size of the `CredentialSchemaIssuerRegistry` store
     ///
     /// Will drop old issuers if this capacity is reached.
     #[serde(
@@ -44,7 +44,7 @@ pub struct WorldOprfNodeConfig {
     )]
     pub max_credential_schema_issuer_registry_store_size: u64,
 
-    /// Maximum delta between the received current_time_stamp and the node's current_time_stamp
+    /// Maximum delta between the received `current_time_stamp` and the node's `current_time_stamp`
     #[serde(
         default = "WorldOprfNodeConfig::default_current_time_stamp_max_difference",
         with = "humantime_serde"
@@ -74,7 +74,7 @@ impl WorldOprfNodeConfig {
         1000
     }
 
-    /// Default maximum CredentialSchemaIssuerRegistry store size
+    /// Default maximum `CredentialSchemaIssuerRegistry` store size
     const fn default_max_credential_schema_issuer_registry_store_size() -> u64 {
         1000
     }
@@ -137,9 +137,9 @@ impl WorldOprfNodeConfig {
 pub struct WorldIdNodeContracts {
     /// Address of the World ID Registry contract.
     pub world_id_registry_contract: Address,
-    /// Address of the RpRegistry contract.
+    /// Address of the `RpRegistry` contract.
     pub rp_registry_contract: Address,
-    /// Address of the CredentialSchemaIssuerRegistry contract.
+    /// Address of the `CredentialSchemaIssuerRegistry` contract.
     pub credential_schema_issuer_registry_contract: Address,
     /// Address of the OPRF Key Registry contract.
     pub oprf_key_registry_contract: Address,

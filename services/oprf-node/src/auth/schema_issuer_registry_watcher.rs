@@ -45,11 +45,11 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
     UnknownSchemaIssuer(u64),
 }
 
-/// Monitors the issuer from the CredentialSchemaIssuerRegistry contract.
+/// Monitors the issuer from the `CredentialSchemaIssuerRegistry` contract.
 ///
 /// Issuers are lazily loaded, meaning in the beginning the store will be empty. When valid requests are coming in from users,
 /// this service will go to chain and check if the issuer schema id is valid and cache them for future requests.
-/// Additionally, will subscribe to chain events to handle IssuerSchemaRemoved events and remove entries from the cache.
+/// Additionally, will subscribe to chain events to handle `IssuerSchemaRemoved` events and remove entries from the cache.
 #[derive(Clone)]
 pub(crate) struct SchemaIssuerRegistryWatcher {
     issuer_schema_store: Cache<u64, ()>,

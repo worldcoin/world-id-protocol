@@ -9,7 +9,7 @@
 //! - [`nullifier`] – implements authentication for OPRF nullifier generation.
 //! - [`rp_registry_watcher`] – keeps track of registered RPs
 //! - [`schema_issuer_registry_watcher`] – keeps track of registered Credential Schema Issuers
-//! - [`signature_history`] – keeps track of nonce + time_stamp signatures to detect replays
+//! - [`signature_history`] – keeps track of nonce + `time_stamp` signatures to detect replays
 
 use std::sync::Arc;
 

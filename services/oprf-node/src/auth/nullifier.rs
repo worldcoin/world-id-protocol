@@ -17,7 +17,7 @@ use world_id_primitives::oprf::NullifierOprfRequestAuthV1;
 /// Errors returned by the [`NullifierOprfReqAuthenticator`].
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum NullifierOprfRequestAuthError {
-    /// An error returned from the RpRegistry watcher service during merkle look-up.
+    /// An error returned from the `RpRegistry` watcher service during merkle look-up.
     #[error(transparent)]
     RpRegistryWatcherError(#[from] RpRegistryWatcherError),
     /// The current time stamp difference between client and service is larger than allowed.

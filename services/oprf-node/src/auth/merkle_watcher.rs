@@ -94,8 +94,8 @@ impl MerkleWatcher {
     /// * `ws_rpc_url` - WebSocket RPC URL for blockchain connection
     /// * `max_merkle_cache_size` - Maximum number of merkle roots to cache
     /// * `cache_maintenance_interval` - Interval for running cache maintenance tasks
-    /// * `started` - AtomicBool to indicate when the service has started
-    /// * `cancellation_token` - CancellationToken to cancel the service in case of an error
+    /// * `started` - `AtomicBool` to indicate when the service has started
+    /// * `cancellation_token` - `CancellationToken` to cancel the service in case of an error
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
@@ -388,7 +388,7 @@ mod tests {
         };
     }
 
-    /// Regression test for HackerOne report #3494201.
+    /// Regression test for `HackerOne` report #3494201.
     #[tokio::test]
     async fn test_invalid_root_not_cached() {
         let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
