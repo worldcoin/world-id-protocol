@@ -107,7 +107,7 @@ setup() {
     teardown
     trap teardown EXIT SIGINT SIGTERM
 
-    anvil --block-time 2 &
+    anvil &
 
     docker compose up -d localstack postgres redis
 
