@@ -562,6 +562,12 @@ impl Authenticator {
         key_set: AuthenticatorPublicKeySet,
     ) -> Result<OprfNullifier, AuthenticatorError> {
         let (services, threshold) = self.check_oprf_config()?;
+
+        let query_material = self
+            .query_material
+            .as_ref()
+            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
+
         let key_index = key_set
             .iter()
             .position(|pk| {
@@ -579,11 +585,6 @@ impl Authenticator {
                 .clone(),
             key_index,
         );
-
-        let query_material = self
-            .query_material
-            .as_ref()
-            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
 
         Ok(OprfNullifier::generate(
             services,
@@ -610,6 +611,11 @@ impl Authenticator {
     ) -> Result<FieldElement, AuthenticatorError> {
         let (services, threshold) = self.check_oprf_config()?;
 
+        let query_material = self
+            .query_material
+            .as_ref()
+            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
+
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
         let key_index = key_set
             .iter()
@@ -628,11 +634,6 @@ impl Authenticator {
                 .clone(),
             key_index,
         );
-
-        let query_material = self
-            .query_material
-            .as_ref()
-            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
 
         let blinding_factor = OprfCredentialBlindingFactor::generate(
             services,
