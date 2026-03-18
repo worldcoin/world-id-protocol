@@ -367,8 +367,9 @@ impl Cli {
                         alloy::providers::ProviderBuilder::new_with_network::<TempoNetwork>()
                             .with_random_2d_nonces()
                             .wallet(signer)
-                            .connect(&rpc_url)
-                            .await?;
+                            .connect_http(rpc_url.parse().map_err(|e| {
+                                eyre::eyre!("invalid Tempo RPC URL: {e}")
+                            })?);
 
                     let satellite = TempoSatellite::new(
                         &sat_config.name,
