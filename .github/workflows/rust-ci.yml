@@ -38,7 +38,8 @@ jobs:
             crates/authenticator/abi/
             crates/issuer/abi/
             services/oprf-node/abi/
-          key: contract-artifacts-${{ hashFiles('contracts/src/**', 'contracts/foundry.toml', 'contracts/foundry.lock', 'Makefile') }}
+          key: contract-artifacts-${{ hashFiles('contracts/src/**', 'contracts/foundry.toml', 'contracts/foundry.lock', 'Makefile', 'contracts/test/core/**') }}
+          # test contracts are also part of the cache because `CredentialSchemaIssuerRegistry.t.sol/MockOprfKeyRegistry.json` is used in Rust tests
 
       - name: Install Foundry
         if: steps.cache-contracts.outputs.cache-hit != 'true'
@@ -138,7 +139,7 @@ jobs:
         run: |
           cargo check --all-features
 
-  feature:
+  feature-resolution:
     name: Feature Resolution (cargo-hack)
     needs: build-contracts
     runs-on:
@@ -164,7 +165,7 @@ jobs:
 
       - name: Check Features
         run: |
-          cargo hack check --each-feature --no-dev-deps
+          cargo hack check --each-feature --no-dev-deps --exclude world-id-test-utils --exclude generate-solidity-fixtures --exclude world-id-oprf-dev-client
 
   test:
     name: Tests
@@ -192,6 +193,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        # Anvil is used for integration tests
 
       - name: Download contract ABIs
         uses: actions/download-artifact@v4
