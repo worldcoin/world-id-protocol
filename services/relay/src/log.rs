@@ -95,7 +95,6 @@ impl CommitmentLog {
     /// between the flag load returning `false` and the `.await` being polled
     /// would be silently dropped, leaving the caller blocked forever.
     pub async fn wait_ready(&self) {
-        // 1. Subscribe first — arm the future so no subsequent wakeup is missed.
         let notified = self.ready_notify.notified();
         tokio::pin!(notified);
         notified.as_mut().enable();
