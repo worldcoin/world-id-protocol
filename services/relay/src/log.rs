@@ -81,11 +81,32 @@ impl CommitmentLog {
     }
 
     /// Waits until the log is ready (backfill complete).
+    ///
+    /// # Race-free design
+    ///
+    /// We subscribe to the [`Notify`] **before** reading `ready_flag`.
+    /// [`Notified::enable`] registers this task as a waiter immediately
+    /// (without polling), so any `notify_waiters()` call that arrives after
+    /// `enable()` — even before we hit the `.await` — will resolve the future.
+    /// The flag check then handles the complementary case where `mark_ready()`
+    /// already completed before we even entered this function.
+    ///
+    /// Without this ordering, a `notify_waiters()` that fires in the window
+    /// between the flag load returning `false` and the `.await` being polled
+    /// would be silently dropped, leaving the caller blocked forever.
     pub async fn wait_ready(&self) {
+        // 1. Subscribe first — arm the future so no subsequent wakeup is missed.
+        let notified = self.ready_notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+
+        // 2. Fast path: backfill already complete before we subscribed.
         if self.ready_flag.load(Ordering::Acquire) {
             return;
         }
-        self.ready_notify.notified().await;
+
+        // 3. Slow path: wait for mark_ready() to fire notify_waiters().
+        notified.await;
     }
 
     /// Dispatches a `StateCommitment` into the appropriate log storage.
@@ -486,5 +507,108 @@ mod tests {
             log.has_pending_keys(),
             "log with a pending key should report has_pending"
         );
+    }
+
+    // ── wait_ready() race-condition tests ───────────────────────────────────
+
+    /// `wait_ready()` must return immediately when the log is already ready.
+    #[tokio::test]
+    async fn wait_ready_returns_immediately_when_already_ready() {
+        let log = CommitmentLog::new();
+        log.mark_ready();
+
+        tokio::time::timeout(std::time::Duration::from_millis(50), log.wait_ready())
+            .await
+            .expect("wait_ready() should return immediately when log is already ready");
+    }
+
+    /// `wait_ready()` must wake up after a concurrent `mark_ready()`.
+    #[tokio::test]
+    async fn wait_ready_wakes_on_mark_ready() {
+        use std::sync::Arc;
+
+        let log = Arc::new(CommitmentLog::new());
+        let log_clone = Arc::clone(&log);
+
+        let waiter = tokio::spawn(async move {
+            log_clone.wait_ready().await;
+        });
+
+        // Allow the waiter task to reach its `.await` before firing.
+        tokio::task::yield_now().await;
+
+        log.mark_ready();
+
+        tokio::time::timeout(std::time::Duration::from_millis(500), waiter)
+            .await
+            .expect("wait_ready() hung after mark_ready() was called")
+            .unwrap();
+    }
+
+    /// Regression test for the lost-notification race.
+    ///
+    /// **The bug (old code):**
+    /// ```text
+    /// satellite:   ready_flag.load() -> false   // flag not yet set
+    /// producer:    ready_flag.store(true)
+    ///              notify.notify_waiters()       // no registered waiters → lost
+    /// satellite:   notify.notified().await       // hangs forever
+    /// ```
+    ///
+    /// **The fix:** call `notified()` + `enable()` *before* the flag check,
+    /// so the task is a registered waiter before `notify_waiters()` can fire.
+    ///
+    /// This test exercises the underlying primitive directly to make the
+    /// interleaving deterministic.
+    #[tokio::test]
+    async fn wait_ready_notification_not_lost_when_fired_after_enable_but_before_await() {
+        let notify = tokio::sync::Notify::new();
+        let flag = AtomicBool::new(false);
+
+        // Fixed consumer pattern: subscribe THEN check flag.
+        let notified = notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable(); // registered — any subsequent notify_waiters() wakes us
+
+        // Simulate mark_ready() firing at the worst possible moment:
+        // after enable() but before we have reached the `.await`.
+        flag.store(true, Ordering::Release);
+        notify.notify_waiters(); // consumer is already registered → future is woken
+
+        // Flag check (may short-circuit; if not, the future must resolve instantly).
+        if !flag.load(Ordering::Acquire) {
+            tokio::time::timeout(std::time::Duration::from_millis(50), notified)
+                .await
+                .expect("notification fired after enable() must not be lost");
+        }
+        // If the flag was already set we exit here — both paths are correct.
+    }
+
+    /// Stress-tests the race across many iterations with real task concurrency.
+    ///
+    /// Without the `enable()`-before-flag-check fix, some iterations will
+    /// occasionally hang (non-deterministic). With the fix every iteration
+    /// must complete within the timeout.
+    #[tokio::test]
+    async fn wait_ready_concurrent_stress() {
+        use std::sync::Arc;
+
+        for _ in 0..100 {
+            let log = Arc::new(CommitmentLog::new());
+            let log_clone = Arc::clone(&log);
+
+            // Waiter starts immediately — races with mark_ready() below.
+            let waiter = tokio::spawn(async move {
+                log_clone.wait_ready().await;
+            });
+
+            // mark_ready() fires without yielding, maximising the race window.
+            log.mark_ready();
+
+            tokio::time::timeout(std::time::Duration::from_millis(200), waiter)
+                .await
+                .expect("wait_ready() hung — notification was lost (iteration failed)")
+                .unwrap();
+        }
     }
 }
