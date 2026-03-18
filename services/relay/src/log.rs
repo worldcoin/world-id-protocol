@@ -100,7 +100,6 @@ impl CommitmentLog {
         tokio::pin!(notified);
         notified.as_mut().enable();
 
-        // 2. Fast path: backfill already complete before we subscribed.
         if self.ready_flag.load(Ordering::Acquire) {
             return;
         }
