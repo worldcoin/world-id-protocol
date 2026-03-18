@@ -29,10 +29,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      - name: Cache contract ABIs
+        id: cache-abis
+        uses: actions/cache@v4
+        with:
+          path: |
+            crates/authenticator/abi/
+            crates/issuer/abi/
+            services/oprf-node/abi/
+          key: contract-abis-${{ hashFiles('contracts/src/**', 'contracts/foundry.toml', 'contracts/foundry.lock', 'Makefile') }}
+
       - name: Install Foundry
+        if: steps.cache-abis.outputs.cache-hit != 'true'
         uses: foundry-rs/foundry-toolchain@v1
 
       - name: Build contracts and extract ABIs
+        if: steps.cache-abis.outputs.cache-hit != 'true'
         run: make sol-build
 
       - name: Upload contract ABIs
