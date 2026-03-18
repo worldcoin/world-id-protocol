@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.5.4...world-id-primitives-v0.6.0) - 2026-03-18
+
+### Added
+
+- [**breaking**] session proofs & rp signature ([#547](https://github.com/worldcoin/world-id-protocol/pull/547))
+- lazy load proof materials when needed ([#568](https://github.com/worldcoin/world-id-protocol/pull/568))
+
+### Other
+
+- introduce cargo nextest and fix test port conflicts ([#567](https://github.com/worldcoin/world-id-protocol/pull/567))
+
 ## [0.5.4](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.5.3...world-id-primitives-v0.5.4) - 2026-03-17
 
 ### Fixed
