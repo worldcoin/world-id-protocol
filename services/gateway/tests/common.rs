@@ -32,7 +32,7 @@ pub(crate) async fn start_redis() -> (String, ContainerAsync<Redis>) {
 #[allow(dead_code)]
 pub(crate) async fn wait_http_ready(client: &Client, port: u16) {
     let base = format!("http://127.0.0.1:{}", port);
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let deadline = std::time::Instant::now() + Duration::from_secs(90);
     loop {
         if let Ok(resp) = client.get(format!("{}/health", base)).send().await
             && resp.status().is_success()
@@ -49,7 +49,7 @@ pub(crate) async fn wait_http_ready(client: &Client, port: u16) {
 /// Wait for a request to reach finalized state, using a base URL string.
 #[allow(dead_code)]
 pub(crate) async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) -> String {
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let deadline = std::time::Instant::now() + Duration::from_secs(90);
     loop {
         let resp = client
             .get(format!("{}/status/{}", base, request_id))

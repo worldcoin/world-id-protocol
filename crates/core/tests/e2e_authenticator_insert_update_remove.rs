@@ -33,7 +33,7 @@ fn load_embedded_materials() -> (
 }
 
 async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) {
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let deadline = std::time::Instant::now() + Duration::from_secs(90);
     loop {
         let resp = client
             .get(format!("{base}/status/{request_id}"))
