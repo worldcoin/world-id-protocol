@@ -1,2 +1,8 @@
+[profile.ci]
+# Retry flaky tests once before failing
+retries = 1
+# Fail-fast: stop after first test failure
+fail-fast = true
+
 [profile.ci.junit]
 path = "junit.xml"
