@@ -20,20 +20,20 @@ use crate::registry::{
     sign_remove_authenticator, sign_update_authenticator,
 };
 use alloy::{
-    primitives::{Address, U256},
+    primitives::Address,
     providers::DynProvider,
     signers::{Signature, SignerSync},
-    uint,
 };
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use groth16_material::circom::CircomGroth16Material;
 use reqwest::StatusCode;
+use ruint::{aliases::U256, uint};
 use secrecy::ExposeSecret;
 use taceo_oprf::client::Connector;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
-    PrimitiveError, ZeroKnowledgeProof,
+    PrimitiveError, SessionId, ZeroKnowledgeProof,
     authenticator::{
         AuthenticatorPublicKeySet, SparseAuthenticatorPubkeysError,
         decode_sparse_authenticator_pubkeys,
@@ -41,11 +41,12 @@ use world_id_primitives::{
     merkle::MerkleInclusionProof,
 };
 use world_id_proof::{
-    AuthenticatorProofInput,
-    credential_blinding_factor::OprfCredentialBlindingFactor,
-    nullifier::OprfNullifier,
+    AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint,
     proof::{ProofError, generate_nullifier_proof},
 };
+
+#[expect(unused_imports, reason = "used for docs")]
+use world_id_primitives::Nullifier;
 
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
@@ -65,18 +66,16 @@ pub struct Authenticator {
     registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
     http_client: reqwest::Client,
     ws_connector: Connector,
-    query_material: Arc<CircomGroth16Material>,
-    nullifier_material: Arc<CircomGroth16Material>,
+    query_material: Option<Arc<CircomGroth16Material>>,
+    nullifier_material: Option<Arc<CircomGroth16Material>>,
 }
 
-#[expect(clippy::missing_fields_in_debug)]
 impl std::fmt::Debug for Authenticator {
+    // avoiding logging other attributes to avoid accidental leak of leaf_index
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Authenticator")
             .field("config", &self.config)
-            .field("packed_account_data", &self.packed_account_data)
-            .field("signer", &self.signer)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -97,12 +96,7 @@ impl Authenticator {
     /// - Will error if the RPC URL is invalid.
     /// - Will error if there are contract call failures.
     /// - Will error if the account does not exist (`AccountDoesNotExist`).
-    pub async fn init(
-        seed: &[u8],
-        config: Config,
-        query_material: Arc<CircomGroth16Material>,
-        nullifier_material: Arc<CircomGroth16Material>,
-    ) -> Result<Self, AuthenticatorError> {
+    pub async fn init(seed: &[u8], config: Config) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
         let registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>> =
@@ -146,9 +140,26 @@ impl Authenticator {
             registry,
             http_client,
             ws_connector,
-            query_material,
-            nullifier_material,
+            query_material: None,
+            nullifier_material: None,
         })
+    }
+
+    /// Sets the proof materials for the Authenticator, returning a new instance.
+    ///
+    /// Proof materials are required for proof generation, blinding factors and starting
+    /// sessions. Given the proof circuits are large, this may be loaded only when necessary.
+    #[must_use]
+    pub fn with_proof_materials(
+        self,
+        query_material: Arc<CircomGroth16Material>,
+        nullifier_material: Arc<CircomGroth16Material>,
+    ) -> Self {
+        Self {
+            query_material: Some(query_material),
+            nullifier_material: Some(nullifier_material),
+            ..self
+        }
     }
 
     /// Registers a new World ID in the `WorldIDRegistry`.
@@ -182,18 +193,9 @@ impl Authenticator {
     pub async fn init_or_register(
         seed: &[u8],
         config: Config,
-        query_material: Arc<CircomGroth16Material>,
-        nullifier_material: Arc<CircomGroth16Material>,
         recovery_address: Option<Address>,
     ) -> Result<Self, AuthenticatorError> {
-        match Self::init(
-            seed,
-            config.clone(),
-            query_material.clone(),
-            nullifier_material.clone(),
-        )
-        .await
-        {
+        match Self::init(seed, config.clone()).await {
             Ok(authenticator) => Ok(authenticator),
             Err(AuthenticatorError::AccountDoesNotExist) => {
                 // Authenticator is not registered, create it.
@@ -235,14 +237,7 @@ impl Authenticator {
                     };
 
                     match result {
-                        Ok(()) => match Self::init(
-                            seed,
-                            config.clone(),
-                            query_material.clone(),
-                            nullifier_material.clone(),
-                        )
-                        .await
-                        {
+                        Ok(()) => match Self::init(seed, config.clone()).await {
                             Ok(auth) => Ok(auth),
                             Err(AuthenticatorError::AccountDoesNotExist) => {
                                 Err(PollResult::Retryable)
@@ -552,9 +547,14 @@ impl Authenticator {
 
     /// Generates a nullifier for a World ID Proof (through OPRF Nodes).
     ///
-    /// A nullifier is a unique, one-time use, anonymous identifier for a World ID
-    /// on a specific RP context. It is used to ensure that a single World ID can only
-    /// perform an action once.
+    /// A [`Nullifier`] is a unique, one-time use, anonymous identifier for a World ID
+    /// on a specific RP context. See [`Nullifier`] for more details.
+    ///
+    /// A Nullifier takes an `action` as input:
+    /// - If `proof_request` is for a Session Proof, a random internal `action` is generated. This
+    ///   is opaque to RPs, and verified internally in the verification contract.
+    /// - If `proof_request` is for a Uniqueness Proof, the `action` is provided by the RP,
+    ///   if not provided a default of [`FieldElement::ZERO`] is used.
     ///
     /// # Errors
     ///
@@ -566,8 +566,16 @@ impl Authenticator {
         proof_request: &ProofRequest,
         inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
         key_set: AuthenticatorPublicKeySet,
-    ) -> Result<OprfNullifier, AuthenticatorError> {
+    ) -> Result<FullOprfOutput, AuthenticatorError> {
+        let mut rng = rand::rngs::OsRng;
+
         let (services, threshold) = self.check_oprf_config()?;
+
+        let query_material = self
+            .query_material
+            .as_ref()
+            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
+
         let key_index = key_set
             .iter()
             .position(|pk| {
@@ -586,15 +594,16 @@ impl Authenticator {
             key_index,
         );
 
-        Ok(OprfNullifier::generate(
+        let oprf_entry_point = OprfEntrypoint::new(
             services,
             threshold,
-            &self.query_material,
-            authenticator_input,
-            proof_request,
-            self.ws_connector.clone(),
-        )
-        .await?)
+            query_material,
+            &authenticator_input,
+            &self.ws_connector,
+        );
+        Ok(oprf_entry_point
+            .gen_nullifier(&mut rng, proof_request)
+            .await?)
     }
 
     // TODO add more docs
@@ -609,7 +618,13 @@ impl Authenticator {
         &self,
         issuer_schema_id: u64,
     ) -> Result<FieldElement, AuthenticatorError> {
+        let mut rng = rand::rngs::OsRng;
         let (services, threshold) = self.check_oprf_config()?;
+
+        let query_material = self
+            .query_material
+            .as_ref()
+            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
 
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
         let key_index = key_set
@@ -630,18 +645,61 @@ impl Authenticator {
             key_index,
         );
 
-        let blinding_factor = OprfCredentialBlindingFactor::generate(
+        let oprf_entry_point = OprfEntrypoint::new(
             services,
             threshold,
-            &self.query_material,
-            authenticator_input,
-            issuer_schema_id,
-            FieldElement::ZERO, // for now action is always zero, might change in future
-            self.ws_connector.clone(),
-        )
-        .await?;
+            query_material,
+            &authenticator_input,
+            &self.ws_connector,
+        );
 
-        Ok(blinding_factor.verifiable_oprf_output.output.into())
+        let (blinding_factor, _share_epoch) = oprf_entry_point
+            .gen_credential_blinding_factor(&mut rng, issuer_schema_id)
+            .await?;
+
+        Ok(blinding_factor)
+    }
+
+    /// Creates a Session for a World ID with an RP.
+    ///
+    /// Internally, this generates the session's random seed (`r`) using OPRF Nodes. This seed is used to
+    /// compute the [`SessionId::commitment`] for Session Proofs.
+    ///
+    /// # Returns
+    /// - `session_id`: The generated [`SessionId`] to be shared with the requesting RP.
+    /// - `session_id_r_seed`: The `r` value used for this session so the Authenticator can cache it.
+    ///
+    /// # Seed (`session_id_r_seed`)
+    /// - If a `session_id_r_seed` (`r`) is not provided, it'll be derived/re-derived with the OPRF nodes.
+    /// - Even if `r` has been generated before, the same `r` will be computed agaian for the same
+    ///   context (i.e. `rpId`, [`SessionId::oprf_seed`]). This means caching `r` is optional but recommended.
+    /// -  Caching behavior is the responsibility of the Authenticator (and/or its relevant SDKs), not this crate.
+    /// - More information about the seed can be found in [`SessionId::from_r_seed`].
+    pub async fn generate_session_id(
+        &self,
+        proof_request: &ProofRequest,
+        session_id_r_seed: Option<FieldElement>,
+    ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
+        let mut rng = rand::rngs::OsRng;
+
+        // TODO: Generate using OPRF Nodes with `oprf_seed` as input
+        let session_id_r_seed = session_id_r_seed.unwrap_or(FieldElement::random(&mut rng));
+
+        let session_id = SessionId::from_r_seed(
+            self.leaf_index(),
+            session_id_r_seed,
+            proof_request.session_id.map(|v| v.oprf_seed()),
+            &mut rng,
+        )
+        .map_err(|_| AuthenticatorError::InvalidSessionId)?;
+
+        if let Some(request_session_id) = proof_request.session_id {
+            if request_session_id != session_id {
+                return Err(AuthenticatorError::SessionIdMismatch);
+            }
+        }
+
+        Ok((session_id, session_id_r_seed))
     }
 
     /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`. This
@@ -652,11 +710,14 @@ impl Authenticator {
     /// specific `[RequestItem]` (a `[ProofRequest]` may contain multiple items).
     ///
     /// # Arguments
-    /// - `oprf_nullifier`: The `[OprfNullifier]` output generated from the `generate_nullifier` function.
+    /// - `oprf_nullifier`: The output representing the nullifier, generated from the `generate_nullifier` function. All proofs
+    ///   require this attribute.
     /// - `request_item`: The specific `RequestItem` that is being resolved from the RP's `ProofRequest`.
     /// - `credential`: The Credential to be used for the proof that fulfills the `RequestItem`.
     /// - `credential_sub_blinding_factor`: The blinding factor for the Credential's sub.
-    /// - `session_id_r_seed`: The session ID random seed. Obtained from the RP's [`ProofRequest`].
+    /// - `session_id_r_seed`: The session ID random seed, obtained via [`generate_session_id`](Self::generate_session_id).
+    ///   For Uniqueness Proofs (when `session_id` is `None`), this value is ignored by the circuit
+    ///   but must still be provided.
     /// - `session_id`: The expected session ID provided by the RP. Only needed for Session Proofs. Obtained from the RP's [`ProofRequest`].
     /// - `request_timestamp`: The timestamp of the request. Obtained from the RP's [`ProofRequest`].
     ///
@@ -667,12 +728,12 @@ impl Authenticator {
     #[allow(clippy::too_many_arguments)]
     pub fn generate_single_proof(
         &self,
-        oprf_nullifier: OprfNullifier,
+        oprf_nullifier: FullOprfOutput,
         request_item: &RequestItem,
         credential: &Credential,
         credential_sub_blinding_factor: FieldElement,
         session_id_r_seed: FieldElement,
-        session_id: Option<FieldElement>,
+        session_id: Option<SessionId>,
         request_timestamp: u64,
     ) -> Result<ResponseItem, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
@@ -682,14 +743,19 @@ impl Authenticator {
 
         let expires_at_min = request_item.effective_expires_at_min(request_timestamp);
 
+        let nullifier_material = self
+            .nullifier_material
+            .as_ref()
+            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
+
         let (proof, _public_inputs, nullifier) = generate_nullifier_proof(
-            &self.nullifier_material,
+            nullifier_material,
             &mut rng,
             credential,
             credential_sub_blinding_factor,
             oprf_nullifier,
             request_item,
-            session_id,
+            session_id.map(|v| v.commitment()),
             session_id_r_seed,
             expires_at_min,
         )?;
@@ -1165,6 +1231,21 @@ pub enum AuthenticatorError {
         max_supported_slot: usize,
     },
 
+    /// Proof materials not loaded. Call `with_proof_materials` before generating proofs.
+    #[error("Proof materials not loaded. Call `with_proof_materials` before generating proofs.")]
+    ProofMaterialsNotLoaded,
+
+    /// The session ID computed for this proof does not match the expected session ID from the proof request.
+    ///
+    /// This indicates the `session_id` provided by the RP is invalid or compromised, as
+    /// the only other failure option is OPRFs not having performed correct computations.
+    #[error("the expected session id and the generated session id do not match")]
+    SessionIdMismatch,
+
+    /// The provided session ID is invalid.
+    #[error("invalid session id")]
+    InvalidSessionId,
+
     /// Generic error for other unexpected issues.
     #[error("{0}")]
     Generic(String),
@@ -1176,26 +1257,11 @@ enum PollResult {
     TerminalError(AuthenticatorError),
 }
 
-#[cfg(all(test, feature = "embed-zkeys"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use alloy::primitives::{U256, address};
-    use std::sync::OnceLock;
     use world_id_primitives::authenticator::MAX_AUTHENTICATOR_KEYS;
-
-    fn test_materials() -> (Arc<CircomGroth16Material>, Arc<CircomGroth16Material>) {
-        static QUERY: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
-        static NULLIFIER: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
-
-        let query = QUERY.get_or_init(|| {
-            Arc::new(world_id_proof::proof::load_embedded_query_material().unwrap())
-        });
-        let nullifier = NULLIFIER.get_or_init(|| {
-            Arc::new(world_id_proof::proof::load_embedded_nullifier_material().unwrap())
-        });
-
-        (Arc::clone(query), Arc::clone(nullifier))
-    }
 
     fn test_pubkey(seed_byte: u8) -> EdDSAPublicKey {
         Signer::from_seed_bytes(&[seed_byte; 32])
@@ -1405,7 +1471,6 @@ mod tests {
         )
         .unwrap();
 
-        let (query_material, nullifier_material) = test_materials();
         let authenticator = Authenticator {
             config,
             packed_account_data: leaf_index, // This sets leaf_index() to 1
@@ -1413,8 +1478,8 @@ mod tests {
             registry: None, // No registry - forces indexer usage
             http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
-            query_material,
-            nullifier_material,
+            query_material: None,
+            nullifier_material: None,
         };
 
         let nonce = authenticator.signing_nonce().await.unwrap();
@@ -1426,7 +1491,6 @@ mod tests {
 
     #[test]
     fn test_danger_sign_challenge_returns_valid_signature() {
-        let (query_material, nullifier_material) = test_materials();
         let authenticator = Authenticator {
             config: Config::new(
                 None,
@@ -1443,8 +1507,8 @@ mod tests {
             registry: None,
             http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
-            query_material,
-            nullifier_material,
+            query_material: None,
+            nullifier_material: None,
         };
 
         let challenge = b"test challenge";
@@ -1458,7 +1522,6 @@ mod tests {
 
     #[test]
     fn test_danger_sign_challenge_different_challenges_different_signatures() {
-        let (query_material, nullifier_material) = test_materials();
         let authenticator = Authenticator {
             config: Config::new(
                 None,
@@ -1475,8 +1538,8 @@ mod tests {
             registry: None,
             http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
-            query_material,
-            nullifier_material,
+            query_material: None,
+            nullifier_material: None,
         };
 
         let sig_a = authenticator.danger_sign_challenge(b"challenge A").unwrap();
@@ -1486,7 +1549,6 @@ mod tests {
 
     #[test]
     fn test_danger_sign_challenge_deterministic() {
-        let (query_material, nullifier_material) = test_materials();
         let authenticator = Authenticator {
             config: Config::new(
                 None,
@@ -1503,8 +1565,8 @@ mod tests {
             registry: None,
             http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
-            query_material,
-            nullifier_material,
+            query_material: None,
+            nullifier_material: None,
         };
 
         let challenge = b"deterministic test";
@@ -1544,7 +1606,6 @@ mod tests {
         )
         .unwrap();
 
-        let (query_material, nullifier_material) = test_materials();
         let authenticator = Authenticator {
             config,
             packed_account_data: U256::ZERO,
@@ -1552,8 +1613,8 @@ mod tests {
             registry: None,
             http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
-            query_material,
-            nullifier_material,
+            query_material: None,
+            nullifier_material: None,
         };
 
         let result = authenticator.signing_nonce().await;

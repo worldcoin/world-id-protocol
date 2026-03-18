@@ -169,7 +169,8 @@ impl GatewayConfig {
     pub fn validate(&self) -> GatewayResult<()> {
         if self.provider.signer.is_none() {
             return Err(GatewayError::Config(
-                "exactly one of --wallet-private-key or --aws-kms-key-id must be provided"
+                "exactly one of --wallet-private-key, --aws-kms-key-id, or \
+                 --aws-kms-key-ids must be provided"
                     .to_string(),
             ));
         }
@@ -310,7 +311,10 @@ mod tests {
         let result = config.validate();
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("wallet-private-key"));
+        assert!(
+            err.contains("wallet-private-key") || err.contains("aws-kms-key-id"),
+            "error should mention signer options: {err}"
+        );
     }
 
     #[test]

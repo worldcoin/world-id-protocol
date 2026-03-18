@@ -9,7 +9,7 @@
 //! - [`nullifier`] – implements authentication for OPRF nullifier generation.
 //! - [`rp_registry_watcher`] – keeps track of registered RPs
 //! - [`schema_issuer_registry_watcher`] – keeps track of registered Credential Schema Issuers
-//! - [`signature_history`] – keeps track of nonce + time_stamp signatures to detect replays
+//! - [`signature_history`] – keeps track of nonce + `time_stamp` signatures to detect replays
 
 use std::sync::Arc;
 
@@ -181,17 +181,18 @@ mod tests {
             // Register an issuer which also triggers a OPRF key-gen.
             let issuer_schema_id = rng.r#gen::<u64>();
             let issuer_sk = EdDSAPrivateKey::random(&mut rng);
-            let issuer_pk = issuer_sk.public();
+            let issuer_public_key = issuer_sk.public();
             anvil
                 .register_issuer(
                     credential_schema_issuer_registry,
                     deployer.clone(),
                     issuer_schema_id,
-                    issuer_pk.clone(),
+                    issuer_public_key.clone(),
                 )
                 .await?;
 
-            let signer = Signer::from_seed_bytes(&rng.r#gen::<[u8; 32]>()).unwrap();
+            let signer =
+                Signer::from_seed_bytes(&rng.r#gen::<[u8; 32]>()).expect("Can build from seed");
 
             let mut key_set = AuthenticatorPublicKeySet::default();
             key_set.try_push(signer.offchain_signer_pubkey())?;

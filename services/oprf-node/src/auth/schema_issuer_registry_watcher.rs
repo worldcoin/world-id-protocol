@@ -27,7 +27,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
 alloy::sol! {
-    #[allow(missing_docs, clippy::too_many_arguments)]
+    #[allow(missing_docs, clippy::too_many_arguments, reason="Get this errors from sol macro")]
     #[sol(rpc)]
     CredentialSchemaIssuerRegistry,
     "abi/CredentialSchemaIssuerRegistryAbi.json"
@@ -45,11 +45,11 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
     UnknownSchemaIssuer(u64),
 }
 
-/// Monitors the issuer from the CredentialSchemaIssuerRegistry contract.
+/// Monitors the issuer from the `CredentialSchemaIssuerRegistry` contract.
 ///
 /// Issuers are lazily loaded, meaning in the beginning the store will be empty. When valid requests are coming in from users,
 /// this service will go to chain and check if the issuer schema id is valid and cache them for future requests.
-/// Additionally, will subscribe to chain events to handle IssuerSchemaRemoved events and remove entries from the cache.
+/// Additionally, will subscribe to chain events to handle `IssuerSchemaRemoved` events and remove entries from the cache.
 #[derive(Clone)]
 pub(crate) struct SchemaIssuerRegistryWatcher {
     issuer_schema_store: Cache<u64, ()>,
@@ -100,7 +100,7 @@ impl SchemaIssuerRegistryWatcher {
                                 eyre::eyre!("SchemaIssuerRegistryWatcher subscribe stream was closed")
                             })?
                         }
-                        _ = cancellation_token.cancelled() => {
+                        () = cancellation_token.cancelled() => {
                             break;
                         }
                     };
@@ -176,7 +176,11 @@ impl SchemaIssuerRegistryWatcher {
             .await
             .map_err(SchemaIssuerRegistryWatcherError::AlloyError)?;
 
-        if signer != Address::ZERO {
+        if signer == Address::ZERO {
+            Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(
+                issuer_schema_id,
+            ))
+        } else {
             ::metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES)
                 .increment(1);
 
@@ -185,10 +189,6 @@ impl SchemaIssuerRegistryWatcher {
             tracing::debug!("issuer {issuer_schema_id} loaded from chain and stored");
 
             Ok(())
-        } else {
-            Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(
-                issuer_schema_id,
-            ))
         }
     }
 }

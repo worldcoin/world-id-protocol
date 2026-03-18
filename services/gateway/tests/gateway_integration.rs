@@ -22,12 +22,11 @@ use world_id_gateway::{
 use world_id_services_common::ProviderArgs;
 use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::{wait_for_finalized, wait_http_ready};
+use crate::common::{start_redis, wait_for_finalized, wait_http_ready};
 
 mod common;
 
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-const GW_PORT: u16 = 4101;
 const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
 
 struct TestGateway {
@@ -37,9 +36,12 @@ struct TestGateway {
     rpc_url: String,
     _handle: world_id_gateway::GatewayHandle,
     _anvil: TestAnvil,
+    _redis: testcontainers_modules::testcontainers::ContainerAsync<
+        testcontainers_modules::redis::Redis,
+    >,
 }
 
-async fn spawn_test_gateway(port: u16) -> TestGateway {
+async fn spawn_test_gateway() -> TestGateway {
     let mut fork_url = std::env::var("TESTS_RPC_FORK_URL").unwrap_or_default();
     if fork_url.is_empty() {
         fork_url = RPC_FORK_URL.to_string();
@@ -53,6 +55,7 @@ async fn spawn_test_gateway(port: u16) -> TestGateway {
     let rpc_url = anvil.endpoint().to_string();
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
+    let (redis_url, redis_container) = start_redis().await;
     let cfg = GatewayConfig {
         registry_addr,
         provider: ProviderArgs {
@@ -62,9 +65,8 @@ async fn spawn_test_gateway(port: u16) -> TestGateway {
         },
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, port).into(),
-        redis_url: std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
+        redis_url,
         request_timeout_secs: 10,
         rate_limit_window_secs: None,
         rate_limit_max_requests: None,
@@ -74,23 +76,25 @@ async fn spawn_test_gateway(port: u16) -> TestGateway {
         batch_policy: BatchPolicyConfig::default(),
     };
     let handle = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
+    let addr = handle.listen_addr;
 
     let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, port).await;
+    wait_http_ready(&client, addr.port()).await;
 
     TestGateway {
         client,
-        base_url: format!("http://127.0.0.1:{port}"),
+        base_url: format!("http://{}:{}", addr.ip(), addr.port()),
         registry_addr,
         rpc_url,
         _handle: handle,
         _anvil: anvil,
+        _redis: redis_container,
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn e2e_gateway_full_flow() {
-    let gw = spawn_test_gateway(GW_PORT).await;
+    let gw = spawn_test_gateway().await;
 
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
@@ -429,7 +433,7 @@ async fn e2e_gateway_full_flow() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_authenticator_already_exists_error_code() {
-    let gw = spawn_test_gateway(4102).await;
+    let gw = spawn_test_gateway().await;
 
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
@@ -530,7 +534,7 @@ async fn test_authenticator_already_exists_error_code() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_same_authenticator_different_accounts() {
-    let gw = spawn_test_gateway(4103).await;
+    let gw = spawn_test_gateway().await;
 
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();

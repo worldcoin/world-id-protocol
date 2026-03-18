@@ -32,7 +32,9 @@ use world_id_core::{
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
 };
-use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
+use world_id_primitives::{
+    Config, FieldElement, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
+};
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
     fixtures::{
@@ -119,22 +121,14 @@ async fn main() -> Result<()> {
         3,
     )
     .unwrap();
-    let (query_material, nullifier_material) = load_embedded_materials();
-    let _authenticator = Authenticator::init_or_register(
-        &seed,
-        creation_config.clone(),
-        query_material,
-        nullifier_material,
-        Some(recovery_address),
-    )
-    .await
-    .unwrap();
-
-    let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator =
-        Authenticator::init(&seed, creation_config, query_material, nullifier_material)
+    let _authenticator =
+        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
             .await
-            .wrap_err("expected authenticator to initialize after account creation")?;
+            .unwrap();
+
+    let authenticator = Authenticator::init(&seed, creation_config)
+        .await
+        .wrap_err("expected authenticator to initialize after account creation")?;
 
     let leaf_index = authenticator.leaf_index();
     let MerkleFixture {
@@ -157,6 +151,7 @@ async fn main() -> Result<()> {
         world_id_test_utils::stubs::init_test_secret_managers();
 
     let oprf_key_gens = world_id_test_utils::stubs::spawn_key_gens(
+        anvil.endpoint(),
         anvil.ws_endpoint(),
         key_gen_secret_managers,
         oprf_key_registry,
@@ -235,10 +230,10 @@ async fn main() -> Result<()> {
     .unwrap();
 
     let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator =
-        Authenticator::init(&seed, proof_config, query_material, nullifier_material)
-            .await
-            .wrap_err("failed to reinitialize authenticator with proof config")?;
+    let authenticator = Authenticator::init(&seed, proof_config)
+        .await
+        .wrap_err("failed to reinitialize authenticator with proof config")?
+        .with_proof_materials(query_material, nullifier_material);
 
     let credential_sub_blinding_factor = authenticator
         .generate_credential_blinding_factor(issuer_schema_id)
@@ -296,13 +291,12 @@ async fn main() -> Result<()> {
     // Clone the nullifier data before it's consumed — we reuse it for the session proof.
     let nullifier_data_for_session = nullifier_data.clone();
 
-    let session_id_r_seed = FieldElement::random(&mut rng);
     let uniqueness_response = authenticator.generate_single_proof(
         nullifier_data,
         request_item,
         &credential,
         credential_sub_blinding_factor,
-        session_id_r_seed,
+        FieldElement::ZERO, // for uniqueness proofs this can be zero
         uniqueness_request.session_id,
         uniqueness_request.created_at,
     )?;
@@ -334,19 +328,17 @@ async fn main() -> Result<()> {
         .await?;
     info!("Uniqueness proof verified ✓");
 
+    //  ── CREATE SESSION
+    let session_id_r_seed = FieldElement::random(&mut rng); // TODO: Create through OPRF
+    let session_id = SessionId::from_r_seed(leaf_index, session_id_r_seed, None, &mut rng).unwrap();
+
     // ── SESSION PROOF (reuse cloned OPRF data with a non-zero session_id) ──
-    let session_id_r_seed2 = FieldElement::random(&mut rng);
-    let ds_c = ark_babyjubjub::Fq::from(5199521648757207593u64); // b"H(id, r)"
-    let mt_index = ark_babyjubjub::Fq::from(leaf_index);
-    let mut id_state = [ds_c, mt_index, *session_id_r_seed2];
-    poseidon2::bn254::t3::permutation_in_place(&mut id_state);
-    let session_id: FieldElement = id_state[1].into();
     let session_response = authenticator.generate_single_proof(
         nullifier_data_for_session,
         request_item,
         &credential,
         credential_sub_blinding_factor,
-        session_id_r_seed2,
+        session_id_r_seed,
         Some(session_id),
         uniqueness_request.created_at,
     )?;
@@ -369,7 +361,7 @@ async fn main() -> Result<()> {
                 .unwrap_or_default()
                 .try_into()
                 .expect("u64 fits into U256"),
-            session_id.into(),
+            session_id.commitment().into(),
             session_nullifier.as_ethereum_representation(),
             session_response.proof.as_ethereum_representation(),
         )
@@ -446,7 +438,7 @@ async fn main() -> Result<()> {
     println!();
 
     println!("// ── Session Proof inputs ──");
-    let session_id_u256: U256 = session_id.into();
+    let session_id_u256: U256 = session_id.commitment().into();
     let s_proof = session_response.proof.as_ethereum_representation();
     let s_null = session_nullifier.as_ethereum_representation();
     println!("uint256 sessionId = {:#x};", session_id_u256);
