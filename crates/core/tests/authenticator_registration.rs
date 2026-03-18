@@ -9,8 +9,6 @@ use world_id_gateway::{
 use world_id_primitives::Config;
 use world_id_test_utils::anvil::TestAnvil;
 
-const GW_PORT: u16 = 4102;
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_authenticator_registration() {
     rustls::crypto::aws_lc_rs::default_provider()
@@ -34,7 +32,7 @@ async fn test_authenticator_registration() {
             signer: Some(signer_args),
             ..Default::default()
         },
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: std::env::var("REDIS_URL")
@@ -47,16 +45,18 @@ async fn test_authenticator_registration() {
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
         batch_policy: BatchPolicyConfig::default(),
     };
-    let _gateway = spawn_gateway_for_tests(gateway_config)
+    let gateway = spawn_gateway_for_tests(gateway_config)
         .await
         .expect("failed to spawn gateway");
+    let gw_addr = gateway.listen_addr;
+    let gateway_url = format!("http://{}:{}", gw_addr.ip(), gw_addr.port());
 
     let config = Config::new(
         Some(anvil.endpoint().to_string()),
         anvil.instance.chain_id(),
         registry_address,
         "http://127.0.0.1:0".to_string(), // not needed for this test
-        format!("http://127.0.0.1:{GW_PORT}"),
+        gateway_url.clone(),
         Vec::new(),
         2,
     )

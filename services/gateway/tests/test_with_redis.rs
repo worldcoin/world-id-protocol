@@ -11,7 +11,7 @@ use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::{wait_for_finalized, wait_http_ready};
+use crate::common::{start_redis, wait_for_finalized, wait_http_ready};
 
 mod common;
 
@@ -22,16 +22,10 @@ async fn set_up_redis(redis_url: &str) -> ConnectionManager {
     client.get_connection_manager().await.unwrap()
 }
 
-async fn flush_redis(redis: &mut ConnectionManager) {
-    redis.flushdb().await.unwrap();
-}
-
 #[tokio::test]
 async fn redis_integration() {
-    let redis_url =
-        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+    let (redis_url, _redis_container) = start_redis().await;
     let mut redis = set_up_redis(&redis_url).await;
-    flush_redis(&mut redis).await;
 
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
@@ -52,8 +46,8 @@ async fn redis_integration() {
         },
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4103).into(),
-        redis_url,
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
+        redis_url: redis_url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(5),
         rate_limit_max_requests: Some(10),
@@ -64,9 +58,10 @@ async fn redis_integration() {
     };
 
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
+    let gw_addr = gw.listen_addr;
     let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, 4103).await;
-    let base = "http://127.0.0.1:4103";
+    wait_http_ready(&client, gw_addr.port()).await;
+    let base = format!("http://{}:{}", gw_addr.ip(), gw_addr.port());
 
     // Create a test request
     let body = world_id_core::api_types::CreateAccountRequest {
@@ -77,7 +72,7 @@ async fn redis_integration() {
     };
 
     let resp = client
-        .post(format!("{base}/create-account"))
+        .post(format!("{}/create-account", base))
         .json(&body)
         .send()
         .await
@@ -87,9 +82,9 @@ async fn redis_integration() {
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let request_id = accepted.request_id.clone();
 
-    // Verify the request was stored in Redis
+    // Verify the request was stored in Redis using the plain (unprefixed) key names.
     let redis_key = format!("gateway:request:{}", request_id);
-    let stored = redis.get(&redis_key).await.unwrap().unwrap();
+    let stored: String = redis.get(&redis_key).await.unwrap().unwrap();
     let stored_data: serde_json::Value =
         serde_json::from_str(&stored).expect("Failed to parse JSON");
 
@@ -119,11 +114,11 @@ async fn redis_integration() {
     };
 
     // Wait for the request to be processed
-    let tx_hash = wait_for_finalized(&client, base, &request_id).await;
+    let tx_hash = wait_for_finalized(&client, &base, &request_id).await;
     assert!(!tx_hash.is_empty());
 
     // Verify status was updated in Redis
-    let updated = redis.get(&redis_key).await.unwrap().unwrap();
+    let updated: String = redis.get(&redis_key).await.unwrap().unwrap();
     let updated_data: serde_json::Value = serde_json::from_str(&updated).unwrap();
 
     assert_eq!(updated_data["status"]["state"], "finalized");
