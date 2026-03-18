@@ -134,8 +134,14 @@ pub async fn registry_stream(
     world_chain: &WorldChain,
 ) -> Result<BoxStream<'static, Result<StateCommitment>>> {
     // Capture the chain head *now*, before backfill touches the network.
-    // Any block ≥ this anchor will be covered by the live poll loop;
-    // backfill covers [0, anchor] so together they are gapless.
+    // Backfill issues a get_logs with no upper bound, so it covers
+    // [0, latest_at_backfill_rpc_time], which is ≥ anchor_block.
+    // The live poll loop covers [anchor_block+1, ∞).
+    // Together they are gapless, with a safe overlap deduplicated by
+    // commit_chained (idempotent on chain_head).
+    //
+    // NOTE: a failure here propagates immediately to engine::run() rather than
+    // retrying, because we cannot anchor safely without a block number.
     let anchor_block = world_chain.provider().get_block_number().await?;
 
     tracing::info!(
@@ -314,13 +320,14 @@ mod tests {
     use super::*;
 
     use alloy::providers::{DynProvider, ProviderBuilder};
-    use alloy_primitives::{Address, B256, b256};
+    use alloy_primitives::{Address, B256};
     use futures_util::StreamExt;
     use tokio::time;
 
-    // keccak256("ChainCommitted(bytes32,uint256,uint256,bytes)")
-    const CHAIN_COMMITTED_TOPIC: B256 =
-        b256!("e6456e71ac59eedb01c8a33f8e1bcefa1a7a343f4dd490937cdb4c726c63894b");
+    // Derived from the ABI binding so it stays correct if the event signature changes.
+    fn chain_committed_topic() -> B256 {
+        crate::bindings::CHAIN_COMMITTED_EVENTS[0]
+    }
 
     fn make_mock_provider(asserter: alloy::providers::mock::Asserter) -> Arc<DynProvider> {
         let p = ProviderBuilder::new().connect_mocked_client(asserter);
@@ -335,7 +342,7 @@ mod tests {
         serde_json::json!([{
             "address": "0x0000000000000000000000000000000000000001",
             "topics": [
-                format!("0x{}", alloy_primitives::hex::encode(CHAIN_COMMITTED_TOPIC)),
+                format!("0x{}", alloy_primitives::hex::encode(chain_committed_topic())),
                 // keccakChain (bytes32) = zero
                 format!("0x{:064x}", 0u64),
                 // blockNumber (uint256)
@@ -385,7 +392,7 @@ mod tests {
 
         let filter = EventFilter {
             address: Address::from([0x01; 20]),
-            events: vec![CHAIN_COMMITTED_TOPIC],
+            events: vec![chain_committed_topic()],
             label: "test",
         };
 
