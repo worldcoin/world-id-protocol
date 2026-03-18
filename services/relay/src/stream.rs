@@ -94,6 +94,7 @@ fn poll_events(
             );
 
             let mut results = Vec::new();
+            let mut all_succeeded = true;
             for f in &filters {
                 let filter = Filter::new()
                     .address(f.address)
@@ -118,13 +119,15 @@ fn poll_events(
                         tracing::warn!(
                             error = %e,
                             source = f.label,
-                            "get_logs failed"
+                            "get_logs failed, will retry this block range"
                         );
+                        all_succeeded = false;
                     }
                 }
             }
 
-            Some((results, (provider, filters, Some(latest), new_poll_count)))
+            let next_from_block = if all_succeeded { Some(latest) } else { Some(from_block) };
+            Some((results, (provider, filters, next_from_block, new_poll_count)))
         },
     )
     .flat_map(futures::stream::iter);
