@@ -357,7 +357,6 @@ fn assert_duplicate_in_flight(err: AuthenticatorError, ctx: &str) {
 /// - create-account -> `gateway:inflight:create:{addr}`
 /// - insert/update/remove/recover -> `gateway:inflight:leaf:{leaf_index}`
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-
 async fn test_lock_created_on_submit() {
     ensure_crypto_provider();
     let gw = spawn_test_gateway(30_000).await;
@@ -401,7 +400,6 @@ async fn test_lock_created_on_submit() {
 /// request is in-flight (long batch window), every second-op on the *same*
 /// leaf should be rejected with duplicate_request_in_flight.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-
 async fn test_same_leaf_conflict_matrix() {
     ensure_crypto_provider();
     let gw = spawn_test_gateway(30_000).await;
@@ -439,7 +437,6 @@ async fn test_same_leaf_conflict_matrix() {
 ///
 /// Tests create-account and all leaf ops (insert, update, remove, recover).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-
 async fn test_lock_removed_after_finalization() {
     ensure_crypto_provider();
     let gw = spawn_test_gateway(200).await;
