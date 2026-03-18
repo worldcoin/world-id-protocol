@@ -50,6 +50,7 @@ uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
 world-id-test-utils = { workspace = true }
+futures = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true }

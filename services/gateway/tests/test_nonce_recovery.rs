@@ -268,29 +268,75 @@ async fn nonce_released_after_insufficient_funds() {
     );
 }
 
-/// Verifies that multiple consecutive send failures all release their nonces
+/// Verifies that multiple *concurrent* send failures all release their nonces
 /// correctly, so the nonce manager is never permanently poisoned.
 ///
+/// # Why concurrency matters here
+///
+/// PR #569 introduces a CAS (compare-and-swap) based nonce-release mechanism in
+/// the gateway.  Each batch allocator records the nonce value it consumed and,
+/// on failure, attempts to CAS the Redis counter back to `allocated_nonce`
+/// (i.e. `expected = allocated_nonce + 1`, `set = allocated_nonce`).
+///
+/// When two batches are allocated and fail at roughly the same time, the
+/// following problematic ordering can occur:
+///
+/// 1. Batch A allocates nonce N   → Redis counter is now N+1.
+/// 2. Batch B allocates nonce N+1 → Redis counter is now N+2.
+/// 3. Batch A's send fails; its CAS fires:
+///    `expect N+1, set N` → **succeeds** (counter moves N+1 → N).
+/// 4. Batch B's send fails; its CAS fires:
+///    `expect N+2, set N+1` → **fails** (counter is N, not N+2).
+///    Nonce N+1 is never released; the counter stays at N and nonce N+1
+///    becomes a permanent gap — future batches will skip it.
+///
+/// The sequential version of this test (one failure at a time, wait between
+/// each) cannot reproduce this race because each CAS completes before the next
+/// allocation begins.  By submitting all requests and awaiting all failures
+/// concurrently we exercise the overlapping-CAS window.
+///
+/// # Test steps
+///
 /// 1. Gateway signer has zero balance.
-/// 2. Three requests are submitted, each failing with "insufficient funds".
-/// 3. After funding the signer, the fourth request succeeds.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+/// 2. Three requests are submitted **concurrently**; all fail with
+///    "insufficient funds".
+/// 3. After funding the signer, the fourth request succeeds, proving that all
+///    three nonces were correctly released (no gap remains).
+// 4 worker threads so that the three concurrent HTTP futures can be polled
+// in parallel, giving the gateway a real chance to batch them together and
+// maximising the window in which all CAS releases overlap.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn multiple_consecutive_failures_recover() {
+    use futures::future::join_all;
+
     // -- Setup: deploy registry, then drain the gateway signer --
     let gw = spawn_test_gateway(true).await;
 
-    // -- Submit 3 requests, each expected to fail --
-    let mut failed_ids = Vec::new();
-    for i in 0..3 {
-        let req_id = submit_create_account(&gw.client, &gw.base_url).await;
-        let error = wait_for_failed(&gw.client, &gw.base_url, &req_id).await;
+    // -- Submit 3 requests concurrently --
+    //
+    // Fire all HTTP submissions in parallel so the gateway can batch them
+    // together. This maximises the chance that all three allocators hold their
+    // nonces simultaneously when they attempt the CAS release on failure.
+    let submit_futs = (0..3).map(|_| submit_create_account(&gw.client, &gw.base_url));
+    let req_ids: Vec<String> = join_all(submit_futs).await;
+
+    // -- Await all failures concurrently --
+    //
+    // Polling all three status endpoints in parallel keeps the failure windows
+    // overlapping; if we polled sequentially the later CAS releases would
+    // happen long after the earlier ones, defeating the purpose.
+    let wait_futs = req_ids
+        .iter()
+        .map(|id| wait_for_failed(&gw.client, &gw.base_url, id));
+    let errors: Vec<String> = join_all(wait_futs).await;
+
+    for (i, error) in errors.iter().enumerate() {
         let error_lower = error.to_lowercase();
         assert!(
             error_lower.contains("insufficient funds")
                 || error_lower.contains("insufficient balance"),
             "request #{i} expected 'insufficient funds' error, got: {error}"
         );
-        failed_ids.push(req_id);
     }
 
     // -- Fund the signer with 10 ETH --
@@ -300,10 +346,14 @@ async fn multiple_consecutive_failures_recover() {
     set_anvil_balance(&provider, GW_SIGNER_ADDR, ten_eth).await;
 
     // -- Submit a fourth request — must succeed --
+    //
+    // If any of the three concurrent CAS releases left a gap the nonce counter
+    // will be stuck and this request will time out or fail.
     let req_id_4 = submit_create_account(&gw.client, &gw.base_url).await;
     let tx_hash = wait_for_finalized(&gw.client, &gw.base_url, &req_id_4).await;
     assert!(
         !tx_hash.is_empty(),
-        "fourth request should finalize after funding, proving all 3 nonces were released"
+        "fourth request should finalize after funding, proving all 3 nonces were released \
+         (no CAS-induced gap)"
     );
 }
