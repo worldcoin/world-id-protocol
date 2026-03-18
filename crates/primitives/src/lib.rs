@@ -53,7 +53,7 @@ pub use nullifier::Nullifier;
 
 /// Contains types relevant for Session Proofs.
 mod session;
-pub use session::{SessionFieldElement, SessionId, SessionNullifier};
+pub use session::{SessionFeType, SessionFieldElement, SessionId, SessionNullifier};
 
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;
@@ -76,6 +76,7 @@ pub use request::{
 };
 
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
+pub use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 
 /// The scalar field used in the World ID Protocol.
 ///

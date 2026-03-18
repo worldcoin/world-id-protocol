@@ -690,8 +690,7 @@ impl Authenticator {
             session_id_r_seed,
             proof_request.session_id.map(|v| v.oprf_seed()),
             &mut rng,
-        )
-        .map_err(|_| AuthenticatorError::InvalidSessionId)?;
+        )?;
 
         if let Some(request_session_id) = proof_request.session_id {
             if request_session_id != session_id {
@@ -1241,10 +1240,6 @@ pub enum AuthenticatorError {
     /// the only other failure option is OPRFs not having performed correct computations.
     #[error("the expected session id and the generated session id do not match")]
     SessionIdMismatch,
-
-    /// The provided session ID is invalid.
-    #[error("invalid session id")]
-    InvalidSessionId,
 
     /// Generic error for other unexpected issues.
     #[error("{0}")]
