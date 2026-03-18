@@ -29,22 +29,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Cache contract ABIs
-        id: cache-abis
+      - name: Cache contract artifacts
+        id: cache-contracts
         uses: actions/cache@v4
         with:
           path: |
+            contracts/out/
             crates/authenticator/abi/
             crates/issuer/abi/
             services/oprf-node/abi/
-          key: contract-abis-${{ hashFiles('contracts/src/**', 'contracts/foundry.toml', 'contracts/foundry.lock', 'Makefile') }}
+          key: contract-artifacts-${{ hashFiles('contracts/src/**', 'contracts/foundry.toml', 'contracts/foundry.lock', 'Makefile') }}
 
       - name: Install Foundry
-        if: steps.cache-abis.outputs.cache-hit != 'true'
+        if: steps.cache-contracts.outputs.cache-hit != 'true'
         uses: foundry-rs/foundry-toolchain@v1
 
       - name: Build contracts and extract ABIs
-        if: steps.cache-abis.outputs.cache-hit != 'true'
+        if: steps.cache-contracts.outputs.cache-hit != 'true'
         run: make sol-build
 
       - name: Upload contract ABIs
@@ -55,6 +56,13 @@ jobs:
             crates/authenticator/abi/
             crates/issuer/abi/
             services/oprf-node/abi/
+          retention-days: 1
+
+      - name: Upload compiled contracts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-build-output
+          path: contracts/out/
           retention-days: 1
 
   lint:
@@ -84,10 +92,18 @@ jobs:
         with:
           name: contract-abis
 
+      - name: Download compiled contracts
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-build-output
+          path: contracts/out
+
       - name: Check code formatting
         run: cargo +nightly fmt --all -- --check
 
       - name: Run clippy
+        env:
+          CONTRACTS_PREBUILT: "1"
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   msrv:
@@ -110,7 +126,15 @@ jobs:
         with:
           name: contract-abis
 
+      - name: Download compiled contracts
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-build-output
+          path: contracts/out
+
       - name: Check Features
+        env:
+          CONTRACTS_PREBUILT: "1"
         run: |
           cargo check --all-features
 
@@ -174,6 +198,12 @@ jobs:
         with:
           name: contract-abis
 
+      - name: Download compiled contracts
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-build-output
+          path: contracts/out
+
       - name: Run services
         run: |
           docker compose up -d
@@ -187,6 +217,7 @@ jobs:
 
       - name: Run tests
         env:
+          CONTRACTS_PREBUILT: "1"
           TESTS_RPC_FORK_URL: ${{ secrets.TESTS_RPC_FORK_URL }}
         run: |
           cargo nextest run --profile ci --all-features --workspace
@@ -364,7 +395,9 @@ jobs:
       RUSTDOCFLAGS: -Dwarnings
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        with:
+          toolchain: nightly
       - uses: dtolnay/install@cargo-docs-rs
       - run: |
           cargo +nightly docs-rs -p world-id-primitives
