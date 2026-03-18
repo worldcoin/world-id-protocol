@@ -17,16 +17,20 @@ async-trait = { workspace = true }
 aws-config = { workspace = true, features = ["behavior-version-latest"] }
 axum = { workspace = true, features = ["json", "macros"] }
 circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"] }
-clap = { workspace = true, features = ["derive", "env"] }
+config.workspace = true
 eyre = { workspace = true }
 futures = { workspace = true }
 humantime = { workspace = true }
+humantime-serde = { workspace = true }
+metrics = { workspace = true }
+moka = { workspace = true }
 rustls = { workspace = true }
 secrecy = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-taceo-nodes-common = { workspace = true }
+taceo-nodes-common = { workspace = true, features = ["postgres"] }
 taceo-nodes-observability = { workspace = true }
-taceo-oprf = { workspace = true, features = ["service", "types", "core"] }
+taceo-oprf = { workspace = true, features = ["core", "service", "types"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = [
   "net",
@@ -41,10 +45,8 @@ tracing = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
 world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys"] }
 world-id-primitives = { workspace = true }
-moka = { workspace = true }
-metrics = { workspace = true }
 
 [dev-dependencies]
-world-id-test-utils = { workspace = true }
 ark-serialize.workspace = true
 rand.workspace = true
+world-id-test-utils = { workspace = true }

@@ -1,11 +1,11 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy::{
-    primitives::{Address, U160},
+    primitives::{Address, U160, U256, ruint::uint},
     providers::DynProvider,
     signers::{SignerSync as _, k256::ecdsa::SigningKey, local::LocalSigner},
 };
-use ark_ff::UniformRand as _;
+use ark_ff::{PrimeField, UniformRand as _};
 use clap::Parser;
 use eyre::Context as _;
 use rand::{CryptoRng, Rng, SeedableRng as _};
@@ -128,7 +128,7 @@ impl DevClient for WorldIdRpDevClient {
             .context("while creating proof request")?;
 
         let request_id = Uuid::new_v4();
-        let action = proof_request.computed_action(rng);
+        let action = proof_request.action.unwrap();
         let query_hash = world_id_primitives::authenticator::oprf_query_digest(
             leaf_index,
             action,
@@ -141,13 +141,13 @@ impl DevClient for WorldIdRpDevClient {
             setup,
             &proof_request,
             action,
-            &oprf_blinding_factor,
+            oprf_blinding_factor,
             signature,
             &self.components.query_material,
         )?;
 
         let blinded_query =
-            taceo_oprf::core::oprf::client::blind_query(*query_hash, oprf_blinding_factor.clone());
+            taceo_oprf::core::oprf::client::blind_query(*query_hash, oprf_blinding_factor);
 
         let init_request = OprfRequest {
             request_id,
@@ -239,7 +239,10 @@ fn create_proof_request<R: Rng + CryptoRng>(
     signer: &LocalSigner<SigningKey>,
     rng: &mut R,
 ) -> eyre::Result<ProofRequest> {
-    let action = ark_babyjubjub::Fq::rand(rng);
+    // The first byte is cleared as that is reserved for Session Proofs
+    let action = U256::random()
+        & uint!(0x00FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
+    let action = ark_babyjubjub::Fq::from_bigint(action.into()).unwrap();
     let nonce = ark_babyjubjub::Fq::rand(rng);
 
     let current_timestamp = SystemTime::now()
@@ -252,6 +255,7 @@ fn create_proof_request<R: Rng + CryptoRng>(
         nonce,
         current_timestamp,
         expiration_timestamp,
+        Some(action),
     );
     let signature = signer.sign_message_sync(&msg)?;
 
@@ -281,7 +285,7 @@ fn generate_oprf_auth_request(
     setup: &WorldIdRpDevClientSetup,
     proof_request: &ProofRequest,
     action: FieldElement,
-    blinding_factor: &BlindingFactor,
+    blinding_factor: BlindingFactor,
     authenticator_signature: EdDSASignature,
     query_material: &CircomGroth16Material,
 ) -> eyre::Result<NullifierOprfRequestAuthV1> {
@@ -289,7 +293,7 @@ fn generate_oprf_auth_request(
         world_id_oprf_dev_client::CreateQueryProofArgs {
             authenticator_signature,
             action,
-            blinding_factor: blinding_factor.clone(),
+            blinding_factor,
             inclusion_proof: setup.inclusion_proof.clone(),
             key_set: setup.key_set.clone(),
             key_index: setup.key_index,

@@ -16,15 +16,18 @@ use groth16_material::Groth16Error;
 use rand::{CryptoRng, Rng};
 use std::{io::Read, path::Path};
 use world_id_primitives::{
-    Credential, FieldElement, RequestItem, TREE_DEPTH, circuit_inputs::NullifierProofCircuitInput,
-    nullifier::Nullifier,
+    Credential, FieldElement, Nullifier, RequestItem, TREE_DEPTH,
+    circuit_inputs::NullifierProofCircuitInput,
 };
 
 pub use groth16_material::circom::{
     CircomGroth16Material, CircomGroth16MaterialBuilder, ZkeyError,
 };
 
-use crate::nullifier::OprfNullifier;
+#[expect(unused_imports, reason = "used for docs")]
+use world_id_primitives::SessionId;
+
+use crate::oprf_query::FullOprfOutput;
 
 pub mod errors;
 
@@ -318,7 +321,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     rng: &mut R,
     credential: &Credential,
     credential_sub_blinding_factor: FieldElement,
-    oprf_nullifier: OprfNullifier,
+    oprf_output: FullOprfOutput,
     request_item: &RequestItem,
     session_id: Option<FieldElement>,
     session_id_r_seed: FieldElement,
@@ -336,8 +339,10 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         .clone()
         .ok_or_else(|| ProofError::InternalError(eyre::eyre!("Credential not signed")))?;
 
+    let nullifier_from_oprf_output = oprf_output.verifiable_oprf_output.output;
+
     let nullifier_input = NullifierProofCircuitInput::<TREE_DEPTH> {
-        query_input: oprf_nullifier.query_proof_input,
+        query_input: oprf_output.query_proof_input,
         issuer_schema_id: credential.issuer_schema_id.into(),
         cred_pk: credential.issuer.pk,
         cred_hashes: [*credential.claims_hash()?, *credential.associated_data_hash],
@@ -350,14 +355,11 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         cred_r: cred_signature.r,
         id_commitment_r: *session_id_r_seed,
         id_commitment: *session_id.unwrap_or(FieldElement::ZERO),
-        dlog_e: oprf_nullifier.verifiable_oprf_output.dlog_proof.e,
-        dlog_s: oprf_nullifier.verifiable_oprf_output.dlog_proof.s,
-        oprf_pk: oprf_nullifier
-            .verifiable_oprf_output
-            .oprf_public_key
-            .inner(),
-        oprf_response_blinded: oprf_nullifier.verifiable_oprf_output.blinded_response,
-        oprf_response: oprf_nullifier.verifiable_oprf_output.unblinded_response,
+        dlog_e: oprf_output.verifiable_oprf_output.dlog_proof.e(),
+        dlog_s: oprf_output.verifiable_oprf_output.dlog_proof.s(),
+        oprf_pk: oprf_output.verifiable_oprf_output.oprf_public_key.inner(),
+        oprf_response_blinded: oprf_output.verifiable_oprf_output.blinded_response,
+        oprf_response: oprf_output.verifiable_oprf_output.unblinded_response,
         signal_hash: *request_item.signal_hash(),
         // The `current_timestamp` constraint in the circuit is used to specify the minimum expiration time for the credential.
         // The circuit verifies that `current_timestamp < cred_expires_at`.
@@ -369,14 +371,14 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     let (proof, public) = nullifier_material.generate_proof(&nullifier_input, rng)?;
     nullifier_material.verify_proof(&proof, &public)?;
 
-    let nullifier: Nullifier = FieldElement::from(public[0]).into();
-
     // Verify that the computed nullifier matches the OPRF output.
-    if nullifier != oprf_nullifier.nullifier {
+    if public[0] != nullifier_from_oprf_output {
         return Err(ProofError::InternalError(eyre::eyre!(
             "Computed nullifier does not match OPRF output"
         )));
     }
+
+    let nullifier: Nullifier = FieldElement::from(public[0]).into();
 
     Ok((proof, public, nullifier))
 }

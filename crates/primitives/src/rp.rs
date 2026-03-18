@@ -9,6 +9,9 @@ use crate::FieldElement;
 
 const RP_SIGNATURE_MSG_VERSION: u8 = 0x01;
 
+#[expect(unused_imports, reason = "used in doc comments")]
+use crate::ProofRequest;
+
 /// The id of a relying party.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RpId(u64);
@@ -87,24 +90,36 @@ impl<'de> Deserialize<'de> for RpId {
     }
 }
 
-/// Computes the message to be signed for the RP signature.
+/// Computes the message to be signed for the RP signature that must be included in every [`ProofRequest`].
 ///
-/// The message format is: `version || nonce || created_at || expires_at` (49 bytes total).
+/// The message format is: `version || nonce || created_at || expires_at || action` (49 - 81 bytes total).
 /// - `version`: 1 byte (currently hardcoded to `0x01`)
 /// - `nonce`: 32 bytes (big-endian)
 /// - `created_at`: 8 bytes (big-endian)
 /// - `expires_at`: 8 bytes (big-endian)
+/// - `action`: optional (see Session Proofs for more details); 32 bytes (big-endian)
+///
+/// # Session Proofs
+/// Session Proofs don't require the RP to specify an `action`, as such, the `action` is not included
+/// in the signature. For other proofs, the action must always be included, otherwise the OPRF Nodes will reject
+/// the request.
 #[must_use]
 pub fn compute_rp_signature_msg(
     nonce: ark_babyjubjub::Fq,
     created_at: u64,
     expires_at: u64,
+    action: Option<ark_babyjubjub::Fq>,
 ) -> Vec<u8> {
-    let mut msg = Vec::with_capacity(49);
+    let mut msg = Vec::with_capacity(81);
     msg.push(RP_SIGNATURE_MSG_VERSION);
     msg.extend(nonce.into_bigint().to_bytes_be());
     msg.extend(created_at.to_be_bytes());
     msg.extend(expires_at.to_be_bytes());
+
+    if let Some(action) = action {
+        msg.extend(action.into_bigint().to_bytes_be());
+    }
+
     msg
 }
 
@@ -184,7 +199,7 @@ mod tests {
         let created_at = 1000u64;
         let expires_at = 2000u64;
 
-        let msg = compute_rp_signature_msg(nonce, created_at, expires_at);
+        let msg = compute_rp_signature_msg(nonce, created_at, expires_at, None);
 
         // Message must always be exactly 49 bytes:
         // 1 (version) + 32 (nonce) + 8 (created_at) + 8 (expires_at)
@@ -192,6 +207,30 @@ mod tests {
             msg.len(),
             49,
             "RP signature message must be exactly 49 bytes"
+        );
+        assert_eq!(
+            msg[0], RP_SIGNATURE_MSG_VERSION,
+            "RP signature message version must be 0x01"
+        );
+    }
+
+    #[test]
+    fn test_compute_rp_signature_msg_with_action() {
+        // Test with small values that would have leading zeros in variable-length encoding
+        // to ensure we always get fixed 32-byte field elements
+        let nonce = ark_babyjubjub::Fq::from(1u64);
+        let created_at = 1000u64;
+        let expires_at = 2000u64;
+        let action = ark_babyjubjub::Fq::from(2u64);
+
+        let msg = compute_rp_signature_msg(nonce, created_at, expires_at, Some(action));
+
+        // Message must always be exactly 81 bytes:
+        // 1 (version) + 32 (nonce) + 8 (created_at) + 8 (expires_at) + 32 (action)
+        assert_eq!(
+            msg.len(),
+            81,
+            "RP signature message must be exactly 81 bytes"
         );
         assert_eq!(
             msg[0], RP_SIGNATURE_MSG_VERSION,
