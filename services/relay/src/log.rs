@@ -12,7 +12,7 @@ use crate::{
     bindings::IWorldIDSource,
     primitives::{
         ChainCommitment, IssuerKeyUpdate, IssuerSchemaId, KeccakChain, OprfKeyId, OprfKeyUpdate,
-        U160, StateCommitment,
+        StateCommitment, U160,
     },
 };
 

@@ -97,9 +97,7 @@ impl Satellite for EthereumMptSatellite {
         self.chain_id
     }
 
-    fn remote_chain_head<'a>(
-        &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<B256>> + Send + 'a>> {
+    fn remote_chain_head<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<B256>> + Send + 'a>> {
         Box::pin(async move {
             let result = self.satellite.KECCAK_CHAIN().call().await?;
             Ok(result.head)

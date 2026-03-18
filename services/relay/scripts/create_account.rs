@@ -65,8 +65,7 @@ async fn main() -> Result<()> {
         std::env::var("WALLET_PRIVATE_KEY").expect("WALLET_PRIVATE_KEY must be set in .env");
     let rpc_url =
         std::env::var("WORLDCHAIN_RPC_URL").expect("WORLDCHAIN_RPC_URL must be set in .env");
-    let relay_config_str =
-        std::env::var("RELAY_CONFIG").expect("RELAY_CONFIG must be set in .env");
+    let relay_config_str = std::env::var("RELAY_CONFIG").expect("RELAY_CONFIG must be set in .env");
 
     // Parse registry address from RELAY_CONFIG
     let relay_config: serde_json::Value = serde_json::from_str(&relay_config_str)?;
@@ -92,10 +91,7 @@ async fn main() -> Result<()> {
         let fee_token_addr = registry.getFeeToken().call().await?;
         let fee_token = IERC20::new(fee_token_addr, provider.clone());
 
-        let current_allowance = fee_token
-            .allowance(sender, registry_address)
-            .call()
-            .await?;
+        let current_allowance = fee_token.allowance(sender, registry_address).call().await?;
 
         if current_allowance < fee {
             println!("Fee token:   {fee_token_addr}");

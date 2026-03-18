@@ -175,10 +175,7 @@ pub async fn registry_stream(
 ///
 /// Only fetches from the `WorldIDSource` contract — registry events (roots,
 /// issuer keys, OPRF keys) are picked up by the live event stream.
-pub async fn backfill_commitments(
-    world_chain: &WorldChain,
-    log: &CommitmentLog,
-) -> Result<()> {
+pub async fn backfill_commitments(world_chain: &WorldChain, log: &CommitmentLog) -> Result<()> {
     let filter = Filter::new()
         .address(*world_chain.world_id_source().address())
         .event_signature(CHAIN_COMMITTED_EVENTS.to_vec())
