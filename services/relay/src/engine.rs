@@ -110,6 +110,7 @@ impl Engine {
                 let receipt = pending.get_receipt().await?;
                 if receipt.status() {
                     info!(hash = %receipt.transaction_hash, "propagateState succeeded");
+                    self.log.clear_pending_propagation();
                 } else {
                     warn!(hash = %receipt.transaction_hash, "propagateState reverted on-chain");
                 }
@@ -121,9 +122,6 @@ impl Engine {
                 debug!(error = %e, "propagateState simulation reverted");
             }
         }
-
-        self.log.clear_pending_propagation();
-
         Ok(())
     }
 
