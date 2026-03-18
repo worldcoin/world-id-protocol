@@ -159,6 +159,7 @@ async fn main() -> Result<()> {
         world_id_test_utils::stubs::init_test_secret_managers();
 
     let oprf_key_gens = world_id_test_utils::stubs::spawn_key_gens(
+        anvil.endpoint(),
         anvil.ws_endpoint(),
         key_gen_secret_managers,
         oprf_key_registry,

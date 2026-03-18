@@ -1,4 +1,25 @@
 #![deny(missing_docs)]
+#![deny(clippy::all, clippy::pedantic)]
+#![deny(
+    clippy::allow_attributes_without_reason,
+    clippy::assertions_on_result_states,
+    clippy::dbg_macro,
+    clippy::decimal_literal_representation,
+    clippy::exhaustive_enums,
+    clippy::exhaustive_structs,
+    clippy::iter_over_hash_type,
+    clippy::let_underscore_must_use,
+    clippy::missing_assert_message,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    clippy::undocumented_unsafe_blocks,
+    clippy::unnecessary_safety_comment,
+    clippy::unwrap_used
+)]
+#![allow(
+    clippy::cast_precision_loss,
+    reason = "Is ok due to API limitations for metrics"
+)]
 //! This crate implements TACEO:Oprf for World ID.
 //!
 //! It provides an Axum based HTTP-server that computes distributed OPRF (Oblivious Pseudo-Random Function) functions to be used as nullifiers in the World ecosystem.
@@ -30,6 +51,7 @@ pub mod config;
 pub mod metrics;
 
 /// The tasks spawned by the oprf-node. Should call [`WorldOprfNodeTasks::join`] when shutting down for graceful shutdown.
+#[allow(clippy::struct_field_names, reason = "Has the watcher suffix in name")]
 pub struct WorldOprfNodeTasks {
     key_event_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
     merkle_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
@@ -38,7 +60,16 @@ pub struct WorldOprfNodeTasks {
 }
 
 impl WorldOprfNodeTasks {
-    /// Consumes the task by joining every registered `JoinHandle`.
+    /// Awaits all background tasks and propagates any errors.
+    ///
+    /// This consumes the struct and joins all internally tracked
+    /// `tokio::task::JoinHandle`s. It waits for all tasks to finish
+    /// and returns an error if any of them failed or panicked.
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - any task returns an error, or
+    /// - any task panics or is aborted.
     pub async fn join(self) -> eyre::Result<()> {
         let (
             key_event_watcher,
@@ -59,15 +90,38 @@ impl WorldOprfNodeTasks {
     }
 }
 
-/// Main entry point for an OPRF node.
+/// Starts the OPRF node and initializes all required services.
 ///
-/// This function initializes and starts the OPRF node, including its various components, and
-/// gracefully handles shutdown signals. The node performs the following tasks:
-/// - Loads the Groth16 verification key for user proof validation.
-/// - Initializes the Merkle watcher for monitoring on-chain events.
-/// - Sets up the OPRF request authentication service.
-/// - Initializes the OPRF node and its associated key event watcher.
-/// - Starts an Axum-based HTTP server for handling incoming requests.
+/// This is the main entry point for running an OPRF node. It sets up all
+/// watchers, authentication services, and the OPRF service itself, and
+/// returns the HTTP router together with the spawned background tasks.
+///
+/// The initialization flow consists of:
+/// - Initializing on-chain watchers:
+///   - Merkle tree watcher (for identity commitments)
+///   - RP registry watcher
+///   - Credential schema issuer registry watcher
+/// - Setting up request authentication services:
+///   - Nullifier OPRF request authentication
+///   - Credential blinding factor OPRF request authentication
+/// - Initializing the OPRF service and registering its modules
+/// - Constructing the Axum router for handling incoming HTTP requests
+///
+/// The returned [`WorldOprfNodeTasks`] contains all long-running background
+/// tasks (watchers and key event handling).
+///
+/// # Arguments
+/// - `config`: Full node configuration.
+/// - `secret_manager`: Service responsible for managing oprf secret shares
+/// - `cancellation_token`: Token used to gracefully shut down all services
+///
+/// # Returns
+/// A tuple containing:
+/// - The configured [`axum::Router`] for serving HTTP requests
+/// - [`WorldOprfNodeTasks`] with all spawned background tasks
+///
+/// # Errors
+/// Returns an error if any component fails to initialize.
 pub async fn start(
     config: WorldOprfNodeConfig,
     secret_manager: SecretManagerService,

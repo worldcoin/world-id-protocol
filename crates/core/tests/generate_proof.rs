@@ -194,6 +194,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // OPRF key-gen instances
     let oprf_key_gens = world_id_test_utils::stubs::spawn_key_gens(
+        anvil.endpoint(),
         anvil.ws_endpoint(),
         key_gen_secret_managers,
         oprf_key_registry,

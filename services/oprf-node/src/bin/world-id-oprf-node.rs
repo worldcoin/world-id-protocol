@@ -4,34 +4,64 @@
 //! It initializes tracing, metrics, and starts the node with configuration
 //! from command-line arguments or environment variables.
 
-use std::{process::ExitCode, sync::Arc};
+use std::{net::SocketAddr, process::ExitCode, sync::Arc, time::Duration};
 
-use clap::Parser;
+use config::{Config, Environment};
 use eyre::Context;
+use serde::Deserialize;
+use taceo_nodes_common::postgres::PostgresConfig;
 use taceo_oprf::service::secret_manager::postgres::PostgresSecretManager;
 use world_id_oprf_node::config::WorldOprfNodeConfig;
+
+#[derive(Clone, Debug, Deserialize)]
+struct FullWorldOprfNodeConfig {
+    /// The bind addr of the AXUM server
+    #[serde(default = "default_bind_addr")]
+    pub bind_addr: SocketAddr,
+    /// Max wait time the service waits for its workers during shutdown.
+    #[serde(default = "default_max_wait_shutdown")]
+    #[serde(with = "humantime_serde")]
+    pub max_wait_time_shutdown: Duration,
+    /// The OPRF service config
+    #[serde(rename = "service")]
+    pub node_config: WorldOprfNodeConfig,
+    /// The postgres config for the secret-manager
+    #[serde(rename = "postgres")]
+    pub postgres_config: PostgresConfig,
+}
+
+fn load_world_id_config() -> eyre::Result<FullWorldOprfNodeConfig> {
+    let cfg =
+        Config::builder().add_source(Environment::with_prefix("TACEO_OPRF_NODE").separator("__"));
+
+    cfg.build()
+        .context("while building from config")?
+        .try_deserialize()
+        .context("while parsing config")
+}
+
+fn default_bind_addr() -> SocketAddr {
+    "0.0.0.0:4321".parse().expect("valid SocketAddr")
+}
+
+const fn default_max_wait_shutdown() -> Duration {
+    Duration::from_secs(10)
+}
 
 async fn run() -> eyre::Result<()> {
     taceo_oprf::service::metrics::describe_metrics();
     world_id_oprf_node::metrics::describe_metrics();
-
     tracing::info!("{}", taceo_nodes_common::version_info!());
 
-    let config = WorldOprfNodeConfig::parse();
+    let config = load_world_id_config()?;
     tracing::info!("starting oprf-node with config: {config:#?}");
 
     // Load the postgres secret manager.
+    tracing::info!("connect to postgres secret-manager..");
     let secret_manager = Arc::new(
-        PostgresSecretManager::init(
-            &config.node_config.db_connection_string,
-            &config.node_config.db_schema,
-            config.node_config.db_max_connections,
-            config.node_config.db_acquire_timeout,
-            config.node_config.db_max_retries,
-            config.node_config.db_retry_delay,
-        )
-        .await
-        .context("while initializing Postgres secret manager")?,
+        PostgresSecretManager::init(&config.postgres_config)
+            .await
+            .context("while starting postgres secret-manager")?,
     );
 
     let (cancellation_token, _) =
@@ -42,8 +72,12 @@ async fn run() -> eyre::Result<()> {
     let max_wait_time_shutdown = config.max_wait_time_shutdown;
 
     tracing::info!("starting world-node service...");
-    let (oprf_service_router, oprf_node_tasks) =
-        world_id_oprf_node::start(config, secret_manager, cancellation_token.clone()).await?;
+    let (oprf_service_router, oprf_node_tasks) = world_id_oprf_node::start(
+        config.node_config,
+        secret_manager,
+        cancellation_token.clone(),
+    )
+    .await?;
 
     let server = tokio::spawn({
         let cancellation_token = cancellation_token.clone();
