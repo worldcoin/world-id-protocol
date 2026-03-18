@@ -27,6 +27,9 @@ serde_json = { workspace = true }
 taceo-nodes-common = { workspace = true }
 taceo-nodes-observability = { workspace = true }
 taceo-oprf = { workspace = true, features = ["service", "types", "core"] }
+taceo-oprf-core = { workspace = true }
+taceo-oprf-service = { workspace = true }
+taceo-oprf-types = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = [
   "net",

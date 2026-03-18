@@ -56,9 +56,14 @@ groth16-material = { package = "taceo-groth16-material", version = "0.2.3", defa
 hex = { version = "0.4" }
 k256 = { version = "0.13" }
 taceo-groth16-sol = { version = "0.2.2" }
-taceo-oprf = { version = "0.7.1", default-features = false }
-taceo-oprf-test-utils = { version = "0.7.1", default-features = false }
-taceo-oprf-key-gen = { version = "0.6.1" }
+# Keep TACEO crates pinned to the exact versions from 7e3c98eeff24331ebc63ed04546a51e397da882a.
+taceo-oprf = { version = "=0.7.1", default-features = false }
+taceo-oprf-client = { version = "=0.8.0" }
+taceo-oprf-core = { version = "=0.4.2" }
+taceo-oprf-service = { version = "=0.9.1" }
+taceo-oprf-test-utils = { version = "=0.7.1", default-features = false }
+taceo-oprf-types = { version = "=0.9.0" }
+taceo-oprf-key-gen = { version = "=0.6.1" }
 telemetry-batteries = "0.2"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }

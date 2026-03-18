@@ -42,6 +42,7 @@ eyre = { workspace = true }
 world-id-primitives = { workspace = true }
 secrecy = { workspace = true }
 taceo-oprf = { workspace = true, features = ["client"] }
+taceo-oprf-client = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 rand = { workspace = true }
