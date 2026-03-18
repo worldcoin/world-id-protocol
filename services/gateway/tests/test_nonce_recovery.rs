@@ -33,7 +33,11 @@ const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
 
 /// Atomic counter used to assign each test gateway a unique Redis DB index
 /// so that concurrent tests don't share in-flight keys.
-static REDIS_DB_COUNTER: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(50);
+///
+/// Redis supports databases 0–15 by default (`databases 16` in redis.conf).
+/// `test_inflight.rs` starts at 1 and uses DBs 1–8.
+/// This file starts at 10, leaving DBs 10–15 for the tests here.
+static REDIS_DB_COUNTER: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(10);
 
 // ---------------------------------------------------------------------------
 // Helper: wait for a request to reach the Failed state
