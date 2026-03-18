@@ -14,9 +14,9 @@ permissions:
 name: Contracts CI
 
 env:
-    FOUNDRY_PROFILE: ci
-    WORLDCHAIN_PROVIDER: "${{ secrets.WORLDCHAIN_PROVIDER }}"
-    ETHEREUM_PROVIDER: "${{ secrets.ETHEREUM_PROVIDER }}"
+  FOUNDRY_PROFILE: ci
+  WORLDCHAIN_PROVIDER: "${{ secrets.WORLDCHAIN_PROVIDER }}"
+  ETHEREUM_PROVIDER: "${{ secrets.ETHEREUM_PROVIDER }}"
 
 jobs:
   test:
@@ -28,7 +28,7 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1

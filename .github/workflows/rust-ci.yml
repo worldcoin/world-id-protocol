@@ -69,10 +69,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
-          components: clippy,rustfmt
+          components: clippy
+
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        with:
+          toolchain: nightly
+          components: rustfmt
 
       - name: Download contract ABIs
         uses: actions/download-artifact@v4
@@ -96,7 +101,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: 1.87
 
@@ -120,7 +125,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
 
@@ -160,7 +165,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
 
@@ -215,7 +220,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
 
@@ -340,7 +345,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
