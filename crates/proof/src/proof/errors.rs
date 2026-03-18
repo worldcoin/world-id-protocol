@@ -315,10 +315,7 @@ pub fn check_nullifier_input_validity<const TREE_DEPTH: usize>(
     }
 
     // check dlog eq proof is valid
-    let dlog_proof = DLogEqualityProof {
-        e: inputs.dlog_e,
-        s: inputs.dlog_s,
-    };
+    let dlog_proof = DLogEqualityProof::new(inputs.dlog_e, inputs.dlog_s);
     dlog_proof
         .verify(
             inputs.oprf_pk,
@@ -355,7 +352,7 @@ pub fn check_nullifier_input_validity<const TREE_DEPTH: usize>(
     }
 
     // 4. Compute the nullifier
-    let nullfier = oprf_finalize_hash(
+    let nullifier = oprf_finalize_hash(
         *world_id_primitives::authenticator::oprf_query_digest(
             #[expect(
                 clippy::missing_panics_doc,
@@ -368,7 +365,7 @@ pub fn check_nullifier_input_validity<const TREE_DEPTH: usize>(
         inputs.oprf_response,
     );
 
-    Ok(nullfier)
+    Ok(nullifier)
 }
 
 // Helper functions to recompute various hashes used in the circuit
