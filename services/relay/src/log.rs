@@ -104,7 +104,6 @@ impl CommitmentLog {
             return;
         }
 
-        // 3. Slow path: wait for mark_ready() to fire notify_waiters().
         notified.await;
     }
 
