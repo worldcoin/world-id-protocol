@@ -24,8 +24,6 @@ async fn set_up_redis(redis_url: &str) -> ConnectionManager {
 
 #[tokio::test]
 async fn redis_integration() {
-    // Each test gets its own Redis container — no serialization or key-prefix
-    // coordination required.
     let (redis_url, _redis_container) = start_redis().await;
     let mut redis = set_up_redis(&redis_url).await;
 

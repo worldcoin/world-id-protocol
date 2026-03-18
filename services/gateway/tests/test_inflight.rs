@@ -71,8 +71,6 @@ async fn spawn_test_gateway(batch_ms: u64) -> TestGateway {
     let max_wait_secs = (batch_ms / 1000).max(1);
     let reeval_ms = batch_ms.min(200);
 
-    // Each test gets its own Redis container for complete isolation — no key
-    // prefixes, no serial annotations, no FLUSHDB coordination needed.
     let (redis_url, redis_container) = start_redis().await;
 
     let cfg = GatewayConfig {

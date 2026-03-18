@@ -57,7 +57,6 @@ async fn sign_insert_authenticator(
 
 #[tokio::test]
 async fn test_rate_limit_basic() {
-    // Each test gets its own Redis container — no FLUSHDB coordination needed.
     let (redis_url, _redis_container) = start_redis().await;
 
     // Start Anvil
@@ -265,7 +264,6 @@ async fn test_rate_limit_basic() {
 
 #[tokio::test]
 async fn test_rate_limit_different_leaf_indexes() {
-    // Each test gets its own Redis container — no FLUSHDB coordination needed.
     let (redis_url, _redis_container) = start_redis().await;
 
     // Start Anvil
@@ -422,7 +420,6 @@ async fn test_rate_limit_different_leaf_indexes() {
 
 #[tokio::test]
 async fn test_rate_limit_sliding_window() {
-    // Each test gets its own Redis container — no FLUSHDB coordination needed.
     let (redis_url, _redis_container) = start_redis().await;
 
     // Start Anvil
@@ -576,7 +573,6 @@ async fn test_rate_limit_sliding_window() {
 
 #[tokio::test]
 async fn test_rate_limit_multiple_endpoints() {
-    // Each test gets its own Redis container — no FLUSHDB coordination needed.
     let (redis_url, _redis_container) = start_redis().await;
 
     // Start Anvil
