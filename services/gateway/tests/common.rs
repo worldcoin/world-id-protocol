@@ -2,7 +2,7 @@ use reqwest::{Client, StatusCode};
 use std::time::Duration;
 use testcontainers_modules::{
     redis::{REDIS_PORT, Redis},
-    testcontainers::{ContainerAsync, runners::AsyncRunner as _},
+    testcontainers::{ContainerAsync, ImageExt as _, runners::AsyncRunner as _},
 };
 use world_id_core::api_types::{GatewayRequestState, GatewayStatusResponse};
 
@@ -13,7 +13,10 @@ use world_id_core::api_types::{GatewayRequestState, GatewayStatusResponse};
 /// test that needs the Redis instance.
 #[allow(dead_code)]
 pub(crate) async fn start_redis() -> (String, ContainerAsync<Redis>) {
+    // Use redis:latest so CI (which already pulls this tag via docker-compose)
+    // can start the container from the local image cache with no network pull.
     let container = Redis::default()
+        .with_tag("latest")
         .start()
         .await
         .expect("failed to start Redis container");
