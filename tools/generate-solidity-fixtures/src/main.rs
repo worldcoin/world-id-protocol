@@ -121,22 +121,14 @@ async fn main() -> Result<()> {
         3,
     )
     .unwrap();
-    let (query_material, nullifier_material) = load_embedded_materials();
-    let _authenticator = Authenticator::init_or_register(
-        &seed,
-        creation_config.clone(),
-        query_material,
-        nullifier_material,
-        Some(recovery_address),
-    )
-    .await
-    .unwrap();
-
-    let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator =
-        Authenticator::init(&seed, creation_config, query_material, nullifier_material)
+    let _authenticator =
+        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
             .await
-            .wrap_err("expected authenticator to initialize after account creation")?;
+            .unwrap();
+
+    let authenticator = Authenticator::init(&seed, creation_config)
+        .await
+        .wrap_err("expected authenticator to initialize after account creation")?;
 
     let leaf_index = authenticator.leaf_index();
     let MerkleFixture {
@@ -238,10 +230,10 @@ async fn main() -> Result<()> {
     .unwrap();
 
     let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator =
-        Authenticator::init(&seed, proof_config, query_material, nullifier_material)
-            .await
-            .wrap_err("failed to reinitialize authenticator with proof config")?;
+    let authenticator = Authenticator::init(&seed, proof_config)
+        .await
+        .wrap_err("failed to reinitialize authenticator with proof config")?
+        .with_proof_materials(query_material, nullifier_material);
 
     let credential_sub_blinding_factor = authenticator
         .generate_credential_blinding_factor(issuer_schema_id)

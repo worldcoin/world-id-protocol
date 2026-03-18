@@ -34,8 +34,6 @@ use world_id_test_utils::{
     stubs::spawn_indexer_stub,
 };
 
-const GW_PORT: u16 = 4104;
-
 fn init_test_tracing() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -92,7 +90,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             signer: Some(signer_args),
             ..Default::default()
         },
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: std::env::var("REDIS_URL")
@@ -105,10 +103,12 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
         batch_policy: BatchPolicyConfig::default(),
     };
-    let _gateway = spawn_gateway_for_tests(gateway_config)
+    let gateway = spawn_gateway_for_tests(gateway_config)
         .await
         .map_err(|e| eyre!("failed to spawn gateway for tests: {e}"))?;
-    info!(port = GW_PORT, "gateway started");
+    let gw_addr = gateway.listen_addr;
+    let gateway_url = format!("http://{}:{}", gw_addr.ip(), gw_addr.port());
+    info!(port = gw_addr.port(), "gateway started");
 
     // Build Config and ensure Authenticator account creation works.
     let seed = [7u8; 32];
@@ -122,21 +122,13 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         anvil.instance.chain_id(),
         world_id_registry,
         "http://127.0.0.1:0".to_string(), // placeholder for future indexer stub
-        format!("http://127.0.0.1:{GW_PORT}"),
+        gateway_url.clone(),
         Vec::new(),
         3,
     )
     .unwrap();
-    let (query_material, nullifier_material) = load_embedded_materials();
-
     // World ID should not yet exist.
-    let init_result = Authenticator::init(
-        &seed,
-        creation_config.clone(),
-        query_material,
-        nullifier_material,
-    )
-    .await;
+    let init_result = Authenticator::init(&seed, creation_config.clone()).await;
     assert!(
         matches!(init_result, Err(AuthenticatorError::AccountDoesNotExist)),
         "expected missing account error before creation"
@@ -144,16 +136,10 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // Create the account via the gateway, blocking until confirmed.
     let start = SystemTime::now();
-    let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator = Authenticator::init_or_register(
-        &seed,
-        creation_config.clone(),
-        query_material,
-        nullifier_material,
-        Some(recovery_address),
-    )
-    .await
-    .unwrap();
+    let authenticator =
+        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
+            .await
+            .unwrap();
     info!(
         elapsed_ms = SystemTime::now().duration_since(start).unwrap().as_millis(),
         "authenticator account creation finished"
@@ -163,11 +149,9 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);
 
     // Re-initialize to ensure account metadata is persisted.
-    let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator =
-        Authenticator::init(&seed, creation_config, query_material, nullifier_material)
-            .await
-            .wrap_err("expected authenticator to initialize after account creation")?;
+    let authenticator = Authenticator::init(&seed, creation_config)
+        .await
+        .wrap_err("expected authenticator to initialize after account creation")?;
     assert_eq!(authenticator.leaf_index(), 1);
 
     // Local indexer stub serving inclusion proof.
@@ -273,17 +257,17 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         anvil.instance.chain_id(),
         world_id_registry,
         indexer_url.clone(),
-        format!("http://127.0.0.1:{GW_PORT}"),
+        gateway_url.clone(),
         nodes.to_vec(),
         3,
     )
     .unwrap();
 
     let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator =
-        Authenticator::init(&seed, proof_config, query_material, nullifier_material)
-            .await
-            .wrap_err("failed to reinitialize authenticator with proof config")?;
+    let authenticator = Authenticator::init(&seed, proof_config)
+        .await
+        .wrap_err("failed to reinitialize authenticator with proof config")?
+        .with_proof_materials(query_material, nullifier_material);
     assert_eq!(authenticator.leaf_index(), 1);
 
     let leaf_index = authenticator.leaf_index();

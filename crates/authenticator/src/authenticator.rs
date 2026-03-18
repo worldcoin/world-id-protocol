@@ -66,18 +66,16 @@ pub struct Authenticator {
     registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
     http_client: reqwest::Client,
     ws_connector: Connector,
-    query_material: Arc<CircomGroth16Material>,
-    nullifier_material: Arc<CircomGroth16Material>,
+    query_material: Option<Arc<CircomGroth16Material>>,
+    nullifier_material: Option<Arc<CircomGroth16Material>>,
 }
 
-#[expect(clippy::missing_fields_in_debug)]
 impl std::fmt::Debug for Authenticator {
+    // avoiding logging other attributes to avoid accidental leak of leaf_index
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Authenticator")
             .field("config", &self.config)
-            .field("packed_account_data", &self.packed_account_data)
-            .field("signer", &self.signer)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -98,12 +96,7 @@ impl Authenticator {
     /// - Will error if the RPC URL is invalid.
     /// - Will error if there are contract call failures.
     /// - Will error if the account does not exist (`AccountDoesNotExist`).
-    pub async fn init(
-        seed: &[u8],
-        config: Config,
-        query_material: Arc<CircomGroth16Material>,
-        nullifier_material: Arc<CircomGroth16Material>,
-    ) -> Result<Self, AuthenticatorError> {
+    pub async fn init(seed: &[u8], config: Config) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
         let registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>> =
@@ -147,9 +140,26 @@ impl Authenticator {
             registry,
             http_client,
             ws_connector,
-            query_material,
-            nullifier_material,
+            query_material: None,
+            nullifier_material: None,
         })
+    }
+
+    /// Sets the proof materials for the Authenticator, returning a new instance.
+    ///
+    /// Proof materials are required for proof generation, blinding factors and starting
+    /// sessions. Given the proof circuits are large, this may be loaded only when necessary.
+    #[must_use]
+    pub fn with_proof_materials(
+        self,
+        query_material: Arc<CircomGroth16Material>,
+        nullifier_material: Arc<CircomGroth16Material>,
+    ) -> Self {
+        Self {
+            query_material: Some(query_material),
+            nullifier_material: Some(nullifier_material),
+            ..self
+        }
     }
 
     /// Registers a new World ID in the `WorldIDRegistry`.
@@ -183,18 +193,9 @@ impl Authenticator {
     pub async fn init_or_register(
         seed: &[u8],
         config: Config,
-        query_material: Arc<CircomGroth16Material>,
-        nullifier_material: Arc<CircomGroth16Material>,
         recovery_address: Option<Address>,
     ) -> Result<Self, AuthenticatorError> {
-        match Self::init(
-            seed,
-            config.clone(),
-            query_material.clone(),
-            nullifier_material.clone(),
-        )
-        .await
-        {
+        match Self::init(seed, config.clone()).await {
             Ok(authenticator) => Ok(authenticator),
             Err(AuthenticatorError::AccountDoesNotExist) => {
                 // Authenticator is not registered, create it.
@@ -236,14 +237,7 @@ impl Authenticator {
                     };
 
                     match result {
-                        Ok(()) => match Self::init(
-                            seed,
-                            config.clone(),
-                            query_material.clone(),
-                            nullifier_material.clone(),
-                        )
-                        .await
-                        {
+                        Ok(()) => match Self::init(seed, config.clone()).await {
                             Ok(auth) => Ok(auth),
                             Err(AuthenticatorError::AccountDoesNotExist) => {
                                 Err(PollResult::Retryable)
@@ -576,6 +570,12 @@ impl Authenticator {
         let mut rng = rand::rngs::OsRng;
 
         let (services, threshold) = self.check_oprf_config()?;
+
+        let query_material = self
+            .query_material
+            .as_ref()
+            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
+
         let key_index = key_set
             .iter()
             .position(|pk| {
@@ -597,7 +597,7 @@ impl Authenticator {
         let oprf_entry_point = OprfEntrypoint::new(
             services,
             threshold,
-            &self.query_material,
+            query_material,
             &authenticator_input,
             &self.ws_connector,
         );
@@ -621,6 +621,11 @@ impl Authenticator {
         let mut rng = rand::rngs::OsRng;
         let (services, threshold) = self.check_oprf_config()?;
 
+        let query_material = self
+            .query_material
+            .as_ref()
+            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
+
         let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
         let key_index = key_set
             .iter()
@@ -643,7 +648,7 @@ impl Authenticator {
         let oprf_entry_point = OprfEntrypoint::new(
             services,
             threshold,
-            &self.query_material,
+            query_material,
             &authenticator_input,
             &self.ws_connector,
         );
@@ -738,8 +743,13 @@ impl Authenticator {
 
         let expires_at_min = request_item.effective_expires_at_min(request_timestamp);
 
+        let nullifier_material = self
+            .nullifier_material
+            .as_ref()
+            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
+
         let (proof, _public_inputs, nullifier) = generate_nullifier_proof(
-            &self.nullifier_material,
+            nullifier_material,
             &mut rng,
             credential,
             credential_sub_blinding_factor,
@@ -1221,6 +1231,10 @@ pub enum AuthenticatorError {
         max_supported_slot: usize,
     },
 
+    /// Proof materials not loaded. Call `with_proof_materials` before generating proofs.
+    #[error("Proof materials not loaded. Call `with_proof_materials` before generating proofs.")]
+    ProofMaterialsNotLoaded,
+
     /// The session ID computed for this proof does not match the expected session ID from the proof request.
     ///
     /// This indicates the `session_id` provided by the RP is invalid or compromised, as
@@ -1243,26 +1257,11 @@ enum PollResult {
     TerminalError(AuthenticatorError),
 }
 
-#[cfg(all(test, feature = "embed-zkeys"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use alloy::primitives::{U256, address};
-    use std::sync::OnceLock;
     use world_id_primitives::authenticator::MAX_AUTHENTICATOR_KEYS;
-
-    fn test_materials() -> (Arc<CircomGroth16Material>, Arc<CircomGroth16Material>) {
-        static QUERY: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
-        static NULLIFIER: OnceLock<Arc<CircomGroth16Material>> = OnceLock::new();
-
-        let query = QUERY.get_or_init(|| {
-            Arc::new(world_id_proof::proof::load_embedded_query_material().unwrap())
-        });
-        let nullifier = NULLIFIER.get_or_init(|| {
-            Arc::new(world_id_proof::proof::load_embedded_nullifier_material().unwrap())
-        });
-
-        (Arc::clone(query), Arc::clone(nullifier))
-    }
 
     fn test_pubkey(seed_byte: u8) -> EdDSAPublicKey {
         Signer::from_seed_bytes(&[seed_byte; 32])
@@ -1472,7 +1471,6 @@ mod tests {
         )
         .unwrap();
 
-        let (query_material, nullifier_material) = test_materials();
         let authenticator = Authenticator {
             config,
             packed_account_data: leaf_index, // This sets leaf_index() to 1
@@ -1480,8 +1478,8 @@ mod tests {
             registry: None, // No registry - forces indexer usage
             http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
-            query_material,
-            nullifier_material,
+            query_material: None,
+            nullifier_material: None,
         };
 
         let nonce = authenticator.signing_nonce().await.unwrap();
@@ -1493,7 +1491,6 @@ mod tests {
 
     #[test]
     fn test_danger_sign_challenge_returns_valid_signature() {
-        let (query_material, nullifier_material) = test_materials();
         let authenticator = Authenticator {
             config: Config::new(
                 None,
@@ -1510,8 +1507,8 @@ mod tests {
             registry: None,
             http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
-            query_material,
-            nullifier_material,
+            query_material: None,
+            nullifier_material: None,
         };
 
         let challenge = b"test challenge";
@@ -1525,7 +1522,6 @@ mod tests {
 
     #[test]
     fn test_danger_sign_challenge_different_challenges_different_signatures() {
-        let (query_material, nullifier_material) = test_materials();
         let authenticator = Authenticator {
             config: Config::new(
                 None,
@@ -1542,8 +1538,8 @@ mod tests {
             registry: None,
             http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
-            query_material,
-            nullifier_material,
+            query_material: None,
+            nullifier_material: None,
         };
 
         let sig_a = authenticator.danger_sign_challenge(b"challenge A").unwrap();
@@ -1553,7 +1549,6 @@ mod tests {
 
     #[test]
     fn test_danger_sign_challenge_deterministic() {
-        let (query_material, nullifier_material) = test_materials();
         let authenticator = Authenticator {
             config: Config::new(
                 None,
@@ -1570,8 +1565,8 @@ mod tests {
             registry: None,
             http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
-            query_material,
-            nullifier_material,
+            query_material: None,
+            nullifier_material: None,
         };
 
         let challenge = b"deterministic test";
@@ -1611,7 +1606,6 @@ mod tests {
         )
         .unwrap();
 
-        let (query_material, nullifier_material) = test_materials();
         let authenticator = Authenticator {
             config,
             packed_account_data: U256::ZERO,
@@ -1619,8 +1613,8 @@ mod tests {
             registry: None,
             http_client: reqwest::Client::new(),
             ws_connector: Connector::Plain,
-            query_material,
-            nullifier_material,
+            query_material: None,
+            nullifier_material: None,
         };
 
         let result = authenticator.signing_nonce().await;
