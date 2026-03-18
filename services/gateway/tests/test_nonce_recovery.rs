@@ -152,7 +152,7 @@ async fn spawn_test_gateway(drain_signer: bool) -> TestGateway {
 
     // Deploy registry using account 0 (the same key as the gateway signer).
     let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
-    let _registry_addr = anvil
+    let registry_addr = anvil
         .deploy_world_id_registry(deployer)
         .await
         .expect("failed to deploy WorldIDRegistry");
@@ -180,7 +180,7 @@ async fn spawn_test_gateway(drain_signer: bool) -> TestGateway {
     };
 
     let cfg = GatewayConfig {
-        registry_addr: _registry_addr,
+        registry_addr,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),
