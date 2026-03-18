@@ -89,7 +89,7 @@ async fn test_rate_limit_basic() {
         },
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4105).into(),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
@@ -101,9 +101,10 @@ async fn test_rate_limit_basic() {
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
+    let gw_addr = _gw.listen_addr;
     let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, 4105).await;
-    let base = "http://127.0.0.1:4105";
+    wait_http_ready(&client, gw_addr.port()).await;
+    let base = format!("http://{}:{}", gw_addr.ip(), gw_addr.port());
 
     let signer = PrivateKeySigner::random();
     let chain_id = 31337; // Anvil default chain ID
@@ -298,7 +299,7 @@ async fn test_rate_limit_different_leaf_indexes() {
         },
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4106).into(),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
@@ -310,9 +311,10 @@ async fn test_rate_limit_different_leaf_indexes() {
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
+    let gw_addr = _gw.listen_addr;
     let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, 4106).await;
-    let base = "http://127.0.0.1:4106";
+    wait_http_ready(&client, gw_addr.port()).await;
+    let base = format!("http://{}:{}", gw_addr.ip(), gw_addr.port());
 
     let signer = PrivateKeySigner::random();
     let chain_id = 31337;
@@ -456,7 +458,7 @@ async fn test_rate_limit_sliding_window() {
         },
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4107).into(),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(3),
@@ -468,9 +470,10 @@ async fn test_rate_limit_sliding_window() {
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
+    let gw_addr = _gw.listen_addr;
     let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, 4107).await;
-    let base = "http://127.0.0.1:4107";
+    wait_http_ready(&client, gw_addr.port()).await;
+    let base = format!("http://{}:{}", gw_addr.ip(), gw_addr.port());
 
     let signer = PrivateKeySigner::random();
     let chain_id = 31337;
@@ -611,7 +614,7 @@ async fn test_rate_limit_multiple_endpoints() {
         },
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4108).into(),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
@@ -623,9 +626,10 @@ async fn test_rate_limit_multiple_endpoints() {
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
+    let gw_addr = _gw.listen_addr;
     let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, 4108).await;
-    let base = "http://127.0.0.1:4108";
+    wait_http_ready(&client, gw_addr.port()).await;
+    let base = format!("http://{}:{}", gw_addr.ip(), gw_addr.port());
 
     let signer = PrivateKeySigner::random();
     let chain_id = 31337;

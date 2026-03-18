@@ -24,7 +24,6 @@ pub struct RequestRecord {
 const REQUESTS_TTL: Duration = Duration::from_secs(86_400); // 24 hours
 /// TTL for in-flight authenticator addresses (5 minutes safety fallback).
 const INFLIGHT_TTL: Duration = Duration::from_secs(300);
-const PENDING_SET_KEY: &str = "gateway:pending_requests";
 
 /// Scope used to compute queued backlog stats for a specific batcher.
 #[derive(Clone, Copy, Debug)]
@@ -51,6 +50,11 @@ pub fn now_unix_secs() -> u64 {
 /// Includes rate limiting for leaf_index-based requests.
 ///
 /// Uses Redis for persistent, multi-node request storage.
+///
+/// The optional `key_prefix` scopes every Redis key under a unique namespace.
+/// This is used by `spawn_gateway_for_tests` so that concurrent test processes
+/// (each nextest test runs in its own OS process) never touch each other's keys,
+/// even when they share the same Redis server and database.
 #[derive(Clone)]
 pub struct RequestTracker {
     /// The Redis connection manager.
@@ -59,6 +63,9 @@ pub struct RequestTracker {
     rate_limit: Option<RateLimitConfig>,
     /// Safety timeout for receipt polling tasks so they don't run forever.
     receipt_timeout_secs: u64,
+    /// Optional prefix prepended to every Redis key (e.g. `"test:<uuid>:"`).
+    /// Empty string in production; set to a UUID per gateway in tests.
+    key_prefix: String,
 }
 
 impl RequestTracker {
@@ -71,6 +78,20 @@ impl RequestTracker {
         rate_limit: Option<RateLimitConfig>,
         receipt_timeout_secs: u64,
     ) -> Self {
+        Self::new_with_prefix(redis_url, rate_limit, receipt_timeout_secs, String::new()).await
+    }
+
+    /// Like [`new`] but scopes all Redis keys under `key_prefix`.
+    ///
+    /// Useful in tests where multiple gateway instances share the same Redis
+    /// server: each instance gets a unique prefix (e.g. a UUID) so their keys
+    /// never collide, regardless of which Redis database is selected.
+    pub async fn new_with_prefix(
+        redis_url: String,
+        rate_limit: Option<RateLimitConfig>,
+        receipt_timeout_secs: u64,
+        key_prefix: String,
+    ) -> Self {
         let client = Client::open(redis_url.as_str()).expect("Unable to connect to Redis");
         let redis_manager = ConnectionManager::new(client)
             .await
@@ -82,21 +103,27 @@ impl RequestTracker {
             redis_manager,
             rate_limit,
             receipt_timeout_secs,
+            key_prefix,
         }
     }
 
     /// Returns the Redis key for a request record.
-    fn request_key(id: &str) -> String {
-        format!("gateway:request:{}", id)
+    fn request_key(&self, id: &str) -> String {
+        format!("{}gateway:request:{}", self.key_prefix, id)
+    }
+
+    /// Returns the Redis key for the pending-requests set.
+    fn pending_set_key(&self) -> String {
+        format!("{}gateway:pending_requests", self.key_prefix)
     }
 
     /// Returns the Redis key for an in-flight lock given a raw identifier.
-    fn inflight_redis_key(kind: GatewayRequestKind, raw: &str) -> String {
+    fn inflight_redis_key(&self, kind: GatewayRequestKind, raw: &str) -> String {
         let tag = match kind {
             GatewayRequestKind::CreateAccount => "create",
             _ => "leaf",
         };
-        format!("gateway:inflight:{tag}:{raw}")
+        format!("{}gateway:inflight:{tag}:{raw}", self.key_prefix)
     }
 
     /// Creates a new request with a specific ID, atomically acquiring in-flight
@@ -113,7 +140,7 @@ impl RequestTracker {
     ) -> Result<(), GatewayErrorResponse> {
         let redis_inflight_keys: Vec<String> = inflight_keys
             .iter()
-            .map(|raw| Self::inflight_redis_key(kind, raw))
+            .map(|raw| self.inflight_redis_key(kind, raw))
             .collect();
 
         let record = RequestRecord {
@@ -124,7 +151,8 @@ impl RequestTracker {
         };
 
         let mut manager = self.redis_manager.clone();
-        let key = Self::request_key(&id);
+        let key = self.request_key(&id);
+        let pending_set_key = self.pending_set_key();
         let json_str = serde_json::to_string(&record).map_err(|e| {
             tracing::error!("FATAL: unable to serialize a RequestRecord: {e}");
             GatewayErrorResponse::internal_server_error()
@@ -168,7 +196,7 @@ impl RequestTracker {
         let script = redis::Script::new(script);
         let mut invocation = script.prepare_invoke();
         invocation.key(&key);
-        invocation.key(PENDING_SET_KEY);
+        invocation.key(&pending_set_key);
         for inflight_key in &redis_inflight_keys {
             invocation.key(inflight_key);
         }
@@ -278,7 +306,7 @@ impl RequestTracker {
     /// Returns a snapshot of the current state of a request, if it exists.
     pub async fn snapshot(&self, id: &str) -> Option<RequestRecord> {
         let mut manager = self.redis_manager.clone();
-        let key = Self::request_key(id);
+        let key = self.request_key(id);
         let result: Result<Option<String>, redis::RedisError> = manager.get(&key).await;
 
         match result {
@@ -308,7 +336,8 @@ impl RequestTracker {
         status: &GatewayRequestState,
     ) -> GatewayResult<()> {
         let mut manager = self.redis_manager.clone();
-        let key = Self::request_key(id);
+        let key = self.request_key(id);
+        let pending_set_key = self.pending_set_key();
         let status_json = serde_json::to_string(status)?;
         let now = now_unix_secs();
 
@@ -343,7 +372,7 @@ impl RequestTracker {
 
         let result: Result<(), redis::RedisError> = redis::Script::new(script)
             .key(&key)
-            .key(PENDING_SET_KEY)
+            .key(&pending_set_key)
             .arg(&status_json)
             .arg(now)
             .arg(id)
@@ -361,7 +390,8 @@ impl RequestTracker {
     /// Returns all request IDs currently in the pending set.
     pub async fn get_pending_requests(&self) -> GatewayResult<Vec<String>> {
         let mut manager = self.redis_manager.clone();
-        let ids: std::collections::HashSet<String> = manager.smembers(PENDING_SET_KEY).await?;
+        let pending_set_key = self.pending_set_key();
+        let ids: std::collections::HashSet<String> = manager.smembers(&pending_set_key).await?;
         Ok(ids.into_iter().collect())
     }
 
@@ -374,7 +404,7 @@ impl RequestTracker {
             return Ok(Vec::new());
         }
 
-        let keys: Vec<String> = ids.iter().map(|id| Self::request_key(id)).collect();
+        let keys: Vec<String> = ids.iter().map(|id| self.request_key(id)).collect();
         let mut manager = self.redis_manager.clone();
 
         let values: Vec<Option<String>> = redis::cmd("MGET")
@@ -449,7 +479,8 @@ impl RequestTracker {
     /// Removes a request ID from the pending set (safety-net cleanup).
     pub async fn remove_from_pending_set(&self, id: &str) {
         let mut manager = self.redis_manager.clone();
-        let result: Result<usize, redis::RedisError> = manager.srem(PENDING_SET_KEY, id).await;
+        let pending_set_key = self.pending_set_key();
+        let result: Result<usize, redis::RedisError> = manager.srem(&pending_set_key, id).await;
         if let Err(e) = result {
             tracing::error!("Failed to SREM {id} from pending set: {e}");
         }

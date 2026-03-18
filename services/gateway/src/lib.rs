@@ -33,6 +33,11 @@ pub struct GatewayHandle {
     shutdown: Option<oneshot::Sender<()>>,
     join: tokio::task::JoinHandle<GatewayResult<()>>,
     pub listen_addr: SocketAddr,
+    /// The Redis key prefix used by this gateway's RequestTracker.
+    /// Empty string in production; set to a per-instance UUID in test gateways.
+    /// Tests can use this to construct the correct prefixed Redis key names
+    /// when asserting on in-flight lock keys directly.
+    pub redis_key_prefix: String,
 }
 
 impl GatewayHandle {
@@ -52,23 +57,27 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
 
-    // Each test gateway gets a unique Redis key prefix so that concurrent
-    // tests (each backed by a separate Anvil chain) do not share nonce state.
+    // Each test gateway gets a per-instance UUID so that concurrent test
+    // processes (nextest runs every test in its own OS process) never share
+    // Redis state, even when they use the same server and DB.
+    let instance_uuid = uuid::Uuid::new_v4().as_hyphenated().to_string();
+
     let redis_client = redis::Client::open(cfg.redis_url.as_str()).expect("invalid REDIS_URL");
     let redis_conn = ConnectionManager::new(redis_client)
         .await
         .expect("failed to connect to Redis for nonce manager");
-    let test_prefix = format!(
-        "gateway:nonce:test:{}",
-        uuid::Uuid::new_v4().as_hyphenated()
-    );
-    let nonce_mgr = RedisNonceManager::with_prefix(redis_conn, test_prefix);
+    let nonce_prefix = format!("test:{instance_uuid}:gateway:nonce:");
+    let nonce_mgr = RedisNonceManager::with_prefix(redis_conn, nonce_prefix);
 
     let provider = Arc::new(cfg.provider.http_with_nonce_manager(nonce_mgr).await?);
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
     ));
+
+    // Tracker key prefix: "test:<uuid>:".  Every gateway:request:*, gateway:inflight:*
+    // and gateway:pending_requests key will be scoped under this prefix.
+    let tracker_key_prefix = format!("test:{instance_uuid}:");
     let app = build_app(
         registry,
         batcher_config,
@@ -77,6 +86,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
         cfg.request_timeout_secs,
         sweeper_config,
         cfg.batch_policy.clone(),
+        Some(tracker_key_prefix.clone()),
     )
     .await?;
 
@@ -107,6 +117,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
         shutdown: Some(tx),
         join,
         listen_addr: addr,
+        redis_key_prefix: tracker_key_prefix,
     })
 }
 
@@ -148,6 +159,7 @@ pub async fn run() -> GatewayResult<()> {
         cfg.request_timeout_secs,
         sweeper_config,
         cfg.batch_policy.clone(),
+        None, // no prefix in production
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)

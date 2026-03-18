@@ -59,6 +59,7 @@ const ROOT_CACHE_SIZE: u64 = 1024;
 const CREATE_BATCHER_CHANNEL_CAPACITY: usize = 1024;
 const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     batcher_config: BatcherConfig,
@@ -67,12 +68,17 @@ pub(crate) async fn build_app(
     request_timeout_secs: u64,
     orphan_sweeper_config: OrphanSweeperConfig,
     batch_policy_config: BatchPolicyConfig,
+    // Optional Redis key prefix that scopes all tracker keys to a unique
+    // namespace. Pass `None` in production and a UUID string in tests so
+    // that concurrent test processes never share Redis keys.
+    redis_key_prefix: Option<String>,
 ) -> GatewayResult<Router> {
-    let tracker = RequestTracker::new(
+    let tracker = RequestTracker::new_with_prefix(
         redis_url,
         rate_limit,
-        // Timeout for receirpt polling tasks. Same as sweeper timeout for submitted transactions.
+        // Timeout for receipt polling tasks. Same as sweeper timeout for submitted transactions.
         orphan_sweeper_config.stale_submitted_threshold_secs,
+        redis_key_prefix.unwrap_or_default(),
     )
     .await;
     let base_fee_cache = BaseFeeCache::default();

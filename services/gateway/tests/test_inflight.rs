@@ -21,15 +21,12 @@ use world_id_test_utils::{
 };
 
 use crate::common::{wait_for_finalized, wait_http_ready};
+use serial_test::serial;
 
 mod common;
 
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
-
-/// Atomic counter used to assign each test gateway a unique Redis DB index
-/// so that concurrent tests don't share in-flight keys.
-static REDIS_DB_COUNTER: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(1);
 
 /// `Authenticator::init` builds a `rustls::ClientConfig` internally, which
 /// requires a globally-installed crypto provider.
@@ -48,8 +45,22 @@ struct TestGateway {
     rpc_url: String,
     chain_id: u64,
     redis_url: String,
+    /// The Redis key prefix used by this gateway's RequestTracker.
+    /// All gateway:inflight:* and gateway:request:* keys are scoped under
+    /// this prefix. Use it when checking Redis keys directly in assertions.
+    redis_key_prefix: String,
     _handle: world_id_gateway::GatewayHandle,
     _anvil: TestAnvil,
+}
+
+impl TestGateway {
+    /// Returns the prefixed form of a base gateway Redis key.
+    ///
+    /// Example: `inflight_key("gateway:inflight:leaf:42")` →
+    /// `"test:<uuid>:gateway:inflight:leaf:42"`
+    fn redis_key(&self, base: &str) -> String {
+        format!("{}{}", self.redis_key_prefix, base)
+    }
 }
 
 async fn spawn_test_gateway(batch_ms: u64) -> TestGateway {
@@ -71,6 +82,9 @@ async fn spawn_test_gateway(batch_ms: u64) -> TestGateway {
     let max_wait_secs = (batch_ms / 1000).max(1);
     let reeval_ms = batch_ms.min(200);
 
+    let redis_url =
+        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+
     let cfg = GatewayConfig {
         registry_addr,
         provider: ProviderArgs {
@@ -86,12 +100,7 @@ async fn spawn_test_gateway(batch_ms: u64) -> TestGateway {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: {
-            let base =
-                std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
-            let db = REDIS_DB_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            format!("{base}/{db}")
-        },
+        redis_url: redis_url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: None,
         rate_limit_max_requests: None,
@@ -99,15 +108,16 @@ async fn spawn_test_gateway(batch_ms: u64) -> TestGateway {
         stale_queued_threshold_secs: max_wait_secs + 1,
         stale_submitted_threshold_secs: 600,
     };
-    {
-        let client = redis::Client::open(cfg.redis_url.as_str()).expect("redis open");
-        let mut conn = client.get_connection().expect("redis connect");
-        redis::cmd("FLUSHDB").exec(&mut conn).expect("FLUSHDB");
-    }
 
-    let redis_url = cfg.redis_url.clone();
+    // spawn_gateway_for_tests assigns a unique UUID-based key prefix to this
+    // gateway's RequestTracker. Every Redis key for requests, inflight locks,
+    // and the pending set will be scoped under that prefix, so concurrent test
+    // processes (nextest runs each test in its own OS process, resetting all
+    // statics to their initial values) never touch each other's keys even when
+    // they share the same Redis server and database.
     let handle = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
 
+    let redis_key_prefix = handle.redis_key_prefix.clone();
     let addr = handle.listen_addr;
     let base_url = format!("http://{}:{}", addr.ip(), addr.port());
 
@@ -121,6 +131,7 @@ async fn spawn_test_gateway(batch_ms: u64) -> TestGateway {
         rpc_url,
         chain_id,
         redis_url,
+        redis_key_prefix,
         _handle: handle,
         _anvil: anvil,
     }
@@ -364,6 +375,7 @@ fn assert_duplicate_in_flight(err: AuthenticatorError, ctx: &str) {
 /// - create-account -> `gateway:inflight:create:{addr}`
 /// - insert/update/remove/recover -> `gateway:inflight:leaf:{leaf_index}`
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial(inflight)]
 async fn test_lock_created_on_submit() {
     ensure_crypto_provider();
     let gw = spawn_test_gateway(30_000).await;
@@ -375,7 +387,7 @@ async fn test_lock_created_on_submit() {
     let _initializing = Authenticator::register(&seed, config, None)
         .await
         .expect("register failed");
-    let auth_key = format!("gateway:inflight:create:{addr}");
+    let auth_key = gw.redis_key(&format!("gateway:inflight:create:{addr}"));
     assert!(
         redis_key_exists(&gw, &auth_key).await,
         "auth lock key should exist after create-account"
@@ -395,7 +407,7 @@ async fn test_lock_created_on_submit() {
             .await
             .unwrap_or_else(|e| panic!("{op:?} should be accepted on leaf {leaf_index}: {e}"));
 
-        let leaf_key = format!("gateway:inflight:leaf:{leaf_index}");
+        let leaf_key = gw.redis_key(&format!("gateway:inflight:leaf:{leaf_index}"));
         assert!(
             redis_key_exists(&gw, &leaf_key).await,
             "leaf lock key should exist after {op:?} on leaf {leaf_index}",
@@ -407,6 +419,7 @@ async fn test_lock_created_on_submit() {
 /// request is in-flight (long batch window), every second-op on the *same*
 /// leaf should be rejected with duplicate_request_in_flight.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial(inflight)]
 async fn test_same_leaf_conflict_matrix() {
     ensure_crypto_provider();
     let gw = spawn_test_gateway(30_000).await;
@@ -444,6 +457,7 @@ async fn test_same_leaf_conflict_matrix() {
 ///
 /// Tests create-account and all leaf ops (insert, update, remove, recover).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial(inflight)]
 async fn test_lock_removed_after_finalization() {
     ensure_crypto_provider();
     let gw = spawn_test_gateway(200).await;
@@ -456,7 +470,7 @@ async fn test_lock_removed_after_finalization() {
         .await
         .expect("register failed");
     wait_for_finalized(&gw.client, &gw.base_url, initializing.request_id()).await;
-    let auth_key = format!("gateway:inflight:create:{addr}");
+    let auth_key = gw.redis_key(&format!("gateway:inflight:create:{addr}"));
     assert!(
         !redis_key_exists(&gw, &auth_key).await,
         "auth lock key should be removed atomically on finalization"
@@ -477,7 +491,7 @@ async fn test_lock_removed_after_finalization() {
             .unwrap_or_else(|e| panic!("{op:?} should be accepted on leaf {leaf_index}: {e}"));
 
         wait_for_finalized(&gw.client, &gw.base_url, &req_id).await;
-        let leaf_key = format!("gateway:inflight:leaf:{leaf_index}");
+        let leaf_key = gw.redis_key(&format!("gateway:inflight:leaf:{leaf_index}"));
         assert!(
             !redis_key_exists(&gw, &leaf_key).await,
             "leaf lock key should be removed after {op:?} finalization on leaf {leaf_index}",
