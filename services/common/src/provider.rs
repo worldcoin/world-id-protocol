@@ -35,10 +35,18 @@ pub enum ProviderError {
     InvalidPrivateKey(#[from] LocalSignerError),
     #[error("failed to initialize AWS KMS signer: {0}")]
     AwsKmsSigner(#[from] Box<AwsSignerError>),
-    #[error("exactly one of wallet_private_key, aws_kms_key_id, or aws_kms_key_ids must be provided")]
+    #[error(
+        "exactly one of wallet_private_key, aws_kms_key_id, or aws_kms_key_ids must be provided"
+    )]
     SignerConfigMissing,
     #[error("pod ordinal {ordinal} is out of range: AWS_KMS_KEY_IDS contains {key_count} key(s)")]
     OrdinalOutOfRange { ordinal: usize, key_count: usize },
+    #[error(
+        "AWS_KMS_KEY_IDS is set but pod ordinal could not be resolved from HOSTNAME \
+         (got: {hostname:?}); ensure the pod hostname follows the StatefulSet convention \
+         '<name>-<ordinal>'"
+    )]
+    OrdinalUnresolvable { hostname: Option<String> },
     #[error("no HTTP URLs provided")]
     NoHttpUrls,
     #[error("config error: {0}")]
@@ -92,24 +100,18 @@ pub struct SignerArgs {
     aws_kms_key_ids: Option<String>,
 }
 
-/// Derive the pod ordinal from the trailing numeric suffix of the `HOSTNAME`
-/// environment variable.
-///
-/// StatefulSet pods are named `<statefulset-name>-<ordinal>`, e.g.
-/// `world-id-gateway-0`, `world-id-gateway-1`.  This function splits on `-`
-/// from the right and parses the last segment as a `usize`.
-///
-/// Returns `None` when `HOSTNAME` is unset, has no `-` separator, or the
-/// trailing segment is not a valid non-negative integer (e.g. in local dev
-/// or Deployment pods whose names end with a random hash suffix).
+/// Parse the pod ordinal from the trailing numeric suffix of a StatefulSet
+/// hostname (e.g. `"world-id-gateway-2"` → `Some(2)`).  Returns `None` when
+/// the string has no `-` separator or the last segment is not an integer.
+fn parse_ordinal(hostname: &str) -> Option<usize> {
+    hostname.rsplit('-').next()?.parse().ok()
+}
+
 fn pod_ordinal() -> Option<usize> {
-    let hostname = std::env::var("HOSTNAME").ok()?;
-    let suffix = hostname.rsplit('-').next()?;
-    suffix.parse().ok()
+    parse_ordinal(&std::env::var("HOSTNAME").ok()?)
 }
 
 impl SignerArgs {
-
     async fn signer(&self, rpc_url: &Url) -> ProviderResult<EthereumWallet> {
         match (
             &self.wallet_private_key,
@@ -126,18 +128,9 @@ impl SignerArgs {
                 Self::aws_kms_wallet(key_id, rpc_url).await
             }
             (None, None, Some(key_ids)) => {
-                let ordinal = match pod_ordinal() {
-                    Some(o) => o,
-                    None => {
-                        tracing::warn!(
-                            "AWS_KMS_KEY_IDS is set but HOSTNAME has no parseable numeric \
-                             suffix — defaulting to ordinal 0. Set HOSTNAME to \
-                             '<name>-<ordinal>' (StatefulSet convention) to select the \
-                             correct per-replica key."
-                        );
-                        0
-                    }
-                };
+                let ordinal = pod_ordinal().ok_or_else(|| ProviderError::OrdinalUnresolvable {
+                    hostname: std::env::var("HOSTNAME").ok(),
+                })?;
                 let keys: Vec<&str> = key_ids.split(',').map(str::trim).collect();
                 let key_id = keys.get(ordinal).copied().ok_or_else(|| {
                     tracing::error!(
@@ -481,52 +474,28 @@ mod tests {
         assert_eq!(retry.timeout_secs, 5);
     }
 
-    // ── pod_ordinal() ────────────────────────────────────────────────────────
+    // ── parse_ordinal() ──────────────────────────────────────────────────────
 
-    /// Helper: run a closure with `HOSTNAME` set to `value`, then restore the
-    /// original value (or remove it).  Tests that mutate env vars must not run
-    /// concurrently, so mark them `#[serial]` if you add the `serial_test`
-    /// crate; for now we use a mutex guard inline.
-    fn with_hostname<F: FnOnce() -> R, R>(value: &str, f: F) -> R {
-        // SAFETY: these tests run in a single-threaded test binary and do not
-        // spawn threads that read HOSTNAME, so concurrent mutation is safe.
-        unsafe { std::env::set_var("HOSTNAME", value) };
-        let result = f();
-        unsafe { std::env::remove_var("HOSTNAME") };
-        result
+    #[test]
+    fn parse_ordinal_standard_statefulset_names() {
+        assert_eq!(parse_ordinal("world-id-gateway-0"), Some(0));
+        assert_eq!(parse_ordinal("world-id-gateway-1"), Some(1));
+        assert_eq!(parse_ordinal("world-id-gateway-12"), Some(12));
     }
 
     #[test]
-    fn pod_ordinal_parses_standard_statefulset_name() {
-        assert_eq!(with_hostname("world-id-gateway-0", pod_ordinal), Some(0));
-        assert_eq!(with_hostname("world-id-gateway-1", pod_ordinal), Some(1));
-        assert_eq!(with_hostname("world-id-gateway-12", pod_ordinal), Some(12));
+    fn parse_ordinal_simple_name() {
+        assert_eq!(parse_ordinal("gateway-3"), Some(3));
     }
 
     #[test]
-    fn pod_ordinal_parses_simple_name() {
-        assert_eq!(with_hostname("gateway-3", pod_ordinal), Some(3));
+    fn parse_ordinal_non_numeric_suffix() {
+        assert_eq!(parse_ordinal("world-id-gateway-abc123def"), None);
     }
 
     #[test]
-    fn pod_ordinal_returns_none_for_non_numeric_suffix() {
-        // e.g. a Deployment pod with a random hash suffix
-        assert_eq!(
-            with_hostname("world-id-gateway-abc123def", pod_ordinal),
-            None
-        );
-    }
-
-    #[test]
-    fn pod_ordinal_returns_none_when_hostname_unset() {
-        // SAFETY: single-threaded test context; no concurrent HOSTNAME readers.
-        unsafe { std::env::remove_var("HOSTNAME") };
-        assert_eq!(pod_ordinal(), None);
-    }
-
-    #[test]
-    fn pod_ordinal_returns_none_for_name_without_dash() {
-        assert_eq!(with_hostname("gateway", pod_ordinal), None);
+    fn parse_ordinal_no_dash() {
+        assert_eq!(parse_ordinal("gateway"), None);
     }
 
     // ── SignerArgs::is_per_replica_signer() ──────────────────────────────────
