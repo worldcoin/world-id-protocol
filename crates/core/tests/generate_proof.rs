@@ -34,8 +34,6 @@ use world_id_test_utils::{
     stubs::spawn_indexer_stub,
 };
 
-const GW_PORT: u16 = 4104;
-
 fn init_test_tracing() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -92,7 +90,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             signer: Some(signer_args),
             ..Default::default()
         },
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: std::env::var("REDIS_URL")
@@ -105,10 +103,12 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
         batch_policy: BatchPolicyConfig::default(),
     };
-    let _gateway = spawn_gateway_for_tests(gateway_config)
+    let gateway = spawn_gateway_for_tests(gateway_config)
         .await
         .map_err(|e| eyre!("failed to spawn gateway for tests: {e}"))?;
-    info!(port = GW_PORT, "gateway started");
+    let gw_addr = gateway.listen_addr;
+    let gateway_url = format!("http://{}:{}", gw_addr.ip(), gw_addr.port());
+    info!(port = gw_addr.port(), "gateway started");
 
     // Build Config and ensure Authenticator account creation works.
     let seed = [7u8; 32];
@@ -122,7 +122,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         anvil.instance.chain_id(),
         world_id_registry,
         "http://127.0.0.1:0".to_string(), // placeholder for future indexer stub
-        format!("http://127.0.0.1:{GW_PORT}"),
+        gateway_url.clone(),
         Vec::new(),
         3,
     )
@@ -256,7 +256,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         anvil.instance.chain_id(),
         world_id_registry,
         indexer_url.clone(),
-        format!("http://127.0.0.1:{GW_PORT}"),
+        gateway_url.clone(),
         nodes.to_vec(),
         3,
     )
