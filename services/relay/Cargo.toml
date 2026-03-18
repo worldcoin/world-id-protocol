@@ -9,9 +9,6 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-# internal 
-world-id-services-common = { workspace = true }
-
 # alloy
 alloy = { workspace = true, features = [
     "full",
