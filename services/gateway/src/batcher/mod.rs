@@ -9,7 +9,11 @@ pub(crate) use ops::{OpsBatcherHandle, OpsBatcherRunner, OpsEnvelope};
 
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
-use alloy::{network::Ethereum, primitives::Bytes, providers::DynProvider};
+use alloy::{
+    network::Ethereum,
+    primitives::{Address, Bytes},
+    providers::DynProvider,
+};
 use tokio::{sync::mpsc, time::Instant};
 use uuid::Uuid;
 use world_id_core::{
@@ -25,6 +29,7 @@ use crate::{
     config::BatchPolicyConfig,
     error::parse_contract_error,
     metrics,
+    nonce::RedisNonceManager,
     request_tracker::BacklogScope,
 };
 /// Default gas estimates for operation types.
@@ -129,6 +134,7 @@ pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>: Send + Default + 'stat
         &self,
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
         batch: Vec<E>,
+        nonce: u64,
     ) -> impl Future<Output = Result<PendingBatchTx, alloy::contract::Error>> + Send;
 }
 
@@ -154,6 +160,8 @@ where
     tracker: RequestTracker,
     batch_policy: BatchPolicyConfig,
     base_fee_cache: BaseFeeCache,
+    nonce_manager: RedisNonceManager,
+    signer_address: Address,
     strategy: S,
 }
 
@@ -171,6 +179,8 @@ where
         tracker: RequestTracker,
         batch_policy: BatchPolicyConfig,
         base_fee_cache: BaseFeeCache,
+        nonce_manager: RedisNonceManager,
+        signer_address: Address,
     ) -> Self {
         Self {
             rx,
@@ -180,6 +190,8 @@ where
             tracker,
             batch_policy,
             base_fee_cache,
+            nonce_manager,
+            signer_address,
             strategy: S::default(),
         }
     }
@@ -202,8 +214,25 @@ where
             .set_status_batch(&ids, GatewayRequestState::Batching)
             .await;
 
+        let nonce = match self
+            .nonce_manager
+            .allocate_nonce(self.registry.provider(), self.signer_address)
+            .await
+        {
+            Ok(n) => n,
+            Err(err) => {
+                let error_str = err.to_string();
+                tracing::error!(error = %error_str, "{batch_type} nonce allocation failed");
+                let code = parse_contract_error(&error_str);
+                self.tracker
+                    .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
+                    .await;
+                return;
+            }
+        };
+
         let start = Instant::now();
-        match self.strategy.send_batch(&self.registry, batch).await {
+        match self.strategy.send_batch(&self.registry, batch, nonce).await {
             Ok(sent) => {
                 let latency_ms = start.elapsed().as_millis() as f64;
                 metrics::record_batch_result(batch_type, true, latency_ms);
@@ -221,6 +250,19 @@ where
                     .spawn_receipt_tracker(ids, sent.builder, sent.formatted_tx_hash);
             }
             Err(err) => {
+                let released = self
+                    .nonce_manager
+                    .release_nonce(self.signer_address, nonce)
+                    .await;
+
+                if !released {
+                    tracing::warn!(
+                        %nonce,
+                        batch_type,
+                        "CAS nonce release failed after batch send error — nonce gap may persist until on-chain catchup"
+                    );
+                }
+
                 let latency_ms = start.elapsed().as_millis() as f64;
                 metrics::record_batch_result(batch_type, false, latency_ms);
 

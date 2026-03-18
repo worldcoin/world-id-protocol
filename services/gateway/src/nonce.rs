@@ -31,8 +31,8 @@
 use alloy::{
     network::Network,
     primitives::Address,
-    providers::{Provider, fillers::NonceManager},
-    transports::TransportResult,
+    providers::{DynProvider, Provider, fillers::NonceManager},
+    transports::{TransportError, TransportResult},
 };
 use async_trait::async_trait;
 use redis::aio::ConnectionManager;
@@ -99,7 +99,106 @@ impl RedisNonceManager {
         }
         Ok(())
     }
+
+    /// Allocate the next nonce for `address`, coordinated through Redis.
+    ///
+    /// This is the same logic as [`NonceManager::get_next_nonce`] but exposed
+    /// as a standalone method so batcher code can call it explicitly and pair
+    /// it with [`release_nonce`] on failure.
+    pub async fn allocate_nonce(
+        &self,
+        provider: &DynProvider,
+        address: Address,
+    ) -> Result<u64, TransportError> {
+        let on_chain_nonce = provider.get_transaction_count(address).pending().await?;
+
+        let key = self.nonce_key(&address);
+        let mut conn = self.redis.clone();
+
+        let next: u64 = redis::Script::new(NONCE_LUA)
+            .key(&key)
+            .arg(on_chain_nonce)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, %address, "Redis nonce allocation failed");
+                alloy::transports::TransportErrorKind::custom_str(&format!(
+                    "Redis nonce error: {e}"
+                ))
+            })?;
+
+        tracing::debug!(
+            %address,
+            on_chain_nonce,
+            allocated_nonce = next,
+            "Allocated nonce via Redis (batcher)"
+        );
+
+        Ok(next)
+    }
+
+    /// Attempt to release a previously allocated nonce via CAS.
+    ///
+    /// Atomically decrements the Redis key **only if** its current value
+    /// equals `allocated_nonce` (meaning no other allocation occurred since).
+    /// Returns `true` if the release succeeded, `false` on CAS failure (the
+    /// nonce gap persists but is harmless — it will self-heal when the
+    /// on-chain nonce catches up via the safety floor).
+    pub async fn release_nonce(&self, address: Address, allocated_nonce: u64) -> bool {
+        let key = self.nonce_key(&address);
+        let mut conn = self.redis.clone();
+
+        let result: Result<i64, _> = redis::Script::new(RELEASE_NONCE_LUA)
+            .key(&key)
+            .arg(allocated_nonce)
+            .invoke_async(&mut conn)
+            .await;
+
+        match result {
+            Ok(1) => {
+                tracing::debug!(
+                    %address,
+                    allocated_nonce,
+                    "Released nonce via CAS"
+                );
+                true
+            }
+            Ok(_) => {
+                tracing::debug!(
+                    %address,
+                    allocated_nonce,
+                    "CAS nonce release failed — another allocation occurred"
+                );
+                false
+            }
+            Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    %address,
+                    allocated_nonce,
+                    "Redis error during nonce release"
+                );
+                false
+            }
+        }
+    }
 }
+
+/// Lua script for CAS-based nonce release.
+///
+/// Atomically decrements the nonce key **only if** its current value equals
+/// `allocated + 1` (i.e. the INCR from `allocate_nonce` was the last
+/// mutation).  Returns 1 on success, 0 on CAS failure.
+const RELEASE_NONCE_LUA: &str = r#"
+local key = KEYS[1]
+local allocated = tonumber(ARGV[1])
+local current = tonumber(redis.call('GET', key))
+if current == allocated then
+    redis.call('DECR', key)
+    return 1
+end
+return 0
+"#;
 
 /// Lua script executed atomically in Redis.
 ///
@@ -263,6 +362,90 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(n3, 11);
+
+        cleanup(&mut conn, &[key]).await;
+    }
+
+    #[tokio::test]
+    async fn test_release_nonce_cas_success() {
+        let Some(mut conn) = redis_conn().await else {
+            eprintln!("Skipping: Redis not available");
+            return;
+        };
+
+        let key = "gateway:nonce:test_release_ok";
+        cleanup(&mut conn, &[key]).await;
+
+        // Allocate nonce 5 (init with on_chain=5)
+        let n: u64 = redis::Script::new(NONCE_LUA)
+            .key(key)
+            .arg(5u64)
+            .invoke_async(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(n, 5);
+
+        // Release should succeed — current value is 5 (== allocated)
+        let released: i64 = redis::Script::new(RELEASE_NONCE_LUA)
+            .key(key)
+            .arg(5u64)
+            .invoke_async(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(released, 1, "CAS release should succeed");
+
+        // After release, the value should be 4; next alloc with on_chain=5
+        // should return 5 again (safety floor kicks in).
+        let n2: u64 = redis::Script::new(NONCE_LUA)
+            .key(key)
+            .arg(5u64)
+            .invoke_async(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(
+            n2, 5,
+            "re-allocation after release should return same nonce"
+        );
+
+        cleanup(&mut conn, &[key]).await;
+    }
+
+    #[tokio::test]
+    async fn test_release_nonce_cas_failure() {
+        let Some(mut conn) = redis_conn().await else {
+            eprintln!("Skipping: Redis not available");
+            return;
+        };
+
+        let key = "gateway:nonce:test_release_fail";
+        cleanup(&mut conn, &[key]).await;
+
+        // Allocate nonce 5 then 6
+        let _: u64 = redis::Script::new(NONCE_LUA)
+            .key(key)
+            .arg(5u64)
+            .invoke_async(&mut conn)
+            .await
+            .unwrap();
+        let n2: u64 = redis::Script::new(NONCE_LUA)
+            .key(key)
+            .arg(5u64)
+            .invoke_async(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(n2, 6);
+
+        // Try to release nonce 5 — should fail because current is 6
+        let released: i64 = redis::Script::new(RELEASE_NONCE_LUA)
+            .key(key)
+            .arg(5u64)
+            .invoke_async(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(
+            released, 0,
+            "CAS release should fail when another allocation occurred"
+        );
 
         cleanup(&mut conn, &[key]).await;
     }

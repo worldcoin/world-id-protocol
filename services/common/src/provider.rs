@@ -2,6 +2,7 @@ use std::{num::NonZeroUsize, path::Path, time::Duration};
 
 use alloy::{
     network::EthereumWallet,
+    primitives::Address,
     providers::{
         DynProvider, Provider, ProviderBuilder,
         fillers::{CachedNonceManager, NonceManager},
@@ -195,18 +196,21 @@ impl ProviderArgs {
     /// signer, use [`http_with_nonce_manager`] with a distributed nonce
     /// manager (e.g. Redis-backed) instead.
     pub async fn http(self) -> ProviderResult<DynProvider> {
-        self.http_with_nonce_manager(CachedNonceManager::default())
-            .await
+        let (provider, _) = self
+            .http_with_nonce_manager(CachedNonceManager::default())
+            .await?;
+        Ok(provider)
     }
 
     /// Build a dynamic provider using a caller-supplied [`NonceManager`].
     ///
-    /// This allows injecting a distributed nonce manager (e.g. Redis-backed)
-    /// for safe multi-replica transaction submission with a shared signer.
+    /// Returns the provider and, when a signer is configured, the signer's
+    /// address. The address can be used to allocate nonces externally (e.g.
+    /// in batcher code that needs to release nonces on failure).
     pub async fn http_with_nonce_manager<M: NonceManager + 'static>(
         self,
         nonce_manager: M,
-    ) -> ProviderResult<DynProvider> {
+    ) -> ProviderResult<(DynProvider, Option<Address>)> {
         let Some(http) = self.http else {
             return Err(ProviderError::NoHttpUrls);
         };
@@ -279,19 +283,20 @@ impl ProviderArgs {
             None
         };
 
-        let provider = if let Some(signer) = maybe_signer {
+        let (provider, signer_address) = if let Some(signer) = maybe_signer {
+            let address = signer.default_signer().address();
             let provider = ProviderBuilder::new()
                 .with_nonce_management(nonce_manager)
                 .wallet(signer)
                 .connect_client(client);
 
-            provider.erased()
+            (provider.erased(), Some(address))
         } else {
             let provider = ProviderBuilder::new().connect_client(client);
-            provider.erased()
+            (provider.erased(), None)
         };
 
-        Ok(provider)
+        Ok((provider, signer_address))
     }
 }
 

@@ -8,6 +8,7 @@ use crate::{
     },
     config::{BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig},
     error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
+    nonce::RedisNonceManager,
     orphan_sweeper::run_orphan_sweeper,
     request::GatewayContext,
     request_tracker::RequestTracker,
@@ -23,7 +24,7 @@ use crate::{
     },
     types::RootExpiry,
 };
-use alloy::providers::DynProvider;
+use alloy::{primitives::Address, providers::DynProvider};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -59,6 +60,7 @@ const ROOT_CACHE_SIZE: u64 = 1024;
 const CREATE_BATCHER_CHANNEL_CAPACITY: usize = 1024;
 const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
 
+#[expect(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     batcher_config: BatcherConfig,
@@ -67,6 +69,8 @@ pub(crate) async fn build_app(
     request_timeout_secs: u64,
     orphan_sweeper_config: OrphanSweeperConfig,
     batch_policy_config: BatchPolicyConfig,
+    nonce_manager: RedisNonceManager,
+    signer_address: Address,
 ) -> GatewayResult<Router> {
     let tracker = RequestTracker::new(
         redis_url,
@@ -93,6 +97,8 @@ pub(crate) async fn build_app(
         tracker.clone(),
         batch_policy_config.clone(),
         base_fee_cache.clone(),
+        nonce_manager.clone(),
+        signer_address,
     );
     tokio::spawn(runner.run());
 
@@ -107,6 +113,8 @@ pub(crate) async fn build_app(
         tracker.clone(),
         batch_policy_config,
         base_fee_cache,
+        nonce_manager,
+        signer_address,
     );
     tokio::spawn(ops_runner.run());
 

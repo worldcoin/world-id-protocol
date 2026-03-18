@@ -64,7 +64,10 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     );
     let nonce_mgr = RedisNonceManager::with_prefix(redis_conn, test_prefix);
 
-    let provider = Arc::new(cfg.provider.http_with_nonce_manager(nonce_mgr).await?);
+    let batcher_nonce_mgr = nonce_mgr.clone();
+    let (provider, signer_addr) = cfg.provider.http_with_nonce_manager(nonce_mgr).await?;
+    let signer_address = signer_addr.expect("gateway requires a configured signer");
+    let provider = Arc::new(provider);
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
@@ -77,6 +80,8 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
         cfg.request_timeout_secs,
         sweeper_config,
         cfg.batch_policy.clone(),
+        batcher_nonce_mgr,
+        signer_address,
     )
     .await?;
 
@@ -136,7 +141,10 @@ pub async fn run() -> GatewayResult<()> {
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
 
-    let provider = Arc::new(cfg.provider.http_with_nonce_manager(nonce_mgr).await?);
+    let batcher_nonce_mgr = nonce_mgr.clone();
+    let (provider, signer_addr) = cfg.provider.http_with_nonce_manager(nonce_mgr).await?;
+    let signer_address = signer_addr.expect("gateway requires a configured signer");
+    let provider = Arc::new(provider);
     let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
 
     tracing::info!("Config is ready. Building app...");
@@ -148,6 +156,8 @@ pub async fn run() -> GatewayResult<()> {
         cfg.request_timeout_secs,
         sweeper_config,
         cfg.batch_policy.clone(),
+        batcher_nonce_mgr,
+        signer_address,
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)

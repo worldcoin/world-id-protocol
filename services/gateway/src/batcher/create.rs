@@ -5,6 +5,7 @@ use alloy::{
     providers::DynProvider,
 };
 use tokio::sync::mpsc;
+use tracing::error;
 use world_id_core::{
     api_types::CreateAccountRequest, world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
@@ -46,6 +47,7 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
         &self,
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
         batch: Vec<CreateReqEnvelope>,
+        nonce: u64,
     ) -> Result<PendingBatchTx, alloy::contract::Error> {
         let mut recovery_addresses: Vec<Address> = Vec::new();
         let mut auths: Vec<Vec<Address>> = Vec::new();
@@ -61,8 +63,10 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
 
         let builder = registry
             .createManyAccounts(recovery_addresses, auths, pubkeys, commits)
+            .nonce(nonce)
             .send()
-            .await?;
+            .await
+            .inspect_err(|e| error!(error = ?e, "failed to send create batch transaction"))?;
 
         Ok(PendingBatchTx::new(builder))
     }
