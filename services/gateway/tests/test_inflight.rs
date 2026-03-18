@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use alloy::{
     primitives::{Address, U256},
     signers::local::PrivateKeySigner,
@@ -9,7 +7,6 @@ use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSAPublicKey, OnchainKeyRepresentable,
     api_types::{GatewayRequestKind, GatewayStatusResponse, RecoverAccountRequest},
     primitives::{Config, TREE_DEPTH, merkle::AccountInclusionProof},
-    proof::CircomGroth16Material,
     world_id_registry::{domain as ag_domain, sign_recover_account},
 };
 use world_id_gateway::{BatchPolicyConfig, GatewayConfig, SignerArgs, spawn_gateway_for_tests};
@@ -137,12 +134,6 @@ const LEAF_OPS: [GatewayRequestKind; 4] = [
 // Helper utilities
 // ---------------------------------------------------------------------------
 
-fn load_embedded_materials() -> (Arc<CircomGroth16Material>, Arc<CircomGroth16Material>) {
-    let query = world_id_core::proof::load_embedded_query_material().unwrap();
-    let nullifier = world_id_core::proof::load_embedded_nullifier_material().unwrap();
-    (Arc::new(query), Arc::new(nullifier))
-}
-
 fn make_config(gw: &TestGateway, indexer_url: &str) -> Config {
     Config::new(
         Some(gw.rpc_url.clone()),
@@ -189,9 +180,8 @@ async fn register_and_init(
     wait_for_finalized(&gw.client, &gw.base_url, initializing.request_id()).await;
 
     let (pubkey, _) = derive_keys_from_seed(seed);
-    let (q, n) = load_embedded_materials();
     let tmp_config = make_config(gw, "http://127.0.0.1:0");
-    let auth = Authenticator::init(&seed, tmp_config, q.clone(), n.clone())
+    let auth = Authenticator::init(&seed, tmp_config)
         .await
         .expect("init failed after register");
 
@@ -202,7 +192,7 @@ async fn register_and_init(
         .expect("failed to spawn indexer stub");
 
     let config = make_config(gw, &stub.url);
-    let auth = Authenticator::init(&seed, config, q, n)
+    let auth = Authenticator::init(&seed, config)
         .await
         .expect("init with indexer stub failed");
 
