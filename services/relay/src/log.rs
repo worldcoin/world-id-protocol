@@ -1,8 +1,10 @@
 use std::{
     collections::VecDeque,
     hash::Hash,
-    sync::Arc,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use alloy::sol_types::SolValue;

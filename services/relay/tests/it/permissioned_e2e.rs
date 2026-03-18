@@ -28,7 +28,8 @@ use world_id_relay::{
     satellite::PermissionedSatellite,
 };
 use world_id_test_utils::anvil::{
-    ERC1967Proxy, MockOprfKeyRegistry, TestAnvil, Verifier, WC_CHAIN_ID,
+    CredentialSchemaIssuerRegistry, ERC1967Proxy, ICredentialSchemaIssuerRegistry,
+    MockOprfKeyRegistry, TestAnvil, Verifier, WC_CHAIN_ID, WorldIDRegistry,
     get_latest_chain_commitment, permissioned_gateway, world_id_satellite, world_id_source,
 };
 
@@ -433,6 +434,10 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
         gateway,
         satellite: satellite_proxy,
     };
+    // Keep a clone for test operations so all signer(0) txs share the same
+    // nonce manager and cannot race with the engine's propagateState calls.
+    let test_provider = shared_provider.clone();
+
     let satellite = PermissionedSatellite::new(
         "test-permissioned",
         WC_CHAIN_ID,
@@ -450,7 +455,25 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
     let sat = world_id_satellite::WorldIDSatelliteInstance::new(satellite_proxy, &read_provider);
 
     // ── Round 1: create account → root update ───────────────────────────────
-    let root = create_root(&anvil, world_id_registry).await?;
+    // Use test_provider (same nonce manager as the engine) so createAccount and
+    // propagateState cannot be assigned the same nonce.
+    let n = ACCOUNT_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let auth_signer = anvil.signer(n as usize % 9 + 1)?;
+    let wid_registry = WorldIDRegistry::new(world_id_registry, test_provider.clone());
+    wid_registry
+        .createAccount(
+            Address::ZERO,
+            vec![auth_signer.address()],
+            vec![U256::from(n)],
+            U256::from(n),
+        )
+        .send()
+        .await
+        .context("failed to submit createAccount")?
+        .get_receipt()
+        .await
+        .context("createAccount tx failed")?;
+    let root = wid_registry.getLatestRoot().call().await?;
 
     // Wait for the root to be relayed to the satellite.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
@@ -479,7 +502,25 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
     );
 
     // ── Round 2: register issuer → key update ───────────────────────────────
-    let (issuer_x, issuer_y) = register_issuer(&anvil, credential_registry, 1).await?;
+    // Again use test_provider to keep all signer(0) nonces sequential.
+    let schema_id = 1u64;
+    let issuer_signing_key = Signer::from_seed_bytes(&[schema_id as u8; 32])
+        .context("failed to create issuer signer")?;
+    let issuer_pubkey = issuer_signing_key.offchain_signer_pubkey();
+    let issuer_x = U256::from_limbs(issuer_pubkey.pk.x.into_bigint().0);
+    let issuer_y = U256::from_limbs(issuer_pubkey.pk.y.into_bigint().0);
+    CredentialSchemaIssuerRegistry::new(credential_registry, test_provider.clone())
+        .register(
+            schema_id,
+            ICredentialSchemaIssuerRegistry::Pubkey { x: issuer_x, y: issuer_y },
+            deployer,
+        )
+        .send()
+        .await
+        .context("failed to submit register_issuer")?
+        .get_receipt()
+        .await
+        .context("register_issuer tx failed")?;
 
     // Wait for the issuer to be relayed to the satellite.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);

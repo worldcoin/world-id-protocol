@@ -257,8 +257,9 @@ async fn e2e_satellite_task_relays_on_new_commitment() -> Result<()> {
     // 2. Deploy MockGateway.
     let gateway_address = deploy_mock_gateway(&provider).await?;
 
-    // 3. Create CommitmentLog.
+    // 3. Create CommitmentLog and immediately mark it ready (no backfill in this unit test).
     let log = Arc::new(CommitmentLog::new());
+    log.mark_ready();
 
     // 4. Create a minimal satellite that uses our mock gateway.
     //    We use a custom implementation instead of EthereumMptSatellite since that
