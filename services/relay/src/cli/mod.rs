@@ -6,7 +6,6 @@ use alloy::{
     network::EthereumWallet,
     providers::{DynProvider, Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
-    transports::http::{Http, reqwest},
 };
 use alloy_primitives::Address;
 use tempo_alloy::{TempoNetwork, provider::TempoProviderBuilderExt};
@@ -273,23 +272,19 @@ impl EthereumMptGatewayConfig {
 /// HTTPS via the TLS backend configured in the workspace `reqwest` features.
 /// This bypasses the `ProviderArgs` tower layer stack which has known
 /// compatibility issues with certain environments.
-fn build_provider(rpc_url: &str, wallet: &EthereumWallet) -> eyre::Result<DynProvider> {
-    let url: reqwest::Url = rpc_url
-        .parse()
-        .map_err(|e| eyre::eyre!("invalid RPC URL '{rpc_url}': {e}"))?;
-    let http = Http::with_client(reqwest::Client::new(), url);
-    let rpc_client = alloy::rpc::client::RpcClient::builder().transport(http, false);
+async fn build_provider(rpc_url: &str, wallet: &EthereumWallet) -> eyre::Result<DynProvider> {
     Ok(ProviderBuilder::new()
         .wallet(wallet.clone())
-        .connect_client(rpc_client)
+        .connect(rpc_url)
+        .await?
         .erased())
 }
 
 /// Reads the `{NAME}_RPC_URL` env var and builds a signed provider.
-fn satellite_provider(name: &str, wallet: &EthereumWallet) -> eyre::Result<DynProvider> {
+async fn satellite_provider(name: &str, wallet: &EthereumWallet) -> eyre::Result<DynProvider> {
     let env_var = format!("{}_RPC_URL", name.to_uppercase());
     let rpc_url = rpc_url_from_env(&env_var)?;
-    build_provider(&rpc_url, wallet)
+    build_provider(&rpc_url, wallet).await
 }
 
 // ---------------------------------------------------------------------------
@@ -342,7 +337,7 @@ impl Cli {
 
         // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
         let wc_rpc_url = rpc_url_from_env(SOURCE_RPC_ENV)?;
-        let wc_provider = Arc::new(build_provider(&wc_rpc_url, &wallet)?);
+        let wc_provider = Arc::new(build_provider(&wc_rpc_url, &wallet).await?);
 
         let wc_config = WorldChainConfig::from(&config.source);
         let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone());
@@ -355,7 +350,7 @@ impl Cli {
             match sat_config.chain_type {
                 ChainType::Default => {
                     let provider = Arc::new(
-                        satellite_provider(&sat_config.name, &wallet)?,
+                        satellite_provider(&sat_config.name, &wallet).await?,
                     );
 
                     let satellite = PermissionedSatellite::new(
@@ -371,21 +366,16 @@ impl Cli {
 
                     // Standard Ethereum provider for contract reads (sol! bindings).
                     let read_provider = Arc::new(
-                        satellite_provider(&sat_config.name, &wallet)?,
+                        satellite_provider(&sat_config.name, &wallet).await?,
                     );
 
                     // Tempo-typed provider for sending transactions with 2D nonces.
-                    let tempo_url: reqwest::Url = rpc_url.parse().map_err(|e| {
-                        eyre::eyre!("invalid Tempo RPC URL: {e}")
-                    })?;
-                    let tempo_http = Http::with_client(reqwest::Client::new(), tempo_url);
-                    let tempo_rpc = alloy::rpc::client::RpcClient::builder()
-                        .transport(tempo_http, false);
                     let tempo_provider =
                         ProviderBuilder::new_with_network::<TempoNetwork>()
                             .with_random_2d_nonces()
                             .wallet(wallet.clone())
-                            .connect_client(tempo_rpc);
+                            .connect(&rpc_url)
+                            .await?;
 
                     let satellite = TempoSatellite::new(
                         &sat_config.name,
@@ -412,7 +402,7 @@ impl Cli {
         // Spawn Ethereum MPT gateway satellites.
         for sat_config in config.ethereum_mpt_gateways.iter().flatten() {
             let provider = Arc::new(
-                satellite_provider(&sat_config.name, &wallet)?,
+                satellite_provider(&sat_config.name, &wallet).await?,
             );
 
             let satellite = EthereumMptSatellite::from_config(
