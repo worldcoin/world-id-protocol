@@ -11,8 +11,7 @@ use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::{wait_for_finalized, wait_http_ready};
-use serial_test::serial;
+use crate::common::{start_redis, wait_for_finalized, wait_http_ready};
 
 mod common;
 
@@ -23,14 +22,11 @@ async fn set_up_redis(redis_url: &str) -> ConnectionManager {
     client.get_connection_manager().await.unwrap()
 }
 
-// Serialized against the other Redis-heavy integration tests so that the
-// shared Redis server is not flooded by concurrent FLUSHDB calls or key
-// collisions from tests that don't use the UUID key-prefix isolation.
 #[tokio::test]
-#[serial(redis)]
 async fn redis_integration() {
-    let redis_url =
-        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+    // Each test gets its own Redis container — no serialization or key-prefix
+    // coordination required.
+    let (redis_url, _redis_container) = start_redis().await;
     let mut redis = set_up_redis(&redis_url).await;
 
     // Start Anvil
@@ -52,10 +48,8 @@ async fn redis_integration() {
         },
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        // Port 0 → OS assigns a free ephemeral port; avoids EADDRINUSE when
-        // other tests run concurrently.
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
-        redis_url,
+        redis_url: redis_url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(5),
         rate_limit_max_requests: Some(10),
@@ -66,9 +60,6 @@ async fn redis_integration() {
     };
 
     let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
-    // The UUID key prefix assigned by spawn_gateway_for_tests scopes every
-    // Redis key this gateway writes.  We need it to look up those keys below.
-    let key_prefix = gw.redis_key_prefix.clone();
     let gw_addr = gw.listen_addr;
     let client = Client::builder().build().unwrap();
     wait_http_ready(&client, gw_addr.port()).await;
@@ -93,10 +84,8 @@ async fn redis_integration() {
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
     let request_id = accepted.request_id.clone();
 
-    // Verify the request was stored in Redis.
-    // spawn_gateway_for_tests scopes every key under a per-instance UUID
-    // prefix (e.g. "test:<uuid>:"), so we must include that prefix here.
-    let redis_key = format!("{}gateway:request:{}", key_prefix, request_id);
+    // Verify the request was stored in Redis using the plain (unprefixed) key names.
+    let redis_key = format!("gateway:request:{}", request_id);
     let stored: String = redis.get(&redis_key).await.unwrap().unwrap();
     let stored_data: serde_json::Value =
         serde_json::from_str(&stored).expect("Failed to parse JSON");
@@ -109,9 +98,8 @@ async fn redis_integration() {
     );
 
     // Verify the request was added to the pending set atomically with the record
-    let pending_set_key = format!("{}gateway:pending_requests", key_prefix);
     let is_pending: bool = redis
-        .sismember(&pending_set_key, &request_id)
+        .sismember("gateway:pending_requests", &request_id)
         .await
         .unwrap();
     assert!(
@@ -132,7 +120,7 @@ async fn redis_integration() {
     assert!(!tx_hash.is_empty());
 
     // Verify status was updated in Redis
-    let updated = redis.get(&redis_key).await.unwrap().unwrap();
+    let updated: String = redis.get(&redis_key).await.unwrap().unwrap();
     let updated_data: serde_json::Value = serde_json::from_str(&updated).unwrap();
 
     assert_eq!(updated_data["status"]["state"], "finalized");
@@ -144,7 +132,7 @@ async fn redis_integration() {
 
     // Verify the request was removed from the pending set after finalization
     let pending_members: std::collections::HashSet<String> =
-        redis.smembers(&pending_set_key).await.unwrap();
+        redis.smembers("gateway:pending_requests").await.unwrap();
     assert!(
         !pending_members.contains(&request_id),
         "finalized request should have been removed from the pending set"

@@ -5,7 +5,6 @@ use alloy::{
     signers::{Signer, local::PrivateKeySigner},
     sol_types::SolStruct,
 };
-use redis::aio::ConnectionManager;
 use reqwest::{Client, StatusCode};
 use world_id_core::{
     api_types::{InsertAuthenticatorRequest, UpdateAuthenticatorRequest},
@@ -15,21 +14,11 @@ use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::wait_http_ready;
+use crate::common::{start_redis, wait_http_ready};
 
 mod common;
 
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-
-async fn set_up_redis(redis_url: &str) -> ConnectionManager {
-    let client = redis::Client::open(redis_url).expect("Failed to create Redis client");
-    client.get_connection_manager().await.unwrap()
-}
-
-async fn flush_redis(redis: &mut ConnectionManager) {
-    use redis::AsyncTypedCommands;
-    redis.flushdb().await.unwrap();
-}
 
 /// Helper to sign an InsertAuthenticator request
 #[allow(clippy::too_many_arguments)]
@@ -68,10 +57,8 @@ async fn sign_insert_authenticator(
 
 #[tokio::test]
 async fn test_rate_limit_basic() {
-    let redis_url =
-        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
-    let mut redis = set_up_redis(&redis_url).await;
-    flush_redis(&mut redis).await;
+    // Each test gets its own Redis container — no FLUSHDB coordination needed.
+    let (redis_url, _redis_container) = start_redis().await;
 
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
@@ -278,10 +265,8 @@ async fn test_rate_limit_basic() {
 
 #[tokio::test]
 async fn test_rate_limit_different_leaf_indexes() {
-    let redis_url =
-        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
-    let mut redis = set_up_redis(&redis_url).await;
-    flush_redis(&mut redis).await;
+    // Each test gets its own Redis container — no FLUSHDB coordination needed.
+    let (redis_url, _redis_container) = start_redis().await;
 
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
@@ -437,10 +422,8 @@ async fn test_rate_limit_different_leaf_indexes() {
 
 #[tokio::test]
 async fn test_rate_limit_sliding_window() {
-    let redis_url =
-        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
-    let mut redis = set_up_redis(&redis_url).await;
-    flush_redis(&mut redis).await;
+    // Each test gets its own Redis container — no FLUSHDB coordination needed.
+    let (redis_url, _redis_container) = start_redis().await;
 
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
@@ -593,10 +576,8 @@ async fn test_rate_limit_sliding_window() {
 
 #[tokio::test]
 async fn test_rate_limit_multiple_endpoints() {
-    let redis_url =
-        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
-    let mut redis = set_up_redis(&redis_url).await;
-    flush_redis(&mut redis).await;
+    // Each test gets its own Redis container — no FLUSHDB coordination needed.
+    let (redis_url, _redis_container) = start_redis().await;
 
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();

@@ -132,23 +132,8 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Cache Cargo dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
-
-      - name: Install cargo-nextest
-        run: cargo install cargo-nextest --locked
 
       - name: Build contracts
         run: |
@@ -158,6 +143,12 @@ jobs:
         run: |
           docker compose up -d
           sleep 5
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2.9.1
+
+      - name: Install cargo-nextest
+        run: cargo install cargo-nextest --locked
 
       - name: Run tests
         env:

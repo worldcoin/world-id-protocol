@@ -22,7 +22,7 @@ use world_id_gateway::{
 use world_id_services_common::ProviderArgs;
 use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::{wait_for_finalized, wait_http_ready};
+use crate::common::{start_redis, wait_for_finalized, wait_http_ready};
 
 mod common;
 
@@ -36,6 +36,9 @@ struct TestGateway {
     rpc_url: String,
     _handle: world_id_gateway::GatewayHandle,
     _anvil: TestAnvil,
+    _redis: testcontainers_modules::testcontainers::ContainerAsync<
+        testcontainers_modules::redis::Redis,
+    >,
 }
 
 async fn spawn_test_gateway() -> TestGateway {
@@ -52,6 +55,7 @@ async fn spawn_test_gateway() -> TestGateway {
     let rpc_url = anvil.endpoint().to_string();
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
+    let (redis_url, redis_container) = start_redis().await;
     let cfg = GatewayConfig {
         registry_addr,
         provider: ProviderArgs {
@@ -62,8 +66,7 @@ async fn spawn_test_gateway() -> TestGateway {
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
-        redis_url: std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        redis_url,
         request_timeout_secs: 10,
         rate_limit_window_secs: None,
         rate_limit_max_requests: None,
@@ -85,6 +88,7 @@ async fn spawn_test_gateway() -> TestGateway {
         rpc_url,
         _handle: handle,
         _anvil: anvil,
+        _redis: redis_container,
     }
 }
 

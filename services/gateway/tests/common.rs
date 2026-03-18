@@ -1,6 +1,33 @@
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
+use testcontainers_modules::{
+    redis::{REDIS_PORT, Redis},
+    testcontainers::{ContainerAsync, runners::AsyncRunner as _},
+};
 use world_id_core::api_types::{GatewayRequestState, GatewayStatusResponse};
+
+/// Start a fresh Redis container and return its URL plus the container handle.
+///
+/// The container is automatically stopped and removed when the returned
+/// `ContainerAsync<Redis>` is dropped — keep it alive for the duration of the
+/// test that needs the Redis instance.
+#[allow(dead_code)]
+pub(crate) async fn start_redis() -> (String, ContainerAsync<Redis>) {
+    let container = Redis::default()
+        .start()
+        .await
+        .expect("failed to start Redis container");
+    let host = container
+        .get_host()
+        .await
+        .expect("failed to get Redis host");
+    let port = container
+        .get_host_port_ipv4(REDIS_PORT)
+        .await
+        .expect("failed to get Redis port");
+    let url = format!("redis://{host}:{port}");
+    (url, container)
+}
 
 #[allow(dead_code)]
 pub(crate) async fn wait_http_ready(client: &Client, port: u16) {
