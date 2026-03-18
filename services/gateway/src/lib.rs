@@ -114,29 +114,45 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
 pub async fn run() -> GatewayResult<()> {
     let cfg = GatewayConfig::from_env()?;
 
-    // Use Redis-backed nonce manager so multiple replicas sharing the same
-    // signer key never collide on nonces.  The existing REDIS_URL config
-    // value is reused — no new configuration required.
-    let redis_client = redis::Client::open(cfg.redis_url.as_str()).map_err(|source| {
-        GatewayError::RedisNonceManager {
-            source,
-            backtrace: Backtrace::capture().to_string(),
-        }
-    })?;
-    let redis_conn = ConnectionManager::new(redis_client)
-        .await
-        .map_err(|source| GatewayError::RedisNonceManager {
-            source,
-            backtrace: Backtrace::capture().to_string(),
-        })?;
-    let nonce_mgr = RedisNonceManager::new(redis_conn);
-    tracing::info!("Redis-backed nonce manager initialised");
+    let per_replica = cfg
+        .provider
+        .signer
+        .as_ref()
+        .is_some_and(|s| s.is_per_replica_signer());
 
     let batcher_config = cfg.batcher();
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
 
-    let provider = Arc::new(cfg.provider.http_with_nonce_manager(nonce_mgr).await?);
+    let provider = if per_replica {
+        // Each pod has its own Ethereum address → no nonce conflicts across
+        // replicas.  Use the process-local CachedNonceManager; Redis is not
+        // required for nonce coordination in this mode.
+        tracing::info!(
+            "Per-replica KMS signer detected (AWS_KMS_KEY_IDS) — \
+             using local CachedNonceManager; Redis not used for nonces"
+        );
+        Arc::new(cfg.provider.http().await?)
+    } else {
+        // Shared signer key: multiple replicas may race on nonces.
+        // Coordinate via Redis so every replica gets a unique nonce.
+        let redis_client = redis::Client::open(cfg.redis_url.as_str()).map_err(|source| {
+            GatewayError::RedisNonceManager {
+                source,
+                backtrace: Backtrace::capture().to_string(),
+            }
+        })?;
+        let redis_conn = ConnectionManager::new(redis_client)
+            .await
+            .map_err(|source| GatewayError::RedisNonceManager {
+                source,
+                backtrace: Backtrace::capture().to_string(),
+            })?;
+        let nonce_mgr = RedisNonceManager::new(redis_conn);
+        tracing::info!("Shared KMS signer detected — using Redis-backed nonce manager");
+        Arc::new(cfg.provider.http_with_nonce_manager(nonce_mgr).await?)
+    };
+
     let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
 
     tracing::info!("Config is ready. Building app...");

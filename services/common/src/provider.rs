@@ -35,8 +35,10 @@ pub enum ProviderError {
     InvalidPrivateKey(#[from] LocalSignerError),
     #[error("failed to initialize AWS KMS signer: {0}")]
     AwsKmsSigner(#[from] Box<AwsSignerError>),
-    #[error("exactly one of wallet_private_key or aws_kms_key_id must be provided")]
+    #[error("exactly one of wallet_private_key, aws_kms_key_id, or aws_kms_key_ids must be provided")]
     SignerConfigMissing,
+    #[error("pod ordinal {ordinal} is out of range: AWS_KMS_KEY_IDS contains {key_count} key(s)")]
+    OrdinalOutOfRange { ordinal: usize, key_count: usize },
     #[error("no HTTP URLs provided")]
     NoHttpUrls,
     #[error("config error: {0}")]
@@ -68,8 +70,8 @@ pub struct ProviderArgs {
 }
 
 /// Secrets for the signer.
-/// At most one of `wallet_private_key` or `aws_kms_key_id` may be provided.
-/// When neither is set, no signer is configured.
+/// Exactly one of `wallet_private_key`, `aws_kms_key_id`, or `aws_kms_key_ids` may be
+/// provided. When none is set, no signer is configured.
 #[derive(Args, Debug, Clone, Deserialize)]
 #[group(required = false, multiple = false)]
 pub struct SignerArgs {
@@ -77,42 +79,117 @@ pub struct SignerArgs {
     #[arg(long, env = "WALLET_PRIVATE_KEY")]
     wallet_private_key: Option<String>,
 
-    /// AWS KMS Key ID for signing transactions
+    /// AWS KMS Key ID for signing transactions (shared across all replicas).
+    /// Mutually exclusive with `AWS_KMS_KEY_IDS`.
     #[arg(long, env = "AWS_KMS_KEY_ID")]
     aws_kms_key_id: Option<String>,
+
+    /// Comma-separated list of AWS KMS key ARNs for per-replica signing (StatefulSet).
+    /// Pod ordinal is derived from the trailing numeric suffix of `HOSTNAME`
+    /// (e.g. `world-id-gateway-2` → ordinal 2 → third key in the list).
+    /// Mutually exclusive with `AWS_KMS_KEY_ID`.
+    #[arg(long, env = "AWS_KMS_KEY_IDS")]
+    aws_kms_key_ids: Option<String>,
+}
+
+/// Derive the pod ordinal from the trailing numeric suffix of the `HOSTNAME`
+/// environment variable.
+///
+/// StatefulSet pods are named `<statefulset-name>-<ordinal>`, e.g.
+/// `world-id-gateway-0`, `world-id-gateway-1`.  This function splits on `-`
+/// from the right and parses the last segment as a `usize`.
+///
+/// Returns `None` when `HOSTNAME` is unset, has no `-` separator, or the
+/// trailing segment is not a valid non-negative integer (e.g. in local dev
+/// or Deployment pods whose names end with a random hash suffix).
+fn pod_ordinal() -> Option<usize> {
+    let hostname = std::env::var("HOSTNAME").ok()?;
+    let suffix = hostname.rsplit('-').next()?;
+    suffix.parse().ok()
 }
 
 impl SignerArgs {
+
     async fn signer(&self, rpc_url: &Url) -> ProviderResult<EthereumWallet> {
-        match (&self.wallet_private_key, &self.aws_kms_key_id) {
-            (Some(s), None) => {
+        match (
+            &self.wallet_private_key,
+            &self.aws_kms_key_id,
+            &self.aws_kms_key_ids,
+        ) {
+            (Some(s), None, None) => {
                 // PrivateKey: No RPC call needed
                 let signer = s.parse::<PrivateKeySigner>()?;
                 Ok(EthereumWallet::from(signer))
             }
-            (None, Some(key_id)) => {
+            (None, Some(key_id), None) => {
                 tracing::info!("Initializing AWS KMS signer with key_id: {}", key_id);
-
-                let temp_provider = ProviderBuilder::new().connect_http(rpc_url.clone());
-                let chain_id = temp_provider
-                    .get_chain_id()
-                    .await
-                    .map_err(ProviderError::ChainId)?;
-                tracing::info!("Fetched chain_id: {}", chain_id);
-
-                let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
-                let kms_client = aws_sdk_kms::Client::new(&config);
-                let aws_signer = AwsSigner::new(kms_client, key_id.to_string(), Some(chain_id))
-                    .await
-                    .map_err(|err| ProviderError::AwsKmsSigner(Box::new(err)))?;
-                tracing::info!(
-                    "AWS KMS signer initialized with address: {}",
-                    aws_signer.address()
-                );
-                Ok(EthereumWallet::from(aws_signer))
+                Self::aws_kms_wallet(key_id, rpc_url).await
             }
+            (None, None, Some(key_ids)) => {
+                let ordinal = match pod_ordinal() {
+                    Some(o) => o,
+                    None => {
+                        tracing::warn!(
+                            "AWS_KMS_KEY_IDS is set but HOSTNAME has no parseable numeric \
+                             suffix — defaulting to ordinal 0. Set HOSTNAME to \
+                             '<name>-<ordinal>' (StatefulSet convention) to select the \
+                             correct per-replica key."
+                        );
+                        0
+                    }
+                };
+                let keys: Vec<&str> = key_ids.split(',').map(str::trim).collect();
+                let key_id = keys.get(ordinal).copied().ok_or_else(|| {
+                    tracing::error!(
+                        ordinal,
+                        key_count = keys.len(),
+                        "Pod ordinal is out of range for AWS_KMS_KEY_IDS; \
+                         check that the key list has an entry for every replica"
+                    );
+                    ProviderError::OrdinalOutOfRange {
+                        ordinal,
+                        key_count: keys.len(),
+                    }
+                })?;
+                tracing::info!(ordinal, key_id, "Initializing per-replica AWS KMS signer");
+                Self::aws_kms_wallet(key_id, rpc_url).await
+            }
+            // (None, None, None) — no signer configured at all.
+            // Any multi-field combo is prevented at parse time by the clap
+            // `#[group(multiple = false)]` attribute; direct construction that
+            // reaches here is a programming error, but SignerConfigMissing is
+            // still the most actionable error for callers.
             _ => Err(ProviderError::SignerConfigMissing),
         }
+    }
+
+    async fn aws_kms_wallet(key_id: &str, rpc_url: &Url) -> ProviderResult<EthereumWallet> {
+        let temp_provider = ProviderBuilder::new().connect_http(rpc_url.clone());
+        let chain_id = temp_provider
+            .get_chain_id()
+            .await
+            .map_err(ProviderError::ChainId)?;
+        tracing::info!("Fetched chain_id: {}", chain_id);
+
+        let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+        let kms_client = aws_sdk_kms::Client::new(&config);
+        let aws_signer = AwsSigner::new(kms_client, key_id.to_string(), Some(chain_id))
+            .await
+            .map_err(|err| ProviderError::AwsKmsSigner(Box::new(err)))?;
+        tracing::info!(
+            "AWS KMS signer initialized with address: {}",
+            aws_signer.address()
+        );
+        Ok(EthereumWallet::from(aws_signer))
+    }
+
+    /// Returns `true` when per-replica key selection is active (`AWS_KMS_KEY_IDS` is set).
+    ///
+    /// When `true`, each pod uses its own Ethereum address derived from its
+    /// ordinal slot in the key list, so nonces are independent and a
+    /// process-local [`CachedNonceManager`] is safe to use.
+    pub fn is_per_replica_signer(&self) -> bool {
+        self.aws_kms_key_ids.is_some()
     }
 
     /// Create a new `SignerArgs` with the provided wallet private key.
@@ -120,6 +197,7 @@ impl SignerArgs {
         Self {
             wallet_private_key: Some(wallet_private_key),
             aws_kms_key_id: None,
+            aws_kms_key_ids: None,
         }
     }
 
@@ -128,14 +206,30 @@ impl SignerArgs {
         Self {
             wallet_private_key: None,
             aws_kms_key_id: Some(aws_kms_key_id),
+            aws_kms_key_ids: None,
+        }
+    }
+
+    /// Create a new `SignerArgs` with a comma-separated list of per-replica
+    /// AWS KMS key IDs (`AWS_KMS_KEY_IDS`).
+    pub fn from_aws_per_replica(aws_kms_key_ids: String) -> Self {
+        Self {
+            wallet_private_key: None,
+            aws_kms_key_id: None,
+            aws_kms_key_ids: Some(aws_kms_key_ids),
         }
     }
 
     /// Create and return a `SignerConfig`, if a signer key is configured.
     pub fn signer_config(&self) -> Option<SignerConfig> {
-        match (&self.wallet_private_key, &self.aws_kms_key_id) {
-            (Some(pk), None) => Some(SignerConfig::PrivateKey(pk.clone())),
-            (None, Some(key_id)) => Some(SignerConfig::AwsKms(key_id.clone())),
+        match (
+            &self.wallet_private_key,
+            &self.aws_kms_key_id,
+            &self.aws_kms_key_ids,
+        ) {
+            (Some(pk), None, None) => Some(SignerConfig::PrivateKey(pk.clone())),
+            (None, Some(key_id), None) => Some(SignerConfig::AwsKms(key_id.clone())),
+            (None, None, Some(key_ids)) => Some(SignerConfig::AwsKmsPerReplica(key_ids.clone())),
             _ => None,
         }
     }
@@ -145,6 +239,8 @@ impl SignerArgs {
 pub enum SignerConfig {
     PrivateKey(String),
     AwsKms(String),
+    /// Per-replica KMS signing: comma-separated list of key ARNs, one per pod ordinal.
+    AwsKmsPerReplica(String),
 }
 
 impl ProviderArgs {
@@ -383,5 +479,96 @@ mod tests {
         assert_eq!(retry.initial_backoff_ms, 500);
         assert_eq!(retry.max_backoff_ms, 30000);
         assert_eq!(retry.timeout_secs, 5);
+    }
+
+    // ── pod_ordinal() ────────────────────────────────────────────────────────
+
+    /// Helper: run a closure with `HOSTNAME` set to `value`, then restore the
+    /// original value (or remove it).  Tests that mutate env vars must not run
+    /// concurrently, so mark them `#[serial]` if you add the `serial_test`
+    /// crate; for now we use a mutex guard inline.
+    fn with_hostname<F: FnOnce() -> R, R>(value: &str, f: F) -> R {
+        // SAFETY: these tests run in a single-threaded test binary and do not
+        // spawn threads that read HOSTNAME, so concurrent mutation is safe.
+        unsafe { std::env::set_var("HOSTNAME", value) };
+        let result = f();
+        unsafe { std::env::remove_var("HOSTNAME") };
+        result
+    }
+
+    #[test]
+    fn pod_ordinal_parses_standard_statefulset_name() {
+        assert_eq!(with_hostname("world-id-gateway-0", pod_ordinal), Some(0));
+        assert_eq!(with_hostname("world-id-gateway-1", pod_ordinal), Some(1));
+        assert_eq!(with_hostname("world-id-gateway-12", pod_ordinal), Some(12));
+    }
+
+    #[test]
+    fn pod_ordinal_parses_simple_name() {
+        assert_eq!(with_hostname("gateway-3", pod_ordinal), Some(3));
+    }
+
+    #[test]
+    fn pod_ordinal_returns_none_for_non_numeric_suffix() {
+        // e.g. a Deployment pod with a random hash suffix
+        assert_eq!(
+            with_hostname("world-id-gateway-abc123def", pod_ordinal),
+            None
+        );
+    }
+
+    #[test]
+    fn pod_ordinal_returns_none_when_hostname_unset() {
+        // SAFETY: single-threaded test context; no concurrent HOSTNAME readers.
+        unsafe { std::env::remove_var("HOSTNAME") };
+        assert_eq!(pod_ordinal(), None);
+    }
+
+    #[test]
+    fn pod_ordinal_returns_none_for_name_without_dash() {
+        assert_eq!(with_hostname("gateway", pod_ordinal), None);
+    }
+
+    // ── SignerArgs::is_per_replica_signer() ──────────────────────────────────
+
+    #[test]
+    fn is_per_replica_signer_false_for_single_key() {
+        let args = SignerArgs::from_aws("arn:aws:kms:us-east-1:123:key/abc".to_string());
+        assert!(!args.is_per_replica_signer());
+    }
+
+    #[test]
+    fn is_per_replica_signer_false_for_private_key() {
+        let args = SignerArgs::from_wallet("0xdeadbeef".to_string());
+        assert!(!args.is_per_replica_signer());
+    }
+
+    #[test]
+    fn is_per_replica_signer_true_when_key_ids_set() {
+        let args = SignerArgs::from_aws_per_replica(
+            "arn:aws:kms:us-east-1:123:key/a,arn:aws:kms:us-east-1:123:key/b".to_string(),
+        );
+        assert!(args.is_per_replica_signer());
+    }
+
+    // ── key-selection by ordinal (via signer_config) ─────────────────────────
+
+    #[test]
+    fn signer_config_per_replica_variant() {
+        let ids = "arn:aws:kms:us-east-1:123:key/a,arn:aws:kms:us-east-1:123:key/b";
+        let args = SignerArgs::from_aws_per_replica(ids.to_string());
+        assert!(matches!(
+            args.signer_config(),
+            Some(SignerConfig::AwsKmsPerReplica(_))
+        ));
+    }
+
+    #[test]
+    fn signer_config_single_key_variant() {
+        let args = SignerArgs::from_aws("arn:aws:kms:us-east-1:123:key/abc".to_string());
+        assert!(matches!(
+            args.signer_config(),
+            Some(SignerConfig::AwsKms(_))
+        ));
     }
 }
