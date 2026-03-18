@@ -20,16 +20,12 @@ use world_id_test_utils::{
     stubs::MutableIndexerStub,
 };
 
-use crate::common::{wait_for_finalized, wait_http_ready};
+use crate::common::{start_redis, wait_for_finalized, wait_http_ready};
 
 mod common;
 
 const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
-
-/// Atomic counter used to assign each test gateway a unique Redis DB index
-/// so that concurrent tests don't share in-flight keys.
-static REDIS_DB_COUNTER: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(1);
 
 /// `Authenticator::init` builds a `rustls::ClientConfig` internally, which
 /// requires a globally-installed crypto provider.
@@ -50,6 +46,10 @@ struct TestGateway {
     redis_url: String,
     _handle: world_id_gateway::GatewayHandle,
     _anvil: TestAnvil,
+    // Keep the Redis container alive for the duration of the test.
+    _redis: testcontainers_modules::testcontainers::ContainerAsync<
+        testcontainers_modules::redis::Redis,
+    >,
 }
 
 async fn spawn_test_gateway(batch_ms: u64) -> TestGateway {
@@ -71,6 +71,8 @@ async fn spawn_test_gateway(batch_ms: u64) -> TestGateway {
     let max_wait_secs = (batch_ms / 1000).max(1);
     let reeval_ms = batch_ms.min(200);
 
+    let (redis_url, redis_container) = start_redis().await;
+
     let cfg = GatewayConfig {
         registry_addr,
         provider: ProviderArgs {
@@ -86,12 +88,7 @@ async fn spawn_test_gateway(batch_ms: u64) -> TestGateway {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: {
-            let base =
-                std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
-            let db = REDIS_DB_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            format!("{base}/{db}")
-        },
+        redis_url: redis_url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: None,
         rate_limit_max_requests: None,
@@ -99,15 +96,8 @@ async fn spawn_test_gateway(batch_ms: u64) -> TestGateway {
         stale_queued_threshold_secs: max_wait_secs + 1,
         stale_submitted_threshold_secs: 600,
     };
-    {
-        let client = redis::Client::open(cfg.redis_url.as_str()).expect("redis open");
-        let mut conn = client.get_connection().expect("redis connect");
-        redis::cmd("FLUSHDB").exec(&mut conn).expect("FLUSHDB");
-    }
 
-    let redis_url = cfg.redis_url.clone();
     let handle = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
-
     let addr = handle.listen_addr;
     let base_url = format!("http://{}:{}", addr.ip(), addr.port());
 
@@ -123,6 +113,7 @@ async fn spawn_test_gateway(batch_ms: u64) -> TestGateway {
         redis_url,
         _handle: handle,
         _anvil: anvil,
+        _redis: redis_container,
     }
 }
 

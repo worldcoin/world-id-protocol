@@ -144,12 +144,20 @@ jobs:
           docker compose up -d
           sleep 5
 
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+
+      - name: Install cargo-nextest
+        run: cargo install cargo-nextest --locked
+
       - name: Run tests
         env:
           TESTS_RPC_FORK_URL: ${{ secrets.TESTS_RPC_FORK_URL }}
         run: |
-          cargo test --all --all-features
-          cargo test -p world-id-core --no-default-features
+          cargo nextest run --profile ci --all-features --workspace
+          cargo test --doc --all-features --workspace
+          cargo nextest run --profile ci -p world-id-core --no-default-features
+          cargo test --doc -p world-id-core --no-default-features
 
       - name: Clean up services
         run: |
