@@ -19,8 +19,35 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  build-contracts:
+    name: Build Contracts
+    runs-on:
+      group: arc-public-large-amd64-runner
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Build contracts and extract ABIs
+        run: make sol-build
+
+      - name: Upload contract ABIs
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-abis
+          path: |
+            crates/authenticator/abi/
+            crates/issuer/abi/
+            services/oprf-node/abi/
+          retention-days: 1
+
   lint:
     name: Format and Clippy
+    needs: build-contracts
     runs-on:
       group: arc-public-4xlarge-amd64-runner
     permissions:
@@ -35,16 +62,10 @@ jobs:
           toolchain: stable
           components: clippy,rustfmt
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-
-      - name: Build contracts
-        run: |
-          make sol-build
-
-      - uses: dtolnay/rust-toolchain@nightly
+      - name: Download contract ABIs
+        uses: actions/download-artifact@v4
         with:
-          components: rustfmt
+          name: contract-abis
 
       - name: Check code formatting
         run: cargo +nightly fmt --all -- --check
@@ -54,6 +75,7 @@ jobs:
 
   msrv:
     name: MSRV
+    needs: build-contracts
     runs-on:
       group: arc-public-large-amd64-runner
     permissions:
@@ -66,12 +88,10 @@ jobs:
         with:
           toolchain: 1.87
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-
-      - name: Build contracts
-        run: |
-          make sol-build
+      - name: Download contract ABIs
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-abis
 
       - name: Check Features
         run: |
@@ -79,6 +99,7 @@ jobs:
 
   feature:
     name: Feature Resolution (cargo-hack)
+    needs: build-contracts
     runs-on:
       group: arc-public-xlarge-amd64-runner
     permissions:
@@ -91,12 +112,10 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-
-      - name: Build contracts
-        run: |
-          make sol-build
+      - name: Download contract ABIs
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-abis
 
       - name: Install cargo-hack
         run: |
@@ -108,6 +127,7 @@ jobs:
 
   test:
     name: Tests
+    needs: build-contracts
     runs-on:
       group: arc-public-8xlarge-amd64-runner
     permissions:
@@ -132,12 +152,10 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-
-      - name: Build contracts
-        run: |
-          make sol-build
+      - name: Download contract ABIs
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-abis
 
       - name: Run services
         run: |
