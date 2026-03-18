@@ -764,7 +764,7 @@ impl Authenticator {
         // Construct the appropriate response item based on proof type
         let nullifier_fe: FieldElement = nullifier.into();
         let response_item = if session_id.is_some() {
-            let session_nullifier = SessionNullifier::new(nullifier_fe, action_from_query);
+            let session_nullifier = SessionNullifier::new(nullifier_fe, action_from_query)?;
             ResponseItem::new_session(
                 request_item.identifier.clone(),
                 request_item.issuer_schema_id,
