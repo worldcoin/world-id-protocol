@@ -40,35 +40,23 @@ struct EventFilter {
 
 /// Creates a polling-based event stream using `eth_getLogs`.
 ///
-/// Returns a stream that yields decoded `StateCommitment`s by polling
-/// `get_logs` on a fixed interval. Uses a channel so the poller runs
-/// as an async stream that the caller drives.
+/// `anchor_block` is the chain-head block number captured at stream creation
+/// time (before backfill begins). The poller starts from this block so that
+/// events emitted between backfill completion and the first poll are never
+/// skipped.
 fn poll_events(
     provider: Arc<DynProvider>,
     filters: Vec<EventFilter>,
+    anchor_block: u64,
 ) -> BoxStream<'static, Result<StateCommitment>> {
+    tracing::info!(
+        from_block = anchor_block,
+        poll_interval = ?POLL_INTERVAL,
+        "event poller anchored"
+    );
     let stream = futures::stream::unfold(
-        (provider, filters, None::<u64>, 0u64),
+        (provider, filters, anchor_block, 0u64),
         |(provider, filters, from_block, poll_count)| async move {
-            // On first poll, fetch the current block number.
-            let from_block = match from_block {
-                Some(b) => b,
-                None => {
-                    tracing::info!("event poller: fetching initial block number...");
-                    match provider.get_block_number().await {
-                        Ok(n) => {
-                            tracing::info!(from_block = n, poll_interval = ?POLL_INTERVAL, "event poller started");
-                            n
-                        }
-                        Err(e) => {
-                            tracing::error!(error = %e, "failed to get initial block number");
-                            // Retry after interval
-                            tokio::time::sleep(POLL_INTERVAL).await;
-                            return Some((vec![], (provider, filters, None, poll_count)));
-                        }
-                    }
-                }
-            };
 
             tokio::time::sleep(POLL_INTERVAL).await;
 
@@ -76,12 +64,12 @@ fn poll_events(
                 Ok(n) => n,
                 Err(e) => {
                     tracing::warn!(error = %e, "failed to get block number, retrying");
-                    return Some((vec![], (provider, filters, Some(from_block), poll_count)));
+                    return Some((vec![], (provider, filters, from_block, poll_count)));
                 }
             };
 
             if latest <= from_block {
-                return Some((vec![], (provider, filters, Some(from_block), poll_count)));
+                return Some((vec![], (provider, filters, from_block, poll_count)));
             }
 
             let new_poll_count = poll_count + 1;
@@ -126,7 +114,7 @@ fn poll_events(
                 }
             }
 
-            let next_from_block = if all_succeeded { Some(latest) } else { Some(from_block) };
+            let next_from_block = if all_succeeded { latest } else { from_block };
             Some((results, (provider, filters, next_from_block, new_poll_count)))
         },
     )
@@ -136,15 +124,33 @@ fn poll_events(
 }
 
 /// Creates a polling stream of all registry events from World Chain.
+///
+/// The current chain-head block is captured here — before backfill runs —
+/// and used as the `from_block` anchor for the live polling stream.  This
+/// closes the gap where a `ChainCommitted` event could be emitted after
+/// backfill's `get_logs` upper bound but before the first polling cycle
+/// fires.
 pub async fn registry_stream(
     world_chain: &WorldChain,
 ) -> Result<BoxStream<'static, Result<StateCommitment>>> {
+    // Capture the chain head *now*, before backfill touches the network.
+    // Backfill issues a get_logs with no upper bound, so it covers
+    // [0, latest_at_backfill_rpc_time], which is ≥ anchor_block.
+    // The live poll loop covers [anchor_block+1, ∞).
+    // Together they are gapless, with a safe overlap deduplicated by
+    // commit_chained (idempotent on chain_head).
+    //
+    // NOTE: a failure here propagates immediately to engine::run() rather than
+    // retrying, because we cannot anchor safely without a block number.
+    let anchor_block = world_chain.provider().get_block_number().await?;
+
     tracing::info!(
         registry = %world_chain.world_id_registry().address(),
         issuer_registry = %world_chain.credential_issuer_schema_registry().address(),
         oprf_registry = %world_chain.oprf_key_registry().address(),
         source = %world_chain.world_id_source().address(),
         poll_interval = ?POLL_INTERVAL,
+        anchor_block,
         "subscribing to World Chain events (HTTP polling)"
     );
 
@@ -171,7 +177,7 @@ pub async fn registry_stream(
         },
     ];
 
-    Ok(poll_events(world_chain.provider().clone(), filters))
+    Ok(poll_events(world_chain.provider().clone(), filters, anchor_block))
 }
 
 /// Backfills the commitment log with historical `ChainCommitted` events.
@@ -308,3 +314,109 @@ impl TryFrom<Log<IChainCommitmentEvents>> for StateCommitment {
         Ok(state_commitment)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use alloy::providers::{DynProvider, ProviderBuilder};
+    use alloy_primitives::{Address, B256};
+    use futures_util::StreamExt;
+    use tokio::time;
+
+    // Derived from the ABI binding so it stays correct if the event signature changes.
+    fn chain_committed_topic() -> B256 {
+        crate::bindings::CHAIN_COMMITTED_EVENTS[0]
+    }
+
+    fn make_mock_provider(asserter: alloy::providers::mock::Asserter) -> Arc<DynProvider> {
+        let p = ProviderBuilder::new().connect_mocked_client(asserter);
+        Arc::new(DynProvider::new(p))
+    }
+
+    /// Returns a JSON array containing one `ChainCommitted` log at the given
+    /// `block_number` on `chain_id`.
+    fn chain_committed_logs_json(block_number: u64, chain_id: u64) -> serde_json::Value {
+        // Indexed params go in topics[1..3]; non-indexed `bytes commitment` is
+        // ABI-encoded in `data` as (offset=32, length=0).
+        serde_json::json!([{
+            "address": "0x0000000000000000000000000000000000000001",
+            "topics": [
+                format!("0x{}", alloy_primitives::hex::encode(chain_committed_topic())),
+                // keccakChain (bytes32) = zero
+                format!("0x{:064x}", 0u64),
+                // blockNumber (uint256)
+                format!("0x{:064x}", block_number),
+                // chainId (uint256)
+                format!("0x{:064x}", chain_id),
+            ],
+            // ABI-encoded `bytes commitment`: offset + empty length
+            "data": "0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
+            "blockHash": format!("0x{:064x}", block_number),
+            "blockNumber": format!("0x{:x}", block_number),
+            "transactionHash": format!("0x{:064x}", 1u64),
+            "transactionIndex": "0x0",
+            "logIndex": "0x0",
+            "removed": false
+        }])
+    }
+
+    /// Regression test for the startup polling gap.
+    ///
+    /// Timeline being simulated:
+    ///   t0: `registry_stream()` anchors at block 5 (stream creation)
+    ///   t1: backfill runs and completes (covers blocks 0-5)
+    ///       During backfill, block 6 is mined — a `ChainCommitted` is emitted
+    ///   t2: first poll cycle fires
+    ///       → `eth_blockNumber` returns 6 (latest)
+    ///       → `eth_getLogs(from=6, to=6)` — **must** include block 6
+    ///       → stream yields the `ChainCommitted` event
+    ///
+    /// Before the fix, `from_block` was lazily initialised on the first poll,
+    /// causing `eth_blockNumber` to return 6 and set `from_block = 6`.  Then
+    /// `latest (6) <= from_block (6)` was true and `eth_getLogs` was never
+    /// called — the gap event was silently dropped.
+    ///
+    /// After the fix, `from_block` is anchored at 5 at creation time.  The
+    /// first poll sees `latest (6) > from_block (5)` and correctly queries
+    /// `[6, 6]`, capturing the event.
+    #[tokio::test(start_paused = true)]
+    async fn poll_stream_captures_event_emitted_during_backfill_window() {
+        let asserter = alloy::providers::mock::Asserter::new();
+        let provider = make_mock_provider(asserter.clone());
+
+        // First poll cycle: latest = 6 (one block appeared during backfill)
+        asserter.push_success(&6u64);
+        // `eth_getLogs` for our single test filter → one `ChainCommitted` at block 6
+        asserter.push_success(&chain_committed_logs_json(6, 480));
+
+        let filter = EventFilter {
+            address: Address::from([0x01; 20]),
+            events: vec![chain_committed_topic()],
+            label: "test",
+        };
+
+        // Anchor at block 5 — this is what `registry_stream()` captures before
+        // handing off to `backfill_commitments`.
+        let mut stream = poll_events(provider, vec![filter], 5);
+
+        // Spawn a task to drive the stream; `stream.next()` will block on the
+        // POLL_INTERVAL sleep, which we release with `time::advance` below.
+        let handle = tokio::spawn(async move { stream.next().await });
+
+        // Advance mock time past POLL_INTERVAL to trigger the first poll.
+        time::advance(POLL_INTERVAL + Duration::from_millis(1)).await;
+
+        let item = handle
+            .await
+            .expect("stream task should not panic")
+            .expect("stream should yield an item");
+
+        assert!(
+            matches!(item, Ok(StateCommitment::ChainCommitted(ref cc)) if cc.block_number == 6),
+            "expected ChainCommitted at block 6 from the gap window, got: {:?}",
+            item
+        );
+    }
+}
+
