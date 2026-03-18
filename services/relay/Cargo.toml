@@ -22,6 +22,7 @@ alloy = { workspace = true, features = [
     "provider-http",
 ] }
 alloy-primitives = { workspace = true }
+tempo-alloy = { workspace = true }
 
 # async 
 dashmap = { workspace = true }

@@ -23,7 +23,9 @@ The relay follows a **source -> log -> fan-out** pipeline:
 
 ### Satellite types
 
-- **Permissioned** -- Owner-attested chain head relayed from World Chain (no proofs required).
+- **Permissioned** -- Owner-attested chain head relayed from World Chain (no proofs required). Supports multiple blockchain types via `chain_type`:
+  - `"default"` (or omitted) -- Standard EVM chains (Base, Optimism, etc.)
+  - `"tempo"` -- Tempo blockchain, uses `TempoNetwork` provider with 2D random nonces and pays gas in TIP-20 USDC.
 - **Ethereum MPT** -- OP Stack dispute game + Merkle Patricia Trie storage proofs for bridging to L1.
 
 ## How It Works
@@ -117,7 +119,8 @@ The relay is configured via a single JSON string passed through the `RELAY_CONFI
     "world_id_registry": "0x...",
     "oprf_key_registry": "0x...",
     "issuer_schema_registry": "0x...",
-    "bridge_interval_secs": 3600
+    "bridge_interval_secs": 3600,
+    "deployment_block": 27182479
   },
   "ethereum_mpt_gateways": [
     {
@@ -136,6 +139,13 @@ The relay is configured via a single JSON string passed through the `RELAY_CONFI
       "destination_chain_id": 8453,
       "gateway": "0x...",
       "satellite": "0x..."
+    },
+    {
+      "name": "TEMPO",
+      "destination_chain_id": 4217,
+      "gateway": "0x9384f9Ae863674953666aAC1027488d3a9CbE3f9",
+      "satellite": "0x1dD638cF594Cba6F3192e62029f6e0E2266B3716",
+      "chain_type": "tempo"
     }
   ]
 }
@@ -149,10 +159,12 @@ The relay is configured via a single JSON string passed through the `RELAY_CONFI
 | `source.oprf_key_registry` | required | `OprfKeyRegistry` proxy address |
 | `source.issuer_schema_registry` | required | `CredentialSchemaIssuerRegistry` proxy address |
 | `source.bridge_interval_secs` | `3600` | Seconds between periodic `propagateState()` calls |
+| `source.deployment_block` | `0` | Block number at which `WorldIDSource` was deployed; backfill starts here |
 | `permissioned_gateways[].name` | required | Satellite name (also derives `{NAME}_RPC_URL` env var) |
 | `permissioned_gateways[].destination_chain_id` | required | Destination chain ID |
 | `permissioned_gateways[].gateway` | required | ERC-7786 gateway address on destination chain |
 | `permissioned_gateways[].satellite` | required | `WorldIDSatellite` proxy address on destination chain |
+| `permissioned_gateways[].chain_type` | `"default"` | Blockchain type: `"default"` for standard EVM, `"tempo"` for Tempo |
 | `ethereum_mpt_gateways[].name` | required | Satellite name (also derives `{NAME}_RPC_URL` env var) |
 | `ethereum_mpt_gateways[].destination_chain_id` | required | Destination chain ID |
 | `ethereum_mpt_gateways[].gateway` | required | ERC-7786 gateway address on destination chain |

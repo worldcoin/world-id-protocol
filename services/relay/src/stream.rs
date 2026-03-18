@@ -144,6 +144,7 @@ pub async fn registry_stream(
         issuer_registry = %world_chain.credential_issuer_schema_registry().address(),
         oprf_registry = %world_chain.oprf_key_registry().address(),
         source = %world_chain.world_id_source().address(),
+        deployment_block = %world_chain.deployment_block(),
         poll_interval = ?POLL_INTERVAL,
         "subscribing to World Chain events (HTTP polling)"
     );
@@ -174,39 +175,91 @@ pub async fn registry_stream(
     Ok(poll_events(world_chain.provider().clone(), filters))
 }
 
+/// Maximum block range per `eth_getLogs` request during backfill.
+///
+/// Most RPC providers cap the range they'll scan in a single call (e.g.
+/// Alchemy defaults to 2 000 blocks). We chunk aggressively to stay well
+/// within limits and avoid timeouts.
+const BACKFILL_CHUNK_SIZE: u64 = 1000;
+
 /// Backfills the commitment log with historical `ChainCommitted` events.
 ///
-/// Only fetches from the `WorldIDSource` contract — registry events (roots,
-/// issuer keys, OPRF keys) are picked up by the live event stream.
+/// Fetches logs from the source contract's deployment block to the current
+/// head in chunks of [`BACKFILL_CHUNK_SIZE`] blocks. Only queries the
+/// `WorldIDSource` contract — registry events (roots, issuer keys, OPRF
+/// keys) are picked up by the live event stream.
 pub async fn backfill_commitments(world_chain: &WorldChain, log: &CommitmentLog) -> Result<()> {
-    let filter = Filter::new()
-        .address(*world_chain.world_id_source().address())
-        .event_signature(CHAIN_COMMITTED_EVENTS.to_vec())
-        .from_block(0u64);
+    let provider = world_chain.provider();
+    let source_address = *world_chain.world_id_source().address();
+    let event_sigs = CHAIN_COMMITTED_EVENTS.to_vec();
+    let deployment_block = world_chain.deployment_block();
 
-    tracing::info!("starting backfill of ChainCommitted events");
+    let latest = provider.get_block_number().await?;
+    tracing::info!(
+        latest_block = latest,
+        deployment_block,
+        "starting chunked backfill"
+    );
 
-    let logs = world_chain.provider().get_logs(&filter).await?;
-    tracing::debug!(count = logs.len(), "fetched ChainCommitted logs");
+    let mut from = deployment_block;
+    let mut total = 0usize;
+    let total_blocks = latest.saturating_sub(deployment_block);
+    let mut chunks_done = 0u64;
+    let total_chunks = total_blocks.div_ceil(BACKFILL_CHUNK_SIZE);
 
-    for raw_log in logs {
-        match decode_state_commitment(raw_log) {
-            Ok(StateCommitment::ChainCommitted(cc)) => {
-                tracing::debug!(
-                    block = cc.block_number,
-                    chain_head = %cc.chain_head,
-                    "backfill: replaying ChainCommitted"
-                );
-                if let Err(e) = log.commit_chained(Arc::new(cc)) {
-                    tracing::error!(error = %e, "backfill: failed to commit ChainCommitted");
+    while from <= latest {
+        let to = (from + BACKFILL_CHUNK_SIZE - 1).min(latest);
+
+        let filter = Filter::new()
+            .address(source_address)
+            .event_signature(event_sigs.clone())
+            .from_block(from)
+            .to_block(to);
+
+        let logs = provider.get_logs(&filter).await?;
+        chunks_done += 1;
+
+        let pct = if total_chunks > 0 {
+            (chunks_done * 100) / total_chunks
+        } else {
+            100
+        };
+
+        tracing::debug!(
+            from_block = from,
+            to_block = to,
+            events = logs.len(),
+            progress = %format!("{chunks_done}/{total_chunks} ({pct}%)"),
+            "backfill chunk"
+        );
+
+        for raw_log in logs {
+            match decode_state_commitment(raw_log) {
+                Ok(StateCommitment::ChainCommitted(cc)) => {
+                    tracing::debug!(
+                        block = cc.block_number,
+                        chain_head = %cc.chain_head,
+                        "backfill: replaying ChainCommitted"
+                    );
+                    if let Err(e) = log.commit_chained(Arc::new(cc)) {
+                        tracing::error!(error = %e, "backfill: failed to commit ChainCommitted");
+                    }
+                    total += 1;
                 }
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = %e, "backfill: failed to decode log"),
             }
-            Ok(_) => {}
-            Err(e) => tracing::warn!(error = %e, "backfill: failed to decode log"),
         }
+
+        from = to + 1;
     }
 
-    tracing::info!(chain_head = %log.head(), entries = log.len(), "backfill complete");
+    tracing::info!(
+        chain_head = %log.head(),
+        entries = total,
+        blocks_scanned = latest,
+        "backfill complete"
+    );
     Ok(())
 }
 

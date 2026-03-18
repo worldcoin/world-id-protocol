@@ -5,9 +5,12 @@ use serde::Deserialize;
 use alloy_primitives::Address;
 use world_id_services_common::{ProviderArgs, SignerArgs};
 
+use alloy::signers::local::PrivateKeySigner;
+use tempo_alloy::{TempoNetwork, provider::TempoProviderBuilderExt};
+
 use crate::{
     engine::Engine,
-    satellite::{EthereumMptSatellite, PermissionedSatellite},
+    satellite::{EthereumMptSatellite, PermissionedSatellite, TempoSatellite},
 };
 
 pub mod chain;
@@ -66,6 +69,13 @@ pub struct Cli {
 ///       "destination_chain_id": 84532,
 ///       "gateway": "0x...",
 ///       "satellite": "0x..."
+///     },
+///     {
+///       "name": "TEMPO",
+///       "destination_chain_id": 12345,
+///       "gateway": "0x...",
+///       "satellite": "0x...",
+///       "chain_type": "tempo"
 ///     }
 ///   ],
 ///   "ethereum_mpt_gateways": [
@@ -93,6 +103,7 @@ pub struct RelayConfig {
     /// Ethereum MPT gateway satellites (OP Stack dispute game + MPT proofs).
     #[serde(default)]
     pub ethereum_mpt_gateways: Option<Vec<EthereumMptGatewayConfig>>,
+
 }
 
 /// World Chain source configuration.
@@ -120,6 +131,11 @@ pub struct SourceConfig {
     /// Interval in seconds between periodic `propagateState` calls.
     #[serde(default = "default_bridge_interval")]
     pub bridge_interval_secs: u64,
+
+    /// Block number at which the WorldIDSource contract was deployed.
+    /// Backfill starts from this block instead of scanning from genesis.
+    #[serde(default)]
+    pub deployment_block: u64,
 }
 
 fn default_source_chain_id() -> u64 {
@@ -130,6 +146,19 @@ fn default_bridge_interval() -> u64 {
     3600
 }
 
+/// The blockchain type for a permissioned gateway, controlling provider and
+/// transaction construction.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChainType {
+    /// Standard EVM chain (default). Uses a regular Ethereum provider.
+    #[default]
+    Default,
+    /// Tempo blockchain. Uses `TempoNetwork` provider with 2D random nonces
+    /// and TIP-20 fee token for gas payment.
+    Tempo,
+}
+
 /// Configuration for a permissioned gateway satellite.
 ///
 /// Uses owner-attested chain head relayed from World Chain (no proofs required).
@@ -137,6 +166,8 @@ fn default_bridge_interval() -> u64 {
 ///
 /// The RPC endpoint is derived from the `name` field: the env var
 /// `{NAME}_RPC_URL` is read at startup (e.g. `BASE_SEPOLIA_RPC_URL`).
+///
+/// Set `"chain_type": "tempo"` for Tempo blockchain destinations.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PermissionedGatewayConfig {
     /// Satellite identifier, also used to derive the RPC URL env var.
@@ -153,6 +184,10 @@ pub struct PermissionedGatewayConfig {
 
     /// The WorldIDSatellite (bridge) proxy address on the destination chain.
     pub satellite: Address,
+
+    /// The blockchain type (default: standard EVM).
+    #[serde(default)]
+    pub chain_type: ChainType,
 }
 
 /// Configuration for an Ethereum MPT gateway satellite.
@@ -251,6 +286,7 @@ pub struct WorldChainConfig {
     pub credential_issuer_schema_registry: Address,
     pub world_id_registry: Address,
     pub bridge_interval: u64,
+    pub deployment_block: u64,
 }
 
 impl From<&SourceConfig> for WorldChainConfig {
@@ -262,6 +298,7 @@ impl From<&SourceConfig> for WorldChainConfig {
             credential_issuer_schema_registry: src.issuer_schema_registry,
             world_id_registry: src.world_id_registry,
             bridge_interval: src.bridge_interval_secs,
+            deployment_block: src.deployment_block,
         }
     }
 }
@@ -281,7 +318,7 @@ impl Cli {
         let wallet_key = std::env::var("WALLET_PRIVATE_KEY").map_err(|_| {
             eyre::eyre!("WALLET_PRIVATE_KEY env var is required for signing relay transactions")
         })?;
-        let shared_signer = SignerArgs::from_wallet(wallet_key);
+        let shared_signer = SignerArgs::from_wallet(wallet_key.clone());
 
         // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
         let wc_rpc_url = rpc_url_from_env(SOURCE_RPC_ENV)?;
@@ -298,23 +335,60 @@ impl Cli {
 
         // Spawn permissioned gateway satellites.
         for sat_config in config.permissioned_gateways.iter().flatten() {
-            let provider_args = satellite_provider_args(&sat_config.name, &shared_signer)?;
-            let provider = Arc::new(provider_args.http().await?);
+            match sat_config.chain_type {
+                ChainType::Default => {
+                    let provider_args =
+                        satellite_provider_args(&sat_config.name, &shared_signer)?;
+                    let provider = Arc::new(provider_args.http().await?);
 
-            let satellite = PermissionedSatellite::new(
-                &sat_config.name,
-                config.source.chain_id,
-                sat_config,
-                provider,
-            );
-            engine.spawn_satellite(satellite);
+                    let satellite = PermissionedSatellite::new(
+                        &sat_config.name,
+                        config.source.chain_id,
+                        sat_config,
+                        provider,
+                    );
+                    engine.spawn_satellite(satellite);
+                }
+                ChainType::Tempo => {
+                    let rpc_url = rpc_url_from_env(&sat_config.rpc_env_var())?;
+                    let signer: PrivateKeySigner = wallet_key.parse().map_err(|e| {
+                        eyre::eyre!(
+                            "failed to parse WALLET_PRIVATE_KEY for Tempo signer: {e}"
+                        )
+                    })?;
+
+                    // Standard Ethereum provider for contract reads (sol! bindings).
+                    let read_provider_args =
+                        satellite_provider_args(&sat_config.name, &shared_signer)?;
+                    let read_provider = Arc::new(read_provider_args.http().await?);
+
+                    // Tempo-typed provider for sending transactions with 2D nonces.
+                    let tempo_provider =
+                        alloy::providers::ProviderBuilder::new_with_network::<TempoNetwork>()
+                            .with_random_2d_nonces()
+                            .wallet(signer)
+                            .connect(&rpc_url)
+                            .await?;
+
+                    let satellite = TempoSatellite::new(
+                        &sat_config.name,
+                        config.source.chain_id,
+                        sat_config.gateway,
+                        sat_config.satellite,
+                        sat_config.destination_chain_id,
+                        read_provider,
+                        tempo_provider,
+                    );
+                    engine.spawn_satellite(satellite);
+                }
+            }
             satellite_count += 1;
 
             tracing::info!(
                 name = %sat_config.name,
-                adapter = "permissioned_worldchain",
+                adapter = ?sat_config.chain_type,
                 chain_id = sat_config.destination_chain_id,
-                "registered satellite"
+                "registered permissioned satellite"
             );
         }
 
@@ -388,6 +462,13 @@ mod tests {
                     "destination_chain_id": 84532,
                     "gateway": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                     "satellite": "0xffffffffffffffffffffffffffffffffffffffff"
+                },
+                {
+                    "name": "TEMPO",
+                    "destination_chain_id": 12345,
+                    "gateway": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "satellite": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "chain_type": "tempo"
                 }
             ]
         }"#;
@@ -409,9 +490,18 @@ mod tests {
         );
 
         let perm = config.permissioned_gateways.as_ref().unwrap();
-        assert_eq!(perm.len(), 1);
+        assert_eq!(perm.len(), 2);
+
+        // Standard EVM satellite
         assert_eq!(perm[0].name, "BASE_SEPOLIA");
         assert_eq!(perm[0].rpc_env_var(), "BASE_SEPOLIA_RPC_URL");
+        assert_eq!(perm[0].chain_type, ChainType::Default);
+
+        // Tempo satellite
+        assert_eq!(perm[1].name, "TEMPO");
+        assert_eq!(perm[1].rpc_env_var(), "TEMPO_RPC_URL");
+        assert_eq!(perm[1].destination_chain_id, 12345);
+        assert_eq!(perm[1].chain_type, ChainType::Tempo);
     }
 
     #[test]
