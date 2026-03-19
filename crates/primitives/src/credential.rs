@@ -1,23 +1,22 @@
-#[cfg(feature = "crypto")]
-use ark_babyjubjub::EdwardsAffine;
-#[cfg(feature = "crypto")]
-use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
-#[cfg(feature = "crypto")]
-use rand::Rng;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
-#[cfg(feature = "crypto")]
-use crate::sponge::hash_bytes_to_field_element;
 use crate::{FieldElement, PrimitiveError};
 
-/// Domain separation tag to avoid collisions with other Poseidon2 usages.
 #[cfg(feature = "crypto")]
-const ASSOCIATED_DATA_HASH_DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
+use {
+    crate::sponge::hash_bytes_to_field_element,
+    ark_babyjubjub::EdwardsAffine,
+    eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature},
+    rand::Rng,
+};
+
 #[cfg(feature = "crypto")]
-const CLAIMS_HASH_DS_TAG: &[u8] = b"CLAIMS_HASH_V1";
-#[cfg(feature = "crypto")]
-const SUB_DS_TAG: &[u8] = b"H_CS(id, r)";
+mod ds_tags {
+    pub const ASSOCIATED_DATA_HASH: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
+    pub const CLAIMS_HASH: &[u8] = b"CLAIMS_HASH_V1";
+    pub const SUB: &[u8] = b"H_CS(id, r)";
+}
 
 fn serialize_fixed_bytes<S, const N: usize>(
     bytes: &[u8; N],
@@ -428,7 +427,7 @@ impl Credential {
         if index >= self.claims.len() {
             return Err(PrimitiveError::OutOfBounds);
         }
-        self.claims[index] = hash_bytes_to_field_element(CLAIMS_HASH_DS_TAG, claim)?;
+        self.claims[index] = hash_bytes_to_field_element(ds_tags::CLAIMS_HASH, claim)?;
         Ok(self)
     }
     /// Set the associated data hash of the credential from a pre-computed hash.
@@ -457,7 +456,8 @@ impl Credential {
     /// Will error if the data is empty.
     #[cfg(feature = "crypto")]
     pub fn associated_data(mut self, data: &[u8]) -> Result<Self, PrimitiveError> {
-        self.associated_data_hash = hash_bytes_to_field_element(ASSOCIATED_DATA_HASH_DS_TAG, data)?;
+        self.associated_data_hash =
+            hash_bytes_to_field_element(ds_tags::ASSOCIATED_DATA_HASH, data)?;
         Ok(self)
     }
 
@@ -553,7 +553,7 @@ impl Credential {
     #[must_use]
     pub fn compute_sub(leaf_index: u64, blinding_factor: FieldElement) -> FieldElement {
         let mut input = [
-            *FieldElement::from_be_bytes_mod_order(SUB_DS_TAG),
+            *FieldElement::from_be_bytes_mod_order(ds_tags::SUB),
             leaf_index.into(),
             *blinding_factor,
         ];
@@ -632,7 +632,8 @@ mod tests {
         let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
         let credential = Credential::new().associated_data(&data).unwrap();
-        let direct_hash = hash_bytes_to_field_element(ASSOCIATED_DATA_HASH_DS_TAG, &data).unwrap();
+        let direct_hash =
+            hash_bytes_to_field_element(ds_tags::ASSOCIATED_DATA_HASH, &data).unwrap();
 
         assert_eq!(credential.associated_data_hash, direct_hash);
     }
@@ -651,7 +652,7 @@ mod tests {
         let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
         let credential = Credential::new().claim(0, &data).unwrap();
-        let direct_hash = hash_bytes_to_field_element(CLAIMS_HASH_DS_TAG, &data).unwrap();
+        let direct_hash = hash_bytes_to_field_element(ds_tags::CLAIMS_HASH, &data).unwrap();
 
         assert_eq!(credential.claims[0], direct_hash);
     }
