@@ -1,17 +1,82 @@
+#[cfg(feature = "crypto")]
 use ark_babyjubjub::EdwardsAffine;
+#[cfg(feature = "crypto")]
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
+#[cfg(feature = "crypto")]
 use rand::Rng;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
-use crate::{FieldElement, PrimitiveError, sponge::hash_bytes_to_field_element};
+#[cfg(feature = "crypto")]
+use crate::sponge::hash_bytes_to_field_element;
+use crate::{FieldElement, PrimitiveError};
 
 /// Domain separation tag to avoid collisions with other Poseidon2 usages.
+#[cfg(feature = "crypto")]
 const ASSOCIATED_DATA_HASH_DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
+#[cfg(feature = "crypto")]
 const CLAIMS_HASH_DS_TAG: &[u8] = b"CLAIMS_HASH_V1";
+#[cfg(feature = "crypto")]
 const SUB_DS_TAG: &[u8] = b"H_CS(id, r)";
 
-/// Version of the `Credential` object
+fn serialize_fixed_bytes<S, const N: usize>(
+    bytes: &[u8; N],
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if serializer.is_human_readable() {
+        serializer.serialize_str(&hex::encode(bytes))
+    } else {
+        serializer.serialize_bytes(bytes)
+    }
+}
+
+fn deserialize_fixed_bytes<'de, D, const N: usize>(
+    deserializer: D,
+    type_name: &str,
+) -> Result<[u8; N], D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let bytes = if deserializer.is_human_readable() {
+        hex::decode(String::deserialize(deserializer)?).map_err(de::Error::custom)?
+    } else {
+        Vec::<u8>::deserialize(deserializer)?
+    };
+
+    bytes
+        .try_into()
+        .map_err(|_| de::Error::custom(format!("Invalid {type_name}. Expected {N} bytes.")))
+}
+
+#[cfg(feature = "crypto")]
+fn deserialize_optional_fixed_bytes<'de, D, const N: usize>(
+    deserializer: D,
+    type_name: &str,
+) -> Result<Option<[u8; N]>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let bytes = if deserializer.is_human_readable() {
+        Option::<String>::deserialize(deserializer)?
+            .map(|value| hex::decode(value).map_err(de::Error::custom))
+            .transpose()?
+    } else {
+        Option::<Vec<u8>>::deserialize(deserializer)?
+    };
+
+    bytes
+        .map(|value| {
+            value
+                .try_into()
+                .map_err(|_| de::Error::custom(format!("Invalid {type_name}. Expected {N} bytes.")))
+        })
+        .transpose()
+}
+
+/// Version of the `Credential` object.
 #[derive(Default, Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum CredentialVersion {
@@ -22,6 +87,123 @@ pub enum CredentialVersion {
     /// - Scalar Field (`Fr`): `BabyJubJub` Scalar Field
     #[default]
     V1 = 1,
+}
+
+/// Opaque EdDSA public key (32 compressed bytes).
+///
+/// Serde-compatible with `EdDSAPublicKey` from the `eddsa-babyjubjub` crate.
+#[cfg(not(feature = "crypto"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct PublicKeyBytes([u8; 32]);
+
+#[cfg(not(feature = "crypto"))]
+impl PublicKeyBytes {
+    /// Creates an opaque public key from compressed bytes.
+    #[must_use]
+    pub const fn new(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    /// Returns the compressed public key bytes.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    /// Returns the compressed public key bytes by value.
+    #[must_use]
+    pub const fn into_bytes(self) -> [u8; 32] {
+        self.0
+    }
+}
+
+#[cfg(not(feature = "crypto"))]
+impl From<[u8; 32]> for PublicKeyBytes {
+    fn from(bytes: [u8; 32]) -> Self {
+        Self::new(bytes)
+    }
+}
+
+#[cfg(not(feature = "crypto"))]
+impl Serialize for PublicKeyBytes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_fixed_bytes(&self.0, serializer)
+    }
+}
+
+#[cfg(not(feature = "crypto"))]
+impl<'de> Deserialize<'de> for PublicKeyBytes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserialize_fixed_bytes(deserializer, "public key").map(Self)
+    }
+}
+
+/// Opaque EdDSA signature (64 compressed bytes).
+///
+/// Serde-compatible with `EdDSASignature` from the `eddsa-babyjubjub` crate.
+#[cfg(not(feature = "crypto"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SignatureBytes([u8; 64]);
+
+#[cfg(not(feature = "crypto"))]
+impl SignatureBytes {
+    /// Creates an opaque signature from compressed bytes.
+    #[must_use]
+    pub const fn new(bytes: [u8; 64]) -> Self {
+        Self(bytes)
+    }
+
+    /// Returns the compressed signature bytes.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 64] {
+        &self.0
+    }
+
+    /// Returns the compressed signature bytes by value.
+    #[must_use]
+    pub const fn into_bytes(self) -> [u8; 64] {
+        self.0
+    }
+}
+
+#[cfg(not(feature = "crypto"))]
+impl From<[u8; 64]> for SignatureBytes {
+    fn from(bytes: [u8; 64]) -> Self {
+        Self::new(bytes)
+    }
+}
+
+#[cfg(not(feature = "crypto"))]
+impl Default for SignatureBytes {
+    fn default() -> Self {
+        Self([0; 64])
+    }
+}
+
+#[cfg(not(feature = "crypto"))]
+impl Serialize for SignatureBytes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_fixed_bytes(&self.0, serializer)
+    }
+}
+
+#[cfg(not(feature = "crypto"))]
+impl<'de> Deserialize<'de> for SignatureBytes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserialize_fixed_bytes(deserializer, "signature").map(Self)
+    }
 }
 
 /// Base representation of a `Credential` in the World ID Protocol.
@@ -131,14 +313,23 @@ pub struct Credential {
     /// This hash is generally only used by the issuer.
     pub associated_data_hash: FieldElement,
     /// The signature of the credential (signed by the issuer's key)
+    #[cfg(feature = "crypto")]
     #[serde(serialize_with = "serialize_signature")]
     #[serde(deserialize_with = "deserialize_signature")]
     #[serde(default)]
     pub signature: Option<EdDSASignature>,
+    /// The signature of the credential (signed by the issuer's key)
+    #[cfg(not(feature = "crypto"))]
+    #[serde(default)]
+    pub signature: Option<SignatureBytes>,
     /// The public component of the issuer's key which signed the Credential.
+    #[cfg(feature = "crypto")]
     #[serde(serialize_with = "serialize_public_key")]
     #[serde(deserialize_with = "deserialize_public_key")]
     pub issuer: EdDSAPublicKey,
+    /// The public component of the issuer's key which signed the Credential.
+    #[cfg(not(feature = "crypto"))]
+    pub issuer: PublicKeyBytes,
 }
 
 impl Credential {
@@ -147,7 +338,8 @@ impl Credential {
 
     /// Initializes a new credential.
     ///
-    /// Note default fields occupy a sentinel value of `BaseField::zero()`
+    /// Default field elements use the zero sentinel.
+    #[cfg(feature = "crypto")]
     #[must_use]
     pub fn new() -> Self {
         let mut rng = rand::thread_rng();
@@ -231,6 +423,7 @@ impl Credential {
     ///
     /// # Errors
     /// Will error if the data is empty and if the index is out of bounds.
+    #[cfg(feature = "crypto")]
     pub fn claim(mut self, index: usize, claim: &[u8]) -> Result<Self, PrimitiveError> {
         if index >= self.claims.len() {
             return Err(PrimitiveError::OutOfBounds);
@@ -262,12 +455,14 @@ impl Credential {
     ///
     /// # Errors
     /// Will error if the data is empty.
+    #[cfg(feature = "crypto")]
     pub fn associated_data(mut self, data: &[u8]) -> Result<Self, PrimitiveError> {
         self.associated_data_hash = hash_bytes_to_field_element(ASSOCIATED_DATA_HASH_DS_TAG, data)?;
         Ok(self)
     }
 
     /// Get the credential domain separator for the given version.
+    #[cfg(feature = "crypto")]
     #[must_use]
     pub fn get_cred_ds(&self) -> FieldElement {
         match self.version {
@@ -280,6 +475,7 @@ impl Credential {
     /// # Errors
     /// Will error if there are more claims than the maximum allowed.
     /// Will error if the claims cannot be lowered into the field. Should not occur in practice.
+    #[cfg(feature = "crypto")]
     pub fn claims_hash(&self) -> Result<FieldElement, eyre::Error> {
         if self.claims.len() > Self::MAX_CLAIMS {
             eyre::bail!("There can be at most {} claims", Self::MAX_CLAIMS);
@@ -299,6 +495,7 @@ impl Credential {
     /// # Errors
     /// - Will error if there are more claims than the maximum allowed.
     /// - Will error if the claims cannot be lowered into the field. Should not occur in practice.
+    #[cfg(feature = "crypto")]
     pub fn hash(&self) -> Result<FieldElement, eyre::Error> {
         match self.version {
             CredentialVersion::V1 => {
@@ -322,6 +519,7 @@ impl Credential {
     ///
     /// # Errors
     /// Will error if the credential cannot be hashed.
+    #[cfg(feature = "crypto")]
     pub fn sign(self, signer: &EdDSAPrivateKey) -> Result<Self, eyre::Error> {
         let mut credential = self;
         credential.signature = Some(signer.sign(*credential.hash()?));
@@ -334,6 +532,7 @@ impl Credential {
     /// # Errors
     /// Will error if the credential is not signed.
     /// Will error if the credential cannot be hashed.
+    #[cfg(feature = "crypto")]
     pub fn verify_signature(
         &self,
         expected_issuer_pubkey: &EdDSAPublicKey,
@@ -350,6 +549,7 @@ impl Credential {
     }
 
     /// Compute the `sub` for a credential computed from `leaf_index` and a `blinding_factor`.
+    #[cfg(feature = "crypto")]
     #[must_use]
     pub fn compute_sub(leaf_index: u64, blinding_factor: FieldElement) -> FieldElement {
         let mut input = [
@@ -362,6 +562,7 @@ impl Credential {
     }
 }
 
+#[cfg(feature = "crypto")]
 impl Default for Credential {
     fn default() -> Self {
         Self::new()
@@ -370,6 +571,7 @@ impl Default for Credential {
 
 /// Serializes the signature as compressed bytes (encoding r and s concatenated)
 /// where `r` is compressed to a single coordinate. Result is hex-encoded.
+#[cfg(feature = "crypto")]
 #[expect(clippy::ref_option)]
 fn serialize_signature<S>(
     signature: &Option<EdDSASignature>,
@@ -384,40 +586,24 @@ where
     let sig = signature
         .to_compressed_bytes()
         .map_err(serde::ser::Error::custom)?;
-    if serializer.is_human_readable() {
-        serializer.serialize_str(&hex::encode(sig))
-    } else {
-        serializer.serialize_bytes(&sig)
-    }
+    serialize_fixed_bytes(&sig, serializer)
 }
 
+#[cfg(feature = "crypto")]
 fn deserialize_signature<'de, D>(deserializer: D) -> Result<Option<EdDSASignature>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let bytes: Option<Vec<u8>> = if deserializer.is_human_readable() {
-        Option::<String>::deserialize(deserializer)?
-            .map(|s| hex::decode(s).map_err(de::Error::custom))
-            .transpose()?
-    } else {
-        Option::<Vec<u8>>::deserialize(deserializer)?
-    };
-
-    let Some(bytes) = bytes else {
+    let Some(bytes) = deserialize_optional_fixed_bytes(deserializer, "signature")? else {
         return Ok(None);
     };
 
-    if bytes.len() != 64 {
-        return Err(de::Error::custom("Invalid signature. Expected 64 bytes."));
-    }
-
-    let mut arr = [0u8; 64];
-    arr.copy_from_slice(&bytes);
-    EdDSASignature::from_compressed_bytes(arr)
+    EdDSASignature::from_compressed_bytes(bytes)
         .map(Some)
         .map_err(de::Error::custom)
 }
 
+#[cfg(feature = "crypto")]
 fn serialize_public_key<S>(public_key: &EdDSAPublicKey, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -425,33 +611,19 @@ where
     let pk = public_key
         .to_compressed_bytes()
         .map_err(serde::ser::Error::custom)?;
-    if serializer.is_human_readable() {
-        serializer.serialize_str(&hex::encode(pk))
-    } else {
-        serializer.serialize_bytes(&pk)
-    }
+    serialize_fixed_bytes(&pk, serializer)
 }
 
+#[cfg(feature = "crypto")]
 fn deserialize_public_key<'de, D>(deserializer: D) -> Result<EdDSAPublicKey, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let bytes: Vec<u8> = if deserializer.is_human_readable() {
-        hex::decode(String::deserialize(deserializer)?).map_err(de::Error::custom)?
-    } else {
-        Vec::<u8>::deserialize(deserializer)?
-    };
-
-    if bytes.len() != 32 {
-        return Err(de::Error::custom("Invalid public key. Expected 32 bytes."));
-    }
-
-    let mut arr = [0u8; 32];
-    arr.copy_from_slice(&bytes);
-    EdDSAPublicKey::from_compressed_bytes(arr).map_err(de::Error::custom)
+    let bytes = deserialize_fixed_bytes(deserializer, "public key")?;
+    EdDSAPublicKey::from_compressed_bytes(bytes).map_err(de::Error::custom)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "crypto"))]
 mod tests {
     use super::*;
 
@@ -459,13 +631,9 @@ mod tests {
     fn test_associated_data_matches_direct_hash() {
         let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-        // Using the associated_data method
         let credential = Credential::new().associated_data(&data).unwrap();
-
-        // Using the hash function directly
         let direct_hash = hash_bytes_to_field_element(ASSOCIATED_DATA_HASH_DS_TAG, &data).unwrap();
 
-        // Both should produce the same hash
         assert_eq!(credential.associated_data_hash, direct_hash);
     }
 
@@ -475,7 +643,6 @@ mod tests {
 
         let credential = Credential::new().associated_data(&data).unwrap();
 
-        // Should have a non-zero associated data hash
         assert_ne!(credential.associated_data_hash, FieldElement::ZERO);
     }
 
@@ -483,13 +650,9 @@ mod tests {
     fn test_claim_matches_direct_hash() {
         let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-        // Using the claim method
         let credential = Credential::new().claim(0, &data).unwrap();
-
-        // Using the hash function directly
         let direct_hash = hash_bytes_to_field_element(CLAIMS_HASH_DS_TAG, &data).unwrap();
 
-        // Both should produce the same hash
         assert_eq!(credential.claims[0], direct_hash);
     }
 
@@ -499,7 +662,68 @@ mod tests {
 
         let credential = Credential::new().claim(1, &data).unwrap();
 
-        // Should have a non-zero claim hash
         assert_ne!(credential.claims[1], FieldElement::ZERO);
+    }
+}
+
+#[cfg(all(test, not(feature = "crypto")))]
+mod non_crypto_tests {
+    use super::*;
+
+    #[test]
+    fn test_credential_json_roundtrip() {
+        let credential = Credential {
+            id: 1,
+            version: CredentialVersion::V1,
+            issuer_schema_id: 2,
+            sub: FieldElement::from(3u64),
+            genesis_issued_at: 4,
+            expires_at: 5,
+            claims: vec![FieldElement::from(6u64), FieldElement::from(7u64)],
+            associated_data_hash: FieldElement::from(8u64),
+            signature: Some(SignatureBytes::new([0x22; 64])),
+            issuer: PublicKeyBytes::new([0x11; 32]),
+        };
+
+        let json = serde_json::to_value(&credential).unwrap();
+        assert_eq!(
+            json["issuer"],
+            serde_json::Value::String(hex::encode([0x11; 32]))
+        );
+        assert_eq!(
+            json["signature"],
+            serde_json::Value::String(hex::encode([0x22; 64]))
+        );
+
+        let roundtrip: Credential = serde_json::from_value(json).unwrap();
+        assert_eq!(roundtrip.issuer.as_bytes(), &[0x11; 32]);
+        assert_eq!(roundtrip.signature.unwrap().as_bytes(), &[0x22; 64]);
+        assert_eq!(roundtrip.claims, credential.claims);
+        assert_eq!(roundtrip.sub, credential.sub);
+    }
+
+    #[test]
+    fn test_credential_cbor_roundtrip() {
+        let credential = Credential {
+            id: 9,
+            version: CredentialVersion::V1,
+            issuer_schema_id: 10,
+            sub: FieldElement::from(11u64),
+            genesis_issued_at: 12,
+            expires_at: 13,
+            claims: vec![FieldElement::from(14u64)],
+            associated_data_hash: FieldElement::from(15u64),
+            signature: Some(SignatureBytes::new([0x44; 64])),
+            issuer: PublicKeyBytes::new([0x33; 32]),
+        };
+
+        let mut buffer = Vec::new();
+        ciborium::into_writer(&credential, &mut buffer).unwrap();
+
+        let roundtrip: Credential = ciborium::from_reader(&buffer[..]).unwrap();
+        assert_eq!(roundtrip.issuer.as_bytes(), &[0x33; 32]);
+        assert_eq!(roundtrip.signature.unwrap().as_bytes(), &[0x44; 64]);
+        assert_eq!(roundtrip.claims, credential.claims);
+        assert_eq!(roundtrip.sub, credential.sub);
     }
 }

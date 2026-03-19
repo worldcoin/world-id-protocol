@@ -107,6 +107,11 @@ jobs:
           CONTRACTS_PREBUILT: "1"
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+      - name: Run world-id-primitives clippy without crypto
+        env:
+          CONTRACTS_PREBUILT: "1"
+        run: cargo clippy -p world-id-primitives --no-default-features -- -D warnings
+
   msrv:
     name: MSRV
     needs: build-contracts
@@ -229,6 +234,11 @@ jobs:
           cargo test --doc --all-features --workspace
           cargo nextest run --profile ci -p world-id-core --no-default-features
           cargo test --doc -p world-id-core --no-default-features
+
+      - name: Run world-id-primitives tests without crypto
+        env:
+          CONTRACTS_PREBUILT: "1"
+        run: cargo nextest run --profile ci -p world-id-primitives --no-default-features
 
       - name: Clean up services
         run: |

@@ -11,42 +11,70 @@ rust-version.workspace = true
 repository.workspace = true
 
 [features]
+default = ["crypto"]
+crypto = [
+    "dep:alloy",
+    "dep:alloy-primitives",
+    "dep:ark-babyjubjub",
+    "dep:ark-bn254",
+    "dep:ark-ff",
+    "dep:ark-groth16",
+    "dep:ark-serde-compat",
+    "dep:arrayvec",
+    "dep:circom-types",
+    "dep:eddsa-babyjubjub",
+    "dep:eyre",
+    "dep:groth16-material",
+    "dep:k256",
+    "dep:poseidon2",
+    "dep:rand",
+    "dep:secrecy",
+    "dep:sha3",
+    "dep:strum",
+    "dep:taceo-groth16-sol",
+    "dep:taceo-oprf",
+    "dep:url",
+    "dep:uuid",
+    "dep:embed-doc-image",
+    "dep:serde_json",
+    "ruint/ark-ff-05",
+]
 # Enable OpenAPI schema derives for API types.
-openapi = ["dep:utoipa"]
+openapi = ["dep:utoipa", "crypto"]
 
 [dependencies]
-alloy = { workspace = true, features = ["sol-types", "signer-local"] }
+alloy = { workspace = true, features = ["sol-types", "signer-local"], optional = true }
 alloy-primitives = { workspace = true, default-features = false, features = [
     "serde",
     "std",
-] }
-ark-babyjubjub = { workspace = true }
-ark-bn254 = { workspace = true }
-ark-ff = { workspace = true }
-ark-groth16 = { workspace = true }
-ark-serde-compat = { workspace = true }
-arrayvec = { workspace = true, features = ["serde"] }
-circom-types = { workspace = true, features = ["groth16"] }
-groth16-material = { workspace = true, features = ["circom"] }
-eddsa-babyjubjub = { workspace = true }
-eyre = { workspace = true }
+], optional = true }
+ark-babyjubjub = { workspace = true, optional = true }
+ark-bn254 = { workspace = true, optional = true }
+ark-ff = { workspace = true, optional = true }
+ark-groth16 = { workspace = true, optional = true }
+ark-serde-compat = { workspace = true, optional = true }
+arrayvec = { workspace = true, features = ["serde"], optional = true }
+circom-types = { workspace = true, features = ["groth16"], optional = true }
+groth16-material = { workspace = true, features = ["circom"], optional = true }
+eddsa-babyjubjub = { workspace = true, optional = true }
+eyre = { workspace = true, optional = true }
 hex = { workspace = true }
-taceo-groth16-sol = { workspace = true }
-taceo-oprf = { workspace = true, features = ["types"] }
-ruint = { workspace = true, features = ["ark-ff-05"] }
-serde_json = { workspace = true }
+taceo-groth16-sol = { workspace = true, optional = true }
+taceo-oprf = { workspace = true, features = ["types"], optional = true }
+ruint = { workspace = true }
+serde_json = { workspace = true, optional = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-url = { workspace = true, features = ["serde"] }
-poseidon2 = { workspace = true }
-sha3 = { workspace = true, default-features = false }
-rand = { workspace = true }
-secrecy = { workspace = true }
-strum = { workspace = true, features = ["derive"] }
+url = { workspace = true, features = ["serde"], optional = true }
+poseidon2 = { workspace = true, optional = true }
+sha3 = { workspace = true, default-features = false, optional = true }
+rand = { workspace = true, optional = true }
+secrecy = { workspace = true, optional = true }
+strum = { workspace = true, features = ["derive"], optional = true }
 utoipa = { workspace = true, optional = true }
-uuid = { workspace = true, features = ["js"] }
-k256 = { workspace = true, features = ["ecdsa", "serde"] }
-embed-doc-image = "0.1.4"
+uuid = { workspace = true, features = ["js"], optional = true }
+k256 = { workspace = true, features = ["ecdsa", "serde"], optional = true }
+embed-doc-image = { version = "0.1.4", optional = true }
 
 # WASM support: getrandom needs 'js' feature in browsers
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -55,3 +83,4 @@ getrandom = { workspace = true, features = ["js"] }
 [dev-dependencies]
 ark-serialize = { workspace = true }
 ciborium = { workspace = true }
+serde_json = { workspace = true }

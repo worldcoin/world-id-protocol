@@ -3,88 +3,106 @@
 //! It implements basic primitives such as field elements, proofs, the format of requests and responses, etc.
 //!
 //! Importantly, this crate keeps dependencies to a minimum and does not implement any logic beyond serialization and deserialization.
+//!
+//! # Features
+//!
+//! `crypto` (default) enables the full crypto-backed API. Without it, the crate only exposes
+//! serde-compatible `FieldElement`, `Credential`, `CredentialVersion`, and `PrimitiveError`.
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 #![deny(clippy::all, clippy::nursery, missing_docs, dead_code)]
 #![allow(clippy::option_if_let_else)]
 
-use alloy_primitives::Keccak256;
-
-use ark_babyjubjub::Fq;
-use ark_ff::{AdditiveGroup, Field, PrimeField, UniformRand};
-use ruint::aliases::{U160, U256};
+use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
-use std::{
-    fmt,
-    ops::{Deref, DerefMut},
-    str::FromStr,
+use std::{fmt, str::FromStr};
+
+#[cfg(feature = "crypto")]
+use {
+    alloy_primitives::Keccak256,
+    ark_babyjubjub::Fq,
+    ark_ff::{AdditiveGroup, Field, PrimeField, UniformRand},
+    ruint::aliases::U160,
+    std::ops::{Deref, DerefMut},
 };
-
-/// Contains types related to the Authenticator.
-pub mod authenticator;
-
-/// Contains the global configuration for interacting with the World ID Protocol.
-mod config;
-pub use config::Config;
-
-/// Contains the raw circuit input types for the World ID Protocol.
-///
-/// These types are used to prepare the inputs for the Groth16 circuits.
-pub mod circuit_inputs;
-
-/// SAFE-style sponge utilities and helpers.
-pub mod sponge;
 
 /// Base definition of a "Credential" in the World ID Protocol.
 pub mod credential;
 pub use credential::{Credential, CredentialVersion};
 
-/// Contains base types for operations with Merkle trees.
-pub mod merkle;
-
+#[cfg(feature = "crypto")]
 /// Contains API request/response types and shared API enums.
 pub mod api_types;
-
+#[cfg(feature = "crypto")]
+/// Contains types related to the Authenticator.
+pub mod authenticator;
+#[cfg(feature = "crypto")]
+/// Contains the raw circuit input types for the World ID Protocol.
+pub mod circuit_inputs;
+#[cfg(feature = "crypto")]
+/// Contains base types for operations with Merkle trees.
+pub mod merkle;
+#[cfg(feature = "crypto")]
 /// Contains types specifically related to the OPRF services.
 pub mod oprf;
-
-/// A nullifier is a unique, one-time identifier. See [`Nullifier`] for more details.
-mod nullifier;
-pub use nullifier::Nullifier;
-
-/// Contains types relevant for Session Proofs.
-mod session;
-pub use session::{SessionFeType, SessionFieldElement, SessionId, SessionNullifier};
-
+#[cfg(feature = "crypto")]
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;
-pub use proof::ZeroKnowledgeProof;
-
-/// Contains types specifically related to relying parties.
-pub mod rp;
-
-pub mod serde_utils;
-
-/// Contains signer primitives for on-chain and off-chain signatures.
-mod signer;
-pub use signer::Signer;
-
+#[cfg(feature = "crypto")]
 /// Contains request/response types and validation helpers for RP proof requests.
 pub mod request;
-pub use request::{
-    ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES, ProofRequest,
-    ProofResponse, RequestItem, RequestVersion, ResponseItem, ValidationError,
+#[cfg(feature = "crypto")]
+/// Contains types specifically related to relying parties.
+pub mod rp;
+#[cfg(feature = "crypto")]
+/// Serialization utilities for numeric API values across the protocol.
+pub mod serde_utils;
+#[cfg(feature = "crypto")]
+/// SAFE-style sponge utilities and helpers.
+pub mod sponge;
+
+#[cfg(feature = "crypto")]
+/// Contains the global configuration for interacting with the World ID Protocol.
+mod config;
+#[cfg(feature = "crypto")]
+/// A nullifier is a unique, one-time identifier.
+mod nullifier;
+#[cfg(feature = "crypto")]
+/// Contains types relevant for Session Proofs.
+mod session;
+#[cfg(feature = "crypto")]
+/// Contains signer primitives for on-chain and off-chain signatures.
+mod signer;
+
+#[cfg(feature = "crypto")]
+pub use {
+    config::Config,
+    eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature},
+    nullifier::Nullifier,
+    proof::ZeroKnowledgeProof,
+    request::{
+        ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES, ProofRequest,
+        ProofResponse, RequestItem, RequestVersion, ResponseItem, ValidationError,
+    },
+    session::{SessionFeType, SessionFieldElement, SessionId, SessionNullifier},
+    signer::Signer,
+    taceo_oprf::types::{OprfKeyId, ShareEpoch},
 };
 
-pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
-pub use taceo_oprf::types::{OprfKeyId, ShareEpoch};
-
-/// The scalar field used in the World ID Protocol.
-///
-/// This is the scalar field of the `BabyJubJub` curve.
+/// The scalar field used in the World ID Protocol (`BabyJubJub` scalar field).
+#[cfg(feature = "crypto")]
 pub type ScalarField = ark_babyjubjub::Fr;
 
 /// The depth of the Merkle tree used in the World ID Protocol for the `WorldIDRegistry` contract.
 pub const TREE_DEPTH: usize = 30;
+
+/// The BN254 scalar field modulus (= BabyJubJub base field modulus).
+///
+/// Used for field membership validation when the `crypto` feature is disabled.
+#[cfg(not(feature = "crypto"))]
+const BN254_SCALAR_FIELD_MODULUS: U256 = U256::from_be_bytes([
+    0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
+    0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x97, 0x09, 0x14, 0x3e, 0x1f, 0x59, 0x3f, 0x00, 0x00, 0x01,
+]);
 
 /// Represents a field element of the base field (`Fq`) in the World ID Protocol.
 ///
@@ -94,19 +112,43 @@ pub const TREE_DEPTH: usize = 30;
 /// This wrapper ensures consistent serialization and deserialization of field elements, where
 /// string-based serialization is done with hex encoding and binary serialization is done with byte vectors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct FieldElement(Fq);
+pub struct FieldElement(
+    #[cfg(feature = "crypto")] Fq,
+    #[cfg(not(feature = "crypto"))] [u8; 32],
+);
 
 impl FieldElement {
     /// The additive identity of the field.
-    pub const ZERO: Self = Self(Fq::ZERO);
+    pub const ZERO: Self = Self(
+        #[cfg(feature = "crypto")]
+        Fq::ZERO,
+        #[cfg(not(feature = "crypto"))]
+        [0u8; 32],
+    );
     /// The multiplicative identity of the field.
-    pub const ONE: Self = Self(Fq::ONE);
+    pub const ONE: Self = Self(
+        #[cfg(feature = "crypto")]
+        Fq::ONE,
+        #[cfg(not(feature = "crypto"))]
+        [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 1,
+        ],
+    );
 
     /// Returns the 32-byte big-endian representation of this field element.
     #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // not const when `crypto` is enabled
     pub fn to_be_bytes(&self) -> [u8; 32] {
-        let as_num: U256 = self.to_u256();
-        as_num.to_be_bytes()
+        #[cfg(feature = "crypto")]
+        {
+            let as_num: U256 = self.to_u256();
+            as_num.to_be_bytes()
+        }
+        #[cfg(not(feature = "crypto"))]
+        {
+            self.0
+        }
     }
 
     /// Constructs a field element from a 32-byte big-endian representation.
@@ -116,7 +158,32 @@ impl FieldElement {
     /// # Errors
     /// Returns [`PrimitiveError::NotInField`] if the value is >= the field modulus.
     pub fn from_be_bytes(be_bytes: &[u8; 32]) -> Result<Self, PrimitiveError> {
-        U256::from_be_bytes(*be_bytes).try_into()
+        #[cfg(feature = "crypto")]
+        {
+            U256::from_be_bytes(*be_bytes).try_into()
+        }
+        #[cfg(not(feature = "crypto"))]
+        {
+            let val = U256::from_be_bytes(*be_bytes);
+            if val >= BN254_SCALAR_FIELD_MODULUS {
+                return Err(PrimitiveError::NotInField);
+            }
+            Ok(Self(*be_bytes))
+        }
+    }
+
+    /// Converts the field element to a `U256`.
+    #[must_use]
+    #[allow(clippy::missing_const_for_fn)] // not const when `crypto` is enabled
+    pub fn to_u256(&self) -> U256 {
+        #[cfg(feature = "crypto")]
+        {
+            self.0.into()
+        }
+        #[cfg(not(feature = "crypto"))]
+        {
+            U256::from_be_bytes(self.0)
+        }
     }
 
     /// Deserializes a field element from a big-endian byte slice.
@@ -124,6 +191,7 @@ impl FieldElement {
     /// # Warning
     /// Use this function carefully. This function will perform modulo reduction on the input, which may
     /// lead to unexpected results if the input should not be reduced.
+    #[cfg(feature = "crypto")]
     #[must_use]
     pub(crate) fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
         let field_element = Fq::from_be_bytes_mod_order(bytes);
@@ -132,6 +200,7 @@ impl FieldElement {
 
     /// Takes arbitrary raw bytes, hashes them with a byte-friendly gas-efficient hash function
     /// and reduces it to a field element.
+    #[cfg(feature = "crypto")]
     #[must_use]
     pub fn from_arbitrary_raw_bytes(bytes: &[u8]) -> Self {
         let mut hasher = Keccak256::new();
@@ -150,23 +219,18 @@ impl FieldElement {
                 "due to the byte reduction, the value is guaranteed to be within the field"
             ),
         }
-
-        // FIXME: add unit tests
     }
 
     /// Generates a random field element using the system's CSPRNG.
+    #[cfg(feature = "crypto")]
     #[must_use]
     pub fn random<R: rand::CryptoRng + rand::RngCore>(rng: &mut R) -> Self {
         let field_element = Fq::rand(rng);
         Self(field_element)
     }
-
-    /// Converts the field element to a `U256`.
-    pub fn to_u256(&self) -> U256 {
-        self.0.into()
-    }
 }
 
+#[cfg(feature = "crypto")]
 impl Deref for FieldElement {
     type Target = Fq;
     fn deref(&self) -> &Self::Target {
@@ -174,6 +238,7 @@ impl Deref for FieldElement {
     }
 }
 
+#[cfg(feature = "crypto")]
 impl DerefMut for FieldElement {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
@@ -205,6 +270,7 @@ impl fmt::Display for FieldElement {
     }
 }
 
+#[cfg(feature = "crypto")]
 impl From<Fq> for FieldElement {
     fn from(value: Fq) -> Self {
         Self(value)
@@ -214,13 +280,24 @@ impl From<Fq> for FieldElement {
 impl TryFrom<U256> for FieldElement {
     type Error = PrimitiveError;
     fn try_from(value: U256) -> Result<Self, Self::Error> {
-        Ok(Self(
-            value.try_into().map_err(|_| PrimitiveError::NotInField)?,
-        ))
+        #[cfg(feature = "crypto")]
+        {
+            Ok(Self(
+                value.try_into().map_err(|_| PrimitiveError::NotInField)?,
+            ))
+        }
+        #[cfg(not(feature = "crypto"))]
+        {
+            if value >= BN254_SCALAR_FIELD_MODULUS {
+                return Err(PrimitiveError::NotInField);
+            }
+            Ok(Self(value.to_be_bytes()))
+        }
     }
 }
 
 // safe because U160 is guaranteed to be less than the field modulus.
+#[cfg(feature = "crypto")]
 impl From<U160> for FieldElement {
     fn from(value: U160) -> Self {
         // convert U160 to U256 to reuse existing implementations
@@ -232,26 +309,47 @@ impl From<U160> for FieldElement {
 
 impl From<FieldElement> for U256 {
     fn from(value: FieldElement) -> Self {
-        <Self as From<Fq>>::from(value.0)
+        #[cfg(feature = "crypto")]
+        {
+            <Self as From<Fq>>::from(value.0)
+        }
+        #[cfg(not(feature = "crypto"))]
+        {
+            Self::from_be_bytes(value.0)
+        }
     }
 }
 
 impl From<u64> for FieldElement {
     fn from(value: u64) -> Self {
-        Self(Fq::from(value))
+        #[cfg(feature = "crypto")]
+        {
+            Self(Fq::from(value))
+        }
+        #[cfg(not(feature = "crypto"))]
+        {
+            Self(U256::from(value).to_be_bytes())
+        }
     }
 }
 
 impl From<u128> for FieldElement {
     fn from(value: u128) -> Self {
-        Self(Fq::from(value))
+        #[cfg(feature = "crypto")]
+        {
+            Self(Fq::from(value))
+        }
+        #[cfg(not(feature = "crypto"))]
+        {
+            Self(U256::from(value).to_be_bytes())
+        }
     }
 }
 
 impl TryFrom<FieldElement> for u64 {
     type Error = PrimitiveError;
     fn try_from(value: FieldElement) -> Result<Self, Self::Error> {
-        let u256 = <U256 as From<Fq>>::from(value.0);
+        let u256: U256 = value.into();
         u256.try_into().map_err(|_| PrimitiveError::OutOfBounds)
     }
 }
@@ -259,7 +357,7 @@ impl TryFrom<FieldElement> for u64 {
 impl TryFrom<FieldElement> for usize {
     type Error = PrimitiveError;
     fn try_from(value: FieldElement) -> Result<Self, Self::Error> {
-        let u256 = <U256 as From<Fq>>::from(value.0);
+        let u256: U256 = value.into();
         u256.try_into().map_err(|_| PrimitiveError::OutOfBounds)
     }
 }
@@ -354,6 +452,7 @@ mod tests {
             "\"0x0000000000000000000000000000000000000000000000000000000000000000\""
         );
 
+        #[cfg(feature = "crypto")]
         assert_eq!(*FieldElement::ONE, Fq::ONE);
     }
 
