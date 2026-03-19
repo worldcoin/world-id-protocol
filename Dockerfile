@@ -47,12 +47,6 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json --package $SERVICE_NAME
 COPY . .
 
-# Contract ABI JSON files (crates/*/abi/*.json) are committed to the repository and
-# are already present after COPY above. Running `make sol-build` here is unnecessary
-# for a --release build: world-id-test-utils (the only crate whose build.rs invokes
-# forge) is a [dev-dependencies] entry and is never compiled in release mode.
-# Removing this step prevents every source-code change from busting the forge layer.
-
 ARG GIT_HASH
 ENV GIT_HASH=$GIT_HASH
 
