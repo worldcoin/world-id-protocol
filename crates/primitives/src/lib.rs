@@ -29,49 +29,29 @@ use {
 pub mod credential;
 pub use credential::{Credential, CredentialVersion};
 
+/// All crypto-dependent modules, gated behind a single `#[cfg]`.
 #[cfg(feature = "crypto")]
-/// Contains API request/response types and shared API enums.
-pub mod api_types;
-#[cfg(feature = "crypto")]
-/// Contains types related to the Authenticator.
-pub mod authenticator;
-#[cfg(feature = "crypto")]
-/// Contains the raw circuit input types for the World ID Protocol.
-pub mod circuit_inputs;
-#[cfg(feature = "crypto")]
-/// Contains base types for operations with Merkle trees.
-pub mod merkle;
-#[cfg(feature = "crypto")]
-/// Contains types specifically related to the OPRF services.
-pub mod oprf;
-#[cfg(feature = "crypto")]
-/// Contains the quintessential zero-knowledge proof type.
-pub mod proof;
-#[cfg(feature = "crypto")]
-/// Contains request/response types and validation helpers for RP proof requests.
-pub mod request;
-#[cfg(feature = "crypto")]
-/// Contains types specifically related to relying parties.
-pub mod rp;
-#[cfg(feature = "crypto")]
-/// Serialization utilities for numeric API values across the protocol.
-pub mod serde_utils;
-#[cfg(feature = "crypto")]
-/// SAFE-style sponge utilities and helpers.
-pub mod sponge;
+#[path = "."]
+#[allow(missing_docs)]
+mod crypto {
+    pub mod api_types;
+    pub mod authenticator;
+    pub mod circuit_inputs;
+    pub mod config;
+    pub mod merkle;
+    pub mod nullifier;
+    pub mod oprf;
+    pub mod proof;
+    pub mod request;
+    pub mod rp;
+    pub mod serde_utils;
+    pub mod session;
+    pub mod signer;
+    pub mod sponge;
+}
 
 #[cfg(feature = "crypto")]
-/// Contains the global configuration for interacting with the World ID Protocol.
-mod config;
-#[cfg(feature = "crypto")]
-/// A nullifier is a unique, one-time identifier.
-mod nullifier;
-#[cfg(feature = "crypto")]
-/// Contains types relevant for Session Proofs.
-mod session;
-#[cfg(feature = "crypto")]
-/// Contains signer primitives for on-chain and off-chain signatures.
-mod signer;
+pub use crypto::*;
 
 #[cfg(feature = "crypto")]
 pub use {
