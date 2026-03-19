@@ -38,10 +38,9 @@ use world_id_primitives::oprf::OprfModule;
 use crate::{
     auth::{
         credential_blinding_factor::CredentialBlindingFactorOprfRequestAuthenticator,
-        merkle_watcher::MerkleWatcher, nullifier::NullifierOprfRequestAuthenticator,
-        rp_registry_watcher::RpRegistryWatcher,
+        merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
+        nullifier::NullifierOprfRequestAuthenticator, rp_registry_watcher::RpRegistryWatcher,
         schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
-        signature_history::SignatureHistory,
     },
     config::WorldOprfNodeConfig,
 };
@@ -154,9 +153,9 @@ pub async fn start(
     .await
     .context("while starting merkle watcher")?;
 
-    tracing::info!("init SignatureHistory..");
+    tracing::info!("init NonceHistory..");
     // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
-    let signature_history = SignatureHistory::init(
+    let nonce_history = NonceHistory::init(
         config.current_time_stamp_max_difference * 2,
         config.cache_maintenance_interval,
     );
@@ -165,7 +164,7 @@ pub async fn start(
     let nullifier_oprf_req_auth_service = Arc::new(NullifierOprfRequestAuthenticator::init(
         merkle_watcher.clone(),
         rp_registry_watcher.clone(),
-        signature_history,
+        nonce_history,
         config.current_time_stamp_max_difference,
     ));
 
