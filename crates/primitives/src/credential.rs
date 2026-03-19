@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use crate::{FieldElement, PrimitiveError, sponge::hash_bytes_to_field_element};
 
 /// Domain separation tag to avoid collisions with other Poseidon2 usages.
-const ASSOCIATED_DATA_HASH_DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
+const ASSOCIATED_DATA_COMMITMENT_DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
 const CLAIMS_HASH_DS_TAG: &[u8] = b"CLAIMS_HASH_V1";
 const SUB_DS_TAG: &[u8] = b"H_CS(id, r)";
 
@@ -277,7 +277,7 @@ impl Credential {
         data: &[u8],
     ) -> Result<Self, PrimitiveError> {
         self.associated_data_commitment =
-            hash_bytes_to_field_element(ASSOCIATED_DATA_HASH_DS_TAG, data)?;
+            hash_bytes_to_field_element(ASSOCIATED_DATA_COMMITMENT_DS_TAG, data)?;
         Ok(self)
     }
 
@@ -506,7 +506,8 @@ mod tests {
             .unwrap();
 
         // Using the hash function directly
-        let direct_hash = hash_bytes_to_field_element(ASSOCIATED_DATA_HASH_DS_TAG, &data).unwrap();
+        let direct_hash =
+            hash_bytes_to_field_element(ASSOCIATED_DATA_COMMITMENT_DS_TAG, &data).unwrap();
 
         // Both should produce the same hash
         assert_eq!(credential.associated_data_commitment, direct_hash);
