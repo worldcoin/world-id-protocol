@@ -15,7 +15,7 @@ use taceo_oprf::{
 };
 
 use world_id_primitives::{
-    FieldElement, ProofRequest, SessionFieldElement, TREE_DEPTH,
+    FieldElement, ProofRequest, SessionFeType, SessionFieldElement, TREE_DEPTH,
     circuit_inputs::QueryProofCircuitInput,
     oprf::{CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule},
 };
@@ -148,7 +148,7 @@ impl<'a> OprfEntrypoint<'a> {
         let action = if proof_request.is_session_proof() {
             // For session proofs a random action is used internally. This is opaque to RPs who receive
             // it within the encoded `SessionNullifier`
-            FieldElement::random_for_session(rng)
+            FieldElement::random_for_session(rng, SessionFeType::Action)
         } else {
             // If the RP didn't provide an action, we provide a default.
             proof_request.action.unwrap_or(FieldElement::ZERO)
