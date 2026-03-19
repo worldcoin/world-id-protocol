@@ -175,6 +175,7 @@ fn make_satellite(
         destination_chain_id: 31337,
         gateway,
         satellite: satellite_proxy,
+        chain_type: Default::default(),
     };
     Ok(PermissionedSatellite::new(
         "test-permissioned",
@@ -421,6 +422,7 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
         credential_issuer_schema_registry: credential_registry,
         world_id_registry,
         bridge_interval: 1,
+        deployment_block: 0,
     };
 
     let world_chain = WorldChain::new(&wc_config, shared_provider.clone());
@@ -432,6 +434,7 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
         destination_chain_id: 31337,
         gateway,
         satellite: satellite_proxy,
+        chain_type: Default::default(),
     };
     let satellite = PermissionedSatellite::new(
         "test-permissioned",
