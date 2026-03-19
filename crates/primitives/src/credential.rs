@@ -137,6 +137,7 @@ pub struct Credential {
     ///
     /// This commitment is only for issuer use.
     #[serde(alias = "associated_data_hash")]
+    // this was previously named `associated_data_hash`; fallback will be removed in the next version
     pub associated_data_commitment: FieldElement,
     /// The signature of the credential (signed by the issuer's key)
     #[serde(serialize_with = "serialize_signature")]
@@ -293,10 +294,10 @@ impl Credential {
         self.associated_data_commitment(associated_data_commitment)
     }
 
-    /// Set the associated data hash by hashing arbitrary bytes using Poseidon2.
+    /// Set the associated data commitment by hashing arbitrary bytes using Poseidon2.
     ///
     /// This method accepts arbitrary bytes, converts them to field elements,
-    /// applies a Poseidon2 hash, and stores the result as the associated data hash.
+    /// applies a Poseidon2 hash, and stores the result as the associated data commitment.
     ///
     /// # Arguments
     /// * `data` - Arbitrary bytes to hash (any length).
