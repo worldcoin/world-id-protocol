@@ -3,11 +3,11 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     AppState,
     batch_policy::{BaseFeeCache, spawn_base_fee_sampler},
-    batcher::BatcherHandle,
+    batcher::{
+        BatcherHandle, CreateBatcherHandle, CreateBatcherRunner, OpsBatcherHandle, OpsBatcherRunner,
+    },
     config::{BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig},
-    create_batcher::{CreateBatcherHandle, CreateBatcherRunner},
-    error::{GatewayErrorBody, GatewayResult},
-    ops_batcher::{OpsBatcherHandle, OpsBatcherRunner},
+    error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
     orphan_sweeper::run_orphan_sweeper,
     request::GatewayContext,
     request_tracker::RequestTracker,
@@ -68,7 +68,13 @@ pub(crate) async fn build_app(
     orphan_sweeper_config: OrphanSweeperConfig,
     batch_policy_config: BatchPolicyConfig,
 ) -> GatewayResult<Router> {
-    let tracker = RequestTracker::new(redis_url, rate_limit).await;
+    let tracker = RequestTracker::new(
+        redis_url,
+        rate_limit,
+        // Timeout for receirpt polling tasks. Same as sweeper timeout for submitted transactions.
+        orphan_sweeper_config.stale_submitted_threshold_secs,
+    )
+    .await;
     let base_fee_cache = BaseFeeCache::default();
 
     spawn_base_fee_sampler(
@@ -149,6 +155,7 @@ pub(crate) async fn build_app(
         .layer(from_fn(middleware::request_id_middleware))
         .layer(world_id_services_common::timeout_layer(
             request_timeout_secs,
+            GatewayErrorResponse::request_timeout(request_timeout_secs),
         ))
         .layer(world_id_services_common::trace_layer()))
 }

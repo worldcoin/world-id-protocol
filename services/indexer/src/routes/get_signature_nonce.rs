@@ -10,8 +10,6 @@ use crate::config::AppState;
 ///
 /// Returns the current signature nonce for a given World ID based on its leaf index. The nonce is
 /// used to perform on-chain operations for the World ID.
-///
-/// If the provided leaf index is invalid, the nonce will still be returned as zero.
 #[utoipa::path(
     post,
     path = "/signature-nonce",
@@ -29,6 +27,22 @@ pub(crate) async fn handler(
         return Err(IndexerErrorResponse::bad_request(
             IndexerErrorCode::InvalidLeafIndex,
             "Account index cannot be zero".to_string(),
+        ));
+    }
+
+    if !state
+        .db
+        .accounts()
+        .get_account_exists(req.leaf_index)
+        .await
+        .map_err(|e| {
+            tracing::error!("DB error checking account existence: {}", e);
+            IndexerErrorResponse::internal_server_error()
+        })?
+    {
+        return Err(IndexerErrorResponse::bad_request(
+            IndexerErrorCode::AccountDoesNotExist,
+            "Leaf index does not exist.".to_string(),
         ));
     }
 

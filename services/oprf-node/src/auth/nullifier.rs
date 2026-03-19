@@ -17,7 +17,7 @@ use world_id_primitives::oprf::NullifierOprfRequestAuthV1;
 /// Errors returned by the [`NullifierOprfReqAuthenticator`].
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum NullifierOprfRequestAuthError {
-    /// An error returned from the RpRegistry watcher service during merkle look-up.
+    /// An error returned from the `RpRegistry` watcher service during merkle look-up.
     #[error(transparent)]
     RpRegistryWatcherError(#[from] RpRegistryWatcherError),
     /// The current time stamp difference between client and service is larger than allowed.
@@ -128,6 +128,8 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
             request.auth.nonce,
             request.auth.current_time_stamp,
             request.auth.expiration_timestamp,
+            // Note that for this nullifier route, the requested action MUST always be signed
+            Some(request.auth.action),
         );
 
         let recovered = request.auth.signature.recover_address_from_msg(&msg)?;
@@ -160,6 +162,7 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::large_futures, reason = "Is ok in tests")]
     use std::time::Duration;
 
     use alloy::signers::local::LocalSigner;
@@ -237,7 +240,8 @@ mod tests {
                 current_time_stamp_max_difference,
             );
 
-            let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
+            let query_material = world_id_core::proof::load_embedded_query_material()
+                .expect("Can load query material");
 
             let query_blinding_factor = BlindingFactor::rand(&mut rng);
 
@@ -269,7 +273,7 @@ mod tests {
                 action: setup.rp_fixture.action,
                 nonce: setup.rp_fixture.nonce,
             };
-            let _ = errors::check_query_input_validity(&query_proof_input)?;
+            let _affine = errors::check_query_input_validity(&query_proof_input)?;
 
             let (proof, public_inputs) =
                 query_material.generate_proof(&query_proof_input, &mut rng)?;
@@ -288,10 +292,8 @@ mod tests {
 
             let request_id = Uuid::new_v4();
 
-            let blinded_request = taceo_oprf::core::oprf::client::blind_query(
-                *query_hash,
-                query_blinding_factor.clone(),
-            );
+            let blinded_request =
+                taceo_oprf::core::oprf::client::blind_query(*query_hash, query_blinding_factor);
 
             let request = OprfRequest {
                 request_id,
@@ -325,7 +327,7 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
+            .expect_err("Should fail");
         assert!(matches!(
             err,
             NullifierOprfRequestAuthError::TimeStampDifference
@@ -341,7 +343,7 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
+            .expect_err("Should fail");
         assert!(matches!(
             err,
             NullifierOprfRequestAuthError::Common(OprfRequestAuthError::InvalidMerkleRoot)
@@ -358,12 +360,12 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
+            .expect_err("Should fail");
         assert!(matches!(
             err,
             NullifierOprfRequestAuthError::RpRegistryWatcherError(
                 RpRegistryWatcherError::AlloyError(err)
-            ) if matches!(err.as_decoded_interface_error::<RpRegistryErrors>().unwrap(), RpRegistryErrors::RpIdDoesNotExist(RpIdDoesNotExist))
+            ) if matches!(err.as_decoded_interface_error::<RpRegistryErrors>().expect("Can decode to RpRegistryError"), RpRegistryErrors::RpIdDoesNotExist(RpIdDoesNotExist))
         ));
         Ok(())
     }
@@ -376,7 +378,7 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
+            .expect_err("Should fail");
         assert!(matches!(err, NullifierOprfRequestAuthError::InvalidSigner));
         Ok(())
     }
@@ -389,7 +391,7 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
+            .expect_err("Should fail");
         assert!(matches!(
             err,
             NullifierOprfRequestAuthError::Common(OprfRequestAuthError::InvalidProof)
@@ -408,7 +410,7 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
+            .expect_err("Should fail");
         assert!(matches!(
             err,
             NullifierOprfRequestAuthError::DuplicateSignatureError(DuplicateSignatureError)
@@ -440,12 +442,12 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
+            .expect_err("Should fail");
         assert!(matches!(
             err,
             NullifierOprfRequestAuthError::RpRegistryWatcherError(
                 RpRegistryWatcherError::AlloyError(err)
-            ) if matches!(err.as_decoded_interface_error::<RpRegistryErrors>().unwrap(), RpRegistryErrors::RpIdInactive(RpIdInactive))
+            ) if matches!(err.as_decoded_interface_error::<RpRegistryErrors>().expect("Can decode to RpRegistryError"), RpRegistryErrors::RpIdInactive(RpIdInactive))
         ));
         Ok(())
     }

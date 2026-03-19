@@ -83,8 +83,8 @@ pub async fn sweep_once(
                         .set_status(
                             id,
                             GatewayRequestState::failed(
-                                "request orphaned (gateway replica lost before submission)",
-                                Some(GatewayErrorCode::ConfirmationError),
+                                "request timed out in queued state due to unexpected error",
+                                Some(GatewayErrorCode::InternalServerError),
                             ),
                         )
                         .await;
@@ -111,7 +111,7 @@ pub async fn sweep_once(
                         id,
                         GatewayRequestState::failed(
                             format!("corrupt tx_hash in request record: {tx_hash}"),
-                            Some(GatewayErrorCode::ConfirmationError),
+                            Some(GatewayErrorCode::InternalServerError),
                         ),
                     )
                     .await;

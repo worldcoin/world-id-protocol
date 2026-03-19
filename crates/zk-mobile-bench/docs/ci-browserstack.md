@@ -2,23 +2,23 @@
 
 ## Architecture
 
-The benchmark CI uses a thin caller workflow in this repository that delegates to a
-reusable workflow from `worldcoin/mobile-bench-rs`:
+The benchmark CI now uses the vendored stateless `mobench` 0.1.16 workflow set in this repository:
 
-- `.github/workflows/mobile-bench.yml` (~67 lines) -- caller workflow
-- `.github/workflows/mobile-bench-pr-command.yml` -- PR comment trigger
+- `.github/workflows/compile-gate.yml` -- compile gate for exact PR SHAs
+- `.github/workflows/mobile-bench-after-ci.yml` -- dispatch after compile gate success
+- `.github/workflows/mobile-bench-pr-auto.yml` -- `bench` label auto-dispatch
+- `.github/workflows/mobile-bench-pr-command.yml` -- trusted `/mobench ...` PR command
+- `.github/workflows/mobile-bench.yml` -- stateless benchmark runner
+- `.github/workflows/reusable-bench.yml` -- reusable BrowserStack execution workflow
 
-The caller workflow invokes:
-```
-worldcoin/mobile-bench-rs/.github/workflows/reusable-bench.yml@v0.1.15
-```
-
-All build, run, summarization, and reporting logic lives in the reusable workflow.
+The workflow files are adapted from the `mobench` 0.1.16 stateless controller flow and
+use crate-local benchmark configs under `crates/zk-mobile-bench/`.
 
 ## Triggers
 
 - **Manual**: `workflow_dispatch` on `mobile-bench.yml`
-- **PR comment**: `/mobench ...` via `mobile-bench-pr-command.yml`
+- **PR comment**: trusted `/mobench ...` via `mobile-bench-pr-command.yml`
+- **PR label**: apply the `bench` label after compile gate passes
 
 ## Parameters
 
@@ -63,5 +63,5 @@ The reusable workflow handles summarization via `mobench ci summarize`, which:
 - Publishes to `GITHUB_STEP_SUMMARY`
 - Posts/updates a sticky PR comment (`<!-- mobench-summary -->`) when `pr_number` is set
 
-When a GitHub App is configured, `mobench ci check-run` can also publish results as
-GitHub Check Runs on the commit.
+The stateless workflow also records `head_sha`, trigger metadata, and resolved device
+information in the uploaded history bundle so runs stay pinned to the compile-gated commit.

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::{
     blockchain::{BlockchainEvent, RegistryEvent, RootRecordedEvent},
     db::{DB, IsolationLevel},
@@ -65,6 +67,42 @@ impl<'a> EventsCommitter<'a> {
     }
 
     async fn commit_events(&mut self) -> IndexerResult<()> {
+        const MAX_ATTEMPTS: u32 = 3;
+
+        let root_recorded_block = self.buffered_events.last().map(|e| e.block_number);
+
+        let mut attempt = 0u32;
+        loop {
+            attempt += 1;
+            match self.attempt_commit().await {
+                Ok(()) => return Ok(()),
+                Err(e @ IndexerError::ReorgDetected { .. }) => return Err(e),
+                Err(e) if attempt >= MAX_ATTEMPTS => {
+                    tracing::error!(
+                        ?e,
+                        root_recorded_block,
+                        attempt,
+                        "DB commit failed after max attempts"
+                    );
+                    return Err(e);
+                }
+                Err(e) => {
+                    let delay =
+                        Duration::from_millis(500 * (1u64 << attempt)).min(Duration::from_secs(3));
+                    tracing::warn!(
+                        ?e,
+                        root_recorded_block,
+                        attempt,
+                        ?delay,
+                        "DB commit failed, retrying"
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
+
+    async fn attempt_commit(&mut self) -> IndexerResult<()> {
         tracing::info!("committing events to DB");
 
         let batch_size = self.buffered_events.len();

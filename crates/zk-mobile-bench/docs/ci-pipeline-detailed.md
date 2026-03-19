@@ -10,20 +10,18 @@ Scope:
 
 ## 1. Pipeline architecture
 
-The CI uses a **thin caller workflow** in this repository that delegates all heavy
-lifting to a reusable workflow from `worldcoin/mobile-bench-rs`.
+The CI now uses a **vendored stateless mobench controller flow** in this repository.
 
 Workflow files:
-- `.github/workflows/mobile-bench.yml` -- thin caller (~67 lines)
-- `.github/workflows/mobile-bench-pr-command.yml` -- PR comment dispatch
+- `.github/workflows/compile-gate.yml` -- compile gate for PR SHAs
+- `.github/workflows/mobile-bench-after-ci.yml` -- dispatch benchmark runs after compile gate success
+- `.github/workflows/mobile-bench-pr-auto.yml` -- `bench` label auto-dispatch
+- `.github/workflows/mobile-bench-pr-command.yml` -- trusted `/mobench ...` dispatch
+- `.github/workflows/mobile-bench.yml` -- stateless benchmark runner
+- `.github/workflows/reusable-bench.yml` -- BrowserStack build/run/summarize implementation
 
-The caller workflow invokes:
-```
-worldcoin/mobile-bench-rs/.github/workflows/reusable-bench.yml@v0.1.15
-```
-
-This replaces the previous ~1064-line monolithic workflow. All build, execution,
-artifact handling, and summarization logic now lives in the reusable workflow.
+The controller and runner are adapted from the `mobench` 0.1.16 stateless flow, with
+World ID-specific benchmark functions and crate-scoped bench configs.
 
 ## 2. Trigger model
 
@@ -40,13 +38,25 @@ Command format:
 
 Authorization:
 - Allowed associations: `OWNER`, `MEMBER`, `COLLABORATOR`
-- Others are rejected with a PR comment explaining restriction
+- Others are ignored
 
 Branch scope:
 - Dispatch from fork PRs is blocked
 - Only PRs whose head repo is the same repository are allowed
+- Dispatch waits for `compile-gate.yml` to succeed for the exact PR `head_sha`
 
-### 2.2 Manual trigger
+### 2.2 Bench label auto trigger
+
+Workflow: `.github/workflows/mobile-bench-pr-auto.yml`
+
+Event: `pull_request_target` (`labeled`)
+
+Behavior:
+- Only the `bench` label is honored
+- Dispatch is limited to same-repo PRs
+- Dispatch only happens once `compile-gate.yml` has already passed for the current `head_sha`
+
+### 2.3 Manual trigger
 
 Workflow: `.github/workflows/mobile-bench.yml`
 
@@ -69,16 +79,22 @@ These inputs are accepted by `mobile-bench.yml`:
 - `android_device` (string, optional; required for Android when `device_profile=custom`)
 - `android_os_version` (string, optional; required for Android when `device_profile=custom`)
 - `pr_number` (string, optional; enables sticky PR summary comment)
+- `base_ref` (string, optional; baseline metadata)
+- `head_sha` (string, optional; exact commit to benchmark)
 - `requested_by` (string, optional; shown in summary metadata)
+- `dispatch_id`, `trigger_source`, `request_command` (optional controller metadata)
+- `mobench_version` (default `0.1.16`)
+- `mobench_ref` (optional override for installing from git)
+- `check_run_name` (default `Mobench`)
+- `regression_threshold_pct` (default `5.0`)
 
-The following parameters from the old workflow have been removed:
-- `proof_scope`, `modes`, `mobench_ref`, `fetch_timeout_secs`, `also_bench_query`
-
-Validation performed in command workflow:
-- unknown keys are rejected
-- enum values are validated
-- numeric values are validated as integers with minimum constraints
-- custom device profile requires matching device + os_version keys
+PR comment parsing still only accepts the runtime overrides:
+- `platform`
+- `iterations`
+- `warmup`
+- `device_profile`
+- `ios_device`, `ios_os_version`
+- `android_device`, `android_os_version`
 
 ## 4. Reusable workflow contract
 
@@ -86,7 +102,9 @@ The caller passes these to the reusable workflow:
 
 - `crate_path`: `"crates/zk-mobile-bench"`
 - `platform`, `device_profile`, device overrides, `iterations`, `warmup`
-- `pr_number`, `requested_by`
+- `pr_number`, `base_ref`, `head_sha`, `requested_by`
+- controller metadata: `dispatch_id`, `trigger_source`, `request_command`
+- `mobench_version`, `mobench_ref`, `check_run_name`, `regression_threshold_pct`
 - `functions`: JSON array of benchmark function names to run
 
 The `functions` list is specified directly in the caller workflow:
@@ -94,7 +112,9 @@ The `functions` list is specified directly in the caller workflow:
 ["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_proof_only","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only"]
 ```
 
-Secrets are passed via `secrets: inherit`.
+Device resolution uses the crate-local configs:
+- `crates/zk-mobile-bench/bench-config.ios.toml`
+- `crates/zk-mobile-bench/bench-config.android.toml`
 
 ## 5. Result summarization
 
@@ -104,10 +124,8 @@ Summarization is handled by the `mobench` CLI (not a Python script):
   markdown summary table. Output is published to `GITHUB_STEP_SUMMARY` and optionally
   as a sticky PR comment (`<!-- mobench-summary -->`).
 
-- **`mobench ci check-run`**: When a GitHub App is configured, publishes results as
-  GitHub Check Runs on the commit.
-
-This replaces the previous `crates/zk-mobile-bench/scripts/summarize_mobench_ci.py`.
+This replaces the previous `crates/zk-mobile-bench/scripts/summarize_mobench_ci.py` flow
+and uploads a canonical history bundle pinned to the benchmarked `head_sha`.
 
 ## 6. Common usage patterns
 
@@ -150,8 +168,11 @@ Key behavior:
 ## 9. Operational maintenance notes
 
 When updating pipeline behavior, keep these aligned:
-- `.github/workflows/mobile-bench-pr-command.yml` (input schema + validation)
-- `.github/workflows/mobile-bench.yml` (caller inputs + reusable workflow version)
+- `.github/workflows/compile-gate.yml`
+- `.github/workflows/mobile-bench-after-ci.yml`
+- `.github/workflows/mobile-bench-pr-auto.yml`
+- `.github/workflows/mobile-bench-pr-command.yml`
+- `.github/workflows/mobile-bench.yml`
+- `.github/workflows/reusable-bench.yml`
+- `.github/scripts/mobench-controller.mjs`
 - `crates/zk-mobile-bench/docs/ci-browserstack.md` and this document
-
-To update the reusable workflow version, change the `@v0.1.15` tag in `mobile-bench.yml`.

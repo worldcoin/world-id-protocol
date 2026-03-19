@@ -6,8 +6,8 @@ use world_id_primitives::{
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-pub mod credential_blinding_factor;
-pub mod nullifier;
+pub(crate) mod oprf_query;
+pub use oprf_query::{FullOprfOutput, OprfEntrypoint};
 pub mod proof;
 
 /// Inputs from the Authenticator to generate a nullifier or blinding factor.

@@ -23,7 +23,7 @@ Stemming from the enablement of other Authenticators to exist, a reference open-
 - **Action**: *Maintains definition from previous Protocol version.*
 - **Nullifier**: *Maintains definition from previous Protocol version.* A nullifier is a one-time use identifier that guarantees an action can only be taken once. It’s analogous to a one-time use ticket, a user generates a nullifier through a Proof, and presents it to an RP. A nullifier will always be the same for the same user and the same RP+Action.
 - **Uniqueness Proof**: A statement where a user proves they are performing an action once and they own a particular credential (e.g. *I’m a unique person with a PoH credential voting on this proposal once*). These proofs cannot be cryptographically associated with any other proof (e.g. not across RP, or even to the same RP).
-- **Session Proofs**: Used after an initial Uniqueness Proof—where a `sessionId` is generated— and subsequently provided by an RP to receive a statement that cryptographically guarantees the same World ID is being used (e.g. *I have an account with an RP and I want to prove I now have a new Credential*). These proofs cannot be associated across RPs, across sessions with the same RP, or with any other proof.
+- **Session Proofs**: Used with a `sessionId` provided by an Authenticator and subsequently provided by an RP to receive a statement that cryptographically guarantees the same World ID is being used (e.g. *I have an account with an RP and I want to prove I now have a new Credential*). These proofs cannot be associated across RPs, across sessions with the same RP, or with any other proof.
 
 ## Key Product Functionality
 
@@ -43,9 +43,7 @@ This notes the key **new** features or functionality for this **release** of Wor
 
 - Privacy.
     - Assuming **non-collusion** of nodes of each multi-party system, the user’s privacy cannot be compromised by any single party, neither correlation of multiple actions nor direct identification of a user. For example, it’s impossible to know that a specific user performed a specific action (identification) or that two different Actions were performed by the same user (correlation).
-    - Addressing the attack vector of collusion of a threshold (or all) nodes, which in the case of the OPRF Nodes it could potentially allow de-anonymization of past activity, the following holds true:
-        - Scaling to a very large number of nodes (e.g. n = 50-100) is technically and pragmatically feasible.
-        - Rigorous key management (e.g. HSMs preventing key extraction and destruction of rotated out-of-use keys) should be established in an auditable way.
+    - Addressing the attack vector of collusion of a threshold (or all) nodes is covered in the [Other Risk Considerations](#other-risk-considerations) section.
     - Strict requirements for the identifiers handed off by the Protocol are introduced. See details in Tech Specs.
     - No human super-cookies. Permanent state or linkable state is as privacy-preserving as possible and is protocol-enforced. Privacy preserving in this context means that it’s not possible to identify a single person, even pseudonymously, across a long period of time without ongoing consent. Any exposed long-living / constant IDs should be protected as secrets.
 - Security.
@@ -78,7 +76,7 @@ This notes the key **new** features or functionality for this **release** of Wor
     - Also implies that the on-chain trees of identity commitments is gone in favor of a single `WorldIDRegistry`.
 - Creating a World ID now occurs through on-chain registration (vs. as an offline keypair generation previously), and issuing Credentials is now done without on-chain interaction. Credentials are now issued by the Issuer signing them. Previously, the Issuer would add the user’s identity commitment to the relevant on-chain tree.
 - Nullifiers are enforced one-time use. Previously there was no enforcement of nullifiers being one-time use and they could become pseudonymous identifiers for an RP, now Authenticators will not issue a nullifier more than once.
-- [**For RPs only**]. When RPs require users to prove they are still the same World ID that originally performed an action, they will be able to store an identifier from the original action (a `sessionId`) and provide it to the user for subsequent proves. With Proof of Human, this allows RPs to establish they are interacting with the same World ID, potentially with different credentials too. See *Session Proofs* for further details.
+- [**For RPs only**]. When RPs require users to prove they are still the same World ID that originally performed an action, they will be able to store an identifier (a `sessionId`) and provide it to the user for subsequent proofs. With Proof of Human, this allows RPs to establish they are interacting with the same World ID, potentially with different credentials too. See *Session Proofs* for further details.
 - [**For Issuers only**]. Authentication based on using nullifiers from ZKPs as identifiers is no longer supported. A new authentication mechanism is introduced for issuers.
 - Access to a World ID can be recovered. A user can designate a *Recovery Agent* for their account which will allow for recovery in case of access to all Authenticators is lost.
     - [**Recovery Agent Scope**]. Users may designate the *PoH AMPC* system as their Recovery Agent to recover their World ID. In the future, other Recovery Agents are expected to be available.
@@ -137,7 +135,7 @@ User ->> User: Generate final Proof ($$\pi_{F}$$)
 alt
 User <<->> Oblivious Nullifier Pool: check if nullifier exists and insert
 end
-User ->> RP: $$\pi_{F}$$ + nullifier + sessionId
+User ->> RP: $$\pi_{F}$$ + nullifier
 alt
 RP ->> Indexer: Verify ZKP
 else
@@ -232,21 +230,21 @@ Both the Relying Party Registry and the Credential Schema Issuer Registry charge
 
 ### Session Proofs
 
-RPs can create sessions for their app to ensure that it's still the same World ID interacting with them across multiple interactions. Session proofs intentionally allow the RP to link multiple interactions in their app to the same World ID. Potential use cases include:
+RPs can create sessions for their app to ensure that it's still the same World ID interacting with them across multiple interactions. Session Proofs intentionally allow the RP to link multiple interactions in their app to the same World ID. Potential use cases include:
 
-- Credential upgrade: A user verified previously with one credential and now wants to prove using another one (e.g. unlocking additional rewards). RP needs to be ensure that the new credential actually belongs to the same holder.
-- Credential expiration check: A user previously enrolled with one credential; on each consecutive log in the RP wants to make sure the user's credential is still valid (for example not expired).
-- (Future). RP-level Face Auth: Currently, Face Auth only ensures that the whoever produces the proof is the same person that received the credential. However, for some applications you also want to ensure that over the course of multiple interactions an RP can make sure that it was always the same person.
+- Credential upgrade: A user verified previously with one credential and now wants to prove using another one (e.g. unlocking additional benefits). **Important Note**. While this can be used to prove a new Credential belongs to the same World ID, the implications must be carefully considered when it comes to uniqueness. **Uniqueness sets are independent**, e.g. users may have both a PoH and a government document Credential, but this doesn't mean that by accepting both as an RP you can get guarantees that only a single human is behind each. A user may choose to obtain a PoH Credential and a document Credential in different World IDs.
+- Credential expiration check: A user previously enrolled with one Credential; periodically,the RP wants to make sure the user's Credential is still valid (for example not expired).
+- (Future). RP-level Face Auth: Currently, Face Auth only ensures that the whoever produces the proof is the same person that received the Credential. However, for some applications an RP may want to make sure the same person is behind multiple interactions.
 
-Session proofs use the same zero-knowledge circuits as uniqueness proofs, but authenticators must clearly distinguish them to users since they involve a reusable identifier that can link interactions. Session proofs are scoped at the RP level and do not require an action from the RP. Instead of a nullifier, session proofs return a `sessionNullifier` which is required for verification but does not provide the same uniqueness guarantee.
+Session Proofs use the same zero-knowledge circuits as Uniqueness Proofs, but authenticators MUST clearly distinguish them to users since they involve a reusable identifier that can link interactions. Instead of a nullifier, Session Proofs return a `sessionNullifier` which is required for verification but does **not** provide the same uniqueness guarantee (see below on `sessionNullifier`).
 
 Session Proofs work in the following manner:
 
-- An RP initiates a request for a proof.
-- The proof outputs a `sessionId`. A unique identifier bound to the user's World ID for that RP.
-- The RP stores this `sessionId` alongside their account information for the user.
-- For subsequent interactions, the RP includes the `sessionId` in proof requests. The user can then generate a session proof to demonstrate they're the same World ID.
-- The `sessionId` is generated as outlined below, where `r` is a uniformly distributed number derived from the `rpId`.
+- An RP requests an authenticator to create a session.
+- The authenticator provides a `sessionId`. A unique identifier bound to the user's World ID for that RP.
+- The RP stores this `sessionId` alongside their account for the user.
+- For subsequent interactions, the RP includes the `sessionId` in proof requests. The user can then generate a Session Proof to prove they have the same World ID. Different proofs over time with the same `sessionId` may use different credentials.
+- The `sessionId` is generated as outlined below, where `r` is computationally indistinguishable from random.
 
 ```mermaid
 sequenceDiagram
@@ -255,27 +253,31 @@ participant a as Authenticator
 participant rp as RP
 
 critical initial/enrollment
-rp ->> a: initial Proof request
-alt [Derive blinding factor ($$r$$) locally]
-a->>a: derive random blinding factor, $$r$$=KDF(rpId)
-a->>a: store r
-end
-alt [FUTURE - Derive blinding factor remotely]
-a->>o: $$r$$=OPRF(rpId || Domain Separator)
-end
-a->>a: Compute C = H($$DS_C$$ || leafIndex || r) = sessionId
-Note over a, rp: [...] remainder of Proof flow omitted
-a ->> rp: Initial Proof with nullifier + sessionId
+rp ->> a: Initial session request
+a->>a: Generate oprf_seed locally (CSPRNG)
+a->>o: $$r=\texttt{OPRF}(pk_{rpId}, DS_C || \texttt{leafIndex} || \texttt{oprf_seed})$$
+a->>a: Compute C = H($$DS_C$$ || leafIndex || r)
+a->>a: sessionId = encode(C, oprf_seed)
+a ->> rp: sessionId
 end
 
 rp->>a: session proof request (incl. sessionId)
 
+alt [Recover r from sessionId.oprf_seed]
+a->>o: $$r=\texttt{OPRF}(pk_{rpId}, DS_C || \texttt{leafIndex} || \texttt{sessionId.oprf_seed})$$
+end
 a->>a: C'=H($$DS_C$$ || leafIndex || r) as public output of proof
-a->>a: check if sessionId == C'
-a->>rp: proof + sessionNullifier + sessionId
-rp->>rp: verify proof (checking sessionId == C')
-
+a->>a: check if sessionId == C' (in ZK-circuit)
+a->>rp: proof + sessionNullifier
+rp->>rp: verify proof (checking sessionId == C' in verifier contract)
 ```
+
+**Recovering `r` for subsequent Session Proofs.** The OPRF is deterministic: the same input and key always produce the same output. This means `r` can be re-derived at any time by calling the OPRF nodes with the original `oprf_seed` (stored in `sessionId`). Caching `r` is an optimization, not a requirement. The OPRF call to derive `r` and the OPRF call to derive the nullifier can be made in parallel.
+
+**Session Nullifiers**
+- A [`sessionNullifier`](https://docs.rs/world-id-primitives/latest/world_id_primitives/session/struct.SessionNullifier.html) is used for verifying Session Proofs. It must be passed to the verification contract. Internally, the [`sessionNullifier`](https://docs.rs/world-id-primitives/latest/world_id_primitives/session/struct.SessionNullifier.html) implements custom encoding on the Authenticator and on the `WorldIDVerifier` contract.
+- The raison d'être is simply to allow usage of the same ZK circuit as for Uniqueness Proofs. Reducing the number of circuits is currently a priority because of the size of the circuits needed to be bundled in Authenticator clients. As World ID moves to a different proving system, this type will no longer be required.
+- Session Proofs use a randomized `action` as circuit input. This randomized `action` ensures the circuit's nullifier output is unique per proof, preserving the one-time use property. It is verified internally within the circuit. It does not affect `r` derivation.
 
 ### Web-based Authenticator Provider
 
@@ -301,18 +303,22 @@ At a high level, every user and RP will need to migrate to the new Protocol. Det
     | Compromised user’s secret | ⚠️ Potentially reveals all past activity if the attacker knows the public app IDs and actions. | ✅ Cannot reveal past activity on its own |
     | Malicious RP | ✅ A malicious RP on its own doesn’t reveal past activity | ✅ A malicious RP on its own doesn’t reveal past activity |
     | Malicious OPRF node | N/A | ✅ Cannot compromise user’s past activity |
-    | Collusion of threshold+ OPRF nodes | N/A | ⚠️ Could reveal user’s past activity (but requires having nullifiers to match against, e.g. through RP collusion) |
+    | Collusion of threshold OPRF nodes | N/A | ⚠️ Could reveal user’s past activity (but requires having nullifiers to match against, e.g. through RP collusion) |
     | Compromised user’s secret + RP collusion | ⚠️ Potentially reveals all past activity. Offline attack. | ⚠️ Can reveal user’s past activity for that RP. Online attack (requires calls to OPRF nodes). |
     | Malicious Authenticator | ⚠️ Potentially reveals all past activity if the attacker knows the public app IDs and actions. | ⚠️ A malicious or compromised authenticator could reveal user’s activity. *This could likely translate in users putting their trust in OSS authenticators.* |
     | User coercion | ⚠️ Potentially reveals all past activity. Offline attack. | ⚠️ Can force reveal of non-expired nullifiers which in combination with RPs or other information may reveal past activity. |
 
 ## Other Risk Considerations
 
-- The OPRF nodes work with an `m-of-n` threshold. If $n-m+1$ nodes loses their keys, the state of the Protocol will be lost, there won’t be a way to generate the correct nullifiers and the state of “consumed” or performed actions will be lost.
-- Censoring by OPRF nodes. OPRF nodes could reject generating nullifiers for users. It’s difficult for this to be a targeted attack because the `leafIndex` is blinded, but they could censor specific RPs or actions.
-- Authenticator Risk. Aside from having access to the user’s credentials, an Authenticator must learn of a user’s raw `leafIndex` to be able to generate Proofs. A malicious Authenticator can misuse this to track the user, even though that tracking cannot be correlated to nullifiers provided to RPs on its own. Different strategies to mitigate Authenticator risk are being explored.
-- Recovery Agent Risk. Should a user designate a Recovery Agent, this entity has a special permission that allows it to gain access to the user’s World ID, which introduces its own set of risks. Users need to consider the different risks associated with different Recovery Agents, and not all risks will be the same.
-- [Issuer Scope]. For the specific case of the Orb & PoH AMPC credential, users who opt-out of biometric recovery and lose all their authenticator keys will not be able to get a new PoH credential for the time being. This may change in the future at the Issuers’ discretion.
+- **Loss of State**. The OPRF nodes work with an `m-of-n` threshold. If $n-m+1$ nodes loses their keys, the state of the Protocol will be lost, there won’t be a way to generate the correct nullifiers and the state of "consumed" or performed actions will be lost.
+- **Censoring by OPRF nodes**. OPRF nodes could reject generating nullifiers for users. It’s difficult for this to be a targeted attack because the `leafIndex` is blinded, but they could censor specific RPs or actions.
+- **Compromised OPRF nodes**. Should a threshold of nodes' key materials be compromised, or a threshold of nodes collude maliciously, users' past and/or ongoing activity could be compromised, i.e. these nodes could arbitrary compute any nullifier because the `leafIndex`es are known and the domain space is relatively low. To be useful, this would require matching nullifiers to actual usage with RPs, or knowing a user's `leafIndex`, at least the second not being straightforward. This is a risk that will be progressively mitigated, and the following strategies are being researched for upcoming minor Protocol version updates:
+  1. **Provable secure environments for OPRF nodes**. Running OPRF nodes in attestable secure environments backed by secure hardware where the key material is securely stored and the execution provable. Given the nature of the computations of OPRF nodes, it is quite feasible that a plurality of enviroments and hardware providers could be supported. Authenticators would be able to verify attestations from OPRF nodes on every proof request.
+  2. **Increase on the number of OPRF nodes**. Increasing the number of OPRF nodes and the threshold required to generate nullifiers reduces the risk of compromise. It is also very feasible to significantly extend the number of nodes over time. The cost of running a node is relatively low.
+  3. **Strict key management policies**. RPs will be able to specify their policies for action duration such that keys are destroyed after their utility period has elapsed.
+- **Authenticator Risk**. Aside from having access to the user’s credentials, an Authenticator must learn of a user’s raw `leafIndex` to be able to generate Proofs. A malicious Authenticator can misuse this to track the user, even though that tracking cannot be correlated to nullifiers provided to RPs on its own. Different strategies to mitigate Authenticator risk are being explored.
+- **Recovery Agent Risk**. Should a user designate a Recovery Agent, this entity has a special permission that allows it to gain access to the user’s World ID, which could be misused. Beyond the explicit risk of a malicious Recovery Agent compromising a user's World ID, users need to consider the different risks associated with different Recovery Agents based on how they perform authentication.
+
 
 ## Future Proofing Notes (World ID 4.x future releases and beyond)
 

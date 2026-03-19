@@ -1,5 +1,6 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use alloy::{network::Ethereum, providers::PendingTransactionBuilder};
 use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -9,6 +10,7 @@ use crate::{
     batch_policy::BacklogUrgencyStats,
     config::RateLimitConfig,
     error::{GatewayErrorResponse, GatewayResult},
+    metrics,
 };
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RequestRecord {
@@ -55,6 +57,8 @@ pub struct RequestTracker {
     redis_manager: ConnectionManager,
     /// Rate limiting configuration, if enabled.
     rate_limit: Option<RateLimitConfig>,
+    /// Safety timeout for receipt polling tasks so they don't run forever.
+    receipt_timeout_secs: u64,
 }
 
 impl RequestTracker {
@@ -62,7 +66,11 @@ impl RequestTracker {
     ///
     /// # Panics
     /// If the connection to Redis fails.
-    pub async fn new(redis_url: String, rate_limit: Option<RateLimitConfig>) -> Self {
+    pub async fn new(
+        redis_url: String,
+        rate_limit: Option<RateLimitConfig>,
+        receipt_timeout_secs: u64,
+    ) -> Self {
         let client = Client::open(redis_url.as_str()).expect("Unable to connect to Redis");
         let redis_manager = ConnectionManager::new(client)
             .await
@@ -73,6 +81,7 @@ impl RequestTracker {
         Self {
             redis_manager,
             rate_limit,
+            receipt_timeout_secs,
         }
     }
 
@@ -178,6 +187,7 @@ impl RequestTracker {
                     key = %duplicate_key,
                     "Duplicate in-flight request detected"
                 );
+                metrics::increment_request_rejected("duplicate_inflight");
                 Err(GatewayErrorResponse::bad_request(
                     GatewayErrorCode::DuplicateRequestInFlight,
                 ))
@@ -224,6 +234,45 @@ impl RequestTracker {
             )
         };
         self.set_status_batch(ids, status).await;
+    }
+
+    /// Spawns a background task that awaits a pending transaction receipt and
+    /// finalizes the associated requests based on the outcome.
+    pub fn spawn_receipt_tracker(
+        &self,
+        ids: Vec<String>,
+        builder: PendingTransactionBuilder<Ethereum>,
+        tx_hash: String,
+    ) {
+        let tracker = self.clone();
+        let timeout = Duration::from_secs(self.receipt_timeout_secs);
+        tokio::spawn(async move {
+            let result = tokio::time::timeout(timeout, builder.get_receipt()).await;
+            match result {
+                Ok(Ok(receipt)) => {
+                    tracker
+                        .finalize_from_receipt(&ids, receipt.status(), &tx_hash)
+                        .await;
+                }
+                Ok(Err(err)) => {
+                    tracker
+                        .set_status_batch(
+                            &ids,
+                            GatewayRequestState::failed(
+                                format!("transaction confirmation error: {err}"),
+                                Some(GatewayErrorCode::ConfirmationError),
+                            ),
+                        )
+                        .await;
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        tx_hash = %tx_hash,
+                        "receipt polling timed out, orphan sweeper will handle cleanup",
+                    );
+                }
+            }
+        });
     }
 
     /// Returns a snapshot of the current state of a request, if it exists.
@@ -483,6 +532,7 @@ impl RequestTracker {
                     request_id = request_id,
                     "Rate limit exceeded"
                 );
+                metrics::increment_request_rejected("rate_limited");
                 Err(GatewayErrorResponse::rate_limit_exceeded(
                     window_secs,
                     max_requests,

@@ -4,38 +4,51 @@ on:
   workflow_dispatch:
     inputs:
       platform:
-        description: "Platform: android, ios, or both"
+        description: "android | ios | both"
         required: false
-        type: string
-        default: "both"
+        type: choice
+        default: both
+        options:
+          - android
+          - ios
+          - both
       device_profile:
         description: "Device profile: low-spec, mid-spec, high-spec, custom"
         required: false
-        type: string
-        default: "low-spec"
+        type: choice
+        default: low-spec
+        options:
+          - low-spec
+          - mid-spec
+          - high-spec
+          - custom
       ios_device:
-        description: "Custom iOS device (only with device_profile=custom)"
+        description: "Custom iOS device name"
         required: false
         type: string
+        default: ""
       ios_os_version:
         description: "Custom iOS OS version"
         required: false
         type: string
+        default: ""
       android_device:
-        description: "Custom Android device"
+        description: "Custom Android device name"
         required: false
         type: string
+        default: ""
       android_os_version:
         description: "Custom Android OS version"
         required: false
         type: string
+        default: ""
       iterations:
-        description: "Benchmark iterations"
+        description: "Number of benchmark iterations"
         required: false
         type: string
         default: "30"
       warmup:
-        description: "Warmup iterations"
+        description: "Number of warmup iterations"
         required: false
         type: string
         default: "5"
@@ -43,25 +56,93 @@ on:
         description: "PR number for reporting"
         required: false
         type: string
+        default: ""
+      base_ref:
+        description: "Base branch for baseline selection metadata"
+        required: false
+        type: string
+        default: ""
+      head_sha:
+        description: "Exact commit SHA to benchmark and report against"
+        required: false
+        type: string
+        default: ""
       requested_by:
         description: "Who triggered the run"
         required: false
         type: string
+        default: ""
+      dispatch_id:
+        description: "GitHub App dispatch correlation id"
+        required: false
+        type: string
+        default: ""
+      trigger_source:
+        description: "Trigger source for manifest metadata"
+        required: false
+        type: string
+        default: workflow_dispatch
+      request_command:
+        description: "Original request command for manifest metadata"
+        required: false
+        type: string
+        default: ""
+      mobench_version:
+        description: "Mobench version to install"
+        required: false
+        type: string
+        default: "0.1.16"
+      mobench_ref:
+        description: "Git ref for mobile-bench-rs (overrides mobench_version when set)"
+        required: false
+        type: string
+        default: ""
+      check_run_name:
+        description: "GitHub Check Run name prefix"
+        required: false
+        type: string
+        default: Mobench
+      regression_threshold_pct:
+        description: "Regression threshold percentage"
+        required: false
+        type: string
+        default: "5.0"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: mobench-${{ inputs.pr_number != '' && inputs.pr_number || github.run_id }}-${{ inputs.trigger_source == 'pr_comment' && 'comment' || inputs.trigger_source == 'label' && 'auto' || 'manual' }}
+  cancel-in-progress: ${{ inputs.trigger_source == 'label' }}
 
 jobs:
-  bench:
-    uses: worldcoin/mobile-bench-rs/.github/workflows/reusable-bench.yml@v0.1.15
+  browserstack:
+    name: BrowserStack benchmarks
+    if: ${{ secrets.BROWSERSTACK_USERNAME != '' && secrets.BROWSERSTACK_ACCESS_KEY != '' }}
+    uses: ./.github/workflows/reusable-bench.yml
     with:
-      crate_path: "crates/zk-mobile-bench"
+      crate_path: ./crates/zk-mobile-bench
+      functions: '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_proof_only","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only"]'
       platform: ${{ inputs.platform }}
       device_profile: ${{ inputs.device_profile }}
-      ios_device: ${{ inputs.ios_device || '' }}
-      ios_os_version: ${{ inputs.ios_os_version || '' }}
-      android_device: ${{ inputs.android_device || '' }}
-      android_os_version: ${{ inputs.android_os_version || '' }}
+      ios_device: ${{ inputs.ios_device }}
+      ios_os_version: ${{ inputs.ios_os_version }}
+      android_device: ${{ inputs.android_device }}
+      android_os_version: ${{ inputs.android_os_version }}
       iterations: ${{ inputs.iterations }}
       warmup: ${{ inputs.warmup }}
-      pr_number: ${{ inputs.pr_number || '' }}
-      requested_by: ${{ inputs.requested_by || '' }}
-      functions: '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_proof_only","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only"]'
-    secrets: inherit
+      mobench_version: ${{ inputs.mobench_version }}
+      mobench_ref: ${{ inputs.mobench_ref }}
+      pr_number: ${{ inputs.pr_number }}
+      base_ref: ${{ inputs.base_ref }}
+      head_sha: ${{ inputs.head_sha }}
+      requested_by: ${{ inputs.requested_by }}
+      dispatch_id: ${{ inputs.dispatch_id }}
+      trigger_source: ${{ inputs.trigger_source }}
+      request_command: ${{ inputs.request_command }}
+      check_run_name: ${{ inputs.check_run_name }}
+      regression_threshold_pct: ${{ inputs.regression_threshold_pct }}
+    secrets:
+      BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+      BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}

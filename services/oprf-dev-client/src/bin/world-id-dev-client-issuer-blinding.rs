@@ -24,9 +24,7 @@ use world_id_primitives::{
     merkle::MerkleInclusionProof,
     oprf::{CredentialBlindingFactorOprfRequestAuthV1, OprfModule},
 };
-use world_id_proof::{
-    AuthenticatorProofInput, credential_blinding_factor::OprfCredentialBlindingFactor,
-};
+use world_id_proof::{AuthenticatorProofInput, OprfEntrypoint};
 use world_id_test_utils::anvil::{CredentialSchemaIssuerRegistry, ICredentialSchemaIssuerRegistry};
 
 #[derive(Parser, Debug)]
@@ -100,6 +98,8 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
         setup: Self::Setup,
         connector: Connector,
     ) -> eyre::Result<ShareEpoch> {
+        let mut rng = rand::rngs::OsRng;
+
         let authenticator_input = AuthenticatorProofInput::new(
             setup.key_set.clone(),
             setup.inclusion_proof.clone(),
@@ -107,18 +107,19 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
             setup.key_index,
         );
 
-        let blinding_factor = OprfCredentialBlindingFactor::generate(
+        let oprf_entry_point = OprfEntrypoint::new(
             &config.nodes,
             config.threshold,
             &self.components.query_material,
-            authenticator_input,
-            setup.issuer_schema_id,
-            FieldElement::ZERO, // for now action is always zero, might change in future
-            connector,
-        )
-        .await?;
+            &authenticator_input,
+            &connector,
+        );
 
-        Ok(blinding_factor.verifiable_oprf_output.epoch)
+        let (_blinding_factor, share_epoch) = oprf_entry_point
+            .gen_credential_blinding_factor(&mut rng, setup.issuer_schema_id)
+            .await?;
+
+        Ok(share_epoch)
     }
 
     async fn prepare_stress_test_item<R: Rng + CryptoRng + Send>(
@@ -142,13 +143,13 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
             setup,
             action,
             nonce,
-            &oprf_blinding_factor,
+            oprf_blinding_factor,
             signature,
             &self.components.query_material,
         )?;
 
         let blinded_query =
-            taceo_oprf::core::oprf::client::blind_query(*query_hash, oprf_blinding_factor.clone());
+            taceo_oprf::core::oprf::client::blind_query(*query_hash, oprf_blinding_factor);
 
         let init_request = OprfRequest {
             request_id,
@@ -244,7 +245,7 @@ fn generate_oprf_auth_request(
     setup: &WorldIdIssuerSchemaDevClientSetup,
     action: FieldElement,
     nonce: FieldElement,
-    blinding_factor: &BlindingFactor,
+    blinding_factor: BlindingFactor,
     authenticator_signature: EdDSASignature,
     query_material: &CircomGroth16Material,
 ) -> eyre::Result<CredentialBlindingFactorOprfRequestAuthV1> {
@@ -252,7 +253,7 @@ fn generate_oprf_auth_request(
         world_id_oprf_dev_client::CreateQueryProofArgs {
             authenticator_signature,
             action,
-            blinding_factor: blinding_factor.clone(),
+            blinding_factor,
             inclusion_proof: setup.inclusion_proof.clone(),
             key_set: setup.key_set.clone(),
             key_index: setup.key_index,

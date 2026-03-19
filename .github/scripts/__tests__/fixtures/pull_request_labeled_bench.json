@@ -1,0 +1,33 @@
+{
+  "action": "labeled",
+  "number": 123,
+  "label": {
+    "name": "bench"
+  },
+  "sender": {
+    "login": "octocat"
+  },
+  "pull_request": {
+    "state": "open",
+    "head": {
+      "ref": "feature/bench-pr",
+      "sha": "abc123def456",
+      "repo": {
+        "name": "world-id-protocol",
+        "full_name": "worldcoin/world-id-protocol",
+        "owner": {
+          "login": "worldcoin"
+        }
+      }
+    },
+    "base": {
+      "repo": {
+        "name": "world-id-protocol",
+        "full_name": "worldcoin/world-id-protocol",
+        "owner": {
+          "login": "worldcoin"
+        }
+      }
+    }
+  }
+}

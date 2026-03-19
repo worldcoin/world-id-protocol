@@ -60,12 +60,6 @@ pub enum GatewayError {
     },
     #[error("config error: {0}")]
     Config(String),
-    #[error("redis nonce manager error: {source}")]
-    RedisNonceManager {
-        #[source]
-        source: redis::RedisError,
-        backtrace: String,
-    },
 }
 
 impl From<ProviderError> for GatewayError {
@@ -163,6 +157,15 @@ impl GatewayErrorResponse {
             GatewayErrorCode::BatcherUnavailable,
             "Batcher service is unavailable. Please try again.".to_string(),
             StatusCode::SERVICE_UNAVAILABLE,
+        )
+    }
+
+    #[must_use]
+    pub fn request_timeout(timeout_secs: u64) -> Self {
+        Self::new(
+            GatewayErrorCode::RequestTimeout,
+            format!("Request timed out after {timeout_secs}s"),
+            StatusCode::GATEWAY_TIMEOUT,
         )
     }
 

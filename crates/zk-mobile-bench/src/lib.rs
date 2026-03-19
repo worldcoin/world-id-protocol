@@ -211,8 +211,8 @@ fn generate_nullifier_input() -> (
         cred_r: cred_signature.r,
         id_commitment_r: *session_id_r_seed,
         id_commitment: Fq::from(0u64), // No session ID for benchmark
-        dlog_e: dlog_proof.e,
-        dlog_s: dlog_proof.s,
+        dlog_e: dlog_proof.e(),
+        dlog_s: dlog_proof.s(),
         oprf_pk: rp_fixture.rp_nullifier_point,
         oprf_response_blinded: blinded_response,
         oprf_response: unblinded_response,

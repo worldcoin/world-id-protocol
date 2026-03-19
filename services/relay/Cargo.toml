@@ -1,0 +1,51 @@
+[package]
+name = "world-id-relay"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# internal 
+world-id-services-common = { workspace = true }
+
+# alloy
+alloy = { workspace = true, features = [
+    "full",
+    "node-bindings",
+    "rlp",
+    "sol-types",
+    "signer-local",
+    "provider-http",
+] }
+alloy-primitives = { workspace = true }
+
+# async 
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+futures = { workspace = true }
+futures-util = { workspace = true }
+
+# serde
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# telemetry
+tracing = { workspace = true }
+telemetry-batteries = { workspace = true }
+
+# misc
+clap = { workspace = true, features = ["derive", "env"] }
+dotenvy = { workspace = true }
+eyre = { workspace = true }
+config = { workspace = true }
+
+[dev-dependencies]
+ark-ff = { workspace = true }
+world-id-primitives = { workspace = true }
+world-id-relay = { workspace = true }
+world-id-test-utils = { workspace = true }
