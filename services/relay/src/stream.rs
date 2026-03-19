@@ -85,13 +85,13 @@ fn poll_events(
             }
 
             let new_poll_count = poll_count + 1;
-            tracing::debug!(
-                poll = new_poll_count,
-                from = from_block + 1,
-                to = latest,
-                blocks = latest - from_block,
-                "polling for events"
-            );
+            // tracing::debug!(
+            //     poll = new_poll_count,
+            //     from = from_block + 1,
+            //     to = latest,
+            //     blocks = latest - from_block,
+            //     "polling for events"
+            // );
 
             let mut results = Vec::new();
             let mut all_succeeded = true;
