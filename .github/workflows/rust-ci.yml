@@ -19,8 +19,56 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  build-contracts:
+    name: Build Contracts
+    runs-on:
+      group: arc-public-large-amd64-runner
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Cache contract artifacts
+        id: cache-contracts
+        uses: actions/cache@v4
+        with:
+          path: |
+            contracts/out/
+            crates/authenticator/abi/
+            crates/issuer/abi/
+            services/oprf-node/abi/
+          key: contract-artifacts-${{ hashFiles('contracts/src/**', 'contracts/foundry.toml', 'contracts/foundry.lock', 'Makefile', 'contracts/test/core/**') }}
+          # test contracts are also part of the cache because `CredentialSchemaIssuerRegistry.t.sol/MockOprfKeyRegistry.json` is used in Rust tests
+
+      - name: Install Foundry
+        if: steps.cache-contracts.outputs.cache-hit != 'true'
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Build contracts and extract ABIs
+        if: steps.cache-contracts.outputs.cache-hit != 'true'
+        run: make sol-build
+
+      - name: Upload contract ABIs
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-abis
+          path: |
+            crates/authenticator/abi/
+            crates/issuer/abi/
+            services/oprf-node/abi/
+          retention-days: 1
+
+      - name: Upload compiled contracts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-build-output
+          path: contracts/out/
+          retention-days: 1
+
   lint:
     name: Format and Clippy
+    needs: build-contracts
     runs-on:
       group: arc-public-4xlarge-amd64-runner
     permissions:
@@ -30,30 +78,38 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
-          components: clippy,rustfmt
+          components: clippy
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-
-      - name: Build contracts
-        run: |
-          make sol-build
-
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
+          toolchain: nightly
           components: rustfmt
+
+      - name: Download contract ABIs
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-abis
+
+      - name: Download compiled contracts
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-build-output
+          path: contracts/out
 
       - name: Check code formatting
         run: cargo +nightly fmt --all -- --check
 
       - name: Run clippy
+        env:
+          CONTRACTS_PREBUILT: "1"
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   msrv:
     name: MSRV
+    needs: build-contracts
     runs-on:
       group: arc-public-large-amd64-runner
     permissions:
@@ -62,23 +118,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: 1.87
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+      - name: Download contract ABIs
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-abis
 
-      - name: Build contracts
-        run: |
-          make sol-build
+      - name: Download compiled contracts
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-build-output
+          path: contracts/out
 
       - name: Check Features
+        env:
+          CONTRACTS_PREBUILT: "1"
         run: |
           cargo check --all-features
 
-  feature:
+  feature-resolution:
     name: Feature Resolution (cargo-hack)
+    needs: build-contracts
     runs-on:
       group: arc-public-xlarge-amd64-runner
     permissions:
@@ -87,16 +150,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-
-      - name: Build contracts
-        run: |
-          make sol-build
+      - name: Download contract ABIs
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-abis
 
       - name: Install cargo-hack
         run: |
@@ -104,10 +165,11 @@ jobs:
 
       - name: Check Features
         run: |
-          cargo hack check --each-feature --no-dev-deps
+          cargo hack check --each-feature --no-dev-deps --exclude world-id-test-utils --exclude generate-solidity-fixtures --exclude world-id-oprf-dev-client --exclude world-id-faux-issuer --exclude world-id-relay --exclude world-id-services-common
 
   test:
     name: Tests
+    needs: build-contracts
     runs-on:
       group: arc-public-8xlarge-amd64-runner
     permissions:
@@ -128,16 +190,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        # Anvil is used for integration tests
 
-      - name: Build contracts
-        run: |
-          make sol-build
+      - name: Download contract ABIs
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-abis
+
+      - name: Download compiled contracts
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-build-output
+          path: contracts/out
 
       - name: Run services
         run: |
@@ -152,6 +222,7 @@ jobs:
 
       - name: Run tests
         env:
+          CONTRACTS_PREBUILT: "1"
           TESTS_RPC_FORK_URL: ${{ secrets.TESTS_RPC_FORK_URL }}
         run: |
           cargo nextest run --profile ci --all-features --workspace
@@ -185,7 +256,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
 
@@ -310,7 +381,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
@@ -329,7 +400,9 @@ jobs:
       RUSTDOCFLAGS: -Dwarnings
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        with:
+          toolchain: nightly
       - uses: dtolnay/install@cargo-docs-rs
       - run: |
           cargo +nightly docs-rs -p world-id-primitives
