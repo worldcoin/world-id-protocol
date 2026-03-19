@@ -38,7 +38,7 @@ use tracing::instrument;
 use world_id_core::world_id_registry::WorldIdRegistry::{
     self, RootRecorded, RootValidityWindowUpdated,
 };
-use world_id_primitives::FieldElement;
+use world_id_primitives::{FieldElement, oprf::WorldIdRequestAuthError};
 
 use crate::metrics::{
     METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS, METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES,
@@ -47,8 +47,24 @@ use crate::metrics::{
 
 /// Error returned by the [`MerkleWatcher`] implementation.
 #[derive(Debug, thiserror::Error)]
-#[error("alloy error: {0}")]
-pub(crate) struct MerkleWatcherError(alloy::contract::Error);
+pub(crate) enum MerkleWatcherError {
+    #[error("invalid merkle-root")]
+    InvalidMerkleRoot,
+    #[error(transparent)]
+    Internal(#[from] eyre::Report),
+}
+
+impl From<MerkleWatcherError> for WorldIdRequestAuthError {
+    fn from(value: MerkleWatcherError) -> Self {
+        match value {
+            MerkleWatcherError::InvalidMerkleRoot => WorldIdRequestAuthError::InvalidMerkleRoot,
+            MerkleWatcherError::Internal(error) => {
+                tracing::error!("internal error: {error:?}");
+                WorldIdRequestAuthError::Internal
+            }
+        }
+    }
+}
 
 /// An expiry that implements `moka::Expiry` trait. `Expiry` trait provides the
 /// default implementations of three callback methods `expire_after_create`,
@@ -211,10 +227,7 @@ impl MerkleWatcher {
     }
 
     #[instrument(level = "debug", skip_all, fields(root=%root))]
-    pub(crate) async fn is_root_valid(
-        &self,
-        root: FieldElement,
-    ) -> Result<bool, MerkleWatcherError> {
+    pub(crate) async fn is_root_valid(&self, root: FieldElement) -> Result<(), MerkleWatcherError> {
         // first check if the merkle root is already in cache or is the latest root
         if *self.latest_root.read().expect("not poisoned") == root
             || self.merkle_root_cache.contains_key(&root)
@@ -222,7 +235,7 @@ impl MerkleWatcher {
             tracing::trace!("root was in cache");
             tracing::trace!("root valid: true");
             ::metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS).increment(1);
-            return Ok(true);
+            return Ok(());
         }
 
         tracing::debug!("check in contract");
@@ -231,7 +244,7 @@ impl MerkleWatcher {
             .isValidRoot(root.into())
             .call()
             .await
-            .map_err(MerkleWatcherError)?;
+            .context("while calling isValidRoot")?;
 
         tracing::debug!("root valid: {valid}");
 
@@ -248,7 +261,7 @@ impl MerkleWatcher {
                     .getRootTimestamp(root.into())
                     .call()
                     .await
-                    .map_err(MerkleWatcherError)?,
+                    .context("while calling getRootTimestamp")?,
             )
             .expect("fits in u64");
             let elapsed = current_timestamp.saturating_sub(root_timestamp);
@@ -265,7 +278,11 @@ impl MerkleWatcher {
             }
         }
 
-        Ok(valid)
+        if valid {
+            Ok(())
+        } else {
+            Err(MerkleWatcherError::InvalidMerkleRoot)
+        }
     }
 }
 

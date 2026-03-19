@@ -21,12 +21,13 @@ use alloy::{
     rpc::types::Filter,
     sol_types::SolEvent,
 };
+use eyre::Context;
 use futures::StreamExt as _;
 use moka::{future::Cache, ops::compute::Op};
 use taceo_oprf::types::OprfKeyId;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
-use world_id_primitives::rp::RpId;
+use world_id_primitives::{oprf::WorldIdRequestAuthError, rp::RpId};
 
 alloy::sol! {
     #[allow(missing_docs, clippy::too_many_arguments, reason="Get this errors from sol macro")]
@@ -44,13 +45,27 @@ pub(crate) struct RelyingParty {
 /// Error returned by the [`RpRegistryWatcher`] implementation.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RpRegistryWatcherError {
-    /// Error communicating with the chain.
-    #[error("alloy error: {0}")]
-    AlloyError(alloy::contract::Error),
-
     /// Unknown RP.
     #[error("unknown rp: {0}")]
     UnknownRp(RpId),
+    /// Internal Error
+    #[error(transparent)]
+    Internal(#[from] eyre::Report),
+}
+
+impl From<RpRegistryWatcherError> for WorldIdRequestAuthError {
+    fn from(value: RpRegistryWatcherError) -> Self {
+        match value {
+            RpRegistryWatcherError::Internal(error) => {
+                tracing::error!("internal error: {error:?}");
+                WorldIdRequestAuthError::Internal
+            }
+            RpRegistryWatcherError::UnknownRp(rp_id) => {
+                tracing::debug!("Cannot find {rp_id}");
+                WorldIdRequestAuthError::UnknownRp
+            }
+        }
+    }
 }
 
 /// Monitors the RPs from the `RpRegistry` contract.
@@ -196,7 +211,7 @@ impl RpRegistryWatcher {
             .getRp(rp_id.into_inner())
             .call()
             .await
-            .map_err(RpRegistryWatcherError::AlloyError)?;
+            .context("while fetching RP information from chain")?;
 
         if rp.initialized {
             ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
