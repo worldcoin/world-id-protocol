@@ -403,7 +403,8 @@ pub struct IndexerAuthenticatorPubkeysResponse {
 
     /// The commitment to all the authenticator pubkeys. This commitment is
     /// stored in the `WorldIDRegistry`.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub offchain_signer_commitment: U256,
 }
 
