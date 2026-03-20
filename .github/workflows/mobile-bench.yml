@@ -117,9 +117,29 @@ concurrency:
   cancel-in-progress: ${{ inputs.trigger_source == 'label' }}
 
 jobs:
+  browserstack-preflight:
+    name: BrowserStack preflight
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.check.outputs.available }}
+    env:
+      BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+      BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+    steps:
+      - name: Check BrowserStack secrets
+        id: check
+        shell: bash
+        run: |
+          if [ -n "$BROWSERSTACK_USERNAME" ] && [ -n "$BROWSERSTACK_ACCESS_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
   browserstack:
     name: BrowserStack benchmarks
-    if: ${{ secrets.BROWSERSTACK_USERNAME != '' && secrets.BROWSERSTACK_ACCESS_KEY != '' }}
+    needs: browserstack-preflight
+    if: ${{ needs.browserstack-preflight.outputs.available == 'true' }}
     uses: ./.github/workflows/reusable-bench.yml
     with:
       crate_path: ./crates/zk-mobile-bench
