@@ -567,6 +567,7 @@ fn matches_scope(kind: GatewayRequestKind, scope: BacklogScope) -> bool {
                 | GatewayRequestKind::UpdateAuthenticator
                 | GatewayRequestKind::RemoveAuthenticator
                 | GatewayRequestKind::UpdateRecoveryAgent
+                | GatewayRequestKind::CancelRecoveryAgentUpdate
                 | GatewayRequestKind::RecoverAccount
         ),
     }

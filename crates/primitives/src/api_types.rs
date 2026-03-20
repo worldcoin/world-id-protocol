@@ -178,6 +178,25 @@ pub struct UpdateRecoveryAgentRequest {
     pub nonce: U256,
 }
 
+/// The request to cancel a pending recovery agent update.
+///
+/// Numeric string fields in this request accept decimal or `0x`/`0X`-prefixed hex.
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CancelRecoveryAgentUpdateRequest {
+    /// The account index.
+    #[serde(with = "hex_u64")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub leaf_index: u64,
+    /// The signature.
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
+    pub signature: Vec<u8>,
+    /// The nonce.
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub nonce: U256,
+}
+
 /// The request to recover an account.
 ///
 /// Numeric string fields in this request accept decimal or `0x`/`0X`-prefixed hex.
@@ -237,8 +256,10 @@ pub enum GatewayRequestKind {
     InsertAuthenticator,
     /// Authenticator removal request.
     RemoveAuthenticator,
-    /// Recovery agent update request.
+    /// Recovery agent update initiation request.
     UpdateRecoveryAgent,
+    /// Recovery agent update cancellation request.
+    CancelRecoveryAgentUpdate,
     /// Account recovery request.
     RecoverAccount,
 }

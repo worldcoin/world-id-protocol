@@ -21,7 +21,7 @@ use crate::{
         remove_authenticator::remove_authenticator,
         request_status::request_status,
         update_authenticator::update_authenticator,
-        update_recovery_agent::update_recovery_agent,
+        initiate_recovery_agent_update::initiate_recovery_agent_update,
     },
     types::RootExpiry,
 };
@@ -41,7 +41,7 @@ use world_id_core::{
         CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
         GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery,
         IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
-        UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
+        CancelRecoveryAgentUpdateRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
@@ -61,7 +61,7 @@ mod update_authenticator;
 
 // Recovery agent routes
 mod cancel_recovery_agent_update;
-mod update_recovery_agent;
+mod initiate_recovery_agent_update;
 
 // Admin / utility routes
 mod is_valid_root;
@@ -164,7 +164,7 @@ pub(crate) async fn build_app(
         .route("/remove-authenticator", post(remove_authenticator))
         .route("/recover-account", post(recover_account))
         // recovery agent management
-        .route("/update-recovery-agent", post(update_recovery_agent))
+        .route("/initiate-recovery-agent-update", post(initiate_recovery_agent_update))
         .route(
             "/cancel-recovery-agent-update",
             post(cancel_recovery_agent_update),
@@ -257,24 +257,31 @@ async fn _doc_recover_account(_: State<AppState>, _: Json<RecoverAccountRequest>
 
 #[utoipa::path(
     post,
-    path = "/update-recovery-agent",
+    path = "/initiate-recovery-agent-update",
     request_body = UpdateRecoveryAgentRequest,
     responses(
-        (status = 501, description = "Not implemented", body = GatewayErrorBody)
+        (status = 200, description = "Request accepted", body = GatewayStatusResponse),
+        (status = 400, description = "Bad request", body = GatewayErrorBody),
+        (status = 429, description = "Rate limit exceeded", body = GatewayErrorBody),
+        (status = 500, description = "Internal server error", body = GatewayErrorBody)
     ),
     tag = "Gateway"
 )]
-async fn _doc_update_recovery_agent(_: State<AppState>, _: Json<UpdateRecoveryAgentRequest>) {}
+async fn _doc_initiate_recovery_agent_update(_: State<AppState>, _: Json<UpdateRecoveryAgentRequest>) {}
 
 #[utoipa::path(
     post,
     path = "/cancel-recovery-agent-update",
+    request_body = CancelRecoveryAgentUpdateRequest,
     responses(
-        (status = 501, description = "Not implemented", body = GatewayErrorBody)
+        (status = 200, description = "Request accepted", body = GatewayStatusResponse),
+        (status = 400, description = "Bad request", body = GatewayErrorBody),
+        (status = 429, description = "Rate limit exceeded", body = GatewayErrorBody),
+        (status = 500, description = "Internal server error", body = GatewayErrorBody)
     ),
     tag = "Gateway"
 )]
-async fn _doc_cancel_recovery_agent_update(_: State<AppState>) {}
+async fn _doc_cancel_recovery_agent_update(_: State<AppState>, _: Json<CancelRecoveryAgentUpdateRequest>) {}
 
 #[utoipa::path(
     get,
@@ -298,7 +305,7 @@ async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidR
         _doc_insert_authenticator,
         _doc_remove_authenticator,
         _doc_recover_account,
-        _doc_update_recovery_agent,
+        _doc_initiate_recovery_agent_update,
         _doc_cancel_recovery_agent_update,
         _doc_is_valid_root
     ),
@@ -316,6 +323,7 @@ async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidR
         InsertAuthenticatorRequest,
         RemoveAuthenticatorRequest,
         UpdateRecoveryAgentRequest,
+        CancelRecoveryAgentUpdateRequest,
         RecoverAccountRequest
     )),
     tags((name = "Gateway", description = "TODO"))
