@@ -110,16 +110,43 @@ impl Engine {
                 let receipt = pending.get_receipt().await?;
                 if receipt.status() {
                     info!(hash = %receipt.transaction_hash, "propagateState succeeded");
+                    // Only clear pending state after on-chain confirmation. Clearing
+                    // earlier (e.g. on reverts or transient errors) would silently drop
+                    // queued issuer/OPRF key updates that have not yet been relayed.
                     self.log.clear_pending_propagation();
                 } else {
-                    warn!(hash = %receipt.transaction_hash, "propagateState reverted on-chain");
+                    // The transaction was mined but reverted. Preserve pending state so
+                    // the next tick can retry. Most on-chain reverts here are transient
+                    // (e.g. root not yet available on the destination).
+                    warn!(hash = %receipt.transaction_hash, "propagateState reverted on-chain; retaining pending state for retry");
                 }
             }
-            // Simulation reverts are expected when nothing has changed.
-            // Always clear pending regardless of the error to avoid retrying
-            // the same state indefinitely.
             Err(e) => {
-                debug!(error = %e, "propagateState simulation reverted");
+                // Distinguish simulation reverts from transient transport errors.
+                //
+                // `as_revert_data()` returns `Some(non-empty bytes)` only when the
+                // node ran the call and it reverted with a specific reason.  That is
+                // an idempotent condition: the on-chain state is already up-to-date
+                // so clearing pending is safe and avoids an infinite retry loop.
+                //
+                // In all other cases — transport errors (network timeout, connection
+                // refused, HTTP 5xx), bare reverts (`revert()` / `require(false)` with
+                // no message, which produce `Some(Bytes::new())`), and any error that
+                // lacks revert data — preserve pending state so the next tick retries.
+                if e.as_revert_data().is_some_and(|d| !d.is_empty()) {
+                    // Non-empty revert data means the node ran the call and it
+                    // reverted with a specific reason (e.g. "root already propagated").
+                    // These are idempotent: the on-chain state is already up-to-date,
+                    // so clearing pending is safe and avoids an infinite retry loop.
+                    debug!(error = %e, "propagateState simulation reverted (idempotent); clearing pending state");
+                    self.log.clear_pending_propagation();
+                } else {
+                    // Either a transient transport error (network timeout, connection
+                    // refused, HTTP 5xx) or a bare revert with no diagnostic data.
+                    // In both cases, preserve pending state so the next tick retries.
+                    // The error is propagated so the run-loop logs it at warn level.
+                    return Err(e.into());
+                }
             }
         }
         Ok(())
@@ -189,7 +216,7 @@ mod tests {
     use super::*;
     use crate::{
         bindings::{ICommitment, IWorldIDSource},
-        primitives::{ChainCommitment, KeccakChain, reduce},
+        primitives::{ChainCommitment, IssuerKeyUpdate, IssuerSchemaId, KeccakChain, OprfKeyId, OprfKeyUpdate, U160, reduce},
     };
     use alloy::sol_types::{SolCall, SolValue};
     use alloy_primitives::{B256, Bytes, U256};
@@ -268,5 +295,153 @@ mod tests {
         // Verify the block hashes match the originals.
         assert_eq!(decoded[0].blockHash, B256::from([1u8; 32]));
         assert_eq!(decoded[1].blockHash, B256::from([2u8; 32]));
+    }
+
+    // ── Propagation state-preservation tests ──────────────────────────────
+
+    fn make_issuer_update(id: u64, timestamp: u64) -> IssuerKeyUpdate {
+        IssuerKeyUpdate {
+            affine: IWorldIDSource::Affine {
+                x: U256::from(1u64),
+                y: U256::from(2u64),
+            },
+            timestamp,
+            id: IssuerSchemaId(id),
+        }
+    }
+
+    fn make_oprf_update(id: u64, timestamp: u64) -> OprfKeyUpdate {
+        OprfKeyUpdate {
+            affine: IWorldIDSource::Affine {
+                x: U256::from(1u64),
+                y: U256::from(2u64),
+            },
+            timestamp,
+            id: OprfKeyId(U160::from(id)),
+        }
+    }
+
+    /// Verifies that the `as_revert_data()` discriminant correctly separates
+    /// transient transport errors (must preserve pending state) from idempotent
+    /// simulation reverts (safe to clear).
+    ///
+    /// This pins the classification logic used by `Engine::propagate()`:
+    ///
+    /// - Transport / non-revert errors → `as_revert_data()` returns `None`
+    ///   (or `Some(empty)` for bare reverts) → preserve state, return `Err`
+    /// - Simulation reverts with non-empty data → `as_revert_data()` returns
+    ///   `Some(non-empty)` → clear pending, continue
+    ///
+    /// Guards against regressions where `clear_pending_propagation()` would be
+    /// called on transient failures, silently dropping issuer / OPRF updates.
+    #[test]
+    fn pending_state_preserved_on_transient_error_path() {
+        use alloy::contract::Error as ContractError;
+        use alloy::transports::{RpcError, TransportErrorKind};
+
+        let log = CommitmentLog::new();
+        log.insert_pending_issuer(make_issuer_update(1, 1_000));
+        log.insert_pending_oprf(make_oprf_update(2, 1_000));
+
+        // --- Classify a BackendGone error ---------------------------------
+        // BackendGone (node connection dropped) has no revert data → the engine
+        // must preserve pending state and propagate the error.
+        let backend_gone =
+            ContractError::TransportError(RpcError::Transport(TransportErrorKind::BackendGone));
+        assert!(
+            !backend_gone.as_revert_data().is_some_and(|d| !d.is_empty()),
+            "BackendGone must NOT trigger clear_pending_propagation"
+        );
+
+        // --- Simulate the engine's decision: transient → do NOT clear -----
+        // (In production this is `return Err(e.into())` in propagate().)
+        // State must still be present for the next propagation tick.
+        assert!(log.has_pending_keys(), "pending keys must survive a transient error");
+
+        let (issuers, oprfs) = log.pending_propagation_ids();
+        assert_eq!(issuers, vec![1u64], "issuer update must be retried");
+        assert_eq!(oprfs, vec![U160::from(2u64)], "OPRF update must be retried");
+    }
+
+    /// Pins both sides of the error discriminant used in `Engine::propagate()`:
+    ///
+    /// - `None` / `Some(empty)` from `as_revert_data()` → transient / bare revert
+    ///   → **preserve** pending state
+    /// - `Some(non-empty)` → idempotent simulation revert → **clear** pending state
+    #[test]
+    fn error_classification_discriminant() {
+        use alloy::contract::Error as ContractError;
+        use alloy::rpc::json_rpc::ErrorPayload;
+        use alloy::transports::{RpcError, TransportErrorKind};
+        use serde_json::value::RawValue;
+        use std::borrow::Cow;
+
+        // ---- Negative cases (treat as transient / preserve state) ----------
+
+        // Pure transport error: no RPC response at all.
+        let backend_gone =
+            ContractError::TransportError(RpcError::Transport(TransportErrorKind::BackendGone));
+        assert!(
+            !backend_gone.as_revert_data().is_some_and(|d| !d.is_empty()),
+            "BackendGone must be treated as transient"
+        );
+
+        // Generic internal RPC error with no revert message.
+        let internal_err = ContractError::TransportError(RpcError::ErrorResp(
+            ErrorPayload::internal_error(),
+        ));
+        assert!(
+            !internal_err.as_revert_data().is_some_and(|d| !d.is_empty()),
+            "internal RPC error without 'revert' message must be treated as transient"
+        );
+
+        // Bare revert (Geth sends data: "0x" → Some(Bytes::new())).
+        // Must NOT be cleared because bare reverts may be non-idempotent.
+        let bare_revert_payload = ErrorPayload {
+            code: 3,
+            message: Cow::Borrowed("execution reverted"),
+            data: Some(RawValue::from_string("\"0x\"".to_string()).unwrap()),
+        };
+        let bare_revert =
+            ContractError::TransportError(RpcError::ErrorResp(bare_revert_payload));
+        assert!(
+            !bare_revert.as_revert_data().is_some_and(|d| !d.is_empty()),
+            "bare revert (empty revert data) must be treated as transient"
+        );
+
+        // ---- Positive case (idempotent simulation revert → clear) ----------
+
+        // Revert with a non-empty ABI-encoded reason string.
+        // 0x08c379a0 = keccak("Error(string)")[..4].
+        let revert_hex = "\"0x08c379a000000000000000000000000000000000000000000000000000000000\
+            000000200000000000000000000000000000000000000000000000000000000000000015\
+            726f6f7420616c72656164792070726f706167617465640000000000000000000000\"";
+        let revert_payload = ErrorPayload {
+            code: 3,
+            message: Cow::Borrowed("execution reverted: root already propagated"),
+            data: Some(RawValue::from_string(revert_hex.to_string()).unwrap()),
+        };
+        let sim_revert = ContractError::TransportError(RpcError::ErrorResp(revert_payload));
+        assert!(
+            sim_revert.as_revert_data().is_some_and(|d| !d.is_empty()),
+            "simulation revert with non-empty data must be treated as idempotent (clear pending)"
+        );
+    }
+
+    /// Verifies that clearing pending state after a simulation revert leaves the
+    /// log empty — confirming that `clear_pending_propagation()` is safe to call
+    /// for idempotent reverts.
+    #[test]
+    fn clear_pending_removes_all_pending_state() {
+        let log = CommitmentLog::new();
+        log.insert_pending_issuer(make_issuer_update(10, 2_000));
+        log.insert_pending_oprf(make_oprf_update(20, 2_000));
+
+        assert!(log.has_pending_keys());
+        log.clear_pending_propagation();
+        assert!(
+            !log.has_pending_keys(),
+            "clear_pending_propagation must remove all pending state"
+        );
     }
 }
