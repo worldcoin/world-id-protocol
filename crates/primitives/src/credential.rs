@@ -282,33 +282,6 @@ impl Credential {
         Ok(self)
     }
 
-    /// Set the associated data commitment of the credential.
-    ///
-    /// # Errors
-    /// Will error if the provided hash cannot be lowered into the field.
-    #[deprecated(note = "use `associated_data_commitment` instead")]
-    pub fn associated_data_hash(
-        self,
-        associated_data_commitment: U256,
-    ) -> Result<Self, PrimitiveError> {
-        self.associated_data_commitment(associated_data_commitment)
-    }
-
-    /// Set the associated data commitment by hashing arbitrary bytes using Poseidon2.
-    ///
-    /// This method accepts arbitrary bytes, converts them to field elements,
-    /// applies a Poseidon2 hash, and stores the result as the associated data commitment.
-    ///
-    /// # Arguments
-    /// * `data` - Arbitrary bytes to hash (any length).
-    ///
-    /// # Errors
-    /// Will error if the data is empty.
-    #[deprecated(note = "use `associated_data_commitment_from_raw_bytes` instead")]
-    pub fn associated_data(self, data: &[u8]) -> Result<Self, PrimitiveError> {
-        self.associated_data_commitment_from_raw_bytes(data)
-    }
-
     /// Get the credential domain separator for the given version.
     #[must_use]
     pub fn get_cred_ds(&self) -> FieldElement {
