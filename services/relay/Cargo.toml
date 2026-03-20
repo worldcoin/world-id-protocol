@@ -9,9 +9,6 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-# internal 
-world-id-services-common = { workspace = true }
-
 # alloy
 alloy = { workspace = true, features = [
     "full",
@@ -20,8 +17,10 @@ alloy = { workspace = true, features = [
     "sol-types",
     "signer-local",
     "provider-http",
+    "reqwest-default-tls",
 ] }
 alloy-primitives = { workspace = true }
+tempo-alloy = { workspace = true }
 
 # async 
 dashmap = { workspace = true }
