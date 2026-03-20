@@ -141,11 +141,7 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
         tracing::trace!("add nonce to store...");
         // add nonce to history to check if the nonces where only used once
         self.nonce_history
-            .add_nonce(
-                FieldElement::from(request.auth.nonce)
-                    .to_be_bytes()
-                    .to_vec(),
-            )
+            .add_nonce(FieldElement::from(request.auth.nonce))
             .await?;
 
         // common verification

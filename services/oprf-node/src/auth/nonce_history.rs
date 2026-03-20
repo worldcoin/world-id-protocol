@@ -11,6 +11,7 @@ use std::time::Duration;
 use crate::metrics::METRICS_ID_NODE_NONCE_HISTORY_SIZE;
 use moka::future::Cache;
 use tracing::instrument;
+use world_id_core::FieldElement;
 
 /// Error returned when a duplicate nonce is detected.
 #[derive(Debug, thiserror::Error)]
@@ -23,7 +24,7 @@ pub(crate) struct DuplicateNonceError;
 /// are automatically evicted after the configured maximum age.
 #[derive(Clone)]
 pub(crate) struct NonceHistory {
-    nonces: Cache<Vec<u8>, ()>,
+    nonces: Cache<FieldElement, ()>,
 }
 
 impl NonceHistory {
@@ -62,12 +63,12 @@ impl NonceHistory {
     /// indicating a potential replay attack.
     ///
     /// # Arguments
-    /// * `nonce` - The nonce bytes to track
+    /// * `nonce` - The nonce to track
     ///
     /// # Errors
     /// Returns [`DuplicateNonceError`] if the nonce already exists.
     #[instrument(level = "debug", skip_all)]
-    pub(crate) async fn add_nonce(&self, nonce: Vec<u8>) -> Result<(), DuplicateNonceError> {
+    pub(crate) async fn add_nonce(&self, nonce: FieldElement) -> Result<(), DuplicateNonceError> {
         tracing::debug!("add nonce to history");
         let entry = self.nonces.entry(nonce).or_insert(()).await;
         if !entry.is_fresh() {
@@ -84,40 +85,40 @@ mod tests {
 
     #[tokio::test]
     async fn test_nonce_history_duplicate_detection() {
+        let mut rng = rand::thread_rng();
         let max_nonce_age = Duration::from_secs(60);
         let cache_maintenance_interval = Duration::from_secs(60);
         let nonce_history = NonceHistory::init(max_nonce_age, cache_maintenance_interval);
 
+        let foo = FieldElement::random(&mut rng);
+        let bar = FieldElement::random(&mut rng);
+
         // First insertion should succeed
-        nonce_history
-            .add_nonce(b"foo".to_vec())
-            .await
-            .expect("can add nonce");
+        nonce_history.add_nonce(foo).await.expect("can add nonce");
 
         // Second insertion of the same nonce should fail
         assert!(
-            nonce_history.add_nonce(b"foo".to_vec()).await.is_err(),
+            nonce_history.add_nonce(foo).await.is_err(),
             "duplicate nonce should be rejected"
         );
 
         // Different nonce should succeed
         nonce_history
-            .add_nonce(b"bar".to_vec())
+            .add_nonce(bar)
             .await
             .expect("can add different nonce");
 
         // Multiple different nonces should all succeed
-        for i in 0..10 {
+        for _ in 0..10 {
             nonce_history
-                .add_nonce(format!("nonce_{i}").into_bytes())
+                .add_nonce(FieldElement::random(&mut rng))
                 .await
                 .expect("can add unique nonce");
         }
 
         // All previously added nonces should still be rejected
-        assert!(nonce_history.add_nonce(b"foo".to_vec()).await.is_err());
-        assert!(nonce_history.add_nonce(b"bar".to_vec()).await.is_err());
-        assert!(nonce_history.add_nonce(b"nonce_5".to_vec()).await.is_err());
+        nonce_history.add_nonce(foo).await.expect_err("Should fail");
+        nonce_history.add_nonce(bar).await.expect_err("Should fail");
     }
 
     #[tokio::test]
@@ -127,15 +128,14 @@ mod tests {
         let history1 = NonceHistory::init(max_nonce_age, cache_maintenance_interval);
         let history2 = history1.clone();
 
+        let shared = FieldElement::random(&mut rand::thread_rng());
+
         // Add nonce via first handle
-        history1
-            .add_nonce(b"shared".to_vec())
-            .await
-            .expect("can add nonce");
+        history1.add_nonce(shared).await.expect("can add nonce");
 
         // Should be rejected via second handle (shared state)
         assert!(
-            history2.add_nonce(b"shared".to_vec()).await.is_err(),
+            history2.add_nonce(shared).await.is_err(),
             "cloned history should share state"
         );
     }
