@@ -131,7 +131,7 @@ world-id-core = { version = "0.6.0", default-features = false, path = "crates/co
 world-id-issuer = { version = "0.6.0", path = "crates/issuer" }
 world-id-proof = { version = "0.6.0", path = "crates/proof" }
 world-id-authenticator = { version = "0.6.0", path = "crates/authenticator" }
-world-id-primitives = { version = "0.6.0", path = "crates/primitives", default-features = false }
+world-id-primitives = { version = "0.6.0", path = "crates/primitives" }
 world-id-oprf-node = { version = "0.1.0", path = "services/oprf-node" }
 world-id-test-utils = { version = "0.1.0", path = "crates/test-utils" }
 world-id-services-common = { path = "services/common" }
