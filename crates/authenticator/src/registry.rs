@@ -72,6 +72,25 @@ mod sol_types {
             uint256 newOffchainSignerCommitment;
             uint256 nonce;
         }
+
+        /// EIP-712 typed-data payload for `initiateRecoveryAgentUpdate`.
+        ///
+        /// Matches `INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH` on the contract:
+        /// `InitiateRecoveryAgentUpdate(uint64 leafIndex,address newRecoveryAgent,uint256 nonce)`
+        struct InitiateRecoveryAgentUpdate {
+            uint64 leafIndex;
+            address newRecoveryAgent;
+            uint256 nonce;
+        }
+
+        /// EIP-712 typed-data payload for `cancelRecoveryAgentUpdate`.
+        ///
+        /// Matches `CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH` on the contract:
+        /// `CancelRecoveryAgentUpdate(uint64 leafIndex,uint256 nonce)`
+        struct CancelRecoveryAgentUpdate {
+            uint64 leafIndex;
+            uint256 nonce;
+        }
     }
 }
 
@@ -83,6 +102,10 @@ pub type InsertAuthenticatorTypedData = sol_types::InsertAuthenticator;
 pub type RemoveAuthenticatorTypedData = sol_types::RemoveAuthenticator;
 /// EIP-712 typed-data signature payload for `recoverAccount`.
 pub type RecoverAccountTypedData = sol_types::RecoverAccount;
+/// EIP-712 typed-data signature payload for `initiateRecoveryAgentUpdate`.
+pub type InitiateRecoveryAgentUpdateTypedData = sol_types::InitiateRecoveryAgentUpdate;
+/// EIP-712 typed-data signature payload for `cancelRecoveryAgentUpdate`.
+pub type CancelRecoveryAgentUpdateTypedData = sol_types::CancelRecoveryAgentUpdate;
 
 /// Returns the EIP-712 domain used by the `[WorldIdRegistry]` contract
 /// for a given `chain_id` and `verifying_contract` address.
@@ -201,4 +224,136 @@ pub fn sign_recover_account<S: SignerSync + Sync>(
     };
     let digest = payload.eip712_signing_hash(domain);
     Ok(signer.sign_hash_sync(&digest)?)
+}
+
+/// Signs the EIP-712 payload for an `initiateRecoveryAgentUpdate` contract call.
+///
+/// # Errors
+/// Will error if the signer unexpectedly fails to sign the hash.
+pub fn sign_initiate_recovery_agent_update<S: SignerSync + Sync>(
+    signer: &S,
+    leaf_index: u64,
+    new_recovery_agent: Address,
+    nonce: U256,
+    domain: &Eip712Domain,
+) -> anyhow::Result<Signature> {
+    let payload = InitiateRecoveryAgentUpdateTypedData {
+        leafIndex: leaf_index,
+        newRecoveryAgent: new_recovery_agent,
+        nonce,
+    };
+    let digest = payload.eip712_signing_hash(domain);
+    Ok(signer.sign_hash_sync(&digest)?)
+}
+
+/// Signs the EIP-712 payload for a `cancelRecoveryAgentUpdate` contract call.
+///
+/// # Errors
+/// Will error if the signer unexpectedly fails to sign the hash.
+pub fn sign_cancel_recovery_agent_update<S: SignerSync + Sync>(
+    signer: &S,
+    leaf_index: u64,
+    nonce: U256,
+    domain: &Eip712Domain,
+) -> anyhow::Result<Signature> {
+    let payload = CancelRecoveryAgentUpdateTypedData {
+        leafIndex: leaf_index,
+        nonce,
+    };
+    let digest = payload.eip712_signing_hash(domain);
+    Ok(signer.sign_hash_sync(&digest)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::{
+        primitives::{Address, U256, address},
+        signers::local::PrivateKeySigner,
+    };
+
+    fn test_domain() -> Eip712Domain {
+        domain(1, address!("0x1111111111111111111111111111111111111111"))
+    }
+
+    /// Verify that `sign_initiate_recovery_agent_update` produces a recoverable signature
+    /// whose digest matches the contract's `INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH` struct.
+    #[test]
+    fn sign_initiate_recovery_agent_update_roundtrip() {
+        let signer = PrivateKeySigner::random();
+        let domain = test_domain();
+        let leaf_index: u64 = 42;
+        let new_recovery_agent: Address = address!("0x2222222222222222222222222222222222222222");
+        let nonce = U256::from(7u64);
+
+        let sig = sign_initiate_recovery_agent_update(
+            &signer,
+            leaf_index,
+            new_recovery_agent,
+            nonce,
+            &domain,
+        )
+        .expect("signing must succeed");
+
+        // Re-derive the digest and recover the address
+        let payload = InitiateRecoveryAgentUpdateTypedData {
+            leafIndex: leaf_index,
+            newRecoveryAgent: new_recovery_agent,
+            nonce,
+        };
+        let digest = payload.eip712_signing_hash(&domain);
+        let recovered = sig.recover_address_from_prehash(&digest).unwrap();
+        assert_eq!(recovered, signer.address());
+    }
+
+    /// Verify that `sign_cancel_recovery_agent_update` produces a recoverable signature
+    /// whose digest matches the contract's `CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH` struct.
+    #[test]
+    fn sign_cancel_recovery_agent_update_roundtrip() {
+        let signer = PrivateKeySigner::random();
+        let domain = test_domain();
+        let leaf_index: u64 = 99;
+        let nonce = U256::from(3u64);
+
+        let sig = sign_cancel_recovery_agent_update(&signer, leaf_index, nonce, &domain)
+            .expect("signing must succeed");
+
+        let payload = CancelRecoveryAgentUpdateTypedData {
+            leafIndex: leaf_index,
+            nonce,
+        };
+        let digest = payload.eip712_signing_hash(&domain);
+        let recovered = sig.recover_address_from_prehash(&digest).unwrap();
+        assert_eq!(recovered, signer.address());
+    }
+
+    /// Different leaf indices must produce different digests.
+    #[test]
+    fn sign_initiate_recovery_agent_update_different_leaf_indices() {
+        let signer = PrivateKeySigner::random();
+        let domain = test_domain();
+        let new_recovery_agent: Address = address!("0x3333333333333333333333333333333333333333");
+        let nonce = U256::ZERO;
+
+        let sig1 =
+            sign_initiate_recovery_agent_update(&signer, 1, new_recovery_agent, nonce, &domain)
+                .unwrap();
+        let sig2 =
+            sign_initiate_recovery_agent_update(&signer, 2, new_recovery_agent, nonce, &domain)
+                .unwrap();
+        assert_ne!(sig1.as_bytes(), sig2.as_bytes());
+    }
+
+    /// Different nonces must produce different digests.
+    #[test]
+    fn sign_cancel_recovery_agent_update_different_nonces() {
+        let signer = PrivateKeySigner::random();
+        let domain = test_domain();
+
+        let sig1 =
+            sign_cancel_recovery_agent_update(&signer, 1, U256::from(0u64), &domain).unwrap();
+        let sig2 =
+            sign_cancel_recovery_agent_update(&signer, 1, U256::from(1u64), &domain).unwrap();
+        assert_ne!(sig1.as_bytes(), sig2.as_bytes());
+    }
 }
