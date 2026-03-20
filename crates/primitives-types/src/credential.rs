@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-use crate::field_element::FieldElement;
-use crate::public_key_bytes::PublicKeyBytes;
-use crate::signature_bytes::{
-    SignatureBytes, deserialize_optional_signature, serialize_optional_signature,
+use crate::{
+    field_element::FieldElement,
+    public_key_bytes::PublicKeyBytes,
+    signature_bytes::{
+        SignatureBytes, deserialize_optional_signature, serialize_optional_signature,
+    },
 };
 
 /// Version of the `Credential` object.

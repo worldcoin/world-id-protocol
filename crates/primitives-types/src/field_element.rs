@@ -7,8 +7,9 @@ use crate::PrimitiveError;
 /// BN254 scalar field modulus (= BabyJubJub base field modulus).
 ///
 /// `p = 21888242871839275222246405745257275088548364400416034343698204186575808495617`
-const MODULUS: U256 =
-    ruint::uint!(21888242871839275222246405745257275088548364400416034343698204186575808495617_U256);
+const MODULUS: U256 = ruint::uint!(
+    21888242871839275222246405745257275088548364400416034343698204186575808495617_U256
+);
 
 /// A field element stored as 32 big-endian bytes, validated to be less than
 /// the BN254 scalar field modulus.
@@ -230,10 +231,12 @@ mod tests {
     #[test]
     fn from_str_rejects_wrong_length() {
         assert!(FieldElement::from_str("0x01").is_err());
-        assert!(FieldElement::from_str(
-            "0x000000000000000000000000000000000000000000000000000000000000000001"
-        )
-        .is_err());
+        assert!(
+            FieldElement::from_str(
+                "0x000000000000000000000000000000000000000000000000000000000000000001"
+            )
+            .is_err()
+        );
     }
 
     #[test]
