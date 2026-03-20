@@ -29,7 +29,13 @@ use {
 pub mod credential;
 pub use credential::{Credential, CredentialVersion};
 
+#[cfg(not(feature = "crypto"))]
+pub use credential::{PublicKeyBytes, SignatureBytes};
+
 /// All crypto-dependent modules, gated behind a single `#[cfg]`.
+///
+/// `#[path = "."]` keeps module files in `src/` rather than requiring a `src/crypto/`
+/// subdirectory, since these modules existed as top-level before the feature gate.
 #[cfg(feature = "crypto")]
 #[path = "."]
 #[allow(missing_docs)]
@@ -78,10 +84,11 @@ pub const TREE_DEPTH: usize = 30;
 /// The BN254 scalar field modulus (= BabyJubJub base field modulus).
 ///
 /// Used for field membership validation when the `crypto` feature is disabled.
-#[cfg(not(feature = "crypto"))]
+/// Kept unconditionally so that a crypto-mode test can cross-validate it.
+#[cfg_attr(feature = "crypto", allow(dead_code))]
 const BN254_SCALAR_FIELD_MODULUS: U256 = U256::from_be_bytes([
     0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
-    0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x97, 0x09, 0x14, 0x3e, 0x1f, 0x59, 0x3f, 0x00, 0x00, 0x01,
+    0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01,
 ]);
 
 /// Represents a field element of the base field (`Fq`) in the World ID Protocol.
@@ -91,7 +98,7 @@ const BN254_SCALAR_FIELD_MODULUS: U256 = U256::from_be_bytes([
 ///
 /// This wrapper ensures consistent serialization and deserialization of field elements, where
 /// string-based serialization is done with hex encoding and binary serialization is done with byte vectors.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct FieldElement(
     #[cfg(feature = "crypto")] Fq,
     #[cfg(not(feature = "crypto"))] [u8; 32],
@@ -613,5 +620,15 @@ mod tests {
         let fe = FieldElement::try_from(original).unwrap();
         let back: U256 = fe.into();
         assert_eq!(original, back);
+    }
+
+    #[cfg(feature = "crypto")]
+    #[test]
+    fn test_bn254_modulus_matches_arkworks() {
+        let modulus_from_ark: U256 = <Fq as PrimeField>::MODULUS.into();
+        assert_eq!(
+            BN254_SCALAR_FIELD_MODULUS, modulus_from_ark,
+            "hardcoded BN254 modulus drifted from ark_babyjubjub::Fq"
+        );
     }
 }

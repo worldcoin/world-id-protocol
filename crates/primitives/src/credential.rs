@@ -488,7 +488,7 @@ impl Credential {
         Ok(input[1].into())
     }
 
-    // Computes the specifically designed hash of the credential for the given version.
+    /// Computes the specifically designed hash of the credential for the given version.
     ///
     /// The hash is signed by the issuer to provide authenticity for the credential.
     ///

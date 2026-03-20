@@ -401,6 +401,11 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: stable
 
+      - name: Check primitives compiles for WASM (no-crypto)
+        run: cargo check -p world-id-primitives --no-default-features --target wasm32-unknown-unknown
+        env:
+          RUSTUP_TOOLCHAIN: stable
+
   docs:
     name: Check docs
     runs-on: ubuntu-latest
