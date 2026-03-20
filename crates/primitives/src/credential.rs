@@ -50,31 +50,6 @@ where
         .map_err(|_| de::Error::custom(format!("Invalid {type_name}. Expected {N} bytes.")))
 }
 
-#[cfg(feature = "crypto")]
-fn deserialize_optional_fixed_bytes<'de, D, const N: usize>(
-    deserializer: D,
-    type_name: &str,
-) -> Result<Option<[u8; N]>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let bytes = if deserializer.is_human_readable() {
-        Option::<String>::deserialize(deserializer)?
-            .map(|value| hex::decode(value).map_err(de::Error::custom))
-            .transpose()?
-    } else {
-        Option::<Vec<u8>>::deserialize(deserializer)?
-    };
-
-    bytes
-        .map(|value| {
-            value
-                .try_into()
-                .map_err(|_| de::Error::custom(format!("Invalid {type_name}. Expected {N} bytes.")))
-        })
-        .transpose()
-}
-
 /// Version of the `Credential` object.
 #[derive(Default, Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
 #[repr(u8)]
@@ -570,9 +545,21 @@ fn deserialize_signature<'de, D>(deserializer: D) -> Result<Option<EdDSASignatur
 where
     D: Deserializer<'de>,
 {
-    let Some(bytes) = deserialize_optional_fixed_bytes(deserializer, "signature")? else {
+    let bytes = if deserializer.is_human_readable() {
+        Option::<String>::deserialize(deserializer)?
+            .map(|value| hex::decode(value).map_err(de::Error::custom))
+            .transpose()?
+    } else {
+        Option::<Vec<u8>>::deserialize(deserializer)?
+    };
+
+    let Some(bytes) = bytes else {
         return Ok(None);
     };
+
+    let bytes: [u8; 64] = bytes
+        .try_into()
+        .map_err(|_| de::Error::custom("Invalid signature. Expected 64 bytes."))?;
 
     EdDSASignature::from_compressed_bytes(bytes)
         .map(Some)
