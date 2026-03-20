@@ -5,9 +5,9 @@ use crate::{
         BatcherHandle, Command,
         defaults::{
             DEFAULT_CANCEL_RECOVERY_AGENT_UPDATE_GAS, DEFAULT_CREATE_ACCOUNT_GAS,
-            DEFAULT_EXECUTE_RECOVERY_AGENT_UPDATE_GAS, DEFAULT_INSERT_AUTHENTICATOR_GAS,
-            DEFAULT_RECOVER_ACCOUNT_GAS, DEFAULT_REMOVE_AUTHENTICATOR_GAS,
-            DEFAULT_UPDATE_AUTHENTICATOR_GAS, DEFAULT_UPDATE_RECOVERY_AGENT_ACCOUNT_GAS,
+            DEFAULT_EXECUTE_RECOVERY_AGENT_UPDATE_GAS, DEFAULT_INITIATE_RECOVERY_AGENT_UPDATE_GAS,
+            DEFAULT_INSERT_AUTHENTICATOR_GAS, DEFAULT_RECOVER_ACCOUNT_GAS,
+            DEFAULT_REMOVE_AUTHENTICATOR_GAS, DEFAULT_UPDATE_AUTHENTICATOR_GAS,
         },
     },
     error::GatewayErrorResponse,
@@ -279,7 +279,7 @@ impl IntoRequest for UpdateRecoveryAgentRequest {
 
 impl IntoCommand for UpdateRecoveryAgentRequest {
     fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::operation(id, calldata, DEFAULT_UPDATE_RECOVERY_AGENT_ACCOUNT_GAS)
+        Command::operation(id, calldata, DEFAULT_INITIATE_RECOVERY_AGENT_UPDATE_GAS)
     }
 }
 

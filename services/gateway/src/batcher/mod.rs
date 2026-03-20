@@ -36,7 +36,7 @@ pub(super) mod defaults {
     pub const DEFAULT_RECOVER_ACCOUNT_GAS: u64 = 516_400;
     /// Measured via `forge test --gas-report` (max observed: 98,027).
     /// Does not call `_updateLeafAndRecord`, so cost is tree-depth-independent.
-    pub const DEFAULT_UPDATE_RECOVERY_AGENT_ACCOUNT_GAS: u64 = 100_000;
+    pub const DEFAULT_INITIATE_RECOVERY_AGENT_UPDATE_GAS: u64 = 100_000;
     /// Measured via `forge test --gas-report` (max observed: 41,313).
     /// Does not call `_updateLeafAndRecord`, so cost is tree-depth-independent.
     pub const DEFAULT_CANCEL_RECOVERY_AGENT_UPDATE_GAS: u64 = 43_000;
