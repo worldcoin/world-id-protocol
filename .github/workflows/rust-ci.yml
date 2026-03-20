@@ -88,6 +88,9 @@ jobs:
           toolchain: nightly
           components: rustfmt
 
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+
       - name: Download contract ABIs
         uses: actions/download-artifact@v4
         with:
@@ -122,6 +125,9 @@ jobs:
         with:
           toolchain: 1.87
 
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+
       - name: Download contract ABIs
         uses: actions/download-artifact@v4
         with:
@@ -154,14 +160,18 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+
       - name: Download contract ABIs
         uses: actions/download-artifact@v4
         with:
           name: contract-abis
 
       - name: Install cargo-hack
-        run: |
-          cargo install cargo-hack --locked
+        uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6 # v2.69.1 https://github.com/taiki-e/install-action/releases/tag/v2.69.1
+        with:
+          tool: cargo-hack
 
       - name: Check Features
         run: |
@@ -194,6 +204,9 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         # Anvil is used for integration tests
@@ -214,11 +227,10 @@ jobs:
           docker compose up -d
           sleep 5
 
-      - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
-
       - name: Install cargo-nextest
-        run: cargo install cargo-nextest --locked
+        uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6 # v2.69.1 https://github.com/taiki-e/install-action/releases/tag/v2.69.1
+        with:
+          tool: cargo-nextest
 
       - name: Run tests
         env:
@@ -259,6 +271,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
