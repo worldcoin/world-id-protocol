@@ -398,8 +398,13 @@ pub struct IndexerAuthenticatorPubkeysResponse {
     ///
     /// Entries may be `null` for removed authenticator slots to preserve `pubkey_id` positions.
     #[serde(with = "hex_u256_opt_vec")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<Option<String>>, format = "hex"))]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub authenticator_pubkeys: Vec<Option<U256>>,
+
+    /// The commitment to all the authenticator pubkeys. This commitment is
+    /// stored in the `WorldIDRegistry`.
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
+    pub offchain_signer_commitment: U256,
 }
 
 /// Health response for an API service (gateway or indexer).
