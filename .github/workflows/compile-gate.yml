@@ -15,9 +15,15 @@ jobs:
   compile:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Build contracts
+        run: make sol-build
       - name: Compile the workspace
+        env:
+          CONTRACTS_PREBUILT: "1"
         run: cargo test --all --locked --no-run
       - name: Validate controller fixtures
         run: node --test .github/scripts/__tests__/mobench-controller.test.mjs
