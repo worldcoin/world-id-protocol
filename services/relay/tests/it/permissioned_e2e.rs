@@ -493,7 +493,10 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
 
     let chain_after_root = sat.KECCAK_CHAIN().call().await?;
     assert_ne!(chain_after_root.head, B256::ZERO);
-    assert_eq!(chain_after_root.length, 1); // root only
+    // WorldIDRegistry is initialized with a non-zero root (empty Merkle tree), so
+    // the engine propagates that initial root on its first tick before the test's
+    // createAccount. After round 1 the satellite chain has: initial root + account root.
+    assert_eq!(chain_after_root.length, 2); // initial (empty-tree) root + account root
 
     // Pending state should be cleared after round 1.
     assert!(
@@ -512,7 +515,10 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
     CredentialSchemaIssuerRegistry::new(credential_registry, test_provider.clone())
         .register(
             schema_id,
-            ICredentialSchemaIssuerRegistry::Pubkey { x: issuer_x, y: issuer_y },
+            ICredentialSchemaIssuerRegistry::Pubkey {
+                x: issuer_x,
+                y: issuer_y,
+            },
             deployer,
         )
         .send()
@@ -542,7 +548,7 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
 
     let chain_after_issuer = sat.KECCAK_CHAIN().call().await?;
     assert_ne!(chain_after_issuer.head, chain_after_root.head);
-    assert_eq!(chain_after_issuer.length, 2); // root + issuer
+    assert_eq!(chain_after_issuer.length, 3); // initial root + account root + issuer
 
     // Root from round 1 should still be valid.
     assert!(sat.isValidRoot(root).call().await?);
