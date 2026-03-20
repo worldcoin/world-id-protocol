@@ -109,18 +109,6 @@ impl PublicKeyBytes {
         &self.0
     }
 
-    /// Returns the compressed public key bytes by value.
-    #[must_use]
-    pub const fn into_bytes(self) -> [u8; 32] {
-        self.0
-    }
-}
-
-#[cfg(not(feature = "crypto"))]
-impl From<[u8; 32]> for PublicKeyBytes {
-    fn from(bytes: [u8; 32]) -> Self {
-        Self::new(bytes)
-    }
 }
 
 #[cfg(not(feature = "crypto"))]
@@ -164,18 +152,6 @@ impl SignatureBytes {
         &self.0
     }
 
-    /// Returns the compressed signature bytes by value.
-    #[must_use]
-    pub const fn into_bytes(self) -> [u8; 64] {
-        self.0
-    }
-}
-
-#[cfg(not(feature = "crypto"))]
-impl From<[u8; 64]> for SignatureBytes {
-    fn from(bytes: [u8; 64]) -> Self {
-        Self::new(bytes)
-    }
 }
 
 #[cfg(not(feature = "crypto"))]
