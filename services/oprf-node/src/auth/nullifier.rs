@@ -1,7 +1,7 @@
 use crate::auth::{
     merkle_watcher::MerkleWatcher,
+    nonce_history::{DuplicateNonceError, NonceHistory},
     rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
-    signature_history::{DuplicateSignatureError, SignatureHistory},
 };
 use async_trait::async_trait;
 use axum::{http::StatusCode, response::IntoResponse};
@@ -12,6 +12,7 @@ use taceo_oprf::types::{
 };
 use tracing::instrument;
 use uuid::Uuid;
+use world_id_core::FieldElement;
 use world_id_primitives::oprf::NullifierOprfRequestAuthV1;
 
 /// Errors returned by the [`NullifierOprfReqAuthenticator`].
@@ -23,9 +24,9 @@ pub(crate) enum NullifierOprfRequestAuthError {
     /// The current time stamp difference between client and service is larger than allowed.
     #[error("the time stamp difference is too large")]
     TimeStampDifference,
-    /// A nonce signature was uses more than once
+    /// A nonce was used more than once
     #[error(transparent)]
-    DuplicateSignatureError(#[from] DuplicateSignatureError),
+    DuplicateNonceError(#[from] DuplicateNonceError),
     /// The signature over the nonce and time stamp is invalid
     #[error(transparent)]
     InvalidSignature(#[from] alloy::primitives::SignatureError),
@@ -59,7 +60,7 @@ impl IntoResponse for NullifierOprfRequestAuthError {
                 (StatusCode::BAD_REQUEST, "invalid signer").into_response()
             }
             NullifierOprfRequestAuthError::Common(err) => err.into_response(),
-            NullifierOprfRequestAuthError::DuplicateSignatureError(err) => {
+            NullifierOprfRequestAuthError::DuplicateNonceError(err) => {
                 (StatusCode::BAD_REQUEST, err.to_string()).into_response()
             }
             NullifierOprfRequestAuthError::InternalServerError(err) => {
@@ -77,7 +78,7 @@ impl IntoResponse for NullifierOprfRequestAuthError {
 
 pub(crate) struct NullifierOprfRequestAuthenticator {
     rp_registry_watcher: RpRegistryWatcher,
-    signature_history: SignatureHistory,
+    nonce_history: NonceHistory,
     current_time_stamp_max_difference: Duration,
     common: crate::auth::OprfRequestAuthenticator,
 }
@@ -86,12 +87,12 @@ impl NullifierOprfRequestAuthenticator {
     pub(crate) fn init(
         merkle_watcher: MerkleWatcher,
         rp_registry_watcher: RpRegistryWatcher,
-        signature_history: SignatureHistory,
+        nonce_history: NonceHistory,
         current_time_stamp_max_difference: Duration,
     ) -> Self {
         Self {
             rp_registry_watcher,
-            signature_history,
+            nonce_history,
             current_time_stamp_max_difference,
             common: crate::auth::OprfRequestAuthenticator::init(merkle_watcher),
         }
@@ -137,10 +138,10 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
             return Err(NullifierOprfRequestAuthError::InvalidSigner);
         }
 
-        tracing::trace!("add signature to store...");
-        // add signature to history to check if the nonces where only used once
-        self.signature_history
-            .add_signature(request.auth.signature.as_bytes().to_vec())
+        tracing::trace!("add nonce to store...");
+        // add nonce to history to check if the nonces where only used once
+        self.nonce_history
+            .add_nonce(FieldElement::from(request.auth.nonce))
             .await?;
 
         // common verification
@@ -182,12 +183,12 @@ mod tests {
     use crate::auth::{
         OprfRequestAuthError,
         merkle_watcher::MerkleWatcher,
+        nonce_history::{DuplicateNonceError, NonceHistory},
         nullifier::{NullifierOprfRequestAuthError, NullifierOprfRequestAuthenticator},
         rp_registry_watcher::{
             RpRegistry::{RpIdDoesNotExist, RpIdInactive, RpRegistryErrors},
             RpRegistryWatcher, RpRegistryWatcherError,
         },
-        signature_history::{DuplicateSignatureError, SignatureHistory},
         tests::OprfRequestAuthTestSetup,
     };
 
@@ -228,7 +229,7 @@ mod tests {
             )
             .await?;
 
-            let signature_history = SignatureHistory::init(
+            let nonce_history = NonceHistory::init(
                 current_time_stamp_max_difference * 2,
                 cache_maintenance_interval,
             );
@@ -236,7 +237,7 @@ mod tests {
             let request_authenticator = NullifierOprfRequestAuthenticator::init(
                 merkle_watcher.clone(),
                 rp_registry_watcher.clone(),
-                signature_history,
+                nonce_history,
                 current_time_stamp_max_difference,
             );
 
@@ -413,7 +414,7 @@ mod tests {
             .expect_err("Should fail");
         assert!(matches!(
             err,
-            NullifierOprfRequestAuthError::DuplicateSignatureError(DuplicateSignatureError)
+            NullifierOprfRequestAuthError::DuplicateNonceError(DuplicateNonceError)
         ));
         Ok(())
     }
