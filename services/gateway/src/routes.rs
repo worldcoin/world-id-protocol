@@ -13,16 +13,16 @@ use crate::{
     request_tracker::RequestTracker,
     routes::{
         cancel_recovery_agent_update::cancel_recovery_agent_update,
-        execute_recovery_agent_update::execute_recovery_agent_update,
         create_account::create_account,
+        execute_recovery_agent_update::execute_recovery_agent_update,
         health::{__path_health, health},
+        initiate_recovery_agent_update::initiate_recovery_agent_update,
         insert_authenticator::insert_authenticator,
         is_valid_root::is_valid_root,
         recover_account::recover_account,
         remove_authenticator::remove_authenticator,
         request_status::request_status,
         update_authenticator::update_authenticator,
-        initiate_recovery_agent_update::initiate_recovery_agent_update,
     },
     types::RootExpiry,
 };
@@ -39,11 +39,11 @@ use tokio::sync::mpsc;
 use utoipa::OpenApi;
 use world_id_core::{
     api_types::{
-        CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
-        GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery,
-        IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
-        CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest,
-        UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
+        CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
+        GatewayErrorCode, GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
+        HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery, IsValidRootResponse,
+        RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+        UpdateRecoveryAgentRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
@@ -167,7 +167,10 @@ pub(crate) async fn build_app(
         .route("/remove-authenticator", post(remove_authenticator))
         .route("/recover-account", post(recover_account))
         // recovery agent management
-        .route("/initiate-recovery-agent-update", post(initiate_recovery_agent_update))
+        .route(
+            "/initiate-recovery-agent-update",
+            post(initiate_recovery_agent_update),
+        )
         .route(
             "/cancel-recovery-agent-update",
             post(cancel_recovery_agent_update),
@@ -274,7 +277,11 @@ async fn _doc_recover_account(_: State<AppState>, _: Json<RecoverAccountRequest>
     ),
     tag = "Gateway"
 )]
-async fn _doc_initiate_recovery_agent_update(_: State<AppState>, _: Json<UpdateRecoveryAgentRequest>) {}
+async fn _doc_initiate_recovery_agent_update(
+    _: State<AppState>,
+    _: Json<UpdateRecoveryAgentRequest>,
+) {
+}
 
 #[utoipa::path(
     post,
@@ -288,7 +295,11 @@ async fn _doc_initiate_recovery_agent_update(_: State<AppState>, _: Json<UpdateR
     ),
     tag = "Gateway"
 )]
-async fn _doc_cancel_recovery_agent_update(_: State<AppState>, _: Json<CancelRecoveryAgentUpdateRequest>) {}
+async fn _doc_cancel_recovery_agent_update(
+    _: State<AppState>,
+    _: Json<CancelRecoveryAgentUpdateRequest>,
+) {
+}
 
 #[utoipa::path(
     post,
@@ -302,7 +313,11 @@ async fn _doc_cancel_recovery_agent_update(_: State<AppState>, _: Json<CancelRec
     ),
     tag = "Gateway"
 )]
-async fn _doc_execute_recovery_agent_update(_: State<AppState>, _: Json<ExecuteRecoveryAgentUpdateRequest>) {}
+async fn _doc_execute_recovery_agent_update(
+    _: State<AppState>,
+    _: Json<ExecuteRecoveryAgentUpdateRequest>,
+) {
+}
 
 #[utoipa::path(
     get,

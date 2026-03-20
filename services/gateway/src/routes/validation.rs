@@ -639,14 +639,9 @@ mod tests {
         let signer = PrivateKeySigner::random();
         let domain = make_domain();
         let non_zero_agent: Address = address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        let sig = sign_initiate_recovery_agent_update(
-            &signer,
-            0,
-            non_zero_agent,
-            U256::ZERO,
-            &domain,
-        )
-        .unwrap();
+        let sig =
+            sign_initiate_recovery_agent_update(&signer, 0, non_zero_agent, U256::ZERO, &domain)
+                .unwrap();
 
         let req = UpdateRecoveryAgentRequest {
             leaf_index: 0,
@@ -661,14 +656,9 @@ mod tests {
     fn initiate_preflight_rejects_zero_recovery_agent() {
         let signer = PrivateKeySigner::random();
         let domain = make_domain();
-        let sig = sign_initiate_recovery_agent_update(
-            &signer,
-            1,
-            Address::ZERO,
-            U256::ZERO,
-            &domain,
-        )
-        .unwrap();
+        let sig =
+            sign_initiate_recovery_agent_update(&signer, 1, Address::ZERO, U256::ZERO, &domain)
+                .unwrap();
 
         let req = UpdateRecoveryAgentRequest {
             leaf_index: 1,
@@ -687,9 +677,14 @@ mod tests {
         let new_recovery_agent: Address = address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         let nonce = U256::from(5u64);
 
-        let sig =
-            sign_initiate_recovery_agent_update(&signer, leaf_index, new_recovery_agent, nonce, &domain)
-                .unwrap();
+        let sig = sign_initiate_recovery_agent_update(
+            &signer,
+            leaf_index,
+            new_recovery_agent,
+            nonce,
+            &domain,
+        )
+        .unwrap();
 
         let req = UpdateRecoveryAgentRequest {
             leaf_index,
@@ -720,8 +715,7 @@ mod tests {
     fn cancel_preflight_rejects_zero_leaf_index() {
         let signer = PrivateKeySigner::random();
         let domain = make_domain();
-        let sig =
-            sign_cancel_recovery_agent_update(&signer, 0, U256::ZERO, &domain).unwrap();
+        let sig = sign_cancel_recovery_agent_update(&signer, 0, U256::ZERO, &domain).unwrap();
 
         let req = CancelRecoveryAgentUpdateRequest {
             leaf_index: 0,

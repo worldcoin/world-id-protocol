@@ -283,13 +283,17 @@ mod tests {
         let signer = PrivateKeySigner::random();
         let domain = test_domain();
         let leaf_index: u64 = 42;
-        let new_recovery_agent: Address =
-            address!("0x2222222222222222222222222222222222222222");
+        let new_recovery_agent: Address = address!("0x2222222222222222222222222222222222222222");
         let nonce = U256::from(7u64);
 
-        let sig =
-            sign_initiate_recovery_agent_update(&signer, leaf_index, new_recovery_agent, nonce, &domain)
-                .expect("signing must succeed");
+        let sig = sign_initiate_recovery_agent_update(
+            &signer,
+            leaf_index,
+            new_recovery_agent,
+            nonce,
+            &domain,
+        )
+        .expect("signing must succeed");
 
         // Re-derive the digest and recover the address
         let payload = InitiateRecoveryAgentUpdateTypedData {
@@ -328,8 +332,7 @@ mod tests {
     fn sign_initiate_recovery_agent_update_different_leaf_indices() {
         let signer = PrivateKeySigner::random();
         let domain = test_domain();
-        let new_recovery_agent: Address =
-            address!("0x3333333333333333333333333333333333333333");
+        let new_recovery_agent: Address = address!("0x3333333333333333333333333333333333333333");
         let nonce = U256::ZERO;
 
         let sig1 =
