@@ -54,8 +54,8 @@ fn generate_query_input() -> (
 
     // Create user keys
     let user_sk = EdDSAPrivateKey::random(&mut rng);
-    let key_set = AuthenticatorPublicKeySet::new(vec![user_sk.public().clone()])
-        .expect("valid key set");
+    let key_set =
+        AuthenticatorPublicKeySet::new(vec![user_sk.public().clone()]).expect("valid key set");
 
     // Create merkle proof
     let leaf = key_set.leaf_hash();
@@ -107,13 +107,13 @@ fn generate_nullifier_input() -> (
     // Load embedded proving materials
     let query_material =
         proof::load_embedded_query_material().expect("failed to load query material");
-    let nullifier_material = proof::load_embedded_nullifier_material()
-        .expect("failed to load nullifier material");
+    let nullifier_material =
+        proof::load_embedded_nullifier_material().expect("failed to load nullifier material");
 
     // Create user keys
     let user_sk = EdDSAPrivateKey::random(&mut rng);
-    let key_set = AuthenticatorPublicKeySet::new(vec![user_sk.public().clone()])
-        .expect("valid key set");
+    let key_set =
+        AuthenticatorPublicKeySet::new(vec![user_sk.public().clone()]).expect("valid key set");
 
     // Create merkle proof
     let leaf = key_set.leaf_hash();
@@ -179,8 +179,7 @@ fn generate_nullifier_input() -> (
     let cred_signature = credential.signature.clone().expect("signed credential");
 
     // Simulate OPRF response
-    let blinded_request =
-        taceo_oprf::core::oprf::client::blind_query(*query_hash, blinding_factor.clone());
+    let blinded_request = taceo_oprf::core::oprf::client::blind_query(*query_hash, blinding_factor);
     let blinded_query = blinded_request.blinded_query();
     let blinded_response = (blinded_query * rp_fixture.rp_secret).into_affine();
 
@@ -480,54 +479,89 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
     fn test_query_proof_benchmark() {
         // Just verify the benchmark runs without panicking
         bench_query_proof_generation();
     }
 
     #[test]
+    #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
     fn test_query_proof_only_benchmark() {
         // Just verify the benchmark runs without panicking
         bench_query_proof_only();
     }
 
     #[test]
+    #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
     fn test_nullifier_proof_benchmark() {
         // Just verify the benchmark runs without panicking
         bench_nullifier_proof_generation();
     }
 
     #[test]
+    #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
     fn test_query_witness_only_benchmark() {
         bench_query_witness_generation_only();
     }
 
     #[test]
+    #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
     fn test_query_proving_only_benchmark() {
         bench_query_proving_only();
     }
 
     #[test]
+    #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
     fn test_nullifier_witness_only_benchmark() {
         bench_nullifier_witness_generation_only();
     }
 
     #[test]
+    #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
     fn test_nullifier_proving_only_benchmark() {
         bench_nullifier_proving_only();
     }
 
     #[test]
-    fn test_run_benchmark_via_registry() {
+    fn test_benchmark_registry_contains_expected_functions() {
         let benchmarks = mobench_sdk::discover_benchmarks();
-        assert!(benchmarks.len() >= 3, "Should find at least 3 benchmarks");
+        let names = benchmarks
+            .iter()
+            .map(|bench| bench.name.to_string())
+            .collect::<Vec<_>>();
 
+        assert!(
+            names
+                .iter()
+                .any(|name| name == "zk_mobile_bench::bench_query_proof_generation"),
+            "query proof benchmark should be registered"
+        );
+        assert!(
+            names
+                .iter()
+                .any(|name| name == "zk_mobile_bench::bench_nullifier_proof_generation"),
+            "nullifier proof benchmark should be registered"
+        );
+        assert!(
+            names
+                .iter()
+                .any(|name| name == "zk_mobile_bench::bench_query_proving_only"),
+            "query proving-only benchmark should be registered"
+        );
+    }
+
+    #[test]
+    fn test_run_benchmark_unknown_function_returns_error() {
+        let name = "zk_mobile_bench::does_not_exist".to_string();
         let spec = BenchSpec {
-            name: "zk_mobile_bench::bench_query_proof_generation".to_string(),
+            name: name.clone(),
             iterations: 1,
             warmup: 0,
         };
-        let report = run_benchmark(spec).expect("benchmark should run");
-        assert_eq!(report.samples.len(), 1);
+
+        let err = run_benchmark(spec).expect_err("unknown benchmark should fail");
+
+        assert!(matches!(err, BenchError::UnknownFunction { name: err_name } if err_name == name));
     }
 }

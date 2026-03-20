@@ -18,6 +18,8 @@ use world_id_primitives::{
 
 use std::sync::RwLock;
 
+const SERVICE_STARTUP_TIMEOUT: Duration = Duration::from_secs(180);
+
 #[derive(Clone)]
 struct IndexerState {
     leaf_index: u64,
@@ -221,7 +223,7 @@ async fn spawn_orpf_node(
         tracing::error!("service failed to start: {res:?}");
     });
     // very graceful timeout for CI
-    tokio::time::timeout(Duration::from_secs(60), async {
+    tokio::time::timeout(SERVICE_STARTUP_TIMEOUT, async {
         loop {
             if reqwest::get(url.clone() + "/health").await.is_ok() {
                 break;
@@ -336,7 +338,7 @@ async fn spawn_key_gen(
         tracing::error!("service failed to start: {res:?}");
     });
     // very graceful timeout for CI
-    tokio::time::timeout(Duration::from_secs(60), async {
+    tokio::time::timeout(SERVICE_STARTUP_TIMEOUT, async {
         loop {
             if reqwest::get(url.clone() + "/health").await.is_ok() {
                 break;
