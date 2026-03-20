@@ -9,9 +9,9 @@ use alloy::{
 };
 use world_id_core::{
     api_types::{
-        CancelRecoveryAgentUpdateRequest, CreateAccountRequest, InsertAuthenticatorRequest,
-        RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
-        UpdateRecoveryAgentRequest,
+        CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
+        InsertAuthenticatorRequest, RecoverAccountRequest, RemoveAuthenticatorRequest,
+        UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
     },
     world_id_registry::{
         CancelRecoveryAgentUpdateTypedData, InitiateRecoveryAgentUpdateTypedData,
@@ -516,6 +516,35 @@ impl RequestValidation for CancelRecoveryAgentUpdateRequest {
 }
 
 // =============================================================================
+// ExecuteRecoveryAgentUpdateRequest (executeRecoveryAgentUpdate)
+// =============================================================================
+impl RequestValidation for ExecuteRecoveryAgentUpdateRequest {
+    fn pre_flight(
+        &self,
+        _chain_id: u64,
+        _verifying_contract: Address,
+    ) -> Result<(), GatewayErrorResponse> {
+        // executeRecoveryAgentUpdate is permissionless — no signature to verify.
+        // The contract enforces cooldown; simulate_calldata will surface
+        // RecoveryAgentUpdateStillInCooldown or NoPendingRecoveryAgentUpdate if
+        // called too early or without a pending update.
+        if self.leaf_index == 0 {
+            return Err(GatewayErrorResponse::bad_request_message(
+                "leaf_index cannot be zero".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn calldata(&self, registry: &Registry) -> Bytes {
+        registry
+            .executeRecoveryAgentUpdate(self.leaf_index)
+            .calldata()
+            .clone()
+    }
+}
+
+// =============================================================================
 // RecoverAccountRequest
 // =============================================================================
 
@@ -584,7 +613,10 @@ mod tests {
         signers::local::PrivateKeySigner,
     };
     use world_id_core::{
-        api_types::{CancelRecoveryAgentUpdateRequest, UpdateRecoveryAgentRequest},
+        api_types::{
+            CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest,
+            UpdateRecoveryAgentRequest,
+        },
         world_id_registry::{
             domain as registry_domain, sign_cancel_recovery_agent_update,
             sign_initiate_recovery_agent_update,
@@ -724,5 +756,23 @@ mod tests {
             nonce: U256::ZERO,
         };
         assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+    }
+
+    // ------------------------------------------------------------------
+    // ExecuteRecoveryAgentUpdateRequest pre_flight
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn execute_preflight_rejects_zero_leaf_index() {
+        let req = ExecuteRecoveryAgentUpdateRequest { leaf_index: 0 };
+        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+    }
+
+    #[test]
+    fn execute_preflight_accepts_nonzero_leaf_index() {
+        let req = ExecuteRecoveryAgentUpdateRequest { leaf_index: 1 };
+        // pre_flight itself passes; simulate_calldata (eth_call) would catch
+        // premature calls but we don't exercise that in a pure unit test.
+        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_ok());
     }
 }

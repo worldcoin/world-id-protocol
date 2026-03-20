@@ -5,9 +5,9 @@ use crate::{
         BatcherHandle, Command,
         defaults::{
             DEFAULT_CANCEL_RECOVERY_AGENT_UPDATE_GAS, DEFAULT_CREATE_ACCOUNT_GAS,
-            DEFAULT_INSERT_AUTHENTICATOR_GAS, DEFAULT_RECOVER_ACCOUNT_GAS,
-            DEFAULT_REMOVE_AUTHENTICATOR_GAS, DEFAULT_UPDATE_AUTHENTICATOR_GAS,
-            DEFAULT_UPDATE_RECOVERY_AGENT_ACCOUNT_GAS,
+            DEFAULT_EXECUTE_RECOVERY_AGENT_UPDATE_GAS, DEFAULT_INSERT_AUTHENTICATOR_GAS,
+            DEFAULT_RECOVER_ACCOUNT_GAS, DEFAULT_REMOVE_AUTHENTICATOR_GAS,
+            DEFAULT_UPDATE_AUTHENTICATOR_GAS, DEFAULT_UPDATE_RECOVERY_AGENT_ACCOUNT_GAS,
         },
     },
     error::GatewayErrorResponse,
@@ -22,8 +22,8 @@ use moka::future::Cache;
 use uuid::Uuid;
 use world_id_core::{
     api_types::{
-        CancelRecoveryAgentUpdateRequest, CreateAccountRequest, GatewayErrorCode,
-        GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
+        CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
+        GatewayErrorCode, GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
         InsertAuthenticatorRequest, RecoverAccountRequest, RemoveAuthenticatorRequest,
         UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
     },
@@ -317,6 +317,37 @@ impl IntoCommand for CancelRecoveryAgentUpdateRequest {
 impl IntoRequestWithRateLimit for CancelRecoveryAgentUpdateRequest {}
 
 impl Request<CancelRecoveryAgentUpdateRequest> {
+    pub async fn submit(
+        self,
+        ctx: &GatewayContext,
+    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+        submit_request(self, ctx).await
+    }
+}
+
+// =============================================================================
+// ExecuteRecoveryAgentUpdateRequest
+// =============================================================================
+
+impl HasLeafIndex for ExecuteRecoveryAgentUpdateRequest {
+    fn leaf_index(&self) -> u64 {
+        self.leaf_index
+    }
+}
+
+impl IntoRequest for ExecuteRecoveryAgentUpdateRequest {
+    const KIND: GatewayRequestKind = GatewayRequestKind::ExecuteRecoveryAgentUpdate;
+}
+
+impl IntoCommand for ExecuteRecoveryAgentUpdateRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata, DEFAULT_EXECUTE_RECOVERY_AGENT_UPDATE_GAS)
+    }
+}
+
+impl IntoRequestWithRateLimit for ExecuteRecoveryAgentUpdateRequest {}
+
+impl Request<ExecuteRecoveryAgentUpdateRequest> {
     pub async fn submit(
         self,
         ctx: &GatewayContext,

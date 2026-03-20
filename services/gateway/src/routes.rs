@@ -13,6 +13,7 @@ use crate::{
     request_tracker::RequestTracker,
     routes::{
         cancel_recovery_agent_update::cancel_recovery_agent_update,
+        execute_recovery_agent_update::execute_recovery_agent_update,
         create_account::create_account,
         health::{__path_health, health},
         insert_authenticator::insert_authenticator,
@@ -41,7 +42,8 @@ use world_id_core::{
         CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
         GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery,
         IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
-        CancelRecoveryAgentUpdateRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
+        CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest,
+        UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
@@ -61,6 +63,7 @@ mod update_authenticator;
 
 // Recovery agent routes
 mod cancel_recovery_agent_update;
+mod execute_recovery_agent_update;
 mod initiate_recovery_agent_update;
 
 // Admin / utility routes
@@ -168,6 +171,10 @@ pub(crate) async fn build_app(
         .route(
             "/cancel-recovery-agent-update",
             post(cancel_recovery_agent_update),
+        )
+        .route(
+            "/execute-recovery-agent-update",
+            post(execute_recovery_agent_update),
         )
         // admin / utility
         .route("/is-valid-root", get(is_valid_root))
@@ -284,6 +291,20 @@ async fn _doc_initiate_recovery_agent_update(_: State<AppState>, _: Json<UpdateR
 async fn _doc_cancel_recovery_agent_update(_: State<AppState>, _: Json<CancelRecoveryAgentUpdateRequest>) {}
 
 #[utoipa::path(
+    post,
+    path = "/execute-recovery-agent-update",
+    request_body = ExecuteRecoveryAgentUpdateRequest,
+    responses(
+        (status = 200, description = "Request accepted", body = GatewayStatusResponse),
+        (status = 400, description = "Bad request (leaf_index zero or no pending update)", body = GatewayErrorBody),
+        (status = 429, description = "Rate limit exceeded", body = GatewayErrorBody),
+        (status = 500, description = "Internal server error", body = GatewayErrorBody)
+    ),
+    tag = "Gateway"
+)]
+async fn _doc_execute_recovery_agent_update(_: State<AppState>, _: Json<ExecuteRecoveryAgentUpdateRequest>) {}
+
+#[utoipa::path(
     get,
     path = "/is-valid-root",
     params(IsValidRootQuery),
@@ -307,6 +328,7 @@ async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidR
         _doc_recover_account,
         _doc_initiate_recovery_agent_update,
         _doc_cancel_recovery_agent_update,
+        _doc_execute_recovery_agent_update,
         _doc_is_valid_root
     ),
     components(schemas(
@@ -324,6 +346,7 @@ async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidR
         RemoveAuthenticatorRequest,
         UpdateRecoveryAgentRequest,
         CancelRecoveryAgentUpdateRequest,
+        ExecuteRecoveryAgentUpdateRequest,
         RecoverAccountRequest
     )),
     tags((name = "Gateway", description = "TODO"))

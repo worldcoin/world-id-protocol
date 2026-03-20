@@ -178,6 +178,22 @@ pub struct UpdateRecoveryAgentRequest {
     pub nonce: U256,
 }
 
+/// The request to execute a pending recovery agent update.
+///
+/// No signature is required — `executeRecoveryAgentUpdate` is permissionless.
+/// The contract enforces the 14-day cooldown and will revert with
+/// `RecoveryAgentUpdateStillInCooldown` if called too early.
+///
+/// Numeric string fields in this request accept decimal or `0x`/`0X`-prefixed hex.
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExecuteRecoveryAgentUpdateRequest {
+    /// The account index.
+    #[serde(with = "hex_u64")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub leaf_index: u64,
+}
+
 /// The request to cancel a pending recovery agent update.
 ///
 /// Numeric string fields in this request accept decimal or `0x`/`0X`-prefixed hex.
@@ -260,6 +276,8 @@ pub enum GatewayRequestKind {
     UpdateRecoveryAgent,
     /// Recovery agent update cancellation request.
     CancelRecoveryAgentUpdate,
+    /// Recovery agent update execution request.
+    ExecuteRecoveryAgentUpdate,
     /// Account recovery request.
     RecoverAccount,
 }
