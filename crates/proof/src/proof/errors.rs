@@ -400,7 +400,7 @@ fn hash_credential(
     genesis_issued_at: FieldElement,
     expires_at: FieldElement,
     claims_hash: FieldElement,
-    associated_data_hash: FieldElement,
+    associated_data_commitment: FieldElement,
     id: FieldElement,
 ) -> FieldElement {
     let cred_ds = Fr::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ");
@@ -411,7 +411,7 @@ fn hash_credential(
         *genesis_issued_at,
         *expires_at,
         *claims_hash,
-        *associated_data_hash,
+        *associated_data_commitment,
         *id,
     ];
     poseidon2::bn254::t8::permutation_in_place(&mut input);
