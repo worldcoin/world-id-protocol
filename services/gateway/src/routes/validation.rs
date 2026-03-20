@@ -10,7 +10,7 @@ use alloy::{
 use world_id_core::{
     api_types::{
         CreateAccountRequest, InsertAuthenticatorRequest, RecoverAccountRequest,
-        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
     },
     world_id_registry::{
         InsertAuthenticatorTypedData, RecoverAccountTypedData, RemoveAuthenticatorTypedData,
@@ -413,6 +413,23 @@ impl RequestValidation for RemoveAuthenticatorRequest {
             )
             .calldata()
             .clone()
+    }
+}
+
+// =============================================================================
+// UpdateRecoveryAgentRequest
+// =============================================================================
+impl RequestValidation for UpdateRecoveryAgentRequest {
+    fn pre_flight(
+        &self,
+        chain_id: u64,
+        verifying_contract: Address,
+    ) -> Result<(), GatewayErrorResponse> {
+        todo!()
+    }
+
+    fn calldata(&self, registry: &Registry) -> Bytes {
+        todo!()
     }
 }
 

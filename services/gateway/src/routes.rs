@@ -12,6 +12,7 @@ use crate::{
     request::GatewayContext,
     request_tracker::RequestTracker,
     routes::{
+        cancel_recovery_agent_update::cancel_recovery_agent_update,
         create_account::create_account,
         health::{__path_health, health},
         insert_authenticator::insert_authenticator,
@@ -20,6 +21,7 @@ use crate::{
         remove_authenticator::remove_authenticator,
         request_status::request_status,
         update_authenticator::update_authenticator,
+        update_recovery_agent::update_recovery_agent,
     },
     types::RootExpiry,
 };
@@ -39,20 +41,33 @@ use world_id_core::{
         CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
         GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery,
         IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
-        UpdateAuthenticatorRequest,
+        UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 
-mod create_account;
+// Health and status routes
 mod health;
-mod insert_authenticator;
-mod is_valid_root;
-pub(crate) mod middleware;
-mod recover_account;
-mod remove_authenticator;
 mod request_status;
+
+// Account routes
+mod create_account;
+mod recover_account;
+
+// Authenticator routes
+mod insert_authenticator;
+mod remove_authenticator;
 mod update_authenticator;
+
+// Recovery agent routes
+mod cancel_recovery_agent_update;
+mod update_recovery_agent;
+
+// Admin / utility routes
+mod is_valid_root;
+
+// Shared route internals
+pub(crate) mod middleware;
 pub(crate) mod validation;
 
 const ROOT_CACHE_SIZE: u64 = 1024;
@@ -148,6 +163,12 @@ pub(crate) async fn build_app(
         .route("/insert-authenticator", post(insert_authenticator))
         .route("/remove-authenticator", post(remove_authenticator))
         .route("/recover-account", post(recover_account))
+        // recovery agent management
+        .route("/update-recovery-agent", post(update_recovery_agent))
+        .route(
+            "/cancel-recovery-agent-update",
+            post(cancel_recovery_agent_update),
+        )
         // admin / utility
         .route("/is-valid-root", get(is_valid_root))
         .route("/openapi.json", get(openapi))
@@ -235,6 +256,27 @@ async fn _doc_remove_authenticator(_: State<AppState>, _: Json<RemoveAuthenticat
 async fn _doc_recover_account(_: State<AppState>, _: Json<RecoverAccountRequest>) {}
 
 #[utoipa::path(
+    post,
+    path = "/update-recovery-agent",
+    request_body = UpdateRecoveryAgentRequest,
+    responses(
+        (status = 501, description = "Not implemented", body = GatewayErrorBody)
+    ),
+    tag = "Gateway"
+)]
+async fn _doc_update_recovery_agent(_: State<AppState>, _: Json<UpdateRecoveryAgentRequest>) {}
+
+#[utoipa::path(
+    post,
+    path = "/cancel-recovery-agent-update",
+    responses(
+        (status = 501, description = "Not implemented", body = GatewayErrorBody)
+    ),
+    tag = "Gateway"
+)]
+async fn _doc_cancel_recovery_agent_update(_: State<AppState>) {}
+
+#[utoipa::path(
     get,
     path = "/is-valid-root",
     params(IsValidRootQuery),
@@ -256,6 +298,8 @@ async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidR
         _doc_insert_authenticator,
         _doc_remove_authenticator,
         _doc_recover_account,
+        _doc_update_recovery_agent,
+        _doc_cancel_recovery_agent_update,
         _doc_is_valid_root
     ),
     components(schemas(
@@ -271,6 +315,7 @@ async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidR
         UpdateAuthenticatorRequest,
         InsertAuthenticatorRequest,
         RemoveAuthenticatorRequest,
+        UpdateRecoveryAgentRequest,
         RecoverAccountRequest
     )),
     tags((name = "Gateway", description = "TODO"))

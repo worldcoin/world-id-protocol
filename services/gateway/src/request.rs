@@ -6,7 +6,7 @@ use crate::{
         defaults::{
             DEFAULT_CREATE_ACCOUNT_GAS, DEFAULT_INSERT_AUTHENTICATOR_GAS,
             DEFAULT_RECOVER_ACCOUNT_GAS, DEFAULT_REMOVE_AUTHENTICATOR_GAS,
-            DEFAULT_UPDATE_AUTHENTICATOR_GAS,
+            DEFAULT_UPDATE_AUTHENTICATOR_GAS, DEFAULT_UPDATE_RECOVERY_AGENT_ACCOUNT_GAS,
         },
     },
     error::GatewayErrorResponse,
@@ -23,7 +23,7 @@ use world_id_core::{
     api_types::{
         CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
         GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
-        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
@@ -253,6 +253,37 @@ impl IntoCommand for RemoveAuthenticatorRequest {
 impl IntoRequestWithRateLimit for RemoveAuthenticatorRequest {}
 
 impl Request<RemoveAuthenticatorRequest> {
+    pub async fn submit(
+        self,
+        ctx: &GatewayContext,
+    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+        submit_request(self, ctx).await
+    }
+}
+
+// =============================================================================
+// UpdateRecoveryAgentRequest
+// =============================================================================
+
+impl HasLeafIndex for UpdateRecoveryAgentRequest {
+    fn leaf_index(&self) -> u64 {
+        self.leaf_index
+    }
+}
+
+impl IntoRequest for UpdateRecoveryAgentRequest {
+    const KIND: GatewayRequestKind = GatewayRequestKind::UpdateRecoveryAgent;
+}
+
+impl IntoCommand for UpdateRecoveryAgentRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata, DEFAULT_UPDATE_RECOVERY_AGENT_ACCOUNT_GAS)
+    }
+}
+
+impl IntoRequestWithRateLimit for UpdateRecoveryAgentRequest {}
+
+impl Request<UpdateRecoveryAgentRequest> {
     pub async fn submit(
         self,
         ctx: &GatewayContext,

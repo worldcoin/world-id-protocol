@@ -34,6 +34,7 @@ pub(super) mod defaults {
     pub const DEFAULT_UPDATE_AUTHENTICATOR_GAS: u64 = 385_775;
     pub const DEFAULT_REMOVE_AUTHENTICATOR_GAS: u64 = 721_044;
     pub const DEFAULT_RECOVER_ACCOUNT_GAS: u64 = 516_400;
+    pub const DEFAULT_UPDATE_RECOVERY_AGENT_ACCOUNT_GAS: u64 = 516_400; // TODO: Update
 }
 
 /// Unified batcher handle that routes to the appropriate batcher.
