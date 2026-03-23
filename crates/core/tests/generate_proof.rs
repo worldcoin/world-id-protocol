@@ -136,10 +136,13 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // Create the account via the gateway, blocking until confirmed.
     let start = SystemTime::now();
-    let authenticator =
-        Authenticator::init_or_register(&seed, creation_config.clone().into(), Some(recovery_address))
-            .await
-            .unwrap();
+    let authenticator = Authenticator::init_or_register(
+        &seed,
+        creation_config.clone().into(),
+        Some(recovery_address),
+    )
+    .await
+    .unwrap();
     info!(
         elapsed_ms = SystemTime::now().duration_since(start).unwrap().as_millis(),
         "authenticator account creation finished"

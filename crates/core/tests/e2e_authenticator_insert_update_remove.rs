@@ -183,7 +183,9 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&primary_seed, config.into()).await.unwrap();
+    let auth = Authenticator::init(&primary_seed, config.into())
+        .await
+        .unwrap();
 
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(0));
     let req_id = auth
@@ -221,7 +223,9 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&primary_seed, config.into()).await.unwrap();
+    let auth = Authenticator::init(&primary_seed, config.into())
+        .await
+        .unwrap();
 
     let updated_pubkey = EdDSAPrivateKey::random(&mut rand::thread_rng()).public();
     let updated_address = anvil.signer(3).unwrap().address();
@@ -274,7 +278,9 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&secondary_seed, config.into()).await.unwrap();
+    let auth = Authenticator::init(&secondary_seed, config.into())
+        .await
+        .unwrap();
 
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(2));
     let req_id = auth.remove_authenticator(updated_address, 0).await.unwrap();

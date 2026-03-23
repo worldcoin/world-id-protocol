@@ -115,8 +115,9 @@ impl OhttpClient {
         path: &str,
         body: &T,
     ) -> Result<OhttpResponse, AuthenticatorError> {
-        let body = serde_json::to_vec(body)
-            .map_err(|e| AuthenticatorError::Generic(format!("failed to serialize request body: {e}")))?;
+        let body = serde_json::to_vec(body).map_err(|e| {
+            AuthenticatorError::Generic(format!("failed to serialize request body: {e}"))
+        })?;
         self.request(b"POST", path, Some(&body)).await
     }
 

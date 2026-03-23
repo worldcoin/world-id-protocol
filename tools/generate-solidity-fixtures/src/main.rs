@@ -121,10 +121,13 @@ async fn main() -> Result<()> {
         3,
     )
     .unwrap();
-    let _authenticator =
-        Authenticator::init_or_register(&seed, creation_config.clone().into(), Some(recovery_address))
-            .await
-            .unwrap();
+    let _authenticator = Authenticator::init_or_register(
+        &seed,
+        creation_config.clone().into(),
+        Some(recovery_address),
+    )
+    .await
+    .unwrap();
 
     let authenticator = Authenticator::init(&seed, creation_config.into())
         .await
