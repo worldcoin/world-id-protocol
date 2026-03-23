@@ -145,13 +145,15 @@ impl<'a> OprfEntrypoint<'a> {
         rng: &mut R,
         proof_request: &ProofRequest,
     ) -> Result<FullOprfOutput, ProofError> {
-        let action = if proof_request.is_session_proof() {
+        let (action, module) = if proof_request.is_session_proof() {
             // For session proofs a random action is used internally. This is opaque to RPs who receive
             // it within the encoded `SessionNullifier`
-            FieldElement::random_for_session(rng, SessionFeType::Action)
+            let action = FieldElement::random_for_session(rng, SessionFeType::Action);
+            (action, OprfModule::Session)
         } else {
             // If the RP didn't provide an action, we provide a default.
-            proof_request.action.unwrap_or(FieldElement::ZERO)
+            let action = proof_request.action.unwrap_or(FieldElement::ZERO);
+            (action, OprfModule::Nullifier)
         };
 
         let result = Self::generate_query_proof(
@@ -180,7 +182,7 @@ impl<'a> OprfEntrypoint<'a> {
             result.query_hash,
             result.blinding_factor,
             auth,
-            OprfModule::Nullifier,
+            module,
             self.connector.clone(),
         )
         .await?;
