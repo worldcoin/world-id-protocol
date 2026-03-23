@@ -6,168 +6,44 @@
 //!
 //! - [`credential_blinding_factor`] – implements authentication for OPRF credential blinding factor generation.
 //! - [`merkle_watcher`] – watches the blockchain for merkle-root update events.
-//! - [`nullifier`] – implements authentication for OPRF nullifier generation.
+//! - [`nonce_history`] – keeps track of nonces used for nonce + `time_stamp` signatures to detect replays
 //! - [`rp_registry_watcher`] – keeps track of registered RPs
 //! - [`schema_issuer_registry_watcher`] – keeps track of registered Credential Schema Issuers
-//! - [`nonce_history`] – keeps track of nonces used for nonce + `time_stamp` signatures to detect replays
-
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+//! - [`rp_module`] – unified implementation for session and uniqueness OPRF authentication.
 
 use ark_bn254::Bn254;
-use circom_types::groth16::VerificationKey;
-use taceo_oprf::types::{OprfKeyId, api::OprfRequest};
-use world_id_core::FieldElement;
-use world_id_primitives::{
-    TREE_DEPTH,
-    oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
-};
-
-use crate::auth::{
-    merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
-    rp_registry_watcher::RpRegistryWatcher,
-};
-
-/// The embedded Groth16 verification key for OPRF query proofs.
-const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");
+use ark_groth16::PreparedVerifyingKey;
+use taceo_oprf::types::OprfKeyId;
+use world_id_primitives::TREE_DEPTH;
 
 pub(crate) mod credential_blinding_factor;
 pub(crate) mod merkle_watcher;
 pub(crate) mod nonce_history;
-pub(crate) mod nullifier;
+pub(crate) mod rp_module;
 pub(crate) mod rp_registry_watcher;
 pub(crate) mod schema_issuer_registry_watcher;
-pub(crate) mod session;
 
-pub(crate) struct OprfRequestAuthWithRpSignature {
-    rp_registry_watcher: RpRegistryWatcher,
-    nonce_history: NonceHistory,
-    current_time_stamp_max_difference: Duration,
-    query_auth: crate::auth::QueryProofAuthenticator,
-}
-
-impl OprfRequestAuthWithRpSignature {
-    pub(crate) fn init(
-        merkle_watcher: MerkleWatcher,
-        rp_registry_watcher: RpRegistryWatcher,
-        nonce_history: NonceHistory,
-        current_time_stamp_max_difference: Duration,
-    ) -> Self {
-        Self {
-            rp_registry_watcher,
-            nonce_history,
-            current_time_stamp_max_difference,
-            query_auth: crate::auth::QueryProofAuthenticator::init(merkle_watcher),
-        }
-    }
-
-    pub(crate) async fn verify(
-        &self,
-        msg: &[u8],
-        request: &OprfRequest<NullifierOprfRequestAuthV1>,
-    ) -> Result<OprfKeyId, WorldIdRequestAuthError> {
-        tracing::trace!("checking timestamp...");
-        // check the time stamp against system time +/- difference
-        let req_time_stamp = Duration::from_secs(request.auth.current_time_stamp);
-        let current_time = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("system time is after unix epoch");
-        if current_time.abs_diff(req_time_stamp) > self.current_time_stamp_max_difference {
-            return Err(WorldIdRequestAuthError::TimeStampTooOld);
-        }
-
-        tracing::trace!("fetching RP info...");
-        // fetch the RP info
-        let rp = self.rp_registry_watcher.get_rp(&request.auth.rp_id).await?;
-
-        tracing::trace!("check RP signature...");
-        let recovered = request
-            .auth
-            .signature
-            .recover_address_from_msg(msg)
-            .map_err(|err| {
-                tracing::debug!("invalid signature: {err:?}");
-                WorldIdRequestAuthError::InvalidRpSignature
-            })?;
-        if recovered != rp.signer {
-            return Err(WorldIdRequestAuthError::InvalidRpSignature);
-        }
-
-        tracing::trace!("add nonce to store...");
-        // add nonce to history to check if the nonces where only used once
-        self.nonce_history
-            .add_nonce(FieldElement::from(request.auth.nonce))
-            .await?;
-
-        // common verification
-        self.query_auth
-            .verify(
-                &request.auth.proof.clone().into(),
-                request.blinded_query,
-                request.auth.merkle_root,
-                rp.oprf_key_id,
-                request.auth.action,
-                request.auth.nonce,
-            )
-            .await?;
-
-        tracing::trace!("authentication successful!");
-        Ok(rp.oprf_key_id)
-    }
-}
-
-/// Common authentication for [`NullifierOprfRequestAuthenticator`] and [`CredentialBlindingFactorOprfRequestAuthenticator`].
-pub(crate) struct QueryProofAuthenticator {
-    merkle_watcher: MerkleWatcher,
-    vk: Arc<ark_groth16::PreparedVerifyingKey<Bn254>>,
-}
-
-impl QueryProofAuthenticator {
-    pub(crate) fn init(merkle_watcher: MerkleWatcher) -> Self {
-        let vk: VerificationKey<Bn254> =
-            serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
-        Self {
-            merkle_watcher,
-            vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
-        }
-    }
-
-    pub(crate) async fn verify(
-        &self,
-        proof: &ark_groth16::Proof<Bn254>,
-        blinded_query: ark_babyjubjub::EdwardsAffine,
-        merkle_root: ark_babyjubjub::Fq,
-        oprf_key_id: OprfKeyId,
-        action: ark_babyjubjub::Fq,
-        nonce: ark_babyjubjub::Fq,
-    ) -> Result<(), WorldIdRequestAuthError> {
-        tracing::trace!("checking if merkle root is valid...");
-        self.merkle_watcher
-            .ensure_root_valid(merkle_root.into())
-            .await?;
-
-        tracing::trace!("verifying user proof...");
-        let public = [
-            blinded_query.x,
-            blinded_query.y,
-            merkle_root,
-            ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-            oprf_key_id.into(),
-            action,
-            nonce,
-        ];
-        let valid = ark_groth16::Groth16::<Bn254>::verify_proof(&self.vk, proof, &public)
-            .expect("We expect that we loaded the correct key");
-        if valid {
-            tracing::trace!("proof valid");
-            Ok(())
-        } else {
-            tracing::trace!("proof INVALID");
-            Err(WorldIdRequestAuthError::InvalidQueryProof)
-        }
-    }
+pub(crate) fn verify_query_proof(
+    vk: &PreparedVerifyingKey<Bn254>,
+    proof: &ark_groth16::Proof<Bn254>,
+    blinded_query: ark_babyjubjub::EdwardsAffine,
+    merkle_root: ark_babyjubjub::Fq,
+    oprf_key_id: OprfKeyId,
+    action: ark_babyjubjub::Fq,
+    nonce: ark_babyjubjub::Fq,
+) -> bool {
+    tracing::trace!("verifying user proof...");
+    let public = [
+        blinded_query.x,
+        blinded_query.y,
+        merkle_root,
+        ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
+        oprf_key_id.into(),
+        action,
+        nonce,
+    ];
+    ark_groth16::Groth16::<Bn254>::verify_proof(vk, proof, &public)
+        .expect("We expect that we loaded the correct key")
 }
 
 #[cfg(test)]
