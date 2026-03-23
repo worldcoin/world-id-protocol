@@ -142,7 +142,7 @@ pub mod error_codes {
     pub const INVALID_MERKLE_ROOT: u16 = 4504;
     /// Error code for [`super::WorldIdRequestAuthError::InvalidQueryProof`].
     pub const INVALID_QUERY_PROOF: u16 = 4505;
-    /// Error code for [`super::WorldIdRequestAuthError::InvalidAction`].
+    /// Error code for [`super::WorldIdRequestAuthError::InvalidActionSchemaIssuer`].
     pub const INVALID_ACTION_SCHEMA_ISSUER: u16 = 4506;
     /// Error code for [`super::WorldIdRequestAuthError::UnknownSchemaIssuer`].
     pub const UNKNOWN_SCHEMA_ISSUER: u16 = 4507;

@@ -29,7 +29,7 @@ impl CredentialBlindingFactorOprfRequestAuthenticator {
         }
     }
 
-    pub(crate) async fn authenticate_inner(
+    async fn authenticate_inner(
         &self,
         request: &OprfRequest<CredentialBlindingFactorOprfRequestAuthV1>,
     ) -> Result<OprfKeyId, WorldIdRequestAuthError> {

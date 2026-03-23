@@ -62,7 +62,7 @@ impl NonceHistory {
     /// * `nonce` - The nonce to track
     ///
     /// # Errors
-    /// Returns [`DuplicateNonceError`] if the nonce already exists.
+    /// Returns [`WorldIdRequestAuthError::DuplicateNonce`] if the nonce already exists.
     #[instrument(level = "debug", skip_all)]
     pub(crate) async fn add_nonce(
         &self,
