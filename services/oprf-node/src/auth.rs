@@ -78,12 +78,6 @@ impl OprfRequestAuthWithRpSignature {
             return Err(WorldIdRequestAuthError::TimeStampTooOld);
         }
 
-        tracing::trace!("add nonce to store...");
-        // add nonce to history to check if the nonces where only used once
-        self.nonce_history
-            .add_nonce(FieldElement::from(request.auth.nonce))
-            .await?;
-
         tracing::trace!("fetching RP info...");
         // fetch the RP info
         let rp = self.rp_registry_watcher.get_rp(&request.auth.rp_id).await?;
@@ -100,6 +94,12 @@ impl OprfRequestAuthWithRpSignature {
         if recovered != rp.signer {
             return Err(WorldIdRequestAuthError::InvalidRpSignature);
         }
+
+        tracing::trace!("add nonce to store...");
+        // add nonce to history to check if the nonces where only used once
+        self.nonce_history
+            .add_nonce(FieldElement::from(request.auth.nonce))
+            .await?;
 
         // common verification
         self.query_auth
