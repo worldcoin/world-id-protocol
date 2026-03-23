@@ -1,11 +1,11 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy::{
-    primitives::{Address, U160, U256, ruint::uint},
+    primitives::{Address, U160},
     providers::DynProvider,
     signers::{SignerSync as _, k256::ecdsa::SigningKey, local::LocalSigner},
 };
-use ark_ff::{PrimeField, UniformRand as _};
+use ark_ff::UniformRand as _;
 use clap::Parser;
 use eyre::Context as _;
 use rand::{CryptoRng, Rng, SeedableRng as _};
@@ -20,11 +20,9 @@ use uuid::Uuid;
 use world_id_core::{EdDSASignature, FieldElement, proof::CircomGroth16Material};
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
-    ProofRequest, RequestItem, RequestVersion, TREE_DEPTH,
-    authenticator::AuthenticatorPublicKeySet,
-    merkle::MerkleInclusionProof,
-    oprf::{NullifierOprfRequestAuthV1, OprfModule},
-    rp::RpId,
+    ProofRequest, RequestItem, RequestVersion, SessionFeType, SessionFieldElement as _, SessionId,
+    TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
+    oprf::NullifierOprfRequestAuthV1, oprf::OprfModule, rp::RpId,
 };
 use world_id_test_utils::anvil::RpRegistry;
 
@@ -97,25 +95,53 @@ impl DevClient for WorldIdRpDevClient {
 
     async fn run_oprf(
         &self,
-        _config: &DevClientConfig,
+        _: &DevClientConfig,
         setup: Self::Setup,
-        _connector: Connector,
+        _: Connector,
     ) -> eyre::Result<ShareEpoch> {
         let mut rng = rand_chacha::ChaCha12Rng::from_rng(rand::thread_rng())?;
-        let proof_request = create_proof_request(&setup, &self.components.signer, &mut rng)
-            .context("while creating proof request")?;
-        let nullifier = self
-            .components
-            .authenticator
-            .generate_nullifier(
-                &proof_request,
+        let proof_request_uniqueness = create_proof_request(
+            &setup,
+            &self.components.signer,
+            OprfModule::Nullifier,
+            &mut rng,
+        )
+        .context("while creating proof request")?;
+        let proof_request_session = create_proof_request(
+            &setup,
+            &self.components.signer,
+            OprfModule::Session,
+            &mut rng,
+        )
+        .context("while creating proof request")?;
+
+        let (uniquness_nullifier, session_nullifier) = tokio::join!(
+            self.components.authenticator.generate_nullifier(
+                &proof_request_uniqueness,
+                setup.inclusion_proof.clone(),
+                setup.key_set.clone(),
+            ),
+            self.components.authenticator.generate_nullifier(
+                &proof_request_session,
                 setup.inclusion_proof.clone(),
                 setup.key_set.clone(),
             )
-            .await
-            .context("while generating nullifier")?;
+        );
 
-        Ok(nullifier.verifiable_oprf_output.epoch)
+        let uniqueness_epoch = uniquness_nullifier
+            .context("while computing uniqueness")?
+            .verifiable_oprf_output
+            .epoch;
+        let session_epoch = session_nullifier
+            .context("while computing uniqueness")?
+            .verifiable_oprf_output
+            .epoch;
+
+        // this is used to check whether we successfully transitioned to the next epoch so taking the max here is fine
+        Ok(ShareEpoch::from(u32::max(
+            uniqueness_epoch.into_inner(),
+            session_epoch.into_inner(),
+        )))
     }
 
     async fn prepare_stress_test_item<R: Rng + CryptoRng + Send>(
@@ -124,11 +150,19 @@ impl DevClient for WorldIdRpDevClient {
         rng: &mut R,
     ) -> eyre::Result<StressTestItem<Self::RequestAuth>> {
         let leaf_index = self.components.authenticator.leaf_index();
-        let proof_request = create_proof_request(setup, &self.components.signer, rng)
+        let module = if rng.r#gen() {
+            OprfModule::Nullifier
+        } else {
+            OprfModule::Session
+        };
+
+        let proof_request = create_proof_request(setup, &self.components.signer, module, rng)
             .context("while creating proof request")?;
 
         let request_id = Uuid::new_v4();
-        let action = proof_request.action.unwrap();
+        let action = proof_request
+            .action
+            .unwrap_or_else(|| FieldElement::random_for_session(rng, SessionFeType::Action));
         let query_hash = world_id_primitives::authenticator::oprf_query_digest(
             leaf_index,
             action,
@@ -158,6 +192,7 @@ impl DevClient for WorldIdRpDevClient {
             request_id,
             blinded_query,
             init_request,
+            auth_module: module.to_string(),
         })
     }
 
@@ -166,10 +201,6 @@ impl DevClient for WorldIdRpDevClient {
     }
     fn get_oprf_key_id(&self, setup: &Self::Setup) -> OprfKeyId {
         OprfKeyId::from(setup.rp_id.into_inner())
-    }
-
-    fn auth_module(&self) -> String {
-        OprfModule::Nullifier.to_string()
     }
 }
 
@@ -237,12 +268,27 @@ impl WorldIdRpDevClient {
 fn create_proof_request<R: Rng + CryptoRng>(
     setup: &WorldIdRpDevClientSetup,
     signer: &LocalSigner<SigningKey>,
+    auth: OprfModule,
     rng: &mut R,
 ) -> eyre::Result<ProofRequest> {
-    // The first byte is cleared as that is reserved for Session Proofs
-    let action = U256::random()
-        & uint!(0x00FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF_U256);
-    let action = ark_babyjubjub::Fq::from_bigint(action.into()).unwrap();
+    let (action, session_id) = match auth {
+        OprfModule::Nullifier => {
+            // Explicitly set first byte to 0x00 — reserved for nullifier actions
+            let mut bytes = [0u8; 32];
+            rng.fill(&mut bytes[1..]);
+            bytes[0] = 0x00;
+            let a = FieldElement::from_be_bytes(&bytes).expect("Works");
+            (Some(*a), None)
+        }
+        OprfModule::Session => {
+            // Session RP signature does NOT include action
+            let session_id =
+                SessionId::from_r_seed(setup.key_index, FieldElement::random(rng), None, rng)
+                    .context("while building SessionId")?;
+            (None, Some(session_id))
+        }
+        _ => unreachable!("only have session and nullifier modules here"),
+    };
     let nonce = ark_babyjubjub::Fq::rand(rng);
 
     let current_timestamp = SystemTime::now()
@@ -255,7 +301,7 @@ fn create_proof_request<R: Rng + CryptoRng>(
         nonce,
         current_timestamp,
         expiration_timestamp,
-        Some(action),
+        action,
     );
     let signature = signer.sign_message_sync(&msg)?;
 
@@ -266,8 +312,8 @@ fn create_proof_request<R: Rng + CryptoRng>(
         expires_at: expiration_timestamp,
         rp_id: setup.rp_id,
         oprf_key_id: OprfKeyId::from(setup.rp_id.into_inner()),
-        session_id: None,
-        action: Some(FieldElement::from(action)),
+        session_id,
+        action: action.map(FieldElement::from),
         signature,
         nonce: FieldElement::from(nonce),
         requests: vec![RequestItem {

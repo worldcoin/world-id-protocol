@@ -160,6 +160,7 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
             request_id,
             blinded_query,
             init_request,
+            auth_module: OprfModule::CredentialBlindingFactor.to_string(),
         })
     }
 
@@ -168,10 +169,6 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
     }
     fn get_oprf_key_id(&self, setup: &Self::Setup) -> OprfKeyId {
         OprfKeyId::from(setup.issuer_schema_id)
-    }
-
-    fn auth_module(&self) -> String {
-        OprfModule::CredentialBlindingFactor.to_string()
     }
 }
 
