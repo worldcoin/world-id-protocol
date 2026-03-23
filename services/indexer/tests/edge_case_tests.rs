@@ -261,6 +261,11 @@ async fn test_all_event_types() {
                     },
                 )
             }
+            WorldIdRegistryEventType::RecoveryAgentUpdateInitiated
+            | WorldIdRegistryEventType::RecoveryAgentUpdateExecuted
+            | WorldIdRegistryEventType::RecoveryAgentUpdateCancelled => {
+                unreachable!("recovery agent update events are not part of this test")
+            }
         };
 
         let event = world_id_indexer::blockchain::BlockchainEvent {

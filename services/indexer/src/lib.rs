@@ -289,6 +289,7 @@ async fn run_http_only(
 }
 
 /// Runs both the indexer and HTTP server in the same process, sharing the same DB and in-memory tree.
+#[allow(clippy::too_many_arguments)]
 #[instrument(level = "info", skip_all)]
 async fn run_both(
     db: DB,
