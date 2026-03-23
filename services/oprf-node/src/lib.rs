@@ -41,6 +41,7 @@ use crate::{
         merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
         nullifier::NullifierOprfRequestAuthenticator, rp_registry_watcher::RpRegistryWatcher,
         schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
+        session::SessionOprfRequestAuthenticator,
     },
     config::WorldOprfNodeConfig,
 };
@@ -153,18 +154,27 @@ pub async fn start(
     .await
     .context("while starting merkle watcher")?;
 
-    tracing::info!("init NonceHistory..");
-    // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
-    let nonce_history = NonceHistory::init(
-        config.current_time_stamp_max_difference * 2,
-        config.cache_maintenance_interval,
-    );
-
     tracing::info!("init nullifier oprf request auth service..");
     let nullifier_oprf_req_auth_service = Arc::new(NullifierOprfRequestAuthenticator::init(
         merkle_watcher.clone(),
         rp_registry_watcher.clone(),
-        nonce_history,
+        NonceHistory::init(
+            // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
+            config.current_time_stamp_max_difference * 2,
+            config.cache_maintenance_interval,
+        ),
+        config.current_time_stamp_max_difference,
+    ));
+
+    tracing::info!("init session oprf request auth service..");
+    let session_oprf_req_auth_service = Arc::new(SessionOprfRequestAuthenticator::init(
+        merkle_watcher.clone(),
+        rp_registry_watcher.clone(),
+        NonceHistory::init(
+            // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
+            config.current_time_stamp_max_difference * 2,
+            config.cache_maintenance_interval,
+        ),
         config.current_time_stamp_max_difference,
     ));
 
@@ -203,6 +213,10 @@ pub async fn start(
     .module(
         &format!("/{}", OprfModule::CredentialBlindingFactor),
         credential_blinding_factor_oprf_req_auth_service,
+    )
+    .module(
+        &format!("/{}", OprfModule::Session),
+        session_oprf_req_auth_service,
     )
     .build();
 

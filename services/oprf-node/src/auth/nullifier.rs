@@ -1,9 +1,9 @@
 use crate::auth::{
-    merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
+    OprfRequestAuthWithRpSignature, merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
     rp_registry_watcher::RpRegistryWatcher,
 };
 use async_trait::async_trait;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use taceo_oprf::types::{
     OprfKeyId,
     api::{OprfRequest, OprfRequestAuthenticator, OprfRequestAuthenticatorError},
@@ -12,12 +12,7 @@ use tracing::instrument;
 use world_id_core::FieldElement;
 use world_id_primitives::oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError};
 
-pub(crate) struct NullifierOprfRequestAuthenticator {
-    rp_registry_watcher: RpRegistryWatcher,
-    nonce_history: NonceHistory,
-    current_time_stamp_max_difference: Duration,
-    common: crate::auth::OprfRequestAuthenticator,
-}
+pub(crate) struct NullifierOprfRequestAuthenticator(OprfRequestAuthWithRpSignature);
 
 impl NullifierOprfRequestAuthenticator {
     pub(crate) fn init(
@@ -26,33 +21,24 @@ impl NullifierOprfRequestAuthenticator {
         nonce_history: NonceHistory,
         current_time_stamp_max_difference: Duration,
     ) -> Self {
-        Self {
+        Self(crate::auth::OprfRequestAuthWithRpSignature::init(
+            merkle_watcher,
             rp_registry_watcher,
             nonce_history,
             current_time_stamp_max_difference,
-            common: crate::auth::OprfRequestAuthenticator::init(merkle_watcher),
-        }
+        ))
     }
 
     async fn authenticate_inner(
         &self,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
     ) -> Result<OprfKeyId, WorldIdRequestAuthError> {
-        tracing::trace!("checking timestamp...");
-        // check the time stamp against system time +/- difference
-        let req_time_stamp = Duration::from_secs(request.auth.current_time_stamp);
-        let current_time = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("system time is after unix epoch");
-        if current_time.abs_diff(req_time_stamp) > self.current_time_stamp_max_difference {
-            return Err(WorldIdRequestAuthError::TimeStampTooOld);
+        // check action prefix is set to 0x00
+        let action = FieldElement::from(request.auth.action);
+        if action.to_be_bytes()[0] != 0 {
+            return Err(WorldIdRequestAuthError::InvalidActionNullifier);
         }
 
-        tracing::trace!("fetching RP info...");
-        // fetch the RP info
-        let rp = self.rp_registry_watcher.get_rp(&request.auth.rp_id).await?;
-
-        tracing::trace!("check RP signature...");
         // check the RP nonce signature
         let msg = world_id_primitives::rp::compute_rp_signature_msg(
             request.auth.nonce,
@@ -62,38 +48,7 @@ impl NullifierOprfRequestAuthenticator {
             Some(request.auth.action),
         );
 
-        let recovered = request
-            .auth
-            .signature
-            .recover_address_from_msg(&msg)
-            .map_err(|err| {
-                tracing::debug!("invalid signature: {err:?}");
-                WorldIdRequestAuthError::InvalidRpSignature
-            })?;
-        if recovered != rp.signer {
-            return Err(WorldIdRequestAuthError::InvalidRpSignature);
-        }
-
-        tracing::trace!("add nonce to store...");
-        // add nonce to history to check if the nonces where only used once
-        self.nonce_history
-            .add_nonce(FieldElement::from(request.auth.nonce))
-            .await?;
-
-        // common verification
-        self.common
-            .verify(
-                &request.auth.proof.clone().into(),
-                request.blinded_query,
-                request.auth.merkle_root,
-                rp.oprf_key_id,
-                request.auth.action,
-                request.auth.nonce,
-            )
-            .await?;
-
-        tracing::trace!("authentication successful!");
-        Ok(rp.oprf_key_id)
+        self.0.verify(&msg, request).await
     }
 }
 

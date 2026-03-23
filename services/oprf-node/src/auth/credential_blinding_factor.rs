@@ -15,7 +15,7 @@ use world_id_primitives::oprf::{
 
 pub(crate) struct CredentialBlindingFactorOprfRequestAuthenticator {
     schema_issuer_registry_watcher: SchemaIssuerRegistryWatcher,
-    common: crate::auth::OprfRequestAuthenticator,
+    query_auth: crate::auth::QueryProofAuthenticator,
 }
 
 impl CredentialBlindingFactorOprfRequestAuthenticator {
@@ -25,7 +25,7 @@ impl CredentialBlindingFactorOprfRequestAuthenticator {
     ) -> Self {
         Self {
             schema_issuer_registry_watcher,
-            common: crate::auth::OprfRequestAuthenticator::init(merkle_watcher),
+            query_auth: crate::auth::QueryProofAuthenticator::init(merkle_watcher),
         }
     }
 
@@ -48,7 +48,7 @@ impl CredentialBlindingFactorOprfRequestAuthenticator {
             .await?;
 
         // common verification
-        self.common
+        self.query_auth
             .verify(
                 &request.auth.proof.clone().into(),
                 request.blinded_query,
