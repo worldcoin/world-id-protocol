@@ -307,8 +307,8 @@ mod tests {
             .authenticate(&setup.request)
             .await
             .expect_err("Should fail");
-        assert_eq!(auth_error.code(), primitives::oprf::error_codes::INTERNAL);
-        assert_eq!(auth_error.message(), "internal");
+        assert_eq!(auth_error.code(), primitives::oprf::error_codes::UNKNOWN_RP);
+        assert_eq!(auth_error.message(), "unknown RP");
         Ok(())
     }
 
@@ -391,8 +391,11 @@ mod tests {
             .authenticate(&setup.request)
             .await
             .expect_err("Should fail");
-        assert_eq!(auth_error.code(), primitives::oprf::error_codes::INTERNAL);
-        assert_eq!(auth_error.message(), "internal server error");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INACTIVE_RP
+        );
+        assert_eq!(auth_error.message(), "inactive RP");
         Ok(())
     }
 }

@@ -80,8 +80,11 @@ pub struct CredentialBlindingFactorOprfRequestAuthV1 {
 #[non_exhaustive]
 pub enum WorldIdRequestAuthError {
     /// Unknown RP.
-    #[error("unknown rp")]
+    #[error("unknown RP")]
     UnknownRp,
+    /// Inactive RP, an RP that was deactivated.
+    #[error("inactive RP")]
+    InactiveRp,
     /// Unknown schema-issuer.
     #[error("unknown schema-issuer")]
     UnknownSchemaIssuer,
@@ -115,6 +118,7 @@ impl From<u16> for WorldIdRequestAuthError {
     fn from(value: u16) -> Self {
         match value {
             error_codes::UNKNOWN_RP => Self::UnknownRp,
+            error_codes::INACTIVE_RP => Self::InactiveRp,
             error_codes::TIMESTAMP_TOO_OLD => Self::TimeStampTooOld,
             error_codes::INVALID_RP_SIGNATURE => Self::InvalidRpSignature,
             error_codes::DUPLICATE_NONCE => Self::DuplicateNonce,
@@ -146,6 +150,8 @@ pub mod error_codes {
     pub const INVALID_ACTION_SCHEMA_ISSUER: u16 = 4506;
     /// Error code for [`super::WorldIdRequestAuthError::UnknownSchemaIssuer`].
     pub const UNKNOWN_SCHEMA_ISSUER: u16 = 4507;
+    /// Error code for [`super::WorldIdRequestAuthError::InactiveRp`].
+    pub const INACTIVE_RP: u16 = 4510;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
     pub const INTERNAL: u16 = 1011;
 }
@@ -186,6 +192,10 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             WorldIdRequestAuthError::UnknownSchemaIssuer => (
                 error_codes::UNKNOWN_SCHEMA_ISSUER,
                 taceo_oprf::types::close_frame_message!("unknown schema issuer"),
+            ),
+            WorldIdRequestAuthError::InactiveRp => (
+                error_codes::INACTIVE_RP,
+                taceo_oprf::types::close_frame_message!("inactive RP"),
             ),
             WorldIdRequestAuthError::Internal => (
                 error_codes::INTERNAL, // RFC 6455 error code

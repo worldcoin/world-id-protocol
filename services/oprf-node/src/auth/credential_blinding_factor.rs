@@ -269,7 +269,10 @@ mod tests {
             auth_error.code(),
             primitives::oprf::error_codes::INVALID_ACTION_SCHEMA_ISSUER
         );
-        assert_eq!(auth_error.message(), "invalid action");
+        assert_eq!(
+            auth_error.message(),
+            "invalid action - must be 0 for schema-issuer blinding"
+        );
         Ok(())
     }
 
