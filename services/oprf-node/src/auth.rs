@@ -57,7 +57,7 @@ impl OprfRequestAuthenticator {
     ) -> Result<(), WorldIdRequestAuthError> {
         tracing::trace!("checking if merkle root is valid...");
         self.merkle_watcher
-            .is_root_valid(merkle_root.into())
+            .ensure_root_valid(merkle_root.into())
             .await?;
 
         tracing::trace!("verifying user proof...");

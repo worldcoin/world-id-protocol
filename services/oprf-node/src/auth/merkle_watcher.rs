@@ -227,7 +227,10 @@ impl MerkleWatcher {
     }
 
     #[instrument(level = "debug", skip_all, fields(root=%root))]
-    pub(crate) async fn is_root_valid(&self, root: FieldElement) -> Result<(), MerkleWatcherError> {
+    pub(crate) async fn ensure_root_valid(
+        &self,
+        root: FieldElement,
+    ) -> Result<(), MerkleWatcherError> {
         // first check if the merkle root is already in cache or is the latest root
         if *self.latest_root.read().expect("not poisoned") == root
             || self.merkle_root_cache.contains_key(&root)
