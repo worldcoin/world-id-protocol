@@ -13,6 +13,8 @@ pub enum OprfModule {
     Nullifier,
     /// Oprf module for generating credential blinding factors
     CredentialBlindingFactor,
+    /// Oprf module for generating internal nullifiers for sessions proofs and the `session_id_r_seed`
+    Session,
 }
 
 impl std::fmt::Display for OprfModule {
@@ -20,6 +22,7 @@ impl std::fmt::Display for OprfModule {
         match self {
             Self::Nullifier => write!(f, "nullifier"),
             Self::CredentialBlindingFactor => write!(f, "credential_blinding_factor"),
+            Self::Session => write!(f, "session"),
         }
     }
 }
@@ -103,9 +106,17 @@ pub enum WorldIdRequestAuthError {
     /// The client query proof did not verify.
     #[error("invalid query proof")]
     InvalidQueryProof,
-    /// Invalid action
+    /// Invalid action for schema-issuer blinding
     #[error("invalid action - must be 0 for schema-issuer blinding")]
     InvalidActionSchemaIssuer,
+    /// Invalid action for nullifier computation
+    #[error("invalid action - MSB must be 0x00 for nullifier")]
+    InvalidActionNullifier,
+    /// Invalid action for nullifier computation
+    #[error(
+        "invalid action - MSB must be 0x00 for internal nullifier or 0x01 for session_id_r_seed"
+    )]
+    InvalidActionSession,
     /// Internal server error.
     #[error("internal server error")]
     Internal,
@@ -126,6 +137,8 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::INVALID_QUERY_PROOF => Self::InvalidQueryProof,
             error_codes::INVALID_ACTION_SCHEMA_ISSUER => Self::InvalidActionSchemaIssuer,
             error_codes::UNKNOWN_SCHEMA_ISSUER => Self::UnknownSchemaIssuer,
+            error_codes::INVALID_ACTION_NULLIFIER => Self::InvalidActionNullifier,
+            error_codes::INVALID_ACTION_SESSION => Self::InvalidActionSession,
             error_codes::INTERNAL => Self::Internal,
             other => Self::Unknown(other),
         }
@@ -150,6 +163,10 @@ pub mod error_codes {
     pub const INVALID_ACTION_SCHEMA_ISSUER: u16 = 4506;
     /// Error code for [`super::WorldIdRequestAuthError::UnknownSchemaIssuer`].
     pub const UNKNOWN_SCHEMA_ISSUER: u16 = 4507;
+    /// Error code for [`super::WorldIdRequestAuthError::InvalidActionNullifier`].
+    pub const INVALID_ACTION_NULLIFIER: u16 = 4508;
+    /// Error code for [`super::WorldIdRequestAuthError::InvalidActionSession`].
+    pub const INVALID_ACTION_SESSION: u16 = 4509;
     /// Error code for [`super::WorldIdRequestAuthError::InactiveRp`].
     pub const INACTIVE_RP: u16 = 4510;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
@@ -192,6 +209,18 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             WorldIdRequestAuthError::UnknownSchemaIssuer => (
                 error_codes::UNKNOWN_SCHEMA_ISSUER,
                 taceo_oprf::types::close_frame_message!("unknown schema issuer"),
+            ),
+            WorldIdRequestAuthError::InvalidActionNullifier => (
+                error_codes::INVALID_ACTION_NULLIFIER,
+                taceo_oprf::types::close_frame_message!(
+                    "invalid action - MSB must be 0x00 for nullifier"
+                ),
+            ),
+            WorldIdRequestAuthError::InvalidActionSession => (
+                error_codes::INVALID_ACTION_SESSION,
+                taceo_oprf::types::close_frame_message!(
+                    "invalid action - MSB must be 0x00 for internal nullifier or 0x01 for session_id_r_seed"
+                ),
             ),
             WorldIdRequestAuthError::InactiveRp => (
                 error_codes::INACTIVE_RP,
