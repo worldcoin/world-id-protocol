@@ -172,20 +172,32 @@ impl QueryProofAuthenticator {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use alloy::{
         primitives::{Address, U256},
         signers::local::LocalSigner,
     };
     use ark_serialize::CanonicalSerialize;
     use rand::Rng;
-    use world_id_core::{EdDSAPrivateKey, Signer};
+    use secrecy::ExposeSecret as _;
+    use taceo_oprf::{core::oprf::BlindingFactor, service::StartedServices};
+    use tokio_util::sync::CancellationToken;
+    use world_id_core::{EdDSAPrivateKey, FieldElement, Signer, proof::errors};
     use world_id_primitives::{
-        TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
+        TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
+        circuit_inputs::QueryProofCircuitInput, merkle::MerkleInclusionProof,
     };
     use world_id_test_utils::{
         anvil::TestAnvil,
         fixtures::{RegistryTestContext, RpFixture, generate_rp_fixture},
         merkle::first_leaf_merkle_path,
+    };
+
+    use crate::auth::{
+        merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
+        rp_registry_watcher::RpRegistryWatcher,
+        schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
     };
 
     pub(crate) struct OprfRequestAuthTestSetup {
@@ -294,5 +306,146 @@ mod tests {
                 signer,
             })
         }
+    }
+
+    /// Common service-level infrastructure shared across auth module tests.
+    ///
+    /// Wraps [`OprfRequestAuthTestSetup`] with all initialized watchers and
+    /// shared configuration constants, so each module's test setup only needs
+    /// to add its own authenticator and request construction logic.
+    pub(crate) struct AuthModulesTestSetup {
+        pub(crate) setup: OprfRequestAuthTestSetup,
+        pub(crate) merkle_watcher: MerkleWatcher,
+        pub(crate) rp_registry_watcher: RpRegistryWatcher,
+        pub(crate) schema_issuer_registry_watcher: SchemaIssuerRegistryWatcher,
+        pub(crate) nonce_history: NonceHistory,
+        pub(crate) current_time_stamp_max_difference: Duration,
+    }
+
+    impl AuthModulesTestSetup {
+        pub(crate) async fn new() -> eyre::Result<Self> {
+            let setup = OprfRequestAuthTestSetup::new().await?;
+
+            let max_cache_size = 100;
+            let cache_maintenance_interval = Duration::from_secs(60);
+            let current_time_stamp_max_difference = Duration::from_secs(300);
+            let started_services = StartedServices::default();
+            let cancellation_token = CancellationToken::new();
+
+            let (merkle_watcher, _) = MerkleWatcher::init(
+                setup.world_id_registry,
+                setup.anvil.ws_endpoint(),
+                max_cache_size,
+                cache_maintenance_interval,
+                started_services.new_service(),
+                cancellation_token.clone(),
+            )
+            .await?;
+
+            let (rp_registry_watcher, _) = RpRegistryWatcher::init(
+                setup.rp_registry,
+                setup.anvil.ws_endpoint(),
+                max_cache_size,
+                cache_maintenance_interval,
+                started_services.new_service(),
+                cancellation_token.clone(),
+            )
+            .await?;
+
+            let (schema_issuer_registry_watcher, _) = SchemaIssuerRegistryWatcher::init(
+                setup.credential_schema_issuer_registry,
+                setup.anvil.ws_endpoint(),
+                max_cache_size,
+                cache_maintenance_interval,
+                started_services.new_service(),
+                cancellation_token.clone(),
+            )
+            .await?;
+
+            let nonce_history = NonceHistory::init(
+                current_time_stamp_max_difference * 2,
+                cache_maintenance_interval,
+            );
+
+            Ok(Self {
+                setup,
+                merkle_watcher,
+                rp_registry_watcher,
+                schema_issuer_registry_watcher,
+                nonce_history,
+                current_time_stamp_max_difference,
+            })
+        }
+
+        /// Generates a valid ZK query proof and blinds the query for use in OPRF
+        /// request construction.
+        ///
+        /// `action` is the action field element (zero for credential blinding factor,
+        /// a valid session/nullifier action for other modules).
+        /// `query_origin_id` is the RP ID or issuer schema ID as a [`FieldElement`].
+        pub(crate) fn generate_query_proof(
+            &self,
+            action: FieldElement,
+            query_origin_id: FieldElement,
+        ) -> eyre::Result<QueryProofBundle> {
+            let mut rng = rand::thread_rng();
+
+            let query_material = world_id_core::proof::load_embedded_query_material()
+                .expect("Can load query material");
+
+            let query_blinding_factor = BlindingFactor::rand(&mut rng);
+
+            let query_hash = world_id_primitives::authenticator::oprf_query_digest(
+                self.setup.merkle_inclusion_proof.leaf_index,
+                action,
+                query_origin_id,
+            );
+            let signature = self
+                .setup
+                .signer
+                .offchain_signer_private_key()
+                .expose_secret()
+                .sign(*query_hash);
+
+            let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] =
+                self.setup.merkle_inclusion_proof.siblings.map(|s| *s);
+
+            let query_proof_input = QueryProofCircuitInput::<TREE_DEPTH> {
+                pk: self.setup.key_set.as_affine_array(),
+                pk_index: self.setup.key_index.into(),
+                s: signature.s,
+                r: signature.r,
+                merkle_root: *self.setup.merkle_inclusion_proof.root,
+                depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
+                mt_index: self.setup.merkle_inclusion_proof.leaf_index.into(),
+                siblings,
+                beta: query_blinding_factor.beta(),
+                rp_id: *query_origin_id,
+                action: *action,
+                nonce: self.setup.rp_fixture.nonce,
+            };
+            let _affine = errors::check_query_input_validity(&query_proof_input)?;
+
+            let (proof, public_inputs) =
+                query_material.generate_proof(&query_proof_input, &mut rng)?;
+            query_material.verify_proof(&proof, &public_inputs)?;
+
+            let blinded_request =
+                taceo_oprf::core::oprf::client::blind_query(*query_hash, query_blinding_factor);
+
+            Ok(QueryProofBundle {
+                proof: proof.into(),
+                blinded_query: blinded_request.blinded_query(),
+                nonce: self.setup.rp_fixture.nonce,
+            })
+        }
+    }
+
+    /// Result of [`AuthModulesTestSetup::generate_query_proof`], containing all
+    /// outputs needed to construct an [`taceo_oprf::types::api::OprfRequest`].
+    pub(crate) struct QueryProofBundle {
+        pub(crate) proof: circom_types::groth16::Proof<ark_bn254::Bn254>,
+        pub(crate) blinded_query: ark_babyjubjub::EdwardsAffine,
+        pub(crate) nonce: ark_babyjubjub::Fq,
     }
 }
