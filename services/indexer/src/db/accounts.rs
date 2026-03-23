@@ -347,17 +347,23 @@ where
         self,
         leaf_index: u64,
         new_recovery_address: &Address,
+        latest_block_number: u64,
+        latest_log_index: u64,
     ) -> DBResult<()> {
         sqlx::query(
             r#"
                 UPDATE accounts SET
-                    recovery_address = $2
+                    recovery_address = $2,
+                    latest_block_number = $3,
+                    latest_log_index = $4
                 WHERE
                     leaf_index = $1
             "#,
         )
         .bind(leaf_index as i64)
         .bind(Self::address_to_u160(new_recovery_address))
+        .bind(latest_block_number as i64)
+        .bind(latest_log_index as i64)
         .execute(self.executor)
         .await?;
         Ok(())

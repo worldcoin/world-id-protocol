@@ -108,7 +108,12 @@ impl EventsProcessor {
                 transaction
                     .accounts()
                     .await?
-                    .update_recovery_address(ev.leaf_index, &ev.new_recovery_agent)
+                    .update_recovery_address(
+                        ev.leaf_index,
+                        &ev.new_recovery_agent,
+                        event.block_number,
+                        event.log_index,
+                    )
                     .await?;
             }
             RegistryEvent::RecoveryAgentUpdateCancelled(ev) => {

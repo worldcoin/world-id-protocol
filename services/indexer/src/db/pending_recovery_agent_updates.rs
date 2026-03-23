@@ -4,6 +4,11 @@ use tracing::instrument;
 
 use crate::db::DBResult;
 
+/// Base delay in seconds for per-update retry backoff.
+const RETRY_BACKOFF_BASE_SECONDS: f64 = 5.0;
+/// Cap retry exponent to avoid unbounded delay growth.
+const RETRY_BACKOFF_MAX_EXPONENT: i32 = 16;
+
 /// A pending recovery agent update ready for execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingRecoveryAgentUpdate {
@@ -111,11 +116,17 @@ where
                 FROM pending_recovery_agent_updates
                 WHERE status = 'pending'
                   AND execute_after <= now()
+                  AND (
+                      last_attempt_at IS NULL
+                      OR last_attempt_at + (($2::double precision * power(2::double precision, LEAST(attempts, $3))) * interval '1 second') <= now()
+                  )
                 ORDER BY execute_after ASC
                 LIMIT $1
             "#,
         )
         .bind(limit)
+        .bind(RETRY_BACKOFF_BASE_SECONDS)
+        .bind(RETRY_BACKOFF_MAX_EXPONENT)
         .fetch_all(self.executor)
         .await?;
 

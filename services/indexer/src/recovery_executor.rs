@@ -4,7 +4,7 @@
 //! Gated behind the `RECOVERY_EXECUTOR_ENABLED` env var (default `false`).
 //! Requires `RECOVERY_EXECUTOR_PRIVATE_KEY` for signing transactions.
 
-use std::time::Duration;
+use std::{fmt, time::Duration};
 
 use alloy::{
     network::EthereumWallet, primitives::Address, providers::ProviderBuilder,
@@ -16,12 +16,24 @@ use world_id_core::world_id_registry::WorldIdRegistry;
 use crate::db::DB;
 
 /// Configuration for the recovery executor scheduler.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RecoveryExecutorConfig {
     /// Whether the recovery executor is enabled.
     pub enabled: bool,
     /// Private key hex string for signing transactions.
     pub private_key: Option<String>,
+}
+
+impl fmt::Debug for RecoveryExecutorConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RecoveryExecutorConfig")
+            .field("enabled", &self.enabled)
+            .field(
+                "private_key",
+                &self.private_key.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
 }
 
 impl RecoveryExecutorConfig {
@@ -55,7 +67,8 @@ const MAX_CONSECUTIVE_FAILURES: u32 = 10;
 /// Run the recovery executor background loop.
 ///
 /// This loop polls the `pending_recovery_agent_updates` table for rows with
-/// `status = 'pending' AND execute_after <= now()`, then calls
+/// `status = 'pending'`, whose cooldown has elapsed, and whose per-row retry
+/// backoff has elapsed, then calls
 /// `executeRecoveryAgentUpdate(leafIndex)` on-chain for each.
 ///
 /// On success: increments `attempts` and sets `last_attempt_at`. The `status`
