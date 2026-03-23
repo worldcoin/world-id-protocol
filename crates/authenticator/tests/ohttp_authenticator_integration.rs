@@ -285,6 +285,7 @@ fn signature_nonce_response(nonce: U256) -> Vec<u8> {
 fn authenticator_pubkeys_response(pubkeys: Vec<Option<U256>>) -> Vec<u8> {
     serde_json::to_vec(&IndexerAuthenticatorPubkeysResponse {
         authenticator_pubkeys: pubkeys,
+        offchain_signer_commitment: U256::ZERO,
     })
     .unwrap()
 }
@@ -314,24 +315,6 @@ fn build_test_inclusion_proof(
     key_set.try_push(signer.offchain_signer_pubkey()).unwrap();
 
     AccountInclusionProof::new(merkle_proof, key_set)
-}
-
-fn test_materials() -> (
-    Arc<groth16_material::circom::CircomGroth16Material>,
-    Arc<groth16_material::circom::CircomGroth16Material>,
-) {
-    use std::sync::OnceLock;
-    static QUERY: OnceLock<Arc<groth16_material::circom::CircomGroth16Material>> = OnceLock::new();
-    static NULLIFIER: OnceLock<Arc<groth16_material::circom::CircomGroth16Material>> =
-        OnceLock::new();
-
-    let query = QUERY
-        .get_or_init(|| Arc::new(world_id_proof::proof::load_embedded_query_material().unwrap()));
-    let nullifier = NULLIFIER.get_or_init(|| {
-        Arc::new(world_id_proof::proof::load_embedded_nullifier_material().unwrap())
-    });
-
-    (Arc::clone(query), Arc::clone(nullifier))
 }
 
 /// Derive the onchain signer address from the test seed so stubs can match it.
@@ -421,9 +404,8 @@ async fn init_fetches_packed_account_through_ohttp() -> eyre::Result<()> {
     .await;
 
     let config = f.authenticator_config();
-    let (query_mat, null_mat) = test_materials();
 
-    let auth = Authenticator::init(&TEST_SEED, config, query_mat, null_mat).await?;
+    let auth = Authenticator::init(&TEST_SEED, config).await?;
     assert_eq!(auth.packed_account_data, packed);
 
     let idx_req = f
@@ -452,8 +434,7 @@ async fn fetch_inclusion_proof_roundtrips_through_ohttp() -> eyre::Result<()> {
     .await;
 
     let config = f.authenticator_config();
-    let (query_mat, null_mat) = test_materials();
-    let auth = Authenticator::init(&TEST_SEED, config, query_mat, null_mat).await?;
+    let auth = Authenticator::init(&TEST_SEED, config).await?;
 
     let proof = build_test_inclusion_proof(leaf_index);
     let expected_root: U256 = proof.inclusion_proof.root.into();
@@ -497,8 +478,7 @@ async fn fetch_authenticator_pubkeys_roundtrips_through_ohttp() -> eyre::Result<
     .await;
 
     let config = f.authenticator_config();
-    let (query_mat, null_mat) = test_materials();
-    let auth = Authenticator::init(&TEST_SEED, config, query_mat, null_mat).await?;
+    let auth = Authenticator::init(&TEST_SEED, config).await?;
 
     f.set_indexer_response(
         "/authenticator-pubkeys",
@@ -538,8 +518,7 @@ async fn signing_nonce_roundtrips_through_ohttp_when_no_rpc() -> eyre::Result<()
     .await;
 
     let config = f.authenticator_config();
-    let (query_mat, null_mat) = test_materials();
-    let auth = Authenticator::init(&TEST_SEED, config, query_mat, null_mat).await?;
+    let auth = Authenticator::init(&TEST_SEED, config).await?;
 
     f.set_indexer_response(
         "/signature-nonce",
@@ -578,8 +557,7 @@ async fn init_authenticator_for_mutations(
     .await;
 
     let config = f.authenticator_config();
-    let (query_mat, null_mat) = test_materials();
-    Authenticator::init(&TEST_SEED, config, query_mat, null_mat).await
+    Authenticator::init(&TEST_SEED, config).await
 }
 
 /// Pre-seeds the indexer stubs needed by mutation methods.
@@ -731,9 +709,8 @@ async fn packed_account_not_found_maps_to_account_does_not_exist() -> eyre::Resu
     .await;
 
     let config = f.authenticator_config();
-    let (query_mat, null_mat) = test_materials();
 
-    let result = Authenticator::init(&TEST_SEED, config, query_mat, null_mat).await;
+    let result = Authenticator::init(&TEST_SEED, config).await;
     assert!(
         matches!(result, Err(AuthenticatorError::AccountDoesNotExist)),
         "expected AccountDoesNotExist, got: {result:?}"
