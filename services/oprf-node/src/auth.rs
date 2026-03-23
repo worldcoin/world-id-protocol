@@ -11,14 +11,24 @@
 //! - [`schema_issuer_registry_watcher`] – keeps track of registered Credential Schema Issuers
 //! - [`nonce_history`] – keeps track of nonces used for nonce + `time_stamp` signatures to detect replays
 
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use ark_bn254::Bn254;
 use circom_types::groth16::VerificationKey;
-use taceo_oprf::types::OprfKeyId;
-use world_id_primitives::{TREE_DEPTH, oprf::WorldIdRequestAuthError};
+use taceo_oprf::types::{OprfKeyId, api::OprfRequest};
+use world_id_core::FieldElement;
+use world_id_primitives::{
+    TREE_DEPTH,
+    oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
+};
 
-use crate::auth::merkle_watcher::MerkleWatcher;
+use crate::auth::{
+    merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
+    rp_registry_watcher::RpRegistryWatcher,
+};
 
 /// The embedded Groth16 verification key for OPRF query proofs.
 const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");
@@ -29,14 +39,92 @@ pub(crate) mod nonce_history;
 pub(crate) mod nullifier;
 pub(crate) mod rp_registry_watcher;
 pub(crate) mod schema_issuer_registry_watcher;
+pub(crate) mod session;
+
+pub(crate) struct OprfRequestAuthWithRpSignature {
+    rp_registry_watcher: RpRegistryWatcher,
+    nonce_history: NonceHistory,
+    current_time_stamp_max_difference: Duration,
+    query_auth: crate::auth::QueryProofAuthenticator,
+}
+
+impl OprfRequestAuthWithRpSignature {
+    pub(crate) fn init(
+        merkle_watcher: MerkleWatcher,
+        rp_registry_watcher: RpRegistryWatcher,
+        nonce_history: NonceHistory,
+        current_time_stamp_max_difference: Duration,
+    ) -> Self {
+        Self {
+            rp_registry_watcher,
+            nonce_history,
+            current_time_stamp_max_difference,
+            query_auth: crate::auth::QueryProofAuthenticator::init(merkle_watcher),
+        }
+    }
+
+    pub(crate) async fn verify(
+        &self,
+        msg: &[u8],
+        request: &OprfRequest<NullifierOprfRequestAuthV1>,
+    ) -> Result<OprfKeyId, WorldIdRequestAuthError> {
+        tracing::trace!("checking timestamp...");
+        // check the time stamp against system time +/- difference
+        let req_time_stamp = Duration::from_secs(request.auth.current_time_stamp);
+        let current_time = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("system time is after unix epoch");
+        if current_time.abs_diff(req_time_stamp) > self.current_time_stamp_max_difference {
+            return Err(WorldIdRequestAuthError::TimeStampTooOld);
+        }
+
+        tracing::trace!("fetching RP info...");
+        // fetch the RP info
+        let rp = self.rp_registry_watcher.get_rp(&request.auth.rp_id).await?;
+
+        tracing::trace!("check RP signature...");
+        let recovered = request
+            .auth
+            .signature
+            .recover_address_from_msg(msg)
+            .map_err(|err| {
+                tracing::debug!("invalid signature: {err:?}");
+                WorldIdRequestAuthError::InvalidRpSignature
+            })?;
+        if recovered != rp.signer {
+            return Err(WorldIdRequestAuthError::InvalidRpSignature);
+        }
+
+        tracing::trace!("add nonce to store...");
+        // add nonce to history to check if the nonces where only used once
+        self.nonce_history
+            .add_nonce(FieldElement::from(request.auth.nonce))
+            .await?;
+
+        // common verification
+        self.query_auth
+            .verify(
+                &request.auth.proof.clone().into(),
+                request.blinded_query,
+                request.auth.merkle_root,
+                rp.oprf_key_id,
+                request.auth.action,
+                request.auth.nonce,
+            )
+            .await?;
+
+        tracing::trace!("authentication successful!");
+        Ok(rp.oprf_key_id)
+    }
+}
 
 /// Common authentication for [`NullifierOprfRequestAuthenticator`] and [`CredentialBlindingFactorOprfRequestAuthenticator`].
-pub(crate) struct OprfRequestAuthenticator {
+pub(crate) struct QueryProofAuthenticator {
     merkle_watcher: MerkleWatcher,
     vk: Arc<ark_groth16::PreparedVerifyingKey<Bn254>>,
 }
 
-impl OprfRequestAuthenticator {
+impl QueryProofAuthenticator {
     pub(crate) fn init(merkle_watcher: MerkleWatcher) -> Self {
         let vk: VerificationKey<Bn254> =
             serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
