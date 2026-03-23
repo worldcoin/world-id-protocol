@@ -50,7 +50,7 @@ impl SessionOprfRequestAuthenticator {
             request.auth.nonce,
             request.auth.current_time_stamp,
             request.auth.expiration_timestamp,
-            // Note that for this nullifier route, the requested action is NEVER signed
+            // Note that for this session route, the requested action is NEVER signed
             None,
         );
 
@@ -100,9 +100,7 @@ mod tests {
             Self::with_session_type(SessionFeType::OprfSeed).await
         }
 
-        pub(crate) async fn with_session_type(
-            session_type: SessionFeType,
-        ) -> eyre::Result<Self> {
+        pub(crate) async fn with_session_type(session_type: SessionFeType) -> eyre::Result<Self> {
             let mut rng = rand::thread_rng();
             let infra = AuthModulesTestSetup::new().await?;
 
@@ -116,10 +114,8 @@ mod tests {
             // Session action must have the correct prefix byte (0x01 or 0x02)
             let session_action = FieldElement::random_for_session(&mut rng, session_type);
 
-            let bundle = infra.generate_query_proof(
-                session_action,
-                infra.setup.rp_fixture.world_rp_id.into(),
-            )?;
+            let bundle = infra
+                .generate_query_proof(session_action, infra.setup.rp_fixture.world_rp_id.into())?;
 
             // Session RP signature does NOT include the action (None)
             let rp_signer =
@@ -266,8 +262,8 @@ mod tests {
             .authenticate(&setup.request)
             .await
             .expect_err("Should fail");
-        assert_eq!(auth_error.code(), primitives::oprf::error_codes::INTERNAL);
-        assert_eq!(auth_error.message(), "internal");
+        assert_eq!(auth_error.code(), primitives::oprf::error_codes::UNKNOWN_RP);
+        assert_eq!(auth_error.message(), "unknown RP");
         Ok(())
     }
 
@@ -284,10 +280,7 @@ mod tests {
             auth_error.code(),
             primitives::oprf::error_codes::INVALID_RP_SIGNATURE
         );
-        assert_eq!(
-            auth_error.message(),
-            "signature from RP cannot be verified"
-        );
+        assert_eq!(auth_error.message(), "signature from RP cannot be verified");
         Ok(())
     }
 
@@ -353,8 +346,11 @@ mod tests {
             .authenticate(&setup.request)
             .await
             .expect_err("Should fail");
-        assert_eq!(auth_error.code(), primitives::oprf::error_codes::INTERNAL);
-        assert_eq!(auth_error.message(), "internal");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INACTIVE_RP
+        );
+        assert_eq!(auth_error.message(), "inactive RP");
         Ok(())
     }
 }
