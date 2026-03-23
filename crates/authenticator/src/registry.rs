@@ -5,7 +5,7 @@
 
 use alloy::{
     primitives::{Address, Signature, U256},
-    signers::SignerSync,
+    signers::{Signer, SignerSync},
     sol,
     sol_types::{Eip712Domain, SolStruct, eip712_domain},
 };
@@ -204,9 +204,14 @@ pub fn sign_remove_authenticator<S: SignerSync + Sync>(
 
 /// Signs the EIP-712 payload for a `recoverAccount` contract call.
 ///
+/// The sign recover account uses the **async** `Signer` as this used
+/// by Recovery Agents, who may implement different signing systems requiring
+/// async processing. This is different from other operations that only
+/// use a local keypair and can hence be done synchronously.
+///
 /// # Errors
 /// Will error if the signer unexpectedly fails to sign the hash.
-pub fn sign_recover_account<S: SignerSync + Sync>(
+pub async fn sign_recover_account<S: Signer + Sync>(
     signer: &S,
     leaf_index: u64,
     new_authenticator_address: Address,
@@ -223,7 +228,7 @@ pub fn sign_recover_account<S: SignerSync + Sync>(
         nonce,
     };
     let digest = payload.eip712_signing_hash(domain);
-    Ok(signer.sign_hash_sync(&digest)?)
+    Ok(signer.sign_hash(&digest).await?)
 }
 
 /// Signs the EIP-712 payload for an `initiateRecoveryAgentUpdate` contract call.
@@ -355,5 +360,39 @@ mod tests {
         let sig2 =
             sign_cancel_recovery_agent_update(&signer, 1, U256::from(1u64), &domain).unwrap();
         assert_ne!(sig1.as_bytes(), sig2.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn sign_recover_account_roundtrip() {
+        let signer = PrivateKeySigner::random();
+        let domain = test_domain();
+        let leaf_index: u64 = 10;
+        let new_authenticator_address = address!("0x4444444444444444444444444444444444444444");
+        let new_authenticator_pubkey = U256::from(123u64);
+        let new_offchain_signer_commitment = U256::from(456u64);
+        let nonce = U256::from(1u64);
+
+        let sig = sign_recover_account(
+            &signer,
+            leaf_index,
+            new_authenticator_address,
+            new_authenticator_pubkey,
+            new_offchain_signer_commitment,
+            nonce,
+            &domain,
+        )
+        .await
+        .expect("signing must succeed");
+
+        let payload = RecoverAccountTypedData {
+            leafIndex: leaf_index,
+            newAuthenticatorAddress: new_authenticator_address,
+            newAuthenticatorPubkey: new_authenticator_pubkey,
+            newOffchainSignerCommitment: new_offchain_signer_commitment,
+            nonce,
+        };
+        let digest = payload.eip712_signing_hash(&domain);
+        let recovered = sig.recover_address_from_prehash(&digest).unwrap();
+        assert_eq!(recovered, signer.address());
     }
 }
