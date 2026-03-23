@@ -7,11 +7,10 @@
 use std::time::Duration;
 
 use alloy::{
-    network::EthereumWallet,
-    primitives::Address,
-    providers::{DynProvider, ProviderBuilder},
+    network::EthereumWallet, primitives::Address, providers::ProviderBuilder,
     signers::local::PrivateKeySigner,
 };
+use url::Url;
 use world_id_core::world_id_registry::WorldIdRegistry;
 
 use crate::db::DB;
@@ -66,13 +65,13 @@ const MAX_CONSECUTIVE_FAILURES: u32 = 10;
 /// On failure: increments `attempts`, logs error, and backs off.
 pub async fn run_recovery_executor(
     db: DB,
-    http_provider: DynProvider,
+    rpc_url: Url,
     registry_address: Address,
     config: RecoveryExecutorConfig,
 ) -> eyre::Result<()> {
-    let private_key_hex = config
-        .private_key
-        .ok_or_else(|| eyre::eyre!("RECOVERY_EXECUTOR_PRIVATE_KEY is required when RECOVERY_EXECUTOR_ENABLED=true"))?;
+    let private_key_hex = config.private_key.ok_or_else(|| {
+        eyre::eyre!("RECOVERY_EXECUTOR_PRIVATE_KEY is required when RECOVERY_EXECUTOR_ENABLED=true")
+    })?;
 
     let signer: PrivateKeySigner = private_key_hex
         .parse()
@@ -81,9 +80,7 @@ pub async fn run_recovery_executor(
     let wallet = EthereumWallet::from(signer);
 
     // Build a provider with the wallet signer attached
-    let signing_provider = ProviderBuilder::new()
-        .wallet(wallet)
-        .on_provider(http_provider);
+    let signing_provider = ProviderBuilder::new().wallet(wallet).connect_http(rpc_url);
 
     let registry = WorldIdRegistry::new(registry_address, &signing_provider);
 

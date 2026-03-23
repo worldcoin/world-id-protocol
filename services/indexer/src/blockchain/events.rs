@@ -772,9 +772,7 @@ mod tests {
         assert!(
             signatures.contains(&WorldIdRegistry::RecoveryAgentUpdateInitiated::SIGNATURE_HASH)
         );
-        assert!(
-            signatures.contains(&WorldIdRegistry::RecoveryAgentUpdateExecuted::SIGNATURE_HASH)
-        );
+        assert!(signatures.contains(&WorldIdRegistry::RecoveryAgentUpdateExecuted::SIGNATURE_HASH));
         assert!(
             signatures.contains(&WorldIdRegistry::RecoveryAgentUpdateCancelled::SIGNATURE_HASH)
         );

@@ -377,7 +377,9 @@ where
         .fetch_optional(self.executor)
         .await?;
 
-        result.map(|row| Self::map_recovery_address(&row)).transpose()
+        result
+            .map(|row| Self::map_recovery_address(&row))
+            .transpose()
     }
 
     /// Get leaf indices from accounts where latest event is after the given event_id
