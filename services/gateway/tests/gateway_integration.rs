@@ -310,7 +310,9 @@ async fn e2e_gateway_full_flow() {
         nonce,
         &domain,
     )
+    .await
     .unwrap();
+
     let body_rec = RecoverAccountRequest {
         leaf_index: 1,
         new_authenticator_address: wallet_addr_new,
