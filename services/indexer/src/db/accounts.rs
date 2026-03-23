@@ -341,6 +341,45 @@ where
         Ok(())
     }
 
+    /// Update the recovery address for an account.
+    #[instrument(level = "info", skip(self))]
+    pub async fn update_recovery_address(
+        self,
+        leaf_index: u64,
+        new_recovery_address: &Address,
+    ) -> DBResult<()> {
+        sqlx::query(
+            r#"
+                UPDATE accounts SET
+                    recovery_address = $2
+                WHERE
+                    leaf_index = $1
+            "#,
+        )
+        .bind(leaf_index as i64)
+        .bind(Self::address_to_u160(new_recovery_address))
+        .execute(self.executor)
+        .await?;
+        Ok(())
+    }
+
+    /// Get the recovery address for an account.
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_recovery_address(self, leaf_index: u64) -> DBResult<Option<Address>> {
+        let result = sqlx::query(
+            r#"
+                SELECT recovery_address
+                FROM accounts
+                WHERE leaf_index = $1
+            "#,
+        )
+        .bind(leaf_index as i64)
+        .fetch_optional(self.executor)
+        .await?;
+
+        result.map(|row| Self::map_recovery_address(&row)).transpose()
+    }
+
     /// Get leaf indices from accounts where latest event is after the given event_id
     #[instrument(level = "info", skip(self))]
     pub async fn get_after_event<T: Into<AccountLatestEventId> + fmt::Debug>(

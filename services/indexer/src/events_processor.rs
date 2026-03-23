@@ -88,6 +88,36 @@ impl EventsProcessor {
                     .await?;
             }
             RegistryEvent::RootRecorded(_ev) => {}
+            RegistryEvent::RecoveryAgentUpdateInitiated(ev) => {
+                // Convert U256 execute_after (unix timestamp) to u64
+                let execute_after_unix: u64 = ev.execute_after.try_into().unwrap_or(u64::MAX);
+                transaction
+                    .pending_recovery_agent_updates()
+                    .await?
+                    .upsert_pending(ev.leaf_index, &ev.new_recovery_agent, execute_after_unix)
+                    .await?;
+            }
+            RegistryEvent::RecoveryAgentUpdateExecuted(ev) => {
+                // Mark the pending update as executed
+                transaction
+                    .pending_recovery_agent_updates()
+                    .await?
+                    .mark_executed(ev.leaf_index)
+                    .await?;
+                // Update the recovery agent on the account record
+                transaction
+                    .accounts()
+                    .await?
+                    .update_recovery_address(ev.leaf_index, &ev.new_recovery_agent)
+                    .await?;
+            }
+            RegistryEvent::RecoveryAgentUpdateCancelled(ev) => {
+                transaction
+                    .pending_recovery_agent_updates()
+                    .await?
+                    .mark_cancelled(ev.leaf_index)
+                    .await?;
+            }
         }
 
         Ok(())

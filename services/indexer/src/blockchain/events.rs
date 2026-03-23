@@ -71,6 +71,27 @@ pub struct RootRecordedEvent {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct RecoveryAgentUpdateInitiatedEvent {
+    pub leaf_index: u64,
+    pub old_recovery_agent: Address,
+    pub new_recovery_agent: Address,
+    pub execute_after: U256,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecoveryAgentUpdateExecutedEvent {
+    pub leaf_index: u64,
+    pub old_recovery_agent: Address,
+    pub new_recovery_agent: Address,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecoveryAgentUpdateCancelledEvent {
+    pub leaf_index: u64,
+    pub cancelled_recovery_agent: Address,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum RegistryEvent {
     AccountCreated(AccountCreatedEvent),
     AccountUpdated(AccountUpdatedEvent),
@@ -78,6 +99,9 @@ pub enum RegistryEvent {
     AuthenticatorRemoved(AuthenticatorRemovedEvent),
     AccountRecovered(AccountRecoveredEvent),
     RootRecorded(RootRecordedEvent),
+    RecoveryAgentUpdateInitiated(RecoveryAgentUpdateInitiatedEvent),
+    RecoveryAgentUpdateExecuted(RecoveryAgentUpdateExecutedEvent),
+    RecoveryAgentUpdateCancelled(RecoveryAgentUpdateCancelledEvent),
 }
 
 impl RegistryEvent {
@@ -89,6 +113,9 @@ impl RegistryEvent {
             WorldIdRegistry::AuthenticatorRemoved::SIGNATURE_HASH,
             WorldIdRegistry::AccountRecovered::SIGNATURE_HASH,
             WorldIdRegistry::RootRecorded::SIGNATURE_HASH,
+            WorldIdRegistry::RecoveryAgentUpdateInitiated::SIGNATURE_HASH,
+            WorldIdRegistry::RecoveryAgentUpdateExecuted::SIGNATURE_HASH,
+            WorldIdRegistry::RecoveryAgentUpdateCancelled::SIGNATURE_HASH,
         ]
     }
 
@@ -122,6 +149,21 @@ impl RegistryEvent {
             }
             WorldIdRegistry::RootRecorded::SIGNATURE_HASH => {
                 RegistryEvent::RootRecorded(Self::decode_root_recorded(lg)?)
+            }
+            WorldIdRegistry::RecoveryAgentUpdateInitiated::SIGNATURE_HASH => {
+                RegistryEvent::RecoveryAgentUpdateInitiated(
+                    Self::decode_recovery_agent_update_initiated(lg)?,
+                )
+            }
+            WorldIdRegistry::RecoveryAgentUpdateExecuted::SIGNATURE_HASH => {
+                RegistryEvent::RecoveryAgentUpdateExecuted(
+                    Self::decode_recovery_agent_update_executed(lg)?,
+                )
+            }
+            WorldIdRegistry::RecoveryAgentUpdateCancelled::SIGNATURE_HASH => {
+                RegistryEvent::RecoveryAgentUpdateCancelled(
+                    Self::decode_recovery_agent_update_cancelled(lg)?,
+                )
             }
             _ => return Err(BlockchainError::UnknownEventSignature(event_sig)),
         };
@@ -234,6 +276,51 @@ impl RegistryEvent {
         Ok(RootRecordedEvent {
             root: typed.data.root,
             timestamp: typed.data.timestamp,
+        })
+    }
+
+    fn decode_recovery_agent_update_initiated(
+        lg: &alloy::rpc::types::Log,
+    ) -> BlockchainResult<RecoveryAgentUpdateInitiatedEvent> {
+        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
+            .ok_or_else(|| BlockchainError::InvalidLog)?;
+        let typed = WorldIdRegistry::RecoveryAgentUpdateInitiated::decode_log(&prim)
+            .map_err(BlockchainError::LogDecode)?;
+
+        Ok(RecoveryAgentUpdateInitiatedEvent {
+            leaf_index: typed.data.leafIndex,
+            old_recovery_agent: typed.data.oldRecoveryAgent,
+            new_recovery_agent: typed.data.newRecoveryAgent,
+            execute_after: typed.data.executeAfter,
+        })
+    }
+
+    fn decode_recovery_agent_update_executed(
+        lg: &alloy::rpc::types::Log,
+    ) -> BlockchainResult<RecoveryAgentUpdateExecutedEvent> {
+        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
+            .ok_or_else(|| BlockchainError::InvalidLog)?;
+        let typed = WorldIdRegistry::RecoveryAgentUpdateExecuted::decode_log(&prim)
+            .map_err(BlockchainError::LogDecode)?;
+
+        Ok(RecoveryAgentUpdateExecutedEvent {
+            leaf_index: typed.data.leafIndex,
+            old_recovery_agent: typed.data.oldRecoveryAgent,
+            new_recovery_agent: typed.data.newRecoveryAgent,
+        })
+    }
+
+    fn decode_recovery_agent_update_cancelled(
+        lg: &alloy::rpc::types::Log,
+    ) -> BlockchainResult<RecoveryAgentUpdateCancelledEvent> {
+        let prim = Log::new(lg.address(), lg.topics().to_vec(), lg.data().data.clone())
+            .ok_or_else(|| BlockchainError::InvalidLog)?;
+        let typed = WorldIdRegistry::RecoveryAgentUpdateCancelled::decode_log(&prim)
+            .map_err(BlockchainError::LogDecode)?;
+
+        Ok(RecoveryAgentUpdateCancelledEvent {
+            leaf_index: typed.data.leafIndex,
+            cancelled_recovery_agent: typed.data.cancelledRecoveryAgent,
         })
     }
 }
@@ -674,7 +761,7 @@ mod tests {
     fn test_registry_event_signatures() {
         let signatures = RegistryEvent::signatures();
 
-        assert_eq!(signatures.len(), 6);
+        assert_eq!(signatures.len(), 9);
 
         assert!(signatures.contains(&WorldIdRegistry::AccountCreated::SIGNATURE_HASH));
         assert!(signatures.contains(&WorldIdRegistry::AccountUpdated::SIGNATURE_HASH));
@@ -682,6 +769,15 @@ mod tests {
         assert!(signatures.contains(&WorldIdRegistry::AuthenticatorRemoved::SIGNATURE_HASH));
         assert!(signatures.contains(&WorldIdRegistry::AccountRecovered::SIGNATURE_HASH));
         assert!(signatures.contains(&WorldIdRegistry::RootRecorded::SIGNATURE_HASH));
+        assert!(
+            signatures.contains(&WorldIdRegistry::RecoveryAgentUpdateInitiated::SIGNATURE_HASH)
+        );
+        assert!(
+            signatures.contains(&WorldIdRegistry::RecoveryAgentUpdateExecuted::SIGNATURE_HASH)
+        );
+        assert!(
+            signatures.contains(&WorldIdRegistry::RecoveryAgentUpdateCancelled::SIGNATURE_HASH)
+        );
     }
 
     #[test]
