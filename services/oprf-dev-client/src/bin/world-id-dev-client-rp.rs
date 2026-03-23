@@ -21,8 +21,11 @@ use world_id_core::{EdDSASignature, FieldElement, proof::CircomGroth16Material};
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
     ProofRequest, RequestItem, RequestVersion, SessionFeType, SessionFieldElement as _, SessionId,
-    TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
-    oprf::NullifierOprfRequestAuthV1, oprf::OprfModule, rp::RpId,
+    TREE_DEPTH,
+    authenticator::AuthenticatorPublicKeySet,
+    merkle::MerkleInclusionProof,
+    oprf::{NullifierOprfRequestAuthV1, OprfModule},
+    rp::RpId,
 };
 use world_id_test_utils::anvil::RpRegistry;
 
