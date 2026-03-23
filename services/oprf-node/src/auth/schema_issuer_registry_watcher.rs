@@ -46,16 +46,16 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
     Internal(#[from] eyre::Report),
 }
 
-impl From<SchemaIssuerRegistryWatcherError> for WorldIdRequestAuthError {
-    fn from(value: SchemaIssuerRegistryWatcherError) -> Self {
-        match value {
+impl SchemaIssuerRegistryWatcherError {
+    pub(crate) fn into_world_oprf_error(self) -> WorldIdRequestAuthError {
+        match self {
+            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(_) => {
+                tracing::debug!("{self}");
+                WorldIdRequestAuthError::UnknownSchemaIssuer
+            }
             SchemaIssuerRegistryWatcherError::Internal(error) => {
                 tracing::error!("internal error: {error:?}");
                 WorldIdRequestAuthError::Internal
-            }
-            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(schema_id) => {
-                tracing::debug!("Cannot find {schema_id}");
-                WorldIdRequestAuthError::UnknownSchemaIssuer
             }
         }
     }
@@ -175,14 +175,14 @@ impl SchemaIssuerRegistryWatcher {
                 .await
                 .is_some()
             {
-                tracing::debug!("issuer {issuer_schema_id} found in store");
+                tracing::trace!("issuer {issuer_schema_id} found in store");
                 ::metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS)
                     .increment(1);
                 return Ok(());
             }
         }
 
-        tracing::debug!(
+        tracing::trace!(
             "issuer {issuer_schema_id} not found in store, querying CredentialSchemaIssuerRegistry..."
         );
         let contract = CredentialSchemaIssuerRegistry::new(self.contract_address, &self.provider);

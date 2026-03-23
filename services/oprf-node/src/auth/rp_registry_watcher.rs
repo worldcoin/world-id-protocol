@@ -55,19 +55,19 @@ pub(crate) enum RpRegistryWatcherError {
     Internal(#[from] eyre::Report),
 }
 
-impl From<RpRegistryWatcherError> for WorldIdRequestAuthError {
-    fn from(value: RpRegistryWatcherError) -> Self {
-        match value {
+impl RpRegistryWatcherError {
+    pub(crate) fn into_world_oprf_error(self) -> WorldIdRequestAuthError {
+        match self {
             RpRegistryWatcherError::Internal(error) => {
                 tracing::error!("internal error: {error:?}");
                 WorldIdRequestAuthError::Internal
             }
-            RpRegistryWatcherError::UnknownRp(rp_id) => {
-                tracing::debug!("Cannot find {rp_id}");
+            RpRegistryWatcherError::UnknownRp(_) => {
+                tracing::debug!("{self}");
                 WorldIdRequestAuthError::UnknownRp
             }
-            RpRegistryWatcherError::InactiveRp(rp_id) => {
-                tracing::debug!("RP {rp_id} was requested, but is inactive");
+            RpRegistryWatcherError::InactiveRp(_) => {
+                tracing::debug!("{self}");
                 WorldIdRequestAuthError::InactiveRp
             }
         }
@@ -139,7 +139,7 @@ impl RpRegistryWatcher {
                     match RpUpdated::decode_log(log.as_ref()) {
                         Ok(event) => {
                             let rp_id = RpId::new(event.rpId);
-                            tracing::info!("got rp-update event for rp: {rp_id}");
+                            tracing::trace!("got rp-update event for rp: {rp_id}");
                             if event.active {
                                 rp_store
                                     .entry(rp_id)
@@ -151,7 +151,7 @@ impl RpRegistryWatcher {
                                             rp.signer = event.signer;
                                             Op::Put(rp)
                                         } else {
-                                            tracing::debug!(
+                                            tracing::trace!(
                                                 "rp {rp_id} not found in store, ignoring update"
                                             );
                                             Op::Nop
@@ -204,12 +204,12 @@ impl RpRegistryWatcher {
         rp_id: &RpId,
     ) -> Result<RelyingParty, RpRegistryWatcherError> {
         if let Some(rp) = self.rp_store.get(rp_id).await {
-            tracing::debug!("rp {rp_id} found in store");
+            tracing::trace!("rp {rp_id} found in store");
             ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS).increment(1);
             return Ok(rp);
         }
 
-        tracing::debug!("rp {rp_id} not found in store, querying RpRegistry...");
+        tracing::trace!("rp {rp_id} not found in store, querying RpRegistry...");
         let contract = RpRegistry::new(self.contract_address, &self.provider);
         let rp = match contract.getRp(rp_id.into_inner()).call().await {
             Ok(rp) => rp,

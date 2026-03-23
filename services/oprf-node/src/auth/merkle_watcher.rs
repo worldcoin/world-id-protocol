@@ -54,12 +54,15 @@ pub(crate) enum MerkleWatcherError {
     Internal(#[from] eyre::Report),
 }
 
-impl From<MerkleWatcherError> for WorldIdRequestAuthError {
-    fn from(value: MerkleWatcherError) -> Self {
-        match value {
-            MerkleWatcherError::InvalidMerkleRoot => WorldIdRequestAuthError::InvalidMerkleRoot,
-            MerkleWatcherError::Internal(error) => {
-                tracing::error!("internal error: {error:?}");
+impl MerkleWatcherError {
+    pub(crate) fn into_world_oprf_error(self) -> WorldIdRequestAuthError {
+        match self {
+            MerkleWatcherError::InvalidMerkleRoot => {
+                tracing::debug!("{self}");
+                WorldIdRequestAuthError::InvalidMerkleRoot
+            }
+            MerkleWatcherError::Internal(_) => {
+                tracing::error!("internal error: {self:?}");
                 WorldIdRequestAuthError::Internal
             }
         }
@@ -316,7 +319,7 @@ async fn subscribe_task(
             Some(&RootRecorded::SIGNATURE_HASH) => {
                 match RootRecorded::decode_log(log.as_ref()) {
                     Ok(event) => {
-                        tracing::info!("got root {}", event.root,);
+                        tracing::trace!("got root {}", event.root,);
                         let root = FieldElement::try_from(event.root).expect("root is in field");
 
                         // update latest root
@@ -324,7 +327,7 @@ async fn subscribe_task(
 
                         let root_validity_window =
                             Duration::from_secs(root_validity_window.load(Ordering::Relaxed));
-                        tracing::debug!(
+                        tracing::trace!(
                             "insert root with current validity window {root_validity_window:?}"
                         );
                         merkle_root_cache.insert(root, root_validity_window).await;
@@ -337,7 +340,7 @@ async fn subscribe_task(
             Some(&RootValidityWindowUpdated::SIGNATURE_HASH) => {
                 match RootValidityWindowUpdated::decode_log(log.as_ref()) {
                     Ok(event) => {
-                        tracing::info!("got root validity window update");
+                        tracing::trace!("got root validity window update");
                         let old_window = u64::try_from(event.oldWindow).expect("fits in u64");
                         let new_window = u64::try_from(event.newWindow).expect("fits in u64");
 

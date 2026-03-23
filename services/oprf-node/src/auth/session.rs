@@ -1,9 +1,13 @@
 use crate::auth::{
-    self, merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
+    RpSignatureError, RpSignatureValidation,
+    merkle_watcher::{MerkleWatcher, MerkleWatcherError},
+    nonce_history::NonceHistory,
     rp_registry_watcher::RpRegistryWatcher,
 };
+use ark_bn254::Bn254;
+use ark_groth16::PreparedVerifyingKey;
 use async_trait::async_trait;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 use taceo_oprf::types::{
     OprfKeyId,
     api::{OprfRequest, OprfRequestAuthenticator, OprfRequestAuthenticatorError},
@@ -16,50 +20,108 @@ use world_id_primitives::{
     oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
 };
 
-pub(crate) struct SessionOprfRequestAuthenticator(auth::OprfRequestAuthWithRpSignature);
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum SessionModuleError {
+    #[error("Invalid action - must have MSB as 0x01 or 0x02 but action was: {0}")]
+    InvalidAction(FieldElement),
+    #[error("Could not verify query proof")]
+    InvalidQueryProof,
+    #[error(transparent)]
+    RpOprfRequestError(#[from] RpSignatureError),
+    #[error(transparent)]
+    MerkleWatcher(#[from] MerkleWatcherError),
+}
 
-impl SessionOprfRequestAuthenticator {
+impl SessionModuleError {
+    fn into_world_oprf_error(self) -> WorldIdRequestAuthError {
+        match self {
+            SessionModuleError::InvalidAction(_) => {
+                tracing::debug!("{self}");
+                WorldIdRequestAuthError::InvalidActionSession
+            }
+            SessionModuleError::InvalidQueryProof => {
+                tracing::debug!("{self}");
+                WorldIdRequestAuthError::InvalidQueryProof
+            }
+            SessionModuleError::RpOprfRequestError(rp_oprf_request_error) => {
+                rp_oprf_request_error.into_world_oprf_error()
+            }
+            SessionModuleError::MerkleWatcher(merkle_watcher_error) => {
+                merkle_watcher_error.into_world_oprf_error()
+            }
+        }
+    }
+}
+
+pub(crate) struct SessionModuleAuth {
+    rp_signature_auth: RpSignatureValidation,
+    merkle_watcher: MerkleWatcher,
+    query_vk: Arc<PreparedVerifyingKey<Bn254>>,
+}
+
+impl SessionModuleAuth {
     pub(crate) fn init(
         merkle_watcher: MerkleWatcher,
         rp_registry_watcher: RpRegistryWatcher,
         nonce_history: NonceHistory,
         current_time_stamp_max_difference: Duration,
+        query_vk: Arc<PreparedVerifyingKey<Bn254>>,
     ) -> Self {
-        Self(crate::auth::OprfRequestAuthWithRpSignature::init(
+        Self {
+            rp_signature_auth: crate::auth::RpSignatureValidation::init(
+                rp_registry_watcher,
+                nonce_history,
+                current_time_stamp_max_difference,
+            ),
             merkle_watcher,
-            rp_registry_watcher,
-            nonce_history,
-            current_time_stamp_max_difference,
-        ))
+            query_vk,
+        }
     }
 
     async fn authenticate_inner(
         &self,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
-    ) -> Result<OprfKeyId, WorldIdRequestAuthError> {
+    ) -> Result<OprfKeyId, SessionModuleError> {
+        tracing::trace!("Checking that MSB is set to 0x01 or 0x02");
         // check action prefix is set to 0x01 or 0x02
         let action = FieldElement::from(request.auth.action);
         if !action.is_valid_for_session(SessionFeType::OprfSeed)
             && !action.is_valid_for_session(SessionFeType::Action)
         {
-            return Err(WorldIdRequestAuthError::InvalidActionSession);
+            return Err(SessionModuleError::InvalidAction(action));
         }
 
-        // check the RP nonce signature
-        let msg = world_id_primitives::rp::compute_rp_signature_msg(
-            request.auth.nonce,
-            request.auth.current_time_stamp,
-            request.auth.expiration_timestamp,
-            // Note that for this session route, the requested action is NEVER signed
-            None,
+        // Note that for this session route, the requested action is NEVER signed
+        let (rp_signature_check, merkle_check) = tokio::join!(
+            self.rp_signature_auth.verify(None, request),
+            self.merkle_watcher
+                .ensure_root_valid(FieldElement::from(request.auth.merkle_root))
         );
 
-        self.0.verify(&msg, request).await
+        let oprf_key_id = rp_signature_check?;
+        merkle_check?;
+
+        // common verification
+        let valid = super::verify_query_proof(
+            &self.query_vk,
+            &request.auth.proof.clone().into(),
+            request.blinded_query,
+            request.auth.merkle_root,
+            oprf_key_id,
+            request.auth.action,
+            request.auth.nonce,
+        );
+        if valid {
+            tracing::trace!("authentication successful!");
+            Ok(oprf_key_id)
+        } else {
+            Err(SessionModuleError::InvalidQueryProof)
+        }
     }
 }
 
 #[async_trait]
-impl OprfRequestAuthenticator for SessionOprfRequestAuthenticator {
+impl OprfRequestAuthenticator for SessionModuleAuth {
     type RequestAuth = NullifierOprfRequestAuthV1;
 
     #[instrument(level = "debug", skip_all)]
@@ -67,7 +129,10 @@ impl OprfRequestAuthenticator for SessionOprfRequestAuthenticator {
         &self,
         request: &OprfRequest<Self::RequestAuth>,
     ) -> Result<OprfKeyId, OprfRequestAuthenticatorError> {
-        Ok(self.authenticate_inner(request).await?)
+        Ok(self
+            .authenticate_inner(request)
+            .await
+            .map_err(SessionModuleError::into_world_oprf_error)?)
     }
 }
 
@@ -75,8 +140,12 @@ impl OprfRequestAuthenticator for SessionOprfRequestAuthenticator {
 mod tests {
     #![allow(clippy::large_futures, reason = "Is ok in tests")]
 
+    use std::sync::Arc;
+
     use alloy::signers::{SignerSync as _, local::PrivateKeySigner};
+    use ark_bn254::Bn254;
     use ark_ff::PrimeField as _;
+    use circom_types::groth16::VerificationKey;
     use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
     use uuid::Uuid;
     use world_id_core::{FieldElement, primitives};
@@ -84,14 +153,17 @@ mod tests {
         SessionFeType, SessionFieldElement as _, oprf::NullifierOprfRequestAuthV1, rp::RpId,
     };
 
-    use crate::auth::{
-        session::SessionOprfRequestAuthenticator,
-        tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup},
+    use crate::{
+        QUERY_VERIFICATION_KEY,
+        auth::{
+            session::SessionModuleAuth,
+            tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup},
+        },
     };
 
     pub(crate) struct SessionOprfRequestAuthTestSetup {
         setup: OprfRequestAuthTestSetup,
-        request_authenticator: SessionOprfRequestAuthenticator,
+        request_authenticator: SessionModuleAuth,
         request: OprfRequest<NullifierOprfRequestAuthV1>,
     }
 
@@ -103,12 +175,15 @@ mod tests {
         pub(crate) async fn with_session_type(session_type: SessionFeType) -> eyre::Result<Self> {
             let mut rng = rand::thread_rng();
             let infra = AuthModulesTestSetup::new().await?;
+            let vk: VerificationKey<Bn254> =
+                serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
 
-            let request_authenticator = SessionOprfRequestAuthenticator::init(
+            let request_authenticator = SessionModuleAuth::init(
                 infra.merkle_watcher.clone(),
                 infra.rp_registry_watcher.clone(),
                 infra.nonce_history.clone(),
                 infra.current_time_stamp_max_difference,
+                Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
             );
 
             // Session action must have the correct prefix byte (0x01 or 0x02)

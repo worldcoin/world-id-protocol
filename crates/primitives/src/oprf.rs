@@ -97,8 +97,8 @@ pub enum WorldIdRequestAuthError {
     /// The RP's signature on the request could not be verified.
     #[error("invalid RP signature")]
     InvalidRpSignature,
-    /// A duplicate signature was detected (replay attack).
-    #[error("duplicate signature")]
+    /// A duplicate nonce was detected (replay attack).
+    #[error("duplicate nonce")]
     DuplicateNonce,
     /// The provided Merkle root is not valid.
     #[error("invalid merkle root")]
@@ -117,6 +117,9 @@ pub enum WorldIdRequestAuthError {
         "invalid action - MSB must be 0x02 for internal nullifier or 0x01 for session_id_r_seed"
     )]
     InvalidActionSession,
+    /// Error from alloy when building RP signature
+    #[error("Error while building RP signature")]
+    CorruptRpSignature,
     /// Internal server error.
     #[error("internal server error")]
     Internal,
@@ -140,6 +143,7 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::INVALID_ACTION_NULLIFIER => Self::InvalidActionNullifier,
             error_codes::INVALID_ACTION_SESSION => Self::InvalidActionSession,
             error_codes::INTERNAL => Self::Internal,
+
             other => Self::Unknown(other),
         }
     }
@@ -169,6 +173,8 @@ pub mod error_codes {
     pub const INVALID_ACTION_SESSION: u16 = 4509;
     /// Error code for [`super::WorldIdRequestAuthError::InactiveRp`].
     pub const INACTIVE_RP: u16 = 4510;
+    /// Error code for [`super::WorldIdRequestAuthError::CorruptRpSignature`].
+    pub const CORRUPT_RP_SIGNATURE: u16 = 4511;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
     pub const INTERNAL: u16 = 1011;
 }
@@ -225,6 +231,10 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             WorldIdRequestAuthError::InactiveRp => (
                 error_codes::INACTIVE_RP,
                 taceo_oprf::types::close_frame_message!("inactive RP"),
+            ),
+            WorldIdRequestAuthError::CorruptRpSignature => (
+                error_codes::CORRUPT_RP_SIGNATURE,
+                taceo_oprf::types::close_frame_message!("provided signature corrupted"),
             ),
             WorldIdRequestAuthError::Internal => (
                 error_codes::INTERNAL, // RFC 6455 error code
