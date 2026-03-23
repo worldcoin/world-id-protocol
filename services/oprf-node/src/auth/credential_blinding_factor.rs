@@ -80,25 +80,15 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticat
 #[cfg(test)]
 mod tests {
     #![allow(clippy::large_futures, reason = "Is ok in tests")]
-    use std::time::Duration;
 
-    use secrecy::ExposeSecret as _;
-    use taceo_oprf::{
-        core::oprf::BlindingFactor,
-        service::StartedServices,
-        types::api::{OprfRequest, OprfRequestAuthenticator as _},
-    };
+    use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
     use uuid::Uuid;
-    use world_id_core::{FieldElement, primitives, proof::errors};
-    use world_id_primitives::{
-        TREE_DEPTH, circuit_inputs::QueryProofCircuitInput,
-        oprf::CredentialBlindingFactorOprfRequestAuthV1,
-    };
+    use world_id_core::{FieldElement, primitives};
+    use world_id_primitives::oprf::CredentialBlindingFactorOprfRequestAuthV1;
 
     use crate::auth::{
         credential_blinding_factor::CredentialBlindingFactorOprfRequestAuthenticator,
-        merkle_watcher::MerkleWatcher, schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
-        tests::OprfRequestAuthTestSetup,
+        tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup},
     };
 
     pub(crate) struct CredentialBlindingFactorOprfRequestAuthTestSetup {
@@ -109,100 +99,33 @@ mod tests {
 
     impl CredentialBlindingFactorOprfRequestAuthTestSetup {
         pub(crate) async fn new() -> eyre::Result<Self> {
-            let mut rng = rand::thread_rng();
-            let setup = OprfRequestAuthTestSetup::new().await?;
-
-            let max_cache_size = 100;
-            let cache_maintenance_interval = Duration::from_secs(60);
-            let started_services = StartedServices::default();
-            let cancellation_token = tokio_util::sync::CancellationToken::new();
-
-            let (merkle_watcher, _) = MerkleWatcher::init(
-                setup.world_id_registry,
-                setup.anvil.ws_endpoint(),
-                max_cache_size,
-                cache_maintenance_interval,
-                started_services.new_service(),
-                cancellation_token.clone(),
-            )
-            .await?;
-
-            let (schema_issuer_registry_watcher, _) = SchemaIssuerRegistryWatcher::init(
-                setup.credential_schema_issuer_registry,
-                setup.anvil.ws_endpoint(),
-                max_cache_size,
-                cache_maintenance_interval,
-                started_services.new_service(),
-                cancellation_token.clone(),
-            )
-            .await?;
+            let infra = AuthModulesTestSetup::new().await?;
 
             let request_authenticator = CredentialBlindingFactorOprfRequestAuthenticator::init(
-                merkle_watcher.clone(),
-                schema_issuer_registry_watcher,
+                infra.merkle_watcher.clone(),
+                infra.schema_issuer_registry_watcher.clone(),
             );
 
-            let query_material = world_id_core::proof::load_embedded_query_material()
-                .expect("Can load query material");
-
-            let query_blinding_factor = BlindingFactor::rand(&mut rng);
             let action = FieldElement::ZERO;
 
-            let query_hash = world_id_primitives::authenticator::oprf_query_digest(
-                setup.merkle_inclusion_proof.leaf_index,
-                action,
-                setup.issuer_schema_id.into(),
-            );
-            let signature = setup
-                .signer
-                .offchain_signer_private_key()
-                .expose_secret()
-                .sign(*query_hash);
-
-            let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] =
-                setup.merkle_inclusion_proof.siblings.map(|s| *s);
-
-            let query_proof_input = QueryProofCircuitInput::<TREE_DEPTH> {
-                pk: setup.key_set.as_affine_array(),
-                pk_index: setup.key_index.into(),
-                s: signature.s,
-                r: signature.r,
-                merkle_root: *setup.merkle_inclusion_proof.root,
-                depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-                mt_index: setup.merkle_inclusion_proof.leaf_index.into(),
-                siblings,
-                beta: query_blinding_factor.beta(),
-                rp_id: *FieldElement::from(setup.issuer_schema_id),
-                action: *action,
-                nonce: setup.rp_fixture.nonce,
-            };
-            let _affine = errors::check_query_input_validity(&query_proof_input)?;
-
-            let (proof, public_inputs) =
-                query_material.generate_proof(&query_proof_input, &mut rng)?;
-            query_material.verify_proof(&proof, &public_inputs)?;
+            let bundle = infra.generate_query_proof(action, infra.setup.issuer_schema_id.into())?;
 
             let credential_blinding_factor_auth = CredentialBlindingFactorOprfRequestAuthV1 {
-                proof: proof.clone().into(),
+                proof: bundle.proof,
                 action: *action,
-                nonce: setup.rp_fixture.nonce,
-                merkle_root: *setup.merkle_inclusion_proof.root,
-                issuer_schema_id: setup.issuer_schema_id,
+                nonce: bundle.nonce,
+                merkle_root: *infra.setup.merkle_inclusion_proof.root,
+                issuer_schema_id: infra.setup.issuer_schema_id,
             };
 
-            let request_id = Uuid::new_v4();
-
-            let blinded_request =
-                taceo_oprf::core::oprf::client::blind_query(*query_hash, query_blinding_factor);
-
             let request = OprfRequest {
-                request_id,
-                blinded_query: blinded_request.blinded_query(),
+                request_id: Uuid::new_v4(),
+                blinded_query: bundle.blinded_query,
                 auth: credential_blinding_factor_auth,
             };
 
             Ok(Self {
-                setup,
+                setup: infra.setup,
                 request_authenticator,
                 request,
             })

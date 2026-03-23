@@ -68,26 +68,17 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::large_futures, reason = "Is ok in tests")]
-    use std::time::Duration;
 
     use alloy::signers::local::LocalSigner;
-    use secrecy::ExposeSecret as _;
-    use taceo_oprf::{
-        core::oprf::BlindingFactor,
-        service::StartedServices,
-        types::api::{OprfRequest, OprfRequestAuthenticator as _},
-    };
+    use ark_ff::PrimeField as _;
+    use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
     use uuid::Uuid;
-    use world_id_core::{FieldElement, primitives, proof::errors};
-    use world_id_primitives::{
-        TREE_DEPTH, circuit_inputs::QueryProofCircuitInput, oprf::NullifierOprfRequestAuthV1,
-        rp::RpId,
-    };
+    use world_id_core::primitives;
+    use world_id_primitives::{oprf::NullifierOprfRequestAuthV1, rp::RpId};
 
     use crate::auth::{
-        merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
-        nullifier::NullifierOprfRequestAuthenticator, rp_registry_watcher::RpRegistryWatcher,
-        tests::OprfRequestAuthTestSetup,
+        nullifier::NullifierOprfRequestAuthenticator,
+        tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup},
     };
 
     pub(crate) struct NullifierOprfRequestAuthTestSetup {
@@ -98,110 +89,39 @@ mod tests {
 
     impl NullifierOprfRequestAuthTestSetup {
         pub(crate) async fn new() -> eyre::Result<Self> {
-            let mut rng = rand::thread_rng();
-            let setup = OprfRequestAuthTestSetup::new().await?;
-
-            let max_cache_size = 100;
-            let cache_maintenance_interval = Duration::from_secs(60);
-            let started_services = StartedServices::default();
-            let cancellation_token = tokio_util::sync::CancellationToken::new();
-            let current_time_stamp_max_difference = Duration::from_secs(300);
-
-            let (merkle_watcher, _) = MerkleWatcher::init(
-                setup.world_id_registry,
-                setup.anvil.ws_endpoint(),
-                max_cache_size,
-                cache_maintenance_interval,
-                started_services.new_service(),
-                cancellation_token.clone(),
-            )
-            .await?;
-
-            let (rp_registry_watcher, _) = RpRegistryWatcher::init(
-                setup.rp_registry,
-                setup.anvil.ws_endpoint(),
-                max_cache_size,
-                cache_maintenance_interval,
-                started_services.new_service(),
-                cancellation_token.clone(),
-            )
-            .await?;
-
-            let nonce_history = NonceHistory::init(
-                current_time_stamp_max_difference * 2,
-                cache_maintenance_interval,
-            );
+            let infra = AuthModulesTestSetup::new().await?;
 
             let request_authenticator = NullifierOprfRequestAuthenticator::init(
-                merkle_watcher.clone(),
-                rp_registry_watcher.clone(),
-                nonce_history,
-                current_time_stamp_max_difference,
+                infra.merkle_watcher.clone(),
+                infra.rp_registry_watcher.clone(),
+                infra.nonce_history.clone(),
+                infra.current_time_stamp_max_difference,
             );
 
-            let query_material = world_id_core::proof::load_embedded_query_material()
-                .expect("Can load query material");
-
-            let query_blinding_factor = BlindingFactor::rand(&mut rng);
-
-            let query_hash = world_id_primitives::authenticator::oprf_query_digest(
-                setup.merkle_inclusion_proof.leaf_index,
-                setup.rp_fixture.action.into(),
-                setup.rp_fixture.world_rp_id.into(),
-            );
-            let signature = setup
-                .signer
-                .offchain_signer_private_key()
-                .expose_secret()
-                .sign(*query_hash);
-
-            let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] =
-                setup.merkle_inclusion_proof.siblings.map(|s| *s);
-
-            let query_proof_input = QueryProofCircuitInput::<TREE_DEPTH> {
-                pk: setup.key_set.as_affine_array(),
-                pk_index: setup.key_index.into(),
-                s: signature.s,
-                r: signature.r,
-                merkle_root: *setup.merkle_inclusion_proof.root,
-                depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-                mt_index: setup.merkle_inclusion_proof.leaf_index.into(),
-                siblings,
-                beta: query_blinding_factor.beta(),
-                rp_id: *FieldElement::from(setup.rp_fixture.world_rp_id),
-                action: setup.rp_fixture.action,
-                nonce: setup.rp_fixture.nonce,
-            };
-            let _affine = errors::check_query_input_validity(&query_proof_input)?;
-
-            let (proof, public_inputs) =
-                query_material.generate_proof(&query_proof_input, &mut rng)?;
-            query_material.verify_proof(&proof, &public_inputs)?;
+            let bundle = infra.generate_query_proof(
+                infra.setup.rp_fixture.action.into(),
+                infra.setup.rp_fixture.world_rp_id.into(),
+            )?;
 
             let nullifier_auth = NullifierOprfRequestAuthV1 {
-                proof: proof.clone().into(),
-                action: setup.rp_fixture.action,
-                nonce: setup.rp_fixture.nonce,
-                merkle_root: *setup.merkle_inclusion_proof.root,
-                current_time_stamp: setup.rp_fixture.current_timestamp,
-                expiration_timestamp: setup.rp_fixture.expiration_timestamp,
-                signature: setup.rp_fixture.signature,
-                rp_id: setup.rp_fixture.world_rp_id,
+                proof: bundle.proof,
+                action: infra.setup.rp_fixture.action,
+                nonce: bundle.nonce,
+                merkle_root: *infra.setup.merkle_inclusion_proof.root,
+                current_time_stamp: infra.setup.rp_fixture.current_timestamp,
+                expiration_timestamp: infra.setup.rp_fixture.expiration_timestamp,
+                signature: infra.setup.rp_fixture.signature,
+                rp_id: infra.setup.rp_fixture.world_rp_id,
             };
 
-            let request_id = Uuid::new_v4();
-
-            let blinded_request =
-                taceo_oprf::core::oprf::client::blind_query(*query_hash, query_blinding_factor);
-
             let request = OprfRequest {
-                request_id,
-                blinded_query: blinded_request.blinded_query(),
+                request_id: Uuid::new_v4(),
+                blinded_query: bundle.blinded_query,
                 auth: nullifier_auth,
             };
 
             Ok(Self {
-                setup,
+                setup: infra.setup,
                 request_authenticator,
                 request,
             })
@@ -351,6 +271,29 @@ mod tests {
             primitives::oprf::error_codes::INACTIVE_RP
         );
         assert_eq!(auth_error.message(), "inactive RP");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_nullifier_oprf_req_auth_invalid_action() -> eyre::Result<()> {
+        let mut setup = NullifierOprfRequestAuthTestSetup::new().await?;
+        // Construct an action with MSB = 0x01 (session prefix), which is invalid for nullifier
+        let mut bytes = rand::random::<[u8; 32]>();
+        bytes[0] = 0x01;
+        setup.request.auth.action = ark_babyjubjub::Fq::from_be_bytes_mod_order(&bytes);
+        let auth_error = setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_ACTION_NULLIFIER
+        );
+        assert_eq!(
+            auth_error.message(),
+            "invalid action - MSB must be 0x00 for nullifier"
+        );
         Ok(())
     }
 }

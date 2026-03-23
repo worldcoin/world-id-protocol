@@ -190,7 +190,9 @@ pub fn generate_rp_fixture() -> RpFixture {
     let world_rp_id = WorldRpId::new(rp_id_value);
     let oprf_key_id = OprfKeyId::new(U160::from(rp_id_value));
 
-    let action = Fq::rand(&mut rng);
+    let mut action_bytes = FieldElement::random(&mut rng).to_be_bytes();
+    action_bytes[0] = 0;
+    let action = FieldElement::from_be_bytes(&action_bytes).expect("Can build field element");
     let nonce = Fq::rand(&mut rng);
     let current_timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -205,7 +207,7 @@ pub fn generate_rp_fixture() -> RpFixture {
         nonce,
         current_timestamp,
         expiration_timestamp,
-        Some(action),
+        Some(*action),
     );
     let signature = signer.sign_message_sync(&msg).expect("can sign");
 
@@ -218,7 +220,7 @@ pub fn generate_rp_fixture() -> RpFixture {
         world_rp_id,
         oprf_key_id,
         share_epoch: ShareEpoch::default(),
-        action,
+        action: *action,
         nonce,
         current_timestamp,
         expiration_timestamp,
