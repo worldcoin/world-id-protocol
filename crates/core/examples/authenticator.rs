@@ -36,14 +36,9 @@ async fn main() -> Result<()> {
     let nullifier_material = world_id_core::proof::load_embedded_nullifier_material()?;
 
     let seed = &hex::decode(std::env::var("SEED").expect("SEED is required"))?;
-    let authenticator = Authenticator::init_or_register(
-        seed,
-        config.clone(),
-        Arc::new(query_material),
-        Arc::new(nullifier_material),
-        None,
-    )
-    .await?;
+    let authenticator = Authenticator::init_or_register(seed, config.clone(), None)
+        .await?
+        .with_proof_materials(Arc::new(query_material), Arc::new(nullifier_material));
 
     let credential_path = std::env::args()
         .nth(1)

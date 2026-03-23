@@ -47,9 +47,13 @@ pub mod api_types;
 /// Contains types specifically related to the OPRF services.
 pub mod oprf;
 
-/// Contains the session nullifier type for session proof responses.
-pub mod nullifier;
-pub use nullifier::{Nullifier, SessionNullifier};
+/// A nullifier is a unique, one-time identifier. See [`Nullifier`] for more details.
+mod nullifier;
+pub use nullifier::Nullifier;
+
+/// Contains types relevant for Session Proofs.
+mod session;
+pub use session::{SessionFeType, SessionFieldElement, SessionId, SessionNullifier};
 
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;
@@ -72,6 +76,7 @@ pub use request::{
 };
 
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
+pub use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 
 /// The scalar field used in the World ID Protocol.
 ///
@@ -100,7 +105,7 @@ impl FieldElement {
     /// Returns the 32-byte big-endian representation of this field element.
     #[must_use]
     pub fn to_be_bytes(&self) -> [u8; 32] {
-        let as_num: U256 = self.0.into();
+        let as_num: U256 = self.to_u256();
         as_num.to_be_bytes()
     }
 
@@ -154,6 +159,11 @@ impl FieldElement {
     pub fn random<R: rand::CryptoRng + rand::RngCore>(rng: &mut R) -> Self {
         let field_element = Fq::rand(rng);
         Self(field_element)
+    }
+
+    /// Converts the field element to a `U256`.
+    pub fn to_u256(&self) -> U256 {
+        self.0.into()
     }
 }
 

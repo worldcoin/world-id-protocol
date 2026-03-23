@@ -9,7 +9,7 @@ use taceo_oprf_key_gen::StartedServices;
 use taceo_oprf_test_utils::{PEER_PRIVATE_KEYS, test_secret_manager::TestSecretManager};
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-use world_id_oprf_node::config::WorldOprfNodeConfig;
+use world_id_oprf_node::config::{WorldIdNodeContracts, WorldOprfNodeConfig};
 use world_id_primitives::{
     TREE_DEPTH,
     api_types::{IndexerAuthenticatorPubkeysResponse, IndexerQueryRequest},
@@ -44,6 +44,7 @@ fn proof_pubkeys_response(
 
     IndexerAuthenticatorPubkeysResponse {
         authenticator_pubkeys,
+        offchain_signer_commitment: U256::ZERO,
     }
 }
 
@@ -192,39 +193,21 @@ async fn spawn_orpf_node(
     credential_schema_issuer_registry_contract: Address,
 ) -> String {
     let url = format!("http://localhost:1{id:04}"); // set port based on id, e.g. 10001 for id 1
-    let config = WorldOprfNodeConfig {
-        bind_addr: format!("0.0.0.0:1{id:04}").parse().unwrap(),
-        max_wait_time_shutdown: Duration::from_secs(10),
-        max_merkle_cache_size: 10,
-        max_rp_registry_store_size: 1000,
-        max_credential_schema_issuer_registry_store_size: 1000,
-        current_time_stamp_max_difference: Duration::from_secs(3 * 60),
+    let bind_addr = format!("0.0.0.0:1{id:04}");
+    let contracts = WorldIdNodeContracts {
         world_id_registry_contract,
         rp_registry_contract,
         credential_schema_issuer_registry_contract,
-        cache_maintenance_interval: Duration::from_secs(60),
-        node_config: taceo_oprf::service::config::OprfNodeConfig {
-            environment: taceo_oprf::service::config::Environment::Dev,
-            oprf_key_registry_contract,
-            chain_ws_rpc_url: chain_ws_rpc_url.into(),
-            ws_max_message_size: 512 * 1024,
-            session_lifetime: Duration::from_secs(5 * 60),
-            get_oprf_key_material_timeout: Duration::from_secs(60),
-            start_block: Some(0),
-            version_req: VersionReq::STAR,
-            db_connection_string: "not-used".into(),
-            db_max_connections: 1.try_into().unwrap(), // not used
-            db_schema: "not-used".into(),
-            i_am_alive_interval: Duration::from_secs(60),
-            reload_key_material_interval: Duration::from_secs(3600),
-            db_acquire_timeout: Duration::from_secs(0), // not used
-            db_retry_delay: Duration::from_secs(0),     // not used
-            db_max_retries: 1.try_into().unwrap(),      // not used
-        },
+        oprf_key_registry_contract,
     };
+    let config = WorldOprfNodeConfig::with_default_values(
+        taceo_oprf::service::Environment::Dev,
+        contracts,
+        chain_ws_rpc_url.into(),
+        VersionReq::STAR,
+    );
 
     tokio::spawn(async move {
-        let bind_addr = config.bind_addr;
         let cancellation_token = CancellationToken::new();
         let (router, _) =
             world_id_oprf_node::start(config, Arc::new(secret_manager), cancellation_token.clone())
@@ -318,36 +301,24 @@ pub async fn spawn_oprf_nodes(
 
 async fn spawn_key_gen(
     id: usize,
+    chain_http_rpc_url: &str,
     chain_ws_rpc_url: &str,
     secret_manager: OprfKeyGenTestSecretManager,
-    rp_registry_contract: Address,
+    oprf_key_registry_contract: Address,
 ) -> String {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let bind_addr = format!("0.0.0.0:2{id:04}");
     let url = format!("http://localhost:2{id:04}"); // set port based on id, e.g. 20001 for id 1
-    let config = taceo_oprf_key_gen::config::OprfKeyGenConfig {
-        environment: taceo_oprf_key_gen::config::Environment::Dev,
-        bind_addr: format!("0.0.0.0:2{id:04}").parse().unwrap(),
-        oprf_key_registry_contract: rp_registry_contract,
-        chain_ws_rpc_url: chain_ws_rpc_url.into(),
-        wallet_private_key_secret_id: "not-used".into(),
-        zkey_path: dir.join("../../circom/OPRFKeyGen.25.arks.zkey"),
-        witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.25.bin"),
-        max_wait_time_shutdown: Duration::from_secs(10),
-        i_am_alive_interval: Duration::from_secs(60),
-        start_block: Some(0),
-        max_transaction_attempts: 3,
-        max_wait_time_transaction_confirmation: Duration::from_secs(60),
-        max_gas_per_transaction: 8000000,
-        confirmations_for_transaction: 1, // must be 1 for anvil
-        db_connection_string: "not-used".into(),
-        db_schema: "not-used".into(),
-        db_max_connections: 1.try_into().unwrap(), // not used
-        db_acquire_timeout: Duration::from_secs(60), // not used
-        db_retry_delay: Duration::from_secs(60),   // not used
-        db_max_retries: 1.try_into().unwrap(),     // not used
-    };
+    let config = taceo_oprf_key_gen::config::OprfKeyGenServiceConfig::with_default_values(
+        taceo_oprf_key_gen::Environment::Dev,
+        oprf_key_registry_contract,
+        dir.join("../../circom/OPRFKeyGen.25.arks.zkey"),
+        dir.join("../../circom/OPRFKeyGenGraph.25.bin"),
+        vec![chain_http_rpc_url.parse().expect("Is a valid URL")],
+        chain_ws_rpc_url.parse().expect("Is a valid URL"),
+    );
+
     tokio::spawn(async move {
-        let bind_addr = config.bind_addr;
         let cancellation_token = CancellationToken::new();
         let (router, _) = taceo_oprf_key_gen::start(
             config,
@@ -380,6 +351,7 @@ async fn spawn_key_gen(
 }
 
 pub async fn spawn_key_gens(
+    chain_http_rpc_url: &str,
     chain_ws_rpc_url: &str,
     [
         secret_manager0,
@@ -391,11 +363,41 @@ pub async fn spawn_key_gens(
     key_gen_contract: Address,
 ) -> [String; 5] {
     tokio::join!(
-        spawn_key_gen(0, chain_ws_rpc_url, secret_manager0, key_gen_contract),
-        spawn_key_gen(1, chain_ws_rpc_url, secret_manager1, key_gen_contract),
-        spawn_key_gen(2, chain_ws_rpc_url, secret_manager2, key_gen_contract),
-        spawn_key_gen(3, chain_ws_rpc_url, secret_manager3, key_gen_contract),
-        spawn_key_gen(4, chain_ws_rpc_url, secret_manager4, key_gen_contract),
+        spawn_key_gen(
+            0,
+            chain_http_rpc_url,
+            chain_ws_rpc_url,
+            secret_manager0,
+            key_gen_contract
+        ),
+        spawn_key_gen(
+            1,
+            chain_http_rpc_url,
+            chain_ws_rpc_url,
+            secret_manager1,
+            key_gen_contract
+        ),
+        spawn_key_gen(
+            2,
+            chain_http_rpc_url,
+            chain_ws_rpc_url,
+            secret_manager2,
+            key_gen_contract
+        ),
+        spawn_key_gen(
+            3,
+            chain_http_rpc_url,
+            chain_ws_rpc_url,
+            secret_manager3,
+            key_gen_contract
+        ),
+        spawn_key_gen(
+            4,
+            chain_http_rpc_url,
+            chain_ws_rpc_url,
+            secret_manager4,
+            key_gen_contract
+        ),
     )
     .into()
 }
@@ -434,6 +436,6 @@ taceo_oprf_test_utils::key_gen_test_secret_manager!(
 );
 
 taceo_oprf_test_utils::oprf_node_test_secret_manager!(
-    taceo_oprf::service::secret_manager,
+    taceo_oprf::service::secret_manager::SecretManager,
     OprfNodeTestSecretManager
 );

@@ -20,7 +20,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.5.1"
+version = "0.6.0"
 license = "MIT"
 authors = [
   "World Foundation",
@@ -50,7 +50,6 @@ ark-serialize = "0.5"
 backon = "1"
 base64 = "0.22"
 circom-types = { package = "taceo-circom-types", version = "0.2", default-features = false }
-criterion = "0.8"
 eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5.4" }
 eyre = "0.6"
 futures = "0.3"
@@ -60,11 +59,10 @@ ohttp = { version = "0.7", default-features = false }
 bhttp = "0.7"
 itertools = "0.14"
 k256 = { version = "0.13" }
-num-bigint = "0.4"
 taceo-groth16-sol = { version = "0.2.2" }
-taceo-oprf = { version = "0.7", default-features = false }
-taceo-oprf-test-utils = { version = "0.7", default-features = false }
-taceo-oprf-key-gen = { version="0.6"}
+taceo-oprf = { version = "0.8", default-features = false }
+taceo-oprf-test-utils = { version = "0.8", default-features = false }
+taceo-oprf-key-gen = { version = "0.7" }
 telemetry-batteries = "0.2"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }
@@ -112,6 +110,7 @@ getrandom = "0.2"
 governor = "0.10.4"
 http = "1"
 humantime = "2"
+humantime-serde = "1"
 once_cell = "1"
 rayon = "1.11"
 redis = "1"
@@ -120,22 +119,23 @@ semaphore-rs-hasher = "0.5.0"
 semaphore-rs-trees = "0.5.0"
 semaphore-rs-storage = "0.5.0"
 serial_test = "3"
+testcontainers = { version = "0.27", features = ["http_wait_plain", "host-port-exposure"] }
+testcontainers-modules = { version = "0.15", features = ["redis"] }
 sqlx = "0.8"
 take_mut = "0.2.2"
 tar = "0.4"
-taceo-nodes-common = "0.2.1"
+taceo-nodes-common = { version = "0.4.3", default-features=false }
 taceo-nodes-observability = "0.1"
 tempfile = "3"
-testcontainers = { version = "0.27", features = ["http_wait_plain", "host-port-exposure"] }
 tokio-util = "0.7"
 tower = "0.5.3"
 
 # Internal
-world-id-core = { version = "0.5.1", default-features = false, path = "crates/core" }
-world-id-issuer = { version = "0.5.1", path = "crates/issuer" }
-world-id-proof = { version = "0.5.1", path = "crates/proof" }
-world-id-authenticator = { version = "0.5.1", path = "crates/authenticator" }
-world-id-primitives = { version = "0.5.1", path = "crates/primitives", default-features = false }
+world-id-core = { version = "0.6.0", default-features = false, path = "crates/core" }
+world-id-issuer = { version = "0.6.0", path = "crates/issuer" }
+world-id-proof = { version = "0.6.0", path = "crates/proof" }
+world-id-authenticator = { version = "0.6.0", path = "crates/authenticator" }
+world-id-primitives = { version = "0.6.0", path = "crates/primitives", default-features = false }
 world-id-oprf-node = { version = "0.1.0", path = "services/oprf-node" }
 world-id-test-utils = { version = "0.1.0", path = "crates/test-utils" }
 world-id-services-common = { path = "services/common" }

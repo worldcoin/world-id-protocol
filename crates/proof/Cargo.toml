@@ -40,6 +40,7 @@ tracing = { workspace = true }
 zstd = { workspace = true, optional = true }
 eddsa-babyjubjub = { workspace = true }
 rand = { workspace = true }
+serde = { workspace = true }
 groth16-material = { workspace = true }
 poseidon2 = { workspace = true }
 taceo-oprf = { workspace = true, features = ["client", "core"] }

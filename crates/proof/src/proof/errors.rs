@@ -315,10 +315,7 @@ pub fn check_nullifier_input_validity<const TREE_DEPTH: usize>(
     }
 
     // check dlog eq proof is valid
-    let dlog_proof = DLogEqualityProof {
-        e: inputs.dlog_e,
-        s: inputs.dlog_s,
-    };
+    let dlog_proof = DLogEqualityProof::new(inputs.dlog_e, inputs.dlog_s);
     dlog_proof
         .verify(
             inputs.oprf_pk,
@@ -355,7 +352,7 @@ pub fn check_nullifier_input_validity<const TREE_DEPTH: usize>(
     }
 
     // 4. Compute the nullifier
-    let nullfier = oprf_finalize_hash(
+    let nullifier = oprf_finalize_hash(
         *world_id_primitives::authenticator::oprf_query_digest(
             #[expect(
                 clippy::missing_panics_doc,
@@ -368,7 +365,7 @@ pub fn check_nullifier_input_validity<const TREE_DEPTH: usize>(
         inputs.oprf_response,
     );
 
-    Ok(nullfier)
+    Ok(nullifier)
 }
 
 // Helper functions to recompute various hashes used in the circuit
@@ -403,7 +400,7 @@ fn hash_credential(
     genesis_issued_at: FieldElement,
     expires_at: FieldElement,
     claims_hash: FieldElement,
-    associated_data_hash: FieldElement,
+    associated_data_commitment: FieldElement,
     id: FieldElement,
 ) -> FieldElement {
     let cred_ds = Fr::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ");
@@ -414,7 +411,7 @@ fn hash_credential(
         *genesis_issued_at,
         *expires_at,
         *claims_hash,
-        *associated_data_hash,
+        *associated_data_commitment,
         *id,
     ];
     poseidon2::bn254::t8::permutation_in_place(&mut input);

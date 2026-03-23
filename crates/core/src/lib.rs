@@ -34,9 +34,6 @@ pub use world_id_primitives::Signer;
 #[cfg(feature = "authenticator")]
 pub use world_id_proof::proof;
 
-#[cfg(feature = "authenticator")]
-pub use world_id_proof::nullifier;
-
 #[cfg(any(feature = "authenticator", feature = "rp"))]
 pub use world_id_primitives::request as requests;
 

@@ -111,7 +111,7 @@ pub struct NullifierProofCircuitInput<const MAX_DEPTH: usize> {
     /// The public key of the issuer of the credential. This is stored in the `Credential` type in the `issuer` field.
     pub cred_pk: Affine,
     /// A specific commitment to particular claims of the `Credential`. In particular:
-    /// [`claims_hash`, `associated_data_hash`]
+    /// [`claims_hash`, `associated_data_commitment`]
     pub cred_hashes: [BaseField; 2],
     /// The `genesis_issued_at` attribute of the `Credential`. See the `Credential` type for more details.
     pub cred_genesis_issued_at: BaseField,

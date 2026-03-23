@@ -47,9 +47,6 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json --package $SERVICE_NAME
 COPY . .
 
-# build the contracts to have the ABIs available
-RUN make sol-build
-
 ARG GIT_HASH
 ENV GIT_HASH=$GIT_HASH
 

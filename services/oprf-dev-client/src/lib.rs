@@ -195,14 +195,9 @@ pub async fn init_authenticator(
 
     tracing::info!("creating account..");
     let seed = [7u8; 32];
-    let authenticator = Authenticator::init_or_register(
-        &seed,
-        world_config.into(),
-        query_material,
-        Arc::new(nullifier_material),
-        None,
-    )
-    .await?;
+    let authenticator = Authenticator::init_or_register(&seed, world_config.into(), None)
+        .await?
+        .with_proof_materials(query_material, Arc::new(nullifier_material));
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);
     Ok((authenticator, authenticator_private_key))
 }

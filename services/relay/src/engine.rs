@@ -51,10 +51,11 @@ impl Engine {
     /// succeeds. Propagation failures are logged but never fatal -- the engine
     /// will retry on the next tick.
     async fn propagate(&self) -> Result<()> {
-        let (issuers, oprfs) = self.log.pending_propagation_ids();
-        if issuers.is_empty() && oprfs.is_empty() {
+        if !self.log.has_pending() {
             return Ok(());
         }
+
+        let (issuers, oprfs) = self.log.pending_propagation_ids();
 
         info!(issuers = issuers.len(), oprfs = oprfs.len(), "propagating");
 
@@ -69,6 +70,7 @@ impl Engine {
 
         if receipt.status() {
             info!(hash = %receipt.transaction_hash, "propagateState succeeded");
+            self.log.clear_pending_propagation();
         } else {
             warn!(hash = %receipt.transaction_hash, "propagateState reverted");
         }
