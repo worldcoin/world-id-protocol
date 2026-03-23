@@ -189,7 +189,7 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             ),
             WorldIdRequestAuthError::Internal => (
                 error_codes::INTERNAL, // RFC 6455 error code
-                taceo_oprf::types::close_frame_message!("internal"),
+                taceo_oprf::types::close_frame_message!("internal server error"),
             ),
             WorldIdRequestAuthError::Unknown(unknown) => {
                 (unknown, taceo_oprf::types::close_frame_message!("unknown"))

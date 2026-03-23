@@ -48,7 +48,7 @@ use crate::metrics::{
 /// Error returned by the [`MerkleWatcher`] implementation.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum MerkleWatcherError {
-    #[error("invalid merkle-root")]
+    #[error("invalid Merkle root")]
     InvalidMerkleRoot,
     #[error(transparent)]
     Internal(#[from] eyre::Report),
