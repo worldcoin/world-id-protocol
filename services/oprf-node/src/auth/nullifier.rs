@@ -45,7 +45,7 @@ impl NullifierOprfRequestAuthenticator {
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("system time is after unix epoch");
         if current_time.abs_diff(req_time_stamp) > self.current_time_stamp_max_difference {
-            return Err(WorldIdRequestAuthError::TimeStampTooOld);
+            return Err(WorldIdRequestAuthError::TimestampTooOld);
         }
 
         tracing::trace!("fetching RP info...");

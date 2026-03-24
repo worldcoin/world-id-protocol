@@ -79,39 +79,83 @@ pub struct CredentialBlindingFactorOprfRequestAuthV1 {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum WorldIdRequestAuthError {
-    /// Unknown RP.
-    #[error("unknown RP")]
+    /// Unknown RP. The RP is likely not registerd in the `RpRegistry`.
+    #[error("unknown_rp")]
     UnknownRp,
-    /// Inactive RP, an RP that was deactivated.
-    #[error("inactive RP")]
+    /// Inactive RP. The RP was deactivated in the `RpRegistry`. Inactive RPs cannot
+    /// request proofs. If you are the RP, call `updateRp` to re-activate.
+    #[error("inactive_rp")]
     InactiveRp,
-    /// Unknown schema-issuer.
-    #[error("unknown schema-issuer")]
-    UnknownSchemaIssuer,
-    /// The request timestamp is too far from the current time.
-    #[error("request timestamp too old")]
-    TimeStampTooOld,
-    /// The RP's signature on the request could not be verified.
-    #[error("invalid RP signature")]
+    /// **Only valid for Credential Blinding Factor generation**.
+    ///
+    /// The `issuerSchemaId` provided to generate a blinding factor is not valid. The
+    /// value is either incorrect or the `issuerSchemaId` is not correctly registered in
+    /// the `CredentialSchemaIssuerRegistry`.
+    #[error("unknown_schema_issuer_id")]
+    UnknownSchemaIssuerId,
+    /// The request timestamp is too old. If you are the RP please sign a request with
+    /// a fresh timestamp.
+    #[error("timestamp_too_old")]
+    TimestampTooOld,
+    /// The RP's signature on the request could not be verified. The signature may be
+    /// incorrect, the wrong public key used, or does not match the expected message.
+    #[error("invalid_rp_signature")]
     InvalidRpSignature,
-    /// A duplicate signature was detected (replay attack).
-    #[error("duplicate signature")]
+    /// A duplicate nonce was detected. Duplicate nonces are not allowed to prevent
+    /// replay attacks. If you are the RP please generate a new nonce.
+    #[error("duplicate_nonce")]
     DuplicateNonce,
-    /// The provided Merkle root is not valid.
-    #[error("invalid merkle root")]
+    /// The provided Merkle root is not valid for the `WorldIDRegistry`. This can happen
+    /// when the inclusion proof is too old. Please compute a new inclusion proof.
+    #[error("invalid_merkle_root")]
     InvalidMerkleRoot,
-    /// The client query proof did not verify.
-    #[error("invalid query proof")]
+    /// The client Query Proof, used to authenticate the user did not verify correctly
+    /// for the provided inputs.
+    #[error("invalid_query_proof")]
     InvalidQueryProof,
-    /// Invalid action
-    #[error("invalid action - must be 0 for schema-issuer blinding")]
+    /// **Only valid for Credential Blinding Factor generation**.
+    ///
+    /// The provided action for the blinding factor generation is not valid.
+    #[error("invalid_action_for_blinding_factor")]
     InvalidActionSchemaIssuer,
     /// Internal server error.
-    #[error("internal server error")]
+    #[error("internal_server_error")]
     Internal,
     /// Unknown error code not mapped to a known variant.
-    #[error("unknown error: {0}")]
+    #[error("unknown_error_{0}")]
     Unknown(u16),
+}
+
+/// The actor where a provided OPRF error likely originated and with ability
+/// to fix it.
+pub enum ErrorActor {
+    /// The Relying Party requesting a Proof
+    Rp,
+    /// The Issuer of a Credential
+    Issuer,
+    /// The Authenticator of the user
+    Authenticator,
+    /// Error attributable to an OPRF node
+    OprfNode,
+}
+
+impl WorldIdRequestAuthError {
+    /// Return the [`ErrorActor`] associated for this error.
+    #[must_use]
+    pub const fn as_actor(&self) -> ErrorActor {
+        match self {
+            Self::UnknownRp
+            | Self::InactiveRp
+            | Self::TimestampTooOld
+            | Self::InvalidRpSignature
+            | Self::DuplicateNonce => ErrorActor::Rp,
+            Self::UnknownSchemaIssuerId => ErrorActor::Issuer,
+            Self::InvalidMerkleRoot | Self::InvalidQueryProof | Self::InvalidActionSchemaIssuer => {
+                ErrorActor::Authenticator
+            }
+            Self::Internal | Self::Unknown(_) => ErrorActor::OprfNode,
+        }
+    }
 }
 
 impl From<u16> for WorldIdRequestAuthError {
@@ -119,13 +163,13 @@ impl From<u16> for WorldIdRequestAuthError {
         match value {
             error_codes::UNKNOWN_RP => Self::UnknownRp,
             error_codes::INACTIVE_RP => Self::InactiveRp,
-            error_codes::TIMESTAMP_TOO_OLD => Self::TimeStampTooOld,
+            error_codes::TIMESTAMP_TOO_OLD => Self::TimestampTooOld,
             error_codes::INVALID_RP_SIGNATURE => Self::InvalidRpSignature,
             error_codes::DUPLICATE_NONCE => Self::DuplicateNonce,
             error_codes::INVALID_MERKLE_ROOT => Self::InvalidMerkleRoot,
             error_codes::INVALID_QUERY_PROOF => Self::InvalidQueryProof,
             error_codes::INVALID_ACTION_SCHEMA_ISSUER => Self::InvalidActionSchemaIssuer,
-            error_codes::UNKNOWN_SCHEMA_ISSUER => Self::UnknownSchemaIssuer,
+            error_codes::UNKNOWN_SCHEMA_ISSUER => Self::UnknownSchemaIssuerId,
             error_codes::INTERNAL => Self::Internal,
             other => Self::Unknown(other),
         }
@@ -136,7 +180,7 @@ impl From<u16> for WorldIdRequestAuthError {
 pub mod error_codes {
     /// Error code for [`super::WorldIdRequestAuthError::UnknownRp`].
     pub const UNKNOWN_RP: u16 = 4500;
-    /// Error code for [`super::WorldIdRequestAuthError::TimeStampTooOld`].
+    /// Error code for [`super::WorldIdRequestAuthError::TimestampTooOld`].
     pub const TIMESTAMP_TOO_OLD: u16 = 4501;
     /// Error code for [`super::WorldIdRequestAuthError::InvalidRpSignature`].
     pub const INVALID_RP_SIGNATURE: u16 = 4502;
@@ -148,7 +192,7 @@ pub mod error_codes {
     pub const INVALID_QUERY_PROOF: u16 = 4505;
     /// Error code for [`super::WorldIdRequestAuthError::InvalidActionSchemaIssuer`].
     pub const INVALID_ACTION_SCHEMA_ISSUER: u16 = 4506;
-    /// Error code for [`super::WorldIdRequestAuthError::UnknownSchemaIssuer`].
+    /// Error code for [`super::WorldIdRequestAuthError::UnknownSchemaIssuerId`].
     pub const UNKNOWN_SCHEMA_ISSUER: u16 = 4507;
     /// Error code for [`super::WorldIdRequestAuthError::InactiveRp`].
     pub const INACTIVE_RP: u16 = 4510;
@@ -163,7 +207,7 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
                 error_codes::UNKNOWN_RP,
                 taceo_oprf::types::close_frame_message!("unknown RP"),
             ),
-            WorldIdRequestAuthError::TimeStampTooOld => (
+            WorldIdRequestAuthError::TimestampTooOld => (
                 error_codes::TIMESTAMP_TOO_OLD,
                 taceo_oprf::types::close_frame_message!("timestamp in request too old"),
             ),
@@ -189,7 +233,7 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
                     "invalid action - must be 0 for schema-issuer blinding"
                 ),
             ),
-            WorldIdRequestAuthError::UnknownSchemaIssuer => (
+            WorldIdRequestAuthError::UnknownSchemaIssuerId => (
                 error_codes::UNKNOWN_SCHEMA_ISSUER,
                 taceo_oprf::types::close_frame_message!("unknown schema issuer"),
             ),
