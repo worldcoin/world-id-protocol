@@ -50,7 +50,7 @@ pub(crate) async fn wait_http_ready(client: &Client, port: u16) {
 }
 
 /// Wait for a request to reach finalized state, using a base URL string.
-#[allow(dead_code)]
+#[expect(dead_code, reason = "used by integration test modules that are conditionally compiled")]
 pub(crate) async fn wait_for_finalized(
     client: &Client,
     base: &str,
