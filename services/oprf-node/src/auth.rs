@@ -1,8 +1,9 @@
 //! This module implements the authentication process for World ID.
 //!
-//! During the user's session initialization, the MPC nodes uses this authentication service to determine whether a user is eligible to compute a nullifier.
+//! The MPC nodes use this authentication service to determine whether a user is eligible to
+//! compute a nullifier or session identifier.
 //!
-//! Additionally, it defines two sub-modules necessary for the authentication process.
+//! It defines the following sub-modules:
 //!
 //! - [`credential_blinding_factor`] – implements authentication for OPRF credential blinding factor generation.
 //! - [`merkle_watcher`] – watches the blockchain for merkle-root update events.
