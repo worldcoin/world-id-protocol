@@ -634,7 +634,7 @@ mod tests {
         );
         assert_eq!(
             auth_error.message(),
-            "invalid action - MSB must be 0x02 for internal nullifier or 0x01 for session_id_r_seed"
+            "invalid action for session proofs"
         );
         Ok(())
     }
@@ -657,7 +657,7 @@ mod tests {
         );
         assert_eq!(
             auth_error.message(),
-            "invalid action - MSB must be 0x02 for internal nullifier or 0x01 for session_id_r_seed"
+            "invalid action for session proofs"
         );
         Ok(())
     }
@@ -687,7 +687,7 @@ mod tests {
         );
         assert_eq!(
             auth_error.message(),
-            "invalid action - MSB must be 0x00 for nullifier"
+            "invalid action for nullifier"
         );
         Ok(())
     }

@@ -279,7 +279,7 @@ mod tests {
             auth_error.code(),
             primitives::oprf::error_codes::UNKNOWN_SCHEMA_ISSUER
         );
-        assert_eq!(auth_error.message(), "unknown schema issuer");
+        assert_eq!(auth_error.message(), "unknown schema issuer id");
         Ok(())
     }
 
@@ -343,7 +343,7 @@ mod tests {
             auth_error.code(),
             primitives::oprf::error_codes::UNKNOWN_SCHEMA_ISSUER
         );
-        assert_eq!(auth_error.message(), "unknown schema issuer");
+        assert_eq!(auth_error.message(), "unknown schema issuer id");
         Ok(())
     }
 }
