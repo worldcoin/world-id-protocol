@@ -42,9 +42,9 @@ use crate::{
     auth::{
         credential_blinding_factor::CredentialBlindingFactorModuleAuth,
         merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
+        rp_module::RpModuleAuth,
         rp_registry_watcher::RpRegistryWatcher,
-        schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher, session::SessionModuleAuth,
-        uniqueness::UniquenessModuleAuth,
+        schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
     },
     config::WorldOprfNodeConfig,
 };
@@ -169,7 +169,7 @@ pub async fn start(
     let query_vk = Arc::new(ark_groth16::prepare_verifying_key(&query_vk.into()));
 
     tracing::info!("init nullifier oprf request auth service..");
-    let nullifier_oprf_req_auth_service = Arc::new(UniquenessModuleAuth::init(
+    let nullifier_oprf_req_auth_service = Arc::new(RpModuleAuth::new_uniqueness(
         merkle_watcher.clone(),
         rp_registry_watcher.clone(),
         NonceHistory::init(
@@ -182,7 +182,7 @@ pub async fn start(
     ));
 
     tracing::info!("init session oprf request auth service..");
-    let session_oprf_req_auth_service = Arc::new(SessionModuleAuth::init(
+    let session_oprf_req_auth_service = Arc::new(RpModuleAuth::new_session(
         merkle_watcher.clone(),
         rp_registry_watcher.clone(),
         NonceHistory::init(

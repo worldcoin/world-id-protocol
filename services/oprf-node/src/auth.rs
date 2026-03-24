@@ -9,8 +9,7 @@
 //! - [`nonce_history`] – keeps track of nonces used for nonce + `time_stamp` signatures to detect replays
 //! - [`rp_registry_watcher`] – keeps track of registered RPs
 //! - [`schema_issuer_registry_watcher`] – keeps track of registered Credential Schema Issuers
-//! - [`session`] – implements authentication for OPRF session nullifier generation.
-//! - [`uniqueness`] – implements authentication for OPRF uniqueness nullifier generation.
+//! - [`rp_module`] – unified implementation for session and uniqueness OPRF authentication.
 
 use std::time::{Duration, SystemTime};
 
@@ -31,10 +30,9 @@ use crate::auth::{
 pub(crate) mod credential_blinding_factor;
 pub(crate) mod merkle_watcher;
 pub(crate) mod nonce_history;
+pub(crate) mod rp_module;
 pub(crate) mod rp_registry_watcher;
 pub(crate) mod schema_issuer_registry_watcher;
-pub(crate) mod session;
-pub(crate) mod uniqueness;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RpSignatureError {

@@ -234,7 +234,7 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             ),
             WorldIdRequestAuthError::CorruptRpSignature => (
                 error_codes::CORRUPT_RP_SIGNATURE,
-                taceo_oprf::types::close_frame_message!("provided signature corrupted"),
+                taceo_oprf::types::close_frame_message!("provided signature is corrupt"),
             ),
             WorldIdRequestAuthError::Internal => (
                 error_codes::INTERNAL, // RFC 6455 error code
