@@ -33,31 +33,23 @@ contract DeployTempo is Script {
 
         // 2. Deploy WorldIDSatellite implementation
         console2.log("--- Deploying WorldIDSatellite ---");
-        WorldIDSatellite satImpl = new WorldIDSatellite(
-            address(verifier), rootValidityWindow, treeDepth, minExpThreshold
-        );
+        WorldIDSatellite satImpl =
+            new WorldIDSatellite(address(verifier), rootValidityWindow, treeDepth, minExpThreshold);
         console2.log("  Implementation:", address(satImpl));
 
         // 3. Deploy proxy
         address[] memory emptyGws = new address[](0);
         IStateBridge.InitConfig memory cfg = IStateBridge.InitConfig({
-            name: "WorldID Bridge",
-            version: "1.0.0",
-            owner: owner,
-            authorizedGateways: emptyGws
+            name: "WorldID Bridge", version: "1.0.0", owner: owner, authorizedGateways: emptyGws
         });
 
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(satImpl),
-            abi.encodeCall(WorldIDSatellite.initialize, (cfg))
-        );
+        ERC1967Proxy proxy = new ERC1967Proxy(address(satImpl), abi.encodeCall(WorldIDSatellite.initialize, (cfg)));
         console2.log("  Proxy:", address(proxy));
 
         // 4. Deploy PermissionedGatewayAdapter
         console2.log("--- Deploying PermissionedGateway ---");
-        PermissionedGatewayAdapter gateway = new PermissionedGatewayAdapter(
-            owner, address(proxy), wcSourceProxy, wcChainId
-        );
+        PermissionedGatewayAdapter gateway =
+            new PermissionedGatewayAdapter(owner, address(proxy), wcSourceProxy, wcChainId);
         console2.log("  PermissionedGateway:", address(gateway));
 
         // 5. Authorize gateway
