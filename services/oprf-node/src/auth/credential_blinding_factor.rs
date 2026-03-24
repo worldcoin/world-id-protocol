@@ -298,7 +298,7 @@ mod tests {
         );
         assert_eq!(
             auth_error.message(),
-            "invalid action - must be 0 for schema-issuer blinding"
+            "invalid action for credential sub blinding factor"
         );
         Ok(())
     }
