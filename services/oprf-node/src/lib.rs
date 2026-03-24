@@ -20,13 +20,16 @@
     clippy::cast_precision_loss,
     reason = "Is ok due to API limitations for metrics"
 )]
+
 //! This crate implements TACEO:Oprf for World ID.
 //!
-//! It provides an Axum based HTTP-server that computes distributed OPRF (Oblivious Pseudo-Random Function) functions to be used as nullifiers in the World ecosystem.
+//! It provides an Axum based HTTP-server that computes distributed OPRF (Oblivious Pseudo-Random Function) functions to be used as nullifiers and session identifiers in the World ecosystem.
 //!
 //! For details on the OPRF protocol, see the [design document](https://github.com/TaceoLabs/nullifier-oracle-service/blob/491416de204dcad8d46ee1296d59b58b5be54ed9/docs/oprf.pdf).
 use std::sync::Arc;
 
+use ark_bn254::Bn254;
+use circom_types::groth16::VerificationKey;
 use eyre::Context;
 use secrecy::ExposeSecret;
 use taceo_oprf::service::{
@@ -37,13 +40,16 @@ use world_id_primitives::oprf::OprfModule;
 
 use crate::{
     auth::{
-        credential_blinding_factor::CredentialBlindingFactorOprfRequestAuthenticator,
-        merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
-        nullifier::NullifierOprfRequestAuthenticator, rp_registry_watcher::RpRegistryWatcher,
+        credential_blinding_factor::CredentialBlindingFactorModuleAuth,
+        merkle_watcher::MerkleWatcher, nonce_history::NonceHistory, rp_module::RpModuleAuth,
+        rp_registry_watcher::RpRegistryWatcher,
         schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
     },
     config::WorldOprfNodeConfig,
 };
+
+/// The embedded Groth16 verification key for OPRF query proofs.
+const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");
 
 pub(crate) mod auth;
 pub mod config;
@@ -121,6 +127,10 @@ impl WorldOprfNodeTasks {
 ///
 /// # Errors
 /// Returns an error if any component fails to initialize.
+#[allow(
+    clippy::missing_panics_doc,
+    reason = "Can realistically not panic as we embed the key at compile time"
+)]
 pub async fn start(
     config: WorldOprfNodeConfig,
     secret_manager: SecretManagerService,
@@ -153,19 +163,36 @@ pub async fn start(
     .await
     .context("while starting merkle watcher")?;
 
-    tracing::info!("init NonceHistory..");
-    // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
-    let nonce_history = NonceHistory::init(
-        config.current_time_stamp_max_difference * 2,
-        config.cache_maintenance_interval,
-    );
+    let query_vk = serde_json::from_str::<VerificationKey<Bn254>>(QUERY_VERIFICATION_KEY)
+        .expect("can deserialize embedded vk");
+    let query_vk = Arc::new(ark_groth16::prepare_verifying_key(&query_vk.into()));
 
     tracing::info!("init nullifier oprf request auth service..");
-    let nullifier_oprf_req_auth_service = Arc::new(NullifierOprfRequestAuthenticator::init(
+    let nullifier_oprf_req_auth_service = Arc::new(RpModuleAuth::new_uniqueness(
         merkle_watcher.clone(),
         rp_registry_watcher.clone(),
-        nonce_history,
+        NonceHistory::init(
+            // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
+            config.current_time_stamp_max_difference * 2,
+            config.cache_maintenance_interval,
+        ),
         config.current_time_stamp_max_difference,
+        Arc::clone(&query_vk),
+    ));
+
+    tracing::info!("init session oprf request auth service..");
+    // Session and uniqueness use separate nonce histories intentionally.
+    // We use the same nonce for both signatures
+    let session_oprf_req_auth_service = Arc::new(RpModuleAuth::new_session(
+        merkle_watcher.clone(),
+        rp_registry_watcher.clone(),
+        NonceHistory::init(
+            // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
+            config.current_time_stamp_max_difference * 2,
+            config.cache_maintenance_interval,
+        ),
+        config.current_time_stamp_max_difference,
+        Arc::clone(&query_vk),
     ));
 
     tracing::info!("init CredentialSchemaIssuerRegistry watcher..");
@@ -183,9 +210,10 @@ pub async fn start(
 
     tracing::info!("init credential blinding factor oprf request auth service..");
     let credential_blinding_factor_oprf_req_auth_service =
-        Arc::new(CredentialBlindingFactorOprfRequestAuthenticator::init(
+        Arc::new(CredentialBlindingFactorModuleAuth::init(
             merkle_watcher,
             schema_issuer_registry_watcher,
+            Arc::clone(&query_vk),
         ));
 
     tracing::info!("init oprf service..");
@@ -203,6 +231,10 @@ pub async fn start(
     .module(
         &format!("/{}", OprfModule::CredentialBlindingFactor),
         credential_blinding_factor_oprf_req_auth_service,
+    )
+    .module(
+        &format!("/{}", OprfModule::Session),
+        session_oprf_req_auth_service,
     )
     .build();
 
