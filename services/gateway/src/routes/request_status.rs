@@ -6,7 +6,7 @@ use axum::{
     extract::{Path, State},
 };
 use tracing::instrument;
-use world_id_core::api_types::GatewayStatusResponse;
+use world_id_core::api_types::{GatewayRequestId, GatewayStatusResponse};
 
 /// GET /v1/requests/:id
 ///
@@ -24,7 +24,7 @@ pub(crate) async fn request_status(
         .ok_or_else(GatewayErrorResponse::not_found)?;
 
     Ok(Json(GatewayStatusResponse {
-        request_id: id,
+        request_id: GatewayRequestId::new(id),
         kind: record.kind,
         status: record.status,
     }))
