@@ -7,7 +7,7 @@ Mobile benchmarks for World ID ZK proof generation using [mobench](https://githu
 Install mobench:
 
 ```bash
-cargo install mobench --version 0.1.20 --locked
+cargo install mobench --version 0.1.21 --locked
 ```
 
 Build and run locally:
