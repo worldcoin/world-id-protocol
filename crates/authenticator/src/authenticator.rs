@@ -1134,7 +1134,12 @@ impl InitializingAuthenticator {
     /// - Will error if the network request fails.
     /// - Will error if the gateway returns an error response.
     pub async fn poll_status(&self) -> Result<GatewayRequestState, AuthenticatorError> {
-        fetch_gateway_status(&self.http_client, self.config.gateway_url(), &self.request_id).await
+        fetch_gateway_status(
+            &self.http_client,
+            self.config.gateway_url(),
+            &self.request_id,
+        )
+        .await
     }
 }
 
