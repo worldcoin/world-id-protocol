@@ -132,8 +132,8 @@ pub use satellite::{PermissionedSatellite, Satellite, TempoSatellite, spawn_sate
 
 // -- CLI --
 pub use cli::{
-    ChainType, Cli, EthereumMptGatewayConfig, PermissionedGatewayConfig, RelayConfig,
-    SourceConfig, WorldChainConfig,
+    ChainType, Cli, EthereumMptGatewayConfig, PermissionedGatewayConfig, RelayConfig, SourceConfig,
+    WorldChainConfig,
 };
 
 // -- Log --

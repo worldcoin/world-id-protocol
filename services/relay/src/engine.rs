@@ -120,6 +120,7 @@ impl Engine {
             // the same state indefinitely.
             Err(e) => {
                 debug!(error = %e, "propagateState simulation reverted");
+                self.log.clear_pending_propagation();
             }
         }
         Ok(())
