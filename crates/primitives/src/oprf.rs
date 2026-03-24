@@ -6,6 +6,9 @@ use taceo_oprf::types::api::OprfRequestAuthenticatorError;
 
 use crate::rp::RpId;
 
+#[expect(unused_imports, reason = "used in doc comments")]
+use crate::SessionFeType;
+
 /// A module identifier for OPRF evaluations.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum OprfModule {
@@ -118,16 +121,18 @@ pub enum WorldIdRequestAuthError {
     InvalidQueryProof,
     /// **Only valid for Credential Blinding Factor generation**.
     ///
-    /// The provided action for the blinding factor generation is not valid.
+    /// The provided action for the credential issuer blinding factor computation is not valid.
     #[error("invalid_action_for_blinding_factor")]
     InvalidActionSchemaIssuer,
-    /// Invalid action for nullifier computation
-    #[error("invalid action - MSB must be 0x00 for nullifier")]
+    /// The provided action for the nullifier computation is not valid. Nullifier actions must
+    /// start with `0x00` (MSB).
+    #[error("invalid_action_for_nullifier")]
     InvalidActionNullifier,
-    /// Invalid action for session computation
-    #[error(
-        "invalid action - MSB must be 0x02 for internal nullifier or 0x01 for session_id_r_seed"
-    )]
+    /// **Only valid for Session Proofs**.
+    ///
+    /// The provided action for the Session Proof is invalid. See [`SessionFeType`] for the valid action
+    /// prefixes.
+    #[error("invalid_action_for_session")]
     InvalidActionSession,
     /// Internal server error.
     #[error("internal_server_error")]
@@ -160,11 +165,13 @@ impl WorldIdRequestAuthError {
             | Self::InactiveRp
             | Self::TimestampTooOld
             | Self::InvalidRpSignature
-            | Self::DuplicateNonce => ErrorActor::Rp,
+            | Self::DuplicateNonce
+            | Self::InvalidActionNullifier => ErrorActor::Rp,
             Self::UnknownSchemaIssuerId => ErrorActor::Issuer,
-            Self::InvalidMerkleRoot | Self::InvalidQueryProof | Self::InvalidActionSchemaIssuer => {
-                ErrorActor::Authenticator
-            }
+            Self::InvalidMerkleRoot
+            | Self::InvalidQueryProof
+            | Self::InvalidActionSchemaIssuer
+            | Self::InvalidActionSession => ErrorActor::Authenticator,
             Self::Internal | Self::Unknown(_) => ErrorActor::OprfNode,
         }
     }
@@ -195,7 +202,7 @@ impl From<WorldIdRequestAuthError> for u16 {
         match value {
             WorldIdRequestAuthError::UnknownRp => error_codes::UNKNOWN_RP,
             WorldIdRequestAuthError::InactiveRp => error_codes::INACTIVE_RP,
-            WorldIdRequestAuthError::TimeStampTooOld => error_codes::TIMESTAMP_TOO_OLD,
+            WorldIdRequestAuthError::TimestampTooOld => error_codes::TIMESTAMP_TOO_OLD,
             WorldIdRequestAuthError::InvalidRpSignature => error_codes::INVALID_RP_SIGNATURE,
             WorldIdRequestAuthError::DuplicateNonce => error_codes::DUPLICATE_NONCE,
             WorldIdRequestAuthError::InvalidMerkleRoot => error_codes::INVALID_MERKLE_ROOT,
@@ -203,7 +210,7 @@ impl From<WorldIdRequestAuthError> for u16 {
             WorldIdRequestAuthError::InvalidActionSchemaIssuer => {
                 error_codes::INVALID_ACTION_SCHEMA_ISSUER
             }
-            WorldIdRequestAuthError::UnknownSchemaIssuer => error_codes::UNKNOWN_SCHEMA_ISSUER,
+            WorldIdRequestAuthError::UnknownSchemaIssuerId => error_codes::UNKNOWN_SCHEMA_ISSUER,
             WorldIdRequestAuthError::InvalidActionNullifier => {
                 error_codes::INVALID_ACTION_NULLIFIER
             }
@@ -250,7 +257,7 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             WorldIdRequestAuthError::UnknownRp => {
                 taceo_oprf::types::close_frame_message!("unknown RP")
             }
-            WorldIdRequestAuthError::TimeStampTooOld => {
+            WorldIdRequestAuthError::TimestampTooOld => {
                 taceo_oprf::types::close_frame_message!("timestamp in request too old")
             }
             WorldIdRequestAuthError::InvalidRpSignature => {
@@ -267,21 +274,17 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             }
             WorldIdRequestAuthError::InvalidActionSchemaIssuer => {
                 taceo_oprf::types::close_frame_message!(
-                    "invalid action - must be 0 for schema-issuer blinding"
+                    "invalid action for credential sub blinding factor"
                 )
             }
-            WorldIdRequestAuthError::UnknownSchemaIssuer => {
-                taceo_oprf::types::close_frame_message!("unknown schema issuer")
+            WorldIdRequestAuthError::UnknownSchemaIssuerId => {
+                taceo_oprf::types::close_frame_message!("unknown schema issuer id")
             }
             WorldIdRequestAuthError::InvalidActionNullifier => {
-                taceo_oprf::types::close_frame_message!(
-                    "invalid action - MSB must be 0x00 for nullifier"
-                )
+                taceo_oprf::types::close_frame_message!("invalid action for nullifier")
             }
             WorldIdRequestAuthError::InvalidActionSession => {
-                taceo_oprf::types::close_frame_message!(
-                    "invalid action - MSB must be 0x02 for internal nullifier or 0x01 for session_id_r_seed"
-                )
+                taceo_oprf::types::close_frame_message!("invalid action for session proofs")
             }
             WorldIdRequestAuthError::InactiveRp => {
                 taceo_oprf::types::close_frame_message!("inactive RP")
