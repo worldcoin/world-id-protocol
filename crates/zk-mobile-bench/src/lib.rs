@@ -199,7 +199,7 @@ fn generate_nullifier_input() -> (
         cred_pk: credential.issuer.pk,
         cred_hashes: [
             *credential.claims_hash().expect("claims hash"),
-            *credential.associated_data_hash,
+            *credential.associated_data_commitment,
         ],
         cred_genesis_issued_at: credential.genesis_issued_at.into(),
         cred_genesis_issued_at_min: 0u64.into(),

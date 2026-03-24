@@ -1,25 +1,23 @@
 name: Mobile Bench PR Auto
 
 on:
-  pull_request_target:
-    types:
-      - labeled
+  pull_request:
+    types: [labeled]
+  workflow_run:
+    workflows: ["Compile Gate"]
+    types: [completed]
 
 permissions:
-  actions: write
   contents: read
+  actions: write
   pull-requests: read
+  checks: read
 
 jobs:
   dispatch:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.workflow_sha }}
-
-      - uses: actions/github-script@v7
-        with:
-          script: |
-            const controller = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/mobench-controller.mjs`);
-            await controller.handleBenchLabelEvent({ github, context, core });
+    uses: worldcoin/mobile-bench-rs/.github/workflows/reusable-pr-auto.yml@v0.1.19
+    with:
+      benchmark_workflow: .github/workflows/mobile-bench.yml
+      compile_gate_workflow_name: "Compile Gate"
+      crate_path: ./crates/zk-mobile-bench
+      functions: '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_proof_only","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only"]'
