@@ -79,7 +79,7 @@ pub struct CredentialBlindingFactorOprfRequestAuthV1 {
 ///
 /// Variants map 1-to-1 with the numeric close-frame error codes in [`error_codes`], which are
 /// sent to the client over the WebSocket connection when authentication fails.
-#[derive(Debug, thiserror::Error)]
+#[derive(Copy, Clone, Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum WorldIdRequestAuthError {
     /// Unknown RP.
@@ -142,9 +142,35 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::UNKNOWN_SCHEMA_ISSUER => Self::UnknownSchemaIssuer,
             error_codes::INVALID_ACTION_NULLIFIER => Self::InvalidActionNullifier,
             error_codes::INVALID_ACTION_SESSION => Self::InvalidActionSession,
+            error_codes::CORRUPT_RP_SIGNATURE => Self::CorruptRpSignature,
             error_codes::INTERNAL => Self::Internal,
-
             other => Self::Unknown(other),
+        }
+    }
+}
+
+impl From<WorldIdRequestAuthError> for u16 {
+    fn from(value: WorldIdRequestAuthError) -> Self {
+        match value {
+            WorldIdRequestAuthError::UnknownRp => error_codes::UNKNOWN_RP,
+            WorldIdRequestAuthError::InactiveRp => error_codes::INACTIVE_RP,
+            WorldIdRequestAuthError::TimeStampTooOld => error_codes::TIMESTAMP_TOO_OLD,
+            WorldIdRequestAuthError::InvalidRpSignature => error_codes::INVALID_RP_SIGNATURE,
+            WorldIdRequestAuthError::DuplicateNonce => error_codes::DUPLICATE_NONCE,
+            WorldIdRequestAuthError::InvalidMerkleRoot => error_codes::INVALID_MERKLE_ROOT,
+            WorldIdRequestAuthError::InvalidQueryProof => error_codes::INVALID_QUERY_PROOF,
+            WorldIdRequestAuthError::InvalidActionSchemaIssuer => {
+                error_codes::INVALID_ACTION_SCHEMA_ISSUER
+            }
+            WorldIdRequestAuthError::UnknownSchemaIssuer => error_codes::UNKNOWN_SCHEMA_ISSUER,
+            WorldIdRequestAuthError::InvalidActionNullifier => {
+                error_codes::INVALID_ACTION_NULLIFIER
+            }
+            WorldIdRequestAuthError::InvalidActionSession => error_codes::INVALID_ACTION_SESSION,
+            WorldIdRequestAuthError::CorruptRpSignature => error_codes::CORRUPT_RP_SIGNATURE,
+            WorldIdRequestAuthError::Internal => error_codes::INTERNAL,
+
+            WorldIdRequestAuthError::Unknown(other) => other,
         }
     }
 }
@@ -181,67 +207,57 @@ pub mod error_codes {
 
 impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
     fn from(value: WorldIdRequestAuthError) -> Self {
-        let (code, msg) = match value {
-            WorldIdRequestAuthError::UnknownRp => (
-                error_codes::UNKNOWN_RP,
-                taceo_oprf::types::close_frame_message!("unknown RP"),
-            ),
-            WorldIdRequestAuthError::TimeStampTooOld => (
-                error_codes::TIMESTAMP_TOO_OLD,
-                taceo_oprf::types::close_frame_message!("timestamp in request too old"),
-            ),
-            WorldIdRequestAuthError::InvalidRpSignature => (
-                error_codes::INVALID_RP_SIGNATURE,
-                taceo_oprf::types::close_frame_message!("signature from RP cannot be verified"),
-            ),
-            WorldIdRequestAuthError::DuplicateNonce => (
-                error_codes::DUPLICATE_NONCE,
-                taceo_oprf::types::close_frame_message!("signature nonce already used"),
-            ),
-            WorldIdRequestAuthError::InvalidMerkleRoot => (
-                error_codes::INVALID_MERKLE_ROOT,
-                taceo_oprf::types::close_frame_message!("invalid merkle root"),
-            ),
-            WorldIdRequestAuthError::InvalidQueryProof => (
-                error_codes::INVALID_QUERY_PROOF,
-                taceo_oprf::types::close_frame_message!("cannot verify query proof"),
-            ),
-            WorldIdRequestAuthError::InvalidActionSchemaIssuer => (
-                error_codes::INVALID_ACTION_SCHEMA_ISSUER,
+        let code = u16::from(value);
+        let msg = match value {
+            WorldIdRequestAuthError::UnknownRp => {
+                taceo_oprf::types::close_frame_message!("unknown RP")
+            }
+            WorldIdRequestAuthError::TimeStampTooOld => {
+                taceo_oprf::types::close_frame_message!("timestamp in request too old")
+            }
+            WorldIdRequestAuthError::InvalidRpSignature => {
+                taceo_oprf::types::close_frame_message!("signature from RP cannot be verified")
+            }
+            WorldIdRequestAuthError::DuplicateNonce => {
+                taceo_oprf::types::close_frame_message!("signature nonce already used")
+            }
+            WorldIdRequestAuthError::InvalidMerkleRoot => {
+                taceo_oprf::types::close_frame_message!("invalid merkle root")
+            }
+            WorldIdRequestAuthError::InvalidQueryProof => {
+                taceo_oprf::types::close_frame_message!("cannot verify query proof")
+            }
+            WorldIdRequestAuthError::InvalidActionSchemaIssuer => {
                 taceo_oprf::types::close_frame_message!(
                     "invalid action - must be 0 for schema-issuer blinding"
-                ),
-            ),
-            WorldIdRequestAuthError::UnknownSchemaIssuer => (
-                error_codes::UNKNOWN_SCHEMA_ISSUER,
-                taceo_oprf::types::close_frame_message!("unknown schema issuer"),
-            ),
-            WorldIdRequestAuthError::InvalidActionNullifier => (
-                error_codes::INVALID_ACTION_NULLIFIER,
+                )
+            }
+            WorldIdRequestAuthError::UnknownSchemaIssuer => {
+                taceo_oprf::types::close_frame_message!("unknown schema issuer")
+            }
+            WorldIdRequestAuthError::InvalidActionNullifier => {
                 taceo_oprf::types::close_frame_message!(
                     "invalid action - MSB must be 0x00 for nullifier"
-                ),
-            ),
-            WorldIdRequestAuthError::InvalidActionSession => (
-                error_codes::INVALID_ACTION_SESSION,
+                )
+            }
+            WorldIdRequestAuthError::InvalidActionSession => {
                 taceo_oprf::types::close_frame_message!(
                     "invalid action - MSB must be 0x02 for internal nullifier or 0x01 for session_id_r_seed"
-                ),
-            ),
-            WorldIdRequestAuthError::InactiveRp => (
-                error_codes::INACTIVE_RP,
-                taceo_oprf::types::close_frame_message!("inactive RP"),
-            ),
-            WorldIdRequestAuthError::CorruptRpSignature => (
-                error_codes::CORRUPT_RP_SIGNATURE,
-                taceo_oprf::types::close_frame_message!("provided signature is corrupt"),
-            ),
-            WorldIdRequestAuthError::Internal => (
-                error_codes::INTERNAL, // RFC 6455 error code
-                taceo_oprf::types::close_frame_message!("internal server error"),
-            ),
-            WorldIdRequestAuthError::Unknown(unknown) => {
-                (unknown, taceo_oprf::types::close_frame_message!("unknown"))
+                )
+            }
+            WorldIdRequestAuthError::InactiveRp => {
+                taceo_oprf::types::close_frame_message!("inactive RP")
+            }
+
+            WorldIdRequestAuthError::CorruptRpSignature => {
+                taceo_oprf::types::close_frame_message!("provided signature is corrupt")
+            }
+
+            WorldIdRequestAuthError::Internal => {
+                taceo_oprf::types::close_frame_message!("internal server error")
+            }
+            WorldIdRequestAuthError::Unknown(_) => {
+                taceo_oprf::types::close_frame_message!("unknown")
             }
         };
         Self::with_message(code, msg)
