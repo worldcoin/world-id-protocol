@@ -111,16 +111,19 @@ impl Engine {
             .await;
 
         match result {
-            Ok(pending) => {
-                let receipt = pending.get_receipt().await?;
-                if receipt.status() {
+            Ok(pending) => match pending.get_receipt().await {
+                Ok(receipt) if receipt.status() => {
                     info!(hash = %receipt.transaction_hash, "propagateState succeeded");
-                    // Entries already drained — nothing to clean up.
-                } else {
+                }
+                Ok(receipt) => {
                     warn!(hash = %receipt.transaction_hash, "propagateState reverted on-chain");
                     self.log.restore_pending(snapshot);
                 }
-            }
+                Err(e) => {
+                    warn!(error = %e, "failed to get propagateState receipt");
+                    self.log.restore_pending(snapshot);
+                }
+            },
             Err(e) if e.as_decoded_error::<NothingChanged>().is_some() => {
                 debug!(error = %e, "propagateState reverted with NothingChanged");
                 // State is already on-chain — no need to restore.
