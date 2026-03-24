@@ -26,7 +26,7 @@ use moka::{future::Cache, ops::compute::Op};
 use taceo_oprf::types::OprfKeyId;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
-use world_id_primitives::{oprf::WorldIdRequestAuthError, rp::RpId};
+use world_id_primitives::rp::RpId;
 
 alloy::sol! {
     #[allow(missing_docs, clippy::too_many_arguments, reason="Get this errors from sol macro")]
@@ -53,25 +53,6 @@ pub(crate) enum RpRegistryWatcherError {
     /// Internal Error
     #[error(transparent)]
     Internal(#[from] eyre::Report),
-}
-
-impl RpRegistryWatcherError {
-    pub(crate) fn into_world_oprf_error(self) -> WorldIdRequestAuthError {
-        match self {
-            RpRegistryWatcherError::Internal(error) => {
-                tracing::error!("internal error: {error:?}");
-                WorldIdRequestAuthError::Internal
-            }
-            RpRegistryWatcherError::UnknownRp(_) => {
-                tracing::debug!("{self}");
-                WorldIdRequestAuthError::UnknownRp
-            }
-            RpRegistryWatcherError::InactiveRp(_) => {
-                tracing::debug!("{self}");
-                WorldIdRequestAuthError::InactiveRp
-            }
-        }
-    }
 }
 
 /// Monitors the RPs from the `RpRegistry` contract.

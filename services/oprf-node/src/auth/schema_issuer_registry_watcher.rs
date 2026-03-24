@@ -26,7 +26,6 @@ use futures::StreamExt as _;
 use moka::future::Cache;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
-use world_id_primitives::oprf::WorldIdRequestAuthError;
 
 alloy::sol! {
     #[allow(missing_docs, clippy::too_many_arguments, reason="Get this errors from sol macro")]
@@ -44,21 +43,6 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
     /// Internal Error
     #[error(transparent)]
     Internal(#[from] eyre::Report),
-}
-
-impl SchemaIssuerRegistryWatcherError {
-    pub(crate) fn into_world_oprf_error(self) -> WorldIdRequestAuthError {
-        match self {
-            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(_) => {
-                tracing::debug!("{self}");
-                WorldIdRequestAuthError::UnknownSchemaIssuer
-            }
-            SchemaIssuerRegistryWatcherError::Internal(error) => {
-                tracing::error!("internal error: {error:?}");
-                WorldIdRequestAuthError::Internal
-            }
-        }
-    }
 }
 
 /// Monitors the issuer from the `CredentialSchemaIssuerRegistry` contract.

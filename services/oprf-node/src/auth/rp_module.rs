@@ -57,28 +57,46 @@ pub(crate) enum RpModuleError {
     },
     #[error("Could not verify query proof")]
     InvalidQueryProof,
+    #[error("invalid Merkle root")]
+    InvalidMerkleRoot,
     #[error(transparent)]
     RpSignature(#[from] RpSignatureError),
     #[error(transparent)]
-    MerkleWatcher(#[from] MerkleWatcherError),
+    Internal(#[from] eyre::Report),
+}
+
+impl From<MerkleWatcherError> for RpModuleError {
+    fn from(value: MerkleWatcherError) -> Self {
+        match value {
+            MerkleWatcherError::InvalidMerkleRoot => Self::InvalidMerkleRoot,
+            MerkleWatcherError::Internal(report) => Self::Internal(report),
+        }
+    }
+}
+
+impl From<RpModuleError> for WorldIdRequestAuthError {
+    fn from(value: RpModuleError) -> Self {
+        match value {
+            RpModuleError::InvalidAction { kind, .. } => match kind {
+                RpModuleKind::Session => WorldIdRequestAuthError::InvalidActionSession,
+                RpModuleKind::Uniqueness => WorldIdRequestAuthError::InvalidActionNullifier,
+            },
+            RpModuleError::InvalidQueryProof => WorldIdRequestAuthError::InvalidQueryProof,
+            RpModuleError::InvalidMerkleRoot => WorldIdRequestAuthError::InvalidMerkleRoot,
+            RpModuleError::RpSignature(err) => WorldIdRequestAuthError::from(err),
+            RpModuleError::Internal(_) => WorldIdRequestAuthError::Internal,
+        }
+    }
 }
 
 impl RpModuleError {
-    fn into_world_oprf_error(self) -> WorldIdRequestAuthError {
-        match self {
-            RpModuleError::InvalidAction { kind, .. } => {
-                tracing::debug!("{self}");
-                match kind {
-                    RpModuleKind::Session => WorldIdRequestAuthError::InvalidActionSession,
-                    RpModuleKind::Uniqueness => WorldIdRequestAuthError::InvalidActionNullifier,
-                }
-            }
-            RpModuleError::InvalidQueryProof => {
-                tracing::debug!("{self}");
-                WorldIdRequestAuthError::InvalidQueryProof
-            }
-            RpModuleError::RpSignature(e) => e.into_world_oprf_error(),
-            RpModuleError::MerkleWatcher(e) => e.into_world_oprf_error(),
+    fn log(&self) {
+        if let RpModuleError::Internal(report) = self {
+            tracing::error!("{report:?}");
+        } else if let RpModuleError::RpSignature(rp_signature) = self {
+            rp_signature.log();
+        } else {
+            tracing::debug!("{self}");
         }
     }
 }
@@ -220,7 +238,8 @@ impl OprfRequestAuthenticator for RpModuleAuth {
         Ok(self
             .authenticate_inner(request)
             .await
-            .map_err(RpModuleError::into_world_oprf_error)?)
+            .inspect_err(RpModuleError::log)
+            .map_err(WorldIdRequestAuthError::from)?)
     }
 }
 
@@ -238,9 +257,7 @@ mod tests {
     use uuid::Uuid;
     use world_id_core::{FieldElement, primitives};
     use world_id_primitives::{
-        SessionFeType, SessionFieldElement as _,
-        oprf::NullifierOprfRequestAuthV1,
-        rp::RpId,
+        SessionFeType, SessionFieldElement as _, oprf::NullifierOprfRequestAuthV1, rp::RpId,
     };
 
     use crate::{
@@ -286,8 +303,8 @@ mod tests {
 
             // Session action must have the correct prefix byte (0x01 or 0x02)
             let session_action = FieldElement::random_for_session(&mut rng, session_type);
-            let bundle =
-                infra.generate_query_proof(session_action, infra.setup.rp_fixture.world_rp_id.into())?;
+            let bundle = infra
+                .generate_query_proof(session_action, infra.setup.rp_fixture.world_rp_id.into())?;
 
             // Session RP signature does NOT include the action
             let rp_signer =

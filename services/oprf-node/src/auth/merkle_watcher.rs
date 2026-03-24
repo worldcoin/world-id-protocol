@@ -38,7 +38,7 @@ use tracing::instrument;
 use world_id_core::world_id_registry::WorldIdRegistry::{
     self, RootRecorded, RootValidityWindowUpdated,
 };
-use world_id_primitives::{FieldElement, oprf::WorldIdRequestAuthError};
+use world_id_primitives::FieldElement;
 
 use crate::metrics::{
     METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS, METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES,
@@ -52,21 +52,6 @@ pub(crate) enum MerkleWatcherError {
     InvalidMerkleRoot,
     #[error(transparent)]
     Internal(#[from] eyre::Report),
-}
-
-impl MerkleWatcherError {
-    pub(crate) fn into_world_oprf_error(self) -> WorldIdRequestAuthError {
-        match self {
-            MerkleWatcherError::InvalidMerkleRoot => {
-                tracing::debug!("{self}");
-                WorldIdRequestAuthError::InvalidMerkleRoot
-            }
-            MerkleWatcherError::Internal(_) => {
-                tracing::error!("internal error: {self:?}");
-                WorldIdRequestAuthError::Internal
-            }
-        }
-    }
 }
 
 /// An expiry that implements `moka::Expiry` trait. `Expiry` trait provides the

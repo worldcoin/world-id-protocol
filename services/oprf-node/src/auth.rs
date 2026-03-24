@@ -20,6 +20,7 @@ use world_id_core::FieldElement;
 use world_id_primitives::{
     TREE_DEPTH,
     oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
+    rp::RpId,
 };
 
 use crate::auth::{
@@ -41,48 +42,53 @@ pub(crate) enum RpSignatureError {
         current: Duration,
         timestamp: Duration,
     },
-    #[error(transparent)]
-    RpRegistryWatcher(#[from] RpRegistryWatcherError),
+    #[error("unknown rp: {0}")]
+    UnknownRp(RpId),
+    #[error("inactive rp: {0}")]
+    InactiveRp(RpId),
     #[error("Cannot build signature: {0}")]
     CorruptSignature(#[from] alloy::primitives::SignatureError),
     #[error("Invalid RP signature - recover signer failed")]
     InvalidSignature,
     #[error(transparent)]
     DuplicateNonce(#[from] DuplicateNonce),
-    /// Internal Error
     #[error(transparent)]
     Internal(#[from] eyre::Report),
 }
 
-impl RpSignatureError {
-    fn into_world_oprf_error(self) -> WorldIdRequestAuthError {
-        match self {
+impl From<RpRegistryWatcherError> for RpSignatureError {
+    fn from(value: RpRegistryWatcherError) -> Self {
+        match value {
+            RpRegistryWatcherError::UnknownRp(rp_id) => Self::UnknownRp(rp_id),
+            RpRegistryWatcherError::InactiveRp(rp_id) => Self::InactiveRp(rp_id),
+            RpRegistryWatcherError::Internal(report) => Self::Internal(report),
+        }
+    }
+}
+
+impl From<RpSignatureError> for WorldIdRequestAuthError {
+    fn from(value: RpSignatureError) -> Self {
+        match value {
             RpSignatureError::TimestampTooOld {
                 current: _,
                 timestamp: _,
-            } => {
-                tracing::debug!("{self}");
-                WorldIdRequestAuthError::TimeStampTooOld
-            }
-            RpSignatureError::RpRegistryWatcher(rp_registry_watcher_error) => {
-                rp_registry_watcher_error.into_world_oprf_error()
-            }
-            RpSignatureError::CorruptSignature(_) => {
-                tracing::debug!("{self}");
-                WorldIdRequestAuthError::CorruptRpSignature
-            }
-            RpSignatureError::InvalidSignature => {
-                tracing::debug!("{self}");
-                WorldIdRequestAuthError::InvalidRpSignature
-            }
-            RpSignatureError::DuplicateNonce(_) => {
-                tracing::debug!("{self}");
-                WorldIdRequestAuthError::DuplicateNonce
-            }
-            RpSignatureError::Internal(_) => {
-                tracing::error!("{self:?}");
-                WorldIdRequestAuthError::Internal
-            }
+            } => WorldIdRequestAuthError::TimeStampTooOld,
+            RpSignatureError::UnknownRp(_) => WorldIdRequestAuthError::UnknownRp,
+            RpSignatureError::InactiveRp(_) => WorldIdRequestAuthError::InactiveRp,
+            RpSignatureError::CorruptSignature(_) => WorldIdRequestAuthError::CorruptRpSignature,
+            RpSignatureError::InvalidSignature => WorldIdRequestAuthError::InvalidRpSignature,
+            RpSignatureError::DuplicateNonce(_) => WorldIdRequestAuthError::DuplicateNonce,
+            RpSignatureError::Internal(_) => WorldIdRequestAuthError::Internal,
+        }
+    }
+}
+
+impl RpSignatureError {
+    fn log(&self) {
+        if let RpSignatureError::Internal(report) = self {
+            tracing::error!("{report:?}");
+        } else {
+            tracing::debug!("{self}");
         }
     }
 }

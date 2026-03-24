@@ -27,30 +27,62 @@ pub(crate) enum CredentialBlindingFactorModuleError {
     InvalidAction(FieldElement),
     #[error("Could not verify query proof")]
     InvalidQueryProof,
-    /// Unknown RP.
+    #[error("invalid Merkle root")]
+    InvalidMerkleRoot,
+    /// Unknown schema issuer.
+    #[error("unknown schema issuer: {0}")]
+    UnknownSchemaIssuer(u64),
+    /// Internal Error
     #[error(transparent)]
-    SchemaIssuerWatcherError(#[from] SchemaIssuerRegistryWatcherError),
-    #[error(transparent)]
-    MerkleWatcher(#[from] MerkleWatcherError),
+    Internal(#[from] eyre::Report),
+}
+
+impl From<SchemaIssuerRegistryWatcherError> for CredentialBlindingFactorModuleError {
+    fn from(value: SchemaIssuerRegistryWatcherError) -> Self {
+        match value {
+            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(id) => {
+                Self::UnknownSchemaIssuer(id)
+            }
+            SchemaIssuerRegistryWatcherError::Internal(report) => Self::Internal(report),
+        }
+    }
+}
+
+impl From<MerkleWatcherError> for CredentialBlindingFactorModuleError {
+    fn from(value: MerkleWatcherError) -> Self {
+        match value {
+            MerkleWatcherError::InvalidMerkleRoot => Self::InvalidMerkleRoot,
+            MerkleWatcherError::Internal(report) => Self::Internal(report),
+        }
+    }
+}
+
+impl From<CredentialBlindingFactorModuleError> for WorldIdRequestAuthError {
+    fn from(value: CredentialBlindingFactorModuleError) -> Self {
+        match value {
+            CredentialBlindingFactorModuleError::InvalidAction(_) => {
+                WorldIdRequestAuthError::InvalidActionSchemaIssuer
+            }
+            CredentialBlindingFactorModuleError::InvalidQueryProof => {
+                WorldIdRequestAuthError::InvalidQueryProof
+            }
+            CredentialBlindingFactorModuleError::InvalidMerkleRoot => {
+                WorldIdRequestAuthError::InvalidMerkleRoot
+            }
+            CredentialBlindingFactorModuleError::UnknownSchemaIssuer(_) => {
+                WorldIdRequestAuthError::UnknownSchemaIssuer
+            }
+            CredentialBlindingFactorModuleError::Internal(_) => WorldIdRequestAuthError::Internal,
+        }
+    }
 }
 
 impl CredentialBlindingFactorModuleError {
-    fn into_world_oprf_error(self) -> WorldIdRequestAuthError {
-        match self {
-            CredentialBlindingFactorModuleError::InvalidAction(_) => {
-                tracing::debug!("{self}");
-                WorldIdRequestAuthError::InvalidActionSchemaIssuer
-            }
-            CredentialBlindingFactorModuleError::SchemaIssuerWatcherError(watcher_error) => {
-                watcher_error.into_world_oprf_error()
-            }
-            CredentialBlindingFactorModuleError::InvalidQueryProof => {
-                tracing::debug!("{self}");
-                WorldIdRequestAuthError::InvalidQueryProof
-            }
-            CredentialBlindingFactorModuleError::MerkleWatcher(merkle_watcher_error) => {
-                merkle_watcher_error.into_world_oprf_error()
-            }
+    fn log(&self) {
+        if let CredentialBlindingFactorModuleError::Internal(report) = self {
+            tracing::error!("{report:?}");
+        } else {
+            tracing::debug!("{self}");
         }
     }
 }
@@ -129,7 +161,8 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorModuleAuth {
         Ok(self
             .authenticate_inner(request)
             .await
-            .map_err(CredentialBlindingFactorModuleError::into_world_oprf_error)?)
+            .inspect_err(CredentialBlindingFactorModuleError::log)
+            .map_err(WorldIdRequestAuthError::from)?)
     }
 }
 
