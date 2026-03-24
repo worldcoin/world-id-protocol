@@ -50,3 +50,25 @@ index d684cf3..647431e 100644
      }
  
      /// Validate device specifications against available devices.
+diff --git a/crates/mobench-sdk/templates/ios/BenchRunner/project.yml.template b/crates/mobench-sdk/templates/ios/BenchRunner/project.yml.template
+index cd8278b..7ba46eb 100644
+--- a/crates/mobench-sdk/templates/ios/BenchRunner/project.yml.template
++++ b/crates/mobench-sdk/templates/ios/BenchRunner/project.yml.template
+@@ -8,7 +8,7 @@ targets:
+   {{PROJECT_NAME_PASCAL}}:
+     type: application
+     platform: iOS
+-    deploymentTarget: "15.0"
++    deploymentTarget: "13.0"
+     sources:
+       - path: {{PROJECT_NAME_PASCAL}}
+     resources:
+@@ -33,7 +33,7 @@ targets:
+   {{PROJECT_NAME_PASCAL}}UITests:
+     type: bundle.ui-testing
+     platform: iOS
+-    deploymentTarget: "15.0"
++    deploymentTarget: "13.0"
+     sources:
+       - path: {{PROJECT_NAME_PASCAL}}UITests
+     info:
