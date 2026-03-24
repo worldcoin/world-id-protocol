@@ -257,9 +257,10 @@ pub struct RecoverAccountRequest {
 pub struct GatewayRequestId(String);
 
 impl GatewayRequestId {
-    /// Creates a new `GatewayRequestId` from a raw string.
+    /// Creates a new `GatewayRequestId` from a raw string by prepending the
+    /// `gw_` prefix.
     pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
+        Self(format!("gw_{}", id.into()))
     }
 
     /// Returns the underlying string representation.
