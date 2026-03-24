@@ -2,6 +2,9 @@
 
 `zk-mobile-bench` contains mobile-facing benchmarks for World ID proof generation.
 
+The repository CI uses the vendored stateless `mobench` 0.1.18 flow under
+`.github/workflows/` plus helper scripts under `.github/scripts/`.
+
 ## Contents
 
 - `benchmark-functions.md`: What each benchmark measures.
@@ -16,10 +19,16 @@ Host sanity run (no mobile device):
 cargo run -p zk-mobile-bench --example run_local --release
 ```
 
-Direct mobench run (example):
+Install the same mobench release used by CI:
 
 ```bash
-mobench run \
+cargo install mobench --version 0.1.18 --locked
+```
+
+Direct `cargo-mobench` run (example):
+
+```bash
+cargo-mobench run \
   --target ios \
   --function zk_mobile_bench::bench_nullifier_proving_only \
   --iterations 30 \
@@ -41,3 +50,12 @@ Config and matrix templates live in:
 - `crates/zk-mobile-bench/device-matrix.yaml`
 - `crates/zk-mobile-bench/device-matrix.ios.low-spec.yaml`
 - `crates/zk-mobile-bench/device-matrix.android.low-spec.yaml`
+
+Workflow/helper-script entry points for the 0.1.18 CI flow:
+
+- `.github/workflows/mobile-bench.yml`
+- `.github/workflows/reusable-bench.yml`
+- `.github/scripts/install-mobench.sh`
+- `.github/scripts/resolve-mobench-device.sh`
+- `.github/scripts/run-mobench-benchmarks.sh`
+- `.github/scripts/summarize-mobench-platform.sh`

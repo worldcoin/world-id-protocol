@@ -30,7 +30,7 @@ authors = [
 ]
 homepage = "https://docs.world.org/world-id"
 repository = "https://github.com/worldcoin/world-id-protocol"
-rust-version = "1.87"
+rust-version = "1.91"
 
 [workspace.dependencies]
 # alloy

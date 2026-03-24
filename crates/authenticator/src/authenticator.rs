@@ -692,10 +692,10 @@ impl Authenticator {
             &mut rng,
         )?;
 
-        if let Some(request_session_id) = proof_request.session_id {
-            if request_session_id != session_id {
-                return Err(AuthenticatorError::SessionIdMismatch);
-            }
+        if let Some(request_session_id) = proof_request.session_id
+            && request_session_id != session_id
+        {
+            return Err(AuthenticatorError::SessionIdMismatch);
         }
 
         Ok((session_id, session_id_r_seed))

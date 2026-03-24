@@ -163,9 +163,12 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::large_futures, reason = "Is ok in tests")]
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use alloy::signers::local::LocalSigner;
+    use alloy::signers::{
+        SignerSync as _,
+        local::{LocalSigner, PrivateKeySigner},
+    };
     use secrecy::ExposeSecret as _;
     use taceo_oprf::{
         core::oprf::BlindingFactor,
@@ -198,9 +201,30 @@ mod tests {
     }
 
     impl NullifierOprfRequestAuthTestSetup {
+        fn refresh_rp_request_window(setup: &mut OprfRequestAuthTestSetup) {
+            // Refresh the RP request window after the async setup so these tests
+            // don't age into `TimeStampDifference` under nextest load.
+            let current_timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time after epoch")
+                .as_secs();
+            let expiration_timestamp = current_timestamp + 300;
+            let rp_signer =
+                PrivateKeySigner::from_signing_key(setup.rp_fixture.signing_key.clone());
+            let msg = world_id_primitives::rp::compute_rp_signature_msg(
+                setup.rp_fixture.nonce,
+                current_timestamp,
+                expiration_timestamp,
+                Some(setup.rp_fixture.action),
+            );
+            setup.rp_fixture.current_timestamp = current_timestamp;
+            setup.rp_fixture.expiration_timestamp = expiration_timestamp;
+            setup.rp_fixture.signature = rp_signer.sign_message_sync(&msg).expect("can sign");
+        }
+
         pub(crate) async fn new() -> eyre::Result<Self> {
             let mut rng = rand::thread_rng();
-            let setup = OprfRequestAuthTestSetup::new().await?;
+            let mut setup = OprfRequestAuthTestSetup::new().await?;
 
             let max_cache_size = 100;
             let cache_maintenance_interval = Duration::from_secs(60);
@@ -278,6 +302,8 @@ mod tests {
             let (proof, public_inputs) =
                 query_material.generate_proof(&query_proof_input, &mut rng)?;
             query_material.verify_proof(&proof, &public_inputs)?;
+
+            Self::refresh_rp_request_window(&mut setup);
 
             let nullifier_auth = NullifierOprfRequestAuthV1 {
                 proof: proof.clone().into(),

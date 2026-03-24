@@ -18,7 +18,9 @@ use world_id_primitives::{
 
 use std::sync::RwLock;
 
-const SERVICE_STARTUP_TIMEOUT: Duration = Duration::from_secs(180);
+// OPRF node and key-gen startup is CPU-heavy and can take several minutes when
+// nextest runs other crypto-heavy binaries in parallel.
+const SERVICE_STARTUP_TIMEOUT: Duration = Duration::from_secs(600);
 
 #[derive(Clone)]
 struct IndexerState {

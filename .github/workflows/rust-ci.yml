@@ -120,7 +120,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
-          toolchain: 1.87
+          toolchain: 1.91
 
       - name: Download contract ABIs
         uses: actions/download-artifact@v4

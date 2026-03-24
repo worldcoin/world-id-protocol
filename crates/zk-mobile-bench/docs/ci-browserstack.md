@@ -2,7 +2,7 @@
 
 ## Architecture
 
-The benchmark CI now uses the vendored stateless `mobench` 0.1.16 workflow set in this repository:
+The benchmark CI now uses the vendored stateless `mobench` 0.1.18 workflow set in this repository:
 
 - `.github/workflows/compile-gate.yml` -- compile gate for exact PR SHAs
 - `.github/workflows/mobile-bench-after-ci.yml` -- dispatch after compile gate success
@@ -11,8 +11,14 @@ The benchmark CI now uses the vendored stateless `mobench` 0.1.16 workflow set i
 - `.github/workflows/mobile-bench.yml` -- stateless benchmark runner
 - `.github/workflows/reusable-bench.yml` -- reusable BrowserStack execution workflow
 
-The workflow files are adapted from the `mobench` 0.1.16 stateless controller flow and
+The workflow files are adapted from the `mobench` 0.1.18 stateless controller flow and
 use crate-local benchmark configs under `crates/zk-mobile-bench/`.
+Repeated CLI steps are kept in repo-local helper scripts:
+
+- `.github/scripts/install-mobench.sh`
+- `.github/scripts/resolve-mobench-device.sh`
+- `.github/scripts/run-mobench-benchmarks.sh`
+- `.github/scripts/summarize-mobench-platform.sh`
 
 ## Triggers
 
@@ -65,3 +71,5 @@ The reusable workflow handles summarization via `mobench ci summarize`, which:
 
 The stateless workflow also records `head_sha`, trigger metadata, and resolved device
 information in the uploaded history bundle so runs stay pinned to the compile-gated commit.
+The summarization commands are invoked through `.github/scripts/summarize-mobench-platform.sh`
+so the iOS and Android paths stay aligned with the vendored 0.1.18 flow.

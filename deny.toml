@@ -48,4 +48,5 @@ ignore = [
     "RUSTSEC-2025-0141", # `uniffi_macros` pulls `bincode` through `zk-mobile-bench`; no safe upgrade path is available yet
     "RUSTSEC-2026-0044", # `aws-lc-sys` is pinned transitively via `aws-lc-rs`; no compatible lockfile-only update is available yet
     "RUSTSEC-2026-0048", # `aws-lc-sys` is pinned transitively via `aws-lc-rs`; no compatible lockfile-only update is available yet
+    "RUSTSEC-2026-0049", # `aws-smithy-http-client` still pulls legacy `rustls` 0.21 / `rustls-webpki` 0.101.7; no compatible lockfile-only update is available yet
 ]

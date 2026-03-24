@@ -20,8 +20,14 @@ Workflow files:
 - `.github/workflows/mobile-bench.yml` -- stateless benchmark runner
 - `.github/workflows/reusable-bench.yml` -- BrowserStack build/run/summarize implementation
 
-The controller and runner are adapted from the `mobench` 0.1.16 stateless flow, with
+The controller and runner are adapted from the `mobench` 0.1.18 stateless flow, with
 World ID-specific benchmark functions and crate-scoped bench configs.
+Repeated CLI operations are delegated to repo-local helper scripts:
+
+- `.github/scripts/install-mobench.sh`
+- `.github/scripts/resolve-mobench-device.sh`
+- `.github/scripts/run-mobench-benchmarks.sh`
+- `.github/scripts/summarize-mobench-platform.sh`
 
 ## 2. Trigger model
 
@@ -83,7 +89,7 @@ These inputs are accepted by `mobile-bench.yml`:
 - `head_sha` (string, optional; exact commit to benchmark)
 - `requested_by` (string, optional; shown in summary metadata)
 - `dispatch_id`, `trigger_source`, `request_command` (optional controller metadata)
-- `mobench_version` (default `0.1.16`)
+- `mobench_version` (default `0.1.18`)
 - `mobench_ref` (optional override for installing from git)
 - `check_run_name` (default `Mobench`)
 - `regression_threshold_pct` (default `5.0`)
@@ -123,6 +129,10 @@ Summarization is handled by the `mobench` CLI (not a Python script):
 - **`mobench ci summarize`**: Parses benchmark JSON/CSV artifacts and renders a
   markdown summary table. Output is published to `GITHUB_STEP_SUMMARY` and optionally
   as a sticky PR comment (`<!-- mobench-summary -->`).
+
+In this repository, the reusable workflow calls
+`.github/scripts/summarize-mobench-platform.sh`, which wraps those `cargo-mobench`
+summary commands for both platforms.
 
 This replaces the previous `crates/zk-mobile-bench/scripts/summarize_mobench_ci.py` flow
 and uploads a canonical history bundle pinned to the benchmarked `head_sha`.
@@ -175,4 +185,8 @@ When updating pipeline behavior, keep these aligned:
 - `.github/workflows/mobile-bench.yml`
 - `.github/workflows/reusable-bench.yml`
 - `.github/scripts/mobench-controller.mjs`
+- `.github/scripts/install-mobench.sh`
+- `.github/scripts/resolve-mobench-device.sh`
+- `.github/scripts/run-mobench-benchmarks.sh`
+- `.github/scripts/summarize-mobench-platform.sh`
 - `crates/zk-mobile-bench/docs/ci-browserstack.md` and this document

@@ -274,10 +274,10 @@ fn insert_if_newer<K: Eq + Hash, V: Clone>(
     get_ts: impl Fn(&V) -> u64,
     tail_ts: Option<u64>,
 ) {
-    if let Some(existing) = map.get(&key) {
-        if get_ts(&existing) >= ts {
-            return;
-        }
+    if let Some(existing) = map.get(&key)
+        && get_ts(&existing) >= ts
+    {
+        return;
     }
     if tail_ts.is_some_and(|tail| ts <= tail) {
         return;
