@@ -201,7 +201,7 @@ mod tests {
 
         let msg = compute_rp_signature_msg(nonce, created_at, expires_at, None);
 
-        // Message must always be exactly 49 bytes:
+        // Message must always be exactly 49 bytes if no action is used
         // 1 (version) + 32 (nonce) + 8 (created_at) + 8 (expires_at)
         assert_eq!(
             msg.len(),
@@ -225,7 +225,7 @@ mod tests {
 
         let msg = compute_rp_signature_msg(nonce, created_at, expires_at, Some(action));
 
-        // Message must always be exactly 81 bytes:
+        // Message must be exactly 81 bytes when an action is provided:
         // 1 (version) + 32 (nonce) + 8 (created_at) + 8 (expires_at) + 32 (action)
         assert_eq!(
             msg.len(),

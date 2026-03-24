@@ -14,9 +14,9 @@ permissions:
 name: Contracts CI
 
 env:
-    FOUNDRY_PROFILE: ci
-    WORLDCHAIN_PROVIDER: "${{ secrets.WORLDCHAIN_PROVIDER }}"
-    ETHEREUM_PROVIDER: "${{ secrets.ETHEREUM_PROVIDER }}"
+  FOUNDRY_PROFILE: ci
+  WORLDCHAIN_PROVIDER: "${{ secrets.WORLDCHAIN_PROVIDER }}"
+  ETHEREUM_PROVIDER: "${{ secrets.ETHEREUM_PROVIDER }}"
 
 jobs:
   test:
@@ -28,10 +28,18 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Cache Forge dependencies
+        uses: actions/cache@v4
+        with:
+          path: contracts/lib
+          key: ${{ runner.os }}-forge-${{ hashFiles('contracts/foundry.lock', 'contracts/foundry.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-forge-
 
       - name: Install dependencies
         run: forge install
@@ -52,6 +60,14 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Cache Forge dependencies
+        uses: actions/cache@v4
+        with:
+          path: contracts/lib
+          key: ${{ runner.os }}-forge-${{ hashFiles('contracts/foundry.lock', 'contracts/foundry.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-forge-
 
       - name: Regenerate ABIs
         run: make sol-build

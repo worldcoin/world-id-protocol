@@ -156,6 +156,63 @@ pub struct RemoveAuthenticatorRequest {
     pub authenticator_pubkey: Option<U256>,
 }
 
+/// The request to update a recovery agent.
+///
+/// Numeric string fields in this request accept decimal or `0x`/`0X`-prefixed hex.
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateRecoveryAgentRequest {
+    /// The account index.
+    #[serde(with = "hex_u64")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub leaf_index: u64,
+    /// The new recovery agent address.
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub new_recovery_agent: Address,
+    /// The signature.
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
+    pub signature: Vec<u8>,
+    /// The nonce.
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub nonce: U256,
+}
+
+/// The request to execute a pending recovery agent update.
+///
+/// No signature is required — `executeRecoveryAgentUpdate` is permissionless.
+/// The contract enforces the 14-day cooldown and will revert with
+/// `RecoveryAgentUpdateStillInCooldown` if called too early.
+///
+/// Numeric string fields in this request accept decimal or `0x`/`0X`-prefixed hex.
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExecuteRecoveryAgentUpdateRequest {
+    /// The account index.
+    #[serde(with = "hex_u64")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub leaf_index: u64,
+}
+
+/// The request to cancel a pending recovery agent update.
+///
+/// Numeric string fields in this request accept decimal or `0x`/`0X`-prefixed hex.
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CancelRecoveryAgentUpdateRequest {
+    /// The account index.
+    #[serde(with = "hex_u64")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub leaf_index: u64,
+    /// The signature.
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
+    pub signature: Vec<u8>,
+    /// The nonce.
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub nonce: U256,
+}
+
 /// The request to recover an account.
 ///
 /// Numeric string fields in this request accept decimal or `0x`/`0X`-prefixed hex.
@@ -215,6 +272,12 @@ pub enum GatewayRequestKind {
     InsertAuthenticator,
     /// Authenticator removal request.
     RemoveAuthenticator,
+    /// Recovery agent update initiation request.
+    UpdateRecoveryAgent,
+    /// Recovery agent update cancellation request.
+    CancelRecoveryAgentUpdate,
+    /// Recovery agent update execution request.
+    ExecuteRecoveryAgentUpdate,
     /// Account recovery request.
     RecoverAccount,
 }
@@ -337,6 +400,12 @@ pub struct IndexerAuthenticatorPubkeysResponse {
     #[serde(with = "hex_u256_opt_vec")]
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<Option<String>>, format = "hex"))]
     pub authenticator_pubkeys: Vec<Option<U256>>,
+
+    /// The commitment to all the authenticator pubkeys. This commitment is
+    /// stored in the `WorldIDRegistry`.
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub offchain_signer_commitment: U256,
 }
 
 /// Health response for an API service (gateway or indexer).

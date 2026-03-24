@@ -345,7 +345,10 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         query_input: oprf_output.query_proof_input,
         issuer_schema_id: credential.issuer_schema_id.into(),
         cred_pk: credential.issuer.pk,
-        cred_hashes: [*credential.claims_hash()?, *credential.associated_data_hash],
+        cred_hashes: [
+            *credential.claims_hash()?,
+            *credential.associated_data_commitment,
+        ],
         cred_genesis_issued_at: credential.genesis_issued_at.into(),
         cred_genesis_issued_at_min: request_item.genesis_issued_at_min.unwrap_or(0).into(),
         cred_expires_at: credential.expires_at.into(),
