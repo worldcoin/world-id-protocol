@@ -50,3 +50,39 @@ index d684cf3..647431e 100644
      }
  
      /// Validate device specifications against available devices.
+diff --git a/crates/mobench/src/lib.rs b/crates/mobench/src/lib.rs
+index f3f059b..a9de261 100644
+--- a/crates/mobench/src/lib.rs
++++ b/crates/mobench/src/lib.rs
+@@ -871,6 +871,13 @@ impl MobileTarget {
+             Self::Ios => "ios",
+         }
+     }
++
++    fn display_name(self) -> &'static str {
++        match self {
++            Self::Android => "Android",
++            Self::Ios => "iOS",
++        }
++    }
+ }
+ 
+ #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+@@ -4900,7 +4907,7 @@ fn render_markdown_summary(summary: &SummaryReport) -> String {
+     let _ = writeln!(output, "# Benchmark Summary");
+     let _ = writeln!(output);
+     let _ = writeln!(output, "- Generated: {}", summary.generated_at);
+-    let _ = writeln!(output, "- Target: {:?}", summary.target);
++    let _ = writeln!(output, "- Target: {}", summary.target.display_name());
+     let _ = writeln!(output, "- Function: {}", summary.function);
+     let _ = writeln!(
+         output,
+@@ -8282,6 +8289,8 @@ project = "proj"
+         let markdown = render_summary_markdown_from_output(&merged).expect("render markdown");
+         assert!(markdown.contains("## android"));
+         assert!(markdown.contains("## ios"));
++        assert!(markdown.contains("- Target: Android"));
++        assert!(markdown.contains("- Target: iOS"));
+     }
+ 
+     #[test]
