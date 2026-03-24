@@ -26,7 +26,7 @@ use moka::{future::Cache, ops::compute::Op};
 use taceo_oprf::types::OprfKeyId;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
-use world_id_primitives::rp::RpId;
+use world_id_primitives::{oprf::WorldIdRequestAuthError, rp::RpId};
 
 alloy::sol! {
     #[allow(missing_docs, clippy::too_many_arguments, reason="Get this errors from sol macro")]
@@ -44,13 +44,34 @@ pub(crate) struct RelyingParty {
 /// Error returned by the [`RpRegistryWatcher`] implementation.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RpRegistryWatcherError {
-    /// Error communicating with the chain.
-    #[error("alloy error: {0}")]
-    AlloyError(alloy::contract::Error),
-
     /// Unknown RP.
     #[error("unknown rp: {0}")]
     UnknownRp(RpId),
+    /// Inactive RP.
+    #[error("inactive rp: {0}")]
+    InactiveRp(RpId),
+    /// Internal Error
+    #[error(transparent)]
+    Internal(#[from] eyre::Report),
+}
+
+impl From<RpRegistryWatcherError> for WorldIdRequestAuthError {
+    fn from(value: RpRegistryWatcherError) -> Self {
+        match value {
+            RpRegistryWatcherError::Internal(error) => {
+                tracing::error!("internal error: {error:?}");
+                WorldIdRequestAuthError::Internal
+            }
+            RpRegistryWatcherError::UnknownRp(rp_id) => {
+                tracing::debug!("Cannot find {rp_id}");
+                WorldIdRequestAuthError::UnknownRp
+            }
+            RpRegistryWatcherError::InactiveRp(rp_id) => {
+                tracing::debug!("RP {rp_id} was requested, but is inactive");
+                WorldIdRequestAuthError::InactiveRp
+            }
+        }
+    }
 }
 
 /// Monitors the RPs from the `RpRegistry` contract.
@@ -182,36 +203,42 @@ impl RpRegistryWatcher {
         &self,
         rp_id: &RpId,
     ) -> Result<RelyingParty, RpRegistryWatcherError> {
-        {
-            if let Some(rp) = self.rp_store.get(rp_id).await {
-                tracing::debug!("rp {rp_id} found in store");
-                ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS).increment(1);
-                return Ok(rp);
-            }
+        if let Some(rp) = self.rp_store.get(rp_id).await {
+            tracing::debug!("rp {rp_id} found in store");
+            ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS).increment(1);
+            return Ok(rp);
         }
 
         tracing::debug!("rp {rp_id} not found in store, querying RpRegistry...");
         let contract = RpRegistry::new(self.contract_address, &self.provider);
-        let rp = contract
-            .getRp(rp_id.into_inner())
-            .call()
-            .await
-            .map_err(RpRegistryWatcherError::AlloyError)?;
+        let rp = match contract.getRp(rp_id.into_inner()).call().await {
+            Ok(rp) => rp,
+            Err(err) => {
+                if let Some(RpRegistry::RpIdDoesNotExist) =
+                    err.as_decoded_error::<RpRegistry::RpIdDoesNotExist>()
+                {
+                    return Err(RpRegistryWatcherError::UnknownRp(*rp_id));
+                } else if let Some(RpRegistry::RpIdInactive) =
+                    err.as_decoded_error::<RpRegistry::RpIdInactive>()
+                {
+                    return Err(RpRegistryWatcherError::InactiveRp(*rp_id));
+                }
+                return Err(RpRegistryWatcherError::Internal(eyre::eyre!(
+                    "failed to fetch RP info from chain: {err:?}"
+                )));
+            }
+        };
 
-        if rp.initialized {
-            ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
+        ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
 
-            let relying_party = RelyingParty {
-                signer: rp.signer,
-                oprf_key_id: OprfKeyId::new(rp.oprfKeyId),
-            };
-            self.rp_store.insert(*rp_id, relying_party.clone()).await;
+        let relying_party = RelyingParty {
+            signer: rp.signer,
+            oprf_key_id: OprfKeyId::new(rp.oprfKeyId),
+        };
+        self.rp_store.insert(*rp_id, relying_party.clone()).await;
 
-            tracing::debug!("rp {rp_id} loaded from chain and stored");
+        tracing::debug!("rp {rp_id} loaded from chain and stored");
 
-            Ok(relying_party)
-        } else {
-            Err(RpRegistryWatcherError::UnknownRp(*rp_id))
-        }
+        Ok(relying_party)
     }
 }

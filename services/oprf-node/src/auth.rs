@@ -14,12 +14,11 @@
 use std::sync::Arc;
 
 use ark_bn254::Bn254;
-use axum::{http::StatusCode, response::IntoResponse};
 use circom_types::groth16::VerificationKey;
 use taceo_oprf::types::OprfKeyId;
-use world_id_primitives::TREE_DEPTH;
+use world_id_primitives::{TREE_DEPTH, oprf::WorldIdRequestAuthError};
 
-use crate::auth::merkle_watcher::{MerkleWatcher, MerkleWatcherError};
+use crate::auth::merkle_watcher::MerkleWatcher;
 
 /// The embedded Groth16 verification key for OPRF query proofs.
 const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");
@@ -30,37 +29,6 @@ pub(crate) mod nonce_history;
 pub(crate) mod nullifier;
 pub(crate) mod rp_registry_watcher;
 pub(crate) mod schema_issuer_registry_watcher;
-
-/// Common errors returned by the [`NullifierOprfRequestAuthenticator`] and [`CredentialBlindingFactorOprfRequestAuthenticator`].
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum OprfRequestAuthError {
-    /// The client Groth16 proof did not verify.
-    #[error("client proof did not verify")]
-    InvalidProof,
-    /// The provided merkle root is not valid
-    #[error("invalid merkle root")]
-    InvalidMerkleRoot,
-    /// An error returned from the merkle watcher service during merkle look-up.
-    #[error(transparent)]
-    MerkleWatcherError(#[from] MerkleWatcherError),
-}
-
-impl IntoResponse for OprfRequestAuthError {
-    fn into_response(self) -> axum::response::Response {
-        match self {
-            OprfRequestAuthError::InvalidProof => {
-                (StatusCode::BAD_REQUEST, "invalid proof").into_response()
-            }
-            OprfRequestAuthError::MerkleWatcherError(err) => {
-                tracing::error!("merkle watcher error: {err}");
-                (StatusCode::SERVICE_UNAVAILABLE.into_response()).into_response()
-            }
-            OprfRequestAuthError::InvalidMerkleRoot => {
-                (StatusCode::BAD_REQUEST, "invalid merkle root").into_response()
-            }
-        }
-    }
-}
 
 /// Common authentication for [`NullifierOprfRequestAuthenticator`] and [`CredentialBlindingFactorOprfRequestAuthenticator`].
 pub(crate) struct OprfRequestAuthenticator {
@@ -86,16 +54,11 @@ impl OprfRequestAuthenticator {
         oprf_key_id: OprfKeyId,
         action: ark_babyjubjub::Fq,
         nonce: ark_babyjubjub::Fq,
-    ) -> Result<(), OprfRequestAuthError> {
+    ) -> Result<(), WorldIdRequestAuthError> {
         tracing::trace!("checking if merkle root is valid...");
-        let valid = self
-            .merkle_watcher
-            .is_root_valid(merkle_root.into())
+        self.merkle_watcher
+            .ensure_root_valid(merkle_root.into())
             .await?;
-        if !valid {
-            tracing::trace!("merkle root INVALID");
-            return Err(OprfRequestAuthError::InvalidMerkleRoot)?;
-        }
 
         tracing::trace!("verifying user proof...");
         let public = [
@@ -114,7 +77,7 @@ impl OprfRequestAuthenticator {
             Ok(())
         } else {
             tracing::trace!("proof INVALID");
-            Err(OprfRequestAuthError::InvalidProof)
+            Err(WorldIdRequestAuthError::InvalidQueryProof)
         }
     }
 }

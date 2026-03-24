@@ -1,80 +1,16 @@
 use crate::auth::{
-    merkle_watcher::MerkleWatcher,
-    nonce_history::{DuplicateNonceError, NonceHistory},
-    rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
+    merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
+    rp_registry_watcher::RpRegistryWatcher,
 };
 use async_trait::async_trait;
-use axum::{http::StatusCode, response::IntoResponse};
 use std::time::{Duration, SystemTime};
 use taceo_oprf::types::{
     OprfKeyId,
-    api::{OprfRequest, OprfRequestAuthenticator},
+    api::{OprfRequest, OprfRequestAuthenticator, OprfRequestAuthenticatorError},
 };
 use tracing::instrument;
-use uuid::Uuid;
 use world_id_core::FieldElement;
-use world_id_primitives::oprf::NullifierOprfRequestAuthV1;
-
-/// Errors returned by the [`NullifierOprfReqAuthenticator`].
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum NullifierOprfRequestAuthError {
-    /// An error returned from the `RpRegistry` watcher service during merkle look-up.
-    #[error(transparent)]
-    RpRegistryWatcherError(#[from] RpRegistryWatcherError),
-    /// The current time stamp difference between client and service is larger than allowed.
-    #[error("the time stamp difference is too large")]
-    TimeStampDifference,
-    /// A nonce was used more than once
-    #[error(transparent)]
-    DuplicateNonceError(#[from] DuplicateNonceError),
-    /// The signature over the nonce and time stamp is invalid
-    #[error(transparent)]
-    InvalidSignature(#[from] alloy::primitives::SignatureError),
-    /// Rp signature signer is invalid
-    #[error("the rp signer is not the same as in the signature")]
-    InvalidSigner,
-    /// Common OPRF request auth error
-    #[error(transparent)]
-    Common(#[from] crate::auth::OprfRequestAuthError),
-    /// Internal server error
-    #[error(transparent)]
-    InternalServerError(#[from] eyre::Report),
-}
-
-impl IntoResponse for NullifierOprfRequestAuthError {
-    fn into_response(self) -> axum::response::Response {
-        match self {
-            NullifierOprfRequestAuthError::RpRegistryWatcherError(err) => {
-                tracing::error!("RpRegistry watcher error: {err}");
-                (StatusCode::SERVICE_UNAVAILABLE.into_response()).into_response()
-            }
-            NullifierOprfRequestAuthError::TimeStampDifference => (
-                StatusCode::BAD_REQUEST,
-                "the time stamp difference is too large",
-            )
-                .into_response(),
-            NullifierOprfRequestAuthError::InvalidSignature(err) => {
-                (StatusCode::BAD_REQUEST, err.to_string()).into_response()
-            }
-            NullifierOprfRequestAuthError::InvalidSigner => {
-                (StatusCode::BAD_REQUEST, "invalid signer").into_response()
-            }
-            NullifierOprfRequestAuthError::Common(err) => err.into_response(),
-            NullifierOprfRequestAuthError::DuplicateNonceError(err) => {
-                (StatusCode::BAD_REQUEST, err.to_string()).into_response()
-            }
-            NullifierOprfRequestAuthError::InternalServerError(err) => {
-                let error_id = Uuid::new_v4();
-                tracing::error!("{error_id} - {err:?}");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("An internal server error has occurred. Error ID={error_id}"),
-                )
-                    .into_response()
-            }
-        }
-    }
-}
+use world_id_primitives::oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError};
 
 pub(crate) struct NullifierOprfRequestAuthenticator {
     rp_registry_watcher: RpRegistryWatcher,
@@ -97,18 +33,11 @@ impl NullifierOprfRequestAuthenticator {
             common: crate::auth::OprfRequestAuthenticator::init(merkle_watcher),
         }
     }
-}
 
-#[async_trait]
-impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
-    type RequestAuth = NullifierOprfRequestAuthV1;
-    type RequestAuthError = NullifierOprfRequestAuthError;
-
-    #[instrument(level = "debug", skip_all)]
-    async fn authenticate(
+    async fn authenticate_inner(
         &self,
-        request: &OprfRequest<Self::RequestAuth>,
-    ) -> Result<OprfKeyId, Self::RequestAuthError> {
+        request: &OprfRequest<NullifierOprfRequestAuthV1>,
+    ) -> Result<OprfKeyId, WorldIdRequestAuthError> {
         tracing::trace!("checking timestamp...");
         // check the time stamp against system time +/- difference
         let req_time_stamp = Duration::from_secs(request.auth.current_time_stamp);
@@ -116,7 +45,7 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("system time is after unix epoch");
         if current_time.abs_diff(req_time_stamp) > self.current_time_stamp_max_difference {
-            return Err(NullifierOprfRequestAuthError::TimeStampDifference);
+            return Err(WorldIdRequestAuthError::TimeStampTooOld);
         }
 
         tracing::trace!("fetching RP info...");
@@ -133,9 +62,16 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
             Some(request.auth.action),
         );
 
-        let recovered = request.auth.signature.recover_address_from_msg(&msg)?;
+        let recovered = request
+            .auth
+            .signature
+            .recover_address_from_msg(&msg)
+            .map_err(|err| {
+                tracing::debug!("invalid signature: {err:?}");
+                WorldIdRequestAuthError::InvalidRpSignature
+            })?;
         if recovered != rp.signer {
-            return Err(NullifierOprfRequestAuthError::InvalidSigner);
+            return Err(WorldIdRequestAuthError::InvalidRpSignature);
         }
 
         tracing::trace!("add nonce to store...");
@@ -161,6 +97,19 @@ impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
     }
 }
 
+#[async_trait]
+impl OprfRequestAuthenticator for NullifierOprfRequestAuthenticator {
+    type RequestAuth = NullifierOprfRequestAuthV1;
+
+    #[instrument(level = "debug", skip_all)]
+    async fn authenticate(
+        &self,
+        request: &OprfRequest<Self::RequestAuth>,
+    ) -> Result<OprfKeyId, OprfRequestAuthenticatorError> {
+        Ok(self.authenticate_inner(request).await?)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::large_futures, reason = "Is ok in tests")]
@@ -174,21 +123,15 @@ mod tests {
         types::api::{OprfRequest, OprfRequestAuthenticator as _},
     };
     use uuid::Uuid;
-    use world_id_core::{FieldElement, proof::errors};
+    use world_id_core::{FieldElement, primitives, proof::errors};
     use world_id_primitives::{
         TREE_DEPTH, circuit_inputs::QueryProofCircuitInput, oprf::NullifierOprfRequestAuthV1,
         rp::RpId,
     };
 
     use crate::auth::{
-        OprfRequestAuthError,
-        merkle_watcher::MerkleWatcher,
-        nonce_history::{DuplicateNonceError, NonceHistory},
-        nullifier::{NullifierOprfRequestAuthError, NullifierOprfRequestAuthenticator},
-        rp_registry_watcher::{
-            RpRegistry::{RpIdDoesNotExist, RpIdInactive, RpRegistryErrors},
-            RpRegistryWatcher, RpRegistryWatcherError,
-        },
+        merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
+        nullifier::NullifierOprfRequestAuthenticator, rp_registry_watcher::RpRegistryWatcher,
         tests::OprfRequestAuthTestSetup,
     };
 
@@ -324,15 +267,16 @@ mod tests {
     async fn test_nullifier_oprf_req_auth_expired_timestamp() -> eyre::Result<()> {
         let mut setup = NullifierOprfRequestAuthTestSetup::new().await?;
         setup.request.auth.current_time_stamp = u64::MAX;
-        let err = setup
+        let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
             .await
             .expect_err("Should fail");
-        assert!(matches!(
-            err,
-            NullifierOprfRequestAuthError::TimeStampDifference
-        ));
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::TIMESTAMP_TOO_OLD
+        );
+        assert_eq!(auth_error.message(), "timestamp in request too old");
         Ok(())
     }
 
@@ -340,15 +284,16 @@ mod tests {
     async fn test_nullifier_oprf_req_auth_invalid_merkle_root() -> eyre::Result<()> {
         let mut setup = NullifierOprfRequestAuthTestSetup::new().await?;
         setup.request.auth.merkle_root = rand::random();
-        let err = setup
+        let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
             .await
             .expect_err("Should fail");
-        assert!(matches!(
-            err,
-            NullifierOprfRequestAuthError::Common(OprfRequestAuthError::InvalidMerkleRoot)
-        ));
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_MERKLE_ROOT
+        );
+        assert_eq!(auth_error.message(), "invalid merkle root");
         Ok(())
     }
 
@@ -357,17 +302,13 @@ mod tests {
         let mut setup = NullifierOprfRequestAuthTestSetup::new().await?;
         let unknown_rp_id = RpId::new(rand::random());
         setup.request.auth.rp_id = unknown_rp_id;
-        let err = setup
+        let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
             .await
             .expect_err("Should fail");
-        assert!(matches!(
-            err,
-            NullifierOprfRequestAuthError::RpRegistryWatcherError(
-                RpRegistryWatcherError::AlloyError(err)
-            ) if matches!(err.as_decoded_interface_error::<RpRegistryErrors>().expect("Can decode to RpRegistryError"), RpRegistryErrors::RpIdDoesNotExist(RpIdDoesNotExist))
-        ));
+        assert_eq!(auth_error.code(), primitives::oprf::error_codes::UNKNOWN_RP);
+        assert_eq!(auth_error.message(), "unknown RP");
         Ok(())
     }
 
@@ -375,12 +316,16 @@ mod tests {
     async fn test_nullifier_oprf_req_auth_invalid_signer() -> eyre::Result<()> {
         let mut setup = NullifierOprfRequestAuthTestSetup::new().await?;
         setup.request.auth.nonce = rand::random();
-        let err = setup
+        let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
             .await
             .expect_err("Should fail");
-        assert!(matches!(err, NullifierOprfRequestAuthError::InvalidSigner));
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_RP_SIGNATURE
+        );
+        assert_eq!(auth_error.message(), "signature from RP cannot be verified");
         Ok(())
     }
 
@@ -388,15 +333,16 @@ mod tests {
     async fn test_nullifier_oprf_req_auth_invalid_proof() -> eyre::Result<()> {
         let mut setup = NullifierOprfRequestAuthTestSetup::new().await?;
         setup.request.auth.proof.pi_a = rand::random();
-        let err = setup
+        let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
             .await
             .expect_err("Should fail");
-        assert!(matches!(
-            err,
-            NullifierOprfRequestAuthError::Common(OprfRequestAuthError::InvalidProof)
-        ));
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_QUERY_PROOF
+        );
+        assert_eq!(auth_error.message(), "cannot verify query proof");
         Ok(())
     }
 
@@ -407,15 +353,16 @@ mod tests {
             .request_authenticator
             .authenticate(&setup.request)
             .await?;
-        let err = setup
+        let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
             .await
             .expect_err("Should fail");
-        assert!(matches!(
-            err,
-            NullifierOprfRequestAuthError::DuplicateNonceError(DuplicateNonceError)
-        ));
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::DUPLICATE_NONCE
+        );
+        assert_eq!(auth_error.message(), "signature nonce already used");
         Ok(())
     }
 
@@ -439,17 +386,16 @@ mod tests {
                 "taceo.oprf".to_string(),
             )
             .await?;
-        let err = setup
+        let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
             .await
             .expect_err("Should fail");
-        assert!(matches!(
-            err,
-            NullifierOprfRequestAuthError::RpRegistryWatcherError(
-                RpRegistryWatcherError::AlloyError(err)
-            ) if matches!(err.as_decoded_interface_error::<RpRegistryErrors>().expect("Can decode to RpRegistryError"), RpRegistryErrors::RpIdInactive(RpIdInactive))
-        ));
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INACTIVE_RP
+        );
+        assert_eq!(auth_error.message(), "inactive RP");
         Ok(())
     }
 }
