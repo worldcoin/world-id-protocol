@@ -1,3 +1,8 @@
+//! Authentication for the credential blinding factor OPRF module.
+//!
+//! Validates that the action is zero, the issuer schema is registered, the
+//! Merkle root is valid, and the ZK query proof verifies.
+
 use std::sync::Arc;
 
 use crate::auth::{

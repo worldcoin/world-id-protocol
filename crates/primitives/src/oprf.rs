@@ -112,7 +112,7 @@ pub enum WorldIdRequestAuthError {
     /// Invalid action for nullifier computation
     #[error("invalid action - MSB must be 0x00 for nullifier")]
     InvalidActionNullifier,
-    /// Invalid action for nullifier computation
+    /// Invalid action for session computation
     #[error(
         "invalid action - MSB must be 0x02 for internal nullifier or 0x01 for session_id_r_seed"
     )]
