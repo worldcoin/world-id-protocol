@@ -282,9 +282,8 @@ jobs:
           BENCH_OUTCOME: ${{ steps.run_ios_benchmarks.outcome }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          json_files=(target/mobench/ci/ios/*.json)
-          csv_files=(target/mobench/ci/ios/*.csv)
+          mapfile -t json_files < <(find target/mobench/ci/ios/ios -type f -name summary.json 2>/dev/null | sort)
+          mapfile -t csv_files < <(find target/mobench/ci/ios/ios -type f -name summary.csv 2>/dev/null | sort)
 
           if [ ${#json_files[@]} -eq 0 ] || [ ${#csv_files[@]} -eq 0 ]; then
             echo "::error::iOS benchmark artifacts were not produced"
@@ -301,8 +300,7 @@ jobs:
         with:
           name: mobench-results-ios
           path: |
-            caller/target/mobench/ci/ios/*.json
-            caller/target/mobench/ci/ios/*.csv
+            caller/target/mobench/ci/ios/**
             caller/target/browserstack/**
           if-no-files-found: error
 
@@ -481,9 +479,8 @@ jobs:
           BENCH_OUTCOME: ${{ steps.run_android_benchmarks.outcome }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          json_files=(target/mobench/ci/android/*.json)
-          csv_files=(target/mobench/ci/android/*.csv)
+          mapfile -t json_files < <(find target/mobench/ci/android/android -type f -name summary.json 2>/dev/null | sort)
+          mapfile -t csv_files < <(find target/mobench/ci/android/android -type f -name summary.csv 2>/dev/null | sort)
 
           if [ ${#json_files[@]} -eq 0 ] || [ ${#csv_files[@]} -eq 0 ]; then
             echo "::error::Android benchmark artifacts were not produced"
@@ -500,8 +497,7 @@ jobs:
         with:
           name: mobench-results-android
           path: |
-            caller/target/mobench/ci/android/*.json
-            caller/target/mobench/ci/android/*.csv
+            caller/target/mobench/ci/android/**
             caller/target/browserstack/**
           if-no-files-found: error
 
@@ -553,16 +549,17 @@ jobs:
         if: needs.ios.result == 'success'
         shell: bash
         run: |
+          IOS_RESULTS_DIR="results/ios/mobench/ci/ios"
           echo "## iOS Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          if [ -d results/ios ]; then
+          if [ -d "$IOS_RESULTS_DIR" ]; then
             cargo-mobench ci summarize \
-              --results-dir results/ios \
+              --results-dir "$IOS_RESULTS_DIR" \
               --output-format table || true
 
             cargo-mobench ci summarize \
-              --results-dir results/ios \
+              --results-dir "$IOS_RESULTS_DIR" \
               --output-format markdown \
               --output-file /tmp/ios-summary.md || true
 
@@ -578,16 +575,17 @@ jobs:
         if: needs.android.result == 'success'
         shell: bash
         run: |
+          ANDROID_RESULTS_DIR="results/android/mobench/ci/android"
           echo "## Android Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          if [ -d results/android ]; then
+          if [ -d "$ANDROID_RESULTS_DIR" ]; then
             cargo-mobench ci summarize \
-              --results-dir results/android \
+              --results-dir "$ANDROID_RESULTS_DIR" \
               --output-format table || true
 
             cargo-mobench ci summarize \
-              --results-dir results/android \
+              --results-dir "$ANDROID_RESULTS_DIR" \
               --output-format markdown \
               --output-file /tmp/android-summary.md || true
 
@@ -612,7 +610,7 @@ jobs:
           ## Mobench Benchmark Results
 
           "
-          for dir in results/ios results/android; do
+          for dir in results/ios/mobench/ci/ios results/android/mobench/ci/android; do
             if [ -d "$dir" ]; then
               PLATFORM_MD=$(cargo-mobench ci summarize --results-dir "$dir" --output-format markdown 2>/dev/null || true)
               if [ -n "$PLATFORM_MD" ]; then
@@ -665,9 +663,9 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          for dir in results/ios results/android; do
+          for dir in results/ios/mobench/ci/ios results/android/mobench/ci/android; do
             if [ -d "$dir" ]; then
-              PLATFORM=$(basename "$dir")
+              PLATFORM=$(basename "$(dirname "$dir")")
               cargo-mobench ci check-run \
                 --results-dir "$dir" \
                 --repo "$GH_REPO" \
@@ -690,10 +688,10 @@ jobs:
           mkdir -p history-bundle
           TIMESTAMP=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-          for dir in results/ios results/android; do
+          for dir in results/ios/mobench/ci/ios results/android/mobench/ci/android; do
             if [ -d "$dir" ]; then
-              cp "$dir"/*.json "history-bundle/" 2>/dev/null || true
-              cp "$dir"/*.csv "history-bundle/" 2>/dev/null || true
+              cp "$dir"/summary.json "history-bundle/$(basename "$(dirname "$dir")")-summary.json" 2>/dev/null || true
+              cp "$dir"/results.csv "history-bundle/$(basename "$(dirname "$dir")")-results.csv" 2>/dev/null || true
             fi
           done
 
