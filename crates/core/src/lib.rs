@@ -14,7 +14,7 @@ pub use world_id_authenticator::{
     OnchainKeyRepresentable,
 };
 
-#[cfg(all(feature = "authenticator", feature = "ohttp"))]
+#[cfg(feature = "authenticator")]
 pub use world_id_authenticator::OhttpClientConfig;
 
 /// Re-export registry from authenticator for convenience

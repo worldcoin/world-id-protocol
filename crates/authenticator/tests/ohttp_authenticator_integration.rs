@@ -1,5 +1,3 @@
-#![cfg(feature = "ohttp")]
-
 use std::sync::Arc;
 
 use axum::{

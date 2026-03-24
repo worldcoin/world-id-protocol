@@ -1,5 +1,4 @@
 use crate::AuthenticatorError;
-#[cfg(feature = "ohttp")]
 use crate::ohttp::{OhttpClient, OhttpClientConfig};
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
@@ -11,7 +10,6 @@ pub(crate) enum ServiceKind {
 }
 
 impl ServiceKind {
-    #[cfg(feature = "ohttp")]
     pub fn ohttp_config_scope(&self) -> &str {
         match self {
             ServiceKind::Gateway => "ohttp_gateway",
@@ -29,7 +27,6 @@ pub(crate) struct ServiceClient {
 #[derive(Clone, Debug)]
 enum HttpTransport {
     Direct(reqwest::Client),
-    #[cfg(feature = "ohttp")]
     Ohttp(OhttpClient),
 }
 
@@ -46,7 +43,6 @@ impl ServiceClient {
     /// `target_url` is the origin of the upstream service (e.g. the gateway or
     /// indexer URL). It is forwarded into the encrypted BHTTP envelope when
     /// OHTTP is enabled.
-    #[cfg(feature = "ohttp")]
     pub(crate) fn new(
         client: reqwest::Client,
         service_kind: ServiceKind,
@@ -66,18 +62,6 @@ impl ServiceClient {
         Ok(Self {
             service_kind,
             transport,
-        })
-    }
-
-    /// Creates a new [`ServiceClient`] using direct HTTP transport.
-    #[cfg(not(feature = "ohttp"))]
-    pub(crate) fn new(
-        client: reqwest::Client,
-        service_kind: ServiceKind,
-    ) -> Result<Self, AuthenticatorError> {
-        Ok(Self {
-            service_kind,
-            transport: HttpTransport::Direct(client),
         })
     }
 
@@ -136,7 +120,6 @@ impl ServiceClient {
                     .await?;
                 Self::success_or_fallback_body(response).await?
             }
-            #[cfg(feature = "ohttp")]
             HttpTransport::Ohttp(client) => {
                 let resp = client.post_json(path, body).await?;
                 TransportResponse {
@@ -174,7 +157,6 @@ impl ServiceClient {
                 let response = client.get(format!("{base_url}{path}")).send().await?;
                 Self::success_or_fallback_body(response).await?
             }
-            #[cfg(feature = "ohttp")]
             HttpTransport::Ohttp(client) => {
                 let resp = client.get(path).await?;
                 TransportResponse {
