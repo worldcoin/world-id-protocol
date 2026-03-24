@@ -113,7 +113,7 @@ impl From<RpModuleError> for WorldIdRequestAuthError {
             RpModuleError::TimestampTooOld {
                 current: _,
                 timestamp: _,
-            } => WorldIdRequestAuthError::TimeStampTooOld,
+            } => WorldIdRequestAuthError::TimestampTooOld,
             RpModuleError::UnknownRp(_) => WorldIdRequestAuthError::UnknownRp,
             RpModuleError::InactiveRp(_) => WorldIdRequestAuthError::InactiveRp,
             // we map to the same signature to not leak that a forged signature was build correctly

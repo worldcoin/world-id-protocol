@@ -45,7 +45,7 @@ pub(crate) enum CredentialBlindingFactorModuleError {
 impl From<SchemaIssuerRegistryWatcherError> for CredentialBlindingFactorModuleError {
     fn from(value: SchemaIssuerRegistryWatcherError) -> Self {
         match value {
-            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(id) => {
+            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(id) => {
                 Self::UnknownSchemaIssuer(id)
             }
             SchemaIssuerRegistryWatcherError::Internal(report) => Self::Internal(report),
@@ -75,7 +75,7 @@ impl From<CredentialBlindingFactorModuleError> for WorldIdRequestAuthError {
                 WorldIdRequestAuthError::InvalidMerkleRoot
             }
             CredentialBlindingFactorModuleError::UnknownSchemaIssuer(_) => {
-                WorldIdRequestAuthError::UnknownSchemaIssuer
+                WorldIdRequestAuthError::UnknownSchemaIssuerId
             }
             CredentialBlindingFactorModuleError::Internal(_) => WorldIdRequestAuthError::Internal,
         }
