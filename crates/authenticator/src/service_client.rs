@@ -81,6 +81,7 @@ impl ServiceClient {
         })
     }
 
+    /// Reads the response body, falling back to an error description so the caller always retains the HTTP status code.
     async fn response_body_bytes_or_fallback(response: reqwest::Response) -> Vec<u8> {
         response
             .bytes()
