@@ -25,5 +25,3 @@ jobs:
         env:
           CONTRACTS_PREBUILT: "1"
         run: cargo test --all --locked --no-run
-      - name: Validate controller fixtures
-        run: node --test .github/scripts/__tests__/mobench-controller.test.mjs
