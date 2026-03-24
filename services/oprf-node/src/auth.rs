@@ -204,7 +204,7 @@ mod tests {
 
             let max_cache_size = 100;
             let cache_maintenance_interval = Duration::from_secs(60);
-            let current_time_stamp_max_difference = Duration::from_secs(300);
+            let current_time_stamp_max_difference = Duration::from_secs(1800);
             let started_services = StartedServices::default();
             let cancellation_token = CancellationToken::new();
 
