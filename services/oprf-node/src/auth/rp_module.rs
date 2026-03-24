@@ -632,10 +632,7 @@ mod tests {
             auth_error.code(),
             primitives::oprf::error_codes::INVALID_ACTION_SESSION
         );
-        assert_eq!(
-            auth_error.message(),
-            "invalid action for session proofs"
-        );
+        assert_eq!(auth_error.message(), "invalid action for session proofs");
         Ok(())
     }
 
@@ -655,10 +652,7 @@ mod tests {
             auth_error.code(),
             primitives::oprf::error_codes::INVALID_ACTION_SESSION
         );
-        assert_eq!(
-            auth_error.message(),
-            "invalid action for session proofs"
-        );
+        assert_eq!(auth_error.message(), "invalid action for session proofs");
         Ok(())
     }
 
@@ -685,10 +679,7 @@ mod tests {
             auth_error.code(),
             primitives::oprf::error_codes::INVALID_ACTION_NULLIFIER
         );
-        assert_eq!(
-            auth_error.message(),
-            "invalid action for nullifier"
-        );
+        assert_eq!(auth_error.message(), "invalid action for nullifier");
         Ok(())
     }
 
