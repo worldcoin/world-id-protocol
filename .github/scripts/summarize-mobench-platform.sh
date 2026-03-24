@@ -28,24 +28,17 @@ cargo-mobench ci summarize \
 
 cargo-mobench summary "$RESULTS_DIR/summary.json" --format csv > "$RESULTS_DIR/results.csv"
 
-echo "## ${label} Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
-echo "" >> "$GITHUB_STEP_SUMMARY"
-
-temp_summary="$(mktemp)"
 cargo-mobench ci summarize \
   --results-dir "$RESULTS_DIR" \
   --output-format table || true
 
-cargo-mobench ci summarize \
-  --results-dir "$RESULTS_DIR" \
-  --output-format markdown \
-  --output-file "$temp_summary" || true
+echo "## ${label} Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
+echo "" >> "$GITHUB_STEP_SUMMARY"
 
-if [ -f "$temp_summary" ]; then
-  cat "$temp_summary" >> "$GITHUB_STEP_SUMMARY"
+if [ -f "$RESULTS_DIR/summary.md" ]; then
+  cat "$RESULTS_DIR/summary.md" >> "$GITHUB_STEP_SUMMARY"
 else
   echo "No ${label} results found." >> "$GITHUB_STEP_SUMMARY"
 fi
 
 echo "" >> "$GITHUB_STEP_SUMMARY"
-rm -f "$temp_summary"
