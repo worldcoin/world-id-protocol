@@ -128,6 +128,7 @@ pub enum WorldIdRequestAuthError {
 
 /// The actor where a provided OPRF error likely originated and with ability
 /// to fix it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorActor {
     /// The Relying Party requesting a Proof
     Rp,
