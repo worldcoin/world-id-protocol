@@ -155,7 +155,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_oprf_req_auth_success_oprf_seed() -> eyre::Result<()> {
-        let setup = SessionOprfRequestAuthTestSetup::new().await?;
+        let setup =
+            SessionOprfRequestAuthTestSetup::with_session_type(SessionFeType::OprfSeed).await?;
         setup
             .request_authenticator
             .authenticate(&setup.request)
@@ -190,7 +191,7 @@ mod tests {
         );
         assert_eq!(
             auth_error.message(),
-            "invalid action - MSB must be 0x00 for internal nullifier or 0x01 for session_id_r_seed"
+            "invalid action - MSB must be 0x02 for internal nullifier or 0x01 for session_id_r_seed"
         );
         Ok(())
     }
@@ -213,7 +214,7 @@ mod tests {
         );
         assert_eq!(
             auth_error.message(),
-            "invalid action - MSB must be 0x00 for internal nullifier or 0x01 for session_id_r_seed"
+            "invalid action - MSB must be 0x02 for internal nullifier or 0x01 for session_id_r_seed"
         );
         Ok(())
     }
