@@ -32,6 +32,17 @@ pub enum CredentialVersion {
 /// In the case of World ID these statements are about humans, with the most common
 /// credentials being Orb verification or document verification.
 ///
+/// # Credential Lifecycle
+///
+/// The following official terminology is defined for the lifecycle of a Credential.
+/// - **Issuance** (can also be called **Enrollment**): Process by which a credential is initially issued to a user.
+/// - **Renewal**: Process by which a user requests a new Credential from a previously existing active or
+///   expired Credential. This usually happens close to Credential expiration. _It is analogous to
+///   when you request a renewal of your passport, you get a new passport with a new expiration date._
+/// - **Re-Issuance**: Process by which a user obtains a copy of their existing Credential. The copy does not
+///   need to be exact, but the original expiration date MUST be preserved. This usually occurs when a user
+///   accidentally lost their Credential (e.g. disk failure, authenticator loss) and needs to recover for an existing period.
+///
 /// # Associated Data
 ///
 /// Credentials have a pre-defined strict structure, which is determined by their version. Issuers

@@ -12,11 +12,7 @@ use crate::metrics::METRICS_ID_NODE_NONCE_HISTORY_SIZE;
 use moka::future::Cache;
 use tracing::instrument;
 use world_id_core::FieldElement;
-
-/// Error returned when a duplicate nonce is detected.
-#[derive(Debug, thiserror::Error)]
-#[error("duplicate nonce")]
-pub(crate) struct DuplicateNonceError;
+use world_id_primitives::oprf::WorldIdRequestAuthError;
 
 /// Tracks nonces used for signatures to prevent replay attacks.
 ///
@@ -66,14 +62,17 @@ impl NonceHistory {
     /// * `nonce` - The nonce to track
     ///
     /// # Errors
-    /// Returns [`DuplicateNonceError`] if the nonce already exists.
+    /// Returns [`WorldIdRequestAuthError::DuplicateNonce`] if the nonce already exists.
     #[instrument(level = "debug", skip_all)]
-    pub(crate) async fn add_nonce(&self, nonce: FieldElement) -> Result<(), DuplicateNonceError> {
+    pub(crate) async fn add_nonce(
+        &self,
+        nonce: FieldElement,
+    ) -> Result<(), WorldIdRequestAuthError> {
         tracing::debug!("add nonce to history");
         let entry = self.nonces.entry(nonce).or_insert(()).await;
         if !entry.is_fresh() {
             tracing::debug!("duplicate nonce");
-            return Err(DuplicateNonceError);
+            return Err(WorldIdRequestAuthError::DuplicateNonce);
         }
         Ok(())
     }

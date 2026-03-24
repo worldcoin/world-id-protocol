@@ -21,10 +21,12 @@ use alloy::{
     rpc::types::Filter,
     sol_types::SolEvent,
 };
+use eyre::Context;
 use futures::StreamExt as _;
 use moka::future::Cache;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
+use world_id_primitives::oprf::WorldIdRequestAuthError;
 
 alloy::sol! {
     #[allow(missing_docs, clippy::too_many_arguments, reason="Get this errors from sol macro")]
@@ -36,13 +38,27 @@ alloy::sol! {
 /// Error returned by the [`IssuerSchemaRegistryWatcher`] implementation.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum SchemaIssuerRegistryWatcherError {
-    /// Error communicating with the chain.
-    #[error("alloy error: {0}")]
-    AlloyError(alloy::contract::Error),
-
     /// Unknown schema issuer.
     #[error("unknown schema issuer: {0}")]
     UnknownSchemaIssuer(u64),
+    /// Internal Error
+    #[error(transparent)]
+    Internal(#[from] eyre::Report),
+}
+
+impl From<SchemaIssuerRegistryWatcherError> for WorldIdRequestAuthError {
+    fn from(value: SchemaIssuerRegistryWatcherError) -> Self {
+        match value {
+            SchemaIssuerRegistryWatcherError::Internal(error) => {
+                tracing::error!("internal error: {error:?}");
+                WorldIdRequestAuthError::Internal
+            }
+            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(schema_id) => {
+                tracing::debug!("Cannot find {schema_id}");
+                WorldIdRequestAuthError::UnknownSchemaIssuer
+            }
+        }
+    }
 }
 
 /// Monitors the issuer from the `CredentialSchemaIssuerRegistry` contract.
@@ -174,7 +190,7 @@ impl SchemaIssuerRegistryWatcher {
             .getSignerForIssuerSchemaId(issuer_schema_id)
             .call()
             .await
-            .map_err(SchemaIssuerRegistryWatcherError::AlloyError)?;
+            .context("while getting signer for issuer-schema")?;
 
         if signer == Address::ZERO {
             Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(
