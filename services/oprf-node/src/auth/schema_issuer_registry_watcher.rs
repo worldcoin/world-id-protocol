@@ -26,7 +26,6 @@ use futures::StreamExt as _;
 use moka::future::Cache;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
-use world_id_primitives::oprf::WorldIdRequestAuthError;
 
 alloy::sol! {
     #[allow(missing_docs, clippy::too_many_arguments, reason="Get this errors from sol macro")]
@@ -44,21 +43,6 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
     /// Internal Error
     #[error(transparent)]
     Internal(#[from] eyre::Report),
-}
-
-impl From<SchemaIssuerRegistryWatcherError> for WorldIdRequestAuthError {
-    fn from(value: SchemaIssuerRegistryWatcherError) -> Self {
-        match value {
-            SchemaIssuerRegistryWatcherError::Internal(error) => {
-                tracing::error!("internal error: {error:?}");
-                WorldIdRequestAuthError::Internal
-            }
-            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(schema_id) => {
-                tracing::debug!("Cannot find {schema_id}");
-                WorldIdRequestAuthError::UnknownSchemaIssuerId
-            }
-        }
-    }
 }
 
 /// Monitors the issuer from the `CredentialSchemaIssuerRegistry` contract.
@@ -175,14 +159,14 @@ impl SchemaIssuerRegistryWatcher {
                 .await
                 .is_some()
             {
-                tracing::debug!("issuer {issuer_schema_id} found in store");
+                tracing::trace!("issuer {issuer_schema_id} found in store");
                 ::metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS)
                     .increment(1);
                 return Ok(());
             }
         }
 
-        tracing::debug!(
+        tracing::trace!(
             "issuer {issuer_schema_id} not found in store, querying CredentialSchemaIssuerRegistry..."
         );
         let contract = CredentialSchemaIssuerRegistry::new(self.contract_address, &self.provider);

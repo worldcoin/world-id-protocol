@@ -13,6 +13,8 @@ pub enum OprfModule {
     Nullifier,
     /// Oprf module for generating credential blinding factors
     CredentialBlindingFactor,
+    /// Oprf module for generating internal nullifiers for sessions proofs and the `session_id_r_seed`
+    Session,
 }
 
 impl std::fmt::Display for OprfModule {
@@ -20,6 +22,7 @@ impl std::fmt::Display for OprfModule {
         match self {
             Self::Nullifier => write!(f, "nullifier"),
             Self::CredentialBlindingFactor => write!(f, "credential_blinding_factor"),
+            Self::Session => write!(f, "session"),
         }
     }
 }
@@ -76,7 +79,7 @@ pub struct CredentialBlindingFactorOprfRequestAuthV1 {
 ///
 /// Variants map 1-to-1 with the numeric close-frame error codes in [`error_codes`], which are
 /// sent to the client over the WebSocket connection when authentication fails.
-#[derive(Debug, thiserror::Error)]
+#[derive(Copy, Clone, Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum WorldIdRequestAuthError {
     /// Unknown RP. The RP is likely not registerd in the `RpRegistry`.
@@ -118,6 +121,14 @@ pub enum WorldIdRequestAuthError {
     /// The provided action for the blinding factor generation is not valid.
     #[error("invalid_action_for_blinding_factor")]
     InvalidActionSchemaIssuer,
+    /// Invalid action for nullifier computation
+    #[error("invalid action - MSB must be 0x00 for nullifier")]
+    InvalidActionNullifier,
+    /// Invalid action for session computation
+    #[error(
+        "invalid action - MSB must be 0x02 for internal nullifier or 0x01 for session_id_r_seed"
+    )]
+    InvalidActionSession,
     /// Internal server error.
     #[error("internal_server_error")]
     Internal,
@@ -171,8 +182,35 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::INVALID_QUERY_PROOF => Self::InvalidQueryProof,
             error_codes::INVALID_ACTION_SCHEMA_ISSUER => Self::InvalidActionSchemaIssuer,
             error_codes::UNKNOWN_SCHEMA_ISSUER => Self::UnknownSchemaIssuerId,
+            error_codes::INVALID_ACTION_NULLIFIER => Self::InvalidActionNullifier,
+            error_codes::INVALID_ACTION_SESSION => Self::InvalidActionSession,
             error_codes::INTERNAL => Self::Internal,
             other => Self::Unknown(other),
+        }
+    }
+}
+
+impl From<WorldIdRequestAuthError> for u16 {
+    fn from(value: WorldIdRequestAuthError) -> Self {
+        match value {
+            WorldIdRequestAuthError::UnknownRp => error_codes::UNKNOWN_RP,
+            WorldIdRequestAuthError::InactiveRp => error_codes::INACTIVE_RP,
+            WorldIdRequestAuthError::TimeStampTooOld => error_codes::TIMESTAMP_TOO_OLD,
+            WorldIdRequestAuthError::InvalidRpSignature => error_codes::INVALID_RP_SIGNATURE,
+            WorldIdRequestAuthError::DuplicateNonce => error_codes::DUPLICATE_NONCE,
+            WorldIdRequestAuthError::InvalidMerkleRoot => error_codes::INVALID_MERKLE_ROOT,
+            WorldIdRequestAuthError::InvalidQueryProof => error_codes::INVALID_QUERY_PROOF,
+            WorldIdRequestAuthError::InvalidActionSchemaIssuer => {
+                error_codes::INVALID_ACTION_SCHEMA_ISSUER
+            }
+            WorldIdRequestAuthError::UnknownSchemaIssuer => error_codes::UNKNOWN_SCHEMA_ISSUER,
+            WorldIdRequestAuthError::InvalidActionNullifier => {
+                error_codes::INVALID_ACTION_NULLIFIER
+            }
+            WorldIdRequestAuthError::InvalidActionSession => error_codes::INVALID_ACTION_SESSION,
+            WorldIdRequestAuthError::Internal => error_codes::INTERNAL,
+
+            WorldIdRequestAuthError::Unknown(other) => other,
         }
     }
 }
@@ -195,6 +233,10 @@ pub mod error_codes {
     pub const INVALID_ACTION_SCHEMA_ISSUER: u16 = 4506;
     /// Error code for [`super::WorldIdRequestAuthError::UnknownSchemaIssuerId`].
     pub const UNKNOWN_SCHEMA_ISSUER: u16 = 4507;
+    /// Error code for [`super::WorldIdRequestAuthError::InvalidActionNullifier`].
+    pub const INVALID_ACTION_NULLIFIER: u16 = 4508;
+    /// Error code for [`super::WorldIdRequestAuthError::InvalidActionSession`].
+    pub const INVALID_ACTION_SESSION: u16 = 4509;
     /// Error code for [`super::WorldIdRequestAuthError::InactiveRp`].
     pub const INACTIVE_RP: u16 = 4510;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
@@ -203,51 +245,53 @@ pub mod error_codes {
 
 impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
     fn from(value: WorldIdRequestAuthError) -> Self {
-        let (code, msg) = match value {
-            WorldIdRequestAuthError::UnknownRp => (
-                error_codes::UNKNOWN_RP,
-                taceo_oprf::types::close_frame_message!("unknown RP"),
-            ),
-            WorldIdRequestAuthError::TimestampTooOld => (
-                error_codes::TIMESTAMP_TOO_OLD,
-                taceo_oprf::types::close_frame_message!("timestamp in request too old"),
-            ),
-            WorldIdRequestAuthError::InvalidRpSignature => (
-                error_codes::INVALID_RP_SIGNATURE,
-                taceo_oprf::types::close_frame_message!("signature from RP cannot be verified"),
-            ),
-            WorldIdRequestAuthError::DuplicateNonce => (
-                error_codes::DUPLICATE_NONCE,
-                taceo_oprf::types::close_frame_message!("signature nonce already used"),
-            ),
-            WorldIdRequestAuthError::InvalidMerkleRoot => (
-                error_codes::INVALID_MERKLE_ROOT,
-                taceo_oprf::types::close_frame_message!("invalid merkle root"),
-            ),
-            WorldIdRequestAuthError::InvalidQueryProof => (
-                error_codes::INVALID_QUERY_PROOF,
-                taceo_oprf::types::close_frame_message!("cannot verify query proof"),
-            ),
-            WorldIdRequestAuthError::InvalidActionSchemaIssuer => (
-                error_codes::INVALID_ACTION_SCHEMA_ISSUER,
+        let code = u16::from(value);
+        let msg = match value {
+            WorldIdRequestAuthError::UnknownRp => {
+                taceo_oprf::types::close_frame_message!("unknown RP")
+            }
+            WorldIdRequestAuthError::TimeStampTooOld => {
+                taceo_oprf::types::close_frame_message!("timestamp in request too old")
+            }
+            WorldIdRequestAuthError::InvalidRpSignature => {
+                taceo_oprf::types::close_frame_message!("signature from RP cannot be verified")
+            }
+            WorldIdRequestAuthError::DuplicateNonce => {
+                taceo_oprf::types::close_frame_message!("signature nonce already used")
+            }
+            WorldIdRequestAuthError::InvalidMerkleRoot => {
+                taceo_oprf::types::close_frame_message!("invalid merkle root")
+            }
+            WorldIdRequestAuthError::InvalidQueryProof => {
+                taceo_oprf::types::close_frame_message!("cannot verify query proof")
+            }
+            WorldIdRequestAuthError::InvalidActionSchemaIssuer => {
                 taceo_oprf::types::close_frame_message!(
                     "invalid action - must be 0 for schema-issuer blinding"
-                ),
-            ),
-            WorldIdRequestAuthError::UnknownSchemaIssuerId => (
-                error_codes::UNKNOWN_SCHEMA_ISSUER,
-                taceo_oprf::types::close_frame_message!("unknown schema issuer"),
-            ),
-            WorldIdRequestAuthError::InactiveRp => (
-                error_codes::INACTIVE_RP,
-                taceo_oprf::types::close_frame_message!("inactive RP"),
-            ),
-            WorldIdRequestAuthError::Internal => (
-                error_codes::INTERNAL, // RFC 6455 error code
-                taceo_oprf::types::close_frame_message!("internal server error"),
-            ),
-            WorldIdRequestAuthError::Unknown(unknown) => {
-                (unknown, taceo_oprf::types::close_frame_message!("unknown"))
+                )
+            }
+            WorldIdRequestAuthError::UnknownSchemaIssuer => {
+                taceo_oprf::types::close_frame_message!("unknown schema issuer")
+            }
+            WorldIdRequestAuthError::InvalidActionNullifier => {
+                taceo_oprf::types::close_frame_message!(
+                    "invalid action - MSB must be 0x00 for nullifier"
+                )
+            }
+            WorldIdRequestAuthError::InvalidActionSession => {
+                taceo_oprf::types::close_frame_message!(
+                    "invalid action - MSB must be 0x02 for internal nullifier or 0x01 for session_id_r_seed"
+                )
+            }
+            WorldIdRequestAuthError::InactiveRp => {
+                taceo_oprf::types::close_frame_message!("inactive RP")
+            }
+
+            WorldIdRequestAuthError::Internal => {
+                taceo_oprf::types::close_frame_message!("internal server error")
+            }
+            WorldIdRequestAuthError::Unknown(_) => {
+                taceo_oprf::types::close_frame_message!("unknown")
             }
         };
         Self::with_message(code, msg)
