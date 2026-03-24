@@ -18,7 +18,6 @@ use std::{io::Read, path::Path};
 use world_id_primitives::{
     Credential, FieldElement, Nullifier, RequestItem, TREE_DEPTH,
     circuit_inputs::NullifierProofCircuitInput,
-    oprf::WorldIdRequestAuthError,
 };
 
 pub use groth16_material::circom::{
@@ -83,12 +82,9 @@ static CIRCUIT_FILES: std::sync::OnceLock<Result<EmbeddedCircuitFiles, String>> 
 /// Error type for OPRF operations and proof generation.
 #[derive(Debug, thiserror::Error)]
 pub enum ProofError {
-    /// Authentication error returned by the OPRF nodes (e.g. unknown RP, invalid proof).
+    /// Error originating from `oprf_client`.
     #[error(transparent)]
-    RequestAuthError(#[from] WorldIdRequestAuthError),
-    /// Non-auth error originating from `oprf_client`.
-    #[error(transparent)]
-    OprfError(taceo_oprf::client::Error),
+    OprfError(#[from] taceo_oprf::client::Error),
     /// Errors originating from proof inputs
     #[error(transparent)]
     ProofInputError(#[from] errors::ProofInputError),
@@ -98,17 +94,6 @@ pub enum ProofError {
     /// Catch-all for other internal errors.
     #[error(transparent)]
     InternalError(#[from] eyre::Report),
-}
-
-impl From<taceo_oprf::client::Error> for ProofError {
-    fn from(err: taceo_oprf::client::Error) -> Self {
-        if let taceo_oprf::client::Error::ThresholdServiceError(ref svc) = err {
-            if svc.kind.is_auth() {
-                return Self::RequestAuthError(WorldIdRequestAuthError::from(svc.error_code));
-            }
-        }
-        Self::OprfError(err)
-    }
 }
 
 // ============================================================================
