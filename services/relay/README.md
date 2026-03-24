@@ -64,7 +64,7 @@ Pending entries use an `insert_if_newer` strategy -- only the latest update per 
 
 On a configurable tick (default 1 hour, set via `bridge_interval_secs`) the engine checks if there are any pending issuer or OPRF key updates. If so, it calls `WorldIDSource.propagateState(issuerSchemaIds, oprfKeyIds)` on World Chain. The relay only passes issuer schema IDs and OPRF key IDs -- the `WorldIDSource` contract itself queries the `WorldIDRegistry` for the latest merkle root, so root updates are handled entirely on-chain without the relay needing to pass them in. This on-chain call batches all the updates (root + issuer keys + OPRF keys) into a new `ChainCommitted` event, which the live stream picks up and commits to the log.
 
-If the call reverts with `NothingChanged()` (state was already propagated), the pending maps are cleared silently. Pending state is **always cleared after each attempt** to avoid retrying the same data indefinitely.
+Pending state is drained from the maps before the call so that concurrent inserts during the await are not lost. If the transaction succeeds, the state was propagated and nothing needs to be restored. If the call reverts with `NothingChanged()` (state was already on-chain), the drained entries are discarded. For any other error the drained entries are restored so they can be retried on the next tick.
 
 ### 4. Commitment log
 
