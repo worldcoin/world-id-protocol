@@ -5,7 +5,9 @@ use futures_util::StreamExt;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
-use crate::{cli::WorldChain, log::CommitmentLog, satellite::Satellite, stream};
+use crate::{
+    bindings::NothingChanged, cli::WorldChain, log::CommitmentLog, satellite::Satellite, stream,
+};
 
 /// The core relay engine.
 ///
@@ -44,59 +46,62 @@ impl Engine {
         });
     }
 
-    /// Checks whether there is new state to propagate by comparing the
-    /// latest root on WorldIDSource vs WorldIDRegistry, and checking for
-    /// pending issuer/OPRF key updates.
-    async fn should_propagate(&self) -> Result<bool> {
-        // Check if the registry has a newer root than the source.
-        let source_root = self
-            .world_chain
-            .world_id_source()
-            .LATEST_ROOT()
-            .call()
-            .await?;
-        let registry_root = self
-            .world_chain
-            .world_id_registry()
-            .getLatestRoot()
-            .call()
-            .await?;
-
-        let root_changed = source_root != registry_root;
-        let has_keys = self.log.has_pending_keys();
-
-        if root_changed {
-            debug!(source = %source_root, registry = %registry_root, "root changed");
-        }
-        if has_keys {
-            debug!("pending issuer/OPRF key updates");
-        }
-
-        Ok(root_changed || has_keys)
-    }
-
-    /// Calls `propagateState` on the WorldIDSource contract for any pending
-    /// state (root changes, issuer keys, OPRF keys).
+    /// Checks for pending state (root changes, issuer keys, OPRF keys) and
+    /// calls `propagateState` on the WorldIDSource contract if needed.
     ///
     /// Returns `Ok(())` if there is nothing to propagate or if the transaction
     /// succeeds. Propagation failures are logged but never fatal -- the engine
     /// will retry on the next tick.
     async fn propagate(&self) -> Result<()> {
-        match self.should_propagate().await {
-            Ok(false) => {
-                debug!("propagation tick: nothing to propagate");
-                return Ok(());
-            }
+        let source_root = match self
+            .world_chain
+            .world_id_source()
+            .LATEST_ROOT()
+            .call()
+            .await
+        {
+            Ok(root) => root,
             Err(e) => {
-                warn!(error = %e, "failed to check propagation state");
+                warn!(error = %e, "failed to read source root");
                 return Ok(());
             }
-            Ok(true) => {}
+        };
+        let registry_root = match self
+            .world_chain
+            .world_id_registry()
+            .getLatestRoot()
+            .call()
+            .await
+        {
+            Ok(root) => root,
+            Err(e) => {
+                warn!(error = %e, "failed to read registry root");
+                return Ok(());
+            }
+        };
+
+        // Drain pending entries — removed from the map now so concurrent
+        // inserts during the await are not lost.
+        let snapshot = self.log.take_pending();
+
+        let root_changed = source_root != registry_root;
+
+        if !root_changed && snapshot.is_empty() {
+            debug!("propagation tick: nothing to propagate");
+            return Ok(());
         }
 
-        let (issuers, oprfs) = self.log.pending_propagation_ids();
+        let issuers = snapshot.issuer_ids();
+        let oprfs = snapshot.oprf_ids();
 
-        info!(issuers = issuers.len(), oprfs = oprfs.len(), "propagating");
+        info!(
+            root_changed,
+            source = %source_root,
+            registry = %registry_root,
+            ?issuers,
+            ?oprfs,
+            "propagating state"
+        );
 
         let result = self
             .world_chain
@@ -110,16 +115,19 @@ impl Engine {
                 let receipt = pending.get_receipt().await?;
                 if receipt.status() {
                     info!(hash = %receipt.transaction_hash, "propagateState succeeded");
-                    self.log.clear_pending_propagation();
+                    // Entries already drained — nothing to clean up.
                 } else {
                     warn!(hash = %receipt.transaction_hash, "propagateState reverted on-chain");
+                    self.log.restore_pending(snapshot);
                 }
             }
-            // Simulation reverts are expected when nothing has changed.
-            // Always clear pending regardless of the error to avoid retrying
-            // the same state indefinitely.
+            Err(e) if e.as_decoded_error::<NothingChanged>().is_some() => {
+                debug!(error = %e, "propagateState reverted with NothingChanged");
+                // State is already on-chain — no need to restore.
+            }
             Err(e) => {
-                debug!(error = %e, "propagateState simulation reverted");
+                warn!(error = %e, "propagateState simulation reverted");
+                self.log.restore_pending(snapshot);
             }
         }
         Ok(())
@@ -230,6 +238,65 @@ mod tests {
             commitment_payload: commits.abi_encode_params().into(),
             timestamp: block_number * 100,
         }
+    }
+
+    /// Helper: build an `alloy::contract::Error` that looks like an RPC
+    /// simulation revert carrying the given hex-encoded data.
+    fn make_revert_error(selector_hex: &str) -> alloy::contract::Error {
+        let json =
+            format!(r#"{{"code":3,"message":"execution reverted","data":"{selector_hex}"}}"#,);
+        let payload: alloy::rpc::json_rpc::ErrorPayload = serde_json::from_str(&json).unwrap();
+        alloy::contract::Error::TransportError(alloy::transports::RpcError::ErrorResp(payload))
+    }
+
+    #[test]
+    fn nothing_changed_error_is_detected() {
+        use alloy::sol_types::SolError;
+        // Use the selector from the generated type.
+        let selector = hex::encode(NothingChanged::SELECTOR);
+        let err = make_revert_error(&format!("0x{selector}"));
+        assert!(
+            err.as_decoded_error::<NothingChanged>().is_some(),
+            "should decode NothingChanged from its selector (0x{selector})"
+        );
+    }
+
+    #[test]
+    fn other_revert_is_not_nothing_changed() {
+        // EmptyChainedCommits() has a different selector — should NOT match.
+        use crate::bindings::EmptyChainedCommits;
+        let err = make_revert_error("0xdeadbeef");
+        assert!(
+            err.as_decoded_error::<NothingChanged>().is_none(),
+            "arbitrary selector should not match NothingChanged"
+        );
+        // Also verify a real different error doesn't match.
+        let json = format!(
+            r#"{{"code":3,"message":"execution reverted","data":"0x{}"}}"#,
+            hex::encode(alloy::sol_types::SolError::abi_encode(
+                &EmptyChainedCommits {}
+            ))
+        );
+        let payload: alloy::rpc::json_rpc::ErrorPayload = serde_json::from_str(&json).unwrap();
+        let err =
+            alloy::contract::Error::TransportError(alloy::transports::RpcError::ErrorResp(payload));
+        assert!(
+            err.as_decoded_error::<NothingChanged>().is_none(),
+            "EmptyChainedCommits should not match NothingChanged"
+        );
+    }
+
+    #[test]
+    fn non_revert_error_is_not_nothing_changed() {
+        // An RPC error that isn't a revert (message doesn't contain "revert")
+        let json = r#"{"code":-32000,"message":"insufficient funds","data":"0x76b90ccd"}"#;
+        let payload: alloy::rpc::json_rpc::ErrorPayload = serde_json::from_str(json).unwrap();
+        let err =
+            alloy::contract::Error::TransportError(alloy::transports::RpcError::ErrorResp(payload));
+        assert!(
+            err.as_decoded_error::<NothingChanged>().is_none(),
+            "non-revert error should not match even with NothingChanged selector in data"
+        );
     }
 
     #[test]

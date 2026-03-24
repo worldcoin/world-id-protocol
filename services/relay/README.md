@@ -96,7 +96,7 @@ If a satellite's `local_head` is not found in the log (e.g. another relay instan
 3. If the remote head equals the log's head, there's nothing to relay -- it updates `local_head` and waits.
 4. If the remote head is not in the log either, it logs a warning and waits for the next chain head update to try again.
 
-Relay failures (transaction reverts, timeouts up to 10 minutes) are logged but non-fatal -- the satellite retries on the next chain head change.
+Relay failures are logged but non-fatal -- the satellite retries on the next chain head change.
 
 ## Configuration
 

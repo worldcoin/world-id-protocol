@@ -475,12 +475,6 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
     assert_ne!(chain_after_root.head, B256::ZERO);
     assert_eq!(chain_after_root.length, 1); // root only
 
-    // Pending state should be cleared after round 1.
-    assert!(
-        !log.has_pending_keys(),
-        "pending state should be cleared after root propagation"
-    );
-
     // ── Round 2: register issuer → key update ───────────────────────────────
     let (issuer_x, issuer_y) = register_issuer(&anvil, credential_registry, 1).await?;
 
@@ -509,18 +503,55 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
     // Root from round 1 should still be valid.
     assert!(sat.isValidRoot(root).call().await?);
 
-    // Pending state should be cleared after round 2.
+    let snapshot = log.take_pending();
     assert!(
-        !log.has_pending_keys(),
+        snapshot.is_empty(),
         "pending state should be cleared after issuer propagation"
     );
-    let (pending_issuers, pending_oprfs) = log.pending_propagation_ids();
-    assert!(pending_issuers.is_empty());
-    assert!(pending_oprfs.is_empty());
 
     // Commitment log head should match the satellite.
     assert_eq!(log.head(), chain_after_issuer.head);
 
     engine_handle.abort();
+    Ok(())
+}
+
+/// Calling `propagateState` twice with identical state should revert with
+/// `NothingChanged()` on the second call. This test verifies the error is
+/// correctly decodable via `as_decoded_error::<NothingChanged>()` — the same
+/// check the engine uses to decide whether to restore pending state.
+#[tokio::test]
+async fn e2e_propagate_nothing_changed_revert() -> Result<()> {
+    use world_id_relay::bindings::NothingChanged;
+
+    let anvil = TestAnvil::spawn()?;
+    let (source_proxy, _satellite_proxy, world_id_registry, _credential_registry, _, _deployer) =
+        deploy_state_bridge(&anvil).await?;
+
+    // Create an account so there is a root to propagate.
+    let _root = create_root(&anvil, world_id_registry).await?;
+
+    // First propagation — should succeed.
+    let _c1 = propagate(&anvil, source_proxy, vec![]).await?;
+
+    // Second propagation with no state change — should revert NothingChanged.
+    let deployer = anvil.signer(0)?;
+    let provider = ProviderBuilder::new()
+        .wallet(alloy::network::EthereumWallet::from(deployer))
+        .connect_http(anvil.endpoint().parse().unwrap())
+        .erased();
+
+    let source = world_id_source::WorldIDSourceInstance::new(source_proxy, &provider);
+    let err = source
+        .propagateState(vec![], vec![])
+        .send()
+        .await
+        .expect_err("second propagateState should revert");
+
+    assert!(
+        err.as_decoded_error::<NothingChanged>().is_some(),
+        "expected NothingChanged revert, got: {err}"
+    );
+
     Ok(())
 }

@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     hash::Hash,
     sync::{
         Arc,
@@ -23,6 +23,34 @@ use crate::{
     },
 };
 
+// ── PendingSnapshot ─────────────────────────────────────────────────────────
+
+/// A snapshot of pending issuer/OPRF key updates drained from the log.
+///
+/// Holds both the IDs needed for `propagateState` and the full entries so
+/// they can be restored on failure via [`CommitmentLog::restore_pending`].
+pub struct PendingSnapshot {
+    issuers: HashMap<IssuerSchemaId, IssuerKeyUpdate>,
+    oprfs: HashMap<OprfKeyId, OprfKeyUpdate>,
+}
+
+impl PendingSnapshot {
+    /// Returns the issuer schema IDs for the `propagateState` call.
+    pub fn issuer_ids(&self) -> Vec<u64> {
+        self.issuers.keys().map(|k| k.0).collect()
+    }
+
+    /// Returns the OPRF key IDs for the `propagateState` call.
+    pub fn oprf_ids(&self) -> Vec<U160> {
+        self.oprfs.keys().map(|k| k.0).collect()
+    }
+
+    /// Returns `true` if there are no pending updates.
+    pub fn is_empty(&self) -> bool {
+        self.issuers.is_empty() && self.oprfs.is_empty()
+    }
+}
+
 // ── CommitmentLog ───────────────────────────────────────────────────────────
 
 /// A verified, indexed, append-only log of the keccak chain.
@@ -34,9 +62,9 @@ pub struct CommitmentLog {
     /// Ordered chain entries.
     entries: RwLock<VecDeque<Arc<ChainCommitment>>>,
     /// Pending credential issuer key updates that have yet to be finalized on-chain.
-    pending_issuers: DashMap<IssuerSchemaId, IssuerKeyUpdate>,
+    pending_issuers: Mutex<HashMap<IssuerSchemaId, IssuerKeyUpdate>>,
     /// Pending OPRF key updates that have yet to be finalized on-chain.
-    pending_oprfs: DashMap<OprfKeyId, OprfKeyUpdate>,
+    pending_oprfs: Mutex<HashMap<OprfKeyId, OprfKeyUpdate>>,
     /// Maps `chain_head` to the index of the entry in the VecDeque.
     head_index: DashMap<B256, usize>,
     /// Local keccak chain replica used for hash-chain integrity verification.
@@ -69,8 +97,8 @@ impl CommitmentLog {
             local_chain: Mutex::new(KeccakChain::new(B256::ZERO, 0)),
             cursor_tx,
             _cursor_rx: cursor_rx,
-            pending_issuers: DashMap::new(),
-            pending_oprfs: DashMap::new(),
+            pending_issuers: Mutex::new(HashMap::new()),
+            pending_oprfs: Mutex::new(HashMap::new()),
             ready_flag: AtomicBool::new(false),
             ready_notify: tokio::sync::Notify::new(),
         }
@@ -137,22 +165,28 @@ impl CommitmentLog {
         }
     }
 
-    /// Returns separated pending IDs for `propagateState(issuerSchemaIds, oprfKeyIds)`.
-    pub fn pending_propagation_ids(&self) -> (Vec<u64>, Vec<U160>) {
-        let issuers = self.pending_issuers.iter().map(|e| e.key().0).collect();
-        let oprfs = self.pending_oprfs.iter().map(|e| e.key().0).collect();
-        (issuers, oprfs)
+    /// Atomically drains all pending entries.
+    ///
+    /// On propagation failure, call [`restore_pending`] to re-insert them.
+    pub fn take_pending(&self) -> PendingSnapshot {
+        PendingSnapshot {
+            issuers: std::mem::take(&mut *self.pending_issuers.lock()),
+            oprfs: std::mem::take(&mut *self.pending_oprfs.lock()),
+        }
     }
 
-    /// Clears all pending state after a `propagateState` attempt.
-    pub fn clear_pending_propagation(&self) {
-        self.pending_issuers.clear();
-        self.pending_oprfs.clear();
-    }
-
-    /// Returns `true` if there are pending issuer or OPRF key updates.
-    pub fn has_pending_keys(&self) -> bool {
-        !self.pending_issuers.is_empty() || !self.pending_oprfs.is_empty()
+    /// Re-inserts previously drained entries for retry.
+    ///
+    /// Entries inserted concurrently (newer events) take precedence.
+    pub fn restore_pending(&self, snapshot: PendingSnapshot) {
+        let mut issuers = self.pending_issuers.lock();
+        for (k, v) in snapshot.issuers {
+            issuers.entry(k).or_insert(v);
+        }
+        let mut oprfs = self.pending_oprfs.lock();
+        for (k, v) in snapshot.oprfs {
+            oprfs.entry(k).or_insert(v);
+        }
     }
 
     // ── Pending insert methods ──────────────────────────────────────────────
@@ -317,21 +351,22 @@ impl CommitmentLog {
 
 /// Inserts `value` into `map` only if it is newer than any existing entry
 /// and newer than the tail of the chain log.
-fn insert_if_newer<K: Eq + Hash, V: Clone>(
-    map: &DashMap<K, V>,
+fn insert_if_newer<K: Eq + Hash, V>(
+    map: &Mutex<HashMap<K, V>>,
     key: K,
     value: V,
     ts: u64,
     get_ts: impl Fn(&V) -> u64,
     tail_ts: Option<u64>,
 ) {
-    if let Some(existing) = map.get(&key) {
-        if get_ts(&existing) >= ts {
-            return;
-        }
-    }
     if tail_ts.is_some_and(|tail| ts <= tail) {
         return;
+    }
+    let mut map = map.lock();
+    if let Some(existing) = map.get(&key) {
+        if get_ts(existing) >= ts {
+            return;
+        }
     }
     map.insert(key, value);
 }
@@ -483,29 +518,31 @@ mod tests {
     }
 
     #[test]
-    fn pending_propagation_ids_separates_types() {
+    fn take_pending_drains_and_separates_types() {
         let log = CommitmentLog::new();
         log.insert_pending_issuer(make_issuer_update(1, 1000));
         log.insert_pending_oprf(make_oprf_update(2, 1000));
 
-        let (issuers, oprfs) = log.pending_propagation_ids();
-        assert_eq!(issuers, vec![1u64]);
-        assert_eq!(oprfs, vec![U160::from(2u64)]);
+        let snapshot = log.take_pending();
+        assert_eq!(snapshot.issuer_ids(), vec![1u64]);
+        assert_eq!(snapshot.oprf_ids(), vec![U160::from(2u64)]);
+
+        // Maps should now be empty after drain.
+        let empty = log.take_pending();
+        assert!(empty.is_empty());
     }
 
     #[test]
-    fn has_pending_empty_and_nonempty() {
+    fn restore_pending_re_inserts_entries() {
         let log = CommitmentLog::new();
-        assert!(
-            !log.has_pending_keys(),
-            "fresh log should have no pending entries"
-        );
-
         log.insert_pending_issuer(make_issuer_update(1, 1000));
-        assert!(
-            log.has_pending_keys(),
-            "log with a pending key should report has_pending"
-        );
+
+        let snapshot = log.take_pending();
+        assert!(log.take_pending().is_empty());
+
+        log.restore_pending(snapshot);
+        let restored = log.take_pending();
+        assert_eq!(restored.issuer_ids(), vec![1u64]);
     }
 
     // ── wait_ready() race-condition tests ───────────────────────────────────

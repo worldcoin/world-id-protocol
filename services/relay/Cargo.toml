@@ -17,7 +17,7 @@ alloy = { workspace = true, features = [
     "sol-types",
     "signer-local",
     "provider-http",
-    "reqwest-default-tls",
+    "reqwest-rustls-tls",
 ] }
 alloy-primitives = { workspace = true }
 tempo-alloy = { workspace = true }
