@@ -46,11 +46,12 @@ struct EventFilter {
 fn poll_events(
     provider: Arc<DynProvider>,
     filters: Vec<EventFilter>,
+    initial_block: Option<u64>,
 ) -> BoxStream<'static, Result<StateCommitment>> {
     let stream = futures::stream::unfold(
-        (provider, filters, None::<u64>, 0u64),
+        (provider, filters, initial_block, 0u64),
         |(provider, filters, from_block, poll_count)| async move {
-            // On first poll, fetch the current block number.
+            // On first poll, use the provided initial block number.
             let from_block = match from_block {
                 Some(b) => b,
                 None => {
@@ -172,7 +173,14 @@ pub async fn registry_stream(
         },
     ];
 
-    Ok(poll_events(world_chain.provider().clone(), filters))
+    let provider = world_chain.provider().clone();
+    let initial_block = provider.get_block_number().await?;
+    tracing::info!(
+        from_block = initial_block,
+        "event poller: captured initial block number"
+    );
+
+    Ok(poll_events(provider, filters, Some(initial_block)))
 }
 
 /// Maximum block range per `eth_getLogs` request during backfill.
