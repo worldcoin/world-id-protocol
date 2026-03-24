@@ -48,6 +48,7 @@ fn proof_pubkeys_response(
 
     IndexerAuthenticatorPubkeysResponse {
         authenticator_pubkeys,
+        offchain_signer_commitment: U256::ZERO,
     }
 }
 

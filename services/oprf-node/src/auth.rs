@@ -9,7 +9,7 @@
 //! - [`nullifier`] – implements authentication for OPRF nullifier generation.
 //! - [`rp_registry_watcher`] – keeps track of registered RPs
 //! - [`schema_issuer_registry_watcher`] – keeps track of registered Credential Schema Issuers
-//! - [`signature_history`] – keeps track of nonce + `time_stamp` signatures to detect replays
+//! - [`nonce_history`] – keeps track of nonces used for nonce + `time_stamp` signatures to detect replays
 
 use std::sync::Arc;
 
@@ -26,10 +26,10 @@ const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.
 
 pub(crate) mod credential_blinding_factor;
 pub(crate) mod merkle_watcher;
+pub(crate) mod nonce_history;
 pub(crate) mod nullifier;
 pub(crate) mod rp_registry_watcher;
 pub(crate) mod schema_issuer_registry_watcher;
-pub(crate) mod signature_history;
 
 /// Common errors returned by the [`NullifierOprfRequestAuthenticator`] and [`CredentialBlindingFactorOprfRequestAuthenticator`].
 #[derive(Debug, thiserror::Error)]

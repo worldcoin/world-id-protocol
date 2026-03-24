@@ -97,7 +97,7 @@ ciborium = "0.2"
 arrayvec = "0.7"
 async-trait = "0.1"
 aws-config = "1"
-aws-sdk-kms = "1"
+aws-sdk-kms = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio", "behavior-version-latest"] }
 chrono = "0.4"
 clap = "4.5.59"
 config = "0.15.19"

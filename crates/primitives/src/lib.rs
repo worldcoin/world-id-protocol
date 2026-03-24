@@ -1,14 +1,11 @@
-//! This crate contains the raw base types (without implementation) for the World ID Protocol.
-//!
-//! It implements basic primitives such as field elements, proofs, the format of requests and responses, etc.
-//!
-//! Importantly, this crate keeps dependencies to a minimum and does not implement any logic beyond serialization and deserialization.
+#![cfg_attr(all(),
+doc = ::embed_doc_image::embed_image!("world-id-protocol-parties", "assets/world-id-protocol-parties.png"))]
+#![doc = include_str!("../README.md")]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 #![deny(clippy::all, clippy::nursery, missing_docs, dead_code)]
 #![allow(clippy::option_if_let_else)]
 
 use alloy_primitives::Keccak256;
-
 use ark_babyjubjub::Fq;
 use ark_ff::{AdditiveGroup, Field, PrimeField, UniformRand};
 use ruint::aliases::{U160, U256};
