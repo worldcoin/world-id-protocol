@@ -48,6 +48,35 @@ use world_id_proof::{
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::Nullifier;
 
+/// Shared helper that polls `GET {gateway_url}/status/{request_id}` and
+/// returns the current [`GatewayRequestState`].
+async fn fetch_gateway_status(
+    http_client: &reqwest::Client,
+    gateway_url: &str,
+    request_id: &GatewayRequestId,
+) -> Result<GatewayRequestState, AuthenticatorError> {
+    let resp = http_client
+        .get(format!("{gateway_url}/status/{request_id}"))
+        .send()
+        .await?;
+
+    let status = resp.status();
+
+    if status.is_success() {
+        let body: GatewayStatusResponse = resp.json().await?;
+        Ok(body.status)
+    } else {
+        let body_text = resp
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("Unable to read response body: {e}"));
+        Err(AuthenticatorError::GatewayError {
+            status,
+            body: body_text,
+        })
+    }
+}
+
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
 static MASK_PUBKEY_ID: U256 =
@@ -1025,28 +1054,7 @@ impl Authenticator {
         &self,
         request_id: &GatewayRequestId,
     ) -> Result<GatewayRequestState, AuthenticatorError> {
-        let resp = self
-            .http_client
-            .get(format!(
-                "{}/status/{}",
-                self.config.gateway_url(),
-                request_id
-            ))
-            .send()
-            .await?;
-
-        let status = resp.status();
-
-        if status.is_success() {
-            let body: GatewayStatusResponse = resp.json().await?;
-            Ok(body.status)
-        } else {
-            let body_text = Self::response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        fetch_gateway_status(&self.http_client, self.config.gateway_url(), request_id).await
     }
 }
 
@@ -1126,28 +1134,7 @@ impl InitializingAuthenticator {
     /// - Will error if the network request fails.
     /// - Will error if the gateway returns an error response.
     pub async fn poll_status(&self) -> Result<GatewayRequestState, AuthenticatorError> {
-        let resp = self
-            .http_client
-            .get(format!(
-                "{}/status/{}",
-                self.config.gateway_url(),
-                self.request_id
-            ))
-            .send()
-            .await?;
-
-        let status = resp.status();
-
-        if status.is_success() {
-            let body: GatewayStatusResponse = resp.json().await?;
-            Ok(body.status)
-        } else {
-            let body_text = Authenticator::response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        fetch_gateway_status(&self.http_client, self.config.gateway_url(), &self.request_id).await
     }
 }
 
