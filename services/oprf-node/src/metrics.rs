@@ -4,8 +4,8 @@
 //! provides a helper [`describe_metrics`] to set metadata for
 //! each metric using the `metrics` crate.
 
-/// Number of stored signatures in the signature history.
-pub const METRICS_ID_NODE_SIGNATURE_HISTORY_SIZE: &str = "taceo.oprf.node.signature_history.size";
+/// Number of stored nonces in the nonce history.
+pub const METRICS_ID_NODE_NONCE_HISTORY_SIZE: &str = "taceo.oprf.node.nonce_history.size";
 /// Number of stored roots in the `merkle_watcher` cache.
 pub const METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE: &str =
     "taceo.oprf.node.merkle_watcher_cache.size";
@@ -39,9 +39,9 @@ pub const METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES: &str =
 /// This calls the `describe_*` functions from the `metrics` crate to set metadata on the different metrics.
 pub fn describe_metrics() {
     metrics::describe_gauge!(
-        METRICS_ID_NODE_SIGNATURE_HISTORY_SIZE,
+        METRICS_ID_NODE_NONCE_HISTORY_SIZE,
         metrics::Unit::Count,
-        "Number of stored signatures in the signature history."
+        "Number of stored nonces in the nonce history."
     );
 
     metrics::describe_gauge!(

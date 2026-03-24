@@ -9,10 +9,12 @@ use alloy::{
 };
 use world_id_core::{
     api_types::{
-        CreateAccountRequest, InsertAuthenticatorRequest, RecoverAccountRequest,
-        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+        CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
+        InsertAuthenticatorRequest, RecoverAccountRequest, RemoveAuthenticatorRequest,
+        UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
     },
     world_id_registry::{
+        CancelRecoveryAgentUpdateTypedData, InitiateRecoveryAgentUpdateTypedData,
         InsertAuthenticatorTypedData, RecoverAccountTypedData, RemoveAuthenticatorTypedData,
         UpdateAuthenticatorTypedData,
     },
@@ -417,6 +419,132 @@ impl RequestValidation for RemoveAuthenticatorRequest {
 }
 
 // =============================================================================
+// UpdateRecoveryAgentRequest (initiateRecoveryAgentUpdate)
+// =============================================================================
+impl RequestValidation for UpdateRecoveryAgentRequest {
+    fn pre_flight(
+        &self,
+        chain_id: u64,
+        verifying_contract: Address,
+    ) -> Result<(), GatewayErrorResponse> {
+        if self.leaf_index == 0 {
+            return Err(GatewayErrorResponse::bad_request_message(
+                "leaf_index cannot be zero".to_string(),
+            ));
+        }
+        if self.new_recovery_agent.is_zero() {
+            return Err(GatewayErrorResponse::bad_request_message(
+                "new_recovery_agent cannot be the zero address".to_string(),
+            ));
+        }
+
+        // Verify EIP-712 signature format and recoverability.
+        //
+        // The EIP-712 typehash used here matches the contract's
+        // `INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH` (uint64 leafIndex):
+        //   "InitiateRecoveryAgentUpdate(uint64 leafIndex,address newRecoveryAgent,uint256 nonce)"
+        //
+        // Authorization (i.e. whether the signer owns the leaf) is fully enforced
+        // by the contract during on-chain execution. The gateway only needs to
+        // confirm the signature is structurally valid and recoverable — the same
+        // pattern used by InsertAuthenticatorRequest and RemoveAuthenticatorRequest.
+        let typed_data = InitiateRecoveryAgentUpdateTypedData {
+            leafIndex: self.leaf_index,
+            newRecoveryAgent: self.new_recovery_agent,
+            nonce: self.nonce,
+        };
+        let _signer = recover_signer(&typed_data, &self.signature, chain_id, verifying_contract)?;
+
+        Ok(())
+    }
+
+    fn calldata(&self, registry: &Registry) -> Bytes {
+        registry
+            .initiateRecoveryAgentUpdate(
+                self.leaf_index,
+                self.new_recovery_agent,
+                Bytes::from(self.signature.clone()),
+                self.nonce,
+            )
+            .calldata()
+            .clone()
+    }
+}
+
+// =============================================================================
+// CancelRecoveryAgentUpdateRequest (cancelRecoveryAgentUpdate)
+// =============================================================================
+impl RequestValidation for CancelRecoveryAgentUpdateRequest {
+    fn pre_flight(
+        &self,
+        chain_id: u64,
+        verifying_contract: Address,
+    ) -> Result<(), GatewayErrorResponse> {
+        if self.leaf_index == 0 {
+            return Err(GatewayErrorResponse::bad_request_message(
+                "leaf_index cannot be zero".to_string(),
+            ));
+        }
+
+        // Verify EIP-712 signature format and recoverability.
+        //
+        // The EIP-712 typehash used here matches the contract's
+        // `CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH` (uint64 leafIndex):
+        //   "CancelRecoveryAgentUpdate(uint64 leafIndex,uint256 nonce)"
+        //
+        // Authorization is enforced by the contract; the gateway checks only
+        // that the signature is structurally valid and recoverable.
+        let typed_data = CancelRecoveryAgentUpdateTypedData {
+            leafIndex: self.leaf_index,
+            nonce: self.nonce,
+        };
+        let _signer = recover_signer(&typed_data, &self.signature, chain_id, verifying_contract)?;
+
+        Ok(())
+    }
+
+    fn calldata(&self, registry: &Registry) -> Bytes {
+        registry
+            .cancelRecoveryAgentUpdate(
+                self.leaf_index,
+                Bytes::from(self.signature.clone()),
+                self.nonce,
+            )
+            .calldata()
+            .clone()
+    }
+}
+
+// =============================================================================
+// ExecuteRecoveryAgentUpdateRequest (executeRecoveryAgentUpdate)
+// =============================================================================
+impl RequestValidation for ExecuteRecoveryAgentUpdateRequest {
+    fn pre_flight(
+        &self,
+        _chain_id: u64,
+        _verifying_contract: Address,
+    ) -> Result<(), GatewayErrorResponse> {
+        // executeRecoveryAgentUpdate is permissionless — no signature to verify.
+        // The contract enforces cooldown; simulate_calldata will surface
+        // RecoveryAgentUpdateStillInCooldown or NoPendingRecoveryAgentUpdate if
+        // called too early or without a pending update.
+        if self.leaf_index == 0 {
+            return Err(GatewayErrorResponse::bad_request_message(
+                "leaf_index cannot be zero".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn calldata(&self, registry: &Registry) -> Bytes {
+        registry
+            .executeRecoveryAgentUpdate(self.leaf_index)
+            .calldata()
+            .clone()
+    }
+}
+
+// =============================================================================
 // RecoverAccountRequest
 // =============================================================================
 
@@ -474,5 +602,171 @@ impl RequestValidation for RecoverAccountRequest {
             )
             .calldata()
             .clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::{
+        primitives::{Address, U256, address},
+        signers::local::PrivateKeySigner,
+    };
+    use world_id_core::{
+        api_types::{
+            CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest,
+            UpdateRecoveryAgentRequest,
+        },
+        world_id_registry::{
+            domain as registry_domain, sign_cancel_recovery_agent_update,
+            sign_initiate_recovery_agent_update,
+        },
+    };
+
+    const CHAIN_ID: u64 = 1;
+    const CONTRACT: Address = address!("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+    fn make_domain() -> alloy::sol_types::Eip712Domain {
+        registry_domain(CHAIN_ID, CONTRACT)
+    }
+
+    // ------------------------------------------------------------------
+    // UpdateRecoveryAgentRequest (initiateRecoveryAgentUpdate) pre_flight
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn initiate_preflight_rejects_zero_leaf_index() {
+        let signer = PrivateKeySigner::random();
+        let domain = make_domain();
+        let non_zero_agent: Address = address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        let sig =
+            sign_initiate_recovery_agent_update(&signer, 0, non_zero_agent, U256::ZERO, &domain)
+                .unwrap();
+
+        let req = UpdateRecoveryAgentRequest {
+            leaf_index: 0,
+            new_recovery_agent: non_zero_agent,
+            signature: sig.as_bytes().to_vec(),
+            nonce: U256::ZERO,
+        };
+        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+    }
+
+    #[test]
+    fn initiate_preflight_rejects_zero_recovery_agent() {
+        let signer = PrivateKeySigner::random();
+        let domain = make_domain();
+        let sig =
+            sign_initiate_recovery_agent_update(&signer, 1, Address::ZERO, U256::ZERO, &domain)
+                .unwrap();
+
+        let req = UpdateRecoveryAgentRequest {
+            leaf_index: 1,
+            new_recovery_agent: Address::ZERO,
+            signature: sig.as_bytes().to_vec(),
+            nonce: U256::ZERO,
+        };
+        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+    }
+
+    #[test]
+    fn initiate_preflight_accepts_valid_signature() {
+        let signer = PrivateKeySigner::random();
+        let domain = make_domain();
+        let leaf_index = 1u64;
+        let new_recovery_agent: Address = address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        let nonce = U256::from(5u64);
+
+        let sig = sign_initiate_recovery_agent_update(
+            &signer,
+            leaf_index,
+            new_recovery_agent,
+            nonce,
+            &domain,
+        )
+        .unwrap();
+
+        let req = UpdateRecoveryAgentRequest {
+            leaf_index,
+            new_recovery_agent,
+            signature: sig.as_bytes().to_vec(),
+            nonce,
+        };
+        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_ok());
+    }
+
+    #[test]
+    fn initiate_preflight_rejects_bad_signature() {
+        let req = UpdateRecoveryAgentRequest {
+            leaf_index: 1,
+            new_recovery_agent: address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+            signature: vec![0u8; 65],
+            nonce: U256::ZERO,
+        };
+        // all-zero signature is explicitly rejected by validate_ecdsa_signature_format
+        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+    }
+
+    // ------------------------------------------------------------------
+    // CancelRecoveryAgentUpdateRequest pre_flight
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn cancel_preflight_rejects_zero_leaf_index() {
+        let signer = PrivateKeySigner::random();
+        let domain = make_domain();
+        let sig = sign_cancel_recovery_agent_update(&signer, 0, U256::ZERO, &domain).unwrap();
+
+        let req = CancelRecoveryAgentUpdateRequest {
+            leaf_index: 0,
+            signature: sig.as_bytes().to_vec(),
+            nonce: U256::ZERO,
+        };
+        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+    }
+
+    #[test]
+    fn cancel_preflight_accepts_valid_signature() {
+        let signer = PrivateKeySigner::random();
+        let domain = make_domain();
+        let leaf_index = 7u64;
+        let nonce = U256::from(2u64);
+
+        let sig = sign_cancel_recovery_agent_update(&signer, leaf_index, nonce, &domain).unwrap();
+
+        let req = CancelRecoveryAgentUpdateRequest {
+            leaf_index,
+            signature: sig.as_bytes().to_vec(),
+            nonce,
+        };
+        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_ok());
+    }
+
+    #[test]
+    fn cancel_preflight_rejects_wrong_length_signature() {
+        let req = CancelRecoveryAgentUpdateRequest {
+            leaf_index: 1,
+            signature: vec![0u8; 32], // wrong length
+            nonce: U256::ZERO,
+        };
+        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+    }
+
+    // ------------------------------------------------------------------
+    // ExecuteRecoveryAgentUpdateRequest pre_flight
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn execute_preflight_rejects_zero_leaf_index() {
+        let req = ExecuteRecoveryAgentUpdateRequest { leaf_index: 0 };
+        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+    }
+
+    #[test]
+    fn execute_preflight_accepts_nonzero_leaf_index() {
+        let req = ExecuteRecoveryAgentUpdateRequest { leaf_index: 1 };
+        // pre_flight itself passes; simulate_calldata (eth_call) would catch
+        // premature calls but we don't exercise that in a pure unit test.
+        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_ok());
     }
 }

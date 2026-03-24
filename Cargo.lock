@@ -1507,9 +1507,9 @@ dependencies = [
 
 [[package]]
 name = "astral-tokio-tar"
-version = "0.5.6"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec179a06c1769b1e42e1e2cbe74c7dcdb3d6383c838454d063eaac5bbb7ebbe5"
+checksum = "3c23f3af104b40a3430ccb90ed5f7bd877a8dc5c26fc92fde51a22b40890dcf9"
 dependencies = [
  "filetime",
  "futures-core",
@@ -1671,9 +1671,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.16.1"
+version = "1.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94bffc006df10ac2a68c83692d734a465f8ee6c5b384d8545a636f81d858f4bf"
+checksum = "a054912289d18629dc78375ba2c3726a3afe3ff71b4edba9dedfca0e3446d1fc"
 dependencies = [
  "aws-lc-sys",
  "zeroize",
@@ -1681,9 +1681,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.38.0"
+version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4321e568ed89bb5a7d291a7f37997c2c0df89809d7b6d12062c81ddb54aa782e"
+checksum = "1fa7e52a4c5c547c741610a2c6f123f3881e409b714cd27e6798ef020c514f0a"
 dependencies = [
  "cc",
  "cmake",
@@ -6700,7 +6700,7 @@ dependencies = [
  "once_cell",
  "ring",
  "rustls-pki-types",
- "rustls-webpki 0.103.9",
+ "rustls-webpki 0.103.10",
  "subtle",
  "zeroize",
 ]
@@ -6739,9 +6739,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.9"
+version = "0.103.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7df23109aa6c1567d1c575b9952556388da57401e4ace1d15f79eedad0d8f53"
+checksum = "df33b2b81ac578cabaf06b89b0631153a3f416b0a886e8a7a1707fb51abbd1ef"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -7875,9 +7875,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be862ba49094098f945f1375f704a2c47b4e267a6e564462a43ad142b4b1469e"
+checksum = "adf3a425dce052db87c0f0c8c04041d3ebed0b863b51565b7c12895ab8c98b1e"
 dependencies = [
  "taceo-oprf-client",
  "taceo-oprf-core",
@@ -7888,9 +7888,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-client"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "696c4b03e8b570d1d0486f7bc2273b85951b316d7f720fc2f95e79f2b053f649"
+checksum = "b1624edfd12063146c6f3614c659cb178a8ae82bfac72b751a72133136000866"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -7934,9 +7934,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-dev-client"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a9b283cdbfff7f15c7f88c87ab954d8a6d81707901fe4ff19b5dbf04f184690"
+checksum = "2bca9ba7ac7e7391d81942e588f72614bf7ca01bf0bcc26a795e55da965d384d"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -7961,9 +7961,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-key-gen"
-version = "0.7.0"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8d3afa88b044f57bbbbb8f65d11e78c5119c26e188f1b4b9fdf80ff30f0f2b6"
+checksum = "182dbffdd5320347919395166da583e74839c85393c2a24b7a8e833030eb7e87"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -8006,9 +8006,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-service"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "660e05e361880d933c6627d61a1cdef27dcc5e207b12d75113411ba05b9f9727"
+checksum = "deb5eb26b47785abd7947e9566362fb40baa86b77d12aada979940f0e977e52c"
 dependencies = [
  "alloy",
  "ark-serialize 0.5.0",
@@ -8048,9 +8048,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-test-utils"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56688241fa91ffd6a8166d6b3219a3231c5dcaced3efc469226506451c4341ad"
+checksum = "79bf2307340f39699e8b0f506ac7b57b139488063bc317a3b415b0ed635e23ad"
 dependencies = [
  "alloy",
  "ark-ec 0.5.0",
@@ -8074,9 +8074,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-types"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "540ce620b9d45c2c3d417c8f4b0c82e112f2621f2419e1c9fd207b8d5a3310d4"
+checksum = "b92ebe8693dfb75f2f1e7861785792747495f8f2be058ff07698f16046cb5fad"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -8126,9 +8126,9 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tar"
-version = "0.4.44"
+version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d863878d212c87a19c1a610eb53bb01fe12951c0501cf5a0d65f724914a667a"
+checksum = "22692a6476a21fa75fdfc11d452fda482af402c008cdbaf3476414e122040973"
 dependencies = [
  "filetime",
  "libc",
@@ -8285,9 +8285,9 @@ dependencies = [
 
 [[package]]
 name = "testcontainers"
-version = "0.27.1"
+version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1c0624faaa317c56d6d19136580be889677259caf5c897941c6f446b4655068"
+checksum = "0bd36b06a2a6c0c3c81a83be1ab05fe86460d054d4d51bf513bc56b3e15bdc22"
 dependencies = [
  "astral-tokio-tar",
  "async-trait",

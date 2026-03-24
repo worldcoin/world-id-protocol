@@ -56,9 +56,9 @@ groth16-material = { package = "taceo-groth16-material", version = "0.2.3", defa
 hex = { version = "0.4" }
 k256 = { version = "0.13" }
 taceo-groth16-sol = { version = "0.2.2" }
-taceo-oprf = { version = "0.8", default-features = false }
-taceo-oprf-test-utils = { version = "0.8", default-features = false }
-taceo-oprf-key-gen = { version = "0.7" }
+taceo-oprf = { version = "0.9", default-features = false }
+taceo-oprf-test-utils = { version = "0.8.1", default-features = false }
+taceo-oprf-key-gen = {  version = "0.7.2" }
 telemetry-batteries = "0.2"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }
@@ -96,7 +96,7 @@ ciborium = "0.2"
 arrayvec = "0.7"
 async-trait = "0.1"
 aws-config = "1"
-aws-sdk-kms = "1"
+aws-sdk-kms = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio", "behavior-version-latest"] }
 chrono = "0.4"
 clap = "4.5.59"
 config = "0.15.19"

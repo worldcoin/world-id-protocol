@@ -1,4 +1,4 @@
-use crate::FieldElement;
+use crate::{FieldElement, PrimitiveError};
 use embed_doc_image::embed_doc_image;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
@@ -6,35 +6,44 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 #[expect(unused_imports, reason = "used in doc comments")]
 use crate::circuit_inputs::QueryProofCircuitInput;
 
-const SESSION_FIELD_ELEMENT_PREFIX: u8 = 0x01;
+/// Type of field elements for Session Proofs
+#[repr(u8)]
+pub enum SessionFeType {
+    /// The [`SessionId::oprf_seed`]
+    OprfSeed = 0x01,
+    /// The action used to compute the inner nullifier (in a [`SessionNullifier`]) for a Session Proof.
+    Action = 0x02,
+}
 
 /// Allows field element generation for Session Proofs
 pub trait SessionFieldElement {
     /// Generate a randomized field element with a specific prefix used
-    /// only for Session Proofs.
-    ///
-    /// This is generally used to:
-    /// - Generate the [`SessionId::oprf_seed`] used as input for the OPRF derivation of `session_id_r_seed`
-    /// - Generate a randomized action for the nullifier input of a Session Proof
-    fn random_for_session<R: rand::CryptoRng + rand::RngCore>(rng: &mut R) -> FieldElement;
+    /// only for Session Proofs. See [`SessionFeType`] for details.
+    fn random_for_session<R: rand::CryptoRng + rand::RngCore>(
+        rng: &mut R,
+        element_type: SessionFeType,
+    ) -> FieldElement;
     /// Returns whether a Field Element is valid for Session Proof use, i.e. it has
     /// the right prefix
-    fn is_valid_for_session(&self) -> bool;
+    fn is_valid_for_session(&self, element_type: SessionFeType) -> bool;
 }
 
 impl SessionFieldElement for FieldElement {
-    fn random_for_session<R: rand::CryptoRng + rand::RngCore>(rng: &mut R) -> FieldElement {
+    fn random_for_session<R: rand::CryptoRng + rand::RngCore>(
+        rng: &mut R,
+        element_type: SessionFeType,
+    ) -> FieldElement {
         let mut bytes = [0u8; 32];
         rng.fill_bytes(&mut bytes);
-        bytes[0] = SESSION_FIELD_ELEMENT_PREFIX;
+        bytes[0] = element_type as u8;
         let seed = U256::from_be_bytes(bytes);
         Self::try_from(seed).expect(
             "should always fit in the field because with 0x01 as the MSB, the field element < babyjubjub modulus",
         )
     }
 
-    fn is_valid_for_session(&self) -> bool {
-        self.to_be_bytes()[0] == SESSION_FIELD_ELEMENT_PREFIX
+    fn is_valid_for_session(&self, element_type: SessionFeType) -> bool {
+        self.to_be_bytes()[0] == element_type as u8
     }
 }
 
@@ -85,21 +94,27 @@ pub struct SessionId {
 
 impl SessionId {
     const JSON_PREFIX: &str = "session_";
+    /// Domain separator for session id
+    const DS_C: &[u8] = b"H(id, r)";
 
     /// Creates a new session id. Most uses should default to `from_r_seed` instead.
     ///
-    /// # Panics
-    /// If the provided `oprf_seed` is not prefixed with a `0x01` byte.
-    #[must_use]
-    pub fn new(commitment: FieldElement, oprf_seed: FieldElement) -> Self {
+    /// # Errors
+    /// If the provided `oprf_seed` is not prefixed properly.
+    pub fn new(commitment: FieldElement, oprf_seed: FieldElement) -> Result<Self, PrimitiveError> {
         // OPRF Seeds must always start with a byte of `0x01`. See [`Self::oprf_seed`]
         // for details. Panic is acceptable as `oprf_seed` generation should
         // generally be done with `Self::from_r_seed`
-        assert!(oprf_seed.is_valid_for_session());
-        Self {
+        if !oprf_seed.is_valid_for_session(SessionFeType::OprfSeed) {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "session_id".to_string(),
+                reason: "inner oprf_seed is not valid".to_string(),
+            });
+        }
+        Ok(Self {
             commitment,
             oprf_seed,
-        }
+        })
     }
 
     /// Initializes a `SessionId` from the OPRF-output seed (`r`), and the `oprf_seed`
@@ -108,7 +123,7 @@ impl SessionId {
     /// This matches the logic in `oprf_nullifier.circom` for computing the `commitment` from the OPRF seed.
     ///
     /// # Seed (`session_id_r_seed`)
-    /// - The seed is and MUST be computationally indistinguishable from random,
+    /// - The seed MUST be computationally indistinguishable from random,
     ///   i.e. uniformly distributed because it uses OPRF.
     /// - When computed, the OPRF nodes will use the same `oprfKeyId` for the RP, with a different domain separator.
     /// - Requesting this seed requires a properly signed request from the RP and a complete query proof.
@@ -119,16 +134,19 @@ impl SessionId {
         session_id_r_seed: FieldElement,
         oprf_seed: Option<FieldElement>,
         rng: &mut R,
-    ) -> Result<Self, &str> {
-        let sub_ds = FieldElement::from_be_bytes_mod_order(b"H(id, r)");
+    ) -> Result<Self, PrimitiveError> {
+        let sub_ds = FieldElement::from_be_bytes_mod_order(Self::DS_C);
 
         let oprf_seed = if let Some(seed) = oprf_seed {
-            if !seed.is_valid_for_session() {
-                return Err("oprf_seed is not valid for session");
+            if !seed.is_valid_for_session(SessionFeType::OprfSeed) {
+                return Err(PrimitiveError::InvalidInput {
+                    attribute: "session_id".to_string(),
+                    reason: "inner oprf_seed is not valid".to_string(),
+                });
             }
             seed
         } else {
-            FieldElement::random_for_session(rng)
+            FieldElement::random_for_session(rng, SessionFeType::OprfSeed)
         };
 
         let mut input = [*sub_ds, leaf_index.into(), *session_id_r_seed];
@@ -178,7 +196,7 @@ impl SessionId {
         let oprf_seed = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
             .map_err(|e| format!("invalid oprf_seed: {e}"))?;
 
-        if bytes[32] != SESSION_FIELD_ELEMENT_PREFIX {
+        if bytes[32] != SessionFeType::OprfSeed as u8 {
             return Err("invalid prefix for oprf_seed".to_string());
         }
 
@@ -192,7 +210,7 @@ impl SessionId {
 impl Default for SessionId {
     fn default() -> Self {
         let mut oprf_seed = [0u8; 32];
-        oprf_seed[0] = SESSION_FIELD_ELEMENT_PREFIX;
+        oprf_seed[0] = SessionFeType::OprfSeed as u8;
         let oprf_seed = U256::from_be_bytes(oprf_seed)
             .try_into()
             .expect("always fits in the field");
@@ -272,9 +290,14 @@ impl SessionNullifier {
     const JSON_PREFIX: &str = "snil_";
 
     /// Creates a new session nullifier.
-    #[must_use]
-    pub const fn new(nullifier: FieldElement, action: FieldElement) -> Self {
-        Self { nullifier, action }
+    pub fn new(nullifier: FieldElement, action: FieldElement) -> Result<Self, PrimitiveError> {
+        if !action.is_valid_for_session(SessionFeType::Action) {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "session_nullifier".to_string(),
+                reason: "inner action is not valid".to_string(),
+            });
+        }
+        Ok(Self { nullifier, action })
     }
 
     /// Returns the nullifier value.
@@ -306,6 +329,10 @@ impl SessionNullifier {
             FieldElement::try_from(value[0]).map_err(|e| format!("invalid nullifier: {e}"))?;
         let action =
             FieldElement::try_from(value[1]).map_err(|e| format!("invalid action: {e}"))?;
+
+        if !action.is_valid_for_session(SessionFeType::Action) {
+            return Err("inner action is not valid".to_string());
+        }
         Ok(Self { nullifier, action })
     }
 
@@ -335,15 +362,24 @@ impl SessionNullifier {
         let action = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
             .map_err(|e| format!("invalid action: {e}"))?;
 
+        if bytes[32] != SessionFeType::Action as u8 {
+            return Err("invalid action. missing expected prefix.".to_string());
+        }
+
         Ok(Self { nullifier, action })
     }
 }
 
 impl Default for SessionNullifier {
     fn default() -> Self {
+        let mut action = [0u8; 32];
+        action[0] = SessionFeType::Action as u8;
+        let action = U256::from_be_bytes(action)
+            .try_into()
+            .expect("always fits in the field");
         Self {
             nullifier: FieldElement::ZERO,
-            action: FieldElement::ZERO,
+            action,
         }
     }
 }
@@ -392,12 +428,6 @@ impl From<SessionNullifier> for [U256; 2] {
     }
 }
 
-impl From<(FieldElement, FieldElement)> for SessionNullifier {
-    fn from((nullifier, action): (FieldElement, FieldElement)) -> Self {
-        Self::new(nullifier, action)
-    }
-}
-
 #[cfg(test)]
 mod session_id_tests {
     use super::*;
@@ -419,7 +449,7 @@ mod session_id_tests {
     fn test_new_and_accessors() {
         let commitment = test_field_element(1001);
         let seed = test_oprf_seed(42);
-        let id = SessionId::new(commitment, seed);
+        let id = SessionId::new(commitment, seed).unwrap();
 
         assert_eq!(id.commitment(), commitment);
         assert_eq!(id.oprf_seed(), seed);
@@ -439,7 +469,7 @@ mod session_id_tests {
 
     #[test]
     fn test_bytes_roundtrip() {
-        let id = SessionId::new(test_field_element(1001), test_oprf_seed(42));
+        let id = SessionId::new(test_field_element(1001), test_oprf_seed(42)).unwrap();
         let bytes = id.to_compressed_bytes();
 
         assert_eq!(bytes.len(), 64);
@@ -450,7 +480,7 @@ mod session_id_tests {
 
     #[test]
     fn test_bytes_use_field_element_encoding() {
-        let id = SessionId::new(test_field_element(1001), test_oprf_seed(42));
+        let id = SessionId::new(test_field_element(1001), test_oprf_seed(42)).unwrap();
         let bytes = id.to_compressed_bytes();
 
         let mut expected = [0u8; 64];
@@ -488,7 +518,7 @@ mod session_id_tests {
 
     #[test]
     fn test_json_roundtrip() {
-        let id = SessionId::new(test_field_element(1001), test_oprf_seed(42));
+        let id = SessionId::new(test_field_element(1001), test_oprf_seed(42)).unwrap();
         let json = serde_json::to_string(&id).unwrap();
 
         assert!(json.starts_with("\"session_"));
@@ -500,7 +530,7 @@ mod session_id_tests {
 
     #[test]
     fn test_json_format() {
-        let id = SessionId::new(test_field_element(1), test_oprf_seed(2));
+        let id = SessionId::new(test_field_element(1), test_oprf_seed(2)).unwrap();
         let json = serde_json::to_string(&id).unwrap();
 
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -562,16 +592,24 @@ mod session_id_tests {
 #[cfg(test)]
 mod session_nullifier_tests {
     use super::*;
+    use ruint::uint;
 
     fn test_field_element(value: u64) -> FieldElement {
         FieldElement::from(value)
     }
 
+    /// Creates an action with the required `0x02` prefix
+    fn test_action(value: u64) -> FieldElement {
+        let n = U256::from(value)
+            | uint!(0x0200000000000000000000000000000000000000000000000000000000000000_U256);
+        FieldElement::try_from(n).expect("test value fits in field")
+    }
+
     #[test]
     fn test_new_and_accessors() {
         let nullifier = test_field_element(1001);
-        let action = test_field_element(42);
-        let session = SessionNullifier::new(nullifier, action);
+        let action = test_action(42);
+        let session = SessionNullifier::new(nullifier, action).unwrap();
 
         assert_eq!(session.nullifier(), nullifier);
         assert_eq!(session.action(), action);
@@ -580,26 +618,27 @@ mod session_nullifier_tests {
     #[test]
     fn test_as_ethereum_representation() {
         let nullifier = test_field_element(100);
-        let action = test_field_element(200);
-        let session = SessionNullifier::new(nullifier, action);
+        let action = test_action(200);
+        let session = SessionNullifier::new(nullifier, action).unwrap();
 
         let repr = session.as_ethereum_representation();
         assert_eq!(repr[0], U256::from(100));
-        assert_eq!(repr[1], U256::from(200));
+        assert_eq!(repr[1], action.to_u256());
     }
 
     #[test]
     fn test_from_ethereum_representation() {
-        let repr = [U256::from(100), U256::from(200)];
+        let action = test_action(200);
+        let repr = [U256::from(100), action.to_u256()];
         let session = SessionNullifier::from_ethereum_representation(repr).unwrap();
 
         assert_eq!(session.nullifier(), test_field_element(100));
-        assert_eq!(session.action(), test_field_element(200));
+        assert_eq!(session.action(), action);
     }
 
     #[test]
     fn test_json_roundtrip() {
-        let session = SessionNullifier::new(test_field_element(1001), test_field_element(42));
+        let session = SessionNullifier::new(test_field_element(1001), test_action(42)).unwrap();
         let json = serde_json::to_string(&session).unwrap();
 
         // Verify JSON uses the prefixed compact representation
@@ -613,7 +652,7 @@ mod session_nullifier_tests {
 
     #[test]
     fn test_json_format() {
-        let session = SessionNullifier::new(test_field_element(1), test_field_element(2));
+        let session = SessionNullifier::new(test_field_element(1), test_action(2)).unwrap();
         let json = serde_json::to_string(&session).unwrap();
 
         // Should be a prefixed compact string
@@ -625,7 +664,7 @@ mod session_nullifier_tests {
 
     #[test]
     fn test_bytes_roundtrip() {
-        let session = SessionNullifier::new(test_field_element(1001), test_field_element(42));
+        let session = SessionNullifier::new(test_field_element(1001), test_action(42)).unwrap();
         let bytes = session.to_compressed_bytes();
 
         assert_eq!(bytes.len(), 64); // 32 + 32 bytes
@@ -636,7 +675,7 @@ mod session_nullifier_tests {
 
     #[test]
     fn test_bytes_use_field_element_encoding() {
-        let session = SessionNullifier::new(test_field_element(1001), test_field_element(42));
+        let session = SessionNullifier::new(test_field_element(1001), test_action(42)).unwrap();
         let bytes = session.to_compressed_bytes();
 
         let mut expected = [0u8; 64];
@@ -662,25 +701,82 @@ mod session_nullifier_tests {
     fn test_default() {
         let session = SessionNullifier::default();
         assert_eq!(session.nullifier(), FieldElement::ZERO);
-        assert_eq!(session.action(), FieldElement::ZERO);
-    }
-
-    #[test]
-    fn test_from_tuple() {
-        let nullifier = test_field_element(100);
-        let action = test_field_element(200);
-        let session: SessionNullifier = (nullifier, action).into();
-
-        assert_eq!(session.nullifier(), nullifier);
-        assert_eq!(session.action(), action);
+        let expected_action: FieldElement =
+            uint!(0x0200000000000000000000000000000000000000000000000000000000000000_U256)
+                .try_into()
+                .unwrap();
+        assert_eq!(session.action(), expected_action);
     }
 
     #[test]
     fn test_into_u256_array() {
-        let session = SessionNullifier::new(test_field_element(100), test_field_element(200));
+        let action = test_action(200);
+        let session = SessionNullifier::new(test_field_element(100), action).unwrap();
         let arr: [U256; 2] = session.into();
 
         assert_eq!(arr[0], U256::from(100));
-        assert_eq!(arr[1], U256::from(200));
+        assert_eq!(arr[1], action.to_u256());
+    }
+
+    #[test]
+    fn test_new_rejects_invalid_action_prefix() {
+        let nullifier = test_field_element(1);
+        let bad_action = test_field_element(42); // no 0x02 prefix
+        let result = SessionNullifier::new(nullifier, bad_action);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, PrimitiveError::InvalidInput { .. }),
+            "expected InvalidInput, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_new_rejects_oprf_seed_prefix_as_action() {
+        let nullifier = test_field_element(1);
+        // 0x01 prefix (OprfSeed) is not valid for Action
+        let oprf_prefixed = U256::from(42u64)
+            | uint!(0x0100000000000000000000000000000000000000000000000000000000000000_U256);
+        let bad_action = FieldElement::try_from(oprf_prefixed).unwrap();
+        assert!(SessionNullifier::new(nullifier, bad_action).is_err());
+    }
+
+    #[test]
+    fn test_from_ethereum_representation_rejects_invalid_action() {
+        let repr = [U256::from(100), U256::from(200)]; // action has 0x00 prefix
+        let result = SessionNullifier::from_ethereum_representation(repr);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("action"),
+            "error should mention the action"
+        );
+    }
+
+    #[test]
+    fn test_from_compressed_bytes_rejects_invalid_action_prefix() {
+        let mut bytes = [0u8; 64];
+        // Valid nullifier (zero), but action with 0x00 prefix
+        bytes[32] = 0x00;
+        let result = SessionNullifier::from_compressed_bytes(&bytes);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("action"),
+            "error should mention the action"
+        );
+    }
+
+    #[test]
+    fn test_json_rejects_invalid_action_prefix() {
+        // Build JSON with a valid nullifier but an action lacking the 0x02 prefix
+        let nullifier = test_field_element(1);
+        let bad_action = test_field_element(2); // 0x00 prefix
+        let mut bytes = [0u8; 64];
+        bytes[..32].copy_from_slice(&nullifier.to_be_bytes());
+        bytes[32..].copy_from_slice(&bad_action.to_be_bytes());
+        let json = format!("\"snil_{}\"", hex::encode(bytes));
+
+        let result = serde_json::from_str::<SessionNullifier>(&json);
+        assert!(result.is_err());
     }
 }
