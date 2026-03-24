@@ -197,9 +197,14 @@ jobs:
             echo "os_version=${IOS_OS_VERSION_OVERRIDE}" >> "$GITHUB_OUTPUT"
             echo "Using custom device: ${IOS_DEVICE_OVERRIDE} (${IOS_OS_VERSION_OVERRIDE})"
           else
+            PROFILE_TO_RESOLVE="${DEVICE_PROFILE}"
+            if [ "$PROFILE_TO_RESOLVE" = "low-spec" ]; then
+              PROFILE_TO_RESOLVE="mid-spec"
+              echo "::warning::Using iOS mid-spec profile because the current low-spec iOS profile is incompatible with the generated BrowserStack app bundle"
+            fi
             output=$(cargo-mobench devices resolve \
               --platform ios \
-              --profile "${DEVICE_PROFILE}" \
+              --profile "${PROFILE_TO_RESOLVE}" \
               --format json 2>&1) || {
                 echo "::error::Failed to resolve iOS device: $output"
                 exit 1
