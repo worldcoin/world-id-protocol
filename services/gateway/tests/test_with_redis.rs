@@ -80,7 +80,7 @@ async fn redis_integration() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
-    let request_id = accepted.request_id.clone();
+    let request_id = accepted.request_id.as_str_without_prefix();
 
     // Verify the request was stored in Redis using the plain (unprefixed) key names.
     let redis_key = format!("gateway:request:{}", request_id);
@@ -97,7 +97,7 @@ async fn redis_integration() {
 
     // Verify the request was added to the pending set atomically with the record
     let is_pending: bool = redis
-        .sismember("gateway:pending_requests", &request_id)
+        .sismember("gateway:pending_requests", request_id)
         .await
         .unwrap();
     assert!(
@@ -132,7 +132,7 @@ async fn redis_integration() {
     let pending_members: std::collections::HashSet<String> =
         redis.smembers("gateway:pending_requests").await.unwrap();
     assert!(
-        !pending_members.contains(&request_id),
+        !pending_members.contains(request_id),
         "finalized request should have been removed from the pending set"
     );
 

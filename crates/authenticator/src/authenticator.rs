@@ -5,11 +5,11 @@
 use std::sync::Arc;
 
 use crate::api_types::{
-    AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
-    IndexerAuthenticatorPubkeysResponse, IndexerErrorCode, IndexerPackedAccountRequest,
-    IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
-    InsertAuthenticatorRequest, RemoveAuthenticatorRequest, ServiceApiError,
-    UpdateAuthenticatorRequest,
+    AccountInclusionProof, CreateAccountRequest, GatewayRequestId, GatewayRequestState,
+    GatewayStatusResponse, IndexerAuthenticatorPubkeysResponse, IndexerErrorCode,
+    IndexerPackedAccountRequest, IndexerPackedAccountResponse, IndexerQueryRequest,
+    IndexerSignatureNonceResponse, InsertAuthenticatorRequest, RemoveAuthenticatorRequest,
+    ServiceApiError, UpdateAuthenticatorRequest,
 };
 use world_id_primitives::{
     Credential, FieldElement, ProofRequest, RequestItem, ResponseItem, SessionNullifier, Signer,
@@ -47,6 +47,35 @@ use world_id_proof::{
 
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::Nullifier;
+
+/// Shared helper that polls `GET {gateway_url}/status/{request_id}` and
+/// returns the current [`GatewayRequestState`].
+async fn fetch_gateway_status(
+    http_client: &reqwest::Client,
+    gateway_url: &str,
+    request_id: &GatewayRequestId,
+) -> Result<GatewayRequestState, AuthenticatorError> {
+    let resp = http_client
+        .get(format!("{gateway_url}/status/{request_id}"))
+        .send()
+        .await?;
+
+    let status = resp.status();
+
+    if status.is_success() {
+        let body: GatewayStatusResponse = resp.json().await?;
+        Ok(body.status)
+    } else {
+        let body_text = resp
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("Unable to read response body: {e}"));
+        Err(AuthenticatorError::GatewayError {
+            status,
+            body: body_text,
+        })
+    }
+}
 
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
@@ -797,7 +826,7 @@ impl Authenticator {
         &self,
         new_authenticator_pubkey: EdDSAPublicKey,
         new_authenticator_address: Address,
-    ) -> Result<String, AuthenticatorError> {
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
@@ -875,7 +904,7 @@ impl Authenticator {
         new_authenticator_address: Address,
         new_authenticator_pubkey: EdDSAPublicKey,
         index: u32,
-    ) -> Result<String, AuthenticatorError> {
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
@@ -948,7 +977,7 @@ impl Authenticator {
         &self,
         authenticator_address: Address,
         index: u32,
-    ) -> Result<String, AuthenticatorError> {
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
@@ -1011,12 +1040,28 @@ impl Authenticator {
             })
         }
     }
+
+    /// Polls the gateway for the current status of a previously submitted request.
+    ///
+    /// Use the [`GatewayRequestId`] returned by [`insert_authenticator`](Self::insert_authenticator),
+    /// [`update_authenticator`](Self::update_authenticator), or
+    /// [`remove_authenticator`](Self::remove_authenticator) to track the operation.
+    ///
+    /// # Errors
+    /// - Will error if the network request fails.
+    /// - Will error if the gateway returns an error response (e.g. request not found).
+    pub async fn poll_status(
+        &self,
+        request_id: &GatewayRequestId,
+    ) -> Result<GatewayRequestState, AuthenticatorError> {
+        fetch_gateway_status(&self.http_client, self.config.gateway_url(), request_id).await
+    }
 }
 
 /// Represents an account in the process of being initialized,
 /// i.e. it is not yet registered in the `WorldIDRegistry` contract.
 pub struct InitializingAuthenticator {
-    request_id: String,
+    request_id: GatewayRequestId,
     http_client: reqwest::Client,
     config: Config,
 }
@@ -1024,7 +1069,7 @@ pub struct InitializingAuthenticator {
 impl InitializingAuthenticator {
     /// Returns the gateway request ID for this pending account creation.
     #[must_use]
-    pub fn request_id(&self) -> &str {
+    pub fn request_id(&self) -> &GatewayRequestId {
         &self.request_id
     }
 
@@ -1089,28 +1134,12 @@ impl InitializingAuthenticator {
     /// - Will error if the network request fails.
     /// - Will error if the gateway returns an error response.
     pub async fn poll_status(&self) -> Result<GatewayRequestState, AuthenticatorError> {
-        let resp = self
-            .http_client
-            .get(format!(
-                "{}/status/{}",
-                self.config.gateway_url(),
-                self.request_id
-            ))
-            .send()
-            .await?;
-
-        let status = resp.status();
-
-        if status.is_success() {
-            let body: GatewayStatusResponse = resp.json().await?;
-            Ok(body.status)
-        } else {
-            let body_text = Authenticator::response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        fetch_gateway_status(
+            &self.http_client,
+            self.config.gateway_url(),
+            &self.request_id,
+        )
+        .await
     }
 }
 

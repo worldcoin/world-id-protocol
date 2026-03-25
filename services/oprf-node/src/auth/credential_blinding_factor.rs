@@ -45,7 +45,7 @@ pub(crate) enum CredentialBlindingFactorModuleError {
 impl From<SchemaIssuerRegistryWatcherError> for CredentialBlindingFactorModuleError {
     fn from(value: SchemaIssuerRegistryWatcherError) -> Self {
         match value {
-            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(id) => {
+            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(id) => {
                 Self::UnknownSchemaIssuer(id)
             }
             SchemaIssuerRegistryWatcherError::Internal(report) => Self::Internal(report),
@@ -75,7 +75,7 @@ impl From<CredentialBlindingFactorModuleError> for WorldIdRequestAuthError {
                 WorldIdRequestAuthError::InvalidMerkleRoot
             }
             CredentialBlindingFactorModuleError::UnknownSchemaIssuer(_) => {
-                WorldIdRequestAuthError::UnknownSchemaIssuer
+                WorldIdRequestAuthError::UnknownSchemaIssuerId
             }
             CredentialBlindingFactorModuleError::Internal(_) => WorldIdRequestAuthError::Internal,
         }
@@ -279,7 +279,7 @@ mod tests {
             auth_error.code(),
             primitives::oprf::error_codes::UNKNOWN_SCHEMA_ISSUER
         );
-        assert_eq!(auth_error.message(), "unknown schema issuer");
+        assert_eq!(auth_error.message(), "unknown schema issuer id");
         Ok(())
     }
 
@@ -298,7 +298,7 @@ mod tests {
         );
         assert_eq!(
             auth_error.message(),
-            "invalid action - must be 0 for schema-issuer blinding"
+            "invalid action for credential sub blinding factor"
         );
         Ok(())
     }
@@ -343,7 +343,7 @@ mod tests {
             auth_error.code(),
             primitives::oprf::error_codes::UNKNOWN_SCHEMA_ISSUER
         );
-        assert_eq!(auth_error.message(), "unknown schema issuer");
+        assert_eq!(auth_error.message(), "unknown schema issuer id");
         Ok(())
     }
 

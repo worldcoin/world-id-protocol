@@ -247,12 +247,54 @@ pub struct RecoverAccountRequest {
     pub new_authenticator_pubkey: Option<U256>,
 }
 
+/// Strongly-typed identifier for a gateway request.
+///
+/// Returned by gateway mutation endpoints (create-account, insert/update/remove
+/// authenticator, etc.) and used to poll the status of the request.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[serde(transparent)]
+pub struct GatewayRequestId(String);
+
+impl GatewayRequestId {
+    /// Creates a new `GatewayRequestId` from a raw string by prepending the
+    /// `gw_` prefix.
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(format!("gw_{}", id.into()))
+    }
+
+    /// Returns the underlying string representation.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Returns the underlying string representation without the `gw_` prefix,
+    /// if present.
+    #[must_use]
+    pub fn as_str_without_prefix(&self) -> &str {
+        self.0.strip_prefix("gw_").unwrap_or(&self.0)
+    }
+}
+
+impl std::fmt::Display for GatewayRequestId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl AsRef<str> for GatewayRequestId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Response returned by the registry gateway for state-changing requests.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct GatewayStatusResponse {
     /// Identifier assigned by the gateway to the submitted request.
-    pub request_id: String,
+    pub request_id: GatewayRequestId,
     /// The kind of operation that was submitted.
     pub kind: GatewayRequestKind,
     /// The current state of the request.
