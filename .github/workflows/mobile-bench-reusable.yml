@@ -553,24 +553,17 @@ jobs:
         if: needs.ios.result == 'success'
         shell: bash
         run: |
-          IOS_RESULTS_DIR="results/ios/mobench/ci/ios"
-          echo "## iOS Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-
-          if [ -d "$IOS_RESULTS_DIR" ]; then
-            cargo-mobench ci summarize \
-              --results-dir "$IOS_RESULTS_DIR" \
-              --output-format table || true
-
-            cargo-mobench ci summarize \
-              --results-dir "$IOS_RESULTS_DIR" \
-              --output-format markdown \
-              --output-file /tmp/ios-summary.md || true
-
-            if [ -f /tmp/ios-summary.md ]; then
-              cat /tmp/ios-summary.md >> "$GITHUB_STEP_SUMMARY"
-            fi
+          if [ -d "results/ios" ]; then
+            python .github/scripts/render_mobench_ci_summary.py \
+              --artifact-root results/ios \
+              --platform ios \
+              --markdown-out /tmp/ios-summary.md \
+              --json-out /tmp/ios-summary.json \
+              --csv-out /tmp/ios-summary.csv
+            cat /tmp/ios-summary.md >> "$GITHUB_STEP_SUMMARY"
           else
+            echo "## iOS Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "No iOS results found." >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -579,24 +572,17 @@ jobs:
         if: needs.android.result == 'success'
         shell: bash
         run: |
-          ANDROID_RESULTS_DIR="results/android/mobench/ci/android"
-          echo "## Android Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-
-          if [ -d "$ANDROID_RESULTS_DIR" ]; then
-            cargo-mobench ci summarize \
-              --results-dir "$ANDROID_RESULTS_DIR" \
-              --output-format table || true
-
-            cargo-mobench ci summarize \
-              --results-dir "$ANDROID_RESULTS_DIR" \
-              --output-format markdown \
-              --output-file /tmp/android-summary.md || true
-
-            if [ -f /tmp/android-summary.md ]; then
-              cat /tmp/android-summary.md >> "$GITHUB_STEP_SUMMARY"
-            fi
+          if [ -d "results/android" ]; then
+            python .github/scripts/render_mobench_ci_summary.py \
+              --artifact-root results/android \
+              --platform android \
+              --markdown-out /tmp/android-summary.md \
+              --json-out /tmp/android-summary.json \
+              --csv-out /tmp/android-summary.csv
+            cat /tmp/android-summary.md >> "$GITHUB_STEP_SUMMARY"
           else
+            echo "## Android Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "No Android results found." >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -614,9 +600,9 @@ jobs:
           ## Mobench Benchmark Results
 
           "
-          for dir in results/ios/mobench/ci/ios results/android/mobench/ci/android; do
-            if [ -d "$dir" ]; then
-              PLATFORM_MD=$(cargo-mobench ci summarize --results-dir "$dir" --output-format markdown 2>/dev/null || true)
+          for file in /tmp/ios-summary.md /tmp/android-summary.md; do
+            if [ -f "$file" ]; then
+              PLATFORM_MD=$(cat "$file")
               if [ -n "$PLATFORM_MD" ]; then
                 BODY="${BODY}${PLATFORM_MD}
 
@@ -692,12 +678,10 @@ jobs:
           mkdir -p history-bundle
           TIMESTAMP=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-          for dir in results/ios/mobench/ci/ios results/android/mobench/ci/android; do
-            if [ -d "$dir" ]; then
-              cp "$dir"/summary.json "history-bundle/$(basename "$(dirname "$dir")")-summary.json" 2>/dev/null || true
-              cp "$dir"/results.csv "history-bundle/$(basename "$(dirname "$dir")")-results.csv" 2>/dev/null || true
-            fi
-          done
+          cp /tmp/ios-summary.json history-bundle/ios-summary.json 2>/dev/null || true
+          cp /tmp/ios-summary.csv history-bundle/ios-results.csv 2>/dev/null || true
+          cp /tmp/android-summary.json history-bundle/android-summary.json 2>/dev/null || true
+          cp /tmp/android-summary.csv history-bundle/android-results.csv 2>/dev/null || true
 
           jq -n \
             --arg ts "$TIMESTAMP" \
