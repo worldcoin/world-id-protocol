@@ -132,7 +132,7 @@ async fn redis_integration() {
     let pending_members: std::collections::HashSet<String> =
         redis.smembers("gateway:pending_requests").await.unwrap();
     assert!(
-        !pending_members.contains(&request_id),
+        !pending_members.contains(request_id),
         "finalized request should have been removed from the pending set"
     );
 
