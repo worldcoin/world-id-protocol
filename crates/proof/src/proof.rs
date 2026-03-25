@@ -17,8 +17,7 @@ use rand::{CryptoRng, Rng};
 use std::{io::Read, path::Path};
 use world_id_primitives::{
     Credential, FieldElement, Nullifier, RequestItem, TREE_DEPTH,
-    circuit_inputs::NullifierProofCircuitInput,
-    oprf::WorldIdRequestAuthError,
+    circuit_inputs::NullifierProofCircuitInput, oprf::WorldIdRequestAuthError,
 };
 
 pub use groth16_material::circom::{
