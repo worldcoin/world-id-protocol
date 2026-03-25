@@ -269,7 +269,8 @@ impl GatewayRequestId {
         &self.0
     }
 
-    /// Returns the underlying string without the 'gw_' prefix
+    /// Returns the underlying string representation without the `gw_` prefix,
+    /// if present.
     #[must_use]
     pub fn as_str_without_prefix(&self) -> &str {
         self.0.strip_prefix("gw_").unwrap_or(&self.0)
@@ -279,18 +280,6 @@ impl GatewayRequestId {
 impl std::fmt::Display for GatewayRequestId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
-    }
-}
-
-impl From<String> for GatewayRequestId {
-    fn from(s: String) -> Self {
-        Self::new(s)
-    }
-}
-
-impl From<GatewayRequestId> for String {
-    fn from(id: GatewayRequestId) -> Self {
-        id.0
     }
 }
 
