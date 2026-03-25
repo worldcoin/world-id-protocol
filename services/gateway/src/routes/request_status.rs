@@ -14,9 +14,9 @@ use world_id_core::api_types::{GatewayRequestId, GatewayStatusResponse};
 #[instrument(name = "request_status", skip(state), fields(request_id = %id))]
 pub(crate) async fn request_status(
     State(state): State<AppState>,
-    Path(id): Path<String>,
+    Path(id): Path<GatewayRequestId>,
 ) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
-    let raw_id = id.strip_prefix("gw_").unwrap_or(&id);
+    let raw_id = id.as_str_without_prefix();
     let record = state
         .ctx
         .tracker

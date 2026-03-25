@@ -80,7 +80,7 @@ async fn redis_integration() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
-    let request_id = accepted.request_id.to_string();
+    let request_id = accepted.request_id.as_str_without_prefix();
 
     // Verify the request was stored in Redis using the plain (unprefixed) key names.
     let redis_key = format!("gateway:request:{}", request_id);

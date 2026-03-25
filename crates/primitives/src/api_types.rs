@@ -268,6 +268,12 @@ impl GatewayRequestId {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Returns the underlying string without the 'gw_' prefix
+    #[must_use]
+    pub fn as_str_without_prefix(&self) -> &str {
+        self.0.trim_start_matches("gw_")
+    }
 }
 
 impl std::fmt::Display for GatewayRequestId {
