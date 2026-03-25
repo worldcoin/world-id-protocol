@@ -284,7 +284,7 @@ impl std::fmt::Display for GatewayRequestId {
 
 impl From<String> for GatewayRequestId {
     fn from(s: String) -> Self {
-        Self(s)
+        Self::new(s)
     }
 }
 
