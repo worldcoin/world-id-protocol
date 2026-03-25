@@ -97,7 +97,7 @@ async fn redis_integration() {
 
     // Verify the request was added to the pending set atomically with the record
     let is_pending: bool = redis
-        .sismember("gateway:pending_requests", &request_id)
+        .sismember("gateway:pending_requests", request_id)
         .await
         .unwrap();
     assert!(
