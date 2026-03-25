@@ -251,7 +251,7 @@ pub async fn start(
     Ok((router, tasks))
 }
 
-async fn build_ws_provider(ws_rpc_url: &str) -> eyre::Result<DynProvider> {
+pub(crate) async fn build_ws_provider(ws_rpc_url: &str) -> eyre::Result<DynProvider> {
     tracing::info!("starting RPC provider in world-node");
     let ws = WsConnect::new(ws_rpc_url);
     Ok(ProviderBuilder::new()

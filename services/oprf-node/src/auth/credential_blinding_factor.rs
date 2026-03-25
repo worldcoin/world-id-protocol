@@ -348,8 +348,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_credential_blinding_factor_oprf_req_auth_tampered_blinded_query(
-    ) -> eyre::Result<()> {
+    async fn test_credential_blinding_factor_oprf_req_auth_tampered_blinded_query()
+    -> eyre::Result<()> {
         let mut setup = CredentialBlindingFactorOprfRequestAuthTestSetup::new().await?;
         setup.request.blinded_query = rand::random();
         let auth_error = setup

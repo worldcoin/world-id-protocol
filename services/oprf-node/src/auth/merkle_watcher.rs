@@ -25,7 +25,7 @@ use std::{
 use alloy::{
     eips::BlockNumberOrTag,
     primitives::Address,
-    providers::{DynProvider, Provider as _, ProviderBuilder, WsConnect},
+    providers::{DynProvider, Provider as _},
     pubsub::Subscription,
     rpc::types::{Filter, Log},
     sol_types::SolEvent as _,
@@ -413,7 +413,9 @@ mod tests {
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            anvil.ws_endpoint(),
+            crate::build_ws_provider(anvil.ws_endpoint())
+                .await
+                .expect("Can build provider"),
             100,
             Duration::from_secs(3600),
             started_services.new_service(),
@@ -460,7 +462,9 @@ mod tests {
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            anvil.ws_endpoint(),
+            crate::build_ws_provider(anvil.ws_endpoint())
+                .await
+                .expect("Can build provider"),
             100,
             Duration::from_secs(1),
             started_services.new_service(),
@@ -526,7 +530,9 @@ mod tests {
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            anvil.ws_endpoint(),
+            crate::build_ws_provider(anvil.ws_endpoint())
+                .await
+                .expect("Can build provider"),
             100,
             Duration::from_secs(1),
             started_services.new_service(),
