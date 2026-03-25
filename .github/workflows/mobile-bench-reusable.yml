@@ -283,7 +283,7 @@ jobs:
         run: |
           set -euo pipefail
           json_count=$(find target/mobench/ci/ios/ios -type f -name summary.json 2>/dev/null | wc -l | tr -d ' ')
-          csv_count=$(find target/mobench/ci/ios/ios -type f -name summary.csv 2>/dev/null | wc -l | tr -d ' ')
+          csv_count=$(find target/mobench/ci/ios/ios -type f -name results.csv 2>/dev/null | wc -l | tr -d ' ')
 
           if [ "$json_count" -eq 0 ] || [ "$csv_count" -eq 0 ]; then
             echo "::error::iOS benchmark artifacts were not produced"
@@ -482,7 +482,7 @@ jobs:
         run: |
           set -euo pipefail
           json_count=$(find target/mobench/ci/android/android -type f -name summary.json 2>/dev/null | wc -l | tr -d ' ')
-          csv_count=$(find target/mobench/ci/android/android -type f -name summary.csv 2>/dev/null | wc -l | tr -d ' ')
+          csv_count=$(find target/mobench/ci/android/android -type f -name results.csv 2>/dev/null | wc -l | tr -d ' ')
 
           if [ "$json_count" -eq 0 ] || [ "$csv_count" -eq 0 ]; then
             echo "::error::Android benchmark artifacts were not produced"
