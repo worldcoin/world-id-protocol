@@ -66,7 +66,7 @@ on:
         description: "Mobench version to install"
         required: false
         type: string
-        default: "0.1.21"
+        default: "0.1.22"
       mobench_ref:
         description: "Git ref for mobile-bench-rs (overrides mobench_version when set)"
         required: false
@@ -553,17 +553,30 @@ jobs:
         if: needs.ios.result == 'success'
         shell: bash
         run: |
+          echo "## iOS Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
           if [ -d "results/ios" ]; then
-            python .github/scripts/render_mobench_ci_summary.py \
-              --artifact-root results/ios \
-              --platform ios \
-              --markdown-out /tmp/ios-summary.md \
-              --json-out /tmp/ios-summary.json \
-              --csv-out /tmp/ios-summary.csv
-            cat /tmp/ios-summary.md >> "$GITHUB_STEP_SUMMARY"
+            cargo-mobench ci summarize \
+              --results-dir results/ios \
+              --output-format table || true
+
+            cargo-mobench ci summarize \
+              --results-dir results/ios \
+              --output-format markdown \
+              --output-file /tmp/ios-summary.md || true
+
+            cargo-mobench ci summarize \
+              --results-dir results/ios \
+              --output-format json \
+              --output-file /tmp/ios-summary.json || true
+
+            if [ -f /tmp/ios-summary.md ]; then
+              cat /tmp/ios-summary.md >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "No iOS benchmark summary produced." >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
-            echo "## iOS Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "No iOS results found." >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -572,17 +585,30 @@ jobs:
         if: needs.android.result == 'success'
         shell: bash
         run: |
+          echo "## Android Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
           if [ -d "results/android" ]; then
-            python .github/scripts/render_mobench_ci_summary.py \
-              --artifact-root results/android \
-              --platform android \
-              --markdown-out /tmp/android-summary.md \
-              --json-out /tmp/android-summary.json \
-              --csv-out /tmp/android-summary.csv
-            cat /tmp/android-summary.md >> "$GITHUB_STEP_SUMMARY"
+            cargo-mobench ci summarize \
+              --results-dir results/android \
+              --output-format table || true
+
+            cargo-mobench ci summarize \
+              --results-dir results/android \
+              --output-format markdown \
+              --output-file /tmp/android-summary.md || true
+
+            cargo-mobench ci summarize \
+              --results-dir results/android \
+              --output-format json \
+              --output-file /tmp/android-summary.json || true
+
+            if [ -f /tmp/android-summary.md ]; then
+              cat /tmp/android-summary.md >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "No Android benchmark summary produced." >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
-            echo "## Android Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "No Android results found." >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -600,9 +626,9 @@ jobs:
           ## Mobench Benchmark Results
 
           "
-          for file in /tmp/ios-summary.md /tmp/android-summary.md; do
-            if [ -f "$file" ]; then
-              PLATFORM_MD=$(cat "$file")
+          for dir in results/ios results/android; do
+            if [ -d "$dir" ]; then
+              PLATFORM_MD=$(cargo-mobench ci summarize --results-dir "$dir" --output-format markdown 2>/dev/null || true)
               if [ -n "$PLATFORM_MD" ]; then
                 BODY="${BODY}${PLATFORM_MD}
 
@@ -653,9 +679,9 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          for dir in results/ios/mobench/ci/ios results/android/mobench/ci/android; do
+          for dir in results/ios results/android; do
             if [ -d "$dir" ]; then
-              PLATFORM=$(basename "$(dirname "$dir")")
+              PLATFORM=$(basename "$dir")
               cargo-mobench ci check-run \
                 --results-dir "$dir" \
                 --repo "$GH_REPO" \
@@ -679,9 +705,9 @@ jobs:
           TIMESTAMP=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
           cp /tmp/ios-summary.json history-bundle/ios-summary.json 2>/dev/null || true
-          cp /tmp/ios-summary.csv history-bundle/ios-results.csv 2>/dev/null || true
+          cp results/ios/mobench/ci/ios/results.csv history-bundle/ios-results.csv 2>/dev/null || true
           cp /tmp/android-summary.json history-bundle/android-summary.json 2>/dev/null || true
-          cp /tmp/android-summary.csv history-bundle/android-results.csv 2>/dev/null || true
+          cp results/android/mobench/ci/android/results.csv history-bundle/android-results.csv 2>/dev/null || true
 
           jq -n \
             --arg ts "$TIMESTAMP" \
