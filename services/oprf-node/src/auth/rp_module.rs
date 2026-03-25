@@ -65,6 +65,13 @@ pub(crate) enum RpModuleError {
         timestamp: chrono::DateTime<Utc>,
         current: chrono::DateTime<Utc>,
     },
+    #[error(
+        "Current Timestamp in request too far in future, timestamp={timestamp:?}, current={current:?}"
+    )]
+    TimestampTooFarInFuture {
+        timestamp: chrono::DateTime<Utc>,
+        current: chrono::DateTime<Utc>,
+    },
     #[error("RP signature expired at {expired_timestamp:?}, current={current:?}")]
     RpSignatureExpired {
         current: chrono::DateTime<Utc>,
@@ -118,6 +125,10 @@ impl From<RpModuleError> for WorldIdRequestAuthError {
                 current: _,
                 timestamp: _,
             } => WorldIdRequestAuthError::TimeStampTooOld,
+            RpModuleError::TimestampTooFarInFuture {
+                current: _,
+                timestamp: _,
+            } => WorldIdRequestAuthError::TimestampTooFarInFuture,
             RpModuleError::RpSignatureExpired {
                 current: _,
                 expired_timestamp: _,
@@ -214,29 +225,38 @@ impl RpModuleAuth {
         action: Option<ark_babyjubjub::Fq>,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
     ) -> Result<OprfKeyId, RpModuleError> {
-        tracing::trace!("checking timestamp on signature...");
-        // check the time stamp against system time +/- difference
-        let req_time_stamp = parse_timestamp(request.auth.current_time_stamp)?;
-        let req_expiration_time_stamp = parse_timestamp(request.auth.expiration_timestamp)?;
         let current_time = Utc::now();
-        if current_time
-            .signed_duration_since(req_time_stamp)
-            .abs()
-            .to_std()
-            .expect("Is an absolute value")
-            > self.current_time_stamp_max_difference
-        {
-            return Err(RpModuleError::TimestampTooOld {
-                timestamp: req_time_stamp,
-                current: current_time,
-            });
-        }
-
+        let req_expiration_time_stamp = parse_timestamp(request.auth.expiration_timestamp)?;
         tracing::trace!("checking expiration timestamp on signature...");
+
         if req_expiration_time_stamp <= current_time {
             return Err(RpModuleError::RpSignatureExpired {
                 current: current_time,
                 expired_timestamp: req_expiration_time_stamp,
+            });
+        }
+
+        // check the time stamp against system time +/- difference
+        tracing::trace!("checking timestamp on signature...");
+        let req_time_stamp = parse_timestamp(request.auth.current_time_stamp)?;
+        let diff = current_time.signed_duration_since(req_time_stamp);
+        let abs_diff = diff
+            .abs()
+            .to_std()
+            .expect("absolute value is always non-negative");
+
+        if abs_diff > self.current_time_stamp_max_difference {
+            if diff < chrono::Duration::zero() {
+                // req is in the future
+                return Err(RpModuleError::TimestampTooFarInFuture {
+                    timestamp: req_time_stamp,
+                    current: current_time,
+                });
+            }
+            // req is in the past
+            return Err(RpModuleError::TimestampTooOld {
+                timestamp: req_time_stamp,
+                current: current_time,
             });
         }
 
@@ -505,7 +525,7 @@ mod tests {
 
     async fn check_expired_timestamp(kind: RpModuleKind) -> eyre::Result<()> {
         let mut setup = RpModuleTestSetup::new(kind).await?;
-        setup.request.auth.current_time_stamp += setup
+        setup.request.auth.current_time_stamp -= setup
             .request_authenticator
             .current_time_stamp_max_difference
             .as_secs()
@@ -520,6 +540,26 @@ mod tests {
             primitives::oprf::error_codes::TIMESTAMP_TOO_OLD
         );
         assert_eq!(auth_error.message(), "timestamp in request too old");
+        Ok(())
+    }
+
+    async fn check_future_timestamp(kind: RpModuleKind) -> eyre::Result<()> {
+        let mut setup = RpModuleTestSetup::new(kind).await?;
+        setup.request.auth.current_time_stamp += setup
+            .request_authenticator
+            .current_time_stamp_max_difference
+            .as_secs()
+            + 100;
+        let auth_error = setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE
+        );
+        assert_eq!(auth_error.message(), "timestamp too far in future");
         Ok(())
     }
 
@@ -922,6 +962,11 @@ mod tests {
         check_invalid_timestamp(RpModuleKind::Session).await
     }
 
+    #[tokio::test]
+    async fn test_session_check_future_timestamp() -> eyre::Result<()> {
+        check_future_timestamp(RpModuleKind::Session).await
+    }
+
     // ── Shared tests: uniqueness ─────────────────────────────────────────────
 
     #[tokio::test]
@@ -992,5 +1037,10 @@ mod tests {
     #[tokio::test]
     async fn test_uniqueness_corrupt_timestamp() -> eyre::Result<()> {
         check_invalid_timestamp(RpModuleKind::Uniqueness).await
+    }
+
+    #[tokio::test]
+    async fn test_uniqueness_check_future_timestamp() -> eyre::Result<()> {
+        check_future_timestamp(RpModuleKind::Uniqueness).await
     }
 }

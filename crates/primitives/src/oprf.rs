@@ -94,6 +94,9 @@ pub enum WorldIdRequestAuthError {
     /// The request timestamp is too far from the current time.
     #[error("request timestamp too old")]
     TimeStampTooOld,
+    /// The request timestamp is too far in the future.
+    #[error("timestamp_too_far_in_future")]
+    TimestampTooFarInFuture,
     /// The timestamp cannot be parsed
     #[error("invalid_timestamp")]
     InvalidTimestamp,
@@ -147,6 +150,7 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::INVALID_ACTION_SESSION => Self::InvalidActionSession,
             error_codes::RP_SIGNATURE_EXPIRED => Self::RpSignatureExpired,
             error_codes::INVALID_TIMESTAMP => Self::InvalidTimestamp,
+            error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE => Self::TimestampTooFarInFuture,
             error_codes::INTERNAL => Self::Internal,
             other => Self::Unknown(other),
         }
@@ -173,6 +177,9 @@ impl From<WorldIdRequestAuthError> for u16 {
             }
             WorldIdRequestAuthError::InvalidActionSession => error_codes::INVALID_ACTION_SESSION,
             WorldIdRequestAuthError::RpSignatureExpired => error_codes::RP_SIGNATURE_EXPIRED,
+            WorldIdRequestAuthError::TimestampTooFarInFuture => {
+                error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE
+            }
             WorldIdRequestAuthError::Internal => error_codes::INTERNAL,
             WorldIdRequestAuthError::Unknown(other) => other,
         }
@@ -207,6 +214,8 @@ pub mod error_codes {
     pub const RP_SIGNATURE_EXPIRED: u16 = 4511;
     /// Error code for [`super::WorldIdRequestAuthError::InvalidTimestamp`].
     pub const INVALID_TIMESTAMP: u16 = 4512;
+    /// Error code for [`super::WorldIdRequestAuthError::TimestampTooFarInFuture`].
+    pub const TIMESTAMP_TOO_FAR_IN_FUTURE: u16 = 4513;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
     pub const INTERNAL: u16 = 1011;
 }
@@ -220,6 +229,9 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             }
             WorldIdRequestAuthError::TimeStampTooOld => {
                 taceo_oprf::types::close_frame_message!("timestamp in request too old")
+            }
+            WorldIdRequestAuthError::TimestampTooFarInFuture => {
+                taceo_oprf::types::close_frame_message!("timestamp too far in future")
             }
             WorldIdRequestAuthError::InvalidRpSignature => {
                 taceo_oprf::types::close_frame_message!("signature from RP cannot be verified")
@@ -280,6 +292,7 @@ mod tests {
         let codes: &[u16] = &[
             error_codes::UNKNOWN_RP,
             error_codes::TIMESTAMP_TOO_OLD,
+            error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE,
             error_codes::INVALID_RP_SIGNATURE,
             error_codes::DUPLICATE_NONCE,
             error_codes::INVALID_MERKLE_ROOT,
