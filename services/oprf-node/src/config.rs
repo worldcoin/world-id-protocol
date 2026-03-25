@@ -31,12 +31,10 @@ pub struct WorldOprfNodeConfig {
     pub max_merkle_cache_size: u64,
 
     /// Cache configuration for the [`RpRegistryWatcher`](crate::auth::rp_registry_watcher::RpRegistryWatcher)
-    #[serde(rename = "rp.cache")]
     #[serde(default)]
     pub rp_cache_config: WatcherCacheConfig,
 
     /// Cache configuration for the [`SchemaIssuerRegistryWatcher`](crate::auth::schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher)
-    #[serde(rename = "issuer.cache")]
     #[serde(default)]
     pub issuer_cache_config: WatcherCacheConfig,
 
