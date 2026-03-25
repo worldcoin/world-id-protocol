@@ -81,6 +81,8 @@ async fn spawn_test_gateway() -> TestGateway {
     let client = Client::builder().build().unwrap();
     wait_http_ready(&client, addr.port()).await;
 
+    // testing
+
     TestGateway {
         client,
         base_url: format!("http://{}:{}", addr.ip(), addr.port()),
