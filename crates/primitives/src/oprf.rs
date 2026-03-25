@@ -94,6 +94,9 @@ pub enum WorldIdRequestAuthError {
     /// The request timestamp is too far from the current time.
     #[error("request timestamp too old")]
     TimeStampTooOld,
+    /// The RP signature has expired.
+    #[error("rp signature expired")]
+    RpSignatureExpired,
     /// The RP's signature on the request could not be verified.
     #[error("invalid RP signature")]
     InvalidRpSignature,
@@ -139,6 +142,7 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::UNKNOWN_SCHEMA_ISSUER => Self::UnknownSchemaIssuer,
             error_codes::INVALID_ACTION_NULLIFIER => Self::InvalidActionNullifier,
             error_codes::INVALID_ACTION_SESSION => Self::InvalidActionSession,
+            error_codes::RP_SIGNATURE_EXPIRED => Self::RpSignatureExpired,
             error_codes::INTERNAL => Self::Internal,
             other => Self::Unknown(other),
         }
@@ -163,6 +167,7 @@ impl From<WorldIdRequestAuthError> for u16 {
                 error_codes::INVALID_ACTION_NULLIFIER
             }
             WorldIdRequestAuthError::InvalidActionSession => error_codes::INVALID_ACTION_SESSION,
+            WorldIdRequestAuthError::RpSignatureExpired => error_codes::RP_SIGNATURE_EXPIRED,
             WorldIdRequestAuthError::Internal => error_codes::INTERNAL,
 
             WorldIdRequestAuthError::Unknown(other) => other,
@@ -194,6 +199,8 @@ pub mod error_codes {
     pub const INVALID_ACTION_SESSION: u16 = 4509;
     /// Error code for [`super::WorldIdRequestAuthError::InactiveRp`].
     pub const INACTIVE_RP: u16 = 4510;
+    /// Error code for [`super::WorldIdRequestAuthError::RpSignatureExpired`].
+    pub const RP_SIGNATURE_EXPIRED: u16 = 4511;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
     pub const INTERNAL: u16 = 1011;
 }
@@ -241,7 +248,9 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             WorldIdRequestAuthError::InactiveRp => {
                 taceo_oprf::types::close_frame_message!("inactive RP")
             }
-
+            WorldIdRequestAuthError::RpSignatureExpired => {
+                taceo_oprf::types::close_frame_message!("RP signature expired")
+            }
             WorldIdRequestAuthError::Internal => {
                 taceo_oprf::types::close_frame_message!("internal server error")
             }

@@ -63,10 +63,15 @@ pub(crate) enum RpModuleError {
     InvalidQueryProof,
     #[error("invalid Merkle root")]
     InvalidMerkleRoot,
-    #[error("Current Timestamp in request too old, current={current:?}, timestamp={timestamp:?}")]
+    #[error("Current Timestamp in request too old, timestamp={timestamp:?}, current={current:?}")]
     TimestampTooOld {
         current: Duration,
         timestamp: Duration,
+    },
+    #[error("RP signature expired at :{expired_timestamp:?}, current={current:?}")]
+    RpSignatureExpired {
+        current: Duration,
+        expired_timestamp: Duration,
     },
     #[error("unknown rp: {0}")]
     UnknownRp(RpId),
@@ -114,6 +119,10 @@ impl From<RpModuleError> for WorldIdRequestAuthError {
                 current: _,
                 timestamp: _,
             } => WorldIdRequestAuthError::TimeStampTooOld,
+            RpModuleError::RpSignatureExpired {
+                current: _,
+                expired_timestamp: _,
+            } => WorldIdRequestAuthError::RpSignatureExpired,
             RpModuleError::UnknownRp(_) => WorldIdRequestAuthError::UnknownRp,
             RpModuleError::InactiveRp(_) => WorldIdRequestAuthError::InactiveRp,
             // we map to the same signature to not leak that a forged signature was build correctly
@@ -208,6 +217,7 @@ impl RpModuleAuth {
         tracing::trace!("checking timestamp on signature...");
         // check the time stamp against system time +/- difference
         let req_time_stamp = Duration::from_secs(request.auth.current_time_stamp);
+        let req_expiration_time_stamp = Duration::from_secs(request.auth.expiration_timestamp);
         let current_time = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("system time is after unix epoch");
@@ -215,6 +225,14 @@ impl RpModuleAuth {
             return Err(RpModuleError::TimestampTooOld {
                 current: current_time,
                 timestamp: req_time_stamp,
+            });
+        }
+
+        tracing::trace!("checking expiration timestamp on signature...");
+        if req_expiration_time_stamp <= current_time {
+            return Err(RpModuleError::RpSignatureExpired {
+                current: current_time,
+                expired_timestamp: req_expiration_time_stamp,
             });
         }
 
@@ -245,6 +263,7 @@ impl RpModuleAuth {
         tracing::trace!("RP signature authentication successful!");
         Ok(rp.oprf_key_id)
     }
+
     async fn authenticate_inner(
         &self,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
@@ -665,6 +684,22 @@ mod tests {
         Ok(())
     }
 
+    async fn check_expired_rp_signature(kind: RpModuleKind) -> eyre::Result<()> {
+        let mut setup = RpModuleTestSetup::new(kind).await?;
+        setup.request.auth.expiration_timestamp = 0;
+        let auth_error = setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::RP_SIGNATURE_EXPIRED
+        );
+        assert_eq!(auth_error.message(), "RP signature expired");
+        Ok(())
+    }
+
     // ── Session-specific tests ───────────────────────────────────────────────
 
     #[tokio::test]
@@ -836,6 +871,11 @@ mod tests {
         check_invalid_query_proof(RpModuleKind::Session).await
     }
 
+    #[tokio::test]
+    async fn test_session_expired_rp_signature() -> eyre::Result<()> {
+        check_expired_rp_signature(RpModuleKind::Session).await
+    }
+
     // ── Shared tests: uniqueness ─────────────────────────────────────────────
 
     #[tokio::test]
@@ -891,5 +931,10 @@ mod tests {
     #[tokio::test]
     async fn test_uniqueness_invalid_query_proof() -> eyre::Result<()> {
         check_invalid_query_proof(RpModuleKind::Uniqueness).await
+    }
+
+    #[tokio::test]
+    async fn test_uniqueness_expired_rp_signature() -> eyre::Result<()> {
+        check_expired_rp_signature(RpModuleKind::Uniqueness).await
     }
 }
