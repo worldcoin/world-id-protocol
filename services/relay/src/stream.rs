@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use alloy::{
     providers::{DynProvider, Provider},
@@ -29,124 +29,242 @@ use crate::{
     },
 };
 
-/// Creates a filtered event stream for a single contract address and event set.
-async fn watch_events(
-    provider: &Arc<DynProvider>,
+/// Polling interval for `get_logs` based event streaming.
+const POLL_INTERVAL: Duration = Duration::from_secs(2);
+
+struct EventFilter {
     address: alloy_primitives::Address,
-    events: &[alloy_primitives::B256],
-) -> Result<BoxStream<'static, Result<StateCommitment>>> {
-    let filter = Filter::new()
-        .address(address)
-        .event_signature(events.to_vec());
-
-    let poller = provider.watch_logs(&filter).await?;
-
-    Ok(poller
-        .into_stream()
-        .flat_map(futures::stream::iter)
-        .map(decode_state_commitment)
-        .boxed())
+    events: Vec<alloy_primitives::B256>,
+    label: &'static str,
 }
 
-/// Creates a merged stream of all registry events from World Chain.
+/// Creates a polling-based event stream using `eth_getLogs`.
+///
+/// Returns a stream that yields decoded `StateCommitment`s by polling
+/// `get_logs` on a fixed interval. Uses a channel so the poller runs
+/// as an async stream that the caller drives.
+fn poll_events(
+    provider: Arc<DynProvider>,
+    filters: Vec<EventFilter>,
+) -> BoxStream<'static, Result<StateCommitment>> {
+    let stream = futures::stream::unfold(
+        (provider, filters, None::<u64>, 0u64),
+        |(provider, filters, from_block, poll_count)| async move {
+            // On first poll, fetch the current block number.
+            let from_block = match from_block {
+                Some(b) => b,
+                None => {
+                    tracing::info!("event poller: fetching initial block number...");
+                    match provider.get_block_number().await {
+                        Ok(n) => {
+                            tracing::info!(from_block = n, poll_interval = ?POLL_INTERVAL, "event poller started");
+                            n
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "failed to get initial block number");
+                            // Retry after interval
+                            tokio::time::sleep(POLL_INTERVAL).await;
+                            return Some((vec![], (provider, filters, None, poll_count)));
+                        }
+                    }
+                }
+            };
+
+            tokio::time::sleep(POLL_INTERVAL).await;
+
+            let latest = match provider.get_block_number().await {
+                Ok(n) => n,
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to get block number, retrying");
+                    return Some((vec![], (provider, filters, Some(from_block), poll_count)));
+                }
+            };
+
+            if latest <= from_block {
+                return Some((vec![], (provider, filters, Some(from_block), poll_count)));
+            }
+
+            let new_poll_count = poll_count + 1;
+            // tracing::debug!(
+            //     poll = new_poll_count,
+            //     from = from_block + 1,
+            //     to = latest,
+            //     blocks = latest - from_block,
+            //     "polling for events"
+            // );
+
+            let mut results = Vec::new();
+            let mut all_succeeded = true;
+            for f in &filters {
+                let filter = Filter::new()
+                    .address(f.address)
+                    .event_signature(f.events.clone())
+                    .from_block(from_block + 1)
+                    .to_block(latest);
+
+                match provider.get_logs(&filter).await {
+                    Ok(logs) => {
+                        if !logs.is_empty() {
+                            tracing::info!(
+                                count = logs.len(),
+                                source = f.label,
+                                "polled new events"
+                            );
+                        }
+                        for log in logs {
+                            results.push(decode_state_commitment(log));
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            source = f.label,
+                            "get_logs failed, will retry this block range"
+                        );
+                        all_succeeded = false;
+                    }
+                }
+            }
+
+            let next_from_block = if all_succeeded { Some(latest) } else { Some(from_block) };
+            Some((results, (provider, filters, next_from_block, new_poll_count)))
+        },
+    )
+    .flat_map(futures::stream::iter);
+
+    stream.boxed()
+}
+
+/// Creates a polling stream of all registry events from World Chain.
 pub async fn registry_stream(
     world_chain: &WorldChain,
 ) -> Result<BoxStream<'static, Result<StateCommitment>>> {
-    let streams = vec![
-        watch_events(
-            world_chain.provider(),
-            *world_chain.world_id_registry().address(),
-            &WORLD_ID_REGISTRY_EVENTS,
-        )
-        .await?,
-        watch_events(
-            world_chain.provider(),
-            *world_chain.credential_issuer_schema_registry().address(),
-            &ISSUER_REGISTRY_EVENTS,
-        )
-        .await?,
-        watch_events(
-            world_chain.provider(),
-            *world_chain.oprf_key_registry().address(),
-            &OPRF_REGISTRY_EVENTS,
-        )
-        .await?,
-        watch_events(
-            world_chain.provider(),
-            *world_chain.world_id_source().address(),
-            &CHAIN_COMMITTED_EVENTS,
-        )
-        .await?,
-    ];
-
-    Ok(futures::stream::select_all(streams).boxed())
-}
-
-/// Backfills the commitment log with historical events from World Chain.
-pub async fn backfill_commitments(
-    world_chain: &WorldChain,
-    log: &CommitmentLog,
-    from_block: u64,
-) -> Result<()> {
-    let registry_filters = vec![
-        Filter::new()
-            .address(*world_chain.world_id_registry().address())
-            .event_signature(WORLD_ID_REGISTRY_EVENTS.to_vec())
-            .from_block(from_block),
-        Filter::new()
-            .address(*world_chain.credential_issuer_schema_registry().address())
-            .event_signature(ISSUER_REGISTRY_EVENTS.to_vec())
-            .from_block(from_block),
-        Filter::new()
-            .address(*world_chain.oprf_key_registry().address())
-            .event_signature(OPRF_REGISTRY_EVENTS.to_vec())
-            .from_block(from_block),
-    ];
-
-    let chain_committed_filter = Filter::new()
-        .address(*world_chain.world_id_source().address())
-        .event_signature(CHAIN_COMMITTED_EVENTS.to_vec())
-        .from_block(from_block);
-
-    let mut all_logs = Vec::new();
-    for filter in registry_filters {
-        all_logs.extend(world_chain.provider().get_logs(&filter).await?);
-    }
-    all_logs.extend(
-        world_chain
-            .provider()
-            .get_logs(&chain_committed_filter)
-            .await?,
+    tracing::info!(
+        registry = %world_chain.world_id_registry().address(),
+        issuer_registry = %world_chain.credential_issuer_schema_registry().address(),
+        oprf_registry = %world_chain.oprf_key_registry().address(),
+        source = %world_chain.world_id_source().address(),
+        deployment_block = %world_chain.deployment_block(),
+        poll_interval = ?POLL_INTERVAL,
+        "subscribing to World Chain events (HTTP polling)"
     );
 
-    all_logs.sort_by_key(|log| {
-        (
-            log.block_number.unwrap_or_default(),
-            log.log_index.unwrap_or_default(),
-        )
-    });
+    let filters = vec![
+        EventFilter {
+            address: *world_chain.world_id_registry().address(),
+            events: WORLD_ID_REGISTRY_EVENTS.to_vec(),
+            label: "WorldIDRegistry",
+        },
+        EventFilter {
+            address: *world_chain.credential_issuer_schema_registry().address(),
+            events: ISSUER_REGISTRY_EVENTS.to_vec(),
+            label: "IssuerSchemaRegistry",
+        },
+        EventFilter {
+            address: *world_chain.oprf_key_registry().address(),
+            events: OPRF_REGISTRY_EVENTS.to_vec(),
+            label: "OprfKeyRegistry",
+        },
+        EventFilter {
+            address: *world_chain.world_id_source().address(),
+            events: CHAIN_COMMITTED_EVENTS.to_vec(),
+            label: "WorldIDSource",
+        },
+    ];
 
-    for raw_log in all_logs {
-        match decode_state_commitment(raw_log) {
-            Ok(StateCommitment::ChainCommitted(cc)) => {
-                let _ = log.commit_chained(Arc::new(cc));
+    Ok(poll_events(world_chain.provider().clone(), filters))
+}
+
+/// Maximum block range per `eth_getLogs` request during backfill.
+///
+/// Most RPC providers cap the range they'll scan in a single call (e.g.
+/// Alchemy defaults to 2 000 blocks). We chunk aggressively to stay well
+/// within limits and avoid timeouts.
+const BACKFILL_CHUNK_SIZE: u64 = 1000;
+
+/// Backfills the commitment log with historical `ChainCommitted` events.
+///
+/// Fetches logs from the source contract's deployment block to the current
+/// head in chunks of [`BACKFILL_CHUNK_SIZE`] blocks. Only queries the
+/// `WorldIDSource` contract — registry events (roots, issuer keys, OPRF
+/// keys) are picked up by the live event stream.
+pub async fn backfill_commitments(world_chain: &WorldChain, log: &CommitmentLog) -> Result<()> {
+    let provider = world_chain.provider();
+    let source_address = *world_chain.world_id_source().address();
+    let event_sigs = CHAIN_COMMITTED_EVENTS.to_vec();
+    let deployment_block = world_chain.deployment_block();
+
+    let latest = provider.get_block_number().await?;
+    tracing::info!(
+        latest_block = latest,
+        deployment_block,
+        "starting chunked backfill"
+    );
+
+    let mut from = deployment_block;
+    let mut total = 0usize;
+    let total_blocks = latest.saturating_sub(deployment_block);
+    let mut chunks_done = 0u64;
+    let total_chunks = total_blocks.div_ceil(BACKFILL_CHUNK_SIZE);
+
+    while from <= latest {
+        let to = (from + BACKFILL_CHUNK_SIZE - 1).min(latest);
+
+        let filter = Filter::new()
+            .address(source_address)
+            .event_signature(event_sigs.clone())
+            .from_block(from)
+            .to_block(to);
+
+        let logs = provider.get_logs(&filter).await?;
+        chunks_done += 1;
+
+        let pct = if total_chunks > 0 {
+            (chunks_done * 100) / total_chunks
+        } else {
+            100
+        };
+
+        tracing::debug!(
+            from_block = from,
+            to_block = to,
+            events = logs.len(),
+            progress = %format!("{chunks_done}/{total_chunks} ({pct}%)"),
+            "backfill chunk"
+        );
+
+        for raw_log in logs {
+            match decode_state_commitment(raw_log) {
+                Ok(StateCommitment::ChainCommitted(cc)) => {
+                    tracing::debug!(
+                        block = cc.block_number,
+                        chain_head = %cc.chain_head,
+                        "backfill: replaying ChainCommitted"
+                    );
+                    if let Err(e) = log.commit_chained(Arc::new(cc)) {
+                        tracing::error!(error = %e, "backfill: failed to commit ChainCommitted");
+                    }
+                    total += 1;
+                }
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = %e, "backfill: failed to decode log"),
             }
-            Ok(StateCommitment::OprfPubKey(_) | StateCommitment::IssuerPubKey(_)) => {
-                // For simplicity, we only backfill the keccak chain from historical logs.
-                // Backfilling pubkey commitments would require additional logic to handle
-                // pending/finalized states and potential duplicates, so we rely on the
-                // real-time stream to populate those.
-            }
-            Ok(_) => {}
-            Err(e) => tracing::warn!(error = %e, "backfill: failed to decode log"),
         }
+
+        from = to + 1;
     }
 
-    tracing::info!(chain_head = %log.head(), entries = log.len(), "backfill complete");
+    tracing::info!(
+        chain_head = %log.head(),
+        entries = total,
+        blocks_scanned = latest,
+        "backfill complete"
+    );
     Ok(())
 }
 
-/// Converts a raw `Log` into a typed `Log<IChainCommitmentEvents>`.
+// ── Decoding ────────────────────────────────────────────────────────────────
+
 fn decode_typed_log(
     log: alloy::rpc::types::Log,
 ) -> Result<alloy::rpc::types::Log<IChainCommitmentEvents>> {
@@ -167,7 +285,6 @@ fn decode_typed_log(
     })
 }
 
-/// Free function used as `fn(Log) -> Result<StateCommitment>` pointer.
 fn decode_state_commitment(log: alloy::rpc::types::Log) -> Result<StateCommitment> {
     decode_typed_log(log).and_then(StateCommitment::try_from)
 }

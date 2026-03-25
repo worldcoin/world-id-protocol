@@ -128,11 +128,11 @@ pub use bindings::{
 
 // -- Engine & satellite --
 pub use engine::Engine;
-pub use satellite::{PermissionedSatellite, Satellite, spawn_satellite};
+pub use satellite::{PermissionedSatellite, Satellite, TempoSatellite, spawn_satellite};
 
 // -- CLI --
 pub use cli::{
-    Cli, EthereumMptGatewayConfig, PermissionedGatewayConfig, RelayConfig, SourceConfig,
+    ChainType, Cli, EthereumMptGatewayConfig, PermissionedGatewayConfig, RelayConfig, SourceConfig,
     WorldChainConfig,
 };
 

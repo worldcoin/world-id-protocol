@@ -9,9 +9,6 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-# internal 
-world-id-services-common = { workspace = true }
-
 # alloy
 alloy = { workspace = true, features = [
     "full",
@@ -20,8 +17,10 @@ alloy = { workspace = true, features = [
     "sol-types",
     "signer-local",
     "provider-http",
+    "reqwest-rustls-tls",
 ] }
 alloy-primitives = { workspace = true }
+tempo-alloy = { workspace = true }
 
 # async 
 dashmap = { workspace = true }
@@ -44,8 +43,19 @@ dotenvy = { workspace = true }
 eyre = { workspace = true }
 config = { workspace = true }
 
+[[example]]
+name = "create_account"
+path = "scripts/create_account.rs"
+
+[[example]]
+name = "register_issuer_schema"
+path = "scripts/register_issuer_schema.rs"
+
 [dev-dependencies]
 ark-ff = { workspace = true }
+ark-serialize = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
 world-id-primitives = { workspace = true }
 world-id-relay = { workspace = true }
 world-id-test-utils = { workspace = true }
