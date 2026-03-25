@@ -95,7 +95,7 @@ pub enum WorldIdRequestAuthError {
     #[error("request timestamp too old")]
     TimeStampTooOld,
     /// The timestamp cannot be parsed
-    #[error("invalid request timestamp")]
+    #[error("invalid_timestamp")]
     InvalidTimestamp,
     /// The RP signature has expired.
     #[error("rp signature expired")]
