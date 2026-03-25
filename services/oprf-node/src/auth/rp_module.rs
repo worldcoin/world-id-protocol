@@ -17,11 +17,8 @@ use crate::auth::{
 use ark_bn254::Bn254;
 use ark_groth16::PreparedVerifyingKey;
 use async_trait::async_trait;
-use std::{
-    fmt,
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use chrono::Utc;
+use std::{fmt, sync::Arc, time::Duration};
 use taceo_oprf::types::{
     OprfKeyId,
     api::{OprfRequest, OprfRequestAuthenticator, OprfRequestAuthenticatorError},
@@ -65,14 +62,16 @@ pub(crate) enum RpModuleError {
     InvalidMerkleRoot,
     #[error("Current Timestamp in request too old, timestamp={timestamp:?}, current={current:?}")]
     TimestampTooOld {
-        current: Duration,
-        timestamp: Duration,
+        timestamp: chrono::DateTime<Utc>,
+        current: chrono::DateTime<Utc>,
     },
-    #[error("RP signature expired at :{expired_timestamp:?}, current={current:?}")]
+    #[error("RP signature expired at {expired_timestamp:?}, current={current:?}")]
     RpSignatureExpired {
-        current: Duration,
-        expired_timestamp: Duration,
+        current: chrono::DateTime<Utc>,
+        expired_timestamp: chrono::DateTime<Utc>,
     },
+    #[error("Invalid Unix timestamp: {0}")]
+    InvalidTimestamp(u64),
     #[error("unknown rp: {0}")]
     UnknownRp(RpId),
     #[error("inactive rp: {0}")]
@@ -123,9 +122,10 @@ impl From<RpModuleError> for WorldIdRequestAuthError {
                 current: _,
                 expired_timestamp: _,
             } => WorldIdRequestAuthError::RpSignatureExpired,
+            RpModuleError::InvalidTimestamp(_) => WorldIdRequestAuthError::InvalidTimestamp,
             RpModuleError::UnknownRp(_) => WorldIdRequestAuthError::UnknownRp,
             RpModuleError::InactiveRp(_) => WorldIdRequestAuthError::InactiveRp,
-            // we map to the same signature to not leak that a forged signature was build correctly
+            // we map to the same error to not leak whether a forged signature was built correctly
             RpModuleError::CorruptSignature(_) | RpModuleError::InvalidSignature => {
                 WorldIdRequestAuthError::InvalidRpSignature
             }
@@ -216,15 +216,19 @@ impl RpModuleAuth {
     ) -> Result<OprfKeyId, RpModuleError> {
         tracing::trace!("checking timestamp on signature...");
         // check the time stamp against system time +/- difference
-        let req_time_stamp = Duration::from_secs(request.auth.current_time_stamp);
-        let req_expiration_time_stamp = Duration::from_secs(request.auth.expiration_timestamp);
-        let current_time = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("system time is after unix epoch");
-        if current_time.abs_diff(req_time_stamp) > self.current_time_stamp_max_difference {
+        let req_time_stamp = parse_timestamp(request.auth.current_time_stamp)?;
+        let req_expiration_time_stamp = parse_timestamp(request.auth.expiration_timestamp)?;
+        let current_time = Utc::now();
+        if current_time
+            .signed_duration_since(req_time_stamp)
+            .abs()
+            .to_std()
+            .expect("Is an absolute value")
+            > self.current_time_stamp_max_difference
+        {
             return Err(RpModuleError::TimestampTooOld {
-                current: current_time,
                 timestamp: req_time_stamp,
+                current: current_time,
             });
         }
 
@@ -323,6 +327,13 @@ impl RpModuleAuth {
             Err(RpModuleError::InvalidQueryProof)
         }
     }
+}
+
+fn parse_timestamp(t: u64) -> Result<chrono::DateTime<Utc>, RpModuleError> {
+    chrono::DateTime::from_timestamp_secs(
+        i64::try_from(t).map_err(|_| RpModuleError::InvalidTimestamp(t))?,
+    )
+    .ok_or_else(|| RpModuleError::InvalidTimestamp(t))
 }
 
 #[async_trait]
@@ -494,7 +505,11 @@ mod tests {
 
     async fn check_expired_timestamp(kind: RpModuleKind) -> eyre::Result<()> {
         let mut setup = RpModuleTestSetup::new(kind).await?;
-        setup.request.auth.current_time_stamp = u64::MAX;
+        setup.request.auth.current_time_stamp += setup
+            .request_authenticator
+            .current_time_stamp_max_difference
+            .as_secs()
+            + 100;
         let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
@@ -569,9 +584,14 @@ mod tests {
         Ok(())
     }
 
-    async fn check_invalid_proof(kind: RpModuleKind) -> eyre::Result<()> {
+    async fn check_corrupt_signature(kind: RpModuleKind) -> eyre::Result<()> {
         let mut setup = RpModuleTestSetup::new(kind).await?;
-        setup.request.auth.proof.pi_a = rand::random();
+        // r=0, s=0 produces an unrecoverable signature, triggering CorruptSignature (not InvalidSignature)
+        setup.request.auth.signature = alloy::primitives::Signature::new(
+            alloy::primitives::U256::ZERO,
+            alloy::primitives::U256::ZERO,
+            false,
+        );
         let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
@@ -579,9 +599,9 @@ mod tests {
             .expect_err("Should fail");
         assert_eq!(
             auth_error.code(),
-            primitives::oprf::error_codes::INVALID_QUERY_PROOF
+            primitives::oprf::error_codes::INVALID_RP_SIGNATURE
         );
-        assert_eq!(auth_error.message(), "cannot verify query proof");
+        assert_eq!(auth_error.message(), "signature from RP cannot be verified");
         Ok(())
     }
 
@@ -654,7 +674,7 @@ mod tests {
 
     async fn check_tampered_expiration_timestamp(kind: RpModuleKind) -> eyre::Result<()> {
         let mut setup = RpModuleTestSetup::new(kind).await?;
-        setup.request.auth.expiration_timestamp = rand::random();
+        setup.request.auth.expiration_timestamp += 1;
         let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
@@ -681,6 +701,22 @@ mod tests {
             primitives::oprf::error_codes::TIMESTAMP_TOO_OLD
         );
         assert_eq!(auth_error.message(), "timestamp in request too old");
+        Ok(())
+    }
+
+    async fn check_invalid_timestamp(kind: RpModuleKind) -> eyre::Result<()> {
+        let mut setup = RpModuleTestSetup::new(kind).await?;
+        setup.request.auth.current_time_stamp = u64::MAX;
+        let auth_error = setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_TIMESTAMP
+        );
+        assert_eq!(auth_error.message(), "cannot parse timestamp on request");
         Ok(())
     }
 
@@ -838,7 +874,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_invalid_proof() -> eyre::Result<()> {
-        check_invalid_proof(RpModuleKind::Session).await
+        check_invalid_query_proof(RpModuleKind::Session).await
     }
 
     #[tokio::test]
@@ -876,6 +912,16 @@ mod tests {
         check_expired_rp_signature(RpModuleKind::Session).await
     }
 
+    #[tokio::test]
+    async fn test_session_corrupt_signature() -> eyre::Result<()> {
+        check_corrupt_signature(RpModuleKind::Session).await
+    }
+
+    #[tokio::test]
+    async fn test_session_corrupt_timestamp() -> eyre::Result<()> {
+        check_invalid_timestamp(RpModuleKind::Session).await
+    }
+
     // ── Shared tests: uniqueness ─────────────────────────────────────────────
 
     #[tokio::test]
@@ -900,7 +946,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_uniqueness_invalid_proof() -> eyre::Result<()> {
-        check_invalid_proof(RpModuleKind::Uniqueness).await
+        check_invalid_query_proof(RpModuleKind::Uniqueness).await
     }
 
     #[tokio::test]
@@ -936,5 +982,15 @@ mod tests {
     #[tokio::test]
     async fn test_uniqueness_expired_rp_signature() -> eyre::Result<()> {
         check_expired_rp_signature(RpModuleKind::Uniqueness).await
+    }
+
+    #[tokio::test]
+    async fn test_uniqueness_corrupt_signature() -> eyre::Result<()> {
+        check_corrupt_signature(RpModuleKind::Uniqueness).await
+    }
+
+    #[tokio::test]
+    async fn test_uniqueness_corrupt_timestamp() -> eyre::Result<()> {
+        check_invalid_timestamp(RpModuleKind::Uniqueness).await
     }
 }

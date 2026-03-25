@@ -132,7 +132,6 @@ impl WorldOprfNodeTasks {
     clippy::missing_panics_doc,
     reason = "Can realistically not panic as we embed the key at compile time"
 )]
-#[allow(clippy::too_many_lines, reason = "")]
 pub async fn start(
     config: WorldOprfNodeConfig,
     secret_manager: SecretManagerService,
