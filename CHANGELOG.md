@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.6.0...world-id-primitives-v0.7.0) - 2026-03-25
+
+### Added
+
+- GatewayRequestId newtype and Authenticator::poll_status ([#603](https://github.com/worldcoin/world-id-protocol/pull/603))
+- improve docs for OPRF errors ([#606](https://github.com/worldcoin/world-id-protocol/pull/606))
+- *(oprf-node)* add session route for OPRF ([#596](https://github.com/worldcoin/world-id-protocol/pull/596))
+- rename to associated data commitment ([#586](https://github.com/worldcoin/world-id-protocol/pull/586))
+- *(indexer)* expose offchain_signer_commitment ([#593](https://github.com/worldcoin/world-id-protocol/pull/593))
+- recovery agent management gateway endpoints ([#589](https://github.com/worldcoin/world-id-protocol/pull/589))
+- separate action prefix ([#581](https://github.com/worldcoin/world-id-protocol/pull/581))
+
+### Fixed
+
+- sign_recover_account with async processing ([#597](https://github.com/worldcoin/world-id-protocol/pull/597))
+
+### Other
+
+- lifecycle terminology ([#605](https://github.com/worldcoin/world-id-protocol/pull/605))
+- *(nodes)* [**breaking**] add fine-grained error types for nodes ([#585](https://github.com/worldcoin/world-id-protocol/pull/585))
+- improved documentation on main crate ([#600](https://github.com/worldcoin/world-id-protocol/pull/600))
+- increase zstd compression level to 9 for circuit files ([#591](https://github.com/worldcoin/world-id-protocol/pull/591))
+
 ## [0.6.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.5.4...world-id-primitives-v0.6.0) - 2026-03-18
 
 ### Added
