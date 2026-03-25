@@ -272,7 +272,7 @@ impl GatewayRequestId {
     /// Returns the underlying string without the 'gw_' prefix
     #[must_use]
     pub fn as_str_without_prefix(&self) -> &str {
-        self.0.trim_start_matches("gw_")
+        self.0.strip_prefix("gw_").unwrap_or(&self.0)
     }
 }
 
