@@ -2,7 +2,7 @@
 //!
 //! Both the session and uniqueness modules share identical struct fields, init
 //! logic, and query-proof verification. They differ only in:
-//! - how the action field is validated (`MSB == 0x00` for uniqueness vs `0x01/0x02` for session)
+//! - how the action field is validated (`MSB == 0x00` for uniqueness vs `0x01/0x02` for sessions depending on the [`SessionFeType`])
 //! - whether the action is included in the RP signature (`Some` for uniqueness, `None` for session)
 //! - which [`WorldIdRequestAuthError`] variant is returned for an invalid action
 //!
