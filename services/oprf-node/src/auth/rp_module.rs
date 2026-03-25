@@ -874,10 +874,7 @@ mod tests {
             auth_error.code(),
             primitives::oprf::error_codes::INVALID_ACTION_NULLIFIER
         );
-        assert_eq!(
-            auth_error.message(),
-            "invalid action - MSB must be 0x00 for nullifier"
-        );
+        assert_eq!(auth_error.message(), "invalid action for nullifier");
         Ok(())
     }
 
