@@ -270,3 +270,33 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
         Self::with_message(code, msg)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_code_roundtrip() {
+        let codes: &[u16] = &[
+            error_codes::UNKNOWN_RP,
+            error_codes::TIMESTAMP_TOO_OLD,
+            error_codes::INVALID_RP_SIGNATURE,
+            error_codes::DUPLICATE_NONCE,
+            error_codes::INVALID_MERKLE_ROOT,
+            error_codes::INVALID_QUERY_PROOF,
+            error_codes::INVALID_ACTION_SCHEMA_ISSUER,
+            error_codes::UNKNOWN_SCHEMA_ISSUER,
+            error_codes::INVALID_ACTION_NULLIFIER,
+            error_codes::INVALID_ACTION_SESSION,
+            error_codes::INACTIVE_RP,
+            error_codes::RP_SIGNATURE_EXPIRED,
+            error_codes::INVALID_TIMESTAMP,
+            error_codes::INTERNAL,
+        ];
+        for &code in codes {
+            let error = WorldIdRequestAuthError::from(code);
+            let back: u16 = error.into();
+            assert_eq!(code, back, "roundtrip failed for code {code}");
+        }
+    }
+}
