@@ -103,6 +103,17 @@ pub enum WorldIdRequestAuthError {
     /// a fresh timestamp.
     #[error("timestamp_too_old")]
     TimestampTooOld,
+    /// The request timestamp is too far in the future. If you are the RP please sign a request with
+    /// a fresh timestamp.
+    #[error("timestamp_too_far_in_future")]
+    TimestampTooFarInFuture,
+    /// The timestamp cannot be parsed as it was not a valid unix epoch timestamp.
+    #[error("invalid_timestamp")]
+    InvalidTimestamp,
+    /// The RP signature has expired. If you are the RP please sign a request
+    /// with a fresh timestamp.
+    #[error("rp_signature_expired")]
+    RpSignatureExpired,
     /// The RP's signature on the request could not be verified. The signature may be
     /// incorrect, the wrong public key used, or does not match the expected message.
     #[error("invalid_rp_signature")]
@@ -164,6 +175,9 @@ impl WorldIdRequestAuthError {
             Self::UnknownRp
             | Self::InactiveRp
             | Self::TimestampTooOld
+            | Self::TimestampTooFarInFuture
+            | Self::InvalidTimestamp
+            | Self::RpSignatureExpired
             | Self::InvalidRpSignature
             | Self::DuplicateNonce
             | Self::InvalidActionNullifier => ErrorActor::Rp,
@@ -191,6 +205,9 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::UNKNOWN_SCHEMA_ISSUER => Self::UnknownSchemaIssuerId,
             error_codes::INVALID_ACTION_NULLIFIER => Self::InvalidActionNullifier,
             error_codes::INVALID_ACTION_SESSION => Self::InvalidActionSession,
+            error_codes::RP_SIGNATURE_EXPIRED => Self::RpSignatureExpired,
+            error_codes::INVALID_TIMESTAMP => Self::InvalidTimestamp,
+            error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE => Self::TimestampTooFarInFuture,
             error_codes::INTERNAL => Self::Internal,
             other => Self::Unknown(other),
         }
@@ -203,6 +220,7 @@ impl From<WorldIdRequestAuthError> for u16 {
             WorldIdRequestAuthError::UnknownRp => error_codes::UNKNOWN_RP,
             WorldIdRequestAuthError::InactiveRp => error_codes::INACTIVE_RP,
             WorldIdRequestAuthError::TimestampTooOld => error_codes::TIMESTAMP_TOO_OLD,
+            WorldIdRequestAuthError::InvalidTimestamp => error_codes::INVALID_TIMESTAMP,
             WorldIdRequestAuthError::InvalidRpSignature => error_codes::INVALID_RP_SIGNATURE,
             WorldIdRequestAuthError::DuplicateNonce => error_codes::DUPLICATE_NONCE,
             WorldIdRequestAuthError::InvalidMerkleRoot => error_codes::INVALID_MERKLE_ROOT,
@@ -215,8 +233,11 @@ impl From<WorldIdRequestAuthError> for u16 {
                 error_codes::INVALID_ACTION_NULLIFIER
             }
             WorldIdRequestAuthError::InvalidActionSession => error_codes::INVALID_ACTION_SESSION,
+            WorldIdRequestAuthError::RpSignatureExpired => error_codes::RP_SIGNATURE_EXPIRED,
+            WorldIdRequestAuthError::TimestampTooFarInFuture => {
+                error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE
+            }
             WorldIdRequestAuthError::Internal => error_codes::INTERNAL,
-
             WorldIdRequestAuthError::Unknown(other) => other,
         }
     }
@@ -246,6 +267,12 @@ pub mod error_codes {
     pub const INVALID_ACTION_SESSION: u16 = 4509;
     /// Error code for [`super::WorldIdRequestAuthError::InactiveRp`].
     pub const INACTIVE_RP: u16 = 4510;
+    /// Error code for [`super::WorldIdRequestAuthError::RpSignatureExpired`].
+    pub const RP_SIGNATURE_EXPIRED: u16 = 4511;
+    /// Error code for [`super::WorldIdRequestAuthError::InvalidTimestamp`].
+    pub const INVALID_TIMESTAMP: u16 = 4512;
+    /// Error code for [`super::WorldIdRequestAuthError::TimestampTooFarInFuture`].
+    pub const TIMESTAMP_TOO_FAR_IN_FUTURE: u16 = 4513;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
     pub const INTERNAL: u16 = 1011;
 }
@@ -259,6 +286,9 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             }
             WorldIdRequestAuthError::TimestampTooOld => {
                 taceo_oprf::types::close_frame_message!("timestamp in request too old")
+            }
+            WorldIdRequestAuthError::TimestampTooFarInFuture => {
+                taceo_oprf::types::close_frame_message!("timestamp too far in future")
             }
             WorldIdRequestAuthError::InvalidRpSignature => {
                 taceo_oprf::types::close_frame_message!("signature from RP cannot be verified")
@@ -289,7 +319,12 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             WorldIdRequestAuthError::InactiveRp => {
                 taceo_oprf::types::close_frame_message!("inactive RP")
             }
-
+            WorldIdRequestAuthError::RpSignatureExpired => {
+                taceo_oprf::types::close_frame_message!("RP signature expired")
+            }
+            WorldIdRequestAuthError::InvalidTimestamp => {
+                taceo_oprf::types::close_frame_message!("cannot parse timestamp on request")
+            }
             WorldIdRequestAuthError::Internal => {
                 taceo_oprf::types::close_frame_message!("internal server error")
             }
@@ -298,5 +333,36 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             }
         };
         Self::with_message(code, msg)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_code_roundtrip() {
+        let codes: &[u16] = &[
+            error_codes::UNKNOWN_RP,
+            error_codes::TIMESTAMP_TOO_OLD,
+            error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE,
+            error_codes::INVALID_RP_SIGNATURE,
+            error_codes::DUPLICATE_NONCE,
+            error_codes::INVALID_MERKLE_ROOT,
+            error_codes::INVALID_QUERY_PROOF,
+            error_codes::INVALID_ACTION_SCHEMA_ISSUER,
+            error_codes::UNKNOWN_SCHEMA_ISSUER,
+            error_codes::INVALID_ACTION_NULLIFIER,
+            error_codes::INVALID_ACTION_SESSION,
+            error_codes::INACTIVE_RP,
+            error_codes::RP_SIGNATURE_EXPIRED,
+            error_codes::INVALID_TIMESTAMP,
+            error_codes::INTERNAL,
+        ];
+        for &code in codes {
+            let error = WorldIdRequestAuthError::from(code);
+            let back: u16 = error.into();
+            assert_eq!(code, back, "roundtrip failed for code {code}");
+        }
     }
 }

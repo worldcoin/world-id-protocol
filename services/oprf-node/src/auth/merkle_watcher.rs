@@ -25,7 +25,7 @@ use std::{
 use alloy::{
     eips::BlockNumberOrTag,
     primitives::Address,
-    providers::{DynProvider, Provider as _, ProviderBuilder, WsConnect},
+    providers::{DynProvider, Provider as _},
     pubsub::Subscription,
     rpc::types::{Filter, Log},
     sol_types::SolEvent as _,
@@ -103,7 +103,7 @@ impl MerkleWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
-        ws_rpc_url: &str,
+        provider: DynProvider,
         max_merkle_cache_size: u64,
         cache_maintenance_interval: Duration,
         started: Arc<AtomicBool>,
@@ -116,9 +116,6 @@ impl MerkleWatcher {
             "max merkle cache size must be > 0"
         );
 
-        tracing::info!("creating provider...");
-        let ws = WsConnect::new(ws_rpc_url);
-        let provider = ProviderBuilder::new().connect_ws(ws).await?;
         let contract = WorldIdRegistry::new(contract_address, provider.clone());
 
         let merkle_root_cache = Cache::builder()
@@ -416,7 +413,9 @@ mod tests {
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            anvil.ws_endpoint(),
+            crate::build_ws_provider(anvil.ws_endpoint())
+                .await
+                .expect("Can build provider"),
             100,
             Duration::from_secs(3600),
             started_services.new_service(),
@@ -463,7 +462,9 @@ mod tests {
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            anvil.ws_endpoint(),
+            crate::build_ws_provider(anvil.ws_endpoint())
+                .await
+                .expect("Can build provider"),
             100,
             Duration::from_secs(1),
             started_services.new_service(),
@@ -529,7 +530,9 @@ mod tests {
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            anvil.ws_endpoint(),
+            crate::build_ws_provider(anvil.ws_endpoint())
+                .await
+                .expect("Can build provider"),
             100,
             Duration::from_secs(1),
             started_services.new_service(),

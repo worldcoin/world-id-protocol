@@ -71,10 +71,13 @@ mod tests {
         merkle::first_leaf_merkle_path,
     };
 
-    use crate::auth::{
-        merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
-        rp_registry_watcher::RpRegistryWatcher,
-        schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
+    use crate::{
+        auth::{
+            merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
+            rp_registry_watcher::RpRegistryWatcher,
+            schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
+        },
+        config::WatcherCacheConfig,
     };
 
     pub(crate) struct OprfRequestAuthTestSetup {
@@ -209,9 +212,11 @@ mod tests {
             let started_services = StartedServices::default();
             let cancellation_token = CancellationToken::new();
 
+            let provider = crate::build_ws_provider(setup.anvil.ws_endpoint()).await?;
+
             let (merkle_watcher, _) = MerkleWatcher::init(
                 setup.world_id_registry,
-                setup.anvil.ws_endpoint(),
+                provider.clone(),
                 max_cache_size,
                 cache_maintenance_interval,
                 started_services.new_service(),
@@ -221,8 +226,8 @@ mod tests {
 
             let (rp_registry_watcher, _) = RpRegistryWatcher::init(
                 setup.rp_registry,
-                setup.anvil.ws_endpoint(),
-                max_cache_size,
+                provider.clone(),
+                WatcherCacheConfig::default(),
                 cache_maintenance_interval,
                 started_services.new_service(),
                 cancellation_token.clone(),
@@ -231,8 +236,8 @@ mod tests {
 
             let (schema_issuer_registry_watcher, _) = SchemaIssuerRegistryWatcher::init(
                 setup.credential_schema_issuer_registry,
-                setup.anvil.ws_endpoint(),
-                max_cache_size,
+                provider.clone(),
+                WatcherCacheConfig::default(),
                 cache_maintenance_interval,
                 started_services.new_service(),
                 cancellation_token.clone(),

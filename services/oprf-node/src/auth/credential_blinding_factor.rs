@@ -346,4 +346,39 @@ mod tests {
         assert_eq!(auth_error.message(), "unknown schema issuer id");
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_credential_blinding_factor_oprf_req_auth_tampered_blinded_query()
+    -> eyre::Result<()> {
+        let mut setup = CredentialBlindingFactorOprfRequestAuthTestSetup::new().await?;
+        setup.request.blinded_query = rand::random();
+        let auth_error = setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_QUERY_PROOF
+        );
+        assert_eq!(auth_error.message(), "cannot verify query proof");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_credential_blinding_factor_oprf_req_auth_tampered_nonce() -> eyre::Result<()> {
+        let mut setup = CredentialBlindingFactorOprfRequestAuthTestSetup::new().await?;
+        setup.request.auth.nonce = rand::random();
+        let auth_error = setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_QUERY_PROOF
+        );
+        assert_eq!(auth_error.message(), "cannot verify query proof");
+        Ok(())
+    }
 }
