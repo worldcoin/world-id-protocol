@@ -8,6 +8,7 @@ use std::{
 
 use crate::{
     auth::rp_registry_watcher::RpRegistry::RpUpdated,
+    config::WatcherCacheConfig,
     metrics::{
         METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS,
         METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES,
@@ -75,8 +76,8 @@ impl RpRegistryWatcher {
     pub(crate) async fn init(
         contract_address: Address,
         ws_rpc_url: &str,
-        max_rp_registry_store_size: u64,
-        cache_maintenance_interval: Duration,
+        cache_config: WatcherCacheConfig,
+        maintenance_interval: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
@@ -96,8 +97,16 @@ impl RpRegistryWatcher {
         // indicate that the RpRegistry watcher has started
         started.store(true, Ordering::Relaxed);
 
+        let WatcherCacheConfig {
+            max_cache_size,
+            time_to_live,
+            time_to_idle,
+        } = cache_config;
+
         let rp_store: Cache<RpId, RelyingParty> = Cache::builder()
-            .max_capacity(max_rp_registry_store_size)
+            .max_capacity(max_cache_size)
+            .time_to_live(time_to_live)
+            .time_to_idle(time_to_idle)
             .build();
         let subscribe_task = tokio::task::spawn({
             let rp_store = rp_store.clone();
@@ -159,7 +168,7 @@ impl RpRegistryWatcher {
         // periodically run maintenance tasks on the cache and update metrics
         tokio::spawn({
             let rp_store = rp_store.clone();
-            let mut interval = tokio::time::interval(cache_maintenance_interval);
+            let mut interval = tokio::time::interval(maintenance_interval);
             async move {
                 loop {
                     interval.tick().await;

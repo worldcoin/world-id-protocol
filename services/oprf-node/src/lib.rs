@@ -155,7 +155,7 @@ pub async fn start(
     let (rp_registry_watcher, rp_registry_watcher_task) = RpRegistryWatcher::init(
         config.rp_registry_contract,
         node_config.chain_ws_rpc_url.expose_secret(),
-        config.max_rp_registry_store_size,
+        config.rp_cache_config,
         config.cache_maintenance_interval,
         started_services.new_service(),
         cancellation_token.clone(),
@@ -200,7 +200,7 @@ pub async fn start(
         SchemaIssuerRegistryWatcher::init(
             config.credential_schema_issuer_registry_contract,
             node_config.chain_ws_rpc_url.expose_secret(),
-            config.max_credential_schema_issuer_registry_store_size,
+            config.issuer_cache_config,
             config.cache_maintenance_interval,
             started_services.new_service(),
             cancellation_token.clone(),
