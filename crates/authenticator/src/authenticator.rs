@@ -1798,4 +1798,318 @@ mod tests {
         mock.assert_async().await;
         drop(server);
     }
+
+    // ─── Recovery-agent-update tests ───────────────────────────────────
+
+    /// Helper: build an `Authenticator` whose indexer points to `indexer_url`
+    /// and whose gateway points to `gateway_url`.
+    fn make_authenticator(
+        indexer_url: String,
+        gateway_url: String,
+        leaf_index: u64,
+    ) -> Authenticator {
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            indexer_url,
+            gateway_url,
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+
+        Authenticator {
+            config,
+            packed_account_data: U256::from(leaf_index),
+            signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
+            registry: None,
+            http_client: reqwest::Client::new(),
+            ws_connector: Connector::Plain,
+            query_material: None,
+            nullifier_material: None,
+        }
+    }
+
+    /// Helper: create a mockito mock that returns a nonce from the indexer.
+    async fn mock_signing_nonce(
+        server: &mut mockito::ServerGuard,
+        leaf_index: u64,
+        nonce: U256,
+    ) -> mockito::Mock {
+        server
+            .mock("POST", "/signature-nonce")
+            .match_header("content-type", "application/json")
+            .match_body(mockito::Matcher::JsonString(
+                serde_json::json!({
+                    "leaf_index": format!("{leaf_index:#x}")
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "signature_nonce": format!("{nonce:#x}")
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await
+    }
+
+    /// Helper: build a valid `GatewayStatusResponse` JSON body for mock
+    /// responses.  Uses `"queued"` as the default state.
+    fn gateway_success_body(request_id: &str, kind: &str) -> String {
+        serde_json::json!({
+            "request_id": request_id,
+            "kind": kind,
+            "status": { "state": "queued" }
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn test_initiate_recovery_agent_update_success() {
+        let mut indexer = mockito::Server::new_async().await;
+        let mut gateway = mockito::Server::new_async().await;
+
+        let leaf_index: u64 = 42;
+        let nonce = U256::from(7);
+        let new_recovery_agent = address!("0x00000000000000000000000000000000DeaDBeef");
+        let expected_request_id = "req-initiate-123";
+
+        let nonce_mock = mock_signing_nonce(&mut indexer, leaf_index, nonce).await;
+
+        let gateway_mock = gateway
+            .mock("POST", "/initiate-recovery-agent-update")
+            .match_header("content-type", "application/json")
+            .match_body(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::PartialJsonString(
+                    serde_json::json!({
+                        "leaf_index": format!("{leaf_index:#x}"),
+                        "nonce": format!("{nonce:#x}")
+                    })
+                    .to_string(),
+                ),
+                // Verify the new_recovery_agent and signature fields exist
+                mockito::Matcher::Regex("new_recovery_agent".to_string()),
+                mockito::Matcher::Regex("signature".to_string()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(gateway_success_body(
+                expected_request_id,
+                "update_recovery_agent",
+            ))
+            .create_async()
+            .await;
+
+        let authenticator = make_authenticator(indexer.url(), gateway.url(), leaf_index);
+
+        let request_id = authenticator
+            .initiate_recovery_agent_update(new_recovery_agent)
+            .await
+            .unwrap();
+
+        assert_eq!(request_id, expected_request_id);
+        nonce_mock.assert_async().await;
+        gateway_mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn test_initiate_recovery_agent_update_gateway_error() {
+        let mut indexer = mockito::Server::new_async().await;
+        let mut gateway = mockito::Server::new_async().await;
+
+        let leaf_index: u64 = 42;
+        let nonce = U256::from(7);
+        let new_recovery_agent = address!("0x00000000000000000000000000000000DeaDBeef");
+
+        let nonce_mock = mock_signing_nonce(&mut indexer, leaf_index, nonce).await;
+
+        let gateway_mock = gateway
+            .mock("POST", "/initiate-recovery-agent-update")
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "code": "bad_request",
+                    "message": "invalid request"
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let authenticator = make_authenticator(indexer.url(), gateway.url(), leaf_index);
+
+        let result = authenticator
+            .initiate_recovery_agent_update(new_recovery_agent)
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::GatewayError { status, .. }) if status == StatusCode::BAD_REQUEST
+        ));
+        nonce_mock.assert_async().await;
+        gateway_mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn test_execute_recovery_agent_update_success() {
+        let mut gateway = mockito::Server::new_async().await;
+
+        let leaf_index: u64 = 42;
+        let expected_request_id = "req-execute-456";
+
+        let gateway_mock = gateway
+            .mock("POST", "/execute-recovery-agent-update")
+            .match_header("content-type", "application/json")
+            .match_body(mockito::Matcher::JsonString(
+                serde_json::json!({
+                    "leaf_index": format!("{leaf_index:#x}")
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(gateway_success_body(
+                expected_request_id,
+                "execute_recovery_agent_update",
+            ))
+            .create_async()
+            .await;
+
+        let authenticator = make_authenticator(
+            "http://indexer.example.com".to_string(),
+            gateway.url(),
+            leaf_index,
+        );
+
+        let request_id = authenticator.execute_recovery_agent_update().await.unwrap();
+
+        assert_eq!(request_id, expected_request_id);
+        gateway_mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn test_execute_recovery_agent_update_gateway_error() {
+        let mut gateway = mockito::Server::new_async().await;
+
+        let leaf_index: u64 = 42;
+
+        let gateway_mock = gateway
+            .mock("POST", "/execute-recovery-agent-update")
+            .with_status(500)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "code": "internal_error",
+                    "message": "something went wrong"
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let authenticator = make_authenticator(
+            "http://indexer.example.com".to_string(),
+            gateway.url(),
+            leaf_index,
+        );
+
+        let result = authenticator.execute_recovery_agent_update().await;
+
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::GatewayError { status, .. }) if status == StatusCode::INTERNAL_SERVER_ERROR
+        ));
+        gateway_mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn test_cancel_recovery_agent_update_success() {
+        let mut indexer = mockito::Server::new_async().await;
+        let mut gateway = mockito::Server::new_async().await;
+
+        let leaf_index: u64 = 42;
+        let nonce = U256::from(3);
+        let expected_request_id = "req-cancel-789";
+
+        let nonce_mock = mock_signing_nonce(&mut indexer, leaf_index, nonce).await;
+
+        let gateway_mock = gateway
+            .mock("POST", "/cancel-recovery-agent-update")
+            .match_header("content-type", "application/json")
+            .match_body(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::PartialJsonString(
+                    serde_json::json!({
+                        "leaf_index": format!("{leaf_index:#x}"),
+                        "nonce": format!("{nonce:#x}")
+                    })
+                    .to_string(),
+                ),
+                // Verify the signature field exists
+                mockito::Matcher::Regex("signature".to_string()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(gateway_success_body(
+                expected_request_id,
+                "cancel_recovery_agent_update",
+            ))
+            .create_async()
+            .await;
+
+        let authenticator = make_authenticator(indexer.url(), gateway.url(), leaf_index);
+
+        let request_id = authenticator.cancel_recovery_agent_update().await.unwrap();
+
+        assert_eq!(request_id, expected_request_id);
+        nonce_mock.assert_async().await;
+        gateway_mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn test_cancel_recovery_agent_update_gateway_error() {
+        let mut indexer = mockito::Server::new_async().await;
+        let mut gateway = mockito::Server::new_async().await;
+
+        let leaf_index: u64 = 42;
+        let nonce = U256::from(3);
+
+        let nonce_mock = mock_signing_nonce(&mut indexer, leaf_index, nonce).await;
+
+        let gateway_mock = gateway
+            .mock("POST", "/cancel-recovery-agent-update")
+            .with_status(403)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "code": "forbidden",
+                    "message": "not authorized"
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let authenticator = make_authenticator(indexer.url(), gateway.url(), leaf_index);
+
+        let result = authenticator.cancel_recovery_agent_update().await;
+
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::GatewayError { status, .. }) if status == StatusCode::FORBIDDEN
+        ));
+        nonce_mock.assert_async().await;
+        gateway_mock.assert_async().await;
+    }
 }
