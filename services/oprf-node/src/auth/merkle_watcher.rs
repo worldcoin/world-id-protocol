@@ -103,7 +103,7 @@ impl MerkleWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
-        ws_rpc_url: &str,
+        provider: DynProvider,
         max_merkle_cache_size: u64,
         cache_maintenance_interval: Duration,
         started: Arc<AtomicBool>,
@@ -116,9 +116,6 @@ impl MerkleWatcher {
             "max merkle cache size must be > 0"
         );
 
-        tracing::info!("creating provider...");
-        let ws = WsConnect::new(ws_rpc_url);
-        let provider = ProviderBuilder::new().connect_ws(ws).await?;
         let contract = WorldIdRegistry::new(contract_address, provider.clone());
 
         let merkle_root_cache = Cache::builder()

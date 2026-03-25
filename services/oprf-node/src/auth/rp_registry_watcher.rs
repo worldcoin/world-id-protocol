@@ -18,7 +18,7 @@ use crate::{
 use alloy::{
     eips::BlockNumberOrTag,
     primitives::Address,
-    providers::{DynProvider, Provider as _, ProviderBuilder, WsConnect},
+    providers::{DynProvider, Provider as _},
     rpc::types::Filter,
     sol_types::SolEvent,
 };
@@ -75,7 +75,7 @@ impl RpRegistryWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
-        ws_rpc_url: &str,
+        provider: DynProvider,
         cache_config: WatcherCacheConfig,
         maintenance_interval: Duration,
         started: Arc<AtomicBool>,
@@ -83,9 +83,6 @@ impl RpRegistryWatcher {
     ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
         ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).set(0.0);
 
-        tracing::info!("creating provider for rp-registry-watcher...");
-        let ws = WsConnect::new(ws_rpc_url);
-        let provider = ProviderBuilder::new().connect_ws(ws).await?;
         tracing::info!("listening for events...");
         let filter = Filter::new()
             .address(contract_address)
