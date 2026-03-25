@@ -134,4 +134,30 @@ mod tests {
             "cloned history should share state"
         );
     }
+
+    #[tokio::test]
+    async fn test_nonce_history_ttl_expiration() {
+        let nonce = FieldElement::random(&mut rand::thread_rng());
+        let max_nonce_age = Duration::from_secs(1);
+        let cache_maintenance_interval = Duration::from_millis(100);
+        let nonce_history = NonceHistory::init(max_nonce_age, cache_maintenance_interval);
+
+        // Add nonce — should succeed
+        nonce_history.add_nonce(nonce).await.expect("can add nonce");
+
+        // Immediately - should be rejected
+        nonce_history
+            .add_nonce(nonce)
+            .await
+            .expect_err("duplicate should fail");
+
+        // Wait for TTL + maintenance to expire it
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        // After TTL expiration - should succeed again
+        nonce_history
+            .add_nonce(nonce)
+            .await
+            .expect("nonce should be accepted after TTL expiration");
+    }
 }

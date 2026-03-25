@@ -489,6 +489,22 @@ mod tests {
         Ok(())
     }
 
+    async fn check_invalid_query_proof(kind: RpModuleKind) -> eyre::Result<()> {
+        let mut setup = RpModuleTestSetup::new(kind).await?;
+        setup.request.auth.proof.pi_a = rand::random();
+        let auth_error = setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_QUERY_PROOF
+        );
+        assert_eq!(auth_error.message(), "cannot verify query proof");
+        Ok(())
+    }
+
     async fn check_invalid_merkle_root(kind: RpModuleKind) -> eyre::Result<()> {
         let mut setup = RpModuleTestSetup::new(kind).await?;
         setup.request.auth.merkle_root = rand::random();
@@ -601,6 +617,54 @@ mod tests {
         Ok(())
     }
 
+    async fn check_tampered_blinded_query(kind: RpModuleKind) -> eyre::Result<()> {
+        let mut setup = RpModuleTestSetup::new(kind).await?;
+        setup.request.blinded_query = rand::random();
+        let auth_error = setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_QUERY_PROOF
+        );
+        assert_eq!(auth_error.message(), "cannot verify query proof");
+        Ok(())
+    }
+
+    async fn check_tampered_expiration_timestamp(kind: RpModuleKind) -> eyre::Result<()> {
+        let mut setup = RpModuleTestSetup::new(kind).await?;
+        setup.request.auth.expiration_timestamp = rand::random();
+        let auth_error = setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_RP_SIGNATURE
+        );
+        assert_eq!(auth_error.message(), "signature from RP cannot be verified");
+        Ok(())
+    }
+
+    async fn check_timestamp_zero(kind: RpModuleKind) -> eyre::Result<()> {
+        let mut setup = RpModuleTestSetup::new(kind).await?;
+        setup.request.auth.current_time_stamp = 0;
+        let auth_error = setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::TIMESTAMP_TOO_OLD
+        );
+        assert_eq!(auth_error.message(), "timestamp in request too old");
+        Ok(())
+    }
+
     // ── Session-specific tests ───────────────────────────────────────────────
 
     #[tokio::test]
@@ -692,6 +756,29 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn test_uniqueness_invalid_action_session_prefix() -> eyre::Result<()> {
+        let mut setup = RpModuleTestSetup::new(RpModuleKind::Uniqueness).await?;
+        // MSB = 0x02 is the session Action prefix, invalid for uniqueness
+        let mut bytes = rand::random::<[u8; 32]>();
+        bytes[0] = 0x02;
+        setup.request.auth.action = ark_babyjubjub::Fq::from_be_bytes_mod_order(&bytes);
+        let auth_error = setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_ACTION_NULLIFIER
+        );
+        assert_eq!(
+            auth_error.message(),
+            "invalid action - MSB must be 0x00 for nullifier"
+        );
+        Ok(())
+    }
+
     // ── Shared tests: session ────────────────────────────────────────────────
 
     #[tokio::test]
@@ -729,6 +816,26 @@ mod tests {
         check_inactive_rp(RpModuleKind::Session).await
     }
 
+    #[tokio::test]
+    async fn test_session_tampered_blinded_query() -> eyre::Result<()> {
+        check_tampered_blinded_query(RpModuleKind::Session).await
+    }
+
+    #[tokio::test]
+    async fn test_session_tampered_expiration_timestamp() -> eyre::Result<()> {
+        check_tampered_expiration_timestamp(RpModuleKind::Session).await
+    }
+
+    #[tokio::test]
+    async fn test_session_timestamp_zero() -> eyre::Result<()> {
+        check_timestamp_zero(RpModuleKind::Session).await
+    }
+
+    #[tokio::test]
+    async fn test_session_invalid_query_proof() -> eyre::Result<()> {
+        check_invalid_query_proof(RpModuleKind::Session).await
+    }
+
     // ── Shared tests: uniqueness ─────────────────────────────────────────────
 
     #[tokio::test]
@@ -764,5 +871,25 @@ mod tests {
     #[tokio::test]
     async fn test_uniqueness_inactive_rp() -> eyre::Result<()> {
         check_inactive_rp(RpModuleKind::Uniqueness).await
+    }
+
+    #[tokio::test]
+    async fn test_uniqueness_tampered_blinded_query() -> eyre::Result<()> {
+        check_tampered_blinded_query(RpModuleKind::Uniqueness).await
+    }
+
+    #[tokio::test]
+    async fn test_uniqueness_tampered_expiration_timestamp() -> eyre::Result<()> {
+        check_tampered_expiration_timestamp(RpModuleKind::Uniqueness).await
+    }
+
+    #[tokio::test]
+    async fn test_uniqueness_timestamp_zero() -> eyre::Result<()> {
+        check_timestamp_zero(RpModuleKind::Uniqueness).await
+    }
+
+    #[tokio::test]
+    async fn test_uniqueness_invalid_query_proof() -> eyre::Result<()> {
+        check_invalid_query_proof(RpModuleKind::Uniqueness).await
     }
 }
