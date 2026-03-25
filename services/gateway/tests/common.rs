@@ -51,7 +51,11 @@ pub(crate) async fn wait_http_ready(client: &Client, port: u16) {
 
 /// Wait for a request to reach finalized state, using a base URL string.
 #[allow(dead_code)]
-pub(crate) async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) -> String {
+pub(crate) async fn wait_for_finalized(
+    client: &Client,
+    base: &str,
+    request_id: impl std::fmt::Display,
+) -> String {
     let deadline = std::time::Instant::now() + Duration::from_secs(90);
     loop {
         let resp = client

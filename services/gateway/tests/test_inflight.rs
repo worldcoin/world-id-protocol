@@ -5,7 +5,9 @@ use alloy::{
 use reqwest::{Client, StatusCode};
 use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSAPublicKey, OnchainKeyRepresentable,
-    api_types::{GatewayRequestKind, GatewayStatusResponse, RecoverAccountRequest},
+    api_types::{
+        GatewayRequestId, GatewayRequestKind, GatewayStatusResponse, RecoverAccountRequest,
+    },
     primitives::{Config, TREE_DEPTH, merkle::AccountInclusionProof},
     world_id_registry::{domain as ag_domain, sign_recover_account},
 };
@@ -202,7 +204,7 @@ async fn send_recover_via_auth(
     recovery_signer: &PrivateKeySigner,
     new_authenticator_address: Address,
     new_authenticator_pubkey: EdDSAPublicKey,
-) -> Result<String, AuthenticatorError> {
+) -> Result<GatewayRequestId, AuthenticatorError> {
     let leaf_index = auth.leaf_index();
     let nonce = auth.signing_nonce().await?;
     let mut key_set = auth.fetch_authenticator_pubkeys().await?;
@@ -276,7 +278,7 @@ async fn dispatch_op(
     op: GatewayRequestKind,
     aux_seed: [u8; 32],
     recovery_signer: &PrivateKeySigner,
-) -> Result<String, AuthenticatorError> {
+) -> Result<GatewayRequestId, AuthenticatorError> {
     let (aux_pubkey, aux_addr) = derive_keys_from_seed(aux_seed);
     match op {
         GatewayRequestKind::InsertAuthenticator => {
