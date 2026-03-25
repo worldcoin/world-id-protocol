@@ -39,7 +39,7 @@ alloy::sol! {
 pub(crate) enum SchemaIssuerRegistryWatcherError {
     /// Unknown schema issuer.
     #[error("unknown schema issuer: {0}")]
-    UnknownSchemaIssuer(u64),
+    UnknownSchemaIssuerId(u64),
     /// Internal Error
     #[error(transparent)]
     Internal(#[from] eyre::Report),
@@ -177,7 +177,7 @@ impl SchemaIssuerRegistryWatcher {
             .context("while getting signer for issuer-schema")?;
 
         if signer == Address::ZERO {
-            Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(
+            Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(
                 issuer_schema_id,
             ))
         } else {

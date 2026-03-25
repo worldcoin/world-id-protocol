@@ -113,7 +113,7 @@ impl From<RpModuleError> for WorldIdRequestAuthError {
             RpModuleError::TimestampTooOld {
                 current: _,
                 timestamp: _,
-            } => WorldIdRequestAuthError::TimeStampTooOld,
+            } => WorldIdRequestAuthError::TimestampTooOld,
             RpModuleError::UnknownRp(_) => WorldIdRequestAuthError::UnknownRp,
             RpModuleError::InactiveRp(_) => WorldIdRequestAuthError::InactiveRp,
             // we map to the same signature to not leak that a forged signature was build correctly
@@ -632,10 +632,7 @@ mod tests {
             auth_error.code(),
             primitives::oprf::error_codes::INVALID_ACTION_SESSION
         );
-        assert_eq!(
-            auth_error.message(),
-            "invalid action - MSB must be 0x02 for internal nullifier or 0x01 for session_id_r_seed"
-        );
+        assert_eq!(auth_error.message(), "invalid action for session proofs");
         Ok(())
     }
 
@@ -655,10 +652,7 @@ mod tests {
             auth_error.code(),
             primitives::oprf::error_codes::INVALID_ACTION_SESSION
         );
-        assert_eq!(
-            auth_error.message(),
-            "invalid action - MSB must be 0x02 for internal nullifier or 0x01 for session_id_r_seed"
-        );
+        assert_eq!(auth_error.message(), "invalid action for session proofs");
         Ok(())
     }
 
@@ -685,10 +679,7 @@ mod tests {
             auth_error.code(),
             primitives::oprf::error_codes::INVALID_ACTION_NULLIFIER
         );
-        assert_eq!(
-            auth_error.message(),
-            "invalid action - MSB must be 0x00 for nullifier"
-        );
+        assert_eq!(auth_error.message(), "invalid action for nullifier");
         Ok(())
     }
 
