@@ -709,6 +709,11 @@ jobs:
           jq -s '
             . as $summaries
             | $summaries[0]
+            | .summary.devices = (
+                $summaries
+                | map(.summary.devices // [])
+                | add
+              )
             | .summary.device_summaries = (
                 $summaries
                 | map(.summary.device_summaries // [])
