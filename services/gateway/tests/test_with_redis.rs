@@ -11,9 +11,7 @@ use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::{
-    GW_PRIVATE_KEY, fund_gateway_signer, start_redis, wait_for_finalized, wait_http_ready,
-};
+use crate::common::{GW_PRIVATE_KEY, start_redis, wait_for_finalized, wait_http_ready};
 
 mod common;
 
@@ -30,12 +28,8 @@ async fn redis_integration() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil
-        .deploy_world_id_registry(deployer.clone())
-        .await
-        .unwrap();
+    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
     let rpc_url = anvil.endpoint();
-    fund_gateway_signer(rpc_url, deployer).await;
 
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();

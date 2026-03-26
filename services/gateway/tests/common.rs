@@ -1,10 +1,4 @@
-use alloy::{
-    network::EthereumWallet,
-    primitives::{Address, U256},
-    providers::{Provider, ProviderBuilder},
-    rpc::types::TransactionRequest,
-    signers::local::PrivateKeySigner,
-};
+use alloy::primitives::Address;
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
 use testcontainers_modules::{
@@ -18,32 +12,11 @@ use world_id_gateway::{
 use world_id_services_common::ProviderArgs;
 use world_id_test_utils::anvil::TestAnvil;
 
+/// Default Anvil test private key (account 0). This is a well-known development
+/// key, not a real secret.
 pub(crate) const GW_PRIVATE_KEY: &str =
-    "0x0101010101010101010101010101010101010101010101010101010101010101";
+    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 pub(crate) const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
-
-pub(crate) async fn fund_gateway_signer(rpc_url: &str, funder: PrivateKeySigner) {
-    let gateway_signer: PrivateKeySigner = GW_PRIVATE_KEY
-        .parse()
-        .expect("failed to parse synthetic gateway signer key");
-    let provider = ProviderBuilder::new()
-        .wallet(EthereumWallet::from(funder))
-        .connect_http(rpc_url.parse().expect("invalid anvil endpoint url"));
-
-    let pending_tx = provider
-        .send_transaction(
-            TransactionRequest::default()
-                .to(gateway_signer.address())
-                .value(U256::from(1_000_000_000_000_000_000u128)),
-        )
-        .await
-        .expect("failed to fund synthetic gateway signer");
-
-    pending_tx
-        .get_receipt()
-        .await
-        .expect("failed to confirm funding transaction");
-}
 
 /// A running gateway + anvil + Redis stack for integration tests.
 ///
@@ -78,13 +51,12 @@ pub(crate) async fn spawn_test_gateway(batch_ms: Option<u64>) -> TestGateway {
     let anvil = TestAnvil::spawn_fork(&fork_url).expect("failed to spawn forked anvil");
     let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
     let registry_addr = anvil
-        .deploy_world_id_registry(deployer.clone())
+        .deploy_world_id_registry(deployer)
         .await
         .expect("failed to deploy WorldIDRegistry");
     let rpc_url = anvil.endpoint().to_string();
     let chain_id = anvil.instance.chain_id();
 
-    fund_gateway_signer(&rpc_url, deployer).await;
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let (redis_url, redis_container) = start_redis().await;
 

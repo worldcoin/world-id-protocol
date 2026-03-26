@@ -264,8 +264,10 @@ impl GatewayConfig {
 mod tests {
     use super::*;
     use clap::error::ErrorKind;
+    /// Default Anvil test private key (account 0). This is a well-known
+    /// development key, not a real secret.
     const TEST_PRIVATE_KEY: &str =
-        "0x0101010101010101010101010101010101010101010101010101010101010101";
+        "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
     const BASE_ARGS: &[&str] = &[
         "test",
