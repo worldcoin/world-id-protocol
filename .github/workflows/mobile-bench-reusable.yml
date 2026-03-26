@@ -726,19 +726,17 @@ jobs:
           fi
 
           chunk_size=6
-          chunk_root="rendered/combined/chunks"
-          plot_root="rendered/combined/plots"
+          chunk_workdir="$(mktemp -d)"
+          chunk_root="${chunk_workdir}/chunks"
+          plot_root="${chunk_workdir}/plots"
           mkdir -p "${chunk_root}" "${plot_root}"
 
           base_markdown="$(mktemp)"
-          awk '
-            /^## Device Comparison Plots$/ { exit }
-            { print }
-          ' rendered/combined/summary.md > "${base_markdown}"
-          find "${plot_root}" -maxdepth 1 -type f -name '*.svg' -delete
+          strip_plot_section rendered/combined/summary.md "${base_markdown}"
 
           declare -A plot_images=()
           declare -a plot_order=()
+          chunking_failed=0
 
           extract_plot_pairs() {
             awk '
@@ -766,20 +764,22 @@ jobs:
               | .summary.devices = .summary.devices[$start:$start+$size]
             ' rendered/combined/summary.json > "${chunk_dir}/summary.json"
 
-            cargo-mobench report summarize \
+            if ! cargo-mobench report summarize \
               --summary "${chunk_dir}/summary.json" \
               --output "${chunk_dir}/summary.md" \
-              --plots auto || {
-                echo "::warning::Falling back to markdown-only combined chunk ${chunk_index} after plot rendering failure."
-                cargo-mobench report summarize \
-                  --summary "${chunk_dir}/summary.json" \
-                  --output "${chunk_dir}/summary.md" \
-                  --plots off
-              }
-
-            if [ -d "${chunk_dir}/plots" ]; then
-              cp -R "${chunk_dir}/plots/." "${chunk_plot_dir}/"
+              --plots auto; then
+              echo "::warning::Falling back to markdown-only combined chunk ${chunk_index} after plot rendering failure."
+              if ! cargo-mobench report summarize \
+                --summary "${chunk_dir}/summary.json" \
+                --output "${chunk_dir}/summary.md" \
+                --plots off; then
+                echo "::warning::Combined chunk ${chunk_index} could not be rendered."
+                chunking_failed=1
+                break
+              fi
             fi
+
+            chunk_plot_count=0
 
             while IFS=$'\t' read -r function_label image_line; do
               if [ -z "${function_label}" ]; then
@@ -793,11 +793,23 @@ jobs:
 
               image_line="$(printf '%s\n' "${image_line}" | sed 's#](plots/#](plots/chunk-'"${chunk_index}"'/#')"
               plot_images["${function_label}"]+="${image_line}"$'\n'
+              chunk_plot_count=$((chunk_plot_count + 1))
             done < <(extract_plot_pairs "${chunk_dir}/summary.md")
+
+            if [ "${chunk_plot_count}" -eq 0 ]; then
+              echo "::warning::Combined chunk ${chunk_index} produced no plot pairs; falling back to the intact combined summary."
+              chunking_failed=1
+              break
+            fi
+
+            if [ -d "${chunk_dir}/plots" ]; then
+              cp -R "${chunk_dir}/plots/." "${chunk_plot_dir}/"
+            fi
           done
 
-          if [ "${#plot_order[@]}" -eq 0 ]; then
-            echo "::warning::No chunked plot fragments were collected; keeping the full combined summary as rendered."
+          if [ "${chunking_failed}" -ne 0 ] || [ "${#plot_order[@]}" -eq 0 ]; then
+            echo "::warning::Keeping the intact combined summary because chunked plot rewriting was incomplete."
+            rm -rf "${chunk_workdir}"
             exit 0
           fi
 
@@ -812,6 +824,8 @@ jobs:
           done
 
           mv "${final_markdown}" rendered/combined/summary.md
+          cp -R "${plot_root}/." rendered/combined/plots/
+          rm -rf "${chunk_workdir}"
 
       - name: Publish plot assets
         id: publish_plots
