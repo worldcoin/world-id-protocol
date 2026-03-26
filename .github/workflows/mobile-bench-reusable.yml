@@ -624,6 +624,17 @@ jobs:
           set -euo pipefail
           mkdir -p rendered
           rendered_count=0
+          summary_inputs=()
+
+          strip_plot_section() {
+            local input="$1"
+            local output="$2"
+
+            awk '
+              /^## Device Comparison Plots$/ { exit }
+              { print }
+            ' "$input" > "$output"
+          }
 
           render_platform_summary() {
             local platform="$1"
@@ -649,18 +660,23 @@ jobs:
               --summary "${summary_json}" \
               --output "rendered/${platform}/summary.md" \
               --plots auto; then
-              return 0
+              strip_plot_section \
+                "rendered/${platform}/summary.md" \
+                "rendered/${platform}/github-summary.md"
+            else
+              echo "::warning::Falling back to markdown-only ${platform} summary after plot rendering failure."
+              if cargo-mobench ci summarize \
+                --results-dir "${results_dir}" \
+                --output-format markdown \
+                --output-file "rendered/${platform}/summary.md"; then
+                cp "rendered/${platform}/summary.md" "rendered/${platform}/github-summary.md"
+              else
+                return 1
+              fi
             fi
 
-            echo "::warning::Falling back to markdown-only ${platform} summary after plot rendering failure."
-            if cargo-mobench ci summarize \
-              --results-dir "${results_dir}" \
-              --output-format markdown \
-              --output-file "rendered/${platform}/summary.md"; then
-              return 0
-            fi
-
-            return 1
+            summary_inputs+=("${summary_json}")
+            return 0
           }
 
           for platform in ios android; do
@@ -678,51 +694,124 @@ jobs:
             exit 1
           fi
 
-      - name: Build combined plot summary
-        shell: bash
-        run: |
-          set -euo pipefail
+          if [ "${#summary_inputs[@]}" -eq 0 ]; then
+            echo "::error::No benchmark summary JSON files were available for combined plot rendering."
+            exit 1
+          fi
 
           mkdir -p rendered/combined
 
-          collect_summary_json() {
-            local platform="$1"
-            if [ ! -d "results/${platform}" ]; then
-              return 0
-            fi
-            find "results/${platform}" -type f -path "*/mobench/ci/${platform}/summary.json" | head -1
-          }
+          jq -s '
+            .[0] as $base
+            | reduce .[1:][] as $doc ($base;
+                .summary.devices += ($doc.summary.devices // [])
+                | .summary.device_summaries += ($doc.summary.device_summaries // [])
+              )
+          ' "${summary_inputs[@]}" > rendered/combined/summary.json
 
-          ios_summary_json=$(collect_summary_json ios)
-          android_summary_json=$(collect_summary_json android)
+          cargo-mobench report summarize \
+            --summary rendered/combined/summary.json \
+            --output rendered/combined/summary.md \
+            --plots auto || {
+              echo "::warning::Falling back to markdown-only combined summary after plot rendering failure."
+              cargo-mobench report summarize \
+                --summary rendered/combined/summary.json \
+                --output rendered/combined/summary.md \
+                --plots off
+            }
 
-          summary_inputs=()
-          if [ -n "${ios_summary_json:-}" ]; then
-            summary_inputs+=("${ios_summary_json}")
-          fi
-          if [ -n "${android_summary_json:-}" ]; then
-            summary_inputs+=("${android_summary_json}")
-          fi
-
-          if [ "${#summary_inputs[@]}" -eq 0 ]; then
-            echo "::warning::No platform summary.json files found; skipping combined summary generation."
+          combined_device_count=$(jq '.summary.device_summaries | length' rendered/combined/summary.json)
+          if [ "${combined_device_count}" -le 6 ]; then
             exit 0
           fi
 
-          jq -s '
-            . as $summaries
-            | $summaries[0]
-            | .summary.devices = (
-                $summaries
-                | map(.summary.devices // [])
-                | add
-              )
-            | .summary.device_summaries = (
-                $summaries
-                | map(.summary.device_summaries // [])
-                | add
-              )
-          ' "${summary_inputs[@]}" > rendered/combined/summary.json
+          chunk_size=6
+          chunk_root="rendered/combined/chunks"
+          plot_root="rendered/combined/plots"
+          mkdir -p "${chunk_root}" "${plot_root}"
+
+          base_markdown="$(mktemp)"
+          awk '
+            /^## Device Comparison Plots$/ { exit }
+            { print }
+          ' rendered/combined/summary.md > "${base_markdown}"
+          find "${plot_root}" -maxdepth 1 -type f -name '*.svg' -delete
+
+          declare -A plot_images=()
+          declare -a plot_order=()
+
+          extract_plot_pairs() {
+            awk '
+              BEGIN { in_plots = 0; current = "" }
+              /^## Device Comparison Plots$/ { in_plots = 1; next }
+              !in_plots { next }
+              /^### / { current = substr($0, 5); next }
+              /^!\[/ {
+                if (current != "") {
+                  print current "\t" $0
+                }
+              }
+            ' "$1"
+          }
+
+          chunk_index=0
+          for ((start=0; start<combined_device_count; start+=chunk_size)); do
+            chunk_index=$((chunk_index + 1))
+            chunk_dir="${chunk_root}/chunk-${chunk_index}"
+            chunk_plot_dir="${plot_root}/chunk-${chunk_index}"
+            mkdir -p "${chunk_dir}" "${chunk_plot_dir}"
+
+            jq --argjson start "${start}" --argjson size "${chunk_size}" '
+              .summary.device_summaries = .summary.device_summaries[$start:$start+$size]
+              | .summary.devices = .summary.devices[$start:$start+$size]
+            ' rendered/combined/summary.json > "${chunk_dir}/summary.json"
+
+            cargo-mobench report summarize \
+              --summary "${chunk_dir}/summary.json" \
+              --output "${chunk_dir}/summary.md" \
+              --plots auto || {
+                echo "::warning::Falling back to markdown-only combined chunk ${chunk_index} after plot rendering failure."
+                cargo-mobench report summarize \
+                  --summary "${chunk_dir}/summary.json" \
+                  --output "${chunk_dir}/summary.md" \
+                  --plots off
+              }
+
+            if [ -d "${chunk_dir}/plots" ]; then
+              cp -R "${chunk_dir}/plots/." "${chunk_plot_dir}/"
+            fi
+
+            while IFS=$'\t' read -r function_label image_line; do
+              if [ -z "${function_label}" ]; then
+                continue
+              fi
+
+              if [[ -z ${plot_images["$function_label"]+x} ]]; then
+                plot_order+=("${function_label}")
+                plot_images["${function_label}"]=""
+              fi
+
+              image_line="$(printf '%s\n' "${image_line}" | sed 's#](plots/#](plots/chunk-'"${chunk_index}"'/#')"
+              plot_images["${function_label}"]+="${image_line}"$'\n'
+            done < <(extract_plot_pairs "${chunk_dir}/summary.md")
+          done
+
+          if [ "${#plot_order[@]}" -eq 0 ]; then
+            echo "::warning::No chunked plot fragments were collected; keeping the full combined summary as rendered."
+            exit 0
+          fi
+
+          final_markdown="$(mktemp)"
+          cat "${base_markdown}" > "${final_markdown}"
+          printf '\n## Device Comparison Plots\n\n' >> "${final_markdown}"
+
+          for function_label in "${plot_order[@]}"; do
+            printf '### %s\n' "${function_label}" >> "${final_markdown}"
+            printf '%s' "${plot_images["$function_label"]}" >> "${final_markdown}"
+            printf '\n' >> "${final_markdown}"
+          done
+
+          mv "${final_markdown}" rendered/combined/summary.md
 
       - name: Publish plot assets
         id: publish_plots
