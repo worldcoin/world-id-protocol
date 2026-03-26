@@ -96,6 +96,22 @@ async fn test_get_authenticator_pubkeys_returns_offchain_signer_commitment() {
     assert_eq!(pubkeys.len(), 1);
     assert!(pubkeys[0].is_string());
 
+    let get_resp = client
+        .get("http://127.0.0.1:8086/v2/accounts/0x1/authenticator-pubkeys")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(get_resp.status(), StatusCode::OK);
+    let get_json: serde_json::Value = get_resp.json().await.unwrap();
+    assert_eq!(
+        get_json["offchain_signer_commitment"],
+        json["offchain_signer_commitment"]
+    );
+    assert_eq!(
+        get_json["authenticator_pubkeys"],
+        json["authenticator_pubkeys"]
+    );
+
     // Zero leaf index is rejected
     let resp = client
         .post("http://127.0.0.1:8086/authenticator-pubkeys")

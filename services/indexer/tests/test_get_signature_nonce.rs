@@ -92,6 +92,15 @@ async fn test_signature_nonce_endpoint() {
     // New account should have nonce 0
     assert_eq!(signature_nonce, "0x0");
 
+    let get_resp = client
+        .get("http://127.0.0.1:8084/v2/accounts/1/signature-nonce")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(get_resp.status(), StatusCode::OK);
+    let get_json: serde_json::Value = get_resp.json().await.unwrap();
+    assert_eq!(get_json["signature_nonce"], json["signature_nonce"]);
+
     // Test zero account index (should fail)
     let resp = client
         .post("http://127.0.0.1:8084/signature-nonce")

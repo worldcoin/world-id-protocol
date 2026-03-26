@@ -1,5 +1,9 @@
+use super::LeafIndexPath;
 use crate::error::IndexerErrorResponse;
-use axum::{Json, extract::State};
+use axum::{
+    Json,
+    extract::{Path, State},
+};
 use world_id_core::api_types::{
     IndexerErrorCode, IndexerQueryRequest, IndexerSignatureNonceResponse,
 };
@@ -22,6 +26,46 @@ use crate::config::AppState;
 pub(crate) async fn handler(
     State(state): State<AppState>,
     Json(req): Json<IndexerQueryRequest>,
+) -> Result<Json<IndexerSignatureNonceResponse>, IndexerErrorResponse> {
+    handle_request(state, req).await
+}
+
+/// Get Signature Nonce (V2)
+///
+/// Returns the current signature nonce for a given World ID based on its leaf index. The nonce is
+/// used to perform on-chain operations for the World ID.
+#[utoipa::path(
+    get,
+    path = "/v2/accounts/{leaf_index}/signature-nonce",
+    params(
+        (
+            "leaf_index" = String,
+            Path,
+            description = "The leaf index to query (accepts decimal or `0x`/`0X`-prefixed hex input).",
+            example = "0x1"
+        )
+    ),
+    responses(
+        (status = 200, body = IndexerSignatureNonceResponse),
+    ),
+    tag = "indexer"
+)]
+pub(crate) async fn v2_handler(
+    State(state): State<AppState>,
+    Path(path): Path<LeafIndexPath>,
+) -> Result<Json<IndexerSignatureNonceResponse>, IndexerErrorResponse> {
+    handle_request(
+        state,
+        IndexerQueryRequest {
+            leaf_index: path.leaf_index,
+        },
+    )
+    .await
+}
+
+async fn handle_request(
+    state: AppState,
+    req: IndexerQueryRequest,
 ) -> Result<Json<IndexerSignatureNonceResponse>, IndexerErrorResponse> {
     if req.leaf_index == 0 {
         return Err(IndexerErrorResponse::bad_request(

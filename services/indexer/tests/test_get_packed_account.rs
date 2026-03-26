@@ -102,6 +102,17 @@ async fn test_packed_account_endpoint() {
     // Account index 1 should map to packed account index of 1
     assert_eq!(packed_account_data, "0x1");
 
+    let get_resp = client
+        .get(format!(
+            "http://127.0.0.1:8083/v2/authenticators/{auth_addr}/packed-account"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(get_resp.status(), StatusCode::OK);
+    let get_json: serde_json::Value = get_resp.json().await.unwrap();
+    assert_eq!(get_json["packed_account_data"], json["packed_account_data"]);
+
     // Test non-existent authenticator address
     let resp = client
         .post("http://127.0.0.1:8083/packed-account")

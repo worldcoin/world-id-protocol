@@ -90,6 +90,18 @@ async fn test_get_recovery_agent_endpoint() {
         format!("{RECOVERY_ADDRESS}").to_lowercase()
     );
 
+    let get_resp = client
+        .get("http://127.0.0.1:8085/v2/accounts/0x1/recovery-agent")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(get_resp.status(), StatusCode::OK);
+    let get_json: serde_json::Value = get_resp.json().await.unwrap();
+    assert_eq!(
+        get_json["recovery_agent"].as_str().unwrap().to_lowercase(),
+        recovery_agent.to_lowercase()
+    );
+
     // Zero leaf index is rejected
     let resp = client
         .post("http://127.0.0.1:8085/recovery-agent")

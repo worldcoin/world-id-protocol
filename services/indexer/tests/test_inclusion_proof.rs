@@ -136,6 +136,16 @@ async fn test_backfill_and_live_sync() {
     assert!(resp.status().is_success());
 
     let json = resp.json::<serde_json::Value>().await.unwrap();
+    let get_resp = client
+        .get("http://127.0.0.1:8080/v2/accounts/0x1/inclusion-proof")
+        .send()
+        .await
+        .unwrap();
+    assert!(get_resp.status().is_success());
+
+    let get_json = get_resp.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(get_json["leaf_index"], json["leaf_index"]);
+    assert_eq!(get_json["root"], json["root"]);
     let root = json["root"].as_str().unwrap();
     let root = U256::from_str_radix(root.strip_prefix("0x").unwrap(), 16).unwrap();
 

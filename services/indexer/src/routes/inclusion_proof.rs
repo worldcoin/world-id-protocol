@@ -1,6 +1,10 @@
+use super::LeafIndexPath;
 use crate::{config::AppState, error::IndexerErrorResponse};
 use alloy::primitives::U256;
-use axum::{Json, extract::State};
+use axum::{
+    Json,
+    extract::{Path, State},
+};
 use http::StatusCode;
 use semaphore_rs_trees::{Branch, proof::InclusionProof};
 use world_id_core::api_types::{AccountInclusionProof, IndexerErrorCode, IndexerQueryRequest};
@@ -48,6 +52,47 @@ pub(crate) struct AccountInclusionProofSchema {
 pub(crate) async fn handler(
     State(state): State<AppState>,
     Json(req): Json<IndexerQueryRequest>,
+) -> Result<Json<AccountInclusionProof<TREE_DEPTH>>, IndexerErrorResponse> {
+    handle_request(state, req).await
+}
+
+/// Get Inclusion Proof (V2)
+///
+/// Returns a Merkle inclusion proof for the given leaf index to the current `WorldIDRegistry` tree. In
+/// addition, it also includes the entire authenticator slot list for the World ID account.
+/// Removed authenticators are represented as `null` entries to preserve `pubkey_id` positions.
+#[utoipa::path(
+    get,
+    path = "/v2/accounts/{leaf_index}/inclusion-proof",
+    params(
+        (
+            "leaf_index" = String,
+            Path,
+            description = "The leaf index to query (accepts decimal or `0x`/`0X`-prefixed hex input).",
+            example = "0x1"
+        )
+    ),
+    responses(
+        (status = 200, body = AccountInclusionProofSchema, description = "Merkle inclusion proof with authenticator public keys"),
+    ),
+    tag = "indexer"
+)]
+pub(crate) async fn v2_handler(
+    State(state): State<AppState>,
+    Path(path): Path<LeafIndexPath>,
+) -> Result<Json<AccountInclusionProof<TREE_DEPTH>>, IndexerErrorResponse> {
+    handle_request(
+        state,
+        IndexerQueryRequest {
+            leaf_index: path.leaf_index,
+        },
+    )
+    .await
+}
+
+async fn handle_request(
+    state: AppState,
+    req: IndexerQueryRequest,
 ) -> Result<Json<AccountInclusionProof<TREE_DEPTH>>, IndexerErrorResponse> {
     let leaf_index = req.leaf_index;
 
@@ -109,7 +154,7 @@ pub(crate) async fn handler(
             leaf_index = %leaf_index,
             leaf_hash = %leaf,
             offchain_signer_commitment = %offchain_signer_commitment,
-           "Tree is out of sync with DB. Leaf hash does not match offchain signer commitment.",
+            "Tree is out of sync with DB. Leaf hash does not match offchain signer commitment.",
         );
         return Err(IndexerErrorResponse::internal_server_error());
     }
