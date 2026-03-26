@@ -1,5 +1,7 @@
-use crate::AuthenticatorError;
-use crate::ohttp::{OhttpClient, OhttpClientConfig};
+use crate::{
+    AuthenticatorError,
+    ohttp::{OhttpClient, OhttpClientConfig},
+};
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 

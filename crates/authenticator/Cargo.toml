@@ -18,9 +18,8 @@ include = [
 ]
 
 [features]
-default = ["embed-zkeys", "ohttp"]
+default = ["embed-zkeys"]
 embed-zkeys = ["world-id-proof/embed-zkeys"]
-ohttp = ["dep:ohttp", "dep:bhttp", "dep:base64"]
 
 [dependencies]
 # Use WASM-safe base features only
@@ -55,10 +54,10 @@ rustls = { workspace = true }
 webpki-roots = { workspace = true }
 
 # OHTTP
-ohttp = { workspace = true, features = ["client", "rust-hpke"], optional = true }
-bhttp = { workspace = true, optional = true }
+ohttp = { workspace = true, features = ["client", "rust-hpke"] }
+bhttp = { workspace = true }
 hex = { workspace = true }
-base64 = { workspace = true, optional = true }
+base64 = { workspace = true }
 
 # Internal
 world-id-proof = { workspace = true }
