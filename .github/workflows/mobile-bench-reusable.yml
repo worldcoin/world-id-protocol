@@ -629,11 +629,14 @@ jobs:
           strip_plot_section() {
             local input="$1"
             local output="$2"
+            if [ ! -f "${input}" ]; then
+              return 0
+            fi
 
             awk '
-              /^## Device Comparison Plots$/ { exit }
+              /^[[:space:]]*## Device Comparison Plots[[:space:]]*$/ { exit }
               { print }
-            ' "$input" > "$output"
+            ' "${input}" > "${output}"
           }
 
           render_platform_summary() {
@@ -824,6 +827,8 @@ jobs:
           done
 
           mv "${final_markdown}" rendered/combined/summary.md
+          rm -rf rendered/combined/plots
+          mkdir -p rendered/combined/plots
           cp -R "${plot_root}/." rendered/combined/plots/
           rm -rf "${chunk_workdir}"
 
@@ -861,7 +866,7 @@ jobs:
             git -C "${publish_root}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             mkdir -p "${publish_root}/${asset_path}"
 
-            for platform in ios android; do
+            for platform in ios android combined; do
               if [ -d "rendered/${platform}/plots" ]; then
                 mkdir -p "${publish_root}/${asset_path}/${platform}"
                 rm -rf "${publish_root}/${asset_path}/${platform}/plots"
@@ -920,23 +925,33 @@ jobs:
             ' "${input}" > "${output}"
           }
 
-          rewrite_platform_summary() {
-            local platform="$1"
-            local input="rendered/${platform}/summary.md"
-            local output="rendered/${platform}/github-summary.md"
+          rewrite_summary() {
+            local input="$1"
+            local output="$2"
+            local plot_dir="$3"
+            local plot_url_prefix="$4"
+
             if [ ! -f "${input}" ]; then
               return 0
             fi
 
             strip_plot_section "${input}" "${output}"
 
-            if [ -n "${PLOT_BASE_URL:-}" ] && [ -d "rendered/${platform}/plots" ]; then
-              sed -i "s#](plots/#](${PLOT_BASE_URL}/${platform}/plots/#g" "${output}"
+            if [ -n "${PLOT_BASE_URL:-}" ] && [ -d "${plot_dir}" ]; then
+              python - "${output}" "${PLOT_BASE_URL}/${plot_url_prefix}/plots/" <<'PY'
+              from pathlib import Path
+              import sys
+
+              output = Path(sys.argv[1])
+              prefix = sys.argv[2]
+              output.write_text(output.read_text().replace("](plots/", f"]({prefix}"))
+              PY
             fi
           }
 
-          rewrite_platform_summary ios
-          rewrite_platform_summary android
+          rewrite_summary "rendered/ios/summary.md" "rendered/ios/github-summary.md" "rendered/ios/plots" "ios"
+          rewrite_summary "rendered/android/summary.md" "rendered/android/github-summary.md" "rendered/android/plots" "android"
+          rewrite_summary "rendered/combined/summary.md" "rendered/combined/github-summary.md" "rendered/combined/plots" "combined"
 
       - name: Summarize iOS results
         if: needs.ios.result == 'success'
