@@ -930,12 +930,17 @@ jobs:
             local output="$2"
             local plot_dir="$3"
             local plot_url_prefix="$4"
+            local strip_plots="$5"
 
             if [ ! -f "${input}" ]; then
               return 0
             fi
 
-            strip_plot_section "${input}" "${output}"
+            if [ "${strip_plots}" = "true" ]; then
+              strip_plot_section "${input}" "${output}"
+            else
+              cp "${input}" "${output}"
+            fi
 
             if [ -n "${PLOT_BASE_URL:-}" ] && [ -d "${plot_dir}" ]; then
               python - "${output}" "${PLOT_BASE_URL}/${plot_url_prefix}/plots/" <<'PY'
@@ -949,9 +954,9 @@ jobs:
             fi
           }
 
-          rewrite_summary "rendered/ios/summary.md" "rendered/ios/github-summary.md" "rendered/ios/plots" "ios"
-          rewrite_summary "rendered/android/summary.md" "rendered/android/github-summary.md" "rendered/android/plots" "android"
-          rewrite_summary "rendered/combined/summary.md" "rendered/combined/github-summary.md" "rendered/combined/plots" "combined"
+          rewrite_summary "rendered/ios/summary.md" "rendered/ios/github-summary.md" "rendered/ios/plots" "ios" "true"
+          rewrite_summary "rendered/android/summary.md" "rendered/android/github-summary.md" "rendered/android/plots" "android" "true"
+          rewrite_summary "rendered/combined/summary.md" "rendered/combined/github-summary.md" "rendered/combined/plots" "combined" "false"
 
       - name: Summarize iOS results
         if: needs.ios.result == 'success'
