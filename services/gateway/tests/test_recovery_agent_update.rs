@@ -3,7 +3,7 @@
 //! Exercises `initiate-recovery-agent-update`, `cancel-recovery-agent-update`,
 //! and `execute-recovery-agent-update` through a real gateway ↔ anvil stack.
 
-use std::time::Duration;
+use std::{future::Future, time::Duration};
 
 use alloy::{
     primitives::{Address, U256},
@@ -29,6 +29,107 @@ mod common;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+const POLL_TIMEOUT: Duration = Duration::from_secs(10);
+const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+async fn wait_for_condition<F, Fut>(timeout_message: &str, mut condition: F)
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = bool>,
+{
+    let deadline = std::time::Instant::now() + POLL_TIMEOUT;
+    loop {
+        if condition().await {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            panic!("{timeout_message}");
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
+async fn wait_for_account_mapping<F, Fut>(mut get_packed_account_data: F)
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = U256>,
+{
+    wait_for_condition("timeout waiting for create-account mapping", move || {
+        let packed_account_data = get_packed_account_data();
+        async move { packed_account_data.await != U256::ZERO }
+    })
+    .await;
+}
+
+async fn wait_for_pending_recovery_agent_update<F, Fut>(
+    mut get_pending_recovery_agent_update: F,
+    expected_recovery_agent: Address,
+) where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = (Address, U256)>,
+{
+    wait_for_condition(
+        "timeout waiting for pending recovery agent update on-chain",
+        move || {
+            let pending_recovery_agent_update = get_pending_recovery_agent_update();
+            async move {
+                let (pending_recovery_agent, execute_after) = pending_recovery_agent_update.await;
+                if pending_recovery_agent == expected_recovery_agent {
+                    assert!(
+                        execute_after > U256::ZERO,
+                        "executeAfter should be set after initiation"
+                    );
+                    true
+                } else {
+                    false
+                }
+            }
+        },
+    )
+    .await;
+}
+
+async fn wait_for_pending_recovery_agent_update_to_clear<F, Fut>(
+    mut get_pending_recovery_agent_update: F,
+) where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = (Address, U256)>,
+{
+    wait_for_condition(
+        "timeout waiting for pending recovery agent update to clear after cancel",
+        move || {
+            let pending_recovery_agent_update = get_pending_recovery_agent_update();
+            async move {
+                let (pending_recovery_agent, execute_after) = pending_recovery_agent_update.await;
+                pending_recovery_agent == Address::ZERO && execute_after == U256::ZERO
+            }
+        },
+    )
+    .await;
+}
+
+async fn wait_for_recovery_agent_update<F, Fut>(
+    mut get_recovery_agent: F,
+    expected_recovery_agent: Address,
+) where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Address>,
+{
+    let deadline = std::time::Instant::now() + POLL_TIMEOUT;
+    loop {
+        let recovery_agent = get_recovery_agent().await;
+        if recovery_agent == expected_recovery_agent {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            panic!(
+                "timeout waiting for recovery agent to update on-chain. current={recovery_agent}, expected={expected_recovery_agent}"
+            );
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
 
 /// Create an account via the gateway and wait until it is finalized on-chain.
 /// Returns the signer and its on-chain address.
@@ -62,21 +163,14 @@ async fn create_account(gw: &TestGateway) -> (PrivateKeySigner, Address) {
         .wallet(alloy::network::EthereumWallet::from(signer.clone()))
         .connect_http(gw.rpc_url.parse().expect("invalid anvil endpoint url"));
     let contract = WorldIdRegistry::new(gw.registry_addr, provider);
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        let packed = contract
+    wait_for_account_mapping(|| async {
+        contract
             .getPackedAccountData(wallet_addr)
             .call()
             .await
-            .unwrap();
-        if packed != U256::ZERO {
-            break;
-        }
-        if std::time::Instant::now() > deadline {
-            panic!("timeout waiting for create-account mapping");
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+            .unwrap()
+    })
+    .await;
 
     (signer, wallet_addr)
 }
@@ -143,25 +237,18 @@ async fn e2e_initiate_and_cancel_recovery_agent_update() {
     );
 
     // Verify on-chain: pending update exists with correct new recovery agent.
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        let pending = contract
-            .getPendingRecoveryAgentUpdate(leaf_index)
-            .call()
-            .await
-            .unwrap();
-        if pending.newRecoveryAgent == new_recovery_agent {
-            assert!(
-                pending.executeAfter > U256::ZERO,
-                "executeAfter should be set after initiation"
-            );
-            break;
-        }
-        if std::time::Instant::now() > deadline {
-            panic!("timeout waiting for pending recovery agent update on-chain");
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    wait_for_pending_recovery_agent_update(
+        || async {
+            let pending = contract
+                .getPendingRecoveryAgentUpdate(leaf_index)
+                .call()
+                .await
+                .unwrap();
+            (pending.newRecoveryAgent, pending.executeAfter)
+        },
+        new_recovery_agent,
+    )
+    .await;
 
     // ── 2. Cancel the pending recovery-agent update ───────────────────
     let nonce = nonce + U256::from(1);
@@ -195,21 +282,15 @@ async fn e2e_initiate_and_cancel_recovery_agent_update() {
     );
 
     // Verify on-chain: pending update is cleared (address zero, executeAfter zero).
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    loop {
+    wait_for_pending_recovery_agent_update_to_clear(|| async {
         let pending = contract
             .getPendingRecoveryAgentUpdate(leaf_index)
             .call()
             .await
             .unwrap();
-        if pending.newRecoveryAgent == Address::ZERO && pending.executeAfter == U256::ZERO {
-            break;
-        }
-        if std::time::Instant::now() > deadline {
-            panic!("timeout waiting for pending recovery agent update to clear after cancel");
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+        (pending.newRecoveryAgent, pending.executeAfter)
+    })
+    .await;
 }
 
 /// End-to-end: initiate → fast-forward time → execute recovery agent update,
@@ -272,21 +353,18 @@ async fn e2e_initiate_and_execute_recovery_agent_update() {
     let _tx_hash = wait_for_finalized(&gw.client, &gw.base_url, &accepted.request_id).await;
 
     // Wait until pending update is on-chain.
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        let pending = contract
-            .getPendingRecoveryAgentUpdate(leaf_index)
-            .call()
-            .await
-            .unwrap();
-        if pending.newRecoveryAgent == new_recovery_agent {
-            break;
-        }
-        if std::time::Instant::now() > deadline {
-            panic!("timeout waiting for pending recovery agent update on-chain");
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    wait_for_pending_recovery_agent_update(
+        || async {
+            let pending = contract
+                .getPendingRecoveryAgentUpdate(leaf_index)
+                .call()
+                .await
+                .unwrap();
+            (pending.newRecoveryAgent, pending.executeAfter)
+        },
+        new_recovery_agent,
+    )
+    .await;
 
     // ── 2. Fast-forward anvil past the 14-day cooldown ────────────────
     let cooldown = contract
@@ -327,19 +405,11 @@ async fn e2e_initiate_and_execute_recovery_agent_update() {
     let _tx_hash = wait_for_finalized(&gw.client, &gw.base_url, &accepted.request_id).await;
 
     // Verify on-chain: recovery agent has been updated.
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        let agent = contract.getRecoveryAgent(leaf_index).call().await.unwrap();
-        if agent == new_recovery_agent {
-            break;
-        }
-        if std::time::Instant::now() > deadline {
-            panic!(
-                "timeout waiting for recovery agent to update on-chain. current={agent}, expected={new_recovery_agent}"
-            );
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    wait_for_recovery_agent_update(
+        || async { contract.getRecoveryAgent(leaf_index).call().await.unwrap() },
+        new_recovery_agent,
+    )
+    .await;
 
     // Also verify pending update is cleared.
     let pending = contract
