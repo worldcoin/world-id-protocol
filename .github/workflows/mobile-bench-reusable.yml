@@ -678,6 +678,44 @@ jobs:
             exit 1
           fi
 
+      - name: Build combined plot summary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p rendered/combined
+
+          collect_summary_json() {
+            local platform="$1"
+            find "results/${platform}" -type f -path "*/mobench/ci/${platform}/summary.json" | head -1
+          }
+
+          ios_summary_json=$(collect_summary_json ios)
+          android_summary_json=$(collect_summary_json android)
+
+          summary_inputs=()
+          if [ -n "${ios_summary_json:-}" ]; then
+            summary_inputs+=("${ios_summary_json}")
+          fi
+          if [ -n "${android_summary_json:-}" ]; then
+            summary_inputs+=("${android_summary_json}")
+          fi
+
+          if [ "${#summary_inputs[@]}" -eq 0 ]; then
+            echo "::warning::No platform summary.json files found; skipping combined summary generation."
+            exit 0
+          fi
+
+          jq -s '
+            . as $summaries
+            | $summaries[0]
+            | .summary.device_summaries = (
+                $summaries
+                | map(.summary.device_summaries // [])
+                | add
+              )
+          ' "${summary_inputs[@]}" > rendered/combined/summary.json
+
       - name: Publish plot assets
         id: publish_plots
         shell: bash
