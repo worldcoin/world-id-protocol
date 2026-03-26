@@ -758,15 +758,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          rewrite_platform_summary() {
-            local platform="$1"
-            local input="rendered/${platform}/summary.md"
-            local output="rendered/${platform}/github-summary.md"
+          strip_plot_section() {
+            local input="$1"
+            local output="$2"
             if [ ! -f "${input}" ]; then
               return 0
             fi
 
-            cp "${input}" "${output}"
+            awk '
+              /^## Device Comparison Plots$/ { exit }
+              { print }
+            ' "${input}" > "${output}"
+          }
+
+          rewrite_platform_summary() {
+            local platform="$1"
+            local input="rendered/${platform}/summary.md"
+            local output="rendered/${platform}/github-summary.md"
+            strip_plot_section "${input}" "${output}"
 
             if [ -n "${PLOT_BASE_URL:-}" ] && [ -d "rendered/${platform}/plots" ]; then
               sed -i "s#](plots/#](${PLOT_BASE_URL}/${platform}/plots/#g" "${output}"
