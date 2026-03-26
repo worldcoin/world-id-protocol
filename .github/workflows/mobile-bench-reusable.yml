@@ -639,6 +639,24 @@ jobs:
             ' "${input}" > "${output}"
           }
 
+          extract_plot_section() {
+            local input="$1"
+            local output="$2"
+            if [ ! -f "${input}" ]; then
+              return 0
+            fi
+
+            awk '
+              BEGIN { in_plots = 0 }
+              /^[[:space:]]*## Device Comparison Plots[[:space:]]*$/ { in_plots = 1 }
+              in_plots { print }
+            ' "${input}" > "${output}"
+
+            if [ ! -s "${output}" ]; then
+              rm -f "${output}"
+            fi
+          }
+
           render_platform_summary() {
             local platform="$1"
             local results_dir="results/${platform}"
@@ -938,11 +956,13 @@ jobs:
 
             if [ "${strip_plots}" = "true" ]; then
               strip_plot_section "${input}" "${output}"
+            elif [ "${strip_plots}" = "plots-only" ]; then
+              extract_plot_section "${input}" "${output}"
             else
               cp "${input}" "${output}"
             fi
 
-            if [ -n "${PLOT_BASE_URL:-}" ] && [ -d "${plot_dir}" ]; then
+            if [ -f "${output}" ] && [ -n "${PLOT_BASE_URL:-}" ] && [ -d "${plot_dir}" ]; then
               python -c 'from pathlib import Path; import sys; output = Path(sys.argv[1]); prefix = sys.argv[2]; output.write_text(output.read_text().replace("](plots/", f"]({prefix}"))' \
                 "${output}" "${PLOT_BASE_URL}/${plot_url_prefix}/plots/"
             fi
@@ -950,7 +970,7 @@ jobs:
 
           rewrite_summary "rendered/ios/summary.md" "rendered/ios/github-summary.md" "rendered/ios/plots" "ios" "true"
           rewrite_summary "rendered/android/summary.md" "rendered/android/github-summary.md" "rendered/android/plots" "android" "true"
-          rewrite_summary "rendered/combined/summary.md" "rendered/combined/github-summary.md" "rendered/combined/plots" "combined" "false"
+          rewrite_summary "rendered/combined/summary.md" "rendered/combined/github-summary.md" "rendered/combined/plots" "combined" "plots-only"
 
       - name: Summarize iOS results
         if: needs.ios.result == 'success'
@@ -984,7 +1004,7 @@ jobs:
         if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')
         shell: bash
         run: |
-          if [ -f rendered/combined/github-summary.md ]; then
+          if [ -s rendered/combined/github-summary.md ]; then
             cat rendered/combined/github-summary.md >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -1012,7 +1032,7 @@ jobs:
             fi
           done
 
-          if [ -f rendered/combined/github-summary.md ]; then
+          if [ -s rendered/combined/github-summary.md ]; then
             COMBINED_MD=$(cat rendered/combined/github-summary.md)
             BODY="${BODY}${COMBINED_MD}
 
