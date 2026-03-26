@@ -66,9 +66,9 @@ on:
         description: "Mobench version to install"
         required: false
         type: string
-        default: "0.1.22"
+        default: "0.1.23"
       mobench_ref:
-        description: "Git ref for mobile-bench-rs (overrides mobench_version when set)"
+        description: "Git ref for mobile-bench-rs (overrides crates.io mobench_version when set)"
         required: false
         type: string
       pr_number:
@@ -173,10 +173,17 @@ jobs:
           MOBENCH_REF: ${{ inputs.mobench_ref }}
         run: |
           set -euo pipefail
-          REF="${MOBENCH_REF:-v${MOBENCH_VERSION}}"
-          echo "Installing mobench from ref: ${REF}"
-          git clone https://github.com/worldcoin/mobile-bench-rs mobench-src
-          git -C mobench-src checkout "$REF"
+          if [ -n "${MOBENCH_REF:-}" ]; then
+            echo "Installing mobench from Git ref: ${MOBENCH_REF}"
+            git clone https://github.com/worldcoin/mobile-bench-rs mobench-src
+            git -C mobench-src checkout "$MOBENCH_REF"
+          else
+            echo "Installing mobench ${MOBENCH_VERSION} from crates.io"
+            mkdir -p mobench-src/crates/mobench
+            curl -LsSf "https://crates.io/api/v1/crates/mobench/${MOBENCH_VERSION}/download" \
+              | tar -xz --strip-components=1 -C mobench-src/crates/mobench
+            git -C mobench-src init -q
+          fi
           git -C mobench-src apply "${GITHUB_WORKSPACE}/${MOBENCH_PATCH_PATH}"
           cargo install --path mobench-src/crates/mobench --locked
 
@@ -399,10 +406,17 @@ jobs:
           MOBENCH_REF: ${{ inputs.mobench_ref }}
         run: |
           set -euo pipefail
-          REF="${MOBENCH_REF:-v${MOBENCH_VERSION}}"
-          echo "Installing mobench from ref: ${REF}"
-          git clone https://github.com/worldcoin/mobile-bench-rs mobench-src
-          git -C mobench-src checkout "$REF"
+          if [ -n "${MOBENCH_REF:-}" ]; then
+            echo "Installing mobench from Git ref: ${MOBENCH_REF}"
+            git clone https://github.com/worldcoin/mobile-bench-rs mobench-src
+            git -C mobench-src checkout "$MOBENCH_REF"
+          else
+            echo "Installing mobench ${MOBENCH_VERSION} from crates.io"
+            mkdir -p mobench-src/crates/mobench
+            curl -LsSf "https://crates.io/api/v1/crates/mobench/${MOBENCH_VERSION}/download" \
+              | tar -xz --strip-components=1 -C mobench-src/crates/mobench
+            git -C mobench-src init -q
+          fi
           git -C mobench-src apply "${GITHUB_WORKSPACE}/${MOBENCH_PATCH_PATH}"
           cargo install --path mobench-src/crates/mobench --locked
 
@@ -528,10 +542,17 @@ jobs:
           MOBENCH_REF: ${{ inputs.mobench_ref }}
         run: |
           set -euo pipefail
-          REF="${MOBENCH_REF:-v${MOBENCH_VERSION}}"
-          echo "Installing mobench from ref: ${REF}"
-          git clone https://github.com/worldcoin/mobile-bench-rs mobench-src
-          git -C mobench-src checkout "$REF"
+          if [ -n "${MOBENCH_REF:-}" ]; then
+            echo "Installing mobench from Git ref: ${MOBENCH_REF}"
+            git clone https://github.com/worldcoin/mobile-bench-rs mobench-src
+            git -C mobench-src checkout "$MOBENCH_REF"
+          else
+            echo "Installing mobench ${MOBENCH_VERSION} from crates.io"
+            mkdir -p mobench-src/crates/mobench
+            curl -LsSf "https://crates.io/api/v1/crates/mobench/${MOBENCH_VERSION}/download" \
+              | tar -xz --strip-components=1 -C mobench-src/crates/mobench
+            git -C mobench-src init -q
+          fi
           git -C mobench-src apply "${GITHUB_WORKSPACE}/${MOBENCH_PATCH_PATH}"
           cargo install --path mobench-src/crates/mobench --locked
 

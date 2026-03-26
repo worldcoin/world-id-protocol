@@ -5063,9 +5063,9 @@ dependencies = [
 
 [[package]]
 name = "mobench-macros"
-version = "0.1.22"
+version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c6cf68df7477a0c6879ccebf1e2b155e6a0557da23116a4f6522ec9814d42e3"
+checksum = "1434de1ff0c9a1f37ea7c536ad02344cb27309a630eafcd67e814bd67d885419"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5074,9 +5074,9 @@ dependencies = [
 
 [[package]]
 name = "mobench-sdk"
-version = "0.1.22"
+version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a692702ad2b5f5ec5c04a2dbe19d44a412d76971045c00b6097042d741cb0cb3"
+checksum = "9e7e3c9fd0a1a0bfb39cd9dfd951ebef113e47c0bf72eda4a7d3b2b137786e06"
 dependencies = [
  "anyhow",
  "include_dir",
