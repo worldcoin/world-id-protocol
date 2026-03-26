@@ -18,9 +18,7 @@ use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
 mod common;
-use crate::common::{wait_for_finalized, wait_http_ready};
-
-const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+use crate::common::{GW_PRIVATE_KEY, fund_gateway_signer, wait_for_finalized, wait_http_ready};
 
 async fn setup_redis(redis_url: &str) -> ConnectionManager {
     let client = redis::Client::open(redis_url).expect("Failed to create Redis client");
@@ -675,8 +673,12 @@ async fn sweep_submitted_with_real_receipt() {
 
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil
+        .deploy_world_id_registry(deployer.clone())
+        .await
+        .unwrap();
     let rpc_url = anvil.endpoint();
+    fund_gateway_signer(rpc_url, deployer).await;
 
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();

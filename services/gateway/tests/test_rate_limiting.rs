@@ -14,11 +14,9 @@ use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::{start_redis, wait_http_ready};
+use crate::common::{GW_PRIVATE_KEY, fund_gateway_signer, start_redis, wait_http_ready};
 
 mod common;
-
-const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
 /// Helper to sign an InsertAuthenticator request
 #[allow(clippy::too_many_arguments)]
@@ -62,8 +60,12 @@ async fn test_rate_limit_basic() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil
+        .deploy_world_id_registry(deployer.clone())
+        .await
+        .unwrap();
     let rpc_url = anvil.endpoint();
+    fund_gateway_signer(rpc_url, deployer).await;
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
@@ -269,8 +271,12 @@ async fn test_rate_limit_different_leaf_indexes() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil
+        .deploy_world_id_registry(deployer.clone())
+        .await
+        .unwrap();
     let rpc_url = anvil.endpoint();
+    fund_gateway_signer(rpc_url, deployer).await;
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
@@ -425,8 +431,12 @@ async fn test_rate_limit_sliding_window() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil
+        .deploy_world_id_registry(deployer.clone())
+        .await
+        .unwrap();
     let rpc_url = anvil.endpoint();
+    fund_gateway_signer(rpc_url, deployer).await;
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
@@ -578,8 +588,12 @@ async fn test_rate_limit_multiple_endpoints() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil
+        .deploy_world_id_registry(deployer.clone())
+        .await
+        .unwrap();
     let rpc_url = anvil.endpoint();
+    fund_gateway_signer(rpc_url, deployer).await;
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
