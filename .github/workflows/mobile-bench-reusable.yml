@@ -277,11 +277,16 @@ jobs:
         run: |
           set -euo pipefail
           device_spec="${IOS_DEVICE}-${IOS_OS_VERSION}"
+          functions_arg="${FUNCTIONS}"
+          if [[ "${FUNCTIONS}" == \[* ]]; then
+            functions_arg=$(jq -r 'join(",")' <<<"${FUNCTIONS}")
+          fi
           echo "Running iOS benchmarks on: ${device_spec}"
+          echo "Resolved functions: ${functions_arg}"
 
           cargo-mobench ci run \
             --target ios \
-            --functions "${FUNCTIONS}" \
+            --functions "${functions_arg}" \
             --iterations "${ITERATIONS}" \
             --warmup "${WARMUP}" \
             --devices "${device_spec}" \
@@ -491,11 +496,16 @@ jobs:
         run: |
           set -euo pipefail
           device_spec="${ANDROID_DEVICE}-${ANDROID_OS_VERSION}"
+          functions_arg="${FUNCTIONS}"
+          if [[ "${FUNCTIONS}" == \[* ]]; then
+            functions_arg=$(jq -r 'join(",")' <<<"${FUNCTIONS}")
+          fi
           echo "Running Android benchmarks on: ${device_spec}"
+          echo "Resolved functions: ${functions_arg}"
 
           cargo-mobench ci run \
             --target android \
-            --functions "${FUNCTIONS}" \
+            --functions "${functions_arg}" \
             --iterations "${ITERATIONS}" \
             --warmup "${WARMUP}" \
             --devices "${device_spec}" \
