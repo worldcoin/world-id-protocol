@@ -178,10 +178,15 @@ jobs:
             git clone https://github.com/worldcoin/mobile-bench-rs mobench-src
             git -C mobench-src checkout "$MOBENCH_REF"
           else
-            echo "Installing mobench ${MOBENCH_VERSION} from crates.io"
-            mkdir -p mobench-src/crates/mobench
-            curl -LsSf "https://crates.io/api/v1/crates/mobench/${MOBENCH_VERSION}/download" \
-              | tar -xz --strip-components=1 -C mobench-src/crates/mobench
+            echo "Installing mobench ${MOBENCH_VERSION} from cargo registry"
+            cargo info "mobench@${MOBENCH_VERSION}" >/dev/null
+            REG_SRC=$(find "${CARGO_HOME:-$HOME/.cargo}/registry/src" -maxdepth 2 -type d -name "mobench-${MOBENCH_VERSION}" | head -n 1)
+            if [ -z "${REG_SRC}" ]; then
+              echo "::error::Unable to locate mobench ${MOBENCH_VERSION} in cargo registry source cache"
+              exit 1
+            fi
+            mkdir -p mobench-src/crates
+            cp -R "${REG_SRC}" mobench-src/crates/mobench
             git -C mobench-src init -q
           fi
           git -C mobench-src apply "${GITHUB_WORKSPACE}/${MOBENCH_PATCH_PATH}"
@@ -411,10 +416,15 @@ jobs:
             git clone https://github.com/worldcoin/mobile-bench-rs mobench-src
             git -C mobench-src checkout "$MOBENCH_REF"
           else
-            echo "Installing mobench ${MOBENCH_VERSION} from crates.io"
-            mkdir -p mobench-src/crates/mobench
-            curl -LsSf "https://crates.io/api/v1/crates/mobench/${MOBENCH_VERSION}/download" \
-              | tar -xz --strip-components=1 -C mobench-src/crates/mobench
+            echo "Installing mobench ${MOBENCH_VERSION} from cargo registry"
+            cargo info "mobench@${MOBENCH_VERSION}" >/dev/null
+            REG_SRC=$(find "${CARGO_HOME:-$HOME/.cargo}/registry/src" -maxdepth 2 -type d -name "mobench-${MOBENCH_VERSION}" | head -n 1)
+            if [ -z "${REG_SRC}" ]; then
+              echo "::error::Unable to locate mobench ${MOBENCH_VERSION} in cargo registry source cache"
+              exit 1
+            fi
+            mkdir -p mobench-src/crates
+            cp -R "${REG_SRC}" mobench-src/crates/mobench
             git -C mobench-src init -q
           fi
           git -C mobench-src apply "${GITHUB_WORKSPACE}/${MOBENCH_PATCH_PATH}"
@@ -547,10 +557,15 @@ jobs:
             git clone https://github.com/worldcoin/mobile-bench-rs mobench-src
             git -C mobench-src checkout "$MOBENCH_REF"
           else
-            echo "Installing mobench ${MOBENCH_VERSION} from crates.io"
-            mkdir -p mobench-src/crates/mobench
-            curl -LsSf "https://crates.io/api/v1/crates/mobench/${MOBENCH_VERSION}/download" \
-              | tar -xz --strip-components=1 -C mobench-src/crates/mobench
+            echo "Installing mobench ${MOBENCH_VERSION} from cargo registry"
+            cargo info "mobench@${MOBENCH_VERSION}" >/dev/null
+            REG_SRC=$(find "${CARGO_HOME:-$HOME/.cargo}/registry/src" -maxdepth 2 -type d -name "mobench-${MOBENCH_VERSION}" | head -n 1)
+            if [ -z "${REG_SRC}" ]; then
+              echo "::error::Unable to locate mobench ${MOBENCH_VERSION} in cargo registry source cache"
+              exit 1
+            fi
+            mkdir -p mobench-src/crates
+            cp -R "${REG_SRC}" mobench-src/crates/mobench
             git -C mobench-src init -q
           fi
           git -C mobench-src apply "${GITHUB_WORKSPACE}/${MOBENCH_PATCH_PATH}"
