@@ -980,6 +980,15 @@ jobs:
           fi
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Append combined plot summary
+        if: always() && (needs.ios.result == 'success' || needs.android.result == 'success')
+        shell: bash
+        run: |
+          if [ -f rendered/combined/github-summary.md ]; then
+            cat rendered/combined/github-summary.md >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Post sticky PR comment
         if: inputs.pr_number != ''
         env:
@@ -1002,6 +1011,13 @@ jobs:
           "
             fi
           done
+
+          if [ -f rendered/combined/github-summary.md ]; then
+            COMBINED_MD=$(cat rendered/combined/github-summary.md)
+            BODY="${BODY}${COMBINED_MD}
+
+          "
+          fi
 
           BODY="${BODY}
           ---
@@ -1124,6 +1140,9 @@ jobs:
           cp results/android/mobench/ci/android/summary.json history-bundle/android-summary.json 2>/dev/null || true
           cp results/android/mobench/ci/android/results.csv history-bundle/android-results.csv 2>/dev/null || true
           cp rendered/android/github-summary.md history-bundle/android-summary.md 2>/dev/null || true
+          cp rendered/combined/summary.json history-bundle/combined-summary.json 2>/dev/null || true
+          cp rendered/combined/summary.md history-bundle/combined-summary.md 2>/dev/null || true
+          cp rendered/combined/github-summary.md history-bundle/combined-github-summary.md 2>/dev/null || true
 
           jq -n \
             --arg ts "$TIMESTAMP" \
