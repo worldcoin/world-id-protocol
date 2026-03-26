@@ -374,13 +374,13 @@ async fn e2e_initiate_and_execute_recovery_agent_update() {
         .unwrap();
     // Add an extra 60 s buffer to comfortably clear the cooldown.
     let jump_secs: u64 = cooldown.to::<u64>() + 60;
-    let _: () = provider
+    let _: u64 = provider
         .client()
         .request("evm_increaseTime", (jump_secs,))
         .await
         .expect("evm_increaseTime failed");
     // Mine a block so the new timestamp takes effect.
-    let _: () = provider
+    let _: serde_json::Value = provider
         .client()
         .request("evm_mine", ())
         .await
