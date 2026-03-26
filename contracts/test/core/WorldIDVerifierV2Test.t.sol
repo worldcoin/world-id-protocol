@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {WorldIDVerifierV2} from "../../src/core/WorldIDVerifierV2.sol";
+import {WorldIDVerifierV2} from "../../src/core/WorldIDVerifierV2Unreleased.sol";
 import {WorldIDVerifier} from "../../src/core/WorldIDVerifier.sol";
 import {IWorldIDVerifier} from "../../src/core/interfaces/IWorldIDVerifier.sol";
 import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
