@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.7.0...world-id-primitives-v0.7.1) - 2026-03-26
+
+### Added
+
+- add recovery agent update methods to CoreAuthenticator ([#602](https://github.com/worldcoin/world-id-protocol/pull/602))
+
+### Other
+
+- *(oprf-node)* misc stuff for oprf-nodes (v1.1) ([#608](https://github.com/worldcoin/world-id-protocol/pull/608))
+- update Cargo.toml dependencies
+
 ## [0.7.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.6.0...world-id-primitives-v0.7.0) - 2026-03-25
 
 ### Added
