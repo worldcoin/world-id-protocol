@@ -943,6 +943,24 @@ jobs:
             ' "${input}" > "${output}"
           }
 
+          extract_plot_section() {
+            local input="$1"
+            local output="$2"
+            if [ ! -f "${input}" ]; then
+              return 0
+            fi
+
+            awk '
+              BEGIN { in_plots = 0 }
+              /^[[:space:]]*## Device Comparison Plots[[:space:]]*$/ { in_plots = 1 }
+              in_plots { print }
+            ' "${input}" > "${output}"
+
+            if [ ! -s "${output}" ]; then
+              rm -f "${output}"
+            fi
+          }
+
           rewrite_summary() {
             local input="$1"
             local output="$2"
