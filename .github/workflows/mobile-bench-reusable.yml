@@ -687,6 +687,9 @@ jobs:
 
           collect_summary_json() {
             local platform="$1"
+            if [ ! -d "results/${platform}" ]; then
+              return 0
+            fi
             find "results/${platform}" -type f -path "*/mobench/ci/${platform}/summary.json" | head -1
           }
 
