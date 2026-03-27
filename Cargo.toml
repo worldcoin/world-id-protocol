@@ -14,6 +14,7 @@ members = [
   "services/faux-issuer",
   "tools/generate-solidity-fixtures",
   "services/relay",
+  "services/event-watcher",
 ]
 
 resolver = "2"

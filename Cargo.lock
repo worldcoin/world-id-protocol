@@ -9667,6 +9667,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-id-event-watcher"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "clap",
+ "dotenvy",
+ "eyre",
+ "futures-util",
+ "metrics",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "telemetry-batteries 0.2.1",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.22",
+]
+
+[[package]]
 name = "world-id-faux-issuer"
 version = "0.1.0"
 dependencies = [
