@@ -1,16 +1,17 @@
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
-use alloy::node_bindings::Anvil;
-use alloy::primitives::U256;
-use alloy::providers::ProviderBuilder;
-use alloy::sol;
+use alloy::{node_bindings::Anvil, primitives::U256, providers::ProviderBuilder, sol};
 use reqwest::Client;
 use tokio::sync::watch;
 
-use crate::abi_decoder::prepare_decoder;
-use crate::config::{ExplorerConfig, ServiceConfig, SubscriptionConfig};
-use crate::subscription::{SubscriptionRuntime, run_subscription};
+use crate::{
+    abi_decoder::prepare_decoder,
+    config::{ExplorerConfig, ServiceConfig, SubscriptionConfig},
+    subscription::{SubscriptionRuntime, run_subscription},
+};
 
 // ── Minimal contract that emits `event Ping(uint256 value)` ─────────────
 
