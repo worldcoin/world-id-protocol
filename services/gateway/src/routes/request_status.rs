@@ -8,7 +8,7 @@ use axum::{
 use tracing::instrument;
 use world_id_core::api_types::{GatewayRequestId, GatewayStatusResponse};
 
-/// GET /v1/requests/:id
+/// GET /status/{id}
 ///
 /// Get the current status of a submitted request.
 #[instrument(name = "request_status", skip(state), fields(request_id = %id))]

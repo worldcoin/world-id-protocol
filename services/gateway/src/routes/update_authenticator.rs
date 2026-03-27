@@ -8,7 +8,7 @@ use axum::{Extension, Json, extract::State};
 use tracing::instrument;
 use world_id_core::api_types::{GatewayStatusResponse, UpdateAuthenticatorRequest};
 
-/// POST /v1/authenticators/update
+/// POST /update-authenticator
 ///
 /// Update an existing authenticator.
 #[instrument(name = "update_authenticator", skip(state, payload), fields(request_id = %id))]
