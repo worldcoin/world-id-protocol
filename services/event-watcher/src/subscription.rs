@@ -117,7 +117,19 @@ async fn connect_and_run(
                     continue;
                 }
 
-                let fields = runtime.prepared.decoder.decode_log(&log).map_err(SubscriptionError::Decode)?;
+                let fields = match runtime.prepared.decoder.decode_log(&log) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        metrics::increment_decode_error(&runtime.prepared.event_name);
+                        tracing::warn!(
+                            event_name = runtime.prepared.event_name,
+                            error = ?e,
+                            tx_hash = ?log.transaction_hash,
+                            "failed to decode log; skipping"
+                        );
+                        continue;
+                    }
+                };
                 emit_event_log(runtime, &log, fields);
                 if let Some(block_number) = log.block_number {
                     metrics::set_last_event_block(&runtime.prepared.event_name, block_number);
@@ -192,8 +204,6 @@ pub enum SubscriptionError {
     Subscribe(String),
     #[error("subscription stream closed")]
     StreamClosed,
-    #[error(transparent)]
-    Decode(#[from] crate::abi_decoder::AbiDecoderError),
 }
 
 impl SubscriptionError {
@@ -202,7 +212,6 @@ impl SubscriptionError {
             Self::Connect { .. } => "connect_failed",
             Self::Subscribe(_) => "subscribe_failed",
             Self::StreamClosed => "stream_closed",
-            Self::Decode(_) => "stream_error",
         }
     }
 }
