@@ -14,13 +14,13 @@ pub async fn run(config: AppConfig) -> eyre::Result<()> {
         chain_id = config.chain_id,
         ws_rpc_url = config.ws_rpc_url,
         explorer_url = config.explorer.url,
-        subscription_count = config.enabled_subscriptions().count(),
+        subscription_count = config.subscriptions.len(),
         "loaded watcher config"
     );
 
     let http = Client::builder().build()?;
     let mut runtimes = Vec::new();
-    for subscription in config.enabled_subscriptions().cloned() {
+    for subscription in config.subscriptions.iter().cloned() {
         tracing::info!(
             name = subscription.name,
             contract_address = %format!("{:#x}", subscription.contract_address),

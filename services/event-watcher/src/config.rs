@@ -37,7 +37,6 @@ pub struct SubscriptionConfig {
     pub name: String,
     pub contract_address: Address,
     pub event_signature: String,
-    pub enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,12 +50,6 @@ struct RawSubscriptionConfig {
     name: String,
     contract_address: String,
     event_signature: String,
-    #[serde(default = "default_enabled")]
-    enabled: bool,
-}
-
-const fn default_enabled() -> bool {
-    true
 }
 
 #[derive(Debug, Error)]
@@ -81,8 +74,6 @@ pub enum ConfigError {
     ZeroContractAddress(String),
     #[error("no subscriptions found in WATCHER_CONFIG")]
     EmptySubscriptions,
-    #[error("no enabled subscriptions configured")]
-    NoEnabledSubscriptions,
     #[error("WATCHER_RECONNECT_INITIAL_BACKOFF_MS must be <= WATCHER_RECONNECT_MAX_BACKOFF_MS")]
     InvalidReconnectRange,
 }
@@ -146,10 +137,6 @@ impl AppConfig {
             },
             subscriptions,
         })
-    }
-
-    pub fn enabled_subscriptions(&self) -> impl Iterator<Item = &SubscriptionConfig> {
-        self.subscriptions.iter().filter(|s| s.enabled)
     }
 }
 
@@ -216,12 +203,7 @@ fn validate_subscriptions(
             name: raw.name,
             contract_address: address,
             event_signature: raw.event_signature,
-            enabled: raw.enabled,
         });
-    }
-
-    if !subscriptions.iter().any(|s| s.enabled) {
-        return Err(ConfigError::NoEnabledSubscriptions);
     }
 
     Ok(subscriptions)
