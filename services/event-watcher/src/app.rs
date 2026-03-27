@@ -22,7 +22,6 @@ pub async fn run(config: AppConfig) -> eyre::Result<()> {
     let mut runtimes = Vec::new();
     for subscription in config.subscriptions.iter().cloned() {
         tracing::info!(
-            name = subscription.name,
             contract_address = %format!("{:#x}", subscription.contract_address),
             event_signature = subscription.event_signature,
             "preparing subscription decoder"
@@ -36,9 +35,8 @@ pub async fn run(config: AppConfig) -> eyre::Result<()> {
         )
         .await?;
         tracing::info!(
-            name = subscription.name,
-            abi_address = %format!("{:#x}", prepared.abi_address),
             event_name = prepared.event_name,
+            abi_address = %format!("{:#x}", prepared.abi_address),
             topic0 = %format!("{:#x}", prepared.topic0),
             "prepared subscription decoder"
         );
@@ -74,13 +72,13 @@ fn spawn_runner(
     shutdown_rx: watch::Receiver<bool>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let name = runtime.subscription.name.clone();
+        let event_name = runtime.prepared.event_name.clone();
         loop {
             match run_subscription(runtime.clone(), shutdown_rx.clone()).await {
                 Ok(()) => break,
                 Err(error) => {
-                    metrics::increment_watcher_restart(&name);
-                    tracing::error!(name, error = ?error, "subscription task exited unexpectedly; restarting");
+                    metrics::increment_watcher_restart(&event_name);
+                    tracing::error!(event_name, error = ?error, "subscription task exited unexpectedly; restarting");
                 }
             }
         }

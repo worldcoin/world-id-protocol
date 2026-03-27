@@ -56,42 +56,48 @@ pub fn describe_metrics() {
     );
 }
 
-pub fn increment_events_emitted(name: &str) {
-    ::metrics::counter!(METRICS_EVENTS_EMITTED, "name" => name.to_owned()).increment(1);
+pub fn increment_events_emitted(event_name: &str) {
+    ::metrics::counter!(METRICS_EVENTS_EMITTED, "event_name" => event_name.to_owned()).increment(1);
 }
 
-pub fn increment_rpc_error(name: &str, method: &str) {
-    ::metrics::counter!(METRICS_RPC_ERRORS, "name" => name.to_owned(), "method" => method.to_owned()).increment(1);
+pub fn increment_rpc_error(event_name: &str, method: &str) {
+    ::metrics::counter!(METRICS_RPC_ERRORS, "event_name" => event_name.to_owned(), "method" => method.to_owned())
+        .increment(1);
 }
 
-pub fn increment_decode_error(name: &str) {
-    ::metrics::counter!(METRICS_DECODE_ERRORS, "name" => name.to_owned()).increment(1);
+pub fn increment_decode_error(event_name: &str) {
+    ::metrics::counter!(METRICS_DECODE_ERRORS, "event_name" => event_name.to_owned()).increment(1);
 }
 
-pub fn increment_reconnect(name: &str, reason: &str) {
-    ::metrics::counter!(METRICS_RECONNECTS, "name" => name.to_owned(), "reason" => reason.to_owned()).increment(1);
+pub fn increment_reconnect(event_name: &str, reason: &str) {
+    ::metrics::counter!(METRICS_RECONNECTS, "event_name" => event_name.to_owned(), "reason" => reason.to_owned())
+        .increment(1);
 }
 
-pub fn set_subscription_uptime(name: &str, seconds: f64) {
-    ::metrics::gauge!(METRICS_SUBSCRIPTION_UPTIME_SECS, "name" => name.to_owned()).set(seconds);
+pub fn set_subscription_uptime(event_name: &str, seconds: f64) {
+    ::metrics::gauge!(METRICS_SUBSCRIPTION_UPTIME_SECS, "event_name" => event_name.to_owned())
+        .set(seconds);
 }
 
-pub fn set_last_event_block(name: &str, block_number: u64) {
-    ::metrics::gauge!(METRICS_LAST_EVENT_BLOCK, "name" => name.to_owned()).set(block_number as f64);
+pub fn set_last_event_block(event_name: &str, block_number: u64) {
+    ::metrics::gauge!(METRICS_LAST_EVENT_BLOCK, "event_name" => event_name.to_owned())
+        .set(block_number as f64);
 }
 
-pub fn set_connected(name: &str, connected: bool) {
-    ::metrics::gauge!(METRICS_CONNECTED, "name" => name.to_owned()).set(if connected {
+pub fn set_connected(event_name: &str, connected: bool) {
+    ::metrics::gauge!(METRICS_CONNECTED, "event_name" => event_name.to_owned()).set(if connected {
         1.0
     } else {
         0.0
     });
 }
 
-pub fn increment_events_dropped_removed(name: &str) {
-    ::metrics::counter!(METRICS_EVENTS_DROPPED_REMOVED, "name" => name.to_owned()).increment(1);
+pub fn increment_events_dropped_removed(event_name: &str) {
+    ::metrics::counter!(METRICS_EVENTS_DROPPED_REMOVED, "event_name" => event_name.to_owned())
+        .increment(1);
 }
 
-pub fn increment_watcher_restart(name: &str) {
-    ::metrics::counter!(METRICS_WATCHER_RESTARTS, "name" => name.to_owned()).increment(1);
+pub fn increment_watcher_restart(event_name: &str) {
+    ::metrics::counter!(METRICS_WATCHER_RESTARTS, "event_name" => event_name.to_owned())
+        .increment(1);
 }

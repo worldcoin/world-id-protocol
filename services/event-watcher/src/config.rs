@@ -34,7 +34,6 @@ pub struct ServiceConfig {
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionConfig {
-    pub name: String,
     pub contract_address: Address,
     pub event_signature: String,
 }
@@ -47,7 +46,6 @@ struct FileConfig {
 
 #[derive(Debug, Deserialize)]
 struct RawSubscriptionConfig {
-    name: String,
     contract_address: String,
     event_signature: String,
 }
@@ -64,13 +62,16 @@ pub enum ConfigError {
     InvalidReconnectInitial(String),
     #[error("invalid WATCHER_RECONNECT_MAX_BACKOFF_MS: {0}")]
     InvalidReconnectMax(String),
-    #[error("subscription names must be unique; duplicate: {0}")]
-    DuplicateSubscriptionName(String),
-    #[error("subscription {name} has invalid contract address: {value}")]
-    InvalidSubscriptionAddress { name: String, value: String },
-    #[error("subscription {0} has empty event signature")]
-    EmptyEventSignature(String),
-    #[error("subscription {0} has zero contract address")]
+    #[error("duplicate event signature: {0}")]
+    DuplicateEventSignature(String),
+    #[error("subscription for {event_signature} has invalid contract address: {value}")]
+    InvalidSubscriptionAddress {
+        event_signature: String,
+        value: String,
+    },
+    #[error("subscription has empty event signature")]
+    EmptyEventSignature,
+    #[error("subscription for {0} has zero contract address")]
     ZeroContractAddress(String),
     #[error("no subscriptions found in WATCHER_CONFIG")]
     EmptySubscriptions,
@@ -178,29 +179,28 @@ fn validate_subscriptions(
         return Err(ConfigError::EmptySubscriptions);
     }
 
-    let mut names = BTreeSet::new();
+    let mut seen_signatures = BTreeSet::new();
     let mut subscriptions = Vec::with_capacity(raw_subscriptions.len());
 
     for raw in raw_subscriptions {
-        if !names.insert(raw.name.clone()) {
-            return Err(ConfigError::DuplicateSubscriptionName(raw.name));
-        }
         if raw.event_signature.trim().is_empty() {
-            return Err(ConfigError::EmptyEventSignature(raw.name));
+            return Err(ConfigError::EmptyEventSignature);
+        }
+        if !seen_signatures.insert(raw.event_signature.clone()) {
+            return Err(ConfigError::DuplicateEventSignature(raw.event_signature));
         }
 
         let address = Address::from_str(&raw.contract_address).map_err(|_| {
             ConfigError::InvalidSubscriptionAddress {
-                name: raw.name.clone(),
+                event_signature: raw.event_signature.clone(),
                 value: raw.contract_address.clone(),
             }
         })?;
         if address.is_zero() {
-            return Err(ConfigError::ZeroContractAddress(raw.name));
+            return Err(ConfigError::ZeroContractAddress(raw.event_signature));
         }
 
         subscriptions.push(SubscriptionConfig {
-            name: raw.name,
             contract_address: address,
             event_signature: raw.event_signature,
         });
