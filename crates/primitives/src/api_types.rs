@@ -586,3 +586,57 @@ pub struct AccountInclusionProofSchema {
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub authenticator_pubkeys: Vec<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn insert_authenticator_request_signature_serializes_as_hex_string() {
+        let request = InsertAuthenticatorRequest {
+            leaf_index: 42,
+            new_authenticator_address: Address::from([0x11; 20]),
+            old_offchain_signer_commitment: U256::from(0x1234_u64),
+            new_offchain_signer_commitment: U256::from(0x5678_u64),
+            signature: vec![0xde, 0xad, 0xbe, 0xef],
+            nonce: U256::from(0x9abc_u64),
+            pubkey_id: 7,
+            new_authenticator_pubkey: U256::from(0xdef0_u64),
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let signature = value["signature"]
+            .as_str()
+            .expect("signature should be a string");
+
+        assert!(signature.starts_with("0x"));
+        assert_eq!(signature, "0xdeadbeef");
+        assert!(
+            !value["signature"].is_array(),
+            "signature should not be an array"
+        );
+
+        let roundtripped: InsertAuthenticatorRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtripped.leaf_index, request.leaf_index);
+        assert_eq!(
+            roundtripped.new_authenticator_address,
+            request.new_authenticator_address
+        );
+        assert_eq!(
+            roundtripped.old_offchain_signer_commitment,
+            request.old_offchain_signer_commitment
+        );
+        assert_eq!(
+            roundtripped.new_offchain_signer_commitment,
+            request.new_offchain_signer_commitment
+        );
+        assert_eq!(roundtripped.signature, request.signature);
+        assert_eq!(roundtripped.nonce, request.nonce);
+        assert_eq!(roundtripped.pubkey_id, request.pubkey_id);
+        assert_eq!(
+            roundtripped.new_authenticator_pubkey,
+            request.new_authenticator_pubkey
+        );
+    }
+}
