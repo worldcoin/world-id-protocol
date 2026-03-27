@@ -10,10 +10,9 @@ use crate::{
 
 pub async fn run(config: AppConfig) -> eyre::Result<()> {
     tracing::info!(
-        deployment = config.deployment,
         chain_name = config.chain_name,
         chain_id = config.chain_id,
-        ws_rpc_url_count = config.ws_rpc_urls.len(),
+        ws_rpc_url = config.ws_rpc_url,
         explorer_url = config.explorer.url,
         subscription_count = config.enabled_subscriptions().count(),
         "loaded watcher config"
@@ -44,10 +43,9 @@ pub async fn run(config: AppConfig) -> eyre::Result<()> {
             "prepared subscription decoder"
         );
         runtimes.push(SubscriptionRuntime {
-            network: config.deployment.clone(),
             chain_name: config.chain_name.clone(),
             chain_id: config.chain_id,
-            ws_rpc_urls: config.ws_rpc_urls.clone(),
+            ws_rpc_url: config.ws_rpc_url.clone(),
             service: config.service.clone(),
             subscription,
             prepared,
@@ -77,12 +75,11 @@ fn spawn_runner(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let name = runtime.subscription.name.clone();
-        let network = runtime.network.clone();
         loop {
             match run_subscription(runtime.clone(), shutdown_rx.clone()).await {
                 Ok(()) => break,
                 Err(error) => {
-                    metrics::increment_watcher_restart(&network, &name);
+                    metrics::increment_watcher_restart(&name);
                     tracing::error!(name, error = ?error, "subscription task exited unexpectedly; restarting");
                 }
             }

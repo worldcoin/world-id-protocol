@@ -12,10 +12,9 @@ use thiserror::Error;
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
-    pub deployment: String,
     pub chain_name: String,
     pub chain_id: u64,
-    pub ws_rpc_urls: Vec<String>,
+    pub ws_rpc_url: String,
     pub explorer: ExplorerConfig,
     pub service: ServiceConfig,
     pub subscriptions: Vec<SubscriptionConfig>,
@@ -72,8 +71,6 @@ pub enum ConfigError {
     InvalidReconnectInitial(String),
     #[error("invalid WATCHER_RECONNECT_MAX_BACKOFF_MS: {0}")]
     InvalidReconnectMax(String),
-    #[error("WATCHER_WS_RPC_URLS must contain at least one URL")]
-    EmptyWsRpcUrls,
     #[error("subscription names must be unique; duplicate: {0}")]
     DuplicateSubscriptionName(String),
     #[error("subscription {name} has invalid contract address: {value}")]
@@ -92,8 +89,6 @@ pub enum ConfigError {
 
 impl AppConfig {
     pub fn load() -> Result<Self, ConfigError> {
-        let deployment =
-            env::var("WATCHER_DEPLOYMENT").unwrap_or_else(|_| "development".to_owned());
         let chain_name = env::var("WATCHER_CHAIN_NAME")
             .map_err(|_| ConfigError::MissingEnv("WATCHER_CHAIN_NAME"))?;
         let chain_id_raw = env::var("WATCHER_CHAIN_ID")
@@ -102,17 +97,8 @@ impl AppConfig {
             .parse()
             .map_err(|_| ConfigError::InvalidChainId(chain_id_raw.clone()))?;
 
-        let ws_rpc_urls_raw = env::var("WATCHER_WS_RPC_URLS")
-            .map_err(|_| ConfigError::MissingEnv("WATCHER_WS_RPC_URLS"))?;
-        let ws_rpc_urls = ws_rpc_urls_raw
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(ToOwned::to_owned)
-            .collect::<Vec<_>>();
-        if ws_rpc_urls.is_empty() {
-            return Err(ConfigError::EmptyWsRpcUrls);
-        }
+        let ws_rpc_url = env::var("WATCHER_WS_RPC_URL")
+            .map_err(|_| ConfigError::MissingEnv("WATCHER_WS_RPC_URL"))?;
 
         let explorer = ExplorerConfig {
             url: env::var("WATCHER_EXPLORER_URL")
@@ -150,10 +136,9 @@ impl AppConfig {
         let subscriptions = validate_subscriptions(file_config.subscriptions)?;
 
         Ok(Self {
-            deployment,
             chain_name,
             chain_id,
-            ws_rpc_urls,
+            ws_rpc_url,
             explorer,
             service: ServiceConfig {
                 reconnect_initial_backoff_ms,

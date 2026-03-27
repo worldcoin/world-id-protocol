@@ -16,10 +16,9 @@ use crate::{
 
 #[derive(Clone)]
 pub struct SubscriptionRuntime {
-    pub network: String,
     pub chain_name: String,
     pub chain_id: u64,
-    pub ws_rpc_urls: Vec<String>,
+    pub ws_rpc_url: String,
     pub service: ServiceConfig,
     pub subscription: SubscriptionConfig,
     pub prepared: PreparedSubscription,
@@ -29,7 +28,6 @@ pub async fn run_subscription(
     runtime: SubscriptionRuntime,
     mut shutdown: watch::Receiver<bool>,
 ) -> eyre::Result<()> {
-    let network = runtime.network.clone();
     let name = runtime.subscription.name.clone();
     let mut backoff_ms = runtime.service.reconnect_initial_backoff_ms;
 
@@ -43,9 +41,9 @@ pub async fn run_subscription(
             Ok(()) => return Ok(()),
             Err(error) => {
                 let reason = error.reason();
-                metrics::set_connected(&network, &name, false);
-                metrics::set_subscription_uptime(&network, &name, 0.0);
-                metrics::increment_reconnect(&network, &name, reason);
+                metrics::set_connected(&name, false);
+                metrics::set_subscription_uptime(&name, 0.0);
+                metrics::increment_reconnect(&name, reason);
                 tracing::warn!(
                     name,
                     reason,
@@ -74,7 +72,7 @@ async fn connect_and_run(
     runtime: &SubscriptionRuntime,
     shutdown: &mut watch::Receiver<bool>,
 ) -> Result<(), SubscriptionError> {
-    let provider = connect_provider(&runtime.ws_rpc_urls).await?;
+    let provider = connect_provider(&runtime.ws_rpc_url).await?;
     let filter = Filter::new()
         .address(runtime.subscription.contract_address)
         .event_signature(runtime.prepared.topic0);
@@ -92,18 +90,17 @@ async fn connect_and_run(
         .await
         .map_err(|e| SubscriptionError::Subscribe(e.to_string()))?;
     let started_at = Instant::now();
-    metrics::set_connected(&runtime.network, &runtime.subscription.name, true);
-    metrics::set_subscription_uptime(&runtime.network, &runtime.subscription.name, 0.0);
+    metrics::set_connected(&runtime.subscription.name, true);
+    metrics::set_subscription_uptime(&runtime.subscription.name, 0.0);
 
     let mut stream = sub.into_stream();
     let uptime_name = runtime.subscription.name.clone();
-    let uptime_network = runtime.network.clone();
 
     loop {
         tokio::select! {
             _ = shutdown.changed() => {
                 if *shutdown.borrow() {
-                    metrics::set_connected(&runtime.network, &runtime.subscription.name, false);
+                    metrics::set_connected(&runtime.subscription.name, false);
                     return Ok(());
                 }
             }
@@ -112,10 +109,10 @@ async fn connect_and_run(
                     return Err(SubscriptionError::StreamClosed);
                 };
 
-                metrics::set_subscription_uptime(&uptime_network, &uptime_name, started_at.elapsed().as_secs_f64());
+                metrics::set_subscription_uptime(&uptime_name, started_at.elapsed().as_secs_f64());
 
                 if log.removed {
-                    metrics::increment_events_dropped_removed(&runtime.network, &runtime.subscription.name);
+                    metrics::increment_events_dropped_removed(&runtime.subscription.name);
                     tracing::warn!(name = runtime.subscription.name, tx_hash = ?log.transaction_hash, log_index = ?log.log_index, "removed log ignored");
                     continue;
                 }
@@ -123,9 +120,9 @@ async fn connect_and_run(
                 let fields = runtime.prepared.decoder.decode_log(&log).map_err(SubscriptionError::Decode)?;
                 emit_event_log(runtime, &log, fields);
                 if let Some(block_number) = log.block_number {
-                    metrics::set_last_event_block(&runtime.network, &runtime.subscription.name, block_number);
+                    metrics::set_last_event_block(&runtime.subscription.name, block_number);
                 }
-                metrics::increment_events_emitted(&runtime.network, &runtime.subscription.name);
+                metrics::increment_events_emitted(&runtime.subscription.name);
             }
         }
     }
@@ -135,7 +132,6 @@ fn emit_event_log(runtime: &SubscriptionRuntime, log: &alloy::rpc::types::Log, f
     let mut event = Map::new();
     util::insert_string(&mut event, "message", "observed on-chain event");
     util::insert_string(&mut event, "service", "world-id-event-watcher");
-    util::insert_string(&mut event, "network", runtime.network.clone());
     util::insert_string(&mut event, "chain_name", runtime.chain_name.clone());
     util::insert_u64(&mut event, "chain_id", runtime.chain_id);
     util::insert_string(&mut event, "name", runtime.subscription.name.clone());
@@ -172,19 +168,16 @@ fn emit_event_log(runtime: &SubscriptionRuntime, log: &alloy::rpc::types::Log, f
     tracing::info!(event = %event_json, "observed on-chain event");
 }
 
-async fn connect_provider(urls: &[String]) -> Result<DynProvider, SubscriptionError> {
-    let mut last_error = None;
-    for url in urls {
-        let ws_connect = WsConnect::new(url).with_max_retries(0);
-        match ProviderBuilder::new().connect_ws(ws_connect).await {
-            Ok(provider) => return Ok(provider.erased()),
-            Err(error) => last_error = Some((url.clone(), error.to_string())),
-        }
-    }
-
-    let (url, error) =
-        last_error.unwrap_or_else(|| (String::new(), "no rpc urls configured".to_owned()));
-    Err(SubscriptionError::Connect { url, error })
+async fn connect_provider(url: &str) -> Result<DynProvider, SubscriptionError> {
+    let ws_connect = WsConnect::new(url).with_max_retries(0);
+    ProviderBuilder::new()
+        .connect_ws(ws_connect)
+        .await
+        .map(|p| p.erased())
+        .map_err(|error| SubscriptionError::Connect {
+            url: url.to_owned(),
+            error: error.to_string(),
+        })
 }
 
 #[derive(Debug, thiserror::Error)]
