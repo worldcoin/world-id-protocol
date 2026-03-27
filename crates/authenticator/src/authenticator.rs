@@ -1,6 +1,5 @@
-//! This module contains all the base functionality to support Authenticators in World ID.
-//!
-//! An Authenticator is the application layer with which a user interacts with the Protocol.
+//! This module contains all the base functionality to support Authenticators in World ID. See
+//! [`Authenticator`] for a definition.
 
 use std::sync::Arc;
 
@@ -84,7 +83,17 @@ static MASK_PUBKEY_ID: U256 =
 static MASK_LEAF_INDEX: U256 =
     uint!(0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF_U256);
 
-/// An Authenticator is the base layer with which a user interacts with the Protocol.
+/// An Authenticator is the agent of a **user** interacting with the World ID Protocol.
+///
+/// # Definition
+///
+/// A software or hardware agent (e.g., app, device, web client, or service) that controls a
+/// set of authorized keypairs for a World ID Account and is functionally capable of interacting
+/// with the Protocol, and is therefore permitted to act on that account’s behalf. An Authenticator
+/// is the agent of users/holders. Each Authenticator is registered in the `WorldIDRegistry`
+/// through their authorized keypairs.
+///
+/// For example, an Authenticator can live in a mobile wallet or a web application.
 pub struct Authenticator {
     /// General configuration for the Authenticator.
     pub config: Config,
