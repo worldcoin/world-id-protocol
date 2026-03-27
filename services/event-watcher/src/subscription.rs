@@ -4,6 +4,7 @@ use alloy::{
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
     rpc::types::Filter,
 };
+use backon::{Backoff, BackoffBuilder, ExponentialBuilder};
 use futures_util::StreamExt;
 use serde_json::{Map, Value};
 use tokio::sync::watch;
@@ -29,7 +30,7 @@ pub async fn run_subscription(
     mut shutdown: watch::Receiver<bool>,
 ) -> eyre::Result<()> {
     let event_name = runtime.prepared.event_name.clone();
-    let mut backoff_ms = runtime.service.reconnect_initial_backoff_ms;
+    let mut backoff = build_backoff(&runtime.service);
 
     loop {
         if *shutdown.borrow() {
@@ -44,28 +45,42 @@ pub async fn run_subscription(
                 metrics::set_connected(&event_name, false);
                 metrics::set_subscription_uptime(&event_name, 0.0);
                 metrics::increment_reconnect(&event_name, reason);
+
+                // Fetch the next delay; `without_max_times()` means this
+                // iterator never returns `None`, but fall back defensively.
+                let delay = backoff.next().unwrap_or(Duration::from_millis(
+                    runtime.service.reconnect_max_backoff_ms,
+                ));
+
                 tracing::warn!(
                     event_name,
                     reason,
-                    backoff_ms,
+                    backoff_ms = delay.as_millis() as u64,
                     error = ?error,
                     "subscription loop failed; reconnecting"
                 );
-            }
-        }
 
-        tokio::select! {
-            _ = shutdown.changed() => {
-                if *shutdown.borrow() {
-                    tracing::info!(event_name, "subscription shutdown requested");
-                    return Ok(());
+                tokio::select! {
+                    _ = shutdown.changed() => {
+                        if *shutdown.borrow() {
+                            tracing::info!(event_name, "subscription shutdown requested");
+                            return Ok(());
+                        }
+                    }
+                    _ = tokio::time::sleep(delay) => {}
                 }
             }
-            _ = tokio::time::sleep(Duration::from_millis(backoff_ms)) => {}
         }
-
-        backoff_ms = (backoff_ms.saturating_mul(2)).min(runtime.service.reconnect_max_backoff_ms);
     }
+}
+
+fn build_backoff(service: &ServiceConfig) -> impl Backoff {
+    ExponentialBuilder::default()
+        .with_min_delay(Duration::from_millis(service.reconnect_initial_backoff_ms))
+        .with_max_delay(Duration::from_millis(service.reconnect_max_backoff_ms))
+        .with_jitter()
+        .without_max_times()
+        .build()
 }
 
 async fn connect_and_run(

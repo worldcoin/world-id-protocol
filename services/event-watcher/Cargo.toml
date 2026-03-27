@@ -6,6 +6,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+backon = { workspace = true }
 alloy = { workspace = true, default-features = true, features = [
   "rpc-types",
   "provider-ws",
