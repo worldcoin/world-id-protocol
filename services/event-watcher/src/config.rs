@@ -1,6 +1,12 @@
-use std::{env, str::FromStr};
+use std::{
+    collections::BTreeSet,
+    env,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use alloy::primitives::Address;
+use config as config_rs;
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -36,6 +42,12 @@ pub struct SubscriptionConfig {
 }
 
 #[derive(Debug, Deserialize)]
+struct FileConfig {
+    #[serde(default)]
+    subscriptions: Vec<RawSubscriptionConfig>,
+}
+
+#[derive(Debug, Deserialize)]
 struct RawSubscriptionConfig {
     name: String,
     contract_address: String,
@@ -52,6 +64,8 @@ const fn default_enabled() -> bool {
 pub enum ConfigError {
     #[error("missing required env var {0}")]
     MissingEnv(&'static str),
+    #[error("failed to load WATCHER_CONFIG from {path}: {message}")]
+    LoadConfigFile { path: String, message: String },
     #[error("invalid WATCHER_CHAIN_ID: {0}")]
     InvalidChainId(String),
     #[error("invalid WATCHER_RECONNECT_INITIAL_BACKOFF_MS: {0}")]
@@ -60,8 +74,6 @@ pub enum ConfigError {
     InvalidReconnectMax(String),
     #[error("WATCHER_WS_RPC_URLS must contain at least one URL")]
     EmptyWsRpcUrls,
-    #[error("WATCHER_SUBSCRIPTIONS must be valid JSON: {0}")]
-    InvalidSubscriptionsJson(String),
     #[error("subscription names must be unique; duplicate: {0}")]
     DuplicateSubscriptionName(String),
     #[error("subscription {name} has invalid contract address: {value}")]
@@ -70,6 +82,8 @@ pub enum ConfigError {
     EmptyEventSignature(String),
     #[error("subscription {0} has zero contract address")]
     ZeroContractAddress(String),
+    #[error("no subscriptions found in WATCHER_CONFIG")]
+    EmptySubscriptions,
     #[error("no enabled subscriptions configured")]
     NoEnabledSubscriptions,
     #[error("WATCHER_RECONNECT_INITIAL_BACKOFF_MS must be <= WATCHER_RECONNECT_MAX_BACKOFF_MS")]
@@ -130,40 +144,10 @@ impl AppConfig {
             return Err(ConfigError::InvalidReconnectRange);
         }
 
-        let subs_raw = env::var("WATCHER_SUBSCRIPTIONS")
-            .map_err(|_| ConfigError::MissingEnv("WATCHER_SUBSCRIPTIONS"))?;
-        let parsed_raw: Vec<RawSubscriptionConfig> = serde_json::from_str(&subs_raw)
-            .map_err(|e| ConfigError::InvalidSubscriptionsJson(e.to_string()))?;
-
-        let mut names = std::collections::BTreeSet::new();
-        let mut subscriptions = Vec::with_capacity(parsed_raw.len());
-        for raw in parsed_raw {
-            if !names.insert(raw.name.clone()) {
-                return Err(ConfigError::DuplicateSubscriptionName(raw.name));
-            }
-            if raw.event_signature.trim().is_empty() {
-                return Err(ConfigError::EmptyEventSignature(raw.name));
-            }
-            let address = Address::from_str(&raw.contract_address).map_err(|_| {
-                ConfigError::InvalidSubscriptionAddress {
-                    name: raw.name.clone(),
-                    value: raw.contract_address.clone(),
-                }
-            })?;
-            if address.is_zero() {
-                return Err(ConfigError::ZeroContractAddress(raw.name));
-            }
-            subscriptions.push(SubscriptionConfig {
-                name: raw.name,
-                contract_address: address,
-                event_signature: raw.event_signature,
-                enabled: raw.enabled,
-            });
-        }
-
-        if !subscriptions.iter().any(|s| s.enabled) {
-            return Err(ConfigError::NoEnabledSubscriptions);
-        }
+        let config_path =
+            env::var("WATCHER_CONFIG").map_err(|_| ConfigError::MissingEnv("WATCHER_CONFIG"))?;
+        let file_config = load_file_config(&config_path)?;
+        let subscriptions = validate_subscriptions(file_config.subscriptions)?;
 
         Ok(Self {
             deployment,
@@ -182,4 +166,78 @@ impl AppConfig {
     pub fn enabled_subscriptions(&self) -> impl Iterator<Item = &SubscriptionConfig> {
         self.subscriptions.iter().filter(|s| s.enabled)
     }
+}
+
+fn load_file_config(path: &str) -> Result<FileConfig, ConfigError> {
+    let resolved = expand_config_path(path);
+    let settings = config_rs::Config::builder()
+        .add_source(config_rs::File::from(resolved.as_path()))
+        .build()
+        .map_err(|e| ConfigError::LoadConfigFile {
+            path: resolved.display().to_string(),
+            message: e.to_string(),
+        })?;
+
+    settings
+        .try_deserialize::<FileConfig>()
+        .map_err(|e| ConfigError::LoadConfigFile {
+            path: resolved.display().to_string(),
+            message: e.to_string(),
+        })
+}
+
+fn expand_config_path(path: &str) -> PathBuf {
+    let input = Path::new(path);
+    if input.is_absolute() {
+        return input.to_path_buf();
+    }
+
+    if let Ok(cwd) = env::current_dir() {
+        cwd.join(input)
+    } else {
+        input.to_path_buf()
+    }
+}
+
+fn validate_subscriptions(
+    raw_subscriptions: Vec<RawSubscriptionConfig>,
+) -> Result<Vec<SubscriptionConfig>, ConfigError> {
+    if raw_subscriptions.is_empty() {
+        return Err(ConfigError::EmptySubscriptions);
+    }
+
+    let mut names = BTreeSet::new();
+    let mut subscriptions = Vec::with_capacity(raw_subscriptions.len());
+
+    for raw in raw_subscriptions {
+        if !names.insert(raw.name.clone()) {
+            return Err(ConfigError::DuplicateSubscriptionName(raw.name));
+        }
+        if raw.event_signature.trim().is_empty() {
+            return Err(ConfigError::EmptyEventSignature(raw.name));
+        }
+
+        let address = Address::from_str(&raw.contract_address).map_err(|_| {
+            ConfigError::InvalidSubscriptionAddress {
+                name: raw.name.clone(),
+                value: raw.contract_address.clone(),
+            }
+        })?;
+        if address.is_zero() {
+            return Err(ConfigError::ZeroContractAddress(raw.name));
+        }
+
+        subscriptions.push(SubscriptionConfig {
+            name: raw.name,
+            contract_address: address,
+            event_signature: raw.event_signature,
+            enabled: raw.enabled,
+        });
+    }
+
+    if !subscriptions.iter().any(|s| s.enabled) {
+        return Err(ConfigError::NoEnabledSubscriptions);
+    }
+
+    Ok(subscriptions)
 }

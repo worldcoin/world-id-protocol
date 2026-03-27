@@ -1,0 +1,11 @@
+[[subscriptions]]
+name = "rp_registered"
+contract_address = "0x37d2462fE7B4a07987263AAd062C6593C4f567b9"
+event_signature = "RpRegistered(uint64,uint160,address,string)"
+enabled = true
+
+[[subscriptions]]
+name = "issuer_schema_registered"
+contract_address = "0x9037125Ae10e9E89fDbe7001228289462EFA3eF3"
+event_signature = "IssuerSchemaRegistered(uint64,(uint256,uint256),address,uint160)"
+# enabled defaults to true if omitted
