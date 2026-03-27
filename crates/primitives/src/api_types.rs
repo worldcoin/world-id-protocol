@@ -7,7 +7,8 @@
 
 pub use crate::merkle::AccountInclusionProof;
 use crate::serde_utils::{
-    hex_u32, hex_u32_opt, hex_u64, hex_u256, hex_u256_opt, hex_u256_opt_vec, hex_u256_vec,
+    hex_bytes, hex_u32, hex_u32_opt, hex_u64, hex_u256, hex_u256_opt, hex_u256_opt_vec,
+    hex_u256_vec,
 };
 use alloy_primitives::Address;
 use ruint::aliases::U256;
@@ -64,7 +65,8 @@ pub struct UpdateAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
+    #[serde(with = "hex_bytes")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub signature: Vec<u8>,
     /// The nonce.
     #[serde(with = "hex_u256")]
@@ -102,7 +104,8 @@ pub struct InsertAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
+    #[serde(with = "hex_bytes")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub signature: Vec<u8>,
     /// The nonce.
     #[serde(with = "hex_u256")]
@@ -140,7 +143,8 @@ pub struct RemoveAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
+    #[serde(with = "hex_bytes")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub signature: Vec<u8>,
     /// The nonce.
     #[serde(with = "hex_u256")]
@@ -170,7 +174,8 @@ pub struct UpdateRecoveryAgentRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_recovery_agent: Address,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
+    #[serde(with = "hex_bytes")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub signature: Vec<u8>,
     /// The nonce.
     #[serde(with = "hex_u256")]
@@ -205,7 +210,8 @@ pub struct CancelRecoveryAgentUpdateRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub leaf_index: u64,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
+    #[serde(with = "hex_bytes")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub signature: Vec<u8>,
     /// The nonce.
     #[serde(with = "hex_u256")]
@@ -235,7 +241,8 @@ pub struct RecoverAccountRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
+    #[serde(with = "hex_bytes")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub signature: Vec<u8>,
     /// The nonce.
     #[serde(with = "hex_u256")]
