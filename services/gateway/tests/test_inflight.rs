@@ -155,7 +155,7 @@ async fn send_recover_via_auth(
         new_authenticator_address,
         old_offchain_signer_commitment: old_commitment,
         new_offchain_signer_commitment: new_commitment,
-        signature: signature.as_bytes().to_vec(),
+        signature: signature.as_bytes().to_vec().into(),
         nonce,
         new_authenticator_pubkey: Some(encoded_pubkey),
     };

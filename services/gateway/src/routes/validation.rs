@@ -267,7 +267,7 @@ impl RequestValidation for InsertAuthenticatorRequest {
                 self.new_authenticator_pubkey,
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
-                Bytes::from(self.signature.clone()),
+                Bytes::from(self.signature.clone().into_bytes()),
                 self.nonce,
             )
             .calldata()
@@ -338,7 +338,7 @@ impl RequestValidation for UpdateAuthenticatorRequest {
                 self.new_authenticator_pubkey,
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
-                Bytes::from(self.signature.clone()),
+                Bytes::from(self.signature.clone().into_bytes()),
                 self.nonce,
             )
             .calldata()
@@ -410,7 +410,7 @@ impl RequestValidation for RemoveAuthenticatorRequest {
                 authenticator_pubkey,
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
-                Bytes::from(self.signature.clone()),
+                Bytes::from(self.signature.clone().into_bytes()),
                 self.nonce,
             )
             .calldata()
@@ -463,7 +463,7 @@ impl RequestValidation for UpdateRecoveryAgentRequest {
             .initiateRecoveryAgentUpdate(
                 self.leaf_index,
                 self.new_recovery_agent,
-                Bytes::from(self.signature.clone()),
+                Bytes::from(self.signature.clone().into_bytes()),
                 self.nonce,
             )
             .calldata()
@@ -507,7 +507,7 @@ impl RequestValidation for CancelRecoveryAgentUpdateRequest {
         registry
             .cancelRecoveryAgentUpdate(
                 self.leaf_index,
-                Bytes::from(self.signature.clone()),
+                Bytes::from(self.signature.clone().into_bytes()),
                 self.nonce,
             )
             .calldata()
@@ -597,7 +597,7 @@ impl RequestValidation for RecoverAccountRequest {
                 new_pubkey,
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
-                Bytes::from(self.signature.clone()),
+                Bytes::from(self.signature.clone().into_bytes()),
                 self.nonce,
             )
             .calldata()
@@ -646,7 +646,7 @@ mod tests {
         let req = UpdateRecoveryAgentRequest {
             leaf_index: 0,
             new_recovery_agent: non_zero_agent,
-            signature: sig.as_bytes().to_vec(),
+            signature: sig.as_bytes().to_vec().into(),
             nonce: U256::ZERO,
         };
         assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
@@ -663,7 +663,7 @@ mod tests {
         let req = UpdateRecoveryAgentRequest {
             leaf_index: 1,
             new_recovery_agent: Address::ZERO,
-            signature: sig.as_bytes().to_vec(),
+            signature: sig.as_bytes().to_vec().into(),
             nonce: U256::ZERO,
         };
         assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
@@ -689,7 +689,7 @@ mod tests {
         let req = UpdateRecoveryAgentRequest {
             leaf_index,
             new_recovery_agent,
-            signature: sig.as_bytes().to_vec(),
+            signature: sig.as_bytes().to_vec().into(),
             nonce,
         };
         assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_ok());
@@ -700,7 +700,7 @@ mod tests {
         let req = UpdateRecoveryAgentRequest {
             leaf_index: 1,
             new_recovery_agent: address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
-            signature: vec![0u8; 65],
+            signature: vec![0u8; 65].into(),
             nonce: U256::ZERO,
         };
         // all-zero signature is explicitly rejected by validate_ecdsa_signature_format
@@ -719,7 +719,7 @@ mod tests {
 
         let req = CancelRecoveryAgentUpdateRequest {
             leaf_index: 0,
-            signature: sig.as_bytes().to_vec(),
+            signature: sig.as_bytes().to_vec().into(),
             nonce: U256::ZERO,
         };
         assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
@@ -736,7 +736,7 @@ mod tests {
 
         let req = CancelRecoveryAgentUpdateRequest {
             leaf_index,
-            signature: sig.as_bytes().to_vec(),
+            signature: sig.as_bytes().to_vec().into(),
             nonce,
         };
         assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_ok());

@@ -12,10 +12,126 @@ use crate::serde_utils::{
 use alloy_primitives::Address;
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
+use std::ops::Deref;
 use strum::EnumString;
 
 #[cfg(feature = "openapi")]
 use utoipa::{IntoParams, ToSchema};
+
+// ---------------------------------------------------------------------------
+// EcdsaSignature newtype
+// ---------------------------------------------------------------------------
+
+/// An ECDSA signature serialized as a `0x`-prefixed hex string.
+///
+/// Wraps raw signature bytes (typically 65 bytes: `r ∥ s ∥ v`) and ensures
+/// they are always serialized/deserialized as hex in human-readable formats
+/// (JSON) rather than as an array of numbers.
+///
+/// The type intentionally does **not** enforce a fixed length so that
+/// validation can happen at the application layer with richer error messages.
+#[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+pub struct EcdsaSignature(Vec<u8>);
+
+impl EcdsaSignature {
+    /// Create an `EcdsaSignature` from raw bytes.
+    pub fn new(bytes: impl Into<Vec<u8>>) -> Self {
+        Self(bytes.into())
+    }
+
+    /// Consume self and return the inner byte vector.
+    #[must_use]
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+
+    /// Return a reference to the inner bytes as a slice.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+// -- Transparent access to the inner bytes ------------------------------------
+
+impl Deref for EcdsaSignature {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl AsRef<[u8]> for EcdsaSignature {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+// -- Conversions --------------------------------------------------------------
+
+impl From<Vec<u8>> for EcdsaSignature {
+    fn from(v: Vec<u8>) -> Self {
+        Self(v)
+    }
+}
+
+impl From<&[u8]> for EcdsaSignature {
+    fn from(v: &[u8]) -> Self {
+        Self(v.to_vec())
+    }
+}
+
+impl From<EcdsaSignature> for Vec<u8> {
+    fn from(sig: EcdsaSignature) -> Self {
+        sig.0
+    }
+}
+
+// -- Debug (hex) --------------------------------------------------------------
+
+impl std::fmt::Debug for EcdsaSignature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "EcdsaSignature(0x{})", hex::encode(&self.0))
+    }
+}
+
+impl std::fmt::Display for EcdsaSignature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "0x{}", hex::encode(&self.0))
+    }
+}
+
+// -- Serde (hex) --------------------------------------------------------------
+
+impl Serialize for EcdsaSignature {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            serializer.serialize_str(&format!("0x{}", hex::encode(&self.0)))
+        } else {
+            serializer.serialize_bytes(&self.0)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for EcdsaSignature {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        if deserializer.is_human_readable() {
+            let s = String::deserialize(deserializer)?;
+            let hex_str = s
+                .strip_prefix("0x")
+                .or_else(|| s.strip_prefix("0X"))
+                .unwrap_or(&s);
+            let bytes = hex::decode(hex_str).map_err(<D::Error as serde::de::Error>::custom)?;
+            Ok(Self(bytes))
+        } else {
+            let bytes = Vec::<u8>::deserialize(deserializer)?;
+            Ok(Self(bytes))
+        }
+    }
+}
 
 /// The request to create a new World ID account.
 ///
@@ -64,8 +180,7 @@ pub struct UpdateAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
-    pub signature: Vec<u8>,
+    pub signature: EcdsaSignature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -102,8 +217,7 @@ pub struct InsertAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
-    pub signature: Vec<u8>,
+    pub signature: EcdsaSignature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -140,8 +254,7 @@ pub struct RemoveAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
-    pub signature: Vec<u8>,
+    pub signature: EcdsaSignature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -170,8 +283,7 @@ pub struct UpdateRecoveryAgentRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_recovery_agent: Address,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
-    pub signature: Vec<u8>,
+    pub signature: EcdsaSignature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -205,8 +317,7 @@ pub struct CancelRecoveryAgentUpdateRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub leaf_index: u64,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
-    pub signature: Vec<u8>,
+    pub signature: EcdsaSignature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -235,8 +346,7 @@ pub struct RecoverAccountRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
-    pub signature: Vec<u8>,
+    pub signature: EcdsaSignature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -578,4 +688,46 @@ pub struct AccountInclusionProofSchema {
     /// The compressed authenticator public keys for the account (array of hex strings)
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub authenticator_pubkeys: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ecdsa_signature_json_roundtrip() {
+        let sig = EcdsaSignature::new(vec![0xde, 0xad, 0xbe, 0xef]);
+        let json = serde_json::to_string(&sig).unwrap();
+        assert_eq!(json, r#""0xdeadbeef""#);
+
+        let parsed: EcdsaSignature = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, sig);
+    }
+
+    #[test]
+    fn ecdsa_signature_deserialize_without_prefix() {
+        let parsed: EcdsaSignature = serde_json::from_str(r#""deadbeef""#).unwrap();
+        assert_eq!(parsed.as_bytes(), &[0xde, 0xad, 0xbe, 0xef]);
+    }
+
+    #[test]
+    fn ecdsa_signature_deref_and_conversions() {
+        let bytes = vec![1u8, 2, 3];
+        let sig = EcdsaSignature::from(bytes.clone());
+
+        // Deref to &[u8]
+        assert_eq!(&*sig, &[1, 2, 3]);
+        // AsRef
+        assert_eq!(sig.as_ref(), &[1, 2, 3]);
+        // Into<Vec<u8>>
+        let v: Vec<u8> = sig.into();
+        assert_eq!(v, bytes);
+    }
+
+    #[test]
+    fn ecdsa_signature_debug_shows_hex() {
+        let sig = EcdsaSignature::new(vec![0xca, 0xfe]);
+        let dbg = format!("{sig:?}");
+        assert_eq!(dbg, "EcdsaSignature(0xcafe)");
+    }
 }

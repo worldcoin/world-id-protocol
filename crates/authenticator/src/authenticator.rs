@@ -865,7 +865,7 @@ impl Authenticator {
             new_authenticator_pubkey: encoded_offchain_pubkey,
             old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
             new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
-            signature: signature.as_bytes().to_vec(),
+            signature: signature.as_bytes().to_vec().into(),
             nonce,
         };
 
@@ -938,7 +938,7 @@ impl Authenticator {
             new_authenticator_address,
             old_offchain_signer_commitment: old_commitment,
             new_offchain_signer_commitment: new_commitment,
-            signature: signature.as_bytes().to_vec(),
+            signature: signature.as_bytes().to_vec().into(),
             nonce,
             pubkey_id: index,
             new_authenticator_pubkey: encoded_offchain_pubkey,
@@ -1014,7 +1014,7 @@ impl Authenticator {
             authenticator_address,
             old_offchain_signer_commitment: old_commitment,
             new_offchain_signer_commitment: new_commitment,
-            signature: signature.as_bytes().to_vec(),
+            signature: signature.as_bytes().to_vec().into(),
             nonce,
             pubkey_id: Some(index),
             authenticator_pubkey: Some(encoded_old_offchain_pubkey),
@@ -1091,7 +1091,7 @@ impl Authenticator {
         let req = UpdateRecoveryAgentRequest {
             leaf_index,
             new_recovery_agent,
-            signature: sig.as_bytes().to_vec(),
+            signature: sig.as_bytes().to_vec().into(),
             nonce,
         };
 
@@ -1178,7 +1178,7 @@ impl Authenticator {
 
         let req = CancelRecoveryAgentUpdateRequest {
             leaf_index,
-            signature: sig.as_bytes().to_vec(),
+            signature: sig.as_bytes().to_vec().into(),
             nonce,
         };
 
