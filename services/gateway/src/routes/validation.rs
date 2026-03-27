@@ -746,7 +746,7 @@ mod tests {
     fn cancel_preflight_rejects_wrong_length_signature() {
         let req = CancelRecoveryAgentUpdateRequest {
             leaf_index: 1,
-            signature: vec![0u8; 32], // wrong length
+            signature: vec![0u8; 32].into(), // wrong length
             nonce: U256::ZERO,
         };
         assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
