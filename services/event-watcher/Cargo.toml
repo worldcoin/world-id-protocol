@@ -29,3 +29,19 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "signal"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
+
+[dev-dependencies]
+alloy = { workspace = true, default-features = true, features = [
+  "rpc-types",
+  "provider-ws",
+  "provider-http",
+  "pubsub",
+  "json-abi",
+  "dyn-abi",
+  "sol-types",
+  "contract",
+  "signer-local",
+  "node-bindings",
+] }
+mockito = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

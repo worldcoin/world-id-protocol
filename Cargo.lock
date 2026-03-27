@@ -9678,6 +9678,7 @@ dependencies = [
  "eyre",
  "futures-util",
  "metrics",
+ "mockito",
  "reqwest",
  "serde",
  "serde_json",

@@ -13,3 +13,6 @@ pub mod subscription;
 pub mod util;
 
 pub use app::run;
+
+#[cfg(test)]
+mod tests;
