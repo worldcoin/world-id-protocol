@@ -1,8 +1,10 @@
+use crate::serde_utils;
+use alloy_primitives::U256;
 use ark_bn254::Bn254;
 use ark_serde_compat::babyjubjub;
 use circom_types::groth16::Proof;
 use serde::{Deserialize, Serialize};
-use taceo_oprf::types::api::OprfRequestAuthenticatorError;
+use taceo_oprf::types::api::{CloseFrameMessage, OprfRequestAuthenticatorError};
 
 use crate::rp::RpId;
 
@@ -52,9 +54,23 @@ pub struct NullifierOprfRequestAuthV1 {
     /// Expiration timestamp of the request (unix secs)
     pub expiration_timestamp: u64,
     /// The RP's signature on the request, see `compute_rp_signature_msg` for details.
-    pub signature: alloy_primitives::Signature,
+    ///
+    /// Can be `None` if the RP is a WIP101 conform contract.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<alloy_primitives::Signature>,
     /// The `rp_id`
     pub rp_id: RpId,
+    /// Auxiliary data for WIP101 verification.
+    ///
+    /// Maximum length of this field is 1024 bytes. If the RP is not backed by a WIP101 signer contract, you can omit this value is it will be ignored by the OPRF-nodes anyways.
+    ///
+    /// If the RP signer is an WIP101 backed contract, this data is send verbatim to the contract without any form of validation (except size).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "serde_utils::hex_bytes_opt"
+    )]
+    pub auxiliary_wip101_bytes: Option<Vec<u8>>,
 }
 
 /// A request sent by a client for OPRF credential blinding factor authentication.
@@ -118,6 +134,11 @@ pub enum WorldIdRequestAuthError {
     /// incorrect, the wrong public key used, or does not match the expected message.
     #[error("invalid_rp_signature")]
     InvalidRpSignature,
+    /// Requester did not provide a signature of the RP, but the RP's signer
+    /// is an EOA.
+    /// Empty signatures are only supported for WIP101 backed RPs.
+    #[error("rp_signature_missing")]
+    RpSignatureMissing,
     /// A duplicate nonce was detected. Duplicate nonces are not allowed to prevent
     /// replay attacks. If you are the RP please generate a new nonce.
     #[error("duplicate_nonce")]
@@ -145,6 +166,21 @@ pub enum WorldIdRequestAuthError {
     /// prefixes.
     #[error("invalid_action_for_session")]
     InvalidActionSession,
+    /// The RP signer is a contract but does not implement the WIP101 interface.
+    #[error("wip101_incompatible_rp_signer")]
+    Wip101IncompatibleRpSigner,
+    /// The WIP101 signer contract rejected the request.
+    ///
+    /// The contract may optionally return a rejection code (`U256`), which is captured in this error as `Some(code)`. If no additional code is provided, this will be `None`.
+    ///
+    /// When constructing this variant from just the `CloseFrame`'s `code`, the contract's additional code will be lost. The additional code, if any, is sent as `reason` in the `CloseFrame`.
+    #[error("wip101_verification_failed")]
+    WIP101VerificationFailed(Option<U256>),
+    /// Invalid custom revert for WIP101 contract.
+    ///
+    /// WIP101 specifies that contracts must revert with `error RpInvalidRequest(uint256 code)` but contract reverted with unknown error.
+    #[error("wip101_custom_revert")]
+    WIP101CustomRevert,
     /// Internal server error.
     #[error("internal_server_error")]
     Internal,
@@ -180,12 +216,16 @@ impl WorldIdRequestAuthError {
             | Self::RpSignatureExpired
             | Self::InvalidRpSignature
             | Self::DuplicateNonce
-            | Self::InvalidActionNullifier => ErrorActor::Rp,
+            | Self::InvalidActionNullifier
+            | Self::Wip101IncompatibleRpSigner
+            | Self::WIP101VerificationFailed(_)
+            | Self::WIP101CustomRevert => ErrorActor::Rp,
             Self::UnknownSchemaIssuerId => ErrorActor::Issuer,
             Self::InvalidMerkleRoot
             | Self::InvalidQueryProof
             | Self::InvalidActionSchemaIssuer
-            | Self::InvalidActionSession => ErrorActor::Authenticator,
+            | Self::InvalidActionSession
+            | Self::RpSignatureMissing => ErrorActor::Authenticator,
             Self::Internal | Self::Unknown(_) => ErrorActor::OprfNode,
         }
     }
@@ -206,8 +246,12 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::INVALID_ACTION_NULLIFIER => Self::InvalidActionNullifier,
             error_codes::INVALID_ACTION_SESSION => Self::InvalidActionSession,
             error_codes::RP_SIGNATURE_EXPIRED => Self::RpSignatureExpired,
+            error_codes::RP_SIGNATURE_MISSING => Self::RpSignatureMissing,
             error_codes::INVALID_TIMESTAMP => Self::InvalidTimestamp,
             error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE => Self::TimestampTooFarInFuture,
+            error_codes::WIP101_INCOMPATIBLE_RP_SIGNER => Self::Wip101IncompatibleRpSigner,
+            // we lost the additional code when converting from just the u16
+            error_codes::WIP101_VERIFICATION_FAILED => Self::WIP101VerificationFailed(None),
             error_codes::INTERNAL => Self::Internal,
             other => Self::Unknown(other),
         }
@@ -222,6 +266,7 @@ impl From<WorldIdRequestAuthError> for u16 {
             WorldIdRequestAuthError::TimestampTooOld => error_codes::TIMESTAMP_TOO_OLD,
             WorldIdRequestAuthError::InvalidTimestamp => error_codes::INVALID_TIMESTAMP,
             WorldIdRequestAuthError::InvalidRpSignature => error_codes::INVALID_RP_SIGNATURE,
+            WorldIdRequestAuthError::RpSignatureMissing => error_codes::RP_SIGNATURE_MISSING,
             WorldIdRequestAuthError::DuplicateNonce => error_codes::DUPLICATE_NONCE,
             WorldIdRequestAuthError::InvalidMerkleRoot => error_codes::INVALID_MERKLE_ROOT,
             WorldIdRequestAuthError::InvalidQueryProof => error_codes::INVALID_QUERY_PROOF,
@@ -237,6 +282,13 @@ impl From<WorldIdRequestAuthError> for u16 {
             WorldIdRequestAuthError::TimestampTooFarInFuture => {
                 error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE
             }
+            WorldIdRequestAuthError::Wip101IncompatibleRpSigner => {
+                error_codes::WIP101_INCOMPATIBLE_RP_SIGNER
+            }
+            WorldIdRequestAuthError::WIP101VerificationFailed(_) => {
+                error_codes::WIP101_VERIFICATION_FAILED
+            }
+            WorldIdRequestAuthError::WIP101CustomRevert => error_codes::WIP101_CUSTOM_REVERT,
             WorldIdRequestAuthError::Internal => error_codes::INTERNAL,
             WorldIdRequestAuthError::Unknown(other) => other,
         }
@@ -273,6 +325,14 @@ pub mod error_codes {
     pub const INVALID_TIMESTAMP: u16 = 4512;
     /// Error code for [`super::WorldIdRequestAuthError::TimestampTooFarInFuture`].
     pub const TIMESTAMP_TOO_FAR_IN_FUTURE: u16 = 4513;
+    /// Error code for [`super::WorldIdRequestAuthError::Wip101IncompatibleRpSigner`].
+    pub const WIP101_INCOMPATIBLE_RP_SIGNER: u16 = 4514;
+    /// Error code for [`super::WorldIdRequestAuthError::WIP101VerificationFailed`].
+    pub const WIP101_VERIFICATION_FAILED: u16 = 4515;
+    /// Error code for [`super::WorldIdRequestAuthError::WIP101CustomRevert`].
+    pub const WIP101_CUSTOM_REVERT: u16 = 4516;
+    /// Error code for [`super::WorldIdRequestAuthError::EmptySignature`]
+    pub const RP_SIGNATURE_MISSING: u16 = 4517;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
     pub const INTERNAL: u16 = 1011;
 }
@@ -292,6 +352,9 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             }
             WorldIdRequestAuthError::InvalidRpSignature => {
                 taceo_oprf::types::close_frame_message!("signature from RP cannot be verified")
+            }
+            WorldIdRequestAuthError::RpSignatureMissing => {
+                taceo_oprf::types::close_frame_message!("RP signature missing but signer is an EOA")
             }
             WorldIdRequestAuthError::DuplicateNonce => {
                 taceo_oprf::types::close_frame_message!("signature nonce already used")
@@ -324,6 +387,24 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             }
             WorldIdRequestAuthError::InvalidTimestamp => {
                 taceo_oprf::types::close_frame_message!("cannot parse timestamp on request")
+            }
+            WorldIdRequestAuthError::Wip101IncompatibleRpSigner => {
+                taceo_oprf::types::close_frame_message!(
+                    "RP has a contract backed signer but doesn't conform to WIP101"
+                )
+            }
+            WorldIdRequestAuthError::WIP101CustomRevert => {
+                taceo_oprf::types::close_frame_message!(
+                    "RP signer contract reverted with custom error (and not error RpInvalidRequest(uint256 code);)"
+                )
+            }
+            WorldIdRequestAuthError::WIP101VerificationFailed(None) => {
+                // send empty message so that it is easier to parse the code in case there is any
+                taceo_oprf::types::close_frame_message!("")
+            }
+            WorldIdRequestAuthError::WIP101VerificationFailed(Some(code)) => {
+                // this should never truncate as code is a U256 encoded as hex
+                CloseFrameMessage::new_truncate(format!("{:#x}", code))
             }
             WorldIdRequestAuthError::Internal => {
                 taceo_oprf::types::close_frame_message!("internal server error")
