@@ -12,6 +12,8 @@ use world_id_gateway::{
 use world_id_services_common::ProviderArgs;
 use world_id_test_utils::anvil::TestAnvil;
 
+/// Default Anvil test private key (account 0). This is a well-known development
+/// key, not a real secret.
 pub(crate) const GW_PRIVATE_KEY: &str =
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 pub(crate) const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
