@@ -58,6 +58,7 @@ mod tests {
     use ark_serialize::CanonicalSerialize;
     use rand::Rng;
     use secrecy::ExposeSecret as _;
+    use taceo_nodes_common::web3::{self, RpcProviderBuilder};
     use taceo_oprf::{core::oprf::BlindingFactor, service::StartedServices};
     use tokio_util::sync::CancellationToken;
     use world_id_core::{EdDSAPrivateKey, FieldElement, Signer, proof::errors};
@@ -91,6 +92,23 @@ mod tests {
         pub(crate) key_index: u64,
         pub(crate) key_set: AuthenticatorPublicKeySet,
         pub(crate) signer: Signer,
+    }
+
+    pub(crate) async fn build_rpc_provider(anvil: &TestAnvil) -> web3::RpcProvider {
+        let http_url = anvil
+            .endpoint()
+            .parse()
+            .expect("anvil should have valid http url");
+        let ws_url = anvil
+            .ws_endpoint()
+            .parse()
+            .expect("anvil should have valid ws url");
+        RpcProviderBuilder::with_default_values(vec![http_url], ws_url)
+            .environment(taceo_nodes_common::Environment::Dev)
+            .chain_id(31_337)
+            .build()
+            .await
+            .expect("can build RPC providers")
     }
 
     impl OprfRequestAuthTestSetup {
@@ -212,11 +230,11 @@ mod tests {
             let started_services = StartedServices::default();
             let cancellation_token = CancellationToken::new();
 
-            let provider = crate::build_ws_provider(setup.anvil.ws_endpoint()).await?;
+            let rpc_provider = build_rpc_provider(&setup.anvil).await;
 
             let (merkle_watcher, _) = MerkleWatcher::init(
                 setup.world_id_registry,
-                provider.clone(),
+                &rpc_provider,
                 max_cache_size,
                 cache_maintenance_interval,
                 started_services.new_service(),
@@ -226,7 +244,7 @@ mod tests {
 
             let (rp_registry_watcher, _) = RpRegistryWatcher::init(
                 setup.rp_registry,
-                provider.clone(),
+                &rpc_provider,
                 WatcherCacheConfig::default(),
                 cache_maintenance_interval,
                 started_services.new_service(),
@@ -236,7 +254,7 @@ mod tests {
 
             let (schema_issuer_registry_watcher, _) = SchemaIssuerRegistryWatcher::init(
                 setup.credential_schema_issuer_registry,
-                provider.clone(),
+                &rpc_provider,
                 WatcherCacheConfig::default(),
                 cache_maintenance_interval,
                 started_services.new_service(),

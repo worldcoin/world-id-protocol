@@ -7758,8 +7758,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70f2d8a89181967875c3e130dca3d5e906e720b30568b82c68653c3048b1bb02"
 dependencies = [
  "taceo-oprf-client",
  "taceo-oprf-core",
@@ -7771,8 +7769,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-client"
 version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1624edfd12063146c6f3614c659cb178a8ae82bfac72b751a72133136000866"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -7795,8 +7791,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-core"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e55cbbe8357f837939f9cec171f44a217db4d897bea679521d555a24296ee39b"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -7817,8 +7811,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-dev-client"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d6ca8153ffa75f90231b017bf83baf4e9d9b9594077f3475e380c158386de1f"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -7844,8 +7836,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-key-gen"
 version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "182dbffdd5320347919395166da583e74839c85393c2a24b7a8e833030eb7e87"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -7889,8 +7879,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-service"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "deb5eb26b47785abd7947e9566362fb40baa86b77d12aada979940f0e977e52c"
 dependencies = [
  "alloy",
  "ark-serialize 0.5.0",
@@ -7931,8 +7919,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-test-utils"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79bf2307340f39699e8b0f506ac7b57b139488063bc317a3b415b0ed635e23ad"
 dependencies = [
  "alloy",
  "ark-ec 0.5.0",
@@ -7957,8 +7943,6 @@ dependencies = [
 [[package]]
 name = "taceo-oprf-types"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b92ebe8693dfb75f2f1e7861785792747495f8f2be058ff07698f16046cb5fad"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",

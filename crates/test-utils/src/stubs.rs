@@ -5,6 +5,7 @@ use ark_serialize::CanonicalSerialize;
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, Result};
 use semver::VersionReq;
+use taceo_oprf::service::web3::RpcProviderConfig;
 use taceo_oprf_key_gen::StartedServices;
 use taceo_oprf_test_utils::{PEER_PRIVATE_KEYS, test_secret_manager::TestSecretManager};
 use tokio::{net::TcpListener, task::JoinHandle};
@@ -17,6 +18,8 @@ use world_id_primitives::{
 };
 
 use std::sync::RwLock;
+
+use crate::anvil::TestAnvil;
 
 #[derive(Clone)]
 struct IndexerState {
@@ -185,7 +188,7 @@ impl MutableIndexerStub {
 
 async fn spawn_orpf_node(
     id: usize,
-    chain_ws_rpc_url: &str,
+    anvil: &TestAnvil,
     secret_manager: OprfNodeTestSecretManager,
     oprf_key_registry_contract: Address,
     world_id_registry_contract: Address,
@@ -200,11 +203,19 @@ async fn spawn_orpf_node(
         credential_schema_issuer_registry_contract,
         oprf_key_registry_contract,
     };
+    let anvil_http = anvil
+        .endpoint()
+        .parse()
+        .expect("anvil endpoint should be valid URL");
+    let anvil_ws = anvil
+        .ws_endpoint()
+        .parse()
+        .expect("anvil ws_endpoint should be valid URL");
     let config = WorldOprfNodeConfig::with_default_values(
         taceo_oprf::service::Environment::Dev,
         contracts,
-        chain_ws_rpc_url.into(),
         VersionReq::STAR,
+        RpcProviderConfig::with_default_values(vec![anvil_http], anvil_ws),
     );
 
     tokio::spawn(async move {
@@ -236,7 +247,7 @@ async fn spawn_orpf_node(
 }
 
 pub async fn spawn_oprf_nodes(
-    chain_ws_rpc_url: &str,
+    anvil: &TestAnvil,
     [
         secret_manager0,
         secret_manager1,
@@ -252,7 +263,7 @@ pub async fn spawn_oprf_nodes(
     tokio::join!(
         spawn_orpf_node(
             0,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager0,
             key_gen_contract,
             world_id_registry_contract,
@@ -261,7 +272,7 @@ pub async fn spawn_oprf_nodes(
         ),
         spawn_orpf_node(
             1,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager1,
             key_gen_contract,
             world_id_registry_contract,
@@ -270,7 +281,7 @@ pub async fn spawn_oprf_nodes(
         ),
         spawn_orpf_node(
             2,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager2,
             key_gen_contract,
             world_id_registry_contract,
@@ -279,7 +290,7 @@ pub async fn spawn_oprf_nodes(
         ),
         spawn_orpf_node(
             3,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager3,
             key_gen_contract,
             world_id_registry_contract,
@@ -288,7 +299,7 @@ pub async fn spawn_oprf_nodes(
         ),
         spawn_orpf_node(
             4,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager4,
             key_gen_contract,
             world_id_registry_contract,

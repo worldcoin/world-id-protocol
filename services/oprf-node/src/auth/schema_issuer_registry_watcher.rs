@@ -7,7 +7,9 @@ use std::{
 };
 
 use crate::{
-    auth::schema_issuer_registry_watcher::CredentialSchemaIssuerRegistry::IssuerSchemaRemoved,
+    auth::schema_issuer_registry_watcher::CredentialSchemaIssuerRegistry::{
+        CredentialSchemaIssuerRegistryInstance, IssuerSchemaRemoved,
+    },
     config::WatcherCacheConfig,
     metrics::{
         METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS,
@@ -25,6 +27,7 @@ use alloy::{
 use eyre::Context;
 use futures::StreamExt as _;
 use moka::future::Cache;
+use taceo_nodes_common::web3;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
@@ -54,15 +57,14 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
 #[derive(Clone)]
 pub(crate) struct SchemaIssuerRegistryWatcher {
     issuer_schema_store: Cache<u64, ()>,
-    provider: DynProvider, // do not drop provider while we want to stay subscribed
-    contract_address: Address,
+    contract: CredentialSchemaIssuerRegistryInstance<DynProvider>,
 }
 
 impl SchemaIssuerRegistryWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
-        provider: DynProvider,
+        rpc_provider: &web3::RpcProvider,
         cache_config: WatcherCacheConfig,
         maintenance_interval: Duration,
         started: Arc<AtomicBool>,
@@ -73,7 +75,7 @@ impl SchemaIssuerRegistryWatcher {
             .address(contract_address)
             .from_block(BlockNumberOrTag::Latest)
             .event_signature(IssuerSchemaRemoved::SIGNATURE_HASH);
-        let sub = provider.subscribe_logs(&filter).await?;
+        let sub = rpc_provider.subscriptions().subscribe_logs(&filter).await?;
         let mut stream = sub.into_stream();
 
         ::metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE).set(0.0);
@@ -147,8 +149,10 @@ impl SchemaIssuerRegistryWatcher {
         });
         let schema_issuer_registry = Self {
             issuer_schema_store,
-            provider: provider.erased(),
-            contract_address,
+            contract: CredentialSchemaIssuerRegistryInstance::new(
+                contract_address,
+                rpc_provider.http(),
+            ),
         };
         Ok((schema_issuer_registry, subscribe_task))
     }
@@ -175,8 +179,8 @@ impl SchemaIssuerRegistryWatcher {
         tracing::trace!(
             "issuer {issuer_schema_id} not found in store, querying CredentialSchemaIssuerRegistry..."
         );
-        let contract = CredentialSchemaIssuerRegistry::new(self.contract_address, &self.provider);
-        let signer = contract
+        let signer = self
+            .contract
             .getSignerForIssuerSchemaId(issuer_schema_id)
             .call()
             .await

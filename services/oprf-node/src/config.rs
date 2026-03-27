@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use alloy::primitives::Address;
-use secrecy::SecretString;
 use serde::Deserialize;
+use taceo_nodes_common::web3::{self, RpcProviderConfig};
 use taceo_oprf::service::{VersionReq, config::OprfNodeServiceConfig};
 
 /// The configuration for the OPRF node.
@@ -25,6 +25,10 @@ pub struct WorldOprfNodeConfig {
     /// The OPRF service config
     #[serde(rename = "oprf")]
     pub node_config: OprfNodeServiceConfig,
+
+    /// The blockchain RPC config
+    #[serde(rename = "rpc")]
+    pub rpc_provider_config: web3::RpcProviderConfig,
 
     /// Maximum size of the Merkle cache
     #[serde(default = "WorldOprfNodeConfig::default_max_merkle_cache_size")]
@@ -134,8 +138,8 @@ impl WorldOprfNodeConfig {
     pub fn with_default_values(
         environment: taceo_oprf::service::Environment,
         contracts: WorldIdNodeContracts,
-        chain_ws_rpc_url: SecretString,
         version_req: VersionReq,
+        rpc_provider_config: RpcProviderConfig,
     ) -> Self {
         let WorldIdNodeContracts {
             world_id_registry_contract,
@@ -147,13 +151,13 @@ impl WorldOprfNodeConfig {
             world_id_registry_contract,
             rp_registry_contract,
             credential_schema_issuer_registry_contract,
+            rpc_provider_config,
             max_merkle_cache_size: Self::default_max_merkle_cache_size(),
             current_time_stamp_max_difference: Self::default_current_time_stamp_max_difference(),
             cache_maintenance_interval: Self::default_cache_maintenance_interval(),
             node_config: OprfNodeServiceConfig::with_default_values(
                 environment,
                 oprf_key_registry_contract,
-                chain_ws_rpc_url,
                 version_req,
             ),
             rp_cache_config: WatcherCacheConfig::with_default_values(),
