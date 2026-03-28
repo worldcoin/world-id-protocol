@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   dispatch:
-    uses: worldcoin/mobile-bench-rs/.github/workflows/reusable-pr-auto.yml@v0.1.22
+    uses: worldcoin/mobile-bench-rs/.github/workflows/reusable-pr-auto.yml@2037c99e6b21fe05d57fc05991fbccd9b5b2c11a
     with:
       benchmark_workflow: .github/workflows/mobile-bench.yml
       compile_gate_workflow_name: "Compile Gate"

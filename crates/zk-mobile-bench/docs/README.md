@@ -7,7 +7,7 @@ Mobile benchmarks for World ID ZK proof generation using [mobench](https://githu
 Install mobench:
 
 ```bash
-cargo install mobench --version 0.1.23 --locked
+cargo install mobench --version 0.1.26 --locked
 ```
 
 Build and run locally:
@@ -31,6 +31,34 @@ cargo-mobench run \
   --release \
   --fetch
 ```
+
+BrowserStack runs remain the right path for timing and memory benchmarks.
+BrowserStack native profiling is unsupported in `mobench` `0.1.26`; use the
+local provider for native capture.
+
+Capture a local native profile:
+
+```bash
+cargo mobench profile run \
+  --target ios \
+  --provider local \
+  --backend ios-instruments \
+  --crate-path crates/zk-mobile-bench \
+  --function zk_mobile_bench::bench_nullifier_proving_only
+```
+
+Render a local markdown summary with per-function device comparison plots:
+
+```bash
+cargo mobench report summarize \
+  --summary target/mobench/ci/ios/summary.json \
+  --plots auto
+```
+
+`summary.md` uses `cpu_total_ms` and `peak_memory_kb` for canonical resource fields.
+CI summaries and PR comments can include inline `plots/*.svg` when plot rendering succeeds.
+Benchmark reports also preserve optional semantic `phases` emitted by
+`mobench_sdk::timing::profile_phase(...)`.
 
 ## CI Triggers
 

@@ -424,11 +424,20 @@ pub struct BenchSample {
     pub duration_ns: u64,
 }
 
+/// A semantic timing phase captured during a benchmark iteration.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, uniffi::Record)]
+pub struct SemanticPhase {
+    pub name: String,
+    pub duration_ns: u64,
+}
+
 /// Benchmark report with timing results
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, uniffi::Record)]
 pub struct BenchReport {
     pub spec: BenchSpec,
     pub samples: Vec<BenchSample>,
+    #[serde(default)]
+    pub phases: Vec<SemanticPhase>,
 }
 
 /// Error types for benchmark operations
@@ -443,6 +452,35 @@ pub enum BenchError {
 }
 
 uniffi::setup_scaffolding!();
+
+impl From<mobench_sdk::SemanticPhase> for SemanticPhase {
+    fn from(phase: mobench_sdk::SemanticPhase) -> Self {
+        Self {
+            name: phase.name,
+            duration_ns: phase.duration_ns,
+        }
+    }
+}
+
+impl From<mobench_sdk::RunnerReport> for BenchReport {
+    fn from(report: mobench_sdk::RunnerReport) -> Self {
+        Self {
+            spec: BenchSpec {
+                name: report.spec.name,
+                iterations: report.spec.iterations,
+                warmup: report.spec.warmup,
+            },
+            samples: report
+                .samples
+                .into_iter()
+                .map(|sample| BenchSample {
+                    duration_ns: sample.duration_ns,
+                })
+                .collect(),
+            phases: report.phases.into_iter().map(Into::into).collect(),
+        }
+    }
+}
 
 /// Run a benchmark by name
 #[uniffi::export]
@@ -462,21 +500,15 @@ pub fn run_benchmark(spec: BenchSpec) -> Result<BenchReport, BenchError> {
         },
     })?;
 
-    Ok(BenchReport {
-        spec,
-        samples: report
-            .samples
-            .into_iter()
-            .map(|s| BenchSample {
-                duration_ns: s.duration_ns,
-            })
-            .collect(),
-    })
+    let mut report = BenchReport::from(report);
+    report.spec = spec;
+    Ok(report)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
@@ -563,5 +595,29 @@ mod tests {
         let err = run_benchmark(spec).expect_err("unknown benchmark should fail");
 
         assert!(matches!(err, BenchError::UnknownFunction { name: err_name } if err_name == name));
+    }
+
+    #[test]
+    fn bench_report_json_round_trip_preserves_phases() {
+        let expected = json!({
+            "spec": {
+                "name": "zk_mobile_bench::bench_query_proof_generation",
+                "iterations": 1,
+                "warmup": 0
+            },
+            "samples": [
+                { "duration_ns": 123 }
+            ],
+            "phases": [
+                { "name": "prove", "duration_ns": 100 },
+                { "name": "serialize", "duration_ns": 23 }
+            ]
+        });
+
+        let report: BenchReport =
+            serde_json::from_value(expected.clone()).expect("deserialize benchmark report");
+        let actual = serde_json::to_value(report).expect("serialize benchmark report");
+
+        assert_eq!(actual["phases"], expected["phases"]);
     }
 }
