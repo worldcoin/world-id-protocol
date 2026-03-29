@@ -2,10 +2,10 @@ use reqwest::Client;
 use tokio::sync::watch;
 
 use crate::{
-    abi_decoder::prepare_decoder,
+    abi_decoder::prepare_contract,
     config::AppConfig,
     metrics,
-    subscription::{SubscriptionRuntime, run_subscription},
+    subscription::{ContractRuntime, run_contract_subscription},
 };
 
 pub async fn run(config: AppConfig) -> eyre::Result<()> {
@@ -14,38 +14,59 @@ pub async fn run(config: AppConfig) -> eyre::Result<()> {
         chain_id = config.chain_id,
         ws_rpc_url = config.ws_rpc_url,
         explorer_url = config.explorer.url,
-        subscription_count = config.subscriptions.len(),
+        contract_count = config.contracts.len(),
         "loaded watcher config"
     );
 
     let http = Client::builder().build()?;
     let mut runtimes = Vec::new();
-    for subscription in config.subscriptions.iter().cloned() {
+
+    for contract in config.contracts.iter().cloned() {
+        if !contract.enabled {
+            tracing::info!(
+                name = contract.name,
+                contract_address = %format!("{:#x}", contract.contract_address),
+                "contract disabled; skipping"
+            );
+            continue;
+        }
+
         tracing::info!(
-            contract_address = %format!("{:#x}", subscription.contract_address),
-            event_signature = subscription.event_signature,
-            "preparing subscription decoder"
+            name = contract.name,
+            contract_address = %format!("{:#x}", contract.contract_address),
+            event_names = ?contract.event_names,
+            "preparing contract decoder"
         );
-        let prepared = prepare_decoder(
+
+        let event_names_ref = contract.event_names.as_deref();
+        let prepared = prepare_contract(
             &http,
             &config.explorer,
             config.chain_id,
-            subscription.contract_address,
-            &subscription.event_signature,
+            contract.contract_address,
+            event_names_ref,
         )
         .await?;
+
+        let event_list: Vec<&str> = prepared
+            .decoders
+            .values()
+            .map(|d| d.event_name.as_str())
+            .collect();
         tracing::info!(
-            event_name = prepared.event_name,
+            name = contract.name,
             abi_address = %format!("{:#x}", prepared.abi_address),
-            topic0 = %format!("{:#x}", prepared.topic0),
-            "prepared subscription decoder"
+            event_count = prepared.decoders.len(),
+            events = ?event_list,
+            "prepared contract decoder"
         );
-        runtimes.push(SubscriptionRuntime {
+
+        runtimes.push(ContractRuntime {
             chain_name: config.chain_name.clone(),
             chain_id: config.chain_id,
             ws_rpc_url: config.ws_rpc_url.clone(),
             service: config.service.clone(),
-            subscription,
+            contract,
             prepared,
         });
     }
@@ -68,17 +89,17 @@ pub async fn run(config: AppConfig) -> eyre::Result<()> {
 }
 
 fn spawn_runner(
-    runtime: SubscriptionRuntime,
+    runtime: ContractRuntime,
     shutdown_rx: watch::Receiver<bool>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let event_name = runtime.prepared.event_name.clone();
+        let contract_name = runtime.contract.name.clone();
         loop {
-            match run_subscription(runtime.clone(), shutdown_rx.clone()).await {
+            match run_contract_subscription(runtime.clone(), shutdown_rx.clone()).await {
                 Ok(()) => break,
                 Err(error) => {
-                    metrics::increment_watcher_restart(&event_name);
-                    tracing::error!(event_name, error = ?error, "subscription task exited unexpectedly; restarting");
+                    metrics::increment_watcher_restart(&contract_name);
+                    tracing::error!(name = contract_name, error = ?error, "contract subscription task exited unexpectedly; restarting");
                 }
             }
         }

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use alloy::{
@@ -13,12 +14,20 @@ use thiserror::Error;
 
 use crate::{config::ExplorerConfig, util};
 
+/// All prepared event decoders for a single contract.
 #[derive(Clone)]
-pub struct PreparedSubscription {
+pub struct PreparedContract {
     pub runtime_address: Address,
     pub abi_address: Address,
-    pub event_signature: String,
+    /// Map from topic0 → decoder for each watched event.
+    pub decoders: HashMap<B256, PreparedEvent>,
+}
+
+/// A single event decoder, ready to decode logs for that event.
+#[derive(Clone)]
+pub struct PreparedEvent {
     pub event_name: String,
+    pub event_signature: String,
     pub topic0: B256,
     pub decoder: Arc<EventDecoder>,
 }
@@ -52,11 +61,10 @@ pub enum AbiDecoderError {
     InvalidImplementation { proxy: Address, value: String },
     #[error("failed to parse ABI for {address:#x}: {message}")]
     ParseAbi { address: Address, message: String },
-    #[error("event {event_signature} not found in ABI for {address:#x}")]
-    EventNotFound {
-        address: Address,
-        event_signature: String,
-    },
+    #[error("no events found in ABI for {address:#x}")]
+    NoEventsFound { address: Address },
+    #[error("no matching events after filter for {address:#x}")]
+    NoMatchingEvents { address: Address },
     #[error("failed to decode log for event {event_signature}: {message}")]
     Decode {
         event_signature: String,
@@ -120,34 +128,60 @@ impl EventDecoder {
     }
 }
 
-pub async fn prepare_decoder(
+/// Fetch the ABI for a contract and prepare decoders for all (or filtered)
+/// events.
+///
+/// If `event_names` is `Some`, only events whose `name` appears in the list
+/// are included. If `None`, all events in the ABI are included.
+pub async fn prepare_contract(
     client: &Client,
     explorer: &ExplorerConfig,
     chain_id: u64,
     contract_address: Address,
-    event_signature: &str,
-) -> Result<PreparedSubscription, AbiDecoderError> {
+    event_names: Option<&[String]>,
+) -> Result<PreparedContract, AbiDecoderError> {
     let abi_address = resolve_abi_address(client, explorer, chain_id, contract_address).await?;
     let abi = fetch_abi(client, explorer, chain_id, abi_address).await?;
-    let event = abi
-        .events()
-        .find(|event| event.signature() == event_signature)
-        .cloned()
-        .ok_or_else(|| AbiDecoderError::EventNotFound {
+
+    let all_events: Vec<Event> = abi.events().cloned().collect();
+    if all_events.is_empty() {
+        return Err(AbiDecoderError::NoEventsFound {
             address: abi_address,
-            event_signature: event_signature.to_owned(),
-        })?;
+        });
+    }
 
-    let topic0 = event.selector();
-    let event_name = event.name.clone();
+    let filtered: Vec<Event> = match event_names {
+        Some(names) if !names.is_empty() => all_events
+            .into_iter()
+            .filter(|e| names.contains(&e.name))
+            .collect(),
+        _ => all_events,
+    };
 
-    Ok(PreparedSubscription {
+    if filtered.is_empty() {
+        return Err(AbiDecoderError::NoMatchingEvents {
+            address: abi_address,
+        });
+    }
+
+    let mut decoders = HashMap::new();
+    for event in filtered {
+        let topic0 = event.selector();
+        let prepared = PreparedEvent {
+            event_name: event.name.clone(),
+            event_signature: event.signature(),
+            topic0,
+            decoder: Arc::new(EventDecoder {
+                event: event.clone(),
+            }),
+        };
+        decoders.insert(topic0, prepared);
+    }
+
+    Ok(PreparedContract {
         runtime_address: contract_address,
         abi_address,
-        event_signature: event_signature.to_owned(),
-        event_name,
-        topic0,
-        decoder: Arc::new(EventDecoder { event }),
+        decoders,
     })
 }
 

@@ -1,7 +1,11 @@
-[[subscriptions]]
+[[contracts]]
+name = "rp_registry"
 contract_address = "0x37d2462fE7B4a07987263AAd062C6593C4f567b9"
-event_signature = "RpRegistered(uint64,uint160,address,string)"
+# Optional: if omitted, ALL events are subscribed and logged
+# If present, only these event names are watched
+# event_names = ["RpRegistered", "RpUpdated"]
 
-[[subscriptions]]
+[[contracts]]
+name = "issuer_schema_registry"
 contract_address = "0x9037125Ae10e9E89fDbe7001228289462EFA3eF3"
-event_signature = "IssuerSchemaRegistered(uint64,(uint256,uint256),address,uint160)"
+# No event_names — subscribe to all events

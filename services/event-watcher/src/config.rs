@@ -17,7 +17,7 @@ pub struct AppConfig {
     pub ws_rpc_url: String,
     pub explorer: ExplorerConfig,
     pub service: ServiceConfig,
-    pub subscriptions: Vec<SubscriptionConfig>,
+    pub contracts: Vec<ContractConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -33,21 +33,30 @@ pub struct ServiceConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct SubscriptionConfig {
+pub struct ContractConfig {
+    pub name: String,
     pub contract_address: Address,
-    pub event_signature: String,
+    pub enabled: bool,
+    pub event_names: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct FileConfig {
     #[serde(default)]
-    subscriptions: Vec<RawSubscriptionConfig>,
+    contracts: Vec<RawContractConfig>,
 }
 
 #[derive(Debug, Deserialize)]
-struct RawSubscriptionConfig {
+struct RawContractConfig {
+    name: String,
     contract_address: String,
-    event_signature: String,
+    #[serde(default = "default_enabled")]
+    enabled: bool,
+    event_names: Option<Vec<String>>,
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 #[derive(Debug, Error)]
@@ -62,19 +71,16 @@ pub enum ConfigError {
     InvalidReconnectInitial(String),
     #[error("invalid WATCHER_RECONNECT_MAX_BACKOFF_MS: {0}")]
     InvalidReconnectMax(String),
-    #[error("duplicate event signature: {0}")]
-    DuplicateEventSignature(String),
-    #[error("subscription for {event_signature} has invalid contract address: {value}")]
-    InvalidSubscriptionAddress {
-        event_signature: String,
-        value: String,
-    },
-    #[error("subscription has empty event signature")]
-    EmptyEventSignature,
-    #[error("subscription for {0} has zero contract address")]
+    #[error("duplicate contract name: {0}")]
+    DuplicateContractName(String),
+    #[error("contract {name} has invalid contract address: {value}")]
+    InvalidContractAddress { name: String, value: String },
+    #[error("contract has empty name")]
+    EmptyContractName,
+    #[error("contract {0} has zero contract address")]
     ZeroContractAddress(String),
-    #[error("no subscriptions found in WATCHER_CONFIG")]
-    EmptySubscriptions,
+    #[error("no contracts found in WATCHER_CONFIG")]
+    EmptyContracts,
     #[error("WATCHER_RECONNECT_INITIAL_BACKOFF_MS must be <= WATCHER_RECONNECT_MAX_BACKOFF_MS")]
     InvalidReconnectRange,
 }
@@ -125,7 +131,7 @@ impl AppConfig {
         let config_path =
             env::var("WATCHER_CONFIG").map_err(|_| ConfigError::MissingEnv("WATCHER_CONFIG"))?;
         let file_config = load_file_config(&config_path)?;
-        let subscriptions = validate_subscriptions(file_config.subscriptions)?;
+        let contracts = validate_contracts(file_config.contracts)?;
 
         Ok(Self {
             chain_name,
@@ -136,7 +142,7 @@ impl AppConfig {
                 reconnect_initial_backoff_ms,
                 reconnect_max_backoff_ms,
             },
-            subscriptions,
+            contracts,
         })
     }
 }
@@ -172,39 +178,41 @@ fn expand_config_path(path: &str) -> PathBuf {
     }
 }
 
-fn validate_subscriptions(
-    raw_subscriptions: Vec<RawSubscriptionConfig>,
-) -> Result<Vec<SubscriptionConfig>, ConfigError> {
-    if raw_subscriptions.is_empty() {
-        return Err(ConfigError::EmptySubscriptions);
+fn validate_contracts(
+    raw_contracts: Vec<RawContractConfig>,
+) -> Result<Vec<ContractConfig>, ConfigError> {
+    if raw_contracts.is_empty() {
+        return Err(ConfigError::EmptyContracts);
     }
 
-    let mut seen_signatures = BTreeSet::new();
-    let mut subscriptions = Vec::with_capacity(raw_subscriptions.len());
+    let mut seen_names = BTreeSet::new();
+    let mut contracts = Vec::with_capacity(raw_contracts.len());
 
-    for raw in raw_subscriptions {
-        if raw.event_signature.trim().is_empty() {
-            return Err(ConfigError::EmptyEventSignature);
+    for raw in raw_contracts {
+        if raw.name.trim().is_empty() {
+            return Err(ConfigError::EmptyContractName);
         }
-        if !seen_signatures.insert(raw.event_signature.clone()) {
-            return Err(ConfigError::DuplicateEventSignature(raw.event_signature));
+        if !seen_names.insert(raw.name.clone()) {
+            return Err(ConfigError::DuplicateContractName(raw.name));
         }
 
         let address = Address::from_str(&raw.contract_address).map_err(|_| {
-            ConfigError::InvalidSubscriptionAddress {
-                event_signature: raw.event_signature.clone(),
+            ConfigError::InvalidContractAddress {
+                name: raw.name.clone(),
                 value: raw.contract_address.clone(),
             }
         })?;
         if address.is_zero() {
-            return Err(ConfigError::ZeroContractAddress(raw.event_signature));
+            return Err(ConfigError::ZeroContractAddress(raw.name));
         }
 
-        subscriptions.push(SubscriptionConfig {
+        contracts.push(ContractConfig {
+            name: raw.name,
             contract_address: address,
-            event_signature: raw.event_signature,
+            enabled: raw.enabled,
+            event_names: raw.event_names,
         });
     }
 
-    Ok(subscriptions)
+    Ok(contracts)
 }

@@ -8,9 +8,9 @@ use reqwest::Client;
 use tokio::sync::watch;
 
 use crate::{
-    abi_decoder::prepare_decoder,
-    config::{ExplorerConfig, ServiceConfig, SubscriptionConfig},
-    subscription::{SubscriptionRuntime, run_subscription},
+    abi_decoder::prepare_contract,
+    config::{ContractConfig, ExplorerConfig, ServiceConfig},
+    subscription::{ContractRuntime, run_contract_subscription},
 };
 
 // ── Minimal contract that emits `event Ping(uint256 value)` ─────────────
@@ -131,28 +131,30 @@ async fn test_watcher_receives_event() {
         .create_async()
         .await;
 
-    // 5. Prepare the subscription decoder via the mock explorer
+    // 5. Prepare the contract decoder via the mock explorer (no filter — all
+    //    events)
     let http_client = Client::builder().build().unwrap();
     let explorer = ExplorerConfig {
         url: server.url(),
         api_key: None,
     };
 
-    let event_signature = "Ping(uint256)";
-    let prepared = prepare_decoder(
+    let prepared = prepare_contract(
         &http_client,
         &explorer,
         anvil.chain_id(),
         contract_address,
-        event_signature,
+        None, // subscribe to all events
     )
     .await
-    .expect("failed to prepare decoder");
+    .expect("failed to prepare contract");
 
-    assert_eq!(prepared.event_name, "Ping");
+    assert_eq!(prepared.decoders.len(), 1);
+    let first_event = prepared.decoders.values().next().unwrap();
+    assert_eq!(first_event.event_name, "Ping");
 
     // 6. Build the runtime and spawn the subscription task
-    let runtime = SubscriptionRuntime {
+    let runtime = ContractRuntime {
         chain_name: "anvil-test".to_owned(),
         chain_id: anvil.chain_id(),
         ws_rpc_url: ws_url,
@@ -160,16 +162,18 @@ async fn test_watcher_receives_event() {
             reconnect_initial_backoff_ms: 100,
             reconnect_max_backoff_ms: 1000,
         },
-        subscription: SubscriptionConfig {
+        contract: ContractConfig {
+            name: "emitter".to_owned(),
             contract_address,
-            event_signature: event_signature.to_owned(),
+            enabled: true,
+            event_names: None,
         },
         prepared,
     };
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let handle = tokio::spawn(async move {
-        let _ = run_subscription(runtime, shutdown_rx).await;
+        let _ = run_contract_subscription(runtime, shutdown_rx).await;
     });
 
     // Give the subscription a moment to connect

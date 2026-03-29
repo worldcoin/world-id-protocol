@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
 use alloy::{
+    primitives::B256,
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
     rpc::types::Filter,
 };
@@ -10,31 +11,31 @@ use serde_json::{Map, Value};
 use tokio::sync::watch;
 
 use crate::{
-    abi_decoder::PreparedSubscription,
-    config::{ServiceConfig, SubscriptionConfig},
+    abi_decoder::PreparedContract,
+    config::{ContractConfig, ServiceConfig},
     metrics, util,
 };
 
 #[derive(Clone)]
-pub struct SubscriptionRuntime {
+pub struct ContractRuntime {
     pub chain_name: String,
     pub chain_id: u64,
     pub ws_rpc_url: String,
     pub service: ServiceConfig,
-    pub subscription: SubscriptionConfig,
-    pub prepared: PreparedSubscription,
+    pub contract: ContractConfig,
+    pub prepared: PreparedContract,
 }
 
-pub async fn run_subscription(
-    runtime: SubscriptionRuntime,
+pub async fn run_contract_subscription(
+    runtime: ContractRuntime,
     mut shutdown: watch::Receiver<bool>,
 ) -> eyre::Result<()> {
-    let event_name = runtime.prepared.event_name.clone();
+    let contract_name = runtime.contract.name.clone();
     let mut backoff = build_backoff(&runtime.service);
 
     loop {
         if *shutdown.borrow() {
-            tracing::info!(event_name, "subscription shutdown requested");
+            tracing::info!(contract_name, "subscription shutdown requested");
             return Ok(());
         }
 
@@ -42,9 +43,9 @@ pub async fn run_subscription(
             Ok(()) => return Ok(()),
             Err(error) => {
                 let reason = error.reason();
-                metrics::set_connected(&event_name, false);
-                metrics::set_subscription_uptime(&event_name, 0.0);
-                metrics::increment_reconnect(&event_name, reason);
+                metrics::set_connected(&contract_name, false);
+                metrics::set_subscription_uptime(&contract_name, 0.0);
+                metrics::increment_reconnect(&contract_name, reason);
 
                 // Fetch the next delay; `without_max_times()` means this
                 // iterator never returns `None`, but fall back defensively.
@@ -53,7 +54,7 @@ pub async fn run_subscription(
                 ));
 
                 tracing::warn!(
-                    event_name,
+                    contract_name,
                     reason,
                     backoff_ms = delay.as_millis() as u64,
                     error = ?error,
@@ -63,7 +64,7 @@ pub async fn run_subscription(
                 tokio::select! {
                     _ = shutdown.changed() => {
                         if *shutdown.borrow() {
-                            tracing::info!(event_name, "subscription shutdown requested");
+                            tracing::info!(contract_name, "subscription shutdown requested");
                             return Ok(());
                         }
                     }
@@ -84,19 +85,28 @@ fn build_backoff(service: &ServiceConfig) -> impl Backoff {
 }
 
 async fn connect_and_run(
-    runtime: &SubscriptionRuntime,
+    runtime: &ContractRuntime,
     shutdown: &mut watch::Receiver<bool>,
 ) -> Result<(), SubscriptionError> {
     let provider = connect_provider(&runtime.ws_rpc_url).await?;
-    let filter = Filter::new()
-        .address(runtime.subscription.contract_address)
-        .event_signature(runtime.prepared.topic0);
 
+    // Build the multi-topic0 filter for this contract.
+    let topic0s: Vec<B256> = runtime.prepared.decoders.keys().copied().collect();
+    let filter = Filter::new()
+        .address(runtime.contract.contract_address)
+        .event_signature(topic0s.clone());
+
+    let event_names: Vec<&str> = runtime
+        .prepared
+        .decoders
+        .values()
+        .map(|d| d.event_name.as_str())
+        .collect();
     tracing::info!(
-        event_name = runtime.prepared.event_name,
-        contract_address = %format!("{:#x}", runtime.subscription.contract_address),
-        event_signature = runtime.subscription.event_signature,
-        topic0 = %format!("{:#x}", runtime.prepared.topic0),
+        contract_name = runtime.contract.name,
+        contract_address = %format!("{:#x}", runtime.contract.contract_address),
+        event_count = runtime.prepared.decoders.len(),
+        events = ?event_names,
         "subscription established"
     );
 
@@ -105,17 +115,16 @@ async fn connect_and_run(
         .await
         .map_err(|e| SubscriptionError::Subscribe(e.to_string()))?;
     let started_at = Instant::now();
-    metrics::set_connected(&runtime.prepared.event_name, true);
-    metrics::set_subscription_uptime(&runtime.prepared.event_name, 0.0);
+    metrics::set_connected(&runtime.contract.name, true);
+    metrics::set_subscription_uptime(&runtime.contract.name, 0.0);
 
     let mut stream = sub.into_stream();
-    let uptime_event_name = runtime.prepared.event_name.clone();
 
     loop {
         tokio::select! {
             _ = shutdown.changed() => {
                 if *shutdown.borrow() {
-                    metrics::set_connected(&runtime.prepared.event_name, false);
+                    metrics::set_connected(&runtime.contract.name, false);
                     return Ok(());
                 }
             }
@@ -124,20 +133,56 @@ async fn connect_and_run(
                     return Err(SubscriptionError::StreamClosed);
                 };
 
-                metrics::set_subscription_uptime(&uptime_event_name, started_at.elapsed().as_secs_f64());
+                metrics::set_subscription_uptime(
+                    &runtime.contract.name,
+                    started_at.elapsed().as_secs_f64(),
+                );
 
                 if log.removed {
-                    metrics::increment_events_dropped_removed(&runtime.prepared.event_name);
-                    tracing::warn!(event_name = runtime.prepared.event_name, tx_hash = ?log.transaction_hash, log_index = ?log.log_index, "removed log ignored");
+                    metrics::increment_events_dropped_removed(&runtime.contract.name);
+                    tracing::warn!(
+                        contract_name = runtime.contract.name,
+                        tx_hash = ?log.transaction_hash,
+                        log_index = ?log.log_index,
+                        "removed log ignored"
+                    );
                     continue;
                 }
 
-                let fields = match runtime.prepared.decoder.decode_log(&log) {
+                // Match topic0 to find the right decoder.
+                let topic0 = log
+                    .topic0()
+                    .copied();
+
+                let Some(topic0) = topic0 else {
+                    tracing::warn!(
+                        contract_name = runtime.contract.name,
+                        tx_hash = ?log.transaction_hash,
+                        "log has no topic0; skipping"
+                    );
+                    continue;
+                };
+
+                let Some(prepared_event) = runtime.prepared.decoders.get(&topic0) else {
+                    tracing::warn!(
+                        contract_name = runtime.contract.name,
+                        topic0 = %format!("{topic0:#x}"),
+                        tx_hash = ?log.transaction_hash,
+                        "no decoder for topic0; skipping"
+                    );
+                    continue;
+                };
+
+                let fields = match prepared_event.decoder.decode_log(&log) {
                     Ok(f) => f,
                     Err(e) => {
-                        metrics::increment_decode_error(&runtime.prepared.event_name);
+                        metrics::increment_decode_error(
+                            &runtime.contract.name,
+                            &prepared_event.event_name,
+                        );
                         tracing::warn!(
-                            event_name = runtime.prepared.event_name,
+                            contract_name = runtime.contract.name,
+                            event_name = prepared_event.event_name,
                             error = ?e,
                             tx_hash = ?log.transaction_hash,
                             "failed to decode log; skipping"
@@ -145,31 +190,42 @@ async fn connect_and_run(
                         continue;
                     }
                 };
-                emit_event_log(runtime, &log, fields);
+
+                emit_event_log(runtime, prepared_event, &log, fields);
+
                 if let Some(block_number) = log.block_number {
-                    metrics::set_last_event_block(&runtime.prepared.event_name, block_number);
+                    metrics::set_last_event_block(
+                        &runtime.contract.name,
+                        &prepared_event.event_name,
+                        block_number,
+                    );
                 }
-                metrics::increment_events_emitted(&runtime.prepared.event_name);
+                metrics::increment_events_emitted(
+                    &runtime.contract.name,
+                    &prepared_event.event_name,
+                );
             }
         }
     }
 }
 
-fn emit_event_log(runtime: &SubscriptionRuntime, log: &alloy::rpc::types::Log, fields: Value) {
+fn emit_event_log(
+    runtime: &ContractRuntime,
+    prepared_event: &crate::abi_decoder::PreparedEvent,
+    log: &alloy::rpc::types::Log,
+    fields: Value,
+) {
     let mut event = Map::new();
     util::insert_string(&mut event, "message", "observed on-chain event");
     util::insert_string(&mut event, "service", "world-id-event-watcher");
     util::insert_string(&mut event, "chain_name", runtime.chain_name.clone());
     util::insert_u64(&mut event, "chain_id", runtime.chain_id);
-    util::insert_string(
-        &mut event,
-        "event_name",
-        runtime.prepared.event_name.clone(),
-    );
+    util::insert_string(&mut event, "name", runtime.contract.name.clone());
+    util::insert_string(&mut event, "event_name", prepared_event.event_name.clone());
     util::insert_string(
         &mut event,
         "contract_address",
-        format!("{:#x}", runtime.subscription.contract_address),
+        format!("{:#x}", runtime.contract.contract_address),
     );
     util::insert_string(
         &mut event,
@@ -179,7 +235,7 @@ fn emit_event_log(runtime: &SubscriptionRuntime, log: &alloy::rpc::types::Log, f
     util::insert_string(
         &mut event,
         "event_signature",
-        runtime.subscription.event_signature.clone(),
+        prepared_event.event_signature.clone(),
     );
     if let Some(block_number) = log.block_number {
         util::insert_u64(&mut event, "block_number", block_number);
