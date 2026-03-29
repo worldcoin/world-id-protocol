@@ -4,11 +4,9 @@ use std::{
 };
 
 use alloy::{node_bindings::Anvil, primitives::U256, providers::ProviderBuilder, sol};
-use reqwest::Client;
 use tokio::sync::watch;
 
 use crate::{
-    abi_decoder::prepare_contract,
     config::{ContractConfig, ExplorerConfig, ServiceConfig},
     subscription::{ContractRuntime, run_contract_subscription},
 };
@@ -16,7 +14,7 @@ use crate::{
 // ── Minimal contract that emits `event Ping(uint256 value)` ─────────────
 
 sol! {
-    #[sol(rpc, bytecode = "6080604052348015600e575f5ffd5b5061012c8061001c5f395ff3fe6080604052348015600e575f5ffd5b50600436106026575f3560e01c806329f51a9314602a575b5f5ffd5b60406004803603810190603c919060ac565b6042565b005b7f48257dc961b6f792c2b78a080dacfed693b660960a702de21cee364e20270e2f81604051606f919060df565b60405180910390a150565b5f5ffd5b5f819050919050565b608e81607e565b81146097575f5ffd5b50565b5f8135905060a6816087565b92915050565b5f6020828403121560be5760bd607a565b5b5f60c984828501609a565b91505092915050565b60d981607e565b82525050565b5f60208201905060f05f83018460d2565b9291505056fea2646970667358221220497a2328bccda4ff6ce16717f97778257312322fb03b36ac6155411cf5cafe7764736f6c634300081e0033")]
+    #[sol(rpc, bytecode = "6080604052348015600e575f5ffd5b5061012c8061001c5f395ff3fe6080604052348015600e575f5ffd5b50600436106026575f3560e01c806329f51a9314602a575b5f5ffd5b60406004803603810190603c919060ac565b6042565b005b7f48257dc961b6f792c2b78a080dacfed693b660960a702de21cee364e20270e2f81604051606f919060df565b60405180910390a150565b5f5ffd5b5f819050919050565b608e81607e565b81146097575f5ffd5b50565b5f8135905060a6816087565b92915050565b5f6020828403121560be5760bd607a565b5f60c984828501609a565b91505092915050565b60d981607e565b82525050565b5f60208201905060f05f83018460d2565b9291505056fea2646970667358221220497a2328bccda4ff6ce16717f97778257312322fb03b36ac6155411cf5cafe7764736f6c634300081e0033")]
     contract Emitter {
         event Ping(uint256 value);
 
@@ -131,33 +129,17 @@ async fn test_watcher_receives_event() {
         .create_async()
         .await;
 
-    // 5. Prepare the contract decoder via the mock explorer (no filter — all
-    //    events)
-    let http_client = Client::builder().build().unwrap();
+    // 5. Build the runtime — ABI is now fetched lazily by the task.
     let explorer = ExplorerConfig {
         url: server.url(),
         api_key: None,
     };
 
-    let prepared = prepare_contract(
-        &http_client,
-        &explorer,
-        anvil.chain_id(),
-        contract_address,
-        None, // subscribe to all events
-    )
-    .await
-    .expect("failed to prepare contract");
-
-    assert_eq!(prepared.decoders.len(), 1);
-    let first_event = prepared.decoders.values().next().unwrap();
-    assert_eq!(first_event.event_name, "Ping");
-
-    // 6. Build the runtime and spawn the subscription task
     let runtime = ContractRuntime {
         chain_name: "anvil-test".to_owned(),
         chain_id: anvil.chain_id(),
         ws_rpc_url: ws_url,
+        explorer,
         service: ServiceConfig {
             reconnect_initial_backoff_ms: 100,
             reconnect_max_backoff_ms: 1000,
@@ -168,7 +150,6 @@ async fn test_watcher_receives_event() {
             enabled: true,
             event_names: None,
         },
-        prepared,
     };
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -176,10 +157,10 @@ async fn test_watcher_receives_event() {
         let _ = run_contract_subscription(runtime, shutdown_rx).await;
     });
 
-    // Give the subscription a moment to connect
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    // Give the subscription a moment to connect and fetch the ABI
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
-    // 7. Emit the event: call emitPing(42)
+    // 6. Emit the event: call emitPing(42)
     contract
         .emitPing(U256::from(42))
         .send()
@@ -189,7 +170,7 @@ async fn test_watcher_receives_event() {
         .await
         .expect("tx failed");
 
-    // 8. Wait for the watcher to log the event
+    // 7. Wait for the watcher to log the event
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     let mut found = false;
     while tokio::time::Instant::now() < deadline {
@@ -209,7 +190,7 @@ async fn test_watcher_receives_event() {
         "watcher did not emit the expected event log within 10s"
     );
 
-    // 9. Shutdown
+    // 8. Shutdown
     let _ = shutdown_tx.send(true);
     let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
 }

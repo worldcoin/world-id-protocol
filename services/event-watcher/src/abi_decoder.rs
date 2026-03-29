@@ -7,7 +7,6 @@ use alloy::{
     primitives::{Address, B256},
     rpc::types::Log,
 };
-use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use thiserror::Error;
@@ -128,13 +127,17 @@ impl EventDecoder {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 /// Fetch the ABI for a contract and prepare decoders for all (or filtered)
 /// events.
 ///
 /// If `event_names` is `Some`, only events whose `name` appears in the list
 /// are included. If `None`, all events in the ABI are included.
 pub async fn prepare_contract(
-    client: &Client,
+    client: &reqwest::Client,
     explorer: &ExplorerConfig,
     chain_id: u64,
     contract_address: Address,
@@ -201,8 +204,12 @@ pub async fn prepare_contract(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
 async fn resolve_abi_address(
-    client: &Client,
+    client: &reqwest::Client,
     explorer: &ExplorerConfig,
     chain_id: u64,
     address: Address,
@@ -243,7 +250,7 @@ async fn resolve_abi_address(
 }
 
 async fn fetch_abi(
-    client: &Client,
+    client: &reqwest::Client,
     explorer: &ExplorerConfig,
     chain_id: u64,
     address: Address,
@@ -272,8 +279,9 @@ enum ExplorerCallError {
     Parse(String),
 }
 
+/// Perform a single Explorer API call.
 async fn call_explorer<T: for<'de> Deserialize<'de>>(
-    client: &Client,
+    client: &reqwest::Client,
     explorer: &ExplorerConfig,
     chain_id: u64,
     address: Address,
@@ -289,27 +297,40 @@ async fn call_explorer<T: for<'de> Deserialize<'de>>(
         params.push(("apikey", api_key.clone()));
     }
 
-    let res = client.get(&explorer.url).query(&params).send().await?;
-    let status = res.status();
-    let body = res.text().await?;
-    if !status.is_success() {
+    let response = client
+        .get(&explorer.url)
+        .query(&params)
+        .send()
+        .await
+        .map_err(ExplorerCallError::Transport)?;
+
+    let http_status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(ExplorerCallError::Transport)?;
+
+    if !http_status.is_success() {
         return Err(ExplorerCallError::Explorer(format!(
-            "http status {status}: {body}"
+            "http status {http_status}: {body}"
         )));
     }
 
-    let response: ExplorerResponse<T> = serde_json::from_str(&body).map_err(|e| {
+    let raw: ExplorerResponse<Value> = serde_json::from_str(&body).map_err(|e| {
         ExplorerCallError::Parse(format!("invalid explorer JSON: {e}; body={body}"))
     })?;
 
-    if response.status != "1" {
+    if raw.status != "1" {
         return Err(ExplorerCallError::Explorer(format!(
             "status={} message={}",
-            response.status, response.message,
+            raw.status, raw.message,
         )));
     }
 
-    Ok(response.result)
+    let result: T = serde_json::from_value(raw.result).map_err(|e| {
+        ExplorerCallError::Parse(format!("failed to deserialise explorer result: {e}"))
+    })?;
+    Ok(result)
 }
 
 fn dyn_value_to_json(value: &DynSolValue) -> Value {

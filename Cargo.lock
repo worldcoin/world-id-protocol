@@ -9680,6 +9680,7 @@ dependencies = [
  "metrics",
  "mockito",
  "reqwest",
+ "rustls 0.23.36",
  "serde",
  "serde_json",
  "telemetry-batteries 0.2.1",
