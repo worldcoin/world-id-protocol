@@ -141,7 +141,23 @@ pub async fn prepare_contract(
     event_names: Option<&[String]>,
 ) -> Result<PreparedContract, AbiDecoderError> {
     let abi_address = resolve_abi_address(client, explorer, chain_id, contract_address).await?;
-    let abi = fetch_abi(client, explorer, chain_id, abi_address).await?;
+
+    // Try the resolved (implementation) address first; if it returns NOTOK fall
+    // back to the original proxy address, since some Etherscan-compatible APIs
+    // return the implementation ABI when queried on the proxy directly.
+    let abi = match fetch_abi(client, explorer, chain_id, abi_address).await {
+        Ok(abi) => abi,
+        Err(err) if abi_address != contract_address => {
+            tracing::warn!(
+                implementation = %abi_address,
+                proxy = %contract_address,
+                error = %err,
+                "getabi failed for implementation address, falling back to proxy address"
+            );
+            fetch_abi(client, explorer, chain_id, contract_address).await?
+        }
+        Err(err) => return Err(err),
+    };
 
     let all_events: Vec<Event> = abi.events().cloned().collect();
     if all_events.is_empty() {

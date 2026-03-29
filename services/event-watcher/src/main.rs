@@ -2,6 +2,8 @@ use std::path::Path;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
     let _ = dotenvy::from_path(&env_path);
 

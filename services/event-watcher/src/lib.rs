@@ -2,6 +2,7 @@
 
 use clap as _;
 use dotenvy as _;
+use rustls as _;
 use telemetry_batteries as _;
 use tracing_subscriber as _;
 
