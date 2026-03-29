@@ -1,6 +1,11 @@
+use std::time::Duration;
+
+use backon::BackoffBuilder;
+use backon::ExponentialBuilder;
 use tokio::sync::watch;
 
 use crate::{
+    abi_decoder::PreparedContract,
     config::AppConfig,
     metrics,
     subscription::{ContractRuntime, run_contract_subscription},
@@ -65,12 +70,41 @@ fn spawn_runner(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let contract_name = runtime.contract.name.clone();
+
+        let mut backoff = ExponentialBuilder::default()
+            .with_min_delay(Duration::from_millis(
+                runtime.service.reconnect_initial_backoff_ms,
+            ))
+            .with_max_delay(Duration::from_millis(
+                runtime.service.reconnect_max_backoff_ms,
+            ))
+            .with_jitter()
+            .without_max_times()
+            .build();
+
+        // Persisted across retries: ABI is not re-fetched once successfully cached.
+        let mut prepared: Option<PreparedContract> = None;
+
         loop {
-            match run_contract_subscription(runtime.clone(), shutdown_rx.clone()).await {
-                Ok(()) => break,
-                Err(error) => {
-                    metrics::increment_watcher_restart(&contract_name);
-                    tracing::error!(name = contract_name, error = ?error, "contract subscription task exited unexpectedly; restarting");
+            match run_contract_subscription(&runtime, &mut prepared, shutdown_rx.clone()).await {
+                Ok(()) => break, // clean shutdown
+                Err(e) => {
+                    let reason = e.reason();
+                    metrics::set_connected(&contract_name, false);
+                    metrics::set_subscription_uptime(&contract_name, 0.0);
+                    metrics::increment_reconnect(&contract_name, reason);
+
+                    tracing::warn!(
+                        name = contract_name,
+                        reason,
+                        error = ?e,
+                        "subscription attempt failed; will retry"
+                    );
+
+                    if let Some(delay) = backoff.next() {
+                        tokio::time::sleep(delay).await;
+                    }
+                    // Loop again — `prepared` is preserved if ABI was already fetched.
                 }
             }
         }

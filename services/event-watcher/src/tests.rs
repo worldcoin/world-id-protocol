@@ -158,7 +158,8 @@ async fn test_watcher_receives_event() {
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let handle = tokio::spawn(async move {
-        let _ = run_contract_subscription(runtime, shutdown_rx).await;
+        let mut prepared = None;
+        let _ = run_contract_subscription(&runtime, &mut prepared, shutdown_rx).await;
     });
 
     // Give the subscription a moment to connect and fetch the ABI

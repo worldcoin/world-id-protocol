@@ -1,11 +1,10 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use alloy::{
     primitives::B256,
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
     rpc::types::Filter,
 };
-use backon::{Backoff, BackoffBuilder, ExponentialBuilder};
 use futures_util::StreamExt;
 use serde_json::{Map, Value};
 use tokio::sync::watch;
@@ -26,141 +25,68 @@ pub struct ContractRuntime {
     pub contract: ContractConfig,
 }
 
+/// Single-shot attempt: fetch ABI if not cached → connect WS → subscribe → stream events.
+///
+/// Returns `Ok(())` on clean shutdown, `Err` on any failure. The caller owns the retry
+/// loop and the `prepared` cache — passing `&mut Option<PreparedContract>` lets a
+/// successfully-fetched ABI survive across retries without being re-fetched.
 pub async fn run_contract_subscription(
-    runtime: ContractRuntime,
-    mut shutdown: watch::Receiver<bool>,
-) -> eyre::Result<()> {
-    let contract_name = runtime.contract.name.clone();
-    let mut backoff = build_backoff(&runtime.service);
-
-    // Lazily fetched and cached across reconnect iterations.
-    let mut prepared: Option<PreparedContract> = None;
-
-    loop {
-        if *shutdown.borrow() {
-            tracing::info!(contract_name, "subscription shutdown requested");
-            return Ok(());
-        }
-
-        // 1. Fetch ABI if not already cached.
-        if prepared.is_none() {
-            let http = reqwest::Client::new();
-            let event_names_ref = runtime.contract.event_names.as_deref();
-
-            match abi_decoder::prepare_contract(
-                &http,
-                &runtime.explorer,
-                runtime.chain_id,
-                runtime.contract.contract_address,
-                event_names_ref,
-            )
-            .await
-            {
-                Ok(p) => {
-                    let event_list: Vec<&str> =
-                        p.decoders.values().map(|d| d.event_name.as_str()).collect();
-                    tracing::info!(
-                        contract_name,
-                        abi_address = %format!("{:#x}", p.abi_address),
-                        event_count = p.decoders.len(),
-                        events = ?event_list,
-                        "prepared contract decoder"
-                    );
-                    prepared = Some(p);
-                }
-                Err(e) => {
-                    let delay = backoff.next().unwrap_or(Duration::from_millis(
-                        runtime.service.reconnect_max_backoff_ms,
-                    ));
-                    tracing::warn!(
-                        contract_name,
-                        backoff_ms = delay.as_millis() as u64,
-                        error = ?e,
-                        "ABI fetch failed; retrying"
-                    );
-
-                    tokio::select! {
-                        _ = shutdown.changed() => {
-                            if *shutdown.borrow() {
-                                tracing::info!(contract_name, "subscription shutdown requested");
-                                return Ok(());
-                            }
-                        }
-                        _ = tokio::time::sleep(delay) => {}
-                    }
-                    continue;
-                }
-            }
-        }
-        let cached = prepared.as_ref().unwrap();
-
-        // 2. Open WS subscription, stream events.
-        match connect_and_run(&runtime, cached, &mut shutdown).await {
-            Ok(()) => return Ok(()),
-            Err(error) => {
-                let reason = error.reason();
-                metrics::set_connected(&contract_name, false);
-                metrics::set_subscription_uptime(&contract_name, 0.0);
-                metrics::increment_reconnect(&contract_name, reason);
-
-                let delay = backoff.next().unwrap_or(Duration::from_millis(
-                    runtime.service.reconnect_max_backoff_ms,
-                ));
-
-                tracing::warn!(
-                    contract_name,
-                    reason,
-                    backoff_ms = delay.as_millis() as u64,
-                    error = ?error,
-                    "subscription loop failed; reconnecting"
-                );
-
-                // Don't clear `prepared` — keep the ABI cached.
-                tokio::select! {
-                    _ = shutdown.changed() => {
-                        if *shutdown.borrow() {
-                            tracing::info!(contract_name, "subscription shutdown requested");
-                            return Ok(());
-                        }
-                    }
-                    _ = tokio::time::sleep(delay) => {}
-                }
-            }
-        }
-    }
-}
-
-fn build_backoff(service: &ServiceConfig) -> impl Backoff {
-    ExponentialBuilder::default()
-        .with_min_delay(Duration::from_millis(service.reconnect_initial_backoff_ms))
-        .with_max_delay(Duration::from_millis(service.reconnect_max_backoff_ms))
-        .with_jitter()
-        .without_max_times()
-        .build()
-}
-
-async fn connect_and_run(
     runtime: &ContractRuntime,
-    prepared: &PreparedContract,
-    shutdown: &mut watch::Receiver<bool>,
+    prepared: &mut Option<PreparedContract>,
+    mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), SubscriptionError> {
+    let contract_name = &runtime.contract.name;
+
+    if *shutdown.borrow() {
+        tracing::info!(contract_name, "subscription shutdown requested");
+        return Ok(());
+    }
+
+    // 1. Fetch ABI if not already cached.
+    if prepared.is_none() {
+        let http = reqwest::Client::new();
+        let event_names_ref = runtime.contract.event_names.as_deref();
+
+        let p = abi_decoder::prepare_contract(
+            &http,
+            &runtime.explorer,
+            runtime.chain_id,
+            runtime.contract.contract_address,
+            event_names_ref,
+        )
+        .await
+        .map_err(|e| SubscriptionError::AbiFetch(e.to_string()))?;
+
+        let event_list: Vec<&str> = p.decoders.values().map(|d| d.event_name.as_str()).collect();
+        tracing::info!(
+            contract_name,
+            abi_address = %format!("{:#x}", p.abi_address),
+            event_count = p.decoders.len(),
+            events = ?event_list,
+            "prepared contract decoder"
+        );
+        *prepared = Some(p);
+    }
+    let cached = prepared.as_ref().unwrap();
+
+    // 2. Connect WS provider.
     let provider = connect_provider(&runtime.ws_rpc_url).await?;
 
-    // Build the multi-topic0 filter for this contract.
-    let topic0s: Vec<B256> = prepared.decoders.keys().copied().collect();
+    // 3. Subscribe to logs.
+    let topic0s: Vec<B256> = cached.decoders.keys().copied().collect();
     let filter = Filter::new()
         .address(runtime.contract.contract_address)
-        .event_signature(topic0s.clone());
+        .event_signature(topic0s);
 
-    let event_names: Vec<&str> = prepared
+    let event_names: Vec<&str> = cached
         .decoders
         .values()
         .map(|d| d.event_name.as_str())
         .collect();
     tracing::info!(
-        contract_name = runtime.contract.name,
+        contract_name,
         contract_address = %format!("{:#x}", runtime.contract.contract_address),
-        event_count = prepared.decoders.len(),
+        event_count = cached.decoders.len(),
         events = ?event_names,
         "subscription established"
     );
@@ -170,16 +96,18 @@ async fn connect_and_run(
         .await
         .map_err(|e| SubscriptionError::Subscribe(e.to_string()))?;
     let started_at = Instant::now();
-    metrics::set_connected(&runtime.contract.name, true);
-    metrics::set_subscription_uptime(&runtime.contract.name, 0.0);
+    metrics::set_connected(contract_name, true);
+    metrics::set_subscription_uptime(contract_name, 0.0);
 
+    // 4. Stream events until stream closes or shutdown signal.
     let mut stream = sub.into_stream();
 
     loop {
         tokio::select! {
             _ = shutdown.changed() => {
                 if *shutdown.borrow() {
-                    metrics::set_connected(&runtime.contract.name, false);
+                    metrics::set_connected(contract_name, false);
+                    tracing::info!(contract_name, "subscription shutdown requested");
                     return Ok(());
                 }
             }
@@ -189,14 +117,14 @@ async fn connect_and_run(
                 };
 
                 metrics::set_subscription_uptime(
-                    &runtime.contract.name,
+                    contract_name,
                     started_at.elapsed().as_secs_f64(),
                 );
 
                 if log.removed {
-                    metrics::increment_events_dropped_removed(&runtime.contract.name);
+                    metrics::increment_events_dropped_removed(contract_name);
                     tracing::warn!(
-                        contract_name = runtime.contract.name,
+                        contract_name,
                         tx_hash = ?log.transaction_hash,
                         log_index = ?log.log_index,
                         "removed log ignored"
@@ -205,22 +133,20 @@ async fn connect_and_run(
                 }
 
                 // Match topic0 to find the right decoder.
-                let topic0 = log
-                    .topic0()
-                    .copied();
+                let topic0 = log.topic0().copied();
 
                 let Some(topic0) = topic0 else {
                     tracing::warn!(
-                        contract_name = runtime.contract.name,
+                        contract_name,
                         tx_hash = ?log.transaction_hash,
                         "log has no topic0; skipping"
                     );
                     continue;
                 };
 
-                let Some(prepared_event) = prepared.decoders.get(&topic0) else {
+                let Some(prepared_event) = cached.decoders.get(&topic0) else {
                     tracing::warn!(
-                        contract_name = runtime.contract.name,
+                        contract_name,
                         topic0 = %format!("{topic0:#x}"),
                         tx_hash = ?log.transaction_hash,
                         "no decoder for topic0; skipping"
@@ -231,12 +157,9 @@ async fn connect_and_run(
                 let fields = match prepared_event.decoder.decode_log(&log) {
                     Ok(f) => f,
                     Err(e) => {
-                        metrics::increment_decode_error(
-                            &runtime.contract.name,
-                            &prepared_event.event_name,
-                        );
+                        metrics::increment_decode_error(contract_name, &prepared_event.event_name);
                         tracing::warn!(
-                            contract_name = runtime.contract.name,
+                            contract_name,
                             event_name = prepared_event.event_name,
                             error = ?e,
                             tx_hash = ?log.transaction_hash,
@@ -246,19 +169,16 @@ async fn connect_and_run(
                     }
                 };
 
-                emit_event_log(runtime, prepared, prepared_event, &log, fields);
+                emit_event_log(runtime, cached, prepared_event, &log, fields);
 
                 if let Some(block_number) = log.block_number {
                     metrics::set_last_event_block(
-                        &runtime.contract.name,
+                        contract_name,
                         &prepared_event.event_name,
                         block_number,
                     );
                 }
-                metrics::increment_events_emitted(
-                    &runtime.contract.name,
-                    &prepared_event.event_name,
-                );
+                metrics::increment_events_emitted(contract_name, &prepared_event.event_name);
             }
         }
     }
@@ -325,6 +245,8 @@ async fn connect_provider(url: &str) -> Result<DynProvider, SubscriptionError> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SubscriptionError {
+    #[error("failed to fetch ABI: {0}")]
+    AbiFetch(String),
     #[error("failed to connect websocket provider to {url}: {error}")]
     Connect { url: String, error: String },
     #[error("failed to subscribe to logs: {0}")]
@@ -336,6 +258,7 @@ pub enum SubscriptionError {
 impl SubscriptionError {
     pub const fn reason(&self) -> &'static str {
         match self {
+            Self::AbiFetch(_) => "abi_fetch_failed",
             Self::Connect { .. } => "connect_failed",
             Self::Subscribe(_) => "subscribe_failed",
             Self::StreamClosed => "stream_closed",
