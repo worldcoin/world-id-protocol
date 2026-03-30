@@ -6,13 +6,13 @@ use alloy::{
     rpc::types::Filter,
 };
 use futures_util::StreamExt;
-use serde_json::{Map, Value};
+use serde_json::Value as JsonValue;
 use tokio::sync::watch;
 
 use crate::{
     abi_decoder::{self, PreparedContract},
     config::{ContractConfig, ExplorerConfig, ServiceConfig},
-    metrics, util,
+    metrics,
 };
 
 #[derive(Clone)]
@@ -166,7 +166,18 @@ fn handle_log(
     };
 
     let fields = match prepared_event.decoder.decode_log(&log) {
-        Ok(f) => f,
+        Ok(JsonValue::Object(fields)) => fields,
+        Ok(other) => {
+            metrics::increment_decode_error(contract_name, &prepared_event.event_name);
+            tracing::warn!(
+                contract_name,
+                event_name = prepared_event.event_name,
+                decoded = %other,
+                tx_hash = ?log.transaction_hash,
+                "decoded log fields were not an object; skipping"
+            );
+            return;
+        }
         Err(e) => {
             metrics::increment_decode_error(contract_name, &prepared_event.event_name);
             tracing::warn!(
@@ -193,44 +204,24 @@ fn emit_event_log(
     prepared: &PreparedContract,
     prepared_event: &crate::abi_decoder::PreparedEvent,
     log: &alloy::rpc::types::Log,
-    fields: Value,
+    fields: serde_json::Map<String, JsonValue>,
 ) {
-    let mut event = Map::new();
-    util::insert_string(&mut event, "chain_name", runtime.chain_name.clone());
-    util::insert_u64(&mut event, "chain_id", runtime.chain_id);
-    util::insert_string(&mut event, "name", runtime.contract.name.clone());
-    util::insert_string(&mut event, "event_name", prepared_event.event_name.clone());
-    util::insert_string(
-        &mut event,
-        "contract_address",
-        format!("{:#x}", runtime.contract.contract_address),
+    tracing::info!(
+        message = "observed on-chain event",
+        chain_name = runtime.chain_name,
+        chain_id = runtime.chain_id,
+        name = runtime.contract.name,
+        contract_address = %format!("{:#x}", runtime.contract.contract_address),
+        abi_address = %format!("{:#x}", prepared.abi_address),
+        event_name = prepared_event.event_name,
+        event_signature = prepared_event.event_signature,
+        block_number = ?log.block_number,
+        block_hash = ?log.block_hash,
+        tx_hash = ?log.transaction_hash,
+        log_index = ?log.log_index,
+        fields = %JsonValue::Object(fields),
+        "observed on-chain event"
     );
-    util::insert_string(
-        &mut event,
-        "abi_address",
-        format!("{:#x}", prepared.abi_address),
-    );
-    util::insert_string(
-        &mut event,
-        "event_signature",
-        prepared_event.event_signature.clone(),
-    );
-    if let Some(block_number) = log.block_number {
-        util::insert_u64(&mut event, "block_number", block_number);
-    }
-    if let Some(block_hash) = log.block_hash {
-        util::insert_string(&mut event, "block_hash", format!("{block_hash:#x}"));
-    }
-    if let Some(tx_hash) = log.transaction_hash {
-        util::insert_string(&mut event, "tx_hash", format!("{tx_hash:#x}"));
-    }
-    if let Some(log_index) = log.log_index {
-        util::insert_u64(&mut event, "log_index", log_index);
-    }
-    event.insert("fields".to_owned(), fields);
-
-    let event_json = Value::Object(event);
-    tracing::info!(event = %event_json, "observed on-chain event");
 }
 
 async fn connect_provider(url: &str) -> Result<DynProvider, SubscriptionError> {

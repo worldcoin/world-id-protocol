@@ -322,7 +322,9 @@ fn dyn_value_to_json(value: &DynSolValue) -> Value {
         DynSolValue::Bool(v) => Value::Bool(*v),
         DynSolValue::Int(v, _) => Value::String(v.to_string()),
         DynSolValue::Uint(v, _) => Value::String(v.to_string()),
-        DynSolValue::FixedBytes(v, _) => Value::String(format!("0x{}", alloy::hex::encode(v))),
+        DynSolValue::FixedBytes(v, size) => {
+            Value::String(format!("0x{}", alloy::hex::encode(&v[..*size])))
+        }
         DynSolValue::Address(v) => util::address_to_value(*v),
         DynSolValue::Function(v) => {
             let (address, selector) = v.to_address_and_selector();
