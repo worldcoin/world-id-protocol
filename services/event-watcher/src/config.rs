@@ -36,7 +36,6 @@ pub struct ServiceConfig {
 pub struct ContractConfig {
     pub name: String,
     pub contract_address: Address,
-    pub enabled: bool,
     pub event_names: Option<Vec<String>>,
 }
 
@@ -50,13 +49,7 @@ struct FileConfig {
 struct RawContractConfig {
     name: String,
     contract_address: String,
-    #[serde(default = "default_enabled")]
-    enabled: bool,
     event_names: Option<Vec<String>>,
-}
-
-fn default_enabled() -> bool {
-    true
 }
 
 #[derive(Debug, Error)]
@@ -209,7 +202,6 @@ fn validate_contracts(
         contracts.push(ContractConfig {
             name: raw.name,
             contract_address: address,
-            enabled: raw.enabled,
             event_names: raw.event_names,
         });
     }

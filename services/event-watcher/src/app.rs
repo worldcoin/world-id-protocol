@@ -25,20 +25,11 @@ pub async fn run(config: AppConfig) -> eyre::Result<()> {
     let mut handles = Vec::new();
 
     for contract in config.contracts.iter().cloned() {
-        if !contract.enabled {
-            tracing::info!(
-                name = contract.name,
-                contract_address = %format!("{:#x}", contract.contract_address),
-                "contract disabled; skipping"
-            );
-            continue;
-        }
-
         tracing::info!(
             name = contract.name,
             contract_address = %format!("{:#x}", contract.contract_address),
             event_names = ?contract.event_names,
-            "spawning contract task (ABI will be fetched lazily)"
+            "spawning contract task"
         );
 
         let runtime = ContractRuntime {

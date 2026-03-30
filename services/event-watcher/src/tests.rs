@@ -151,7 +151,6 @@ async fn test_watcher_receives_event() {
         contract: ContractConfig {
             name: "emitter".to_owned(),
             contract_address,
-            enabled: true,
             event_names: None,
         },
     };
