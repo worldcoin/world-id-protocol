@@ -1,7 +1,6 @@
 use std::time::Duration;
 
-use backon::BackoffBuilder;
-use backon::ExponentialBuilder;
+use backon::{BackoffBuilder, ExponentialBuilder};
 use tokio::sync::watch;
 
 use crate::{
