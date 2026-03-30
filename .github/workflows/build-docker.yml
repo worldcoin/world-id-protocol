@@ -20,6 +20,7 @@ jobs:
           - indexer
           - gateway
           - oprf-node
+          - event-watcher
     permissions:
       contents: read
       id-token: write
