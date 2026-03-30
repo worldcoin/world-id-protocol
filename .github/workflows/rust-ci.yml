@@ -328,7 +328,6 @@ jobs:
         service:
           - indexer
           - gateway
-          - event-watcher
     permissions:
       contents: read
 
