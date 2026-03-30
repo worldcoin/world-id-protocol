@@ -4,6 +4,7 @@ use alloy::primitives::{Address, U256};
 use ark_serialize::CanonicalSerialize;
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, Result};
+use secrecy::SecretString;
 use semver::VersionReq;
 use taceo_oprf::service::web3::RpcProviderConfig;
 use taceo_oprf_key_gen::StartedServices;
@@ -323,6 +324,7 @@ async fn spawn_key_gen(
     let config = taceo_oprf_key_gen::config::OprfKeyGenServiceConfig::with_default_values(
         taceo_oprf_key_gen::Environment::Dev,
         oprf_key_registry_contract,
+        SecretString::from(secret_manager.wallet_private_key_hex_string()),
         dir.join("../../circom/OPRFKeyGen.25.arks.zkey"),
         dir.join("../../circom/OPRFKeyGenGraph.25.bin"),
         vec![chain_http_rpc_url.parse().expect("Is a valid URL")],
