@@ -41,7 +41,10 @@ pub async fn run(config: AppConfig) -> eyre::Result<()> {
             contract,
         };
 
-        handles.push(spawn_runner(runtime, shutdown_rx.clone()));
+        handles.push(tokio::spawn(run_subscription_loop(
+            runtime,
+            shutdown_rx.clone(),
+        )));
     }
 
     tokio::signal::ctrl_c().await?;
@@ -55,49 +58,44 @@ pub async fn run(config: AppConfig) -> eyre::Result<()> {
     Ok(())
 }
 
-fn spawn_runner(
-    runtime: ContractRuntime,
-    shutdown_rx: watch::Receiver<bool>,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let contract_name = runtime.contract.name.clone();
+async fn run_subscription_loop(runtime: ContractRuntime, shutdown_rx: watch::Receiver<bool>) {
+    let contract_name = runtime.contract.name.clone();
 
-        let mut backoff = ExponentialBuilder::default()
-            .with_min_delay(Duration::from_millis(
-                runtime.service.reconnect_initial_backoff_ms,
-            ))
-            .with_max_delay(Duration::from_millis(
-                runtime.service.reconnect_max_backoff_ms,
-            ))
-            .with_jitter()
-            .without_max_times()
-            .build();
+    let mut backoff = ExponentialBuilder::default()
+        .with_min_delay(Duration::from_millis(
+            runtime.service.reconnect_initial_backoff_ms,
+        ))
+        .with_max_delay(Duration::from_millis(
+            runtime.service.reconnect_max_backoff_ms,
+        ))
+        .with_jitter()
+        .without_max_times()
+        .build();
 
-        // Persisted across retries: ABI is not re-fetched once successfully cached.
-        let mut prepared: Option<PreparedContract> = None;
+    // Persisted across retries: ABI is not re-fetched once successfully cached.
+    let mut prepared: Option<PreparedContract> = None;
 
-        loop {
-            match run_contract_subscription(&runtime, &mut prepared, shutdown_rx.clone()).await {
-                Ok(()) => break, // clean shutdown
-                Err(e) => {
-                    let reason = e.reason();
-                    metrics::set_connected(&contract_name, false);
-                    metrics::set_subscription_uptime(&contract_name, 0.0);
-                    metrics::increment_reconnect(&contract_name, reason);
+    loop {
+        match run_contract_subscription(&runtime, &mut prepared, shutdown_rx.clone()).await {
+            Ok(()) => break, // clean shutdown
+            Err(e) => {
+                let reason = e.reason();
+                metrics::set_connected(&contract_name, false);
+                metrics::set_subscription_uptime(&contract_name, 0.0);
+                metrics::increment_reconnect(&contract_name, reason);
 
-                    tracing::warn!(
-                        name = contract_name,
-                        reason,
-                        error = ?e,
-                        "subscription attempt failed; will retry"
-                    );
+                tracing::warn!(
+                    name = contract_name,
+                    reason,
+                    error = ?e,
+                    "subscription attempt failed; will retry"
+                );
 
-                    if let Some(delay) = backoff.next() {
-                        tokio::time::sleep(delay).await;
-                    }
-                    // Loop again — `prepared` is preserved if ABI was already fetched.
+                if let Some(delay) = backoff.next() {
+                    tokio::time::sleep(delay).await;
                 }
+                // Loop again — `prepared` is preserved if ABI was already fetched.
             }
         }
-    })
+    }
 }

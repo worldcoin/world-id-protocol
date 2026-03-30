@@ -116,72 +116,76 @@ pub async fn run_contract_subscription(
                     return Err(SubscriptionError::StreamClosed);
                 };
 
-                metrics::set_subscription_uptime(
-                    contract_name,
-                    started_at.elapsed().as_secs_f64(),
-                );
-
-                if log.removed {
-                    metrics::increment_events_dropped_removed(contract_name);
-                    tracing::warn!(
-                        contract_name,
-                        tx_hash = ?log.transaction_hash,
-                        log_index = ?log.log_index,
-                        "removed log ignored"
-                    );
-                    continue;
-                }
-
-                // Match topic0 to find the right decoder.
-                let topic0 = log.topic0().copied();
-
-                let Some(topic0) = topic0 else {
-                    tracing::warn!(
-                        contract_name,
-                        tx_hash = ?log.transaction_hash,
-                        "log has no topic0; skipping"
-                    );
-                    continue;
-                };
-
-                let Some(prepared_event) = cached.decoders.get(&topic0) else {
-                    tracing::warn!(
-                        contract_name,
-                        topic0 = %format!("{topic0:#x}"),
-                        tx_hash = ?log.transaction_hash,
-                        "no decoder for topic0; skipping"
-                    );
-                    continue;
-                };
-
-                let fields = match prepared_event.decoder.decode_log(&log) {
-                    Ok(f) => f,
-                    Err(e) => {
-                        metrics::increment_decode_error(contract_name, &prepared_event.event_name);
-                        tracing::warn!(
-                            contract_name,
-                            event_name = prepared_event.event_name,
-                            error = ?e,
-                            tx_hash = ?log.transaction_hash,
-                            "failed to decode log; skipping"
-                        );
-                        continue;
-                    }
-                };
-
-                emit_event_log(runtime, cached, prepared_event, &log, fields);
-
-                if let Some(block_number) = log.block_number {
-                    metrics::set_last_event_block(
-                        contract_name,
-                        &prepared_event.event_name,
-                        block_number,
-                    );
-                }
-                metrics::increment_events_emitted(contract_name, &prepared_event.event_name);
+                handle_log(runtime, cached, started_at, log);
             }
         }
     }
+}
+
+fn handle_log(
+    runtime: &ContractRuntime,
+    prepared: &PreparedContract,
+    started_at: Instant,
+    log: alloy::rpc::types::Log,
+) {
+    let contract_name = &runtime.contract.name;
+
+    metrics::set_subscription_uptime(contract_name, started_at.elapsed().as_secs_f64());
+
+    if log.removed {
+        metrics::increment_events_dropped_removed(contract_name);
+        tracing::warn!(
+            contract_name,
+            tx_hash = ?log.transaction_hash,
+            log_index = ?log.log_index,
+            "removed log ignored"
+        );
+        return;
+    }
+
+    // Match topic0 to find the right decoder.
+    let topic0 = log.topic0().copied();
+
+    let Some(topic0) = topic0 else {
+        tracing::warn!(
+            contract_name,
+            tx_hash = ?log.transaction_hash,
+            "log has no topic0; skipping"
+        );
+        return;
+    };
+
+    let Some(prepared_event) = prepared.decoders.get(&topic0) else {
+        tracing::warn!(
+            contract_name,
+            topic0 = %format!("{topic0:#x}"),
+            tx_hash = ?log.transaction_hash,
+            "no decoder for topic0; skipping"
+        );
+        return;
+    };
+
+    let fields = match prepared_event.decoder.decode_log(&log) {
+        Ok(f) => f,
+        Err(e) => {
+            metrics::increment_decode_error(contract_name, &prepared_event.event_name);
+            tracing::warn!(
+                contract_name,
+                event_name = prepared_event.event_name,
+                error = ?e,
+                tx_hash = ?log.transaction_hash,
+                "failed to decode log; skipping"
+            );
+            return;
+        }
+    };
+
+    emit_event_log(runtime, prepared, prepared_event, &log, fields);
+
+    if let Some(block_number) = log.block_number {
+        metrics::set_last_event_block(contract_name, &prepared_event.event_name, block_number);
+    }
+    metrics::increment_events_emitted(contract_name, &prepared_event.event_name);
 }
 
 fn emit_event_log(
@@ -192,8 +196,6 @@ fn emit_event_log(
     fields: Value,
 ) {
     let mut event = Map::new();
-    util::insert_string(&mut event, "message", "observed on-chain event");
-    util::insert_string(&mut event, "service", "world-id-event-watcher");
     util::insert_string(&mut event, "chain_name", runtime.chain_name.clone());
     util::insert_u64(&mut event, "chain_id", runtime.chain_id);
     util::insert_string(&mut event, "name", runtime.contract.name.clone());
