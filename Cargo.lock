@@ -9671,6 +9671,7 @@ name = "world-id-event-watcher"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "axum",
  "backon",
  "clap",
  "config",

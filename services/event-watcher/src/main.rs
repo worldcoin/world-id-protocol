@@ -12,6 +12,9 @@ async fn main() -> eyre::Result<()> {
 
     tracing::info!("starting world-id-event-watcher");
 
+    let health_addr = world_id_event_watcher::health::spawn_from_env().await?;
+    tracing::info!(%health_addr, "health server listening");
+
     let config = world_id_event_watcher::config::AppConfig::load()?;
     world_id_event_watcher::run(config).await
 }
