@@ -1,0 +1,52 @@
+[package]
+name = "contract-monitor"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+rust-version = "1.87"
+
+[dependencies]
+axum = { version = "0.8", features = ["macros", "json"] }
+alloy = { version = "1.7.3", features = [
+  "rpc-types",
+  "provider-ws",
+  "pubsub",
+  "json-abi",
+  "dyn-abi",
+  "sol-types",
+] }
+clap = { version = "4", features = ["derive", "env"] }
+config = "0.15"
+dotenvy = "0.15"
+eyre = "0.6"
+futures-util = "0.3"
+metrics = "0.24"
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "rustls-tls-webpki-roots",
+] }
+rustls = { version = "0.23", features = ["ring", "aws-lc-rs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+telemetry-batteries = "0.2"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+[dev-dependencies]
+alloy = { version = "1.7.3", features = [
+  "rpc-types",
+  "provider-ws",
+  "provider-http",
+  "pubsub",
+  "json-abi",
+  "dyn-abi",
+  "sol-types",
+  "contract",
+  "signer-local",
+  "node-bindings",
+] }
+mockito = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

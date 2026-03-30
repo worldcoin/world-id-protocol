@@ -1,0 +1,12 @@
+# Rust
+target/
+**/target/
+
+# Environment
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

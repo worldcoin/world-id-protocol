@@ -1,0 +1,93 @@
+# Deployment values for contract-monitor on crypto-stage
+---
+environment: stage
+replicaCount: 1
+kind: StatefulSet
+
+forceLoadSecrets: true
+
+datadog:
+  enabled: true
+
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::267301337261:role/contract-monitor-stage"
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+securityContext:
+  capabilities:
+    add:
+      - NET_BIND_SERVICE
+    drop:
+      - ALL
+
+podSecurityContext:
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+nodeSelector:
+  kubernetes.io/arch: amd64
+  karpenter.sh/capacity-type: on-demand
+
+configMap:
+  enabled: true
+  mountPath: /config
+  data:
+    event-watcher.toml: |
+      [[contracts]]
+      name = "RpRegistry"
+      contract_address = "0x37d2462fE7B4a07987263AAd062C6593C4f567b9"
+
+      [[contracts]]
+      name = "IssuerSchemaRegistry"
+      contract_address = "0x9037125Ae10e9E89fDbe7001228289462EFA3eF3"
+
+# secrets are loaded automatically from secrets manager by the common-app chart
+# expected secret inputs include:
+# - WATCHER_WS_RPC_URL
+# - WATCHER_EXPLORER_API_KEY
+
+env:
+  - name: TELEMETRY_PRESET
+    value: datadog
+  - name: TELEMETRY_SERVICE_NAME
+    value: contract-monitor
+  - name: HOST_IP
+    valueFrom:
+      fieldRef:
+        apiVersion: v1
+        fieldPath: status.hostIP
+  - name: TELEMETRY_DATADOG_ENDPOINT
+    value: http://$(HOST_IP):8126
+  - name: TELEMETRY_METRICS_BACKEND
+    value: statsd
+  - name: TELEMETRY_STATSD_HOST
+    value: $(HOST_IP)
+  - name: TELEMETRY_STATSD_PORT
+    value: "8125"
+  - name: WATCHER_CHAIN_NAME
+    value: worldchain
+  - name: WATCHER_CHAIN_ID
+    value: "480"
+  - name: WATCHER_EXPLORER_URL
+    value: https://api.etherscan.io/v2/api
+  - name: WATCHER_CONFIG
+    value: /config/event-watcher.toml
+  - name: WATCHER_WS_RPC_URL
+    valueFrom:
+      secretKeyRef:
+        name: contract-monitor
+        key: WATCHER_WS_RPC_URL
+  - name: WATCHER_EXPLORER_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: contract-monitor
+        key: WATCHER_EXPLORER_API_KEY
