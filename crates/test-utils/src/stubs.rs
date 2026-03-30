@@ -337,7 +337,7 @@ async fn spawn_key_gen(
         tracing::error!("service failed to start: {res:?}");
     });
     // very graceful timeout for CI
-    tokio::time::timeout(Duration::from_secs(60), async {
+    tokio::time::timeout(Duration::from_secs(300), async {
         loop {
             if reqwest::get(url.clone() + "/health").await.is_ok() {
                 break;

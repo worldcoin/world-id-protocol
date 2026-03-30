@@ -6,11 +6,12 @@ use std::sync::Arc;
 
 use crate::{
     api_types::{
-        AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
-        IndexerAuthenticatorPubkeysResponse, IndexerErrorCode, IndexerPackedAccountRequest,
-        IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
-        InsertAuthenticatorRequest, RemoveAuthenticatorRequest, ServiceApiError,
-        UpdateAuthenticatorRequest,
+        AccountInclusionProof, CancelRecoveryAgentUpdateRequest, CreateAccountRequest,
+        ExecuteRecoveryAgentUpdateRequest, GatewayRequestId, GatewayRequestState,
+        GatewayStatusResponse, IndexerAuthenticatorPubkeysResponse, IndexerErrorCode,
+        IndexerPackedAccountRequest, IndexerPackedAccountResponse, IndexerQueryRequest,
+        IndexerSignatureNonceResponse, InsertAuthenticatorRequest, RemoveAuthenticatorRequest,
+        ServiceApiError, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
     },
     service_client::{ServiceClient, ServiceKind},
 };
@@ -21,8 +22,9 @@ use world_id_primitives::{
 
 pub use crate::ohttp::OhttpClientConfig;
 use crate::registry::{
-    WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
-    sign_remove_authenticator, sign_update_authenticator,
+    WorldIdRegistry::WorldIdRegistryInstance, domain, sign_cancel_recovery_agent_update,
+    sign_initiate_recovery_agent_update, sign_insert_authenticator, sign_remove_authenticator,
+    sign_update_authenticator,
 };
 use alloy::{
     primitives::Address,
@@ -842,7 +844,7 @@ impl Authenticator {
         &self,
         new_authenticator_pubkey: EdDSAPublicKey,
         new_authenticator_address: Address,
-    ) -> Result<String, AuthenticatorError> {
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
@@ -904,7 +906,7 @@ impl Authenticator {
         new_authenticator_address: Address,
         new_authenticator_pubkey: EdDSAPublicKey,
         index: u32,
-    ) -> Result<String, AuthenticatorError> {
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
@@ -961,7 +963,7 @@ impl Authenticator {
         &self,
         authenticator_address: Address,
         index: u32,
-    ) -> Result<String, AuthenticatorError> {
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
@@ -1008,12 +1010,143 @@ impl Authenticator {
             .await?;
         Ok(gateway_resp.request_id)
     }
+
+    /// Polls the gateway for the current status of a previously submitted request.
+    ///
+    /// Use the [`GatewayRequestId`] returned by [`insert_authenticator`](Self::insert_authenticator),
+    /// [`update_authenticator`](Self::update_authenticator), or
+    /// [`remove_authenticator`](Self::remove_authenticator) to track the operation.
+    ///
+    /// # Errors
+    /// - Will error if the network request fails.
+    /// - Will error if the gateway returns an error response (e.g. request not found).
+    pub async fn poll_status(
+        &self,
+        request_id: &GatewayRequestId,
+    ) -> Result<GatewayRequestState, AuthenticatorError> {
+        let path = format!("/status/{request_id}");
+        let body: GatewayStatusResponse = self
+            .gateway_client
+            .get_json(self.config.gateway_url(), &path)
+            .await?;
+        Ok(body.status)
+    }
+
+    /// Initiates a recovery agent update for the holder's World ID.
+    ///
+    /// This begins a time-locked process to change the recovery agent. The update must be
+    /// executed after a cooldown period using [`execute_recovery_agent_update`](Self::execute_recovery_agent_update),
+    /// or it can be cancelled using [`cancel_recovery_agent_update`](Self::cancel_recovery_agent_update).
+    ///
+    /// # Errors
+    /// Returns an error if the gateway rejects the request or a network error occurs.
+    pub async fn initiate_recovery_agent_update(
+        &self,
+        new_recovery_agent: Address,
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
+        let leaf_index = self.leaf_index();
+        let nonce = self.signing_nonce().await?;
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
+
+        let sig = sign_initiate_recovery_agent_update(
+            &self.signer.onchain_signer(),
+            leaf_index,
+            new_recovery_agent,
+            nonce,
+            &eip712_domain,
+        )
+        .map_err(|e| {
+            AuthenticatorError::Generic(format!(
+                "Failed to sign initiate recovery agent update: {e}"
+            ))
+        })?;
+
+        let req = UpdateRecoveryAgentRequest {
+            leaf_index,
+            new_recovery_agent,
+            signature: sig.as_bytes().to_vec(),
+            nonce,
+        };
+
+        let gateway_resp: GatewayStatusResponse = self
+            .gateway_client
+            .post_json(
+                self.config.gateway_url(),
+                "/initiate-recovery-agent-update",
+                &req,
+            )
+            .await?;
+        Ok(gateway_resp.request_id)
+    }
+
+    /// Executes a pending recovery agent update for the holder's World ID.
+    ///
+    /// This is a permissionless operation that can be called by anyone after the cooldown
+    /// period has elapsed. No signature is required.
+    ///
+    /// # Errors
+    /// Returns an error if the gateway rejects the request or a network error occurs.
+    pub async fn execute_recovery_agent_update(
+        &self,
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
+        let req = ExecuteRecoveryAgentUpdateRequest {
+            leaf_index: self.leaf_index(),
+        };
+
+        let gateway_resp: GatewayStatusResponse = self
+            .gateway_client
+            .post_json(
+                self.config.gateway_url(),
+                "/execute-recovery-agent-update",
+                &req,
+            )
+            .await?;
+        Ok(gateway_resp.request_id)
+    }
+
+    /// Cancels a pending recovery agent update for the holder's World ID.
+    ///
+    /// # Errors
+    /// Returns an error if the gateway rejects the request or a network error occurs.
+    pub async fn cancel_recovery_agent_update(
+        &self,
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
+        let leaf_index = self.leaf_index();
+        let nonce = self.signing_nonce().await?;
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
+
+        let sig = sign_cancel_recovery_agent_update(
+            &self.signer.onchain_signer(),
+            leaf_index,
+            nonce,
+            &eip712_domain,
+        )
+        .map_err(|e| {
+            AuthenticatorError::Generic(format!("Failed to sign cancel recovery agent update: {e}"))
+        })?;
+
+        let req = CancelRecoveryAgentUpdateRequest {
+            leaf_index,
+            signature: sig.as_bytes().to_vec(),
+            nonce,
+        };
+
+        let gateway_resp: GatewayStatusResponse = self
+            .gateway_client
+            .post_json(
+                self.config.gateway_url(),
+                "/cancel-recovery-agent-update",
+                &req,
+            )
+            .await?;
+        Ok(gateway_resp.request_id)
+    }
 }
 
 /// Represents an account in the process of being initialized,
 /// i.e. it is not yet registered in the `WorldIDRegistry` contract.
 pub struct InitializingAuthenticator {
-    request_id: String,
+    request_id: GatewayRequestId,
     gateway_client: ServiceClient,
     config: Config,
 }
@@ -1021,7 +1154,7 @@ pub struct InitializingAuthenticator {
 impl InitializingAuthenticator {
     /// Returns the gateway request ID for this pending account creation.
     #[must_use]
-    pub fn request_id(&self) -> &str {
+    pub fn request_id(&self) -> &GatewayRequestId {
         &self.request_id
     }
 

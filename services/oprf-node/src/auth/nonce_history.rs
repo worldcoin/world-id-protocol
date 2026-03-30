@@ -10,9 +10,11 @@ use std::time::Duration;
 
 use crate::metrics::METRICS_ID_NODE_NONCE_HISTORY_SIZE;
 use moka::future::Cache;
-use tracing::instrument;
 use world_id_core::FieldElement;
-use world_id_primitives::oprf::WorldIdRequestAuthError;
+
+#[derive(Debug, thiserror::Error)]
+#[error("duplicate nonce - already used")]
+pub(crate) struct DuplicateNonce;
 
 /// Tracks nonces used for signatures to prevent replay attacks.
 ///
@@ -62,17 +64,11 @@ impl NonceHistory {
     /// * `nonce` - The nonce to track
     ///
     /// # Errors
-    /// Returns [`WorldIdRequestAuthError::DuplicateNonce`] if the nonce already exists.
-    #[instrument(level = "debug", skip_all)]
-    pub(crate) async fn add_nonce(
-        &self,
-        nonce: FieldElement,
-    ) -> Result<(), WorldIdRequestAuthError> {
-        tracing::debug!("add nonce to history");
+    /// Returns [`DuplicateNonce`] if the nonce already exists.
+    pub(crate) async fn add_nonce(&self, nonce: FieldElement) -> Result<(), DuplicateNonce> {
         let entry = self.nonces.entry(nonce).or_insert(()).await;
         if !entry.is_fresh() {
-            tracing::debug!("duplicate nonce");
-            return Err(WorldIdRequestAuthError::DuplicateNonce);
+            return Err(DuplicateNonce);
         }
         Ok(())
     }
@@ -137,5 +133,31 @@ mod tests {
             history2.add_nonce(shared).await.is_err(),
             "cloned history should share state"
         );
+    }
+
+    #[tokio::test]
+    async fn test_nonce_history_ttl_expiration() {
+        let nonce = FieldElement::random(&mut rand::thread_rng());
+        let max_nonce_age = Duration::from_secs(1);
+        let cache_maintenance_interval = Duration::from_millis(100);
+        let nonce_history = NonceHistory::init(max_nonce_age, cache_maintenance_interval);
+
+        // Add nonce — should succeed
+        nonce_history.add_nonce(nonce).await.expect("can add nonce");
+
+        // Immediately - should be rejected
+        nonce_history
+            .add_nonce(nonce)
+            .await
+            .expect_err("duplicate should fail");
+
+        // Wait for TTL + maintenance to expire it
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        // After TTL expiration - should succeed again
+        nonce_history
+            .add_nonce(nonce)
+            .await
+            .expect("nonce should be accepted after TTL expiration");
     }
 }

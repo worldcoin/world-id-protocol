@@ -14,11 +14,9 @@ use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::{start_redis, wait_http_ready};
+use crate::common::{GW_PRIVATE_KEY, start_redis, wait_http_ready};
 
 mod common;
-
-const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
 /// Helper to sign an InsertAuthenticator request
 #[allow(clippy::too_many_arguments)]

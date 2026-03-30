@@ -25,7 +25,7 @@ use std::{
 use alloy::{
     eips::BlockNumberOrTag,
     primitives::Address,
-    providers::{DynProvider, Provider as _, ProviderBuilder, WsConnect},
+    providers::{DynProvider, Provider as _},
     pubsub::Subscription,
     rpc::types::{Filter, Log},
     sol_types::SolEvent as _,
@@ -38,7 +38,7 @@ use tracing::instrument;
 use world_id_core::world_id_registry::WorldIdRegistry::{
     self, RootRecorded, RootValidityWindowUpdated,
 };
-use world_id_primitives::{FieldElement, oprf::WorldIdRequestAuthError};
+use world_id_primitives::FieldElement;
 
 use crate::metrics::{
     METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS, METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES,
@@ -52,18 +52,6 @@ pub(crate) enum MerkleWatcherError {
     InvalidMerkleRoot,
     #[error(transparent)]
     Internal(#[from] eyre::Report),
-}
-
-impl From<MerkleWatcherError> for WorldIdRequestAuthError {
-    fn from(value: MerkleWatcherError) -> Self {
-        match value {
-            MerkleWatcherError::InvalidMerkleRoot => WorldIdRequestAuthError::InvalidMerkleRoot,
-            MerkleWatcherError::Internal(error) => {
-                tracing::error!("internal error: {error:?}");
-                WorldIdRequestAuthError::Internal
-            }
-        }
-    }
 }
 
 /// An expiry that implements `moka::Expiry` trait. `Expiry` trait provides the
@@ -115,7 +103,7 @@ impl MerkleWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
-        ws_rpc_url: &str,
+        provider: DynProvider,
         max_merkle_cache_size: u64,
         cache_maintenance_interval: Duration,
         started: Arc<AtomicBool>,
@@ -128,9 +116,6 @@ impl MerkleWatcher {
             "max merkle cache size must be > 0"
         );
 
-        tracing::info!("creating provider...");
-        let ws = WsConnect::new(ws_rpc_url);
-        let provider = ProviderBuilder::new().connect_ws(ws).await?;
         let contract = WorldIdRegistry::new(contract_address, provider.clone());
 
         let merkle_root_cache = Cache::builder()
@@ -316,7 +301,7 @@ async fn subscribe_task(
             Some(&RootRecorded::SIGNATURE_HASH) => {
                 match RootRecorded::decode_log(log.as_ref()) {
                     Ok(event) => {
-                        tracing::info!("got root {}", event.root,);
+                        tracing::trace!("got root {}", event.root,);
                         let root = FieldElement::try_from(event.root).expect("root is in field");
 
                         // update latest root
@@ -324,7 +309,7 @@ async fn subscribe_task(
 
                         let root_validity_window =
                             Duration::from_secs(root_validity_window.load(Ordering::Relaxed));
-                        tracing::debug!(
+                        tracing::trace!(
                             "insert root with current validity window {root_validity_window:?}"
                         );
                         merkle_root_cache.insert(root, root_validity_window).await;
@@ -337,7 +322,7 @@ async fn subscribe_task(
             Some(&RootValidityWindowUpdated::SIGNATURE_HASH) => {
                 match RootValidityWindowUpdated::decode_log(log.as_ref()) {
                     Ok(event) => {
-                        tracing::info!("got root validity window update");
+                        tracing::trace!("got root validity window update");
                         let old_window = u64::try_from(event.oldWindow).expect("fits in u64");
                         let new_window = u64::try_from(event.newWindow).expect("fits in u64");
 
@@ -428,7 +413,9 @@ mod tests {
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            anvil.ws_endpoint(),
+            crate::build_ws_provider(anvil.ws_endpoint())
+                .await
+                .expect("Can build provider"),
             100,
             Duration::from_secs(3600),
             started_services.new_service(),
@@ -475,7 +462,9 @@ mod tests {
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            anvil.ws_endpoint(),
+            crate::build_ws_provider(anvil.ws_endpoint())
+                .await
+                .expect("Can build provider"),
             100,
             Duration::from_secs(1),
             started_services.new_service(),
@@ -541,7 +530,9 @@ mod tests {
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            anvil.ws_endpoint(),
+            crate::build_ws_provider(anvil.ws_endpoint())
+                .await
+                .expect("Can build provider"),
             100,
             Duration::from_secs(1),
             started_services.new_service(),

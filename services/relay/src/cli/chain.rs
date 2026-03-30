@@ -33,6 +33,9 @@ pub struct WorldChain {
 
     /// The bridging interval for periodic `propagateState` calls.
     bridge_interval: Duration,
+
+    /// Block number at which the WorldIDSource contract was deployed.
+    deployment_block: u64,
 }
 
 impl WorldChain {
@@ -56,6 +59,7 @@ impl WorldChain {
             ),
             world_id_source: IWorldIDSourceInstance::new(config.world_id_source, provider.clone()),
             bridge_interval: Duration::from_secs(config.bridge_interval),
+            deployment_block: config.deployment_block,
             provider,
         }
     }
@@ -84,5 +88,9 @@ impl WorldChain {
 
     pub fn bridge_interval(&self) -> Duration {
         self.bridge_interval
+    }
+
+    pub fn deployment_block(&self) -> u64 {
+        self.deployment_block
     }
 }

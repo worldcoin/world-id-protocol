@@ -23,9 +23,9 @@ use uuid::Uuid;
 use world_id_core::{
     api_types::{
         CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
-        GatewayErrorCode, GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
-        InsertAuthenticatorRequest, RecoverAccountRequest, RemoveAuthenticatorRequest,
-        UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
+        GatewayErrorCode, GatewayRequestId, GatewayRequestKind, GatewayRequestState,
+        GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
     },
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
@@ -61,7 +61,7 @@ impl SubmittedRequest {
     /// Convert to the gateway status response.
     pub fn into_response(self) -> GatewayStatusResponse {
         GatewayStatusResponse {
-            request_id: self.id.to_string(),
+            request_id: GatewayRequestId::new(self.id.to_string()),
             kind: self.kind,
             status: GatewayRequestState::Queued,
         }
