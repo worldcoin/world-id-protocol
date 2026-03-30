@@ -116,11 +116,7 @@ pub async fn run_contract_subscription(
     }
 }
 
-fn handle_log(
-    runtime: &ContractRuntime,
-    prepared: &PreparedContract,
-    log: alloy::rpc::types::Log,
-) {
+fn handle_log(runtime: &ContractRuntime, prepared: &PreparedContract, log: alloy::rpc::types::Log) {
     let contract_name = &runtime.contract.name;
 
     if log.removed {

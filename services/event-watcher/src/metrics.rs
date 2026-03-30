@@ -23,4 +23,3 @@ pub fn set_last_event_block(name: &str, event_name: &str, block_number: u64) {
     ::metrics::gauge!(METRICS_LAST_EVENT_BLOCK, "name" => name.to_owned(), "event_name" => event_name.to_owned())
         .set(block_number as f64);
 }
-
