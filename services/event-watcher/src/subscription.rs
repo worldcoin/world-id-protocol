@@ -83,6 +83,13 @@ pub async fn run_contract_subscription(
         .values()
         .map(|d| d.event_name.as_str())
         .collect();
+
+    let sub = provider
+        .subscribe_logs(&filter)
+        .await
+        .map_err(|e| SubscriptionError::Subscribe(e.to_string()))?;
+    let started_at = Instant::now();
+
     tracing::info!(
         contract_name,
         contract_address = %format!("{:#x}", runtime.contract.contract_address),
@@ -90,12 +97,6 @@ pub async fn run_contract_subscription(
         events = ?event_names,
         "subscription established"
     );
-
-    let sub = provider
-        .subscribe_logs(&filter)
-        .await
-        .map_err(|e| SubscriptionError::Subscribe(e.to_string()))?;
-    let started_at = Instant::now();
     metrics::set_connected(contract_name, true);
     metrics::set_subscription_uptime(contract_name, 0.0);
 
