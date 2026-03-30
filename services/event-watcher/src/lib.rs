@@ -13,7 +13,6 @@ pub mod config;
 pub mod health;
 pub mod metrics;
 pub mod subscription;
-pub mod util;
 
 pub use app::run;
 

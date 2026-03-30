@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use thiserror::Error;
 
-use crate::{config::ExplorerConfig, util};
+use crate::config::ExplorerConfig;
 
 /// All prepared event decoders for a single contract.
 #[derive(Clone)]
@@ -317,6 +317,10 @@ async fn call_explorer<T: for<'de> Deserialize<'de>>(
     Ok(result)
 }
 
+fn address_to_value(address: Address) -> Value {
+    Value::String(format!("{address:#x}"))
+}
+
 fn dyn_value_to_json(value: &DynSolValue) -> Value {
     match value {
         DynSolValue::Bool(v) => Value::Bool(*v),
@@ -325,11 +329,11 @@ fn dyn_value_to_json(value: &DynSolValue) -> Value {
         DynSolValue::FixedBytes(v, size) => {
             Value::String(format!("0x{}", alloy::hex::encode(&v[..*size])))
         }
-        DynSolValue::Address(v) => util::address_to_value(*v),
+        DynSolValue::Address(v) => address_to_value(*v),
         DynSolValue::Function(v) => {
             let (address, selector) = v.to_address_and_selector();
             Value::Object(serde_json::Map::from_iter([
-                ("address".to_owned(), util::address_to_value(address)),
+                ("address".to_owned(), address_to_value(address)),
                 (
                     "selector".to_owned(),
                     Value::String(format!("0x{}", alloy::hex::encode(selector))),
