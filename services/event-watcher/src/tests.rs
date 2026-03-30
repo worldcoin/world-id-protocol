@@ -7,7 +7,7 @@ use alloy::{node_bindings::Anvil, primitives::U256, providers::ProviderBuilder, 
 use tokio::sync::watch;
 
 use crate::{
-    config::{ContractConfig, ExplorerConfig, ServiceConfig},
+    config::{ContractConfig, ExplorerConfig},
     subscription::{ContractRuntime, run_contract_subscription},
 };
 
@@ -144,10 +144,6 @@ async fn test_watcher_receives_event() {
         chain_id: anvil.chain_id(),
         ws_rpc_url: ws_url,
         explorer,
-        service: ServiceConfig {
-            reconnect_initial_backoff_ms: 100,
-            reconnect_max_backoff_ms: 1000,
-        },
         contract: ContractConfig {
             name: "emitter".to_owned(),
             contract_address,

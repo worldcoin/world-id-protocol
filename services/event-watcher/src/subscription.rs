@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use alloy::{
     primitives::B256,
     providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
@@ -11,7 +9,7 @@ use tokio::sync::watch;
 
 use crate::{
     abi_decoder::{self, PreparedContract},
-    config::{ContractConfig, ExplorerConfig, ServiceConfig},
+    config::{ContractConfig, ExplorerConfig},
     metrics,
 };
 
@@ -21,7 +19,6 @@ pub struct ContractRuntime {
     pub chain_id: u64,
     pub ws_rpc_url: String,
     pub explorer: ExplorerConfig,
-    pub service: ServiceConfig,
     pub contract: ContractConfig,
 }
 
@@ -88,7 +85,6 @@ pub async fn run_contract_subscription(
         .subscribe_logs(&filter)
         .await
         .map_err(|e| SubscriptionError::Subscribe(e.to_string()))?;
-    let started_at = Instant::now();
 
     tracing::info!(
         contract_name,
@@ -97,8 +93,6 @@ pub async fn run_contract_subscription(
         events = ?event_names,
         "subscription established"
     );
-    metrics::set_connected(contract_name, true);
-    metrics::set_subscription_uptime(contract_name, 0.0);
 
     // 4. Stream events until stream closes or shutdown signal.
     let mut stream = sub.into_stream();
@@ -107,7 +101,6 @@ pub async fn run_contract_subscription(
         tokio::select! {
             _ = shutdown.changed() => {
                 if *shutdown.borrow() {
-                    metrics::set_connected(contract_name, false);
                     tracing::info!(contract_name, "subscription shutdown requested");
                     return Ok(());
                 }
@@ -117,7 +110,7 @@ pub async fn run_contract_subscription(
                     return Err(SubscriptionError::StreamClosed);
                 };
 
-                handle_log(runtime, cached, started_at, log);
+                handle_log(runtime, cached, log);
             }
         }
     }
@@ -126,15 +119,11 @@ pub async fn run_contract_subscription(
 fn handle_log(
     runtime: &ContractRuntime,
     prepared: &PreparedContract,
-    started_at: Instant,
     log: alloy::rpc::types::Log,
 ) {
     let contract_name = &runtime.contract.name;
 
-    metrics::set_subscription_uptime(contract_name, started_at.elapsed().as_secs_f64());
-
     if log.removed {
-        metrics::increment_events_dropped_removed(contract_name);
         tracing::warn!(
             contract_name,
             tx_hash = ?log.transaction_hash,
@@ -169,7 +158,6 @@ fn handle_log(
     let fields = match prepared_event.decoder.decode_log(&log) {
         Ok(JsonValue::Object(fields)) => fields,
         Ok(other) => {
-            metrics::increment_decode_error(contract_name, &prepared_event.event_name);
             tracing::warn!(
                 contract_name,
                 event_name = prepared_event.event_name,
@@ -180,7 +168,6 @@ fn handle_log(
             return;
         }
         Err(e) => {
-            metrics::increment_decode_error(contract_name, &prepared_event.event_name);
             tracing::warn!(
                 contract_name,
                 event_name = prepared_event.event_name,

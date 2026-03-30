@@ -16,7 +16,6 @@ pub struct AppConfig {
     pub chain_id: u64,
     pub ws_rpc_url: String,
     pub explorer: ExplorerConfig,
-    pub service: ServiceConfig,
     pub contracts: Vec<ContractConfig>,
 }
 
@@ -24,12 +23,6 @@ pub struct AppConfig {
 pub struct ExplorerConfig {
     pub url: String,
     pub api_key: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ServiceConfig {
-    pub reconnect_initial_backoff_ms: u64,
-    pub reconnect_max_backoff_ms: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -60,10 +53,6 @@ pub enum ConfigError {
     LoadConfigFile { path: String, message: String },
     #[error("invalid WATCHER_CHAIN_ID: {0}")]
     InvalidChainId(String),
-    #[error("invalid WATCHER_RECONNECT_INITIAL_BACKOFF_MS: {0}")]
-    InvalidReconnectInitial(String),
-    #[error("invalid WATCHER_RECONNECT_MAX_BACKOFF_MS: {0}")]
-    InvalidReconnectMax(String),
     #[error("duplicate contract name: {0}")]
     DuplicateContractName(String),
     #[error("contract {name} has invalid contract address: {value}")]
@@ -74,8 +63,6 @@ pub enum ConfigError {
     ZeroContractAddress(String),
     #[error("no contracts found in WATCHER_CONFIG")]
     EmptyContracts,
-    #[error("WATCHER_RECONNECT_INITIAL_BACKOFF_MS must be <= WATCHER_RECONNECT_MAX_BACKOFF_MS")]
-    InvalidReconnectRange,
 }
 
 impl AppConfig {
@@ -99,28 +86,6 @@ impl AppConfig {
                 .filter(|s| !s.is_empty()),
         };
 
-        let reconnect_initial_backoff_ms = env::var("WATCHER_RECONNECT_INITIAL_BACKOFF_MS")
-            .unwrap_or_else(|_| "1000".to_owned())
-            .parse()
-            .map_err(|_| {
-                ConfigError::InvalidReconnectInitial(
-                    env::var("WATCHER_RECONNECT_INITIAL_BACKOFF_MS")
-                        .unwrap_or_else(|_| "1000".to_owned()),
-                )
-            })?;
-        let reconnect_max_backoff_ms = env::var("WATCHER_RECONNECT_MAX_BACKOFF_MS")
-            .unwrap_or_else(|_| "30000".to_owned())
-            .parse()
-            .map_err(|_| {
-                ConfigError::InvalidReconnectMax(
-                    env::var("WATCHER_RECONNECT_MAX_BACKOFF_MS")
-                        .unwrap_or_else(|_| "30000".to_owned()),
-                )
-            })?;
-        if reconnect_initial_backoff_ms > reconnect_max_backoff_ms {
-            return Err(ConfigError::InvalidReconnectRange);
-        }
-
         let config_path =
             env::var("WATCHER_CONFIG").map_err(|_| ConfigError::MissingEnv("WATCHER_CONFIG"))?;
         let file_config = load_file_config(&config_path)?;
@@ -131,10 +96,6 @@ impl AppConfig {
             chain_id,
             ws_rpc_url,
             explorer,
-            service: ServiceConfig {
-                reconnect_initial_backoff_ms,
-                reconnect_max_backoff_ms,
-            },
             contracts,
         })
     }

@@ -1,12 +1,8 @@
-use std::time::Duration;
-
-use backon::{BackoffBuilder, ExponentialBuilder};
 use tokio::sync::watch;
 
 use crate::{
     abi_decoder::PreparedContract,
     config::AppConfig,
-    metrics,
     subscription::{ContractRuntime, run_contract_subscription},
 };
 
@@ -36,7 +32,6 @@ pub async fn run(config: AppConfig) -> eyre::Result<()> {
             chain_id: config.chain_id,
             ws_rpc_url: config.ws_rpc_url.clone(),
             explorer: config.explorer.clone(),
-            service: config.service.clone(),
             contract,
         };
 
@@ -60,17 +55,6 @@ pub async fn run(config: AppConfig) -> eyre::Result<()> {
 async fn run_subscription_loop(runtime: ContractRuntime, shutdown_rx: watch::Receiver<bool>) {
     let contract_name = runtime.contract.name.clone();
 
-    let mut backoff = ExponentialBuilder::default()
-        .with_min_delay(Duration::from_millis(
-            runtime.service.reconnect_initial_backoff_ms,
-        ))
-        .with_max_delay(Duration::from_millis(
-            runtime.service.reconnect_max_backoff_ms,
-        ))
-        .with_jitter()
-        .without_max_times()
-        .build();
-
     // Persisted across retries: ABI is not re-fetched once successfully cached.
     let mut prepared: Option<PreparedContract> = None;
 
@@ -79,9 +63,6 @@ async fn run_subscription_loop(runtime: ContractRuntime, shutdown_rx: watch::Rec
             Ok(()) => break, // clean shutdown
             Err(e) => {
                 let reason = e.reason();
-                metrics::set_connected(&contract_name, false);
-                metrics::set_subscription_uptime(&contract_name, 0.0);
-                metrics::increment_reconnect(&contract_name, reason);
 
                 tracing::warn!(
                     name = contract_name,
@@ -90,9 +71,7 @@ async fn run_subscription_loop(runtime: ContractRuntime, shutdown_rx: watch::Rec
                     "subscription attempt failed; will retry"
                 );
 
-                if let Some(delay) = backoff.next() {
-                    tokio::time::sleep(delay).await;
-                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 // Loop again — `prepared` is preserved if ABI was already fetched.
             }
         }
