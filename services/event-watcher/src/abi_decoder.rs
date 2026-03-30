@@ -322,14 +322,23 @@ fn dyn_value_to_json(value: &DynSolValue) -> Value {
         DynSolValue::Bool(v) => Value::Bool(*v),
         DynSolValue::Int(v, _) => Value::String(v.to_string()),
         DynSolValue::Uint(v, _) => Value::String(v.to_string()),
-        DynSolValue::Address(v) => util::address_to_value(*v),
         DynSolValue::FixedBytes(v, _) => Value::String(format!("0x{}", alloy::hex::encode(v))),
+        DynSolValue::Address(v) => util::address_to_value(*v),
+        DynSolValue::Function(v) => {
+            let (address, selector) = v.to_address_and_selector();
+            Value::Object(serde_json::Map::from_iter([
+                ("address".to_owned(), util::address_to_value(address)),
+                (
+                    "selector".to_owned(),
+                    Value::String(format!("0x{}", alloy::hex::encode(selector))),
+                ),
+            ]))
+        }
         DynSolValue::Bytes(v) => Value::String(format!("0x{}", alloy::hex::encode(v))),
         DynSolValue::String(v) => Value::String(v.clone()),
         DynSolValue::Array(values) | DynSolValue::FixedArray(values) => {
             Value::Array(values.iter().map(dyn_value_to_json).collect())
         }
         DynSolValue::Tuple(values) => Value::Array(values.iter().map(dyn_value_to_json).collect()),
-        other => Value::String(format!("{other:?}")),
     }
 }
