@@ -606,13 +606,40 @@ mod tests {
 
         let json = serde_json::to_string(&request).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        let signature = value["signature"]
-            .as_str()
-            .expect("signature should be a string");
 
         assert_eq!(
-            signature,
+            value["new_authenticator_address"]
+                .as_str()
+                .expect("new_authenticator_address should be a string"),
+            "0x1111111111111111111111111111111111111111"
+        );
+        assert_eq!(
+            value["old_offchain_signer_commitment"]
+                .as_str()
+                .expect("old_offchain_signer_commitment should be a string"),
+            "0x1234"
+        );
+        assert_eq!(
+            value["new_offchain_signer_commitment"]
+                .as_str()
+                .expect("new_offchain_signer_commitment should be a string"),
+            "0x5678"
+        );
+        assert_eq!(
+            value["signature"]
+                .as_str()
+                .expect("signature should be a string"),
             "0x000000000000000000000000000000000000000000000000000000000000dead000000000000000000000000000000000000000000000000000000000000beef1b"
+        );
+        assert_eq!(
+            value["nonce"].as_str().expect("nonce should be a string"),
+            "0x9abc"
+        );
+        assert_eq!(
+            value["new_authenticator_pubkey"]
+                .as_str()
+                .expect("new_authenticator_pubkey should be a string"),
+            "0xdef0"
         );
 
         let roundtripped: InsertAuthenticatorRequest = serde_json::from_str(&json).unwrap();
