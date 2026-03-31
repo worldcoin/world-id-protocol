@@ -166,7 +166,7 @@ impl MerkleWatcher {
                 .await
                 .context("while fetching root timestamp")?,
         )
-        .context("while setting root validity window")?;
+        .context("while converting root timestamp to u64")?;
         let elapsed = current_timestamp.saturating_sub(latest_root_timestamp);
 
         if elapsed >= root_validity_window {

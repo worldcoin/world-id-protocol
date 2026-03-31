@@ -383,6 +383,8 @@ pub async fn spawn_key_gens(
     ]: [OprfKeyGenTestSecretManager; 5],
     key_gen_contract: Address,
 ) -> [String; 5] {
+    let threshold = NonZeroU16::new(3).expect("3 is non-zero");
+    let num_peers = NonZeroU16::new(5).expect("5 is non-zero");
     tokio::join!(
         spawn_key_gen(
             0,
@@ -390,8 +392,8 @@ pub async fn spawn_key_gens(
             chain_ws_rpc_url,
             secret_manager0,
             key_gen_contract,
-            3.try_into().expect("3 is non zero"),
-            5.try_into().expect("5 is non zero")
+            threshold,
+            num_peers
         ),
         spawn_key_gen(
             1,
@@ -399,8 +401,8 @@ pub async fn spawn_key_gens(
             chain_ws_rpc_url,
             secret_manager1,
             key_gen_contract,
-            3.try_into().expect("3 is non zero"),
-            5.try_into().expect("5 is non zero")
+            threshold,
+            num_peers
         ),
         spawn_key_gen(
             2,
@@ -408,8 +410,8 @@ pub async fn spawn_key_gens(
             chain_ws_rpc_url,
             secret_manager2,
             key_gen_contract,
-            3.try_into().expect("3 is non zero"),
-            5.try_into().expect("5 is non zero")
+            threshold,
+            num_peers
         ),
         spawn_key_gen(
             3,
@@ -417,8 +419,8 @@ pub async fn spawn_key_gens(
             chain_ws_rpc_url,
             secret_manager3,
             key_gen_contract,
-            3.try_into().expect("3 is non zero"),
-            5.try_into().expect("5 is non zero")
+            threshold,
+            num_peers
         ),
         spawn_key_gen(
             4,
@@ -426,8 +428,8 @@ pub async fn spawn_key_gens(
             chain_ws_rpc_url,
             secret_manager4,
             key_gen_contract,
-            3.try_into().expect("3 is non zero"),
-            5.try_into().expect("5 is non zero")
+            threshold,
+            num_peers
         ),
     )
     .into()
