@@ -610,11 +610,9 @@ mod tests {
             .as_str()
             .expect("signature should be a string");
 
-        assert!(signature.starts_with("0x"));
-        assert_eq!(signature, request.signature.to_string());
-        assert!(
-            !value["signature"].is_array(),
-            "signature should not be an array"
+        assert_eq!(
+            signature,
+            "0x000000000000000000000000000000000000000000000000000000000000dead000000000000000000000000000000000000000000000000000000000000beef1b"
         );
 
         let roundtripped: InsertAuthenticatorRequest = serde_json::from_str(&json).unwrap();
