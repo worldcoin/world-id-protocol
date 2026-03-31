@@ -390,7 +390,7 @@ pub async fn spawn_key_gens(
             chain_ws_rpc_url,
             secret_manager0,
             key_gen_contract,
-            2.try_into().expect("2 is non zero"),
+            3.try_into().expect("3 is non zero"),
             5.try_into().expect("5 is non zero")
         ),
         spawn_key_gen(
@@ -399,7 +399,7 @@ pub async fn spawn_key_gens(
             chain_ws_rpc_url,
             secret_manager1,
             key_gen_contract,
-            2.try_into().expect("2 is non zero"),
+            3.try_into().expect("3 is non zero"),
             5.try_into().expect("5 is non zero")
         ),
         spawn_key_gen(
@@ -408,7 +408,7 @@ pub async fn spawn_key_gens(
             chain_ws_rpc_url,
             secret_manager2,
             key_gen_contract,
-            2.try_into().expect("2 is non zero"),
+            3.try_into().expect("3 is non zero"),
             5.try_into().expect("5 is non zero")
         ),
         spawn_key_gen(
@@ -417,7 +417,7 @@ pub async fn spawn_key_gens(
             chain_ws_rpc_url,
             secret_manager3,
             key_gen_contract,
-            2.try_into().expect("2 is non zero"),
+            3.try_into().expect("3 is non zero"),
             5.try_into().expect("5 is non zero")
         ),
         spawn_key_gen(
@@ -426,7 +426,7 @@ pub async fn spawn_key_gens(
             chain_ws_rpc_url,
             secret_manager4,
             key_gen_contract,
-            2.try_into().expect("2 is non zero"),
+            3.try_into().expect("3 is non zero"),
             5.try_into().expect("5 is non zero")
         ),
     )
