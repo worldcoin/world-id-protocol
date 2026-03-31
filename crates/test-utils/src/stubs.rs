@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{num::NonZeroU16, path::PathBuf, sync::Arc, time::Duration};
 
 use alloy::primitives::{Address, U256};
 use ark_serialize::CanonicalSerialize;
@@ -7,7 +7,7 @@ use eyre::{Context as _, Result};
 use secrecy::SecretString;
 use semver::VersionReq;
 use taceo_oprf::service::web3::RpcProviderConfig;
-use taceo_oprf_key_gen::StartedServices;
+use taceo_oprf_key_gen::{StartedServices, config::OprfKeyGenServiceConfigMandatoryValues};
 use taceo_oprf_test_utils::{PEER_PRIVATE_KEYS, test_secret_manager::TestSecretManager};
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -317,18 +317,26 @@ async fn spawn_key_gen(
     chain_ws_rpc_url: &str,
     secret_manager: OprfKeyGenTestSecretManager,
     oprf_key_registry_contract: Address,
+    expected_threshold: NonZeroU16,
+    expected_num_peers: NonZeroU16,
 ) -> String {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let bind_addr = format!("0.0.0.0:2{id:04}");
     let url = format!("http://localhost:2{id:04}"); // set port based on id, e.g. 20001 for id 1
     let config = taceo_oprf_key_gen::config::OprfKeyGenServiceConfig::with_default_values(
-        taceo_oprf_key_gen::Environment::Dev,
-        oprf_key_registry_contract,
-        SecretString::from(secret_manager.wallet_private_key_hex_string()),
-        dir.join("../../circom/OPRFKeyGen.25.arks.zkey"),
-        dir.join("../../circom/OPRFKeyGenGraph.25.bin"),
-        vec![chain_http_rpc_url.parse().expect("Is a valid URL")],
-        chain_ws_rpc_url.parse().expect("Is a valid URL"),
+        OprfKeyGenServiceConfigMandatoryValues {
+            environment: taceo_oprf_key_gen::Environment::Dev,
+            oprf_key_registry_contract,
+            wallet_private_key: SecretString::from(secret_manager.wallet_private_key_hex_string()),
+            zkey_path: dir.join("../../circom/OPRFKeyGen.25.arks.zkey"),
+            witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.25.bin"),
+            expected_threshold,
+            expected_num_peers,
+            rpc_provider_config: RpcProviderConfig::with_default_values(
+                vec![chain_http_rpc_url.parse().expect("Is a valid URL")],
+                chain_ws_rpc_url.parse().expect("Is a valid URL"),
+            ),
+        },
     );
 
     tokio::spawn(async move {
@@ -381,35 +389,45 @@ pub async fn spawn_key_gens(
             chain_http_rpc_url,
             chain_ws_rpc_url,
             secret_manager0,
-            key_gen_contract
+            key_gen_contract,
+            2.try_into().expect("2 is non zero"),
+            5.try_into().expect("5 is non zero")
         ),
         spawn_key_gen(
             1,
             chain_http_rpc_url,
             chain_ws_rpc_url,
             secret_manager1,
-            key_gen_contract
+            key_gen_contract,
+            2.try_into().expect("2 is non zero"),
+            5.try_into().expect("5 is non zero")
         ),
         spawn_key_gen(
             2,
             chain_http_rpc_url,
             chain_ws_rpc_url,
             secret_manager2,
-            key_gen_contract
+            key_gen_contract,
+            2.try_into().expect("2 is non zero"),
+            5.try_into().expect("5 is non zero")
         ),
         spawn_key_gen(
             3,
             chain_http_rpc_url,
             chain_ws_rpc_url,
             secret_manager3,
-            key_gen_contract
+            key_gen_contract,
+            2.try_into().expect("2 is non zero"),
+            5.try_into().expect("5 is non zero")
         ),
         spawn_key_gen(
             4,
             chain_http_rpc_url,
             chain_ws_rpc_url,
             secret_manager4,
-            key_gen_contract
+            key_gen_contract,
+            2.try_into().expect("2 is non zero"),
+            5.try_into().expect("5 is non zero")
         ),
     )
     .into()
