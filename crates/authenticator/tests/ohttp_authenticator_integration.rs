@@ -348,7 +348,7 @@ async fn register_and_poll_status_roundtrip_through_ohttp() -> eyre::Result<()> 
     let config = f.authenticator_config();
 
     let initializing = Authenticator::register(&TEST_SEED, config, None).await?;
-    assert_eq!(initializing.request_id(), "req-001");
+    assert_eq!(initializing.request_id().as_str(), "req-001");
 
     let gw_req = f
         .last_gateway_request()
@@ -578,7 +578,7 @@ async fn seed_mutation_stubs(f: &OhttpFixture, nonce: U256, pubkeys: Vec<Option<
 async fn insert_authenticator_roundtrips_through_ohttp() -> eyre::Result<()> {
     install_crypto_provider();
     let f = OhttpFixture::start().await?;
-    let mut auth = init_authenticator_for_mutations(&f).await?;
+    let auth = init_authenticator_for_mutations(&f).await?;
 
     let pubkey = test_offchain_pubkey_u256();
     seed_mutation_stubs(&f, U256::ZERO, vec![Some(pubkey)]).await;
@@ -595,7 +595,7 @@ async fn insert_authenticator_roundtrips_through_ohttp() -> eyre::Result<()> {
     let new_address = new_signer.onchain_signer_address();
 
     let request_id = auth.insert_authenticator(new_pubkey, new_address).await?;
-    assert_eq!(request_id, "insert-001");
+    assert_eq!(request_id.as_str(), "insert-001");
 
     let gw_req = f
         .last_gateway_request()
@@ -615,7 +615,7 @@ async fn insert_authenticator_roundtrips_through_ohttp() -> eyre::Result<()> {
 async fn update_authenticator_roundtrips_through_ohttp() -> eyre::Result<()> {
     install_crypto_provider();
     let f = OhttpFixture::start().await?;
-    let mut auth = init_authenticator_for_mutations(&f).await?;
+    let auth = init_authenticator_for_mutations(&f).await?;
 
     let pubkey = test_offchain_pubkey_u256();
     seed_mutation_stubs(&f, U256::ZERO, vec![Some(pubkey)]).await;
@@ -635,7 +635,7 @@ async fn update_authenticator_roundtrips_through_ohttp() -> eyre::Result<()> {
     let request_id = auth
         .update_authenticator(old_address, new_address, new_pubkey, 0)
         .await?;
-    assert_eq!(request_id, "update-001");
+    assert_eq!(request_id.as_str(), "update-001");
 
     let gw_req = f
         .last_gateway_request()
@@ -656,7 +656,7 @@ async fn update_authenticator_roundtrips_through_ohttp() -> eyre::Result<()> {
 async fn remove_authenticator_roundtrips_through_ohttp() -> eyre::Result<()> {
     install_crypto_provider();
     let f = OhttpFixture::start().await?;
-    let mut auth = init_authenticator_for_mutations(&f).await?;
+    let auth = init_authenticator_for_mutations(&f).await?;
 
     let pubkey = test_offchain_pubkey_u256();
     seed_mutation_stubs(&f, U256::ZERO, vec![Some(pubkey)]).await;
@@ -669,7 +669,7 @@ async fn remove_authenticator_roundtrips_through_ohttp() -> eyre::Result<()> {
     .await;
 
     let request_id = auth.remove_authenticator(test_onchain_address(), 0).await?;
-    assert_eq!(request_id, "remove-001");
+    assert_eq!(request_id.as_str(), "remove-001");
 
     let gw_req = f
         .last_gateway_request()
