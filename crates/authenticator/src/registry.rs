@@ -233,8 +233,22 @@ pub async fn sign_recover_account<S: Signer + Sync>(
 
 /// Signs the EIP-712 payload for an `initiateRecoveryAgentUpdate` contract call.
 ///
+/// This is a standalone signing utility that can be used independently of the
+/// full [`Authenticator`](crate::Authenticator) flow. Callers supply their own
+/// signer, leaf index, new recovery agent address, nonce, and EIP-712 domain.
+///
+/// Use [`domain`] to construct the EIP-712 domain from a chain ID and registry
+/// contract address.
+///
+/// # Parameters
+/// - `signer`: Any type implementing [`SignerSync`] (e.g. a local private-key signer).
+/// - `leaf_index`: The Merkle-tree leaf index of the World ID account.
+/// - `new_recovery_agent`: The address of the new recovery agent.
+/// - `nonce`: The on-chain signing nonce for the account.
+/// - `domain`: The EIP-712 domain for the target `WorldIDRegistry` contract.
+///
 /// # Errors
-/// Will error if the signer unexpectedly fails to sign the hash.
+/// Returns an error if the signer fails to produce a signature.
 pub fn sign_initiate_recovery_agent_update<S: SignerSync + Sync>(
     signer: &S,
     leaf_index: u64,
