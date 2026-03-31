@@ -268,6 +268,46 @@ pub mod hex_signature {
     }
 }
 
+/// Serializes a byte array as a `0x`-prefixed hex string if using a human-readable serializer.
+pub mod hex_bytes {
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
+
+    /// Serialize a byte array.
+    ///
+    /// - For human-readable serializers, this is emitted as a `0x`-prefixed hex string.
+    /// - For non-human-readable serializers, this is emitted as raw bytes.
+    pub fn serialize<S>(v: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            serializer.serialize_str(&format!("0x{}", hex::encode(v)))
+        } else {
+            serializer.serialize_bytes(v)
+        }
+    }
+
+    /// Deserialize a byte array.
+    ///
+    /// - For human-readable serializers, this is expected as a `0x`-prefixed hex string.
+    /// - For non-human-readable serializers, this is expected as raw bytes.
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            let s = String::deserialize(deserializer)?;
+            let s = s
+                .strip_prefix("0x")
+                .or_else(|| s.strip_prefix("0X"))
+                .unwrap_or(&s);
+            hex::decode(s).map_err(D::Error::custom)
+        } else {
+            Vec::<u8>::deserialize(deserializer)
+        }
+    }
+}
+
 /// Serializes an optional byte array as a `0x`-prefixed hex string if using a human-readable serializer
 pub mod hex_bytes_opt {
     use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
@@ -411,5 +451,51 @@ mod tests {
 
         let parsed: S = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, s);
+    }
+
+    #[test]
+    fn test_hex_bytes_roundtrip() {
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        struct S {
+            #[serde(with = "hex_bytes")]
+            data: Vec<u8>,
+        }
+
+        let original = S {
+            data: vec![0xde, 0xad, 0xbe, 0xef],
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        assert_eq!(json, r#"{"data":"0xdeadbeef"}"#);
+
+        let parsed: S = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn test_hex_bytes_deserialize_without_prefix() {
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        struct S {
+            #[serde(with = "hex_bytes")]
+            data: Vec<u8>,
+        }
+
+        let parsed: S = serde_json::from_str(r#"{"data":"deadbeef"}"#).unwrap();
+        assert_eq!(parsed.data, vec![0xde, 0xad, 0xbe, 0xef]);
+    }
+
+    #[test]
+    fn test_hex_bytes_empty() {
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        struct S {
+            #[serde(with = "hex_bytes")]
+            data: Vec<u8>,
+        }
+
+        let original = S { data: vec![] };
+        let json = serde_json::to_string(&original).unwrap();
+        assert_eq!(json, r#"{"data":"0x"}"#);
+
+        let parsed: S = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
     }
 }
