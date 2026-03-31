@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    auth::rp_registry_watcher::RpRegistry::RpUpdated,
+    auth::rp_registry_watcher::RpRegistry::{RpRegistryInstance, RpUpdated},
     config::WatcherCacheConfig,
     metrics::{
         METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS,
@@ -24,6 +24,7 @@ use alloy::{
 };
 use futures::StreamExt as _;
 use moka::{future::Cache, ops::compute::Op};
+use taceo_nodes_common::web3;
 use taceo_oprf::types::OprfKeyId;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
@@ -67,15 +68,14 @@ pub(crate) enum RpRegistryWatcherError {
 #[derive(Clone)]
 pub(crate) struct RpRegistryWatcher {
     rp_store: Cache<RpId, RelyingParty>,
-    provider: DynProvider, // do not drop provider while we want to stay subscribed
-    contract_address: Address,
+    contract: RpRegistryInstance<DynProvider>,
 }
 
 impl RpRegistryWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
-        provider: DynProvider,
+        rpc_provider: &web3::RpcProvider,
         cache_config: WatcherCacheConfig,
         maintenance_interval: Duration,
         started: Arc<AtomicBool>,
@@ -88,7 +88,7 @@ impl RpRegistryWatcher {
             .address(contract_address)
             .from_block(BlockNumberOrTag::Latest)
             .event_signature(RpUpdated::SIGNATURE_HASH);
-        let sub = provider.subscribe_logs(&filter).await?;
+        let sub = rpc_provider.subscriptions().subscribe_logs(&filter).await?;
         let mut stream = sub.into_stream();
 
         // indicate that the RpRegistry watcher has started
@@ -178,8 +178,7 @@ impl RpRegistryWatcher {
 
         let rp_registry = Self {
             rp_store,
-            provider: provider.erased(),
-            contract_address,
+            contract: RpRegistry::new(contract_address, rpc_provider.http()),
         };
 
         Ok((rp_registry, subscribe_task))
@@ -197,8 +196,7 @@ impl RpRegistryWatcher {
         }
 
         tracing::trace!("rp {rp_id} not found in store, querying RpRegistry...");
-        let contract = RpRegistry::new(self.contract_address, &self.provider);
-        let rp = match contract.getRp(rp_id.into_inner()).call().await {
+        let rp = match self.contract.getRp(rp_id.into_inner()).call().await {
             Ok(rp) => rp,
             Err(err) => {
                 if let Some(RpRegistry::RpIdDoesNotExist) =

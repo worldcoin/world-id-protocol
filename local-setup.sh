@@ -72,8 +72,10 @@ start_node() {
     TACEO_OPRF_NODE__SERVICE__CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT=$credential_schema_issuer_registry \
     TACEO_OPRF_NODE__SERVICE__OPRF__ENVIRONMENT=dev \
     TACEO_OPRF_NODE__SERVICE__OPRF__OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry \
-    TACEO_OPRF_NODE__SERVICE__OPRF__CHAIN_WS_RPC_URL=ws://127.0.0.1:8545 \
     TACEO_OPRF_NODE__SERVICE__OPRF__VERSION_REQ=">=0.0.0" \
+    TACEO_OPRF_NODE__SERVICE__RPC__HTTP_URLS=http://127.0.0.1:8545 \
+    TACEO_OPRF_NODE__SERVICE__RPC__WS_URL=ws://127.0.0.1:8545 \
+    TACEO_OPRF_NODE__SERVICE__RPC__CHAIN_ID=31337 \
     TACEO_OPRF_NODE__POSTGRES__CONNECTION_STRING=$db_conn \
     TACEO_OPRF_NODE__POSTGRES__SCHEMA=oprf$i \
     ./target/release/world-id-oprf-node > logs/node$i.log 2>&1 &
@@ -109,7 +111,7 @@ setup() {
 
     anvil &
 
-    docker compose up -d localstack postgres redis
+    docker compose up -d postgres redis
 
     echo -e "${GREEN}deploying contracts..${NOCOLOR}"
     deploy_contracts
@@ -118,9 +120,6 @@ setup() {
     run_indexer_and_gateway
 
     echo -e "${GREEN}starting OPRF key-gen nodes..${NOCOLOR}"
-    docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n0 --secret-string 0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356"
-    docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n1 --secret-string 0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97"
-    docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n2 --secret-string 0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6"
     TACEO_OPRF_KEY_GEN__SERVICE__OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry docker compose up -d oprf-key-gen0 oprf-key-gen1 oprf-key-gen2
     docker compose logs -f oprf-key-gen0 > logs/key-gen0.log 2>&1 &
     docker compose logs -f oprf-key-gen1 > logs/key-gen1.log 2>&1 &
