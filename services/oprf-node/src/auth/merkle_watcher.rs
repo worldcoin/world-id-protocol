@@ -26,17 +26,18 @@ use alloy::{
     eips::BlockNumberOrTag,
     primitives::Address,
     providers::{DynProvider, Provider as _},
-    pubsub::Subscription,
+    pubsub::SubscriptionStream,
     rpc::types::{Filter, Log},
     sol_types::SolEvent as _,
 };
 use eyre::Context;
 use futures::StreamExt as _;
 use moka::{Expiry, future::Cache};
+use taceo_nodes_common::web3;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 use world_id_core::world_id_registry::WorldIdRegistry::{
-    self, RootRecorded, RootValidityWindowUpdated,
+    self, RootRecorded, RootValidityWindowUpdated, WorldIdRegistryInstance,
 };
 use world_id_primitives::FieldElement;
 
@@ -82,9 +83,7 @@ impl Expiry<FieldElement, Duration> for RootExpiry {
 pub(crate) struct MerkleWatcher {
     latest_root: Arc<RwLock<FieldElement>>,
     merkle_root_cache: Cache<FieldElement, Duration>,
-    root_validity_window: Arc<AtomicU64>,
-    provider: DynProvider, // do not drop provider while we want to stay subscribed
-    contract_address: Address,
+    contract: WorldIdRegistryInstance<DynProvider>,
 }
 
 impl MerkleWatcher {
@@ -95,7 +94,7 @@ impl MerkleWatcher {
     ///
     /// # Arguments
     /// * `contract_address` - Address of the `WorldIDRegistry` contract
-    /// * `ws_rpc_url` - WebSocket RPC URL for blockchain connection
+    /// * `rpc_provider` - A configured `RpcProvider` from the `nodes-common` crate
     /// * `max_merkle_cache_size` - Maximum number of merkle roots to cache
     /// * `cache_maintenance_interval` - Interval for running cache maintenance tasks
     /// * `started` - `AtomicBool` to indicate when the service has started
@@ -103,7 +102,7 @@ impl MerkleWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
-        provider: DynProvider,
+        rpc_provider: &web3::RpcProvider,
         max_merkle_cache_size: u64,
         cache_maintenance_interval: Duration,
         started: Arc<AtomicBool>,
@@ -116,7 +115,7 @@ impl MerkleWatcher {
             "max merkle cache size must be > 0"
         );
 
-        let contract = WorldIdRegistry::new(contract_address, provider.clone());
+        let contract = WorldIdRegistry::new(contract_address, rpc_provider.http());
 
         let merkle_root_cache = Cache::builder()
             .max_capacity(max_merkle_cache_size)
@@ -131,7 +130,11 @@ impl MerkleWatcher {
                 RootRecorded::SIGNATURE_HASH,
                 RootValidityWindowUpdated::SIGNATURE_HASH,
             ]);
-        let subscription = provider.subscribe_logs(&filter).await?;
+        let subscription = rpc_provider
+            .subscriptions()
+            .subscribe_logs(&filter)
+            .await?
+            .into_stream();
 
         let get_latest_root = contract.getLatestRoot();
         let get_root_validity_window = contract.getRootValidityWindow();
@@ -143,7 +146,7 @@ impl MerkleWatcher {
                 .expect("root is in field");
         let root_validity_window =
             u64::try_from(root_validity_window.context("while fetching root validity window")?)
-                .expect("fits in u64");
+                .context("while setting root validity window")?;
 
         tracing::info!("latest root = {latest_root}");
         tracing::info!("root validity window = {root_validity_window} seconds");
@@ -155,9 +158,15 @@ impl MerkleWatcher {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system time after epoch")
             .as_secs();
-        let latest_root_timestamp =
-            u64::try_from(contract.getRootTimestamp(latest_root.into()).call().await?)
-                .expect("fits in u64");
+        tracing::info!("getting timestamp for latest root");
+        let latest_root_timestamp = u64::try_from(
+            contract
+                .getRootTimestamp(latest_root.into())
+                .call()
+                .await
+                .context("while fetching root timestamp")?,
+        )
+        .context("while converting root timestamp to u64")?;
         let elapsed = current_timestamp.saturating_sub(latest_root_timestamp);
 
         if elapsed >= root_validity_window {
@@ -182,7 +191,7 @@ impl MerkleWatcher {
             subscription,
             Arc::clone(&latest_root),
             merkle_root_cache.clone(),
-            Arc::clone(&root_validity_window),
+            root_validity_window,
             cancellation_token,
         ));
 
@@ -203,9 +212,7 @@ impl MerkleWatcher {
         let merkle_watcher = Self {
             latest_root,
             merkle_root_cache,
-            root_validity_window,
-            provider: provider.erased(),
-            contract_address,
+            contract,
         };
 
         Ok((merkle_watcher, subscribe_task))
@@ -226,47 +233,23 @@ impl MerkleWatcher {
             return Ok(());
         }
 
-        tracing::debug!("check in contract");
-        let contract = WorldIdRegistry::new(self.contract_address, self.provider.clone());
-        let valid = contract
+        tracing::trace!("check in contract");
+        let valid = self
+            .contract
             .isValidRoot(root.into())
             .call()
             .await
             .context("while calling isValidRoot")?;
 
-        tracing::debug!("root valid: {valid}");
+        // We don't update the cache on success, as we expect to receive valid roots from the subscription anyway.
+        // A valid root not being in the cache should only happen during runtime in two cases: (1) we haven't yet received the event from the stream (which should arrive shortly after), or (2) the root is old and no longer in the cache but still valid for a short period. In the latter case, the root won't remain valid for long and shouldn't be sent frequently anyway.
+        //
+        // Additionally, on startup, the cache is empty and we may encounter older roots. Nevertheless, authenticators fetch the latest root when making a request anyways, so this should also be rare and is mainly relevant for TTL after start-up (which is 1h at time of writing), since we will receive all roots through the stream.
+
+        tracing::trace!("root valid: {valid}");
 
         if valid {
             ::metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES).increment(1);
-
-            let root_validity_window = self.root_validity_window.load(Ordering::Relaxed);
-            let current_timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time after epoch")
-                .as_secs();
-            let root_timestamp = u64::try_from(
-                contract
-                    .getRootTimestamp(root.into())
-                    .call()
-                    .await
-                    .context("while calling getRootTimestamp")?,
-            )
-            .expect("fits in u64");
-            let elapsed = current_timestamp.saturating_sub(root_timestamp);
-
-            if elapsed >= root_validity_window {
-                tracing::debug!("root is expired, not caching");
-            } else {
-                let remaining_validity =
-                    Duration::from_secs(root_validity_window.saturating_sub(elapsed));
-                tracing::debug!("insert root with remaining validity {remaining_validity:?}");
-                self.merkle_root_cache
-                    .insert(root, remaining_validity)
-                    .await;
-            }
-        }
-
-        if valid {
             Ok(())
         } else {
             Err(MerkleWatcherError::InvalidMerkleRoot)
@@ -275,7 +258,7 @@ impl MerkleWatcher {
 }
 
 async fn subscribe_task(
-    subscription: Subscription<Log>,
+    mut subscription: SubscriptionStream<Log>,
     latest_root: Arc<RwLock<FieldElement>>,
     merkle_root_cache: Cache<FieldElement, Duration>,
     root_validity_window: Arc<AtomicU64>,
@@ -283,10 +266,9 @@ async fn subscribe_task(
 ) -> eyre::Result<()> {
     // shutdown service if merkle watcher encounters an error and drops this guard
     let _drop_guard = cancellation_token.clone().drop_guard();
-    let mut stream = subscription.into_stream();
     loop {
         let log = tokio::select! {
-            log = stream.next() => {
+            log = subscription.next() => {
                 log.ok_or_else(||{
                     tracing::warn!("MerkleWatcher subscribe stream was closed");
                     eyre::eyre!("MerkleWatcher subscribe stream was closed")
@@ -356,6 +338,8 @@ async fn subscribe_task(
 
 #[cfg(test)]
 mod tests {
+    use crate::auth::tests::build_rpc_provider;
+
     use super::*;
     use alloy::primitives::{U256, address};
     use taceo_oprf::service::StartedServices;
@@ -410,12 +394,11 @@ mod tests {
         let started_services = StartedServices::default();
 
         let cancellation_token = CancellationToken::new();
+        let rpc_provider = build_rpc_provider(&anvil).await;
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            crate::build_ws_provider(anvil.ws_endpoint())
-                .await
-                .expect("Can build provider"),
+            &rpc_provider,
             100,
             Duration::from_secs(3600),
             started_services.new_service(),
@@ -459,12 +442,11 @@ mod tests {
         let started_services = StartedServices::default();
 
         let cancellation_token = CancellationToken::new();
+        let rpc_provider = build_rpc_provider(&anvil).await;
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            crate::build_ws_provider(anvil.ws_endpoint())
-                .await
-                .expect("Can build provider"),
+            &rpc_provider,
             100,
             Duration::from_secs(1),
             started_services.new_service(),
@@ -527,12 +509,11 @@ mod tests {
         let started_services = StartedServices::default();
 
         let cancellation_token = CancellationToken::new();
+        let rpc_provider = build_rpc_provider(&anvil).await;
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            crate::build_ws_provider(anvil.ws_endpoint())
-                .await
-                .expect("Can build provider"),
+            &rpc_provider,
             100,
             Duration::from_secs(1),
             started_services.new_service(),

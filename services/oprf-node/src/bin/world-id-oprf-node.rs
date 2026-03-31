@@ -31,8 +31,13 @@ struct FullWorldOprfNodeConfig {
 }
 
 fn load_world_id_config() -> eyre::Result<FullWorldOprfNodeConfig> {
-    let cfg =
-        Config::builder().add_source(Environment::with_prefix("TACEO_OPRF_NODE").separator("__"));
+    let cfg = Config::builder().add_source(
+        Environment::with_prefix("TACEO_OPRF_NODE")
+            .separator("__")
+            .list_separator(",")
+            .with_list_parse_key("service.rpc.http_urls")
+            .try_parsing(true),
+    );
 
     cfg.build()
         .context("while building from config")?
