@@ -667,8 +667,8 @@ async fn test_rate_limit_multiple_endpoints() {
                 verifying_contract: registry_addr,
             };
             let hash = typed_data.eip712_signing_hash(&domain);
-            let sig = signer.sign_hash(&hash).await.unwrap();
-            sig
+
+            signer.sign_hash(&hash).await.unwrap()
         },
         nonce: U256::from(0),
     };
