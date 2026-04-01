@@ -48,12 +48,16 @@ ark-ff = "0.5"
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
 backon = "1"
+base64 = "0.22"
 circom-types = { package = "taceo-circom-types", version = "0.2", default-features = false }
 eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5.4" }
 eyre = "0.6"
 futures = "0.3"
 groth16-material = { package = "taceo-groth16-material", version = "0.2.3", default-features = false }
 hex = { version = "0.4" }
+ohttp = { version = "0.7", default-features = false }
+bhttp = "0.7"
+itertools = "0.14"
 k256 = { version = "0.13" }
 taceo-groth16-sol = { version = "0.2.2" }
 taceo-oprf = { version = "0.11", default-features = false }
@@ -115,7 +119,7 @@ semaphore-rs-hasher = "0.5.0"
 semaphore-rs-trees = "0.5.0"
 semaphore-rs-storage = "0.5.0"
 serial_test = "3"
-testcontainers = "0.27"
+testcontainers = { version = "0.27", features = ["http_wait_plain", "host-port-exposure"] }
 testcontainers-modules = { version = "0.15", features = ["redis"] }
 sqlx = "0.8"
 take_mut = "0.2.2"

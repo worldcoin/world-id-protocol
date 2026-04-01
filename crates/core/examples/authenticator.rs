@@ -2,7 +2,7 @@ use std::{fs::File, str::FromStr, sync::Arc};
 
 use eyre::Result;
 use world_id_core::{
-    Authenticator, Credential, FieldElement, primitives::Config, requests::ProofRequest,
+    Authenticator, AuthenticatorConfig, Credential, FieldElement, requests::ProofRequest,
 };
 
 fn install_tracing() {
@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
         .expect("can install");
     install_tracing();
     let json_config = std::fs::read_to_string("config.json").unwrap();
-    let config = Config::from_json(&json_config).unwrap();
+    let config: AuthenticatorConfig = serde_json::from_str(&json_config).unwrap();
 
     let query_material = world_id_core::proof::load_embedded_query_material()?;
     let nullifier_material = world_id_core::proof::load_embedded_nullifier_material()?;

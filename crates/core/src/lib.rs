@@ -10,8 +10,12 @@ pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 
 #[cfg(feature = "authenticator")]
 pub use world_id_authenticator::{
-    Authenticator, AuthenticatorError, InitializingAuthenticator, OnchainKeyRepresentable,
+    Authenticator, AuthenticatorConfig, AuthenticatorError, InitializingAuthenticator,
+    OnchainKeyRepresentable,
 };
+
+#[cfg(feature = "authenticator")]
+pub use world_id_authenticator::OhttpClientConfig;
 
 /// Re-export registry from authenticator for convenience
 #[cfg(feature = "authenticator")]
