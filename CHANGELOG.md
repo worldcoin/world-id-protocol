@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.8.0...world-id-primitives-v0.8.1) - 2026-04-01
+
+### Added
+
+- expose sign_initiate_recovery_agent_update on CoreAuthenticator (PROTO-4477) ([#630](https://github.com/worldcoin/world-id-protocol/pull/630))
+
 ## [0.8.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.7.1...world-id-primitives-v0.8.0) - 2026-03-31
 
 ### Added
