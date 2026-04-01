@@ -212,7 +212,7 @@ async fn e2e_initiate_and_cancel_recovery_agent_update() {
     let body_init = UpdateRecoveryAgentRequest {
         leaf_index,
         new_recovery_agent,
-        signature: sig_init.as_bytes().to_vec(),
+        signature: sig_init,
         nonce,
     };
 
@@ -257,7 +257,7 @@ async fn e2e_initiate_and_cancel_recovery_agent_update() {
 
     let body_cancel = CancelRecoveryAgentUpdateRequest {
         leaf_index,
-        signature: sig_cancel.as_bytes().to_vec(),
+        signature: sig_cancel,
         nonce,
     };
 
@@ -333,7 +333,7 @@ async fn e2e_initiate_and_execute_recovery_agent_update() {
     let body_init = UpdateRecoveryAgentRequest {
         leaf_index,
         new_recovery_agent,
-        signature: sig_init.as_bytes().to_vec(),
+        signature: sig_init,
         nonce,
     };
 

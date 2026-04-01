@@ -7,10 +7,10 @@
 
 pub use crate::merkle::AccountInclusionProof;
 use crate::serde_utils::{
-    hex_bytes, hex_u32, hex_u32_opt, hex_u64, hex_u256, hex_u256_opt, hex_u256_opt_vec,
+    hex_signature, hex_u32, hex_u32_opt, hex_u64, hex_u256, hex_u256_opt, hex_u256_opt_vec,
     hex_u256_vec,
 };
-use alloy_primitives::Address;
+use alloy_primitives::{Address, Signature};
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
@@ -65,9 +65,9 @@ pub struct UpdateAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[serde(with = "hex_bytes")]
+    #[serde(with = "hex_signature")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
-    pub signature: Vec<u8>,
+    pub signature: Signature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -104,9 +104,9 @@ pub struct InsertAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[serde(with = "hex_bytes")]
+    #[serde(with = "hex_signature")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
-    pub signature: Vec<u8>,
+    pub signature: Signature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -143,9 +143,9 @@ pub struct RemoveAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[serde(with = "hex_bytes")]
+    #[serde(with = "hex_signature")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
-    pub signature: Vec<u8>,
+    pub signature: Signature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -174,9 +174,9 @@ pub struct UpdateRecoveryAgentRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_recovery_agent: Address,
     /// The signature.
-    #[serde(with = "hex_bytes")]
+    #[serde(with = "hex_signature")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
-    pub signature: Vec<u8>,
+    pub signature: Signature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -210,9 +210,9 @@ pub struct CancelRecoveryAgentUpdateRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub leaf_index: u64,
     /// The signature.
-    #[serde(with = "hex_bytes")]
+    #[serde(with = "hex_signature")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
-    pub signature: Vec<u8>,
+    pub signature: Signature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -241,9 +241,9 @@ pub struct RecoverAccountRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[serde(with = "hex_bytes")]
+    #[serde(with = "hex_signature")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
-    pub signature: Vec<u8>,
+    pub signature: Signature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -598,7 +598,7 @@ mod tests {
             new_authenticator_address: Address::from([0x11; 20]),
             old_offchain_signer_commitment: U256::from(0x1234_u64),
             new_offchain_signer_commitment: U256::from(0x5678_u64),
-            signature: vec![0xde, 0xad, 0xbe, 0xef],
+            signature: Signature::new(U256::from(0xdead_u64), U256::from(0xbeef_u64), false),
             nonce: U256::from(0x9abc_u64),
             pubkey_id: 7,
             new_authenticator_pubkey: U256::from(0xdef0_u64),
@@ -606,15 +606,40 @@ mod tests {
 
         let json = serde_json::to_string(&request).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        let signature = value["signature"]
-            .as_str()
-            .expect("signature should be a string");
 
-        assert!(signature.starts_with("0x"));
-        assert_eq!(signature, "0xdeadbeef");
-        assert!(
-            !value["signature"].is_array(),
-            "signature should not be an array"
+        assert_eq!(
+            value["new_authenticator_address"]
+                .as_str()
+                .expect("new_authenticator_address should be a string"),
+            "0x1111111111111111111111111111111111111111"
+        );
+        assert_eq!(
+            value["old_offchain_signer_commitment"]
+                .as_str()
+                .expect("old_offchain_signer_commitment should be a string"),
+            "0x1234"
+        );
+        assert_eq!(
+            value["new_offchain_signer_commitment"]
+                .as_str()
+                .expect("new_offchain_signer_commitment should be a string"),
+            "0x5678"
+        );
+        assert_eq!(
+            value["signature"]
+                .as_str()
+                .expect("signature should be a string"),
+            "0x000000000000000000000000000000000000000000000000000000000000dead000000000000000000000000000000000000000000000000000000000000beef1b"
+        );
+        assert_eq!(
+            value["nonce"].as_str().expect("nonce should be a string"),
+            "0x9abc"
+        );
+        assert_eq!(
+            value["new_authenticator_pubkey"]
+                .as_str()
+                .expect("new_authenticator_pubkey should be a string"),
+            "0xdef0"
         );
 
         let roundtripped: InsertAuthenticatorRequest = serde_json::from_str(&json).unwrap();
