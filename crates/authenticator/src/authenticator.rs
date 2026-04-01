@@ -1082,7 +1082,7 @@ impl Authenticator {
     ) -> Result<GatewayRequestId, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let (sig, nonce) = self
-            .sign_initiate_recovery_agent_update(new_recovery_agent)
+            .danger_sign_initiate_recovery_agent_update(new_recovery_agent)
             .await?;
 
         let req = UpdateRecoveryAgentRequest {
@@ -1122,9 +1122,17 @@ impl Authenticator {
     /// Callers can use the returned signature to build and submit the gateway
     /// request themselves.
     ///
+    /// # Warning
+    /// This method uses the `onchain_signer` (secp256k1 ECDSA) and produces a
+    /// recoverable signature. Any holder of the signature together with the
+    /// EIP-712 parameters can call `ecrecover` to obtain the `onchain_address`,
+    /// which can then be looked up in the registry to derive the user's
+    /// `leaf_index`. Only expose the output to trusted parties (e.g. a Recovery
+    /// Agent).
+    ///
     /// # Errors
     /// Returns an error if the nonce fetch or signing step fails.
-    pub async fn sign_initiate_recovery_agent_update(
+    pub async fn danger_sign_initiate_recovery_agent_update(
         &self,
         new_recovery_agent: Address,
     ) -> Result<(Signature, U256), AuthenticatorError> {
