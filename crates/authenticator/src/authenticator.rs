@@ -658,8 +658,9 @@ impl Authenticator {
             .await?)
     }
 
-    // TODO add more docs
-    /// Generates a blinding factor for a Credential sub (through OPRF Nodes).
+    /// Generates a blinding factor for a Credential sub (through OPRF Nodes). The credential
+    /// blinding factor enables every credential to have a different subject identifier, see
+    /// [`Credential::sub`] for more details.
     ///
     /// # Errors
     ///
