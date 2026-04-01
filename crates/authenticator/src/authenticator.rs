@@ -1130,12 +1130,12 @@ impl Authenticator {
     pub async fn sign_initiate_recovery_agent_update(
         &self,
         new_recovery_agent: Address,
-    ) -> Result<Signature, AuthenticatorError> {
+    ) -> Result<(Signature, U256), AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
 
-        sign_initiate_recovery_agent_update(
+        let signature = sign_initiate_recovery_agent_update(
             &self.signer.onchain_signer(),
             leaf_index,
             new_recovery_agent,
@@ -1146,7 +1146,9 @@ impl Authenticator {
             AuthenticatorError::Generic(format!(
                 "Failed to sign initiate recovery agent update: {e}"
             ))
-        })
+        })?;
+
+        Ok((signature, nonce))
     }
 
     /// Executes a pending recovery agent update for the holder's World ID.
