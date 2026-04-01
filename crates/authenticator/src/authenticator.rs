@@ -522,11 +522,21 @@ impl Authenticator {
             .map_err(|e| AuthenticatorError::Generic(format!("signature error: {e}")))
     }
 
-    /// Checks that the OPRF Nodes configuration is valid and returns the list of URLs and the threshold to use.
+    /// Gets an object to request OPRF computations to OPRF Nodes.
+    ///
+    /// A cached `inclusion_proof` & `key_set` can be passed to avoid an additional network call,
+    /// if these aren't passed, they will be fetched from the indexer.
     ///
     /// # Errors
-    /// Will return an error if there are no OPRF Nodes configured or if the threshold is invalid.
-    fn check_oprf_config(&self) -> Result<(&[String], usize), AuthenticatorError> {
+    /// - Will return an error if there are no OPRF Nodes configured or if the threshold is invalid.
+    /// - Will return an error if proof materials are not loaded.
+    /// - Will return an error if there are issues fetching an inclusion proof.
+    async fn get_oprf_entrypoint(
+        &self,
+        inclusion_proof: Option<MerkleInclusionProof<TREE_DEPTH>>,
+        key_set: Option<AuthenticatorPublicKeySet>,
+    ) -> Result<OprfEntrypoint<'_>, AuthenticatorError> {
+        // Check OPRF Config
         let services = self.config.nullifier_oracle_urls();
         if services.is_empty() {
             return Err(AuthenticatorError::Generic(
@@ -541,7 +551,46 @@ impl Authenticator {
             });
         }
         let threshold = requested_threshold.min(services.len());
-        Ok((services, threshold))
+
+        let query_material = self
+            .query_material
+            .as_ref()
+            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
+
+        // Fetch inclusion_proof && key_set if not provided
+        let (inclusion_proof, key_set) = if let Some(inclusion_proof) = inclusion_proof
+            && let Some(key_set) = key_set
+        {
+            (inclusion_proof, key_set)
+        } else {
+            self.fetch_inclusion_proof().await?
+        };
+
+        let key_index = key_set
+            .iter()
+            .position(|pk| {
+                pk.as_ref()
+                    .is_some_and(|pk| pk.pk == self.offchain_pubkey().pk)
+            })
+            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
+
+        let authenticator_input = AuthenticatorProofInput::new(
+            key_set,
+            inclusion_proof,
+            self.signer
+                .offchain_signer_private_key()
+                .expose_secret()
+                .clone(),
+            key_index,
+        );
+
+        Ok(OprfEntrypoint::new(
+            services,
+            threshold,
+            query_material,
+            authenticator_input,
+            &self.ws_connector,
+        ))
     }
 
     fn decode_indexer_pubkeys(
@@ -763,54 +812,6 @@ impl Authenticator {
         };
 
         Ok(response_item)
-    }
-
-    async fn get_oprf_entrypoint(
-        &self,
-        inclusion_proof: Option<MerkleInclusionProof<TREE_DEPTH>>,
-        key_set: Option<AuthenticatorPublicKeySet>,
-    ) -> Result<OprfEntrypoint<'_>, AuthenticatorError> {
-        let (services, threshold) = self.check_oprf_config()?;
-
-        let query_material = self
-            .query_material
-            .as_ref()
-            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
-
-        // Fetch inclusion_proof && key_set if not provided
-        let (inclusion_proof, key_set) = if let Some(inclusion_proof) = inclusion_proof
-            && let Some(key_set) = key_set
-        {
-            (inclusion_proof, key_set)
-        } else {
-            self.fetch_inclusion_proof().await?
-        };
-
-        let key_index = key_set
-            .iter()
-            .position(|pk| {
-                pk.as_ref()
-                    .is_some_and(|pk| pk.pk == self.offchain_pubkey().pk)
-            })
-            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
-
-        let authenticator_input = AuthenticatorProofInput::new(
-            key_set,
-            inclusion_proof,
-            self.signer
-                .offchain_signer_private_key()
-                .expose_secret()
-                .clone(),
-            key_index,
-        );
-
-        Ok(OprfEntrypoint::new(
-            services,
-            threshold,
-            query_material,
-            authenticator_input,
-            &self.ws_connector,
-        ))
     }
 
     /// Inserts a new authenticator to the account.
