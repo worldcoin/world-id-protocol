@@ -13,8 +13,7 @@ use crate::api_types::{
     ServiceApiError, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
 };
 use world_id_primitives::{
-    Credential, FieldElement, ProofRequest, RequestItem, ResponseItem, SessionFeType,
-    SessionFieldElement, SessionNullifier, Signer,
+    Credential, FieldElement, ProofRequest, RequestItem, ResponseItem, SessionNullifier, Signer,
 };
 
 use crate::registry::{
@@ -522,8 +521,9 @@ impl Authenticator {
 
     /// Gets an object to request OPRF computations to OPRF Nodes.
     ///
-    /// A cached `inclusion_proof` & `key_set` can be passed to avoid an additional network call,
-    /// if these aren't passed, they will be fetched from the indexer.
+    /// # Arguments
+    /// - `account_inclusion_proof`: an optionally cached object can be passed to
+    ///   avoid an additional network call. If not passed, it'll be fetched from the indexer.
     ///
     /// # Errors
     /// - Will return an error if there are no OPRF Nodes configured or if the threshold is invalid.
@@ -628,6 +628,11 @@ impl Authenticator {
     /// A [`Nullifier`] is a unique, one-time use, anonymous identifier for a World ID
     /// on a specific RP context. See [`Nullifier`] for more details.
     ///
+    /// # Arguments
+    /// - `proof_request`: the request received from the RP.
+    /// - `account_inclusion_proof`: an optionally cached object can be passed to
+    ///   avoid an additional network call. If not passed, it'll be fetched from the indexer.
+    ///
     /// A Nullifier takes an `action` as input:
     /// - If `proof_request` is for a Session Proof, a random internal `action` is generated. This
     ///   is opaque to RPs, and verified internally in the verification contract.
@@ -682,14 +687,20 @@ impl Authenticator {
     /// Internally, this generates the session's random seed (`r`) using OPRF Nodes. This seed is used to
     /// compute the [`SessionId::commitment`] for Session Proofs.
     ///
+    /// # Arguments
+    /// - `proof_request`: the request received from the RP to initialize a session id.
+    /// - `session_id_r_seed`: the seed (see below) if it was already generated previously and it's cached.
+    /// - `account_inclusion_proof`: an optionally cached object can be passed to
+    ///   avoid an additional network call. If not passed, it'll be fetched from the indexer.
+    ///
     /// # Returns
     /// - `session_id`: The generated [`SessionId`] to be shared with the requesting RP.
     /// - `session_id_r_seed`: The `r` value used for this session so the Authenticator can cache it.
     ///
     /// # Seed (`session_id_r_seed`)
     /// - If a `session_id_r_seed` (`r`) is not provided, it'll be derived/re-derived with the OPRF nodes.
-    /// - Even if `r` has been generated before, the same `r` will be computed agaian for the same
-    ///   context (i.e. `rpId`, [`SessionId::oprf_seed`]). This means caching `r` is optional but recommended.
+    /// - Even if `r` has been generated before, the same `r` will be computed again for the same
+    ///   context (i.e. `rpId`, [`SessionId::oprf_seed`]). This means caching `r` is optional but RECOMMENDED.
     /// -  Caching behavior is the responsibility of the Authenticator (and/or its relevant SDKs), not this crate.
     /// - More information about the seed can be found in [`SessionId::from_r_seed`].
     pub async fn generate_session_id(
@@ -701,8 +712,8 @@ impl Authenticator {
         let mut rng = rand::rngs::OsRng;
 
         let oprf_seed = match proof_request.session_id {
-            Some(session_id) => session_id.oprf_seed(),
-            None => FieldElement::random_for_session(&mut rng, SessionFeType::OprfSeed),
+            Some(session_id) => session_id.oprf_seed,
+            None => SessionId::generate_oprf_seed(&mut rng),
         };
 
         let session_id_r_seed = match session_id_r_seed {
@@ -780,7 +791,7 @@ impl Authenticator {
             credential_sub_blinding_factor,
             oprf_nullifier,
             request_item,
-            session_id.map(|v| v.commitment()),
+            session_id.map(|v| v.commitment),
             session_id_r_seed,
             expires_at_min,
         )?;

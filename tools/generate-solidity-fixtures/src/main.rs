@@ -366,7 +366,7 @@ async fn main() -> Result<()> {
                 .unwrap_or_default()
                 .try_into()
                 .expect("u64 fits into U256"),
-            session_id.commitment().into(),
+            session_id.commitment.into(),
             session_nullifier.as_ethereum_representation(),
             session_response.proof.as_ethereum_representation(),
         )
@@ -443,7 +443,7 @@ async fn main() -> Result<()> {
     println!();
 
     println!("// ── Session Proof inputs ──");
-    let session_id_u256: U256 = session_id.commitment().into();
+    let session_id_u256: U256 = session_id.commitment.into();
     let s_proof = session_response.proof.as_ethereum_representation();
     let s_null = session_nullifier.as_ethereum_representation();
     println!("uint256 sessionId = {:#x};", session_id_u256);
