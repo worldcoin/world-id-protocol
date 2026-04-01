@@ -1118,6 +1118,37 @@ impl Authenticator {
         }
     }
 
+    /// Signs the EIP-712 `InitiateRecoveryAgentUpdate` payload and returns the
+    /// signature without submitting anything to the gateway.
+    ///
+    /// This is the signing-only counterpart of [`initiate_recovery_agent_update`].
+    /// Callers can use the returned signature to build and submit the gateway
+    /// request themselves.
+    ///
+    /// # Errors
+    /// Returns an error if the nonce fetch or signing step fails.
+    pub async fn sign_initiate_recovery_agent_update(
+        &self,
+        new_recovery_agent: Address,
+    ) -> Result<Signature, AuthenticatorError> {
+        let leaf_index = self.leaf_index();
+        let nonce = self.signing_nonce().await?;
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
+
+        sign_initiate_recovery_agent_update(
+            &self.signer.onchain_signer(),
+            leaf_index,
+            new_recovery_agent,
+            nonce,
+            &eip712_domain,
+        )
+        .map_err(|e| {
+            AuthenticatorError::Generic(format!(
+                "Failed to sign initiate recovery agent update: {e}"
+            ))
+        })
+    }
+
     /// Executes a pending recovery agent update for the holder's World ID.
     ///
     /// This is a permissionless operation that can be called by anyone after the cooldown
