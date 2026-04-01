@@ -23,7 +23,7 @@ use world_id_test_utils::{
     stubs::MutableIndexerStub,
 };
 
-async fn wait_for_finalized(client: &Client, base: &str, request_id: &str) {
+async fn wait_for_finalized(client: &Client, base: &str, request_id: impl std::fmt::Display) {
     let deadline = std::time::Instant::now() + Duration::from_secs(90);
     loop {
         let resp = client

@@ -11,11 +11,9 @@ use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::{start_redis, wait_for_finalized, wait_http_ready};
+use crate::common::{GW_PRIVATE_KEY, start_redis, wait_for_finalized, wait_http_ready};
 
 mod common;
-
-const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"; // FIXME
 
 async fn set_up_redis(redis_url: &str) -> ConnectionManager {
     let client = redis::Client::open(redis_url).expect("Failed to create Redis client");
@@ -80,7 +78,7 @@ async fn redis_integration() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     let accepted: GatewayStatusResponse = resp.json().await.unwrap();
-    let request_id = accepted.request_id.clone();
+    let request_id = accepted.request_id.as_str_without_prefix();
 
     // Verify the request was stored in Redis using the plain (unprefixed) key names.
     let redis_key = format!("gateway:request:{}", request_id);
@@ -97,7 +95,7 @@ async fn redis_integration() {
 
     // Verify the request was added to the pending set atomically with the record
     let is_pending: bool = redis
-        .sismember("gateway:pending_requests", &request_id)
+        .sismember("gateway:pending_requests", request_id)
         .await
         .unwrap();
     assert!(
@@ -132,7 +130,7 @@ async fn redis_integration() {
     let pending_members: std::collections::HashSet<String> =
         redis.smembers("gateway:pending_requests").await.unwrap();
     assert!(
-        !pending_members.contains(&request_id),
+        !pending_members.contains(request_id),
         "finalized request should have been removed from the pending set"
     );
 

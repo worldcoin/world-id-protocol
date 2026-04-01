@@ -8,7 +8,7 @@ use axum::{Extension, Json, extract::State};
 use tracing::instrument;
 use world_id_core::api_types::{GatewayStatusResponse, RecoverAccountRequest};
 
-/// POST /v1/accounts/recover
+/// POST /recover-account
 ///
 /// Recover an account using the recovery address.
 #[instrument(name = "recover_account", skip(state, payload), fields(request_id = %id))]

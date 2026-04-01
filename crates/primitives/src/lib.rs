@@ -1,14 +1,11 @@
-//! This crate contains the raw base types (without implementation) for the World ID Protocol.
-//!
-//! It implements basic primitives such as field elements, proofs, the format of requests and responses, etc.
-//!
-//! Importantly, this crate keeps dependencies to a minimum and does not implement any logic beyond serialization and deserialization.
+#![cfg_attr(all(),
+doc = ::embed_doc_image::embed_image!("world-id-protocol-parties", "assets/world-id-protocol-parties.png"))]
+#![doc = include_str!("../README.md")]
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 #![deny(clippy::all, clippy::nursery, missing_docs, dead_code)]
 #![allow(clippy::option_if_let_else)]
 
 use alloy_primitives::Keccak256;
-
 use ark_babyjubjub::Fq;
 use ark_ff::{AdditiveGroup, Field, PrimeField, UniformRand};
 use ruint::aliases::{U160, U256};
@@ -53,7 +50,7 @@ pub use nullifier::Nullifier;
 
 /// Contains types relevant for Session Proofs.
 mod session;
-pub use session::{SessionFieldElement, SessionId, SessionNullifier};
+pub use session::{SessionFeType, SessionFieldElement, SessionId, SessionNullifier};
 
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;
@@ -76,6 +73,7 @@ pub use request::{
 };
 
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
+pub use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 
 /// The scalar field used in the World ID Protocol.
 ///
@@ -118,19 +116,25 @@ impl FieldElement {
         U256::from_be_bytes(*be_bytes).try_into()
     }
 
-    /// Deserializes a field element from a big-endian byte slice.
+    /// Deserializes a field element from a big-endian byte slice performing modulo
+    /// reduction if the value is larger than the field modulus.
+    ///
+    /// This can be used for instance to convert the output of a byte-based hash function into
+    /// a field element. It is **critical** to always use the same mechanism to bring elements into
+    /// the field. For example, [`Self::from_arbitrary_raw_bytes`] performs a different operation.
     ///
     /// # Warning
     /// Use this function carefully. This function will perform modulo reduction on the input, which may
-    /// lead to unexpected results if the input should not be reduced.
+    /// lead to unexpected results if the input should not be reduced. For example, this is **not** appropriate
+    /// when parsing a canonical field-element encoding.
     #[must_use]
-    pub(crate) fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
+    pub fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
         let field_element = Fq::from_be_bytes_mod_order(bytes);
         Self(field_element)
     }
 
     /// Takes arbitrary raw bytes, hashes them with a byte-friendly gas-efficient hash function
-    /// and reduces it to a field element.
+    /// and reduces it to a field element. Particularly useful for EVM on-chain use.
     #[must_use]
     pub fn from_arbitrary_raw_bytes(bytes: &[u8]) -> Self {
         let mut hasher = Keccak256::new();

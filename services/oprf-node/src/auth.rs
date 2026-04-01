@@ -1,140 +1,84 @@
 //! This module implements the authentication process for World ID.
 //!
-//! During the user's session initialization, the MPC nodes uses this authentication service to determine whether a user is eligible to compute a nullifier.
+//! The MPC nodes use this authentication service to determine whether a user is eligible to
+//! compute a nullifier or session identifier.
 //!
-//! Additionally, it defines two sub-modules necessary for the authentication process.
+//! It defines the following sub-modules:
 //!
 //! - [`credential_blinding_factor`] – implements authentication for OPRF credential blinding factor generation.
 //! - [`merkle_watcher`] – watches the blockchain for merkle-root update events.
-//! - [`nullifier`] – implements authentication for OPRF nullifier generation.
+//! - [`nonce_history`] – keeps track of nonces used for nonce + `time_stamp` signatures to detect replays
 //! - [`rp_registry_watcher`] – keeps track of registered RPs
 //! - [`schema_issuer_registry_watcher`] – keeps track of registered Credential Schema Issuers
-//! - [`signature_history`] – keeps track of nonce + `time_stamp` signatures to detect replays
-
-use std::sync::Arc;
+//! - [`rp_module`] – unified implementation for session and uniqueness OPRF authentication.
 
 use ark_bn254::Bn254;
-use axum::{http::StatusCode, response::IntoResponse};
-use circom_types::groth16::VerificationKey;
+use ark_groth16::PreparedVerifyingKey;
 use taceo_oprf::types::OprfKeyId;
 use world_id_primitives::TREE_DEPTH;
 
-use crate::auth::merkle_watcher::{MerkleWatcher, MerkleWatcherError};
-
-/// The embedded Groth16 verification key for OPRF query proofs.
-const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");
-
 pub(crate) mod credential_blinding_factor;
 pub(crate) mod merkle_watcher;
-pub(crate) mod nullifier;
+pub(crate) mod nonce_history;
+pub(crate) mod rp_module;
 pub(crate) mod rp_registry_watcher;
 pub(crate) mod schema_issuer_registry_watcher;
-pub(crate) mod signature_history;
 
-/// Common errors returned by the [`NullifierOprfRequestAuthenticator`] and [`CredentialBlindingFactorOprfRequestAuthenticator`].
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum OprfRequestAuthError {
-    /// The client Groth16 proof did not verify.
-    #[error("client proof did not verify")]
-    InvalidProof,
-    /// The provided merkle root is not valid
-    #[error("invalid merkle root")]
-    InvalidMerkleRoot,
-    /// An error returned from the merkle watcher service during merkle look-up.
-    #[error(transparent)]
-    MerkleWatcherError(#[from] MerkleWatcherError),
-}
-
-impl IntoResponse for OprfRequestAuthError {
-    fn into_response(self) -> axum::response::Response {
-        match self {
-            OprfRequestAuthError::InvalidProof => {
-                (StatusCode::BAD_REQUEST, "invalid proof").into_response()
-            }
-            OprfRequestAuthError::MerkleWatcherError(err) => {
-                tracing::error!("merkle watcher error: {err}");
-                (StatusCode::SERVICE_UNAVAILABLE.into_response()).into_response()
-            }
-            OprfRequestAuthError::InvalidMerkleRoot => {
-                (StatusCode::BAD_REQUEST, "invalid merkle root").into_response()
-            }
-        }
-    }
-}
-
-/// Common authentication for [`NullifierOprfRequestAuthenticator`] and [`CredentialBlindingFactorOprfRequestAuthenticator`].
-pub(crate) struct OprfRequestAuthenticator {
-    merkle_watcher: MerkleWatcher,
-    vk: Arc<ark_groth16::PreparedVerifyingKey<Bn254>>,
-}
-
-impl OprfRequestAuthenticator {
-    pub(crate) fn init(merkle_watcher: MerkleWatcher) -> Self {
-        let vk: VerificationKey<Bn254> =
-            serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
-        Self {
-            merkle_watcher,
-            vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
-        }
-    }
-
-    pub(crate) async fn verify(
-        &self,
-        proof: &ark_groth16::Proof<Bn254>,
-        blinded_query: ark_babyjubjub::EdwardsAffine,
-        merkle_root: ark_babyjubjub::Fq,
-        oprf_key_id: OprfKeyId,
-        action: ark_babyjubjub::Fq,
-        nonce: ark_babyjubjub::Fq,
-    ) -> Result<(), OprfRequestAuthError> {
-        tracing::trace!("checking if merkle root is valid...");
-        let valid = self
-            .merkle_watcher
-            .is_root_valid(merkle_root.into())
-            .await?;
-        if !valid {
-            tracing::trace!("merkle root INVALID");
-            return Err(OprfRequestAuthError::InvalidMerkleRoot)?;
-        }
-
-        tracing::trace!("verifying user proof...");
-        let public = [
-            blinded_query.x,
-            blinded_query.y,
-            merkle_root,
-            ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-            oprf_key_id.into(),
-            action,
-            nonce,
-        ];
-        let valid = ark_groth16::Groth16::<Bn254>::verify_proof(&self.vk, proof, &public)
-            .expect("We expect that we loaded the correct key");
-        if valid {
-            tracing::trace!("proof valid");
-            Ok(())
-        } else {
-            tracing::trace!("proof INVALID");
-            Err(OprfRequestAuthError::InvalidProof)
-        }
-    }
+pub(crate) fn verify_query_proof(
+    vk: &PreparedVerifyingKey<Bn254>,
+    proof: &ark_groth16::Proof<Bn254>,
+    blinded_query: ark_babyjubjub::EdwardsAffine,
+    merkle_root: ark_babyjubjub::Fq,
+    oprf_key_id: OprfKeyId,
+    action: ark_babyjubjub::Fq,
+    nonce: ark_babyjubjub::Fq,
+) -> bool {
+    tracing::trace!("verifying user proof...");
+    let public = [
+        blinded_query.x,
+        blinded_query.y,
+        merkle_root,
+        ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
+        oprf_key_id.into(),
+        action,
+        nonce,
+    ];
+    ark_groth16::Groth16::<Bn254>::verify_proof(vk, proof, &public)
+        .expect("We expect that we loaded the correct key")
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use alloy::{
         primitives::{Address, U256},
         signers::local::LocalSigner,
     };
     use ark_serialize::CanonicalSerialize;
     use rand::Rng;
-    use world_id_core::{EdDSAPrivateKey, Signer};
+    use secrecy::ExposeSecret as _;
+    use taceo_nodes_common::web3::{self, RpcProviderBuilder};
+    use taceo_oprf::{core::oprf::BlindingFactor, service::StartedServices};
+    use tokio_util::sync::CancellationToken;
+    use world_id_core::{EdDSAPrivateKey, FieldElement, Signer, proof::errors};
     use world_id_primitives::{
-        TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
+        TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
+        circuit_inputs::QueryProofCircuitInput, merkle::MerkleInclusionProof,
     };
     use world_id_test_utils::{
         anvil::TestAnvil,
         fixtures::{RegistryTestContext, RpFixture, generate_rp_fixture},
         merkle::first_leaf_merkle_path,
+    };
+
+    use crate::{
+        auth::{
+            merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
+            rp_registry_watcher::RpRegistryWatcher,
+            schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
+        },
+        config::WatcherCacheConfig,
     };
 
     pub(crate) struct OprfRequestAuthTestSetup {
@@ -148,6 +92,23 @@ mod tests {
         pub(crate) key_index: u64,
         pub(crate) key_set: AuthenticatorPublicKeySet,
         pub(crate) signer: Signer,
+    }
+
+    pub(crate) async fn build_rpc_provider(anvil: &TestAnvil) -> web3::RpcProvider {
+        let http_url = anvil
+            .endpoint()
+            .parse()
+            .expect("anvil should have valid http url");
+        let ws_url = anvil
+            .ws_endpoint()
+            .parse()
+            .expect("anvil should have valid ws url");
+        RpcProviderBuilder::with_default_values(vec![http_url], ws_url)
+            .environment(taceo_nodes_common::Environment::Dev)
+            .chain_id(31_337)
+            .build()
+            .await
+            .expect("can build RPC providers")
     }
 
     impl OprfRequestAuthTestSetup {
@@ -243,5 +204,148 @@ mod tests {
                 signer,
             })
         }
+    }
+
+    /// Common service-level infrastructure shared across auth module tests.
+    ///
+    /// Wraps [`OprfRequestAuthTestSetup`] with all initialized watchers and
+    /// shared configuration constants, so each module's test setup only needs
+    /// to add its own authenticator and request construction logic.
+    pub(crate) struct AuthModulesTestSetup {
+        pub(crate) setup: OprfRequestAuthTestSetup,
+        pub(crate) merkle_watcher: MerkleWatcher,
+        pub(crate) rp_registry_watcher: RpRegistryWatcher,
+        pub(crate) schema_issuer_registry_watcher: SchemaIssuerRegistryWatcher,
+        pub(crate) nonce_history: NonceHistory,
+        pub(crate) current_time_stamp_max_difference: Duration,
+    }
+
+    impl AuthModulesTestSetup {
+        pub(crate) async fn new() -> eyre::Result<Self> {
+            let setup = OprfRequestAuthTestSetup::new().await?;
+
+            let max_cache_size = 100;
+            let cache_maintenance_interval = Duration::from_secs(60);
+            let current_time_stamp_max_difference = Duration::from_secs(1800);
+            let started_services = StartedServices::default();
+            let cancellation_token = CancellationToken::new();
+
+            let rpc_provider = build_rpc_provider(&setup.anvil).await;
+
+            let (merkle_watcher, _) = MerkleWatcher::init(
+                setup.world_id_registry,
+                &rpc_provider,
+                max_cache_size,
+                cache_maintenance_interval,
+                started_services.new_service(),
+                cancellation_token.clone(),
+            )
+            .await?;
+
+            let (rp_registry_watcher, _) = RpRegistryWatcher::init(
+                setup.rp_registry,
+                &rpc_provider,
+                WatcherCacheConfig::default(),
+                cache_maintenance_interval,
+                started_services.new_service(),
+                cancellation_token.clone(),
+            )
+            .await?;
+
+            let (schema_issuer_registry_watcher, _) = SchemaIssuerRegistryWatcher::init(
+                setup.credential_schema_issuer_registry,
+                &rpc_provider,
+                WatcherCacheConfig::default(),
+                cache_maintenance_interval,
+                started_services.new_service(),
+                cancellation_token.clone(),
+            )
+            .await?;
+
+            let nonce_history = NonceHistory::init(
+                current_time_stamp_max_difference * 2,
+                cache_maintenance_interval,
+            );
+
+            Ok(Self {
+                setup,
+                merkle_watcher,
+                rp_registry_watcher,
+                schema_issuer_registry_watcher,
+                nonce_history,
+                current_time_stamp_max_difference,
+            })
+        }
+
+        /// Generates a valid ZK query proof and blinds the query for use in OPRF
+        /// request construction.
+        ///
+        /// `action` is the action field element (zero for credential blinding factor,
+        /// a valid session/nullifier action for other modules).
+        /// `query_origin_id` is the RP ID or issuer schema ID as a [`FieldElement`].
+        pub(crate) fn generate_query_proof(
+            &self,
+            action: FieldElement,
+            query_origin_id: FieldElement,
+        ) -> eyre::Result<QueryProofBundle> {
+            let mut rng = rand::thread_rng();
+
+            let query_material = world_id_core::proof::load_embedded_query_material()
+                .expect("Can load query material");
+
+            let query_blinding_factor = BlindingFactor::rand(&mut rng);
+
+            let query_hash = world_id_primitives::authenticator::oprf_query_digest(
+                self.setup.merkle_inclusion_proof.leaf_index,
+                action,
+                query_origin_id,
+            );
+            let signature = self
+                .setup
+                .signer
+                .offchain_signer_private_key()
+                .expose_secret()
+                .sign(*query_hash);
+
+            let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] =
+                self.setup.merkle_inclusion_proof.siblings.map(|s| *s);
+
+            let query_proof_input = QueryProofCircuitInput::<TREE_DEPTH> {
+                pk: self.setup.key_set.as_affine_array(),
+                pk_index: self.setup.key_index.into(),
+                s: signature.s,
+                r: signature.r,
+                merkle_root: *self.setup.merkle_inclusion_proof.root,
+                depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
+                mt_index: self.setup.merkle_inclusion_proof.leaf_index.into(),
+                siblings,
+                beta: query_blinding_factor.beta(),
+                rp_id: *query_origin_id,
+                action: *action,
+                nonce: self.setup.rp_fixture.nonce,
+            };
+            let _affine = errors::check_query_input_validity(&query_proof_input)?;
+
+            let (proof, public_inputs) =
+                query_material.generate_proof(&query_proof_input, &mut rng)?;
+            query_material.verify_proof(&proof, &public_inputs)?;
+
+            let blinded_request =
+                taceo_oprf::core::oprf::client::blind_query(*query_hash, query_blinding_factor);
+
+            Ok(QueryProofBundle {
+                proof: proof.into(),
+                blinded_query: blinded_request.blinded_query(),
+                nonce: self.setup.rp_fixture.nonce,
+            })
+        }
+    }
+
+    /// Result of [`AuthModulesTestSetup::generate_query_proof`], containing all
+    /// outputs needed to construct an [`taceo_oprf::types::api::OprfRequest`].
+    pub(crate) struct QueryProofBundle {
+        pub(crate) proof: circom_types::groth16::Proof<ark_bn254::Bn254>,
+        pub(crate) blinded_query: ark_babyjubjub::EdwardsAffine,
+        pub(crate) nonce: ark_babyjubjub::Fq,
     }
 }

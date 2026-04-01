@@ -1,23 +1,24 @@
-//! This module contains all the base functionality to support Authenticators in World ID.
-//!
-//! An Authenticator is the application layer with which a user interacts with the Protocol.
+//! This module contains all the base functionality to support Authenticators in World ID. See
+//! [`Authenticator`] for a definition.
 
 use std::sync::Arc;
 
 use crate::api_types::{
-    AccountInclusionProof, CreateAccountRequest, GatewayRequestState, GatewayStatusResponse,
-    IndexerAuthenticatorPubkeysResponse, IndexerErrorCode, IndexerPackedAccountRequest,
-    IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
-    InsertAuthenticatorRequest, RemoveAuthenticatorRequest, ServiceApiError,
-    UpdateAuthenticatorRequest,
+    AccountInclusionProof, CancelRecoveryAgentUpdateRequest, CreateAccountRequest,
+    ExecuteRecoveryAgentUpdateRequest, GatewayRequestId, GatewayRequestState,
+    GatewayStatusResponse, IndexerAuthenticatorPubkeysResponse, IndexerErrorCode,
+    IndexerPackedAccountRequest, IndexerPackedAccountResponse, IndexerQueryRequest,
+    IndexerSignatureNonceResponse, InsertAuthenticatorRequest, RemoveAuthenticatorRequest,
+    ServiceApiError, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
 };
 use world_id_primitives::{
     Credential, FieldElement, ProofRequest, RequestItem, ResponseItem, SessionNullifier, Signer,
 };
 
 use crate::registry::{
-    WorldIdRegistry::WorldIdRegistryInstance, domain, sign_insert_authenticator,
-    sign_remove_authenticator, sign_update_authenticator,
+    WorldIdRegistry::WorldIdRegistryInstance, domain, sign_cancel_recovery_agent_update,
+    sign_initiate_recovery_agent_update, sign_insert_authenticator, sign_remove_authenticator,
+    sign_update_authenticator,
 };
 use alloy::{
     primitives::Address,
@@ -48,6 +49,35 @@ use world_id_proof::{
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::Nullifier;
 
+/// Shared helper that polls `GET {gateway_url}/status/{request_id}` and
+/// returns the current [`GatewayRequestState`].
+async fn fetch_gateway_status(
+    http_client: &reqwest::Client,
+    gateway_url: &str,
+    request_id: &GatewayRequestId,
+) -> Result<GatewayRequestState, AuthenticatorError> {
+    let resp = http_client
+        .get(format!("{gateway_url}/status/{request_id}"))
+        .send()
+        .await?;
+
+    let status = resp.status();
+
+    if status.is_success() {
+        let body: GatewayStatusResponse = resp.json().await?;
+        Ok(body.status)
+    } else {
+        let body_text = resp
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("Unable to read response body: {e}"));
+        Err(AuthenticatorError::GatewayError {
+            status,
+            body: body_text,
+        })
+    }
+}
+
 static MASK_RECOVERY_COUNTER: U256 =
     uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
 static MASK_PUBKEY_ID: U256 =
@@ -55,7 +85,17 @@ static MASK_PUBKEY_ID: U256 =
 static MASK_LEAF_INDEX: U256 =
     uint!(0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF_U256);
 
-/// An Authenticator is the base layer with which a user interacts with the Protocol.
+/// An Authenticator is the agent of a **user** interacting with the World ID Protocol.
+///
+/// # Definition
+///
+/// A software or hardware agent (e.g., app, device, web client, or service) that controls a
+/// set of authorized keypairs for a World ID Account and is functionally capable of interacting
+/// with the Protocol, and is therefore permitted to act on that account’s behalf. An Authenticator
+/// is the agent of users/holders. Each Authenticator is registered in the `WorldIDRegistry`
+/// through their authorized keypairs.
+///
+/// For example, an Authenticator can live in a mobile wallet or a web application.
 pub struct Authenticator {
     /// General configuration for the Authenticator.
     pub config: Config,
@@ -690,8 +730,7 @@ impl Authenticator {
             session_id_r_seed,
             proof_request.session_id.map(|v| v.oprf_seed()),
             &mut rng,
-        )
-        .map_err(|_| AuthenticatorError::InvalidSessionId)?;
+        )?;
 
         if let Some(request_session_id) = proof_request.session_id {
             if request_session_id != session_id {
@@ -765,7 +804,7 @@ impl Authenticator {
         // Construct the appropriate response item based on proof type
         let nullifier_fe: FieldElement = nullifier.into();
         let response_item = if session_id.is_some() {
-            let session_nullifier = SessionNullifier::new(nullifier_fe, action_from_query);
+            let session_nullifier = SessionNullifier::new(nullifier_fe, action_from_query)?;
             ResponseItem::new_session(
                 request_item.identifier.clone(),
                 request_item.issuer_schema_id,
@@ -798,7 +837,7 @@ impl Authenticator {
         &self,
         new_authenticator_pubkey: EdDSAPublicKey,
         new_authenticator_address: Address,
-    ) -> Result<String, AuthenticatorError> {
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
@@ -835,7 +874,7 @@ impl Authenticator {
             new_authenticator_pubkey: encoded_offchain_pubkey,
             old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
             new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
-            signature: signature.as_bytes().to_vec(),
+            signature,
             nonce,
         };
 
@@ -876,7 +915,7 @@ impl Authenticator {
         new_authenticator_address: Address,
         new_authenticator_pubkey: EdDSAPublicKey,
         index: u32,
-    ) -> Result<String, AuthenticatorError> {
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
@@ -908,7 +947,7 @@ impl Authenticator {
             new_authenticator_address,
             old_offchain_signer_commitment: old_commitment,
             new_offchain_signer_commitment: new_commitment,
-            signature: signature.as_bytes().to_vec(),
+            signature,
             nonce,
             pubkey_id: index,
             new_authenticator_pubkey: encoded_offchain_pubkey,
@@ -949,7 +988,7 @@ impl Authenticator {
         &self,
         authenticator_address: Address,
         index: u32,
-    ) -> Result<String, AuthenticatorError> {
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
         let leaf_index = self.leaf_index();
         let nonce = self.signing_nonce().await?;
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
@@ -984,7 +1023,7 @@ impl Authenticator {
             authenticator_address,
             old_offchain_signer_commitment: old_commitment,
             new_offchain_signer_commitment: new_commitment,
-            signature: signature.as_bytes().to_vec(),
+            signature,
             nonce,
             pubkey_id: Some(index),
             authenticator_pubkey: Some(encoded_old_offchain_pubkey),
@@ -1012,12 +1051,203 @@ impl Authenticator {
             })
         }
     }
+
+    /// Polls the gateway for the current status of a previously submitted request.
+    ///
+    /// Use the [`GatewayRequestId`] returned by [`insert_authenticator`](Self::insert_authenticator),
+    /// [`update_authenticator`](Self::update_authenticator), or
+    /// [`remove_authenticator`](Self::remove_authenticator) to track the operation.
+    ///
+    /// # Errors
+    /// - Will error if the network request fails.
+    /// - Will error if the gateway returns an error response (e.g. request not found).
+    pub async fn poll_status(
+        &self,
+        request_id: &GatewayRequestId,
+    ) -> Result<GatewayRequestState, AuthenticatorError> {
+        fetch_gateway_status(&self.http_client, self.config.gateway_url(), request_id).await
+    }
+
+    /// Initiates a recovery agent update for the holder's World ID.
+    ///
+    /// This begins a time-locked process to change the recovery agent. The update must be
+    /// executed after a cooldown period using [`execute_recovery_agent_update`](Self::execute_recovery_agent_update),
+    /// or it can be cancelled using [`cancel_recovery_agent_update`](Self::cancel_recovery_agent_update).
+    ///
+    /// # Errors
+    /// Returns an error if the gateway rejects the request or a network error occurs.
+    pub async fn initiate_recovery_agent_update(
+        &self,
+        new_recovery_agent: Address,
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
+        let leaf_index = self.leaf_index();
+        let (sig, nonce) = self
+            .danger_sign_initiate_recovery_agent_update(new_recovery_agent)
+            .await?;
+
+        let req = UpdateRecoveryAgentRequest {
+            leaf_index,
+            new_recovery_agent,
+            signature: sig,
+            nonce,
+        };
+
+        let resp = self
+            .http_client
+            .post(format!(
+                "{}/initiate-recovery-agent-update",
+                self.config.gateway_url()
+            ))
+            .json(&req)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let gateway_resp: GatewayStatusResponse = resp.json().await?;
+            Ok(gateway_resp.request_id)
+        } else {
+            let body_text = Self::response_body_or_fallback(resp).await;
+            Err(AuthenticatorError::GatewayError {
+                status,
+                body: body_text,
+            })
+        }
+    }
+
+    /// Signs the EIP-712 `InitiateRecoveryAgentUpdate` payload and returns the
+    /// signature without submitting anything to the gateway.
+    ///
+    /// This is the signing-only counterpart of [`Self::initiate_recovery_agent_update`].
+    /// Callers can use the returned signature to build and submit the gateway
+    /// request themselves.
+    ///
+    /// # Warning
+    /// This method uses the `onchain_signer` (secp256k1 ECDSA) and produces a
+    /// recoverable signature. Any holder of the signature together with the
+    /// EIP-712 parameters can call `ecrecover` to obtain the `onchain_address`,
+    /// which can then be looked up in the registry to derive the user's
+    /// `leaf_index`. Only expose the output to trusted parties (e.g. a Recovery
+    /// Agent).
+    ///
+    /// # Errors
+    /// Returns an error if the nonce fetch or signing step fails.
+    pub async fn danger_sign_initiate_recovery_agent_update(
+        &self,
+        new_recovery_agent: Address,
+    ) -> Result<(Signature, U256), AuthenticatorError> {
+        let leaf_index = self.leaf_index();
+        let nonce = self.signing_nonce().await?;
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
+
+        let signature = sign_initiate_recovery_agent_update(
+            &self.signer.onchain_signer(),
+            leaf_index,
+            new_recovery_agent,
+            nonce,
+            &eip712_domain,
+        )
+        .map_err(|e| {
+            AuthenticatorError::Generic(format!(
+                "Failed to sign initiate recovery agent update: {e}"
+            ))
+        })?;
+
+        Ok((signature, nonce))
+    }
+
+    /// Executes a pending recovery agent update for the holder's World ID.
+    ///
+    /// This is a permissionless operation that can be called by anyone after the cooldown
+    /// period has elapsed. No signature is required.
+    ///
+    /// # Errors
+    /// Returns an error if the gateway rejects the request or a network error occurs.
+    pub async fn execute_recovery_agent_update(
+        &self,
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
+        let req = ExecuteRecoveryAgentUpdateRequest {
+            leaf_index: self.leaf_index(),
+        };
+
+        let resp = self
+            .http_client
+            .post(format!(
+                "{}/execute-recovery-agent-update",
+                self.config.gateway_url()
+            ))
+            .json(&req)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let gateway_resp: GatewayStatusResponse = resp.json().await?;
+            Ok(gateway_resp.request_id)
+        } else {
+            let body_text = Self::response_body_or_fallback(resp).await;
+            Err(AuthenticatorError::GatewayError {
+                status,
+                body: body_text,
+            })
+        }
+    }
+
+    /// Cancels a pending recovery agent update for the holder's World ID.
+    ///
+    /// # Errors
+    /// Returns an error if the gateway rejects the request or a network error occurs.
+    pub async fn cancel_recovery_agent_update(
+        &self,
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
+        let leaf_index = self.leaf_index();
+        let nonce = self.signing_nonce().await?;
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
+
+        let sig = sign_cancel_recovery_agent_update(
+            &self.signer.onchain_signer(),
+            leaf_index,
+            nonce,
+            &eip712_domain,
+        )
+        .map_err(|e| {
+            AuthenticatorError::Generic(format!("Failed to sign cancel recovery agent update: {e}"))
+        })?;
+
+        let req = CancelRecoveryAgentUpdateRequest {
+            leaf_index,
+            signature: sig,
+            nonce,
+        };
+
+        let resp = self
+            .http_client
+            .post(format!(
+                "{}/cancel-recovery-agent-update",
+                self.config.gateway_url()
+            ))
+            .json(&req)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let gateway_resp: GatewayStatusResponse = resp.json().await?;
+            Ok(gateway_resp.request_id)
+        } else {
+            let body_text = Self::response_body_or_fallback(resp).await;
+            Err(AuthenticatorError::GatewayError {
+                status,
+                body: body_text,
+            })
+        }
+    }
 }
 
 /// Represents an account in the process of being initialized,
 /// i.e. it is not yet registered in the `WorldIDRegistry` contract.
 pub struct InitializingAuthenticator {
-    request_id: String,
+    request_id: GatewayRequestId,
     http_client: reqwest::Client,
     config: Config,
 }
@@ -1025,7 +1255,7 @@ pub struct InitializingAuthenticator {
 impl InitializingAuthenticator {
     /// Returns the gateway request ID for this pending account creation.
     #[must_use]
-    pub fn request_id(&self) -> &str {
+    pub fn request_id(&self) -> &GatewayRequestId {
         &self.request_id
     }
 
@@ -1090,28 +1320,12 @@ impl InitializingAuthenticator {
     /// - Will error if the network request fails.
     /// - Will error if the gateway returns an error response.
     pub async fn poll_status(&self) -> Result<GatewayRequestState, AuthenticatorError> {
-        let resp = self
-            .http_client
-            .get(format!(
-                "{}/status/{}",
-                self.config.gateway_url(),
-                self.request_id
-            ))
-            .send()
-            .await?;
-
-        let status = resp.status();
-
-        if status.is_success() {
-            let body: GatewayStatusResponse = resp.json().await?;
-            Ok(body.status)
-        } else {
-            let body_text = Authenticator::response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        fetch_gateway_status(
+            &self.http_client,
+            self.config.gateway_url(),
+            &self.request_id,
+        )
+        .await
     }
 }
 
@@ -1241,10 +1455,6 @@ pub enum AuthenticatorError {
     /// the only other failure option is OPRFs not having performed correct computations.
     #[error("the expected session id and the generated session id do not match")]
     SessionIdMismatch,
-
-    /// The provided session ID is invalid.
-    #[error("invalid session id")]
-    InvalidSessionId,
 
     /// Generic error for other unexpected issues.
     #[error("{0}")]
