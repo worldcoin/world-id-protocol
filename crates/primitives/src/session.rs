@@ -94,7 +94,9 @@ pub struct SessionId {
 
 impl SessionId {
     const JSON_PREFIX: &str = "session_";
-    /// Domain separator for session id
+    /// Domain separator for session id.
+    ///
+    /// TODO: Change DS from base Query Proof
     const DS_C: &[u8] = b"H(id, r)";
 
     /// Creates a new session id. Most uses should default to `from_r_seed` instead.
@@ -129,25 +131,19 @@ impl SessionId {
     /// - Requesting this seed requires a properly signed request from the RP and a complete query proof.
     /// - The seed generation is based on a randomly generated seed used as an "action" in a Query Proof. Note
     ///   this `action` is different than the randomized action used internally by [`SessionNullifier`]s.
-    pub fn from_r_seed<R: rand::CryptoRng + rand::RngCore>(
+    pub fn from_r_seed(
         leaf_index: u64,
         session_id_r_seed: FieldElement,
-        oprf_seed: Option<FieldElement>,
-        rng: &mut R,
+        oprf_seed: FieldElement,
     ) -> Result<Self, PrimitiveError> {
         let sub_ds = FieldElement::from_be_bytes_mod_order(Self::DS_C);
 
-        let oprf_seed = if let Some(seed) = oprf_seed {
-            if !seed.is_valid_for_session(SessionFeType::OprfSeed) {
-                return Err(PrimitiveError::InvalidInput {
-                    attribute: "session_id".to_string(),
-                    reason: "inner oprf_seed is not valid".to_string(),
-                });
-            }
-            seed
-        } else {
-            FieldElement::random_for_session(rng, SessionFeType::OprfSeed)
-        };
+        if !oprf_seed.is_valid_for_session(SessionFeType::OprfSeed) {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "session_id".to_string(),
+                reason: "inner oprf_seed is not valid".to_string(),
+            });
+        }
 
         let mut input = [*sub_ds, leaf_index.into(), *session_id_r_seed];
         poseidon2::bn254::t3::permutation_in_place(&mut input);
@@ -546,37 +542,12 @@ mod session_id_tests {
     }
 
     #[test]
-    fn test_from_r_seed_generates_random_seed() {
-        let mut rng = rand::rngs::OsRng;
-        let r_seed = test_field_element(999);
-
-        let id1 = SessionId::from_r_seed(0, r_seed, None, &mut rng).unwrap();
-        let id2 = SessionId::from_r_seed(0, r_seed, None, &mut rng).unwrap();
-
-        assert_ne!(id1.oprf_seed(), id2.oprf_seed());
-    }
-
-    #[test]
-    fn test_from_r_seed_generated_seed_has_session_prefix() {
-        let mut rng = rand::rngs::OsRng;
-        let r_seed = test_field_element(999);
-
-        for _ in 0..50 {
-            let id = SessionId::from_r_seed(0, r_seed, None, &mut rng).unwrap();
-            // Top byte must be exactly 0x01: bit 248 set, bits 249-255 clear
-            assert_eq!(id.oprf_seed().to_u256() >> 248, U256::from(1));
-        }
-    }
-
-    #[test]
     fn test_from_r_seed_commitment_snapshot() {
         let leaf_index = 42u64;
         let r_seed = test_field_element(123);
         let oprf_seed = test_oprf_seed(456);
 
-        let session_id =
-            SessionId::from_r_seed(leaf_index, r_seed, Some(oprf_seed), &mut rand::rngs::OsRng)
-                .unwrap();
+        let session_id = SessionId::from_r_seed(leaf_index, r_seed, oprf_seed).unwrap();
 
         let expected = "0x1e7853ebd4fc9d9f0232fdcfae116023610bdf66a22e2700445d7a2e0e7e6152"
             .parse::<U256>()

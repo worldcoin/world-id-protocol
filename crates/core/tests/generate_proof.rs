@@ -320,7 +320,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let (inclusion_proof, key_set) = authenticator.fetch_inclusion_proof().await?;
     let nullifier = authenticator
-        .generate_nullifier(&proof_request, inclusion_proof, key_set)
+        .generate_nullifier(&proof_request, Some(inclusion_proof), Some(key_set))
         .await?;
     assert_ne!(nullifier.verifiable_oprf_output.output, *FieldElement::ZERO);
 

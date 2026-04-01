@@ -121,13 +121,13 @@ impl DevClient for WorldIdRpDevClient {
         let (uniquness_nullifier, session_nullifier) = tokio::join!(
             self.components.authenticator.generate_nullifier(
                 &proof_request_uniqueness,
-                setup.inclusion_proof.clone(),
-                setup.key_set.clone(),
+                Some(setup.inclusion_proof.clone()),
+                Some(setup.key_set.clone()),
             ),
             self.components.authenticator.generate_nullifier(
                 &proof_request_session,
-                setup.inclusion_proof.clone(),
-                setup.key_set.clone(),
+                Some(setup.inclusion_proof.clone()),
+                Some(setup.key_set.clone()),
             )
         );
 
@@ -285,9 +285,12 @@ fn create_proof_request<R: Rng + CryptoRng>(
         }
         OprfModule::Session => {
             // Session RP signature does NOT include action
-            let session_id =
-                SessionId::from_r_seed(setup.key_index, FieldElement::random(rng), None, rng)
-                    .context("while building SessionId")?;
+            let session_id = SessionId::from_r_seed(
+                setup.key_index,
+                FieldElement::random(rng),
+                FieldElement::random_for_session(rng, SessionFeType::OprfSeed),
+            )
+            .context("while building SessionId")?;
             (None, Some(session_id))
         }
         _ => unreachable!("only have session and nullifier modules here"),

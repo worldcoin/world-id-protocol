@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
 
     let (inclusion_proof, key_set) = authenticator.fetch_inclusion_proof().await?;
     let nullifier = authenticator
-        .generate_nullifier(&proof_request, inclusion_proof, key_set)
+        .generate_nullifier(&proof_request, Some(inclusion_proof), Some(key_set))
         .await?;
 
     let proof_response = authenticator.generate_single_proof(

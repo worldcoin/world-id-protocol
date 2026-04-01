@@ -13,7 +13,8 @@ use crate::api_types::{
     ServiceApiError, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
 };
 use world_id_primitives::{
-    Credential, FieldElement, ProofRequest, RequestItem, ResponseItem, SessionNullifier, Signer,
+    Credential, FieldElement, ProofRequest, RequestItem, ResponseItem, SessionFeType,
+    SessionFieldElement, SessionNullifier, Signer,
 };
 
 use crate::registry::{
@@ -595,44 +596,14 @@ impl Authenticator {
     pub async fn generate_nullifier(
         &self,
         proof_request: &ProofRequest,
-        inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
-        key_set: AuthenticatorPublicKeySet,
+        inclusion_proof: Option<MerkleInclusionProof<TREE_DEPTH>>,
+        key_set: Option<AuthenticatorPublicKeySet>,
     ) -> Result<FullOprfOutput, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
-        let (services, threshold) = self.check_oprf_config()?;
+        let oprf_entrypoint = self.get_oprf_entrypoint(inclusion_proof, key_set).await?;
 
-        let query_material = self
-            .query_material
-            .as_ref()
-            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
-
-        let key_index = key_set
-            .iter()
-            .position(|pk| {
-                pk.as_ref()
-                    .is_some_and(|pk| pk.pk == self.offchain_pubkey().pk)
-            })
-            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
-
-        let authenticator_input = AuthenticatorProofInput::new(
-            key_set,
-            inclusion_proof,
-            self.signer
-                .offchain_signer_private_key()
-                .expose_secret()
-                .clone(),
-            key_index,
-        );
-
-        let oprf_entry_point = OprfEntrypoint::new(
-            services,
-            threshold,
-            query_material,
-            &authenticator_input,
-            &self.ws_connector,
-        );
-        Ok(oprf_entry_point
+        Ok(oprf_entrypoint
             .gen_nullifier(&mut rng, proof_request)
             .await?)
     }
@@ -650,41 +621,9 @@ impl Authenticator {
         issuer_schema_id: u64,
     ) -> Result<FieldElement, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
-        let (services, threshold) = self.check_oprf_config()?;
+        let oprf_entrypoint = self.get_oprf_entrypoint(None, None).await?;
 
-        let query_material = self
-            .query_material
-            .as_ref()
-            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
-
-        let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
-        let key_index = key_set
-            .iter()
-            .position(|pk| {
-                pk.as_ref()
-                    .is_some_and(|pk| pk.pk == self.offchain_pubkey().pk)
-            })
-            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
-
-        let authenticator_input = AuthenticatorProofInput::new(
-            key_set,
-            inclusion_proof,
-            self.signer
-                .offchain_signer_private_key()
-                .expose_secret()
-                .clone(),
-            key_index,
-        );
-
-        let oprf_entry_point = OprfEntrypoint::new(
-            services,
-            threshold,
-            query_material,
-            &authenticator_input,
-            &self.ws_connector,
-        );
-
-        let (blinding_factor, _share_epoch) = oprf_entry_point
+        let (blinding_factor, _share_epoch) = oprf_entrypoint
             .gen_credential_blinding_factor(&mut rng, issuer_schema_id)
             .await?;
 
@@ -710,18 +649,28 @@ impl Authenticator {
         &self,
         proof_request: &ProofRequest,
         session_id_r_seed: Option<FieldElement>,
+        inclusion_proof: Option<MerkleInclusionProof<TREE_DEPTH>>,
+        key_set: Option<AuthenticatorPublicKeySet>,
     ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
-        // TODO: Generate using OPRF Nodes with `oprf_seed` as input
-        let session_id_r_seed = session_id_r_seed.unwrap_or(FieldElement::random(&mut rng));
+        let oprf_seed = match proof_request.session_id {
+            Some(session_id) => session_id.oprf_seed(),
+            None => FieldElement::random_for_session(&mut rng, SessionFeType::OprfSeed),
+        };
 
-        let session_id = SessionId::from_r_seed(
-            self.leaf_index(),
-            session_id_r_seed,
-            proof_request.session_id.map(|v| v.oprf_seed()),
-            &mut rng,
-        )?;
+        let session_id_r_seed = match session_id_r_seed {
+            Some(seed) => seed,
+            None => {
+                let entrypoint = self.get_oprf_entrypoint(inclusion_proof, key_set).await?;
+                let oprf_output = entrypoint
+                    .gen_session_id_r_seed(&mut rng, proof_request, oprf_seed)
+                    .await?;
+                oprf_output.verifiable_oprf_output.output.into()
+            }
+        };
+
+        let session_id = SessionId::from_r_seed(self.leaf_index(), session_id_r_seed, oprf_seed)?;
 
         if let Some(request_session_id) = proof_request.session_id {
             if request_session_id != session_id {
@@ -814,6 +763,54 @@ impl Authenticator {
         };
 
         Ok(response_item)
+    }
+
+    async fn get_oprf_entrypoint(
+        &self,
+        inclusion_proof: Option<MerkleInclusionProof<TREE_DEPTH>>,
+        key_set: Option<AuthenticatorPublicKeySet>,
+    ) -> Result<OprfEntrypoint<'_>, AuthenticatorError> {
+        let (services, threshold) = self.check_oprf_config()?;
+
+        let query_material = self
+            .query_material
+            .as_ref()
+            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
+
+        // Fetch inclusion_proof && key_set if not provided
+        let (inclusion_proof, key_set) = if let Some(inclusion_proof) = inclusion_proof
+            && let Some(key_set) = key_set
+        {
+            (inclusion_proof, key_set)
+        } else {
+            self.fetch_inclusion_proof().await?
+        };
+
+        let key_index = key_set
+            .iter()
+            .position(|pk| {
+                pk.as_ref()
+                    .is_some_and(|pk| pk.pk == self.offchain_pubkey().pk)
+            })
+            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
+
+        let authenticator_input = AuthenticatorProofInput::new(
+            key_set,
+            inclusion_proof,
+            self.signer
+                .offchain_signer_private_key()
+                .expose_secret()
+                .clone(),
+            key_index,
+        );
+
+        Ok(OprfEntrypoint::new(
+            services,
+            threshold,
+            query_material,
+            authenticator_input,
+            &self.ws_connector,
+        ))
     }
 
     /// Inserts a new authenticator to the account.

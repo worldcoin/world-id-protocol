@@ -33,7 +33,7 @@ use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
 };
 use world_id_primitives::{
-    Config, FieldElement, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
+    Config, FieldElement, SessionFieldElement, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
@@ -286,7 +286,7 @@ async fn main() -> Result<()> {
 
     let (incl_proof, key_set) = authenticator.fetch_inclusion_proof().await?;
     let nullifier_data = authenticator
-        .generate_nullifier(&uniqueness_request, incl_proof, key_set)
+        .generate_nullifier(&uniqueness_request, Some(incl_proof), Some(key_set))
         .await?;
     // Clone the nullifier data before it's consumed — we reuse it for the session proof.
     let nullifier_data_for_session = nullifier_data.clone();
@@ -330,7 +330,12 @@ async fn main() -> Result<()> {
 
     //  ── CREATE SESSION
     let session_id_r_seed = FieldElement::random(&mut rng); // TODO: Create through OPRF
-    let session_id = SessionId::from_r_seed(leaf_index, session_id_r_seed, None, &mut rng).unwrap();
+    let session_id = SessionId::from_r_seed(
+        leaf_index,
+        session_id_r_seed,
+        FieldElement::random_for_session(&mut rng, world_id_primitives::SessionFeType::OprfSeed),
+    )
+    .unwrap();
 
     // ── SESSION PROOF (reuse cloned OPRF data with a non-zero session_id) ──
     let session_response = authenticator.generate_single_proof(
