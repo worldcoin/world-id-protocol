@@ -17,9 +17,9 @@ import {IWorldIDVerifier} from "./interfaces/IWorldIDVerifier.sol";
  */
 contract WorldIDVerifierV2 is WorldIDVerifier {
     /**
-     * @dev Thrown when the inner action of the sessionNullifier is not valid. The prefix is enforced
+     * @dev Thrown when the action is not valid for the type of proof. The prefix is enforced
      *  to ensure any nullifier request for a Uniqueness Proof is signed by the RP (actions
-     *  without this prefix, i.e. for sessions, don't need to be signed).
+     *  without this prefix, i.e. for sessions, it doesn't need to be signed).
      */
     error InvalidAction();
 
@@ -51,6 +51,37 @@ contract WorldIDVerifierV2 is WorldIDVerifier {
             // For Uniqueness Proofs, the `session_id` is not used, hence the constraint defaults to 0
             // To verify a Session Proof use `verifySession` instead.
             0,
+            zeroKnowledgeProof
+        );
+    }
+
+    /// @inheritdoc IWorldIDVerifier
+    function verifySession(
+        uint64 rpId,
+        uint256 nonce,
+        uint256 signalHash,
+        uint64 expiresAtMin,
+        uint64 issuerSchemaId,
+        uint256 credentialGenesisIssuedAtMin,
+        uint256 sessionId,
+        uint256[2] calldata sessionNullifier,
+        uint256[5] calldata zeroKnowledgeProof
+    ) external view virtual override onlyProxy onlyInitialized {
+        uint256 action = sessionNullifier[1];
+        if (uint8(action >> 248) != uint8(2)) {
+            revert InvalidAction();
+        }
+
+        verifyProofAndSignals(
+            sessionNullifier[0],
+            action,
+            rpId,
+            nonce,
+            signalHash,
+            expiresAtMin,
+            issuerSchemaId,
+            credentialGenesisIssuedAtMin,
+            sessionId,
             zeroKnowledgeProof
         );
     }
