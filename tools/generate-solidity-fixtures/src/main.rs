@@ -284,10 +284,10 @@ async fn main() -> Result<()> {
         .find_request_by_issuer_schema_id(issuer_schema_id)
         .unwrap();
 
-    let (incl_proof, key_set) = authenticator.fetch_inclusion_proof().await?;
     let nullifier_data = authenticator
-        .generate_nullifier(&uniqueness_request, Some(incl_proof), Some(key_set))
+        .generate_nullifier(&uniqueness_request, None)
         .await?;
+
     // Clone the nullifier data before it's consumed — we reuse it for the session proof.
     let nullifier_data_for_session = nullifier_data.clone();
 

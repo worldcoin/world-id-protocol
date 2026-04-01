@@ -41,7 +41,6 @@ use world_id_primitives::{
         AuthenticatorPublicKeySet, SparseAuthenticatorPubkeysError,
         decode_sparse_authenticator_pubkeys,
     },
-    merkle::MerkleInclusionProof,
 };
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint,
@@ -427,8 +426,7 @@ impl Authenticator {
     /// - Will error if the user is not registered on the `WorldIDRegistry`.
     pub async fn fetch_inclusion_proof(
         &self,
-    ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, AuthenticatorPublicKeySet), AuthenticatorError>
-    {
+    ) -> Result<AccountInclusionProof<TREE_DEPTH>, AuthenticatorError> {
         let url = format!("{}/inclusion-proof", self.config.indexer_url());
         let req = IndexerQueryRequest {
             leaf_index: self.leaf_index(),
@@ -443,7 +441,7 @@ impl Authenticator {
         }
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
-        Ok((response.inclusion_proof, response.authenticator_pubkeys))
+        Ok(response)
     }
 
     /// Fetches the current authenticator public key set for the account.
@@ -533,8 +531,7 @@ impl Authenticator {
     /// - Will return an error if there are issues fetching an inclusion proof.
     async fn get_oprf_entrypoint(
         &self,
-        inclusion_proof: Option<MerkleInclusionProof<TREE_DEPTH>>,
-        key_set: Option<AuthenticatorPublicKeySet>,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<OprfEntrypoint<'_>, AuthenticatorError> {
         // Check OPRF Config
         let services = self.config.nullifier_oracle_urls();
@@ -557,16 +554,16 @@ impl Authenticator {
             .as_ref()
             .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
 
-        // Fetch inclusion_proof && key_set if not provided
-        let (inclusion_proof, key_set) = if let Some(inclusion_proof) = inclusion_proof
-            && let Some(key_set) = key_set
+        // Fetch inclusion_proof && authenticator key_set if not provided
+        let account_inclusion_proof = if let Some(account_inclusion_proof) = account_inclusion_proof
         {
-            (inclusion_proof, key_set)
+            account_inclusion_proof
         } else {
             self.fetch_inclusion_proof().await?
         };
 
-        let key_index = key_set
+        let key_index = account_inclusion_proof
+            .authenticator_pubkeys
             .iter()
             .position(|pk| {
                 pk.as_ref()
@@ -575,8 +572,8 @@ impl Authenticator {
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
 
         let authenticator_input = AuthenticatorProofInput::new(
-            key_set,
-            inclusion_proof,
+            account_inclusion_proof.authenticator_pubkeys,
+            account_inclusion_proof.inclusion_proof,
             self.signer
                 .offchain_signer_private_key()
                 .expose_secret()
@@ -645,12 +642,11 @@ impl Authenticator {
     pub async fn generate_nullifier(
         &self,
         proof_request: &ProofRequest,
-        inclusion_proof: Option<MerkleInclusionProof<TREE_DEPTH>>,
-        key_set: Option<AuthenticatorPublicKeySet>,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<FullOprfOutput, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
-        let oprf_entrypoint = self.get_oprf_entrypoint(inclusion_proof, key_set).await?;
+        let oprf_entrypoint = self.get_oprf_entrypoint(account_inclusion_proof).await?;
 
         Ok(oprf_entrypoint
             .gen_nullifier(&mut rng, proof_request)
@@ -670,7 +666,9 @@ impl Authenticator {
         issuer_schema_id: u64,
     ) -> Result<FieldElement, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
-        let oprf_entrypoint = self.get_oprf_entrypoint(None, None).await?;
+
+        // This is called sporadic enough that fetching fresh is reasonable
+        let oprf_entrypoint = self.get_oprf_entrypoint(None).await?;
 
         let (blinding_factor, _share_epoch) = oprf_entrypoint
             .gen_credential_blinding_factor(&mut rng, issuer_schema_id)
@@ -698,8 +696,7 @@ impl Authenticator {
         &self,
         proof_request: &ProofRequest,
         session_id_r_seed: Option<FieldElement>,
-        inclusion_proof: Option<MerkleInclusionProof<TREE_DEPTH>>,
-        key_set: Option<AuthenticatorPublicKeySet>,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
@@ -711,7 +708,7 @@ impl Authenticator {
         let session_id_r_seed = match session_id_r_seed {
             Some(seed) => seed,
             None => {
-                let entrypoint = self.get_oprf_entrypoint(inclusion_proof, key_set).await?;
+                let entrypoint = self.get_oprf_entrypoint(account_inclusion_proof).await?;
                 let oprf_output = entrypoint
                     .gen_session_id_r_seed(&mut rng, proof_request, oprf_seed)
                     .await?;

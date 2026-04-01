@@ -124,16 +124,21 @@ impl SharedDevClientComponents {
         AuthenticatorPublicKeySet,
         u64,
     )> {
-        let (inclusion_proof, key_set) = self.authenticator.fetch_inclusion_proof().await?;
+        let account_inclusion_proof = self.authenticator.fetch_inclusion_proof().await?;
 
-        let key_index = key_set
+        let key_index = account_inclusion_proof
+            .authenticator_pubkeys
             .iter()
             .position(|pk| {
                 pk.as_ref()
                     .is_some_and(|pk| pk.pk == self.authenticator.offchain_pubkey().pk)
             })
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
-        Ok((inclusion_proof, key_set, key_index))
+        Ok((
+            account_inclusion_proof.inclusion_proof,
+            account_inclusion_proof.authenticator_pubkeys,
+            key_index,
+        ))
     }
 }
 

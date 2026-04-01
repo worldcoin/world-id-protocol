@@ -38,7 +38,7 @@ pub struct OprfEntrypoint<'a> {
     threshold: usize,
     /// The material for the query proof circuit.
     query_material: &'a CircomGroth16Material,
-    /// See [`AuthenticatorProofInput`] for more details.
+    /// See [`AuthenticatorProofInput`] for more details. This is owned to zeroize signing key after use.
     authenticator_input: AuthenticatorProofInput,
     /// The network connector to make requests.
     connector: &'a Connector,
