@@ -1072,21 +1072,9 @@ impl Authenticator {
         new_recovery_agent: Address,
     ) -> Result<GatewayRequestId, AuthenticatorError> {
         let leaf_index = self.leaf_index();
-        let nonce = self.signing_nonce().await?;
-        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
-
-        let sig = sign_initiate_recovery_agent_update(
-            &self.signer.onchain_signer(),
-            leaf_index,
-            new_recovery_agent,
-            nonce,
-            &eip712_domain,
-        )
-        .map_err(|e| {
-            AuthenticatorError::Generic(format!(
-                "Failed to sign initiate recovery agent update: {e}"
-            ))
-        })?;
+        let (sig, nonce) = self
+            .sign_initiate_recovery_agent_update(new_recovery_agent)
+            .await?;
 
         let req = UpdateRecoveryAgentRequest {
             leaf_index,
@@ -1116,6 +1104,39 @@ impl Authenticator {
                 body: body_text,
             })
         }
+    }
+
+    /// Signs the EIP-712 `InitiateRecoveryAgentUpdate` payload and returns the
+    /// signature without submitting anything to the gateway.
+    ///
+    /// This is the signing-only counterpart of [`Self::initiate_recovery_agent_update`].
+    /// Callers can use the returned signature to build and submit the gateway
+    /// request themselves.
+    ///
+    /// # Errors
+    /// Returns an error if the nonce fetch or signing step fails.
+    pub async fn sign_initiate_recovery_agent_update(
+        &self,
+        new_recovery_agent: Address,
+    ) -> Result<(Signature, U256), AuthenticatorError> {
+        let leaf_index = self.leaf_index();
+        let nonce = self.signing_nonce().await?;
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
+
+        let signature = sign_initiate_recovery_agent_update(
+            &self.signer.onchain_signer(),
+            leaf_index,
+            new_recovery_agent,
+            nonce,
+            &eip712_domain,
+        )
+        .map_err(|e| {
+            AuthenticatorError::Generic(format!(
+                "Failed to sign initiate recovery agent update: {e}"
+            ))
+        })?;
+
+        Ok((signature, nonce))
     }
 
     /// Executes a pending recovery agent update for the holder's World ID.
