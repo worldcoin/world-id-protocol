@@ -1,11 +1,13 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{num::NonZeroU16, path::PathBuf, sync::Arc, time::Duration};
 
 use alloy::primitives::{Address, U256};
 use ark_serialize::CanonicalSerialize;
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, Result};
+use secrecy::SecretString;
 use semver::VersionReq;
-use taceo_oprf_key_gen::StartedServices;
+use taceo_oprf::service::web3::RpcProviderConfig;
+use taceo_oprf_key_gen::{StartedServices, config::OprfKeyGenServiceConfigMandatoryValues};
 use taceo_oprf_test_utils::{PEER_PRIVATE_KEYS, test_secret_manager::TestSecretManager};
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -17,6 +19,8 @@ use world_id_primitives::{
 };
 
 use std::sync::RwLock;
+
+use crate::anvil::TestAnvil;
 
 #[derive(Clone)]
 struct IndexerState {
@@ -185,7 +189,7 @@ impl MutableIndexerStub {
 
 async fn spawn_orpf_node(
     id: usize,
-    chain_ws_rpc_url: &str,
+    anvil: &TestAnvil,
     secret_manager: OprfNodeTestSecretManager,
     oprf_key_registry_contract: Address,
     world_id_registry_contract: Address,
@@ -200,11 +204,19 @@ async fn spawn_orpf_node(
         credential_schema_issuer_registry_contract,
         oprf_key_registry_contract,
     };
+    let anvil_http = anvil
+        .endpoint()
+        .parse()
+        .expect("anvil endpoint should be valid URL");
+    let anvil_ws = anvil
+        .ws_endpoint()
+        .parse()
+        .expect("anvil ws_endpoint should be valid URL");
     let config = WorldOprfNodeConfig::with_default_values(
         taceo_oprf::service::Environment::Dev,
         contracts,
-        chain_ws_rpc_url.into(),
         VersionReq::STAR,
+        RpcProviderConfig::with_default_values(vec![anvil_http], anvil_ws),
     );
 
     tokio::spawn(async move {
@@ -236,7 +248,7 @@ async fn spawn_orpf_node(
 }
 
 pub async fn spawn_oprf_nodes(
-    chain_ws_rpc_url: &str,
+    anvil: &TestAnvil,
     [
         secret_manager0,
         secret_manager1,
@@ -252,7 +264,7 @@ pub async fn spawn_oprf_nodes(
     tokio::join!(
         spawn_orpf_node(
             0,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager0,
             key_gen_contract,
             world_id_registry_contract,
@@ -261,7 +273,7 @@ pub async fn spawn_oprf_nodes(
         ),
         spawn_orpf_node(
             1,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager1,
             key_gen_contract,
             world_id_registry_contract,
@@ -270,7 +282,7 @@ pub async fn spawn_oprf_nodes(
         ),
         spawn_orpf_node(
             2,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager2,
             key_gen_contract,
             world_id_registry_contract,
@@ -279,7 +291,7 @@ pub async fn spawn_oprf_nodes(
         ),
         spawn_orpf_node(
             3,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager3,
             key_gen_contract,
             world_id_registry_contract,
@@ -288,7 +300,7 @@ pub async fn spawn_oprf_nodes(
         ),
         spawn_orpf_node(
             4,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager4,
             key_gen_contract,
             world_id_registry_contract,
@@ -305,17 +317,26 @@ async fn spawn_key_gen(
     chain_ws_rpc_url: &str,
     secret_manager: OprfKeyGenTestSecretManager,
     oprf_key_registry_contract: Address,
+    expected_threshold: NonZeroU16,
+    expected_num_peers: NonZeroU16,
 ) -> String {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let bind_addr = format!("0.0.0.0:2{id:04}");
     let url = format!("http://localhost:2{id:04}"); // set port based on id, e.g. 20001 for id 1
     let config = taceo_oprf_key_gen::config::OprfKeyGenServiceConfig::with_default_values(
-        taceo_oprf_key_gen::Environment::Dev,
-        oprf_key_registry_contract,
-        dir.join("../../circom/OPRFKeyGen.25.arks.zkey"),
-        dir.join("../../circom/OPRFKeyGenGraph.25.bin"),
-        vec![chain_http_rpc_url.parse().expect("Is a valid URL")],
-        chain_ws_rpc_url.parse().expect("Is a valid URL"),
+        OprfKeyGenServiceConfigMandatoryValues {
+            environment: taceo_oprf_key_gen::Environment::Dev,
+            oprf_key_registry_contract,
+            wallet_private_key: SecretString::from(secret_manager.wallet_private_key_hex_string()),
+            zkey_path: dir.join("../../circom/OPRFKeyGen.25.arks.zkey"),
+            witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.25.bin"),
+            expected_threshold,
+            expected_num_peers,
+            rpc_provider_config: RpcProviderConfig::with_default_values(
+                vec![chain_http_rpc_url.parse().expect("Is a valid URL")],
+                chain_ws_rpc_url.parse().expect("Is a valid URL"),
+            ),
+        },
     );
 
     tokio::spawn(async move {
@@ -362,41 +383,53 @@ pub async fn spawn_key_gens(
     ]: [OprfKeyGenTestSecretManager; 5],
     key_gen_contract: Address,
 ) -> [String; 5] {
+    let threshold = NonZeroU16::new(3).expect("3 is non-zero");
+    let num_peers = NonZeroU16::new(5).expect("5 is non-zero");
     tokio::join!(
         spawn_key_gen(
             0,
             chain_http_rpc_url,
             chain_ws_rpc_url,
             secret_manager0,
-            key_gen_contract
+            key_gen_contract,
+            threshold,
+            num_peers
         ),
         spawn_key_gen(
             1,
             chain_http_rpc_url,
             chain_ws_rpc_url,
             secret_manager1,
-            key_gen_contract
+            key_gen_contract,
+            threshold,
+            num_peers
         ),
         spawn_key_gen(
             2,
             chain_http_rpc_url,
             chain_ws_rpc_url,
             secret_manager2,
-            key_gen_contract
+            key_gen_contract,
+            threshold,
+            num_peers
         ),
         spawn_key_gen(
             3,
             chain_http_rpc_url,
             chain_ws_rpc_url,
             secret_manager3,
-            key_gen_contract
+            key_gen_contract,
+            threshold,
+            num_peers
         ),
         spawn_key_gen(
             4,
             chain_http_rpc_url,
             chain_ws_rpc_url,
             secret_manager4,
-            key_gen_contract
+            key_gen_contract,
+            threshold,
+            num_peers
         ),
     )
     .into()

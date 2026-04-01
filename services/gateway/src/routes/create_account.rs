@@ -8,7 +8,7 @@ use axum::{Extension, Json, extract::State};
 use tracing::instrument;
 use world_id_core::api_types::{CreateAccountRequest, GatewayStatusResponse};
 
-/// POST /v1/accounts
+/// POST /create-account
 ///
 /// Create a new World ID account.
 #[instrument(name = "create_account", skip(state, payload), fields(request_id = %id))]

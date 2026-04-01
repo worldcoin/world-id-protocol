@@ -116,19 +116,25 @@ impl FieldElement {
         U256::from_be_bytes(*be_bytes).try_into()
     }
 
-    /// Deserializes a field element from a big-endian byte slice.
+    /// Deserializes a field element from a big-endian byte slice performing modulo
+    /// reduction if the value is larger than the field modulus.
+    ///
+    /// This can be used for instance to convert the output of a byte-based hash function into
+    /// a field element. It is **critical** to always use the same mechanism to bring elements into
+    /// the field. For example, [`Self::from_arbitrary_raw_bytes`] performs a different operation.
     ///
     /// # Warning
     /// Use this function carefully. This function will perform modulo reduction on the input, which may
-    /// lead to unexpected results if the input should not be reduced.
+    /// lead to unexpected results if the input should not be reduced. For example, this is **not** appropriate
+    /// when parsing a canonical field-element encoding.
     #[must_use]
-    pub(crate) fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
+    pub fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
         let field_element = Fq::from_be_bytes_mod_order(bytes);
         Self(field_element)
     }
 
     /// Takes arbitrary raw bytes, hashes them with a byte-friendly gas-efficient hash function
-    /// and reduces it to a field element.
+    /// and reduces it to a field element. Particularly useful for EVM on-chain use.
     #[must_use]
     pub fn from_arbitrary_raw_bytes(bytes: &[u8]) -> Self {
         let mut hasher = Keccak256::new();
