@@ -100,7 +100,12 @@ pub struct Authenticator {
     pub config: Config,
     /// The packed account data for the holder's World ID is a `uint256` defined in the `WorldIDRegistry` contract as:
     /// `recovery_counter` (32 bits) | `pubkey_id` (commitment to all off-chain public keys) (32 bits) | `leaf_index` (192 bits)
-    pub packed_account_data: U256,
+    ///
+    /// Wrapped in a [`tokio::sync::RwLock`] so that management operations
+    /// (`insert_authenticator`, `update_authenticator`, `remove_authenticator`)
+    /// can refresh the cached value after on-chain state changes without
+    /// requiring `&mut self`.
+    pub packed_account_data: tokio::sync::RwLock<U256>,
     signer: Signer,
     registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
     http_client: reqwest::Client,
@@ -173,7 +178,7 @@ impl Authenticator {
         let ws_connector = Connector;
 
         Ok(Self {
-            packed_account_data,
+            packed_account_data: tokio::sync::RwLock::new(packed_account_data),
             signer,
             config,
             registry,
@@ -405,16 +410,18 @@ impl Authenticator {
     ///   is to fetch Merkle inclusion proofs from an indexer or it may create a pseudonymous identifier.
     /// - The `leaf_index` is stored as a `uint64` inside packed account data.
     #[must_use]
-    pub fn leaf_index(&self) -> u64 {
-        (self.packed_account_data & MASK_LEAF_INDEX).to::<u64>()
+    pub async fn leaf_index(&self) -> u64 {
+        let data = self.packed_account_data.read().await;
+        (*data & MASK_LEAF_INDEX).to::<u64>()
     }
 
     /// Returns the recovery counter for the holder's World ID.
     ///
     /// The recovery counter is used to efficiently invalidate all the old keys when an account is recovered.
     #[must_use]
-    pub fn recovery_counter(&self) -> U256 {
-        let recovery_counter = self.packed_account_data & MASK_RECOVERY_COUNTER;
+    pub async fn recovery_counter(&self) -> U256 {
+        let data = self.packed_account_data.read().await;
+        let recovery_counter = *data & MASK_RECOVERY_COUNTER;
         recovery_counter >> 224
     }
 
@@ -422,8 +429,9 @@ impl Authenticator {
     ///
     /// This is a commitment to all the off-chain public keys that are authorized to act on behalf of the holder.
     #[must_use]
-    pub fn pubkey_id(&self) -> U256 {
-        let pubkey_id = self.packed_account_data & MASK_PUBKEY_ID;
+    pub async fn pubkey_id(&self) -> U256 {
+        let data = self.packed_account_data.read().await;
+        let pubkey_id = *data & MASK_PUBKEY_ID;
         pubkey_id >> 192
     }
 
@@ -437,7 +445,7 @@ impl Authenticator {
     ) -> Result<AccountInclusionProof<TREE_DEPTH>, AuthenticatorError> {
         let url = format!("{}/inclusion-proof", self.config.indexer_url());
         let req = IndexerQueryRequest {
-            leaf_index: self.leaf_index(),
+            leaf_index: self.leaf_index().await,
         };
         let response = self.http_client.post(&url).json(&req).send().await?;
         let status = response.status();
@@ -465,7 +473,7 @@ impl Authenticator {
     ) -> Result<AuthenticatorPublicKeySet, AuthenticatorError> {
         let url = format!("{}/authenticator-pubkeys", self.config.indexer_url());
         let req = IndexerQueryRequest {
-            leaf_index: self.leaf_index(),
+            leaf_index: self.leaf_index().await,
         };
         let response = self.http_client.post(&url).json(&req).send().await?;
         let status = response.status();
@@ -488,12 +496,12 @@ impl Authenticator {
     pub async fn signing_nonce(&self) -> Result<U256, AuthenticatorError> {
         let registry = self.registry();
         if let Some(registry) = registry {
-            let nonce = registry.getSignatureNonce(self.leaf_index()).call().await?;
+            let nonce = registry.getSignatureNonce(self.leaf_index().await).call().await?;
             Ok(nonce)
         } else {
             let url = format!("{}/signature-nonce", self.config.indexer_url());
             let req = IndexerQueryRequest {
-                leaf_index: self.leaf_index(),
+                leaf_index: self.leaf_index().await,
             };
             let resp = self.http_client.post(&url).json(&req).send().await?;
 
@@ -737,7 +745,7 @@ impl Authenticator {
             }
         };
 
-        let session_id = SessionId::from_r_seed(self.leaf_index(), session_id_r_seed, oprf_seed)?;
+        let session_id = SessionId::from_r_seed(self.leaf_index().await, session_id_r_seed, oprf_seed)?;
 
         if let Some(request_session_id) = proof_request.session_id {
             if request_session_id != session_id {
@@ -832,20 +840,86 @@ impl Authenticator {
         Ok(response_item)
     }
 
+    /// Internal: submit a gateway request, poll until finalized, then refresh
+    /// the cached `packed_account_data` from the registry / indexer.
+    async fn submit_and_await_finalization(
+        &self,
+        request_id: &GatewayRequestId,
+    ) -> Result<(), AuthenticatorError> {
+        let backoff = backon::ExponentialBuilder::default()
+            .with_min_delay(std::time::Duration::from_millis(800))
+            .with_factor(1.5)
+            .without_max_times()
+            .with_total_delay(Some(std::time::Duration::from_secs(120)));
+
+        let poller = || async {
+            let state = fetch_gateway_status(
+                &self.http_client,
+                self.config.gateway_url(),
+                request_id,
+            )
+            .await;
+
+            match state {
+                Ok(GatewayRequestState::Finalized { .. }) => Ok(()),
+                Ok(GatewayRequestState::Failed { error_code, error }) => {
+                    Err(PollResult::TerminalError(
+                        AuthenticatorError::RegistrationError {
+                            error_code: error_code
+                                .map(|v| v.to_string())
+                                .unwrap_or_default(),
+                            error_message: error,
+                        },
+                    ))
+                }
+                Err(AuthenticatorError::GatewayError { status, body })
+                    if status.is_client_error() =>
+                {
+                    Err(PollResult::TerminalError(
+                        AuthenticatorError::GatewayError { status, body },
+                    ))
+                }
+                _ => Err(PollResult::Retryable),
+            }
+        };
+
+        let result = backon::Retryable::retry(poller, backoff)
+            .when(|e| matches!(e, PollResult::Retryable))
+            .await;
+
+        match result {
+            Ok(()) => {}
+            Err(PollResult::TerminalError(e)) => return Err(e),
+            Err(PollResult::Retryable) => return Err(AuthenticatorError::Timeout),
+        }
+
+        // Re-fetch packed_account_data from the registry to pick up the
+        // updated pubkey_id commitment.
+        let fresh = Self::get_packed_account_data(
+            self.onchain_address(),
+            self.registry.as_deref(),
+            &self.config,
+            &self.http_client,
+        )
+        .await?;
+        *self.packed_account_data.write().await = fresh;
+
+        Ok(())
+    }
+
     /// Inserts a new authenticator to the account.
+    ///
+    /// Submits the request to the gateway, polls until the on-chain transaction is
+    /// finalized, then refreshes the cached `packed_account_data`.
     ///
     /// # Errors
     /// Will error if the provided RPC URL is not valid or if there are HTTP call failures.
-    ///
-    /// # Note
-    /// TODO: After successfully inserting an authenticator, the `packed_account_data` should be
-    /// refreshed from the registry to reflect the new `pubkey_id` commitment.
     pub async fn insert_authenticator(
         &self,
         new_authenticator_pubkey: EdDSAPublicKey,
         new_authenticator_address: Address,
-    ) -> Result<GatewayRequestId, AuthenticatorError> {
-        let leaf_index = self.leaf_index();
+    ) -> Result<(), AuthenticatorError> {
+        let leaf_index = self.leaf_index().await;
         let nonce = self.signing_nonce().await?;
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
         let old_offchain_signer_commitment = key_set.leaf_hash();
@@ -896,34 +970,32 @@ impl Authenticator {
             .await?;
 
         let status = resp.status();
-        if status.is_success() {
-            let body: GatewayStatusResponse = resp.json().await?;
-            Ok(body.request_id)
-        } else {
+        if !status.is_success() {
             let body_text = Self::response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
+            return Err(AuthenticatorError::GatewayError {
                 status,
                 body: body_text,
-            })
+            });
         }
+        let body: GatewayStatusResponse = resp.json().await?;
+        self.submit_and_await_finalization(&body.request_id).await
     }
 
     /// Updates an existing authenticator slot with a new authenticator.
     ///
+    /// Submits the request to the gateway, polls until the on-chain transaction is
+    /// finalized, then refreshes the cached `packed_account_data`.
+    ///
     /// # Errors
     /// Returns an error if the gateway rejects the request or a network error occurs.
-    ///
-    /// # Note
-    /// TODO: After successfully updating an authenticator, the `packed_account_data` should be
-    /// refreshed from the registry to reflect the new `pubkey_id` commitment.
     pub async fn update_authenticator(
         &self,
         old_authenticator_address: Address,
         new_authenticator_address: Address,
         new_authenticator_pubkey: EdDSAPublicKey,
         index: u32,
-    ) -> Result<GatewayRequestId, AuthenticatorError> {
-        let leaf_index = self.leaf_index();
+    ) -> Result<(), AuthenticatorError> {
+        let leaf_index = self.leaf_index().await;
         let nonce = self.signing_nonce().await?;
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
         let old_commitment: U256 = key_set.leaf_hash().into();
@@ -971,32 +1043,30 @@ impl Authenticator {
             .await?;
 
         let status = resp.status();
-        if status.is_success() {
-            let gateway_resp: GatewayStatusResponse = resp.json().await?;
-            Ok(gateway_resp.request_id)
-        } else {
+        if !status.is_success() {
             let body_text = Self::response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
+            return Err(AuthenticatorError::GatewayError {
                 status,
                 body: body_text,
-            })
+            });
         }
+        let gateway_resp: GatewayStatusResponse = resp.json().await?;
+        self.submit_and_await_finalization(&gateway_resp.request_id).await
     }
 
     /// Removes an authenticator from the account.
     ///
+    /// Submits the request to the gateway, polls until the on-chain transaction is
+    /// finalized, then refreshes the cached `packed_account_data`.
+    ///
     /// # Errors
     /// Returns an error if the gateway rejects the request or a network error occurs.
-    ///
-    /// # Note
-    /// TODO: After successfully removing an authenticator, the `packed_account_data` should be
-    /// refreshed from the registry to reflect the new `pubkey_id` commitment.
     pub async fn remove_authenticator(
         &self,
         authenticator_address: Address,
         index: u32,
-    ) -> Result<GatewayRequestId, AuthenticatorError> {
-        let leaf_index = self.leaf_index();
+    ) -> Result<(), AuthenticatorError> {
+        let leaf_index = self.leaf_index().await;
         let nonce = self.signing_nonce().await?;
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
         let old_commitment: U256 = key_set.leaf_hash().into();
@@ -1047,16 +1117,15 @@ impl Authenticator {
             .await?;
 
         let status = resp.status();
-        if status.is_success() {
-            let gateway_resp: GatewayStatusResponse = resp.json().await?;
-            Ok(gateway_resp.request_id)
-        } else {
+        if !status.is_success() {
             let body_text = Self::response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
+            return Err(AuthenticatorError::GatewayError {
                 status,
                 body: body_text,
-            })
+            });
         }
+        let gateway_resp: GatewayStatusResponse = resp.json().await?;
+        self.submit_and_await_finalization(&gateway_resp.request_id).await
     }
 
     /// Polls the gateway for the current status of a previously submitted request.
@@ -1087,7 +1156,7 @@ impl Authenticator {
         &self,
         new_recovery_agent: Address,
     ) -> Result<GatewayRequestId, AuthenticatorError> {
-        let leaf_index = self.leaf_index();
+        let leaf_index = self.leaf_index().await;
         let (sig, nonce) = self
             .danger_sign_initiate_recovery_agent_update(new_recovery_agent)
             .await?;
@@ -1143,7 +1212,7 @@ impl Authenticator {
         &self,
         new_recovery_agent: Address,
     ) -> Result<(Signature, U256), AuthenticatorError> {
-        let leaf_index = self.leaf_index();
+        let leaf_index = self.leaf_index().await;
         let nonce = self.signing_nonce().await?;
         let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
 
@@ -1174,7 +1243,7 @@ impl Authenticator {
         &self,
     ) -> Result<GatewayRequestId, AuthenticatorError> {
         let req = ExecuteRecoveryAgentUpdateRequest {
-            leaf_index: self.leaf_index(),
+            leaf_index: self.leaf_index().await,
         };
 
         let resp = self
@@ -1207,7 +1276,7 @@ impl Authenticator {
     pub async fn cancel_recovery_agent_update(
         &self,
     ) -> Result<GatewayRequestId, AuthenticatorError> {
-        let leaf_index = self.leaf_index();
+        let leaf_index = self.leaf_index().await;
         let nonce = self.signing_nonce().await?;
         let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
 
@@ -1690,7 +1759,7 @@ mod tests {
 
         let authenticator = Authenticator {
             config,
-            packed_account_data: leaf_index, // This sets leaf_index() to 1
+            packed_account_data: tokio::sync::RwLock::new(leaf_index), // This sets leaf_index() to 1
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None, // No registry - forces indexer usage
             http_client: reqwest::Client::new(),
@@ -1719,7 +1788,7 @@ mod tests {
                 2,
             )
             .unwrap(),
-            packed_account_data: U256::from(1),
+            packed_account_data: tokio::sync::RwLock::new(U256::from(1)),
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
             http_client: reqwest::Client::new(),
@@ -1750,7 +1819,7 @@ mod tests {
                 2,
             )
             .unwrap(),
-            packed_account_data: U256::from(1),
+            packed_account_data: tokio::sync::RwLock::new(U256::from(1)),
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
             http_client: reqwest::Client::new(),
@@ -1777,7 +1846,7 @@ mod tests {
                 2,
             )
             .unwrap(),
-            packed_account_data: U256::from(1),
+            packed_account_data: tokio::sync::RwLock::new(U256::from(1)),
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
             http_client: reqwest::Client::new(),
@@ -1825,7 +1894,7 @@ mod tests {
 
         let authenticator = Authenticator {
             config,
-            packed_account_data: U256::ZERO,
+            packed_account_data: tokio::sync::RwLock::new(U256::ZERO),
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
             http_client: reqwest::Client::new(),
