@@ -56,7 +56,7 @@ pub struct NullifierOprfRequestAuthV1 {
     /// The RP's signature on the request, see `compute_rp_signature_msg` for details.
     ///
     /// Can be `None` if the RP is a WIP101 conform contract.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<alloy_primitives::Signature>,
     /// The `rp_id`
     pub rp_id: RpId,

@@ -94,6 +94,24 @@ pub fn describe_metrics() {
     );
 
     metrics::describe_gauge!(
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_EOA_ACCOUNTS,
+        metrics::Unit::Count,
+        "Number of cached RPs with an EOA signer."
+    );
+
+    metrics::describe_gauge!(
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS,
+        metrics::Unit::Count,
+        "Number of cached RPs with a WIP101-compliant contract signer."
+    );
+
+    metrics::describe_gauge!(
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS_BUT_UNSUPPORTED,
+        metrics::Unit::Count,
+        "Number of cached RPs with a contract signer that does not conform to WIP101."
+    );
+
+    metrics::describe_gauge!(
         METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE,
         metrics::Unit::Count,
         "Number of stored schema issuers in the schema_issuer_registry_watcher cache."
