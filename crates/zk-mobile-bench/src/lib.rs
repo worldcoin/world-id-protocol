@@ -431,6 +431,13 @@ pub struct SemanticPhase {
     pub duration_ns: u64,
 }
 
+/// Resource usage scoped to measured iterations.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, uniffi::Record)]
+pub struct BenchResourceUsage {
+    pub cpu_median_ms: Option<u64>,
+    pub peak_memory_kb: Option<u64>,
+}
+
 /// Benchmark report with timing results
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, uniffi::Record)]
 pub struct BenchReport {
@@ -438,6 +445,8 @@ pub struct BenchReport {
     pub samples: Vec<BenchSample>,
     #[serde(default)]
     pub phases: Vec<SemanticPhase>,
+    #[serde(default)]
+    pub resource_usage: Option<BenchResourceUsage>,
 }
 
 /// Error types for benchmark operations
@@ -462,6 +471,15 @@ impl From<mobench_sdk::SemanticPhase> for SemanticPhase {
     }
 }
 
+impl From<mobench_sdk::BenchResourceUsage> for BenchResourceUsage {
+    fn from(resource_usage: mobench_sdk::BenchResourceUsage) -> Self {
+        Self {
+            cpu_median_ms: resource_usage.cpu_median_ms,
+            peak_memory_kb: resource_usage.peak_memory_kb,
+        }
+    }
+}
+
 impl From<mobench_sdk::RunnerReport> for BenchReport {
     fn from(report: mobench_sdk::RunnerReport) -> Self {
         Self {
@@ -478,6 +496,7 @@ impl From<mobench_sdk::RunnerReport> for BenchReport {
                 })
                 .collect(),
             phases: report.phases.into_iter().map(Into::into).collect(),
+            resource_usage: report.resource_usage.map(Into::into),
         }
     }
 }
@@ -619,5 +638,30 @@ mod tests {
         let actual = serde_json::to_value(report).expect("serialize benchmark report");
 
         assert_eq!(actual["phases"], expected["phases"]);
+    }
+
+    #[test]
+    fn bench_report_json_round_trip_preserves_resource_usage() {
+        let expected = json!({
+            "spec": {
+                "name": "zk_mobile_bench::bench_query_proof_generation",
+                "iterations": 1,
+                "warmup": 0
+            },
+            "samples": [
+                { "duration_ns": 123 }
+            ],
+            "phases": [],
+            "resource_usage": {
+                "cpu_median_ms": 17,
+                "peak_memory_kb": 4096
+            }
+        });
+
+        let report: BenchReport =
+            serde_json::from_value(expected.clone()).expect("deserialize benchmark report");
+        let actual = serde_json::to_value(report).expect("serialize benchmark report");
+
+        assert_eq!(actual["resource_usage"], expected["resource_usage"]);
     }
 }
