@@ -7,7 +7,7 @@ Mobile benchmarks for World ID ZK proof generation using [mobench](https://githu
 Install mobench:
 
 ```bash
-cargo install mobench --version 0.1.27 --locked
+cargo install mobench --git https://github.com/worldcoin/mobile-bench-rs --tag v0.1.28 --locked
 ```
 
 Build and run locally:
@@ -33,7 +33,7 @@ cargo-mobench run \
 ```
 
 BrowserStack runs remain the right path for timing and memory benchmarks.
-BrowserStack native profiling is unsupported in `mobench` `0.1.27`; use the
+BrowserStack native profiling is unsupported in `mobench` `0.1.28`; use the
 local provider for native capture.
 
 Capture a local native profile:
@@ -55,7 +55,7 @@ cargo mobench report summarize \
   --plots auto
 ```
 
-`summary.md` uses `cpu_total_ms` and `peak_memory_kb` for canonical resource fields.
+`summary.md` uses `cpu_median_ms` and `peak_memory_kb` for canonical resource fields.
 CI summaries and PR comments can include inline `plots/*.svg` when plot rendering succeeds.
 Benchmark reports also preserve optional semantic `phases` emitted by
 `mobench_sdk::timing::profile_phase(...)`.

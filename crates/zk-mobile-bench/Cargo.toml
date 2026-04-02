@@ -16,7 +16,7 @@ path = "src/bin/uniffi-bindgen.rs"
 
 [dependencies]
 # Benchmarking
-mobench-sdk = "0.1.27"
+mobench-sdk = "0.1.28"
 inventory = "0.3"
 
 # World ID
