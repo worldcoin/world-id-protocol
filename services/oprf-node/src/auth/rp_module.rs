@@ -100,9 +100,9 @@ pub(crate) enum RpModuleError {
     #[error("RP signer contract reverted with custom error")]
     Wip101CustomRevert,
     #[error("RP signer contract reverts with code: {0:?}")]
-    WIP101VerificationFailed(Option<U256>),
+    Wip101VerificationFailed(Option<U256>),
     #[error("Auxiliary data for WIP101 contract too large")]
-    WIP101AuxDataTooLarge,
+    Wip101AuxDataTooLarge,
     #[error(transparent)]
     Internal(#[from] eyre::Report),
 }
@@ -158,12 +158,12 @@ impl From<RpModuleError> for WorldIdRequestAuthError {
             RpModuleError::Wip101IncompatibleRpSigner => {
                 WorldIdRequestAuthError::Wip101IncompatibleRpSigner
             }
-            RpModuleError::WIP101VerificationFailed(code) => {
-                WorldIdRequestAuthError::WIP101VerificationFailed(code)
+            RpModuleError::Wip101VerificationFailed(code) => {
+                WorldIdRequestAuthError::Wip101VerificationFailed(code)
             }
-            RpModuleError::Wip101CustomRevert => WorldIdRequestAuthError::WIP101CustomRevert,
+            RpModuleError::Wip101CustomRevert => WorldIdRequestAuthError::Wip101CustomRevert,
             RpModuleError::Wip101AuxDataOnEoa => WorldIdRequestAuthError::Wip101AuxDataOnEoa,
-            RpModuleError::WIP101AuxDataTooLarge => WorldIdRequestAuthError::WIP101AuxDataTooLarge,
+            RpModuleError::Wip101AuxDataTooLarge => WorldIdRequestAuthError::Wip101AuxDataTooLarge,
             RpModuleError::Internal(_) => WorldIdRequestAuthError::Internal,
         }
     }

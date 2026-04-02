@@ -686,6 +686,51 @@ async fn check_wip101_wrong_method_signature(kind: RpModuleKind) -> eyre::Result
         "RP has a contract backed signer but doesn't conform to WIP101"
     );
     Ok(())
+}
+
+async fn check_wip101_aux_data_on_eoa(kind: RpModuleKind) -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new(kind).await?;
+    // EOA signer (default). Setting aux data should be rejected before any contract call.
+    setup.request.auth.auxiliary_wip101_bytes = Some(vec![0x01, 0x02, 0x03]);
+    let auth_error = setup
+        .request_authenticator
+        .authenticate(&setup.request)
+        .await
+        .expect_err("Should fail when EOA has aux data");
+    assert_eq!(
+        auth_error.code(),
+        primitives::oprf::error_codes::WIP101_AUX_DATA_ON_EOA
+    );
+    assert_eq!(
+        auth_error.message(),
+        "Auxiliary data must be empty with EOA backed signer"
+    );
+    Ok(())
+}
+
+async fn check_wip101_aux_data_too_large(kind: RpModuleKind) -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new(kind).await?;
+    let wip101_instance = WIP101Correct::deploy(setup.request_authenticator.rpc_provider.http())
+        .await
+        .expect("Should be able to deploy contract");
+    // 1025 bytes exceeds MAX_AUX_DATA_SIZE (1024)
+    setup
+        .wip101_test_with_data(*wip101_instance.address(), Some(vec![0xAB; 1025]))
+        .await;
+    let auth_error = setup
+        .request_authenticator
+        .authenticate(&setup.request)
+        .await
+        .expect_err("Should fail when aux data too large");
+    assert_eq!(
+        auth_error.code(),
+        primitives::oprf::error_codes::WIP101_AUX_DATA_TOO_LARGE
+    );
+    assert_eq!(
+        auth_error.message(),
+        "Auxiliary data for WIP101 contract too large - max 1024 bytes"
+    );
+    Ok(())
 } // ── Session-specific tests ───────────────────────────────────────────────
 
 #[tokio::test]
@@ -920,6 +965,16 @@ async fn test_session_wip101_no_data_failure() -> eyre::Result<()> {
     check_wip101_no_data_failure(RpModuleKind::Session).await
 }
 
+#[tokio::test]
+async fn test_session_wip101_aux_data_on_eoa() -> eyre::Result<()> {
+    check_wip101_aux_data_on_eoa(RpModuleKind::Session).await
+}
+
+#[tokio::test]
+async fn test_session_wip101_aux_data_too_large() -> eyre::Result<()> {
+    check_wip101_aux_data_too_large(RpModuleKind::Session).await
+}
+
 // ── Shared tests: uniqueness ─────────────────────────────────────────────
 
 #[tokio::test]
@@ -1050,4 +1105,14 @@ async fn test_uniqueness_wip101_success_if_data() -> eyre::Result<()> {
 #[tokio::test]
 async fn test_uniqueness_wip101_no_data_failure() -> eyre::Result<()> {
     check_wip101_no_data_failure(RpModuleKind::Uniqueness).await
+}
+
+#[tokio::test]
+async fn test_uniqueness_wip101_aux_data_on_eoa() -> eyre::Result<()> {
+    check_wip101_aux_data_on_eoa(RpModuleKind::Uniqueness).await
+}
+
+#[tokio::test]
+async fn test_uniqueness_wip101_aux_data_too_large() -> eyre::Result<()> {
+    check_wip101_aux_data_too_large(RpModuleKind::Uniqueness).await
 }

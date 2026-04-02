@@ -70,7 +70,7 @@ impl RelyingParty {
             .as_ref()
             .is_some_and(|bytes| bytes.len() > MAX_AUX_DATA_SIZE)
         {
-            return Err(RpModuleError::WIP101AuxDataTooLarge);
+            return Err(RpModuleError::Wip101AuxDataTooLarge);
         }
         // cloning here is not a problem as we only allow up to 1kb anyways
         let auxiliary_data = auth
@@ -91,7 +91,7 @@ impl RelyingParty {
             .await;
         match result {
             Ok(x) if x == SUCCESS_MAGIC_VALUE => Ok(()),
-            Ok(_) => Err(RpModuleError::WIP101VerificationFailed(None)),
+            Ok(_) => Err(RpModuleError::Wip101VerificationFailed(None)),
             Err(
                 alloy::contract::Error::UnknownFunction(_)
                 | alloy::contract::Error::UnknownSelector(_),
@@ -100,7 +100,7 @@ impl RelyingParty {
                 if let Some(IWIP101::RpInvalidRequest { code }) =
                     err.as_decoded_error::<IWIP101::RpInvalidRequest>()
                 {
-                    Err(RpModuleError::WIP101VerificationFailed(Some(code)))
+                    Err(RpModuleError::Wip101VerificationFailed(Some(code)))
                 } else if let Some(x) = err.as_revert_data() {
                     if x.is_empty() {
                         // empty revert reason - most likely this contract reported it supports WIP101 without actually supporting it

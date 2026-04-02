@@ -178,17 +178,17 @@ pub enum WorldIdRequestAuthError {
     ///
     /// When constructing this variant from just the `CloseFrame`'s `code`, the contract's additional code will be lost. The additional code, if any, is sent as `reason` in the `CloseFrame`.
     #[error("wip101_verification_failed")]
-    WIP101VerificationFailed(Option<U256>),
+    Wip101VerificationFailed(Option<U256>),
     /// Invalid custom revert for WIP101 contract.
     ///
     /// WIP101 specifies that contracts must revert with `error RpInvalidRequest(uint256 code)` but contract reverted with unknown error.
     #[error("wip101_custom_revert")]
-    WIP101CustomRevert,
+    Wip101CustomRevert,
     /// Provided auxiliary data is too large.
     ///
     /// WIP101 specifies that provided `data` must be smaller than 1024 bytes.
     #[error("wip101_aux_data_too_large")]
-    WIP101AuxDataTooLarge,
+    Wip101AuxDataTooLarge,
     /// Internal server error.
     #[error("internal_server_error")]
     Internal,
@@ -226,8 +226,8 @@ impl WorldIdRequestAuthError {
             | Self::DuplicateNonce
             | Self::InvalidActionNullifier
             | Self::Wip101IncompatibleRpSigner
-            | Self::WIP101VerificationFailed(_)
-            | Self::WIP101CustomRevert => ErrorActor::Rp,
+            | Self::Wip101VerificationFailed(_)
+            | Self::Wip101CustomRevert => ErrorActor::Rp,
             Self::UnknownSchemaIssuerId => ErrorActor::Issuer,
             Self::InvalidMerkleRoot
             | Self::InvalidQueryProof
@@ -235,7 +235,7 @@ impl WorldIdRequestAuthError {
             | Self::InvalidActionSession
             | Self::RpSignatureMissing
             | Self::Wip101AuxDataOnEoa
-            | Self::WIP101AuxDataTooLarge => ErrorActor::Authenticator,
+            | Self::Wip101AuxDataTooLarge => ErrorActor::Authenticator,
             Self::Internal | Self::Unknown(_) => ErrorActor::OprfNode,
         }
     }
@@ -261,8 +261,8 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE => Self::TimestampTooFarInFuture,
             error_codes::WIP101_INCOMPATIBLE_RP_SIGNER => Self::Wip101IncompatibleRpSigner,
             // we lost the additional code when converting from just the u16
-            error_codes::WIP101_VERIFICATION_FAILED => Self::WIP101VerificationFailed(None),
-            error_codes::WIP101_CUSTOM_REVERT => Self::WIP101CustomRevert,
+            error_codes::WIP101_VERIFICATION_FAILED => Self::Wip101VerificationFailed(None),
+            error_codes::WIP101_CUSTOM_REVERT => Self::Wip101CustomRevert,
             error_codes::INTERNAL => Self::Internal,
             other => Self::Unknown(other),
         }
@@ -296,12 +296,12 @@ impl From<WorldIdRequestAuthError> for u16 {
             WorldIdRequestAuthError::Wip101IncompatibleRpSigner => {
                 error_codes::WIP101_INCOMPATIBLE_RP_SIGNER
             }
-            WorldIdRequestAuthError::WIP101VerificationFailed(_) => {
+            WorldIdRequestAuthError::Wip101VerificationFailed(_) => {
                 error_codes::WIP101_VERIFICATION_FAILED
             }
-            WorldIdRequestAuthError::WIP101CustomRevert => error_codes::WIP101_CUSTOM_REVERT,
+            WorldIdRequestAuthError::Wip101CustomRevert => error_codes::WIP101_CUSTOM_REVERT,
             WorldIdRequestAuthError::Wip101AuxDataOnEoa => error_codes::WIP101_AUX_DATA_ON_EOA,
-            WorldIdRequestAuthError::WIP101AuxDataTooLarge => {
+            WorldIdRequestAuthError::Wip101AuxDataTooLarge => {
                 error_codes::WIP101_AUX_DATA_TOO_LARGE
             }
             WorldIdRequestAuthError::Internal => error_codes::INTERNAL,
@@ -342,11 +342,11 @@ pub mod error_codes {
     pub const TIMESTAMP_TOO_FAR_IN_FUTURE: u16 = 4513;
     /// Error code for [`super::WorldIdRequestAuthError::Wip101IncompatibleRpSigner`].
     pub const WIP101_INCOMPATIBLE_RP_SIGNER: u16 = 4514;
-    /// Error code for [`super::WorldIdRequestAuthError::WIP101VerificationFailed`].
+    /// Error code for [`super::WorldIdRequestAuthError::Wip101VerificationFailed`].
     pub const WIP101_VERIFICATION_FAILED: u16 = 4515;
-    /// Error code for [`super::WorldIdRequestAuthError::WIP101CustomRevert`].
+    /// Error code for [`super::WorldIdRequestAuthError::Wip101CustomRevert`].
     pub const WIP101_CUSTOM_REVERT: u16 = 4516;
-    /// Error code for [`super::WorldIdRequestAuthError::WIP101AuxDataTooLarge`].
+    /// Error code for [`super::WorldIdRequestAuthError::Wip101AuxDataTooLarge`].
     pub const WIP101_AUX_DATA_TOO_LARGE: u16 = 4517;
     /// Error code for [`super::WorldIdRequestAuthError::RpSignatureMissing`]
     pub const RP_SIGNATURE_MISSING: u16 = 4518;
@@ -412,23 +412,23 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
                     "RP has a contract backed signer but doesn't conform to WIP101"
                 )
             }
-            WorldIdRequestAuthError::WIP101CustomRevert => {
+            WorldIdRequestAuthError::Wip101CustomRevert => {
                 taceo_oprf::types::close_frame_message!(
                     "RP signer contract reverted with custom error (and not error RpInvalidRequest(uint256 code);)"
                 )
             }
-            WorldIdRequestAuthError::WIP101VerificationFailed(None) => {
+            WorldIdRequestAuthError::Wip101VerificationFailed(None) => {
                 // send empty message so that it is easier to parse the code in case there is any
                 taceo_oprf::types::close_frame_message!("")
             }
-            WorldIdRequestAuthError::WIP101VerificationFailed(Some(code)) => {
+            WorldIdRequestAuthError::Wip101VerificationFailed(Some(code)) => {
                 // this should never truncate as code is a U256 encoded as hex
                 CloseFrameMessage::new_truncate(format!("{:#x}", code))
             }
             WorldIdRequestAuthError::Wip101AuxDataOnEoa => taceo_oprf::types::close_frame_message!(
                 "Auxiliary data must be empty with EOA backed signer"
             ),
-            WorldIdRequestAuthError::WIP101AuxDataTooLarge => {
+            WorldIdRequestAuthError::Wip101AuxDataTooLarge => {
                 taceo_oprf::types::close_frame_message!(
                     "Auxiliary data for WIP101 contract too large - max 1024 bytes"
                 )
@@ -465,6 +465,12 @@ mod tests {
             error_codes::INACTIVE_RP,
             error_codes::RP_SIGNATURE_EXPIRED,
             error_codes::INVALID_TIMESTAMP,
+            error_codes::WIP101_INCOMPATIBLE_RP_SIGNER,
+            error_codes::WIP101_VERIFICATION_FAILED,
+            error_codes::WIP101_CUSTOM_REVERT,
+            error_codes::WIP101_AUX_DATA_TOO_LARGE,
+            error_codes::RP_SIGNATURE_MISSING,
+            error_codes::WIP101_AUX_DATA_ON_EOA,
             error_codes::INTERNAL,
         ];
         for &code in codes {
