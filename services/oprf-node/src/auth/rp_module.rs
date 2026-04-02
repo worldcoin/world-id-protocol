@@ -213,6 +213,7 @@ impl RelyingParty {
         action: Option<ark_babyjubjub::Fq>,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
     ) -> Result<(), RpModuleError> {
+        tracing::trace!("RP signer is EOA");
         let signature = request
             .auth
             .signature
@@ -242,6 +243,7 @@ impl RelyingParty {
         match self.account_type {
             RpAccountType::Eoa => self.verify_eoa(action, request),
             RpAccountType::Contract | RpAccountType::IncompatibleWip101 => {
+                tracing::trace!("RP signer is WIP101");
                 self.verify_wip101(action, &request.auth, rpc_provider)
                     .await
             }

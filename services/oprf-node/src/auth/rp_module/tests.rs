@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use alloy::signers::SignerSync as _;
 use alloy::{primitives::Address, signers::local::LocalSigner};
 use ark_bn254::Bn254;
 use ark_ff::PrimeField as _;
@@ -19,8 +20,8 @@ use crate::{
         rp_module::{RpModuleAuth, RpModuleKind},
         tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup},
         wip101::tests::{
-            NoERC165, NoWIP101, WIP101BrokenERC165, WIP101Correct, WIP101PlainRevert,
-            WIP101RevertsWithCode, WIP101WrongMagic, WrongSignature,
+            NoERC165, NoWIP101, WIP101BrokenERC165, WIP101Correct, WIP101CorrectWhenAuxData,
+            WIP101PlainRevert, WIP101RevertsWithCode, WIP101WrongMagic, WrongSignature,
         },
     },
 };
@@ -64,6 +65,16 @@ impl RpModuleTestSetup {
         let bundle = infra
             .generate_query_proof(session_action, infra.setup.rp_fixture.world_rp_id.into())?;
 
+        // Session RP signature does NOT include the action therefore we cannot use the rp_fixture
+        let rp_signer = LocalSigner::from_signing_key(infra.setup.rp_fixture.signing_key.clone());
+        let msg = world_id_primitives::rp::compute_rp_signature_msg(
+            infra.setup.rp_fixture.nonce,
+            infra.setup.rp_fixture.current_timestamp,
+            infra.setup.rp_fixture.expiration_timestamp,
+            None,
+        );
+        let signature = rp_signer.sign_message_sync(&msg).expect("can sign");
+
         let auth = NullifierOprfRequestAuthV1 {
             proof: bundle.proof,
             action: *session_action,
@@ -71,7 +82,7 @@ impl RpModuleTestSetup {
             merkle_root: *infra.setup.merkle_inclusion_proof.root,
             current_time_stamp: infra.setup.rp_fixture.current_timestamp,
             expiration_timestamp: infra.setup.rp_fixture.expiration_timestamp,
-            signature: Some(infra.setup.rp_fixture.signature),
+            signature: Some(signature),
             rp_id: infra.setup.rp_fixture.world_rp_id,
             auxiliary_wip101_bytes: None,
         };
@@ -165,10 +176,12 @@ impl RpModuleTestSetup {
 
 async fn check_success(kind: RpModuleKind) -> eyre::Result<()> {
     let setup = RpModuleTestSetup::new(kind).await?;
-    setup
+    let oprf_key_id = setup
         .request_authenticator
         .authenticate(&setup.request)
-        .await?;
+        .await
+        .expect("should succeed");
+    assert_eq!(setup.setup.rp_fixture.oprf_key_id, oprf_key_id);
     Ok(())
 }
 
@@ -440,6 +453,51 @@ async fn check_wip101_success(kind: RpModuleKind) -> eyre::Result<()> {
         .await
         .expect("Should succeed");
     assert_eq!(oprf_key_id, setup.setup.rp_fixture.oprf_key_id);
+    Ok(())
+}
+
+async fn check_wip101_success_if_data(kind: RpModuleKind) -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new(kind).await?;
+    // deploy success
+
+    let wip101_instance =
+        WIP101CorrectWhenAuxData::deploy(setup.request_authenticator.rpc_provider.http())
+            .await
+            .expect("Should be able to deploy contract");
+    setup
+        .wip101_test_with_data(*wip101_instance.address(), Some(vec![0xC0, 0xFF, 0xEE]))
+        .await;
+
+    let oprf_key_id = setup
+        .request_authenticator
+        .authenticate(&setup.request)
+        .await
+        .expect("Should succeed");
+    assert_eq!(oprf_key_id, setup.setup.rp_fixture.oprf_key_id);
+    Ok(())
+}
+
+async fn check_wip101_no_data_failure(kind: RpModuleKind) -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new(kind).await?;
+    // deploy success
+
+    let wip101_instance =
+        WIP101CorrectWhenAuxData::deploy(setup.request_authenticator.rpc_provider.http())
+            .await
+            .expect("Should be able to deploy contract");
+    setup.wip101_test(*wip101_instance.address()).await;
+
+    let auth_err = setup
+        .request_authenticator
+        .authenticate(&setup.request)
+        .await
+        .expect_err("Should error");
+    assert_eq!(
+        auth_err.code(),
+        primitives::oprf::error_codes::WIP101_VERIFICATION_FAILED
+    );
+    // this should be the custom error as hex
+    assert_eq!(auth_err.message(), "0x1");
     Ok(())
 }
 
@@ -942,4 +1000,14 @@ async fn test_uniqueness_wip101_no_verify_rp_request() -> eyre::Result<()> {
 #[tokio::test]
 async fn test_uniqueness_wip101_wrong_method_signature() -> eyre::Result<()> {
     check_wip101_wrong_method_signature(RpModuleKind::Uniqueness).await
+}
+
+#[tokio::test]
+async fn test_uniqueness_wip101_success_if_data() -> eyre::Result<()> {
+    check_wip101_success_if_data(RpModuleKind::Uniqueness).await
+}
+
+#[tokio::test]
+async fn test_uniqueness_wip101_no_data_failure() -> eyre::Result<()> {
+    check_wip101_no_data_failure(RpModuleKind::Uniqueness).await
 }

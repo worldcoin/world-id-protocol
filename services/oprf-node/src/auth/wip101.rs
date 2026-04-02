@@ -47,6 +47,14 @@ impl RelyingParty {
 
         // To not transmit the action to the verifier contract, we build an effigy that highlights that this is a session action
         let action = action.unwrap_or(SESSION_EFFIGY);
+
+        // At axum level, we reject all messages that are larger than 1kb so this clone should not really matter
+        // Also this is the reason we do not enforce any additional checks on the size in the aux data.
+        let auxiliary_data = auth
+            .auxiliary_wip101_bytes
+            .clone()
+            .map(Bytes::from)
+            .unwrap_or_default();
         let result = iwip101
             .verifyRpRequest(
                 RequestVersion::V1 as u8,
@@ -54,7 +62,7 @@ impl RelyingParty {
                 auth.current_time_stamp,
                 auth.expiration_timestamp,
                 action.into(),
-                Bytes::new(),
+                auxiliary_data,
             )
             .call()
             .await;
