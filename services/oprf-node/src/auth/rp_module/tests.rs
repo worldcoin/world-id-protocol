@@ -143,7 +143,7 @@ impl RpModuleTestSetup {
     }
 
     pub(crate) async fn wip101_test(&mut self, address: Address) {
-        self.wip101_test_with_data(address, None).await
+        self.wip101_test_with_data(address, None).await;
     }
 
     pub(crate) async fn wip101_test_with_data(&mut self, address: Address, data: Option<Vec<u8>>) {
@@ -435,6 +435,26 @@ async fn check_expired_rp_signature(kind: RpModuleKind) -> eyre::Result<()> {
         primitives::oprf::error_codes::RP_SIGNATURE_EXPIRED
     );
     assert_eq!(auth_error.message(), "RP signature expired");
+    Ok(())
+}
+
+async fn check_missing_signature_eoa(kind: RpModuleKind) -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new(kind).await?;
+    // The signer is an EOA (default setup). Setting signature to None should fail.
+    setup.request.auth.signature = None;
+    let auth_error = setup
+        .request_authenticator
+        .authenticate(&setup.request)
+        .await
+        .expect_err("Should fail when EOA signature is missing");
+    assert_eq!(
+        auth_error.code(),
+        primitives::oprf::error_codes::RP_SIGNATURE_MISSING
+    );
+    assert_eq!(
+        auth_error.message(),
+        "RP signature missing but signer is an EOA"
+    );
     Ok(())
 }
 
@@ -846,6 +866,11 @@ async fn test_session_check_future_timestamp() -> eyre::Result<()> {
 }
 
 #[tokio::test]
+async fn test_session_missing_signature_eoa() -> eyre::Result<()> {
+    check_missing_signature_eoa(RpModuleKind::Session).await
+}
+
+#[tokio::test]
 async fn test_session_wip101_success() -> eyre::Result<()> {
     check_wip101_success(RpModuleKind::Session).await
 }
@@ -883,6 +908,16 @@ async fn test_session_wip101_no_verify_rp_request() -> eyre::Result<()> {
 #[tokio::test]
 async fn test_session_wip101_wrong_method_signature() -> eyre::Result<()> {
     check_wip101_wrong_method_signature(RpModuleKind::Session).await
+}
+
+#[tokio::test]
+async fn test_session_wip101_success_if_data() -> eyre::Result<()> {
+    check_wip101_success_if_data(RpModuleKind::Session).await
+}
+
+#[tokio::test]
+async fn test_session_wip101_no_data_failure() -> eyre::Result<()> {
+    check_wip101_no_data_failure(RpModuleKind::Session).await
 }
 
 // ── Shared tests: uniqueness ─────────────────────────────────────────────
@@ -960,6 +995,11 @@ async fn test_uniqueness_corrupt_timestamp() -> eyre::Result<()> {
 #[tokio::test]
 async fn test_uniqueness_check_future_timestamp() -> eyre::Result<()> {
     check_future_timestamp(RpModuleKind::Uniqueness).await
+}
+
+#[tokio::test]
+async fn test_uniqueness_missing_signature_eoa() -> eyre::Result<()> {
+    check_missing_signature_eoa(RpModuleKind::Uniqueness).await
 }
 
 #[tokio::test]

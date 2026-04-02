@@ -252,6 +252,7 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::WIP101_INCOMPATIBLE_RP_SIGNER => Self::Wip101IncompatibleRpSigner,
             // we lost the additional code when converting from just the u16
             error_codes::WIP101_VERIFICATION_FAILED => Self::WIP101VerificationFailed(None),
+            error_codes::WIP101_CUSTOM_REVERT => Self::WIP101CustomRevert,
             error_codes::INTERNAL => Self::Internal,
             other => Self::Unknown(other),
         }
@@ -331,7 +332,7 @@ pub mod error_codes {
     pub const WIP101_VERIFICATION_FAILED: u16 = 4515;
     /// Error code for [`super::WorldIdRequestAuthError::WIP101CustomRevert`].
     pub const WIP101_CUSTOM_REVERT: u16 = 4516;
-    /// Error code for [`super::WorldIdRequestAuthError::EmptySignature`]
+    /// Error code for [`super::WorldIdRequestAuthError::RpSignatureMissing`]
     pub const RP_SIGNATURE_MISSING: u16 = 4517;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
     pub const INTERNAL: u16 = 1011;

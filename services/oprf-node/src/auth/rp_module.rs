@@ -89,7 +89,7 @@ pub(crate) enum RpModuleError {
     CorruptSignature(#[from] alloy::primitives::SignatureError),
     #[error("Invalid RP signature - recover signer failed")]
     InvalidSignature,
-    #[error("Missing RP signature - send an empty signature for EOA RP")]
+    #[error("RP signature is required for EOA-backed signers")]
     RpSignatureMissing,
     #[error(transparent)]
     DuplicateNonce(#[from] DuplicateNonce),
@@ -242,6 +242,11 @@ impl RelyingParty {
     ) -> Result<(), RpModuleError> {
         match self.account_type {
             RpAccountType::Eoa => self.verify_eoa(action, request),
+            // NOTE: Spec #7 says non-ERC-165-compliant signers should fall back to ECDSA.
+            // However, a contract address cannot produce valid ECDSA signatures, so ECDSA
+            // verification would always fail with a confusing error. We intentionally route
+            // IncompatibleWip101 through verify_wip101 to provide a clearer error message
+            // ("RP signer is a contract but does not conform to WIP101").
             RpAccountType::Contract | RpAccountType::IncompatibleWip101 => {
                 tracing::trace!("RP signer is WIP101");
                 self.verify_wip101(action, &request.auth, rpc_provider)

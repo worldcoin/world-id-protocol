@@ -14,9 +14,23 @@ use crate::auth::{
 #[cfg(test)]
 pub(crate) mod tests;
 
+/// Effigy action value for session-type WIP-101 contract calls.
+///
+/// When the action is `None` (session mode), we still need to pass an action
+/// to the WIP-101 `verifyRpRequest` contract. This value is `0x02 << 248`
+/// (i.e., `0x02` in the MSB followed by 31 zero bytes), which signals a
+/// session Action type per WIP-101 "Authorizing Sessions" section.
+///
+/// We always use the `0x02` (Action) prefix rather than differentiating
+/// between `OprfSeed` (`0x01`) and Action (`0x02`) because the contract only
+/// needs to know this is a session request, not the specific sub-type.
 const SESSION_EFFIGY: ark_babyjubjub::Fq =
     ark_ff::MontFp!("904625697166532776746648320380374280103671755200316906558262375061821325312");
 
+#[allow(
+    clippy::unreadable_literal,
+    reason = "actually easier to read like this"
+)]
 const SUCCESS_MAGIC_VALUE: [u8; 4] = 0x35dbc8deu32.to_be_bytes();
 
 alloy::sol!(
@@ -48,8 +62,9 @@ impl RelyingParty {
         // To not transmit the action to the verifier contract, we build an effigy that highlights that this is a session action
         let action = action.unwrap_or(SESSION_EFFIGY);
 
-        // At axum level, we reject all messages that are larger than 1kb so this clone should not really matter
-        // Also this is the reason we do not enforce any additional checks on the size in the aux data.
+        // The WS layer (`ws_max_message_size` in `OprfNodeServiceConfig`) caps the entire
+        // incoming message to 1024 bytes by default, so this clone is bounded and we don't
+        // need additional size checks here. See WIP-101 spec #11.
         let auxiliary_data = auth
             .auxiliary_wip101_bytes
             .clone()
@@ -69,10 +84,10 @@ impl RelyingParty {
         match result {
             Ok(x) if x == SUCCESS_MAGIC_VALUE => Ok(()),
             Ok(_) => Err(RpModuleError::WIP101VerificationFailed(None)),
-            Err(alloy::contract::Error::UnknownFunction(_))
-            | Err(alloy::contract::Error::UnknownSelector(_)) => {
-                Err(RpModuleError::Wip101IncompatibleRpSigner)
-            }
+            Err(
+                alloy::contract::Error::UnknownFunction(_)
+                | alloy::contract::Error::UnknownSelector(_),
+            ) => Err(RpModuleError::Wip101IncompatibleRpSigner),
             Err(err) => {
                 if let Some(IWIP101::RpInvalidRequest { code }) =
                     err.as_decoded_error::<IWIP101::RpInvalidRequest>()
@@ -106,7 +121,7 @@ pub(crate) async fn account_check(
         .erc165_supports_interface(signer, [IWIP101::verifyRpRequestCall::SELECTOR])
         .await;
     match erc165_check {
-        Ok(_) => Ok(RpAccountType::Contract),
+        Ok(()) => Ok(RpAccountType::Contract),
         Err(ERC165ConfirmError::NotAContract) => Ok(RpAccountType::Eoa),
         Err(ERC165ConfirmError::Unsupported) => Ok(RpAccountType::IncompatibleWip101),
         Err(err) => eyre::bail!(err),

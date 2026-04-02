@@ -113,11 +113,11 @@ impl RpRegistryWatcher {
                 match v.account_type {
                     RpAccountType::Eoa => {
                         metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_EOA_ACCOUNTS)
-                            .decrement(1)
+                            .decrement(1);
                     }
                     RpAccountType::Contract => {
                         metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS)
-                            .decrement(1)
+                            .decrement(1);
                     }
                     RpAccountType::IncompatibleWip101 => metrics::gauge!(
                         METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS_BUT_UNSUPPORTED
