@@ -14,6 +14,9 @@ use crate::auth::{
 #[cfg(test)]
 pub(crate) mod tests;
 
+/// Max size of the auxiliary data according to WIP101.
+const MAX_AUX_DATA_SIZE: usize = 1024;
+
 /// Effigy action value for session-type WIP-101 contract calls.
 ///
 /// When the action is `None` (session mode), we still need to pass an action
@@ -62,9 +65,14 @@ impl RelyingParty {
         // To not transmit the action to the verifier contract, we build an effigy that highlights that this is a session action
         let action = action.unwrap_or(SESSION_EFFIGY);
 
-        // The WS layer (`ws_max_message_size` in `OprfNodeServiceConfig`) caps the entire
-        // incoming message to 1024 bytes by default, so this clone is bounded and we don't
-        // need additional size checks here. See WIP-101 spec #11.
+        if auth
+            .auxiliary_wip101_bytes
+            .as_ref()
+            .is_some_and(|bytes| bytes.len() > MAX_AUX_DATA_SIZE)
+        {
+            return Err(RpModuleError::WIP101AuxDataTooLarge);
+        }
+        // cloning here is not a problem as we only allow up to 1kb anyways
         let auxiliary_data = auth
             .auxiliary_wip101_bytes
             .clone()

@@ -91,6 +91,8 @@ pub(crate) enum RpModuleError {
     InvalidSignature,
     #[error("RP signature is required for EOA-backed signers")]
     RpSignatureMissing,
+    #[error("Auxiliary data must be empty with EOA backed signer")]
+    Wip101AuxDataOnEoa,
     #[error(transparent)]
     DuplicateNonce(#[from] DuplicateNonce),
     #[error("RP signer is a contract but does not conform to WIP101")]
@@ -99,6 +101,8 @@ pub(crate) enum RpModuleError {
     Wip101CustomRevert,
     #[error("RP signer contract reverts with code: {0:?}")]
     WIP101VerificationFailed(Option<U256>),
+    #[error("Auxiliary data for WIP101 contract too large")]
+    WIP101AuxDataTooLarge,
     #[error(transparent)]
     Internal(#[from] eyre::Report),
 }
@@ -158,6 +162,8 @@ impl From<RpModuleError> for WorldIdRequestAuthError {
                 WorldIdRequestAuthError::WIP101VerificationFailed(code)
             }
             RpModuleError::Wip101CustomRevert => WorldIdRequestAuthError::WIP101CustomRevert,
+            RpModuleError::Wip101AuxDataOnEoa => WorldIdRequestAuthError::Wip101AuxDataOnEoa,
+            RpModuleError::WIP101AuxDataTooLarge => WorldIdRequestAuthError::WIP101AuxDataTooLarge,
             RpModuleError::Internal(_) => WorldIdRequestAuthError::Internal,
         }
     }
@@ -218,6 +224,9 @@ impl RelyingParty {
             .auth
             .signature
             .ok_or_else(|| RpModuleError::RpSignatureMissing)?;
+        if request.auth.auxiliary_wip101_bytes.is_some() {
+            return Err(RpModuleError::Wip101AuxDataOnEoa);
+        }
         // check the RP nonce signature
         let msg = world_id_primitives::rp::compute_rp_signature_msg(
             request.auth.nonce,
