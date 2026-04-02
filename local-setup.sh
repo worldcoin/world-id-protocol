@@ -177,7 +177,7 @@ client() {
         export RUST_LOG="world_id_dev_client_rp=trace,world_id_dev_client_issuer_blinding=trace,world_id_oprf_dev_client=trace,taceo_oprf_dev_client=trace,taceo_oprf_client=trace,warn"
     fi
 
-    if [[ $1 == "test" ]]; then
+    if [[ $1 == "setup-test" ]]; then
         deploy_wip101_contracts
         RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- --rp-id 123 --create-key test
         RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-issuer-blinding -- --issuer-schema-id 124 --create-key test
@@ -207,7 +207,7 @@ main() {
     elif [[ $1 = "test" ]]; then
         echo -e "${GREEN}running test..${NOCOLOR}"
         setup
-        client test
+        client setup-test
     else
         echo "unknown command: '$1'"
         exit 1

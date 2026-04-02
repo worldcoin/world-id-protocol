@@ -2,8 +2,10 @@
 
 use std::sync::Arc;
 
-use alloy::signers::SignerSync as _;
-use alloy::{primitives::Address, signers::local::LocalSigner};
+use alloy::{
+    primitives::Address,
+    signers::{SignerSync as _, local::LocalSigner},
+};
 use ark_bn254::Bn254;
 use ark_ff::PrimeField as _;
 use circom_types::groth16::VerificationKey;

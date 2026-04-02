@@ -33,14 +33,12 @@ contract WIP101Correct is IWIP101 {
         return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
     }
 
-    function verifyRpRequest(
-        uint8,
-        uint256,
-        uint64,
-        uint64,
-        uint256,
-        bytes calldata
-    ) external pure override returns (bytes4) {
+    function verifyRpRequest(uint8, uint256, uint64, uint64, uint256, bytes calldata)
+        external
+        pure
+        override
+        returns (bytes4)
+    {
         return WIP101_MAGIC_VALUE;
     }
 }
@@ -50,14 +48,12 @@ contract WIP101CorrectWhenAuxData is IWIP101 {
         return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
     }
 
-    function verifyRpRequest(
-        uint8,
-        uint256,
-        uint64,
-        uint64,
-        uint256,
-        bytes calldata data
-    ) external pure override returns (bytes4) {
+    function verifyRpRequest(uint8, uint256, uint64, uint64, uint256, bytes calldata data)
+        external
+        pure
+        override
+        returns (bytes4)
+    {
         if (data.length == 3) {
             return WIP101_MAGIC_VALUE;
         }
@@ -69,7 +65,6 @@ contract WIP101CorrectWhenAuxData is IWIP101 {
 
 contract DeployWIP101 is Script {
     function run() external {
-
         vm.startBroadcast();
 
         WIP101Correct correct = new WIP101Correct();
