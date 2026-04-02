@@ -7,7 +7,7 @@ Mobile benchmarks for World ID ZK proof generation using [mobench](https://githu
 Install mobench:
 
 ```bash
-cargo install mobench --version 0.1.26 --locked
+cargo install mobench --version 0.1.27 --locked
 ```
 
 Build and run locally:
@@ -33,7 +33,7 @@ cargo-mobench run \
 ```
 
 BrowserStack runs remain the right path for timing and memory benchmarks.
-BrowserStack native profiling is unsupported in `mobench` `0.1.26`; use the
+BrowserStack native profiling is unsupported in `mobench` `0.1.27`; use the
 local provider for native capture.
 
 Capture a local native profile:
