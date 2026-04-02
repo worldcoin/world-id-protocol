@@ -1,13 +1,11 @@
-use std::time::Duration;
-
 use alloy::{
-    primitives::{Address, U160, U256},
+    primitives::{Address, U256},
     providers::DynProvider,
 };
 use ark_ff::PrimeField as _;
 use clap::Parser;
 use eyre::Context as _;
-use rand::{CryptoRng, Rng};
+use rand::{CryptoRng, Rng, SeedableRng as _};
 use taceo_oprf::{
     client::Connector,
     core::oprf::BlindingFactor,
@@ -31,7 +29,11 @@ use world_id_test_utils::anvil::{CredentialSchemaIssuerRegistry, ICredentialSche
 struct IssuerSchemaConfig {
     /// Issuer schema id of already registered issuer
     #[clap(long, env = "OPRF_DEV_CLIENT_ISSUER_SCHEMA_ID")]
-    pub issuer_schema_id: Option<u64>,
+    pub issuer_schema_id: u64,
+
+    /// If set to `true`, will try to create a new OPRF key
+    #[clap(long, env = "OPRF_DEV_CLIENT_ISSUER_CREATE_KEY")]
+    pub create_key: bool,
 
     /// The Address of the IssuerSchemaRegistry contract.
     #[clap(long, env = "OPRF_DEV_CLIENT_ISSUER_SCHEMA_REGISTRY_CONTRACT")]
@@ -42,7 +44,8 @@ struct IssuerSchemaConfig {
 }
 
 struct WorldIdIssuerSchemaDevClient {
-    issuer_schema_id: Option<u64>,
+    issuer_schema_id: u64,
+    create_key: bool,
     issuer_schema_registry_contract: Address,
     components: SharedDevClientComponents,
 }
@@ -75,7 +78,7 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
             .await
             .context("while fetching inclusion proof")?;
 
-        let (issuer_schema_id, issuer_schema_oprf_public_key) = tokio::time::timeout(
+        let issuer_schema_oprf_public_key = tokio::time::timeout(
             config.max_wait_time,
             self.setup_issuer(config, signer_address, &provider),
         )
@@ -84,7 +87,7 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
         .context("while setup of issuer-schema")?;
 
         Ok(WorldIdIssuerSchemaDevClientSetup {
-            issuer_schema_id,
+            issuer_schema_id: self.issuer_schema_id,
             issuer_schema_oprf_public_key,
             inclusion_proof,
             key_set,
@@ -98,7 +101,7 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
         setup: Self::Setup,
         connector: Connector,
     ) -> eyre::Result<ShareEpoch> {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = rand_chacha::ChaCha12Rng::from_rng(rand::thread_rng())?;
 
         let authenticator_input = AuthenticatorProofInput::new(
             setup.key_set.clone(),
@@ -177,6 +180,7 @@ impl WorldIdIssuerSchemaDevClient {
         let components = world_id_oprf_dev_client::init_shared_components(&config.base).await?;
         Ok(Self {
             issuer_schema_id: config.issuer_schema_id,
+            create_key: config.create_key,
             issuer_schema_registry_contract: config.issuer_schema_registry_contract,
             components,
         })
@@ -187,28 +191,13 @@ impl WorldIdIssuerSchemaDevClient {
         config: &DevClientConfig,
         signer: Address,
         provider: &DynProvider,
-    ) -> eyre::Result<(u64, OprfPublicKey)> {
-        if let Some(issuer_schema_id) = self.issuer_schema_id {
-            // TODO should maybe check if the oprf key id matches the registered one in case it was changed
-            // in case they are not the same, we return them both
-            let oprf_key_id = OprfKeyId::new(U160::from(issuer_schema_id));
-            let share_epoch = ShareEpoch::default();
-            let oprf_public_key = health_checks::oprf_public_key_from_services(
-                oprf_key_id,
-                share_epoch,
-                &config.nodes,
-                Duration::from_secs(10), // should already be there
-            )
-            .await?;
-            Ok((issuer_schema_id, oprf_public_key))
-        } else {
-            tracing::info!("registering new credential schema issuer");
+    ) -> eyre::Result<OprfPublicKey> {
+        if self.create_key {
+            tracing::info!("trying to create new issuer: {}", self.issuer_schema_id);
             let credential_schema_issuer_registry = CredentialSchemaIssuerRegistry::new(
                 self.issuer_schema_registry_contract,
                 provider.clone(),
             );
-            let issuer_schema_id = rand::random::<u64>();
-            let oprf_key_id = OprfKeyId::new(U160::from(issuer_schema_id));
             let seed = [8u8; 32];
             let issuer_private_key = EdDSAPrivateKey::from_bytes(seed);
             let issuer_public_key = ICredentialSchemaIssuerRegistry::Pubkey {
@@ -216,7 +205,7 @@ impl WorldIdIssuerSchemaDevClient {
                 y: U256::from_limbs(issuer_private_key.public().pk.y.into_bigint().0),
             };
             let receipt = credential_schema_issuer_registry
-                .register(issuer_schema_id, issuer_public_key, signer)
+                .register(self.issuer_schema_id, issuer_public_key, signer)
                 .gas(10000000)
                 .send()
                 .await?
@@ -225,16 +214,18 @@ impl WorldIdIssuerSchemaDevClient {
             if !receipt.status() {
                 eyre::bail!("failed to register issuer");
             }
-            tracing::info!("registered issuer with OPRF key: {oprf_key_id}");
-            let oprf_public_key = health_checks::oprf_public_key_from_services(
-                oprf_key_id,
-                ShareEpoch::default(),
-                &config.nodes,
-                config.max_wait_time,
-            )
-            .await?;
-            Ok((issuer_schema_id, oprf_public_key))
+            tracing::info!("registered Issuer with id: {}", self.issuer_schema_id);
         }
+
+        tracing::info!("fetching key from nodes..");
+        health_checks::oprf_public_key_from_services(
+            OprfKeyId::from(self.issuer_schema_id),
+            ShareEpoch::default(),
+            &config.nodes,
+            config.max_wait_time,
+        )
+        .await
+        .context("while fetching public key from services")
     }
 }
 

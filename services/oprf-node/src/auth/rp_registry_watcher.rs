@@ -109,15 +109,17 @@ impl RpRegistryWatcher {
             .time_to_live(time_to_live)
             .time_to_idle(time_to_idle)
             .eviction_listener(move |k, v: RelyingParty, cause| {
-                tracing::trace!("removing {k}/{} because: {cause:?}", v.account_type);
+                tracing::debug!("removing {k}/{} because: {cause:?}", v.account_type);
                 match v.account_type {
                     RpAccountType::Eoa => {
                         metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_EOA_ACCOUNTS)
                             .decrement(1);
                     }
                     RpAccountType::Contract => {
-                        metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS)
-                            .decrement(1);
+                        metrics::gauge!(
+                            METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS
+                        )
+                        .decrement(1);
                     }
                     RpAccountType::IncompatibleWip101 => metrics::gauge!(
                         METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS_BUT_UNSUPPORTED
