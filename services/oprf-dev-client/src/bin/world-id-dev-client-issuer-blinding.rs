@@ -114,7 +114,7 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
             &config.nodes,
             config.threshold,
             &self.components.query_material,
-            &authenticator_input,
+            authenticator_input,
             &connector,
         );
 

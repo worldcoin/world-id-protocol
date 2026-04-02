@@ -38,8 +38,8 @@ pub struct OprfEntrypoint<'a> {
     threshold: usize,
     /// The material for the query proof circuit.
     query_material: &'a CircomGroth16Material,
-    /// See [`AuthenticatorProofInput`] for more details.
-    authenticator_input: &'a AuthenticatorProofInput,
+    /// See [`AuthenticatorProofInput`] for more details. This is owned to zeroize signing key after use.
+    authenticator_input: AuthenticatorProofInput,
     /// The network connector to make requests.
     connector: &'a Connector,
 }
@@ -58,7 +58,7 @@ impl<'a> OprfEntrypoint<'a> {
         services: &'a [String],
         threshold: usize,
         query_material: &'a CircomGroth16Material,
-        authenticator_input: &'a AuthenticatorProofInput,
+        authenticator_input: AuthenticatorProofInput,
         connector: &'a Connector,
     ) -> Self {
         Self {
@@ -95,7 +95,7 @@ impl<'a> OprfEntrypoint<'a> {
 
         let result = Self::generate_query_proof(
             self.query_material,
-            self.authenticator_input,
+            &self.authenticator_input,
             action,
             FieldElement::ZERO,
             issuer_schema_id.into(),
@@ -158,7 +158,7 @@ impl<'a> OprfEntrypoint<'a> {
 
         let result = Self::generate_query_proof(
             self.query_material,
-            self.authenticator_input,
+            &self.authenticator_input,
             action,
             proof_request.nonce,
             proof_request.rp_id.into(),
@@ -184,6 +184,49 @@ impl<'a> OprfEntrypoint<'a> {
             result.blinding_factor,
             auth,
             module,
+            self.connector.clone(),
+        )
+        .await?;
+
+        Ok(FullOprfOutput {
+            query_proof_input: result.query_proof_input,
+            verifiable_oprf_output,
+        })
+    }
+
+    pub async fn gen_session_id_r_seed<R: rand::CryptoRng + rand::RngCore>(
+        &self,
+        rng: &mut R,
+        proof_request: &ProofRequest,
+        oprf_seed: FieldElement,
+    ) -> Result<FullOprfOutput, ProofError> {
+        let result = Self::generate_query_proof(
+            self.query_material,
+            &self.authenticator_input,
+            oprf_seed,
+            proof_request.nonce,
+            proof_request.rp_id.into(),
+            rng,
+        )?;
+
+        let auth = NullifierOprfRequestAuthV1 {
+            proof: result.proof.into(),
+            action: *oprf_seed,
+            nonce: *proof_request.nonce,
+            merkle_root: *self.authenticator_input.inclusion_proof.root,
+            current_time_stamp: proof_request.created_at,
+            expiration_timestamp: proof_request.expires_at,
+            signature: proof_request.signature,
+            rp_id: proof_request.rp_id,
+        };
+
+        let verifiable_oprf_output = Self::execute_distributed_oprf(
+            self.services,
+            self.threshold,
+            result.query_hash,
+            result.blinding_factor,
+            auth,
+            OprfModule::Session,
             self.connector.clone(),
         )
         .await?;

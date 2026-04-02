@@ -17,7 +17,9 @@ use taceo_oprf::{
 };
 use taceo_oprf_test_utils::{async_trait, health_checks};
 use uuid::Uuid;
-use world_id_core::{EdDSASignature, FieldElement, proof::CircomGroth16Material};
+use world_id_core::{
+    EdDSASignature, FieldElement, api_types::AccountInclusionProof, proof::CircomGroth16Material,
+};
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
     ProofRequest, RequestItem, RequestVersion, SessionFeType, SessionFieldElement as _, SessionId,
@@ -123,17 +125,17 @@ impl DevClient for WorldIdRpDevClient {
         )
         .context("while creating proof request")?;
 
+        let account_inclusion_proof =
+            AccountInclusionProof::new(setup.inclusion_proof.clone(), setup.key_set.clone());
+
         let (uniquness_nullifier, session_nullifier) = tokio::join!(
             self.components.authenticator.generate_nullifier(
                 &proof_request_uniqueness,
-                setup.inclusion_proof.clone(),
-                setup.key_set.clone(),
+                Some(account_inclusion_proof.clone())
             ),
-            self.components.authenticator.generate_nullifier(
-                &proof_request_session,
-                setup.inclusion_proof.clone(),
-                setup.key_set.clone(),
-            )
+            self.components
+                .authenticator
+                .generate_nullifier(&proof_request_session, Some(account_inclusion_proof),)
         );
 
         let uniqueness_epoch = uniquness_nullifier
@@ -278,9 +280,12 @@ fn create_proof_request<R: Rng + CryptoRng>(
         }
         OprfModule::Session => {
             // Session RP signature does NOT include action
-            let session_id =
-                SessionId::from_r_seed(setup.key_index, FieldElement::random(rng), None, rng)
-                    .context("while building SessionId")?;
+            let session_id = SessionId::from_r_seed(
+                setup.key_index,
+                FieldElement::random(rng),
+                FieldElement::random_for_session(rng, SessionFeType::OprfSeed),
+            )
+            .context("while building SessionId")?;
             (None, Some(session_id))
         }
         _ => unreachable!("only have session and nullifier modules here"),

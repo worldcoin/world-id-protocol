@@ -1684,7 +1684,7 @@ mod tests {
         assert_eq!(sess_canonical.successful_credentials(), vec![100]);
         assert!(sess_canonical.responses[0].is_session());
         assert_eq!(
-            sess_canonical.session_id.unwrap().oprf_seed().to_u256(),
+            sess_canonical.session_id.unwrap().oprf_seed.to_u256(),
             uint!(0x0100000000000000000000000000000000000000000000000000000000000001_U256)
         );
     }

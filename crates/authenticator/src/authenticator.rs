@@ -39,7 +39,6 @@ use world_id_primitives::{
         AuthenticatorPublicKeySet, SparseAuthenticatorPubkeysError,
         decode_sparse_authenticator_pubkeys,
     },
-    merkle::MerkleInclusionProof,
 };
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint,
@@ -435,8 +434,7 @@ impl Authenticator {
     /// - Will error if the user is not registered on the `WorldIDRegistry`.
     pub async fn fetch_inclusion_proof(
         &self,
-    ) -> Result<(MerkleInclusionProof<TREE_DEPTH>, AuthenticatorPublicKeySet), AuthenticatorError>
-    {
+    ) -> Result<AccountInclusionProof<TREE_DEPTH>, AuthenticatorError> {
         let url = format!("{}/inclusion-proof", self.config.indexer_url());
         let req = IndexerQueryRequest {
             leaf_index: self.leaf_index(),
@@ -451,7 +449,7 @@ impl Authenticator {
         }
         let response = response.json::<AccountInclusionProof<TREE_DEPTH>>().await?;
 
-        Ok((response.inclusion_proof, response.authenticator_pubkeys))
+        Ok(response)
     }
 
     /// Fetches the current authenticator public key set for the account.
@@ -530,11 +528,21 @@ impl Authenticator {
             .map_err(|e| AuthenticatorError::Generic(format!("signature error: {e}")))
     }
 
-    /// Checks that the OPRF Nodes configuration is valid and returns the list of URLs and the threshold to use.
+    /// Gets an object to request OPRF computations to OPRF Nodes.
+    ///
+    /// # Arguments
+    /// - `account_inclusion_proof`: an optionally cached object can be passed to
+    ///   avoid an additional network call. If not passed, it'll be fetched from the indexer.
     ///
     /// # Errors
-    /// Will return an error if there are no OPRF Nodes configured or if the threshold is invalid.
-    fn check_oprf_config(&self) -> Result<(&[String], usize), AuthenticatorError> {
+    /// - Will return an error if there are no OPRF Nodes configured or if the threshold is invalid.
+    /// - Will return an error if proof materials are not loaded.
+    /// - Will return an error if there are issues fetching an inclusion proof.
+    async fn get_oprf_entrypoint(
+        &self,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
+    ) -> Result<OprfEntrypoint<'_>, AuthenticatorError> {
+        // Check OPRF Config
         let services = self.config.nullifier_oracle_urls();
         if services.is_empty() {
             return Err(AuthenticatorError::Generic(
@@ -549,7 +557,46 @@ impl Authenticator {
             });
         }
         let threshold = requested_threshold.min(services.len());
-        Ok((services, threshold))
+
+        let query_material = self
+            .query_material
+            .as_ref()
+            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
+
+        // Fetch inclusion_proof && authenticator key_set if not provided
+        let account_inclusion_proof = if let Some(account_inclusion_proof) = account_inclusion_proof
+        {
+            account_inclusion_proof
+        } else {
+            self.fetch_inclusion_proof().await?
+        };
+
+        let key_index = account_inclusion_proof
+            .authenticator_pubkeys
+            .iter()
+            .position(|pk| {
+                pk.as_ref()
+                    .is_some_and(|pk| pk.pk == self.offchain_pubkey().pk)
+            })
+            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
+
+        let authenticator_input = AuthenticatorProofInput::new(
+            account_inclusion_proof.authenticator_pubkeys,
+            account_inclusion_proof.inclusion_proof,
+            self.signer
+                .offchain_signer_private_key()
+                .expose_secret()
+                .clone(),
+            key_index,
+        );
+
+        Ok(OprfEntrypoint::new(
+            services,
+            threshold,
+            query_material,
+            authenticator_input,
+            &self.ws_connector,
+        ))
     }
 
     fn decode_indexer_pubkeys(
@@ -590,6 +637,11 @@ impl Authenticator {
     /// A [`Nullifier`] is a unique, one-time use, anonymous identifier for a World ID
     /// on a specific RP context. See [`Nullifier`] for more details.
     ///
+    /// # Arguments
+    /// - `proof_request`: the request received from the RP.
+    /// - `account_inclusion_proof`: an optionally cached object can be passed to
+    ///   avoid an additional network call. If not passed, it'll be fetched from the indexer.
+    ///
     /// A Nullifier takes an `action` as input:
     /// - If `proof_request` is for a Session Proof, a random internal `action` is generated. This
     ///   is opaque to RPs, and verified internally in the verification contract.
@@ -604,50 +656,20 @@ impl Authenticator {
     pub async fn generate_nullifier(
         &self,
         proof_request: &ProofRequest,
-        inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
-        key_set: AuthenticatorPublicKeySet,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<FullOprfOutput, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
-        let (services, threshold) = self.check_oprf_config()?;
+        let oprf_entrypoint = self.get_oprf_entrypoint(account_inclusion_proof).await?;
 
-        let query_material = self
-            .query_material
-            .as_ref()
-            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
-
-        let key_index = key_set
-            .iter()
-            .position(|pk| {
-                pk.as_ref()
-                    .is_some_and(|pk| pk.pk == self.offchain_pubkey().pk)
-            })
-            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
-
-        let authenticator_input = AuthenticatorProofInput::new(
-            key_set,
-            inclusion_proof,
-            self.signer
-                .offchain_signer_private_key()
-                .expose_secret()
-                .clone(),
-            key_index,
-        );
-
-        let oprf_entry_point = OprfEntrypoint::new(
-            services,
-            threshold,
-            query_material,
-            &authenticator_input,
-            &self.ws_connector,
-        );
-        Ok(oprf_entry_point
+        Ok(oprf_entrypoint
             .gen_nullifier(&mut rng, proof_request)
             .await?)
     }
 
-    // TODO add more docs
-    /// Generates a blinding factor for a Credential sub (through OPRF Nodes).
+    /// Generates a blinding factor for a Credential sub (through OPRF Nodes). The credential
+    /// blinding factor enables every credential to have a different subject identifier, see
+    /// [`Credential::sub`] for more details.
     ///
     /// # Errors
     ///
@@ -659,41 +681,11 @@ impl Authenticator {
         issuer_schema_id: u64,
     ) -> Result<FieldElement, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
-        let (services, threshold) = self.check_oprf_config()?;
 
-        let query_material = self
-            .query_material
-            .as_ref()
-            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
+        // This is called sporadic enough that fetching fresh is reasonable
+        let oprf_entrypoint = self.get_oprf_entrypoint(None).await?;
 
-        let (inclusion_proof, key_set) = self.fetch_inclusion_proof().await?;
-        let key_index = key_set
-            .iter()
-            .position(|pk| {
-                pk.as_ref()
-                    .is_some_and(|pk| pk.pk == self.offchain_pubkey().pk)
-            })
-            .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
-
-        let authenticator_input = AuthenticatorProofInput::new(
-            key_set,
-            inclusion_proof,
-            self.signer
-                .offchain_signer_private_key()
-                .expose_secret()
-                .clone(),
-            key_index,
-        );
-
-        let oprf_entry_point = OprfEntrypoint::new(
-            services,
-            threshold,
-            query_material,
-            &authenticator_input,
-            &self.ws_connector,
-        );
-
-        let (blinding_factor, _share_epoch) = oprf_entry_point
+        let (blinding_factor, _share_epoch) = oprf_entrypoint
             .gen_credential_blinding_factor(&mut rng, issuer_schema_id)
             .await?;
 
@@ -705,32 +697,47 @@ impl Authenticator {
     /// Internally, this generates the session's random seed (`r`) using OPRF Nodes. This seed is used to
     /// compute the [`SessionId::commitment`] for Session Proofs.
     ///
+    /// # Arguments
+    /// - `proof_request`: the request received from the RP to initialize a session id.
+    /// - `session_id_r_seed`: the seed (see below) if it was already generated previously and it's cached.
+    /// - `account_inclusion_proof`: an optionally cached object can be passed to
+    ///   avoid an additional network call. If not passed, it'll be fetched from the indexer.
+    ///
     /// # Returns
     /// - `session_id`: The generated [`SessionId`] to be shared with the requesting RP.
     /// - `session_id_r_seed`: The `r` value used for this session so the Authenticator can cache it.
     ///
     /// # Seed (`session_id_r_seed`)
     /// - If a `session_id_r_seed` (`r`) is not provided, it'll be derived/re-derived with the OPRF nodes.
-    /// - Even if `r` has been generated before, the same `r` will be computed agaian for the same
-    ///   context (i.e. `rpId`, [`SessionId::oprf_seed`]). This means caching `r` is optional but recommended.
+    /// - Even if `r` has been generated before, the same `r` will be computed again for the same
+    ///   context (i.e. `rpId`, [`SessionId::oprf_seed`]). This means caching `r` is optional but RECOMMENDED.
     /// -  Caching behavior is the responsibility of the Authenticator (and/or its relevant SDKs), not this crate.
     /// - More information about the seed can be found in [`SessionId::from_r_seed`].
     pub async fn generate_session_id(
         &self,
         proof_request: &ProofRequest,
         session_id_r_seed: Option<FieldElement>,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
-        // TODO: Generate using OPRF Nodes with `oprf_seed` as input
-        let session_id_r_seed = session_id_r_seed.unwrap_or(FieldElement::random(&mut rng));
+        let oprf_seed = match proof_request.session_id {
+            Some(session_id) => session_id.oprf_seed,
+            None => SessionId::generate_oprf_seed(&mut rng),
+        };
 
-        let session_id = SessionId::from_r_seed(
-            self.leaf_index(),
-            session_id_r_seed,
-            proof_request.session_id.map(|v| v.oprf_seed()),
-            &mut rng,
-        )?;
+        let session_id_r_seed = match session_id_r_seed {
+            Some(seed) => seed,
+            None => {
+                let entrypoint = self.get_oprf_entrypoint(account_inclusion_proof).await?;
+                let oprf_output = entrypoint
+                    .gen_session_id_r_seed(&mut rng, proof_request, oprf_seed)
+                    .await?;
+                oprf_output.verifiable_oprf_output.output.into()
+            }
+        };
+
+        let session_id = SessionId::from_r_seed(self.leaf_index(), session_id_r_seed, oprf_seed)?;
 
         if let Some(request_session_id) = proof_request.session_id {
             if request_session_id != session_id {
@@ -794,7 +801,7 @@ impl Authenticator {
             credential_sub_blinding_factor,
             oprf_nullifier,
             request_item,
-            session_id.map(|v| v.commitment()),
+            session_id.map(|v| v.commitment),
             session_id_r_seed,
             expires_at_min,
         )?;
