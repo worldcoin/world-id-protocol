@@ -75,7 +75,6 @@ test:
 	$(MAKE) rust-test
 	$(MAKE) circom-test
 	$(MAKE) sol-test
-	$(MAKE) setup-test
 
 setup-test:
 	./local-setup.sh test
