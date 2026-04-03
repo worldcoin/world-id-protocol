@@ -692,7 +692,9 @@ impl Authenticator {
         Ok(blinding_factor)
     }
 
-    /// Creates a Session for a World ID with an RP.
+    /// Builds a [`SessionId`] object which can be used for Session Proofs. This has two uses:
+    /// 1. Creating a new Sesssion, i.e. generating a [`SessionId`] for the first time.
+    /// 2. Reconstructing a session for a Session Proof, particularly if the `session_id_r_seed` is not cached.
     ///
     /// Internally, this generates the session's random seed (`r`) using OPRF Nodes. This seed is used to
     /// compute the [`SessionId::commitment`] for Session Proofs.
@@ -713,7 +715,7 @@ impl Authenticator {
     ///   context (i.e. `rpId`, [`SessionId::oprf_seed`]). This means caching `r` is optional but RECOMMENDED.
     /// -  Caching behavior is the responsibility of the Authenticator (and/or its relevant SDKs), not this crate.
     /// - More information about the seed can be found in [`SessionId::from_r_seed`].
-    pub async fn generate_session_id(
+    pub async fn build_session_id(
         &self,
         proof_request: &ProofRequest,
         session_id_r_seed: Option<FieldElement>,
@@ -762,8 +764,7 @@ impl Authenticator {
     /// - `credential`: The Credential to be used for the proof that fulfills the `RequestItem`.
     /// - `credential_sub_blinding_factor`: The blinding factor for the Credential's sub.
     /// - `session_id_r_seed`: The session ID random seed, obtained via [`generate_session_id`](Self::generate_session_id).
-    ///   For Uniqueness Proofs (when `session_id` is `None`), this value is ignored by the circuit
-    ///   but must still be provided.
+    ///   For Uniqueness Proofs (when `session_id` is `None`), this value is ignored by the circuit.
     /// - `session_id`: The expected session ID provided by the RP. Only needed for Session Proofs. Obtained from the RP's [`ProofRequest`].
     /// - `request_timestamp`: The timestamp of the request. Obtained from the RP's [`ProofRequest`].
     ///
@@ -778,21 +779,21 @@ impl Authenticator {
         request_item: &RequestItem,
         credential: &Credential,
         credential_sub_blinding_factor: FieldElement,
-        session_id_r_seed: FieldElement,
+        session_id_r_seed: Option<FieldElement>,
         session_id: Option<SessionId>,
         request_timestamp: u64,
     ) -> Result<ResponseItem, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
-        let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
-        let action_from_query: FieldElement = oprf_nullifier.query_proof_input.action.into();
-
-        let expires_at_min = request_item.effective_expires_at_min(request_timestamp);
-
         let nullifier_material = self
             .nullifier_material
             .as_ref()
             .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
+
+        let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
+        let action_from_query: FieldElement = oprf_nullifier.query_proof_input.action.into();
+
+        let expires_at_min = request_item.effective_expires_at_min(request_timestamp);
 
         let (proof, _public_inputs, nullifier) = generate_nullifier_proof(
             nullifier_material,
