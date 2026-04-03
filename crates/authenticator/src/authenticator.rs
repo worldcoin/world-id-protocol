@@ -774,28 +774,36 @@ impl Authenticator {
         Ok((session_id, session_id_r_seed))
     }
 
-    /// Respond to an RP Proof Request. Generates a complete [`ProofResponse`] for
-    /// the given [`ProofRequest`].
+    /// Generates a complete [`ProofResponse`] for
+    /// the given [`ProofRequest`] to respond to an RP request.
     ///
     /// This orchestrates session resolution, per-credential proof generation,
     /// response assembly, and self-validation.
     ///
     /// # Typical flow
-    /// ```text
+    /// ```rust,ignore
+    /// // <- check request can be fulfilled with available credentials
     /// let nullifier = authenticator.generate_nullifier(&request, None).await?;
-    /// // ← check replay guard using nullifier.oprf_output()
+    /// // <- check replay guard using nullifier.oprf_output()
     /// let (response, meta) = authenticator.generate_proof(&request, nullifier, &creds, ...).await?;
+    /// // <- cache `session_id_r_seed` (to speed future proofs) and `nullifier` (to prevent replays)
     /// ```
     ///
     /// # Arguments
     /// - `proof_request` — the RP's full request.
     /// - `nullifier` — the OPRF nullifier output, obtained from
-    ///   [`generate_nullifier`](Self::generate_nullifier). The caller should check
-    ///   for replays using [`FullOprfOutput::oprf_output`] before calling this method.
+    ///   [`generate_nullifier`](Self::generate_nullifier). The caller MUST check
+    ///   for replays before calling this method to avoid wasted computation.
     /// - `credentials` — one [`CredentialInput`] per credential to prove,
     ///   matched to request items by `issuer_schema_id`.
-    /// - `account_inclusion_proof` — a cached inclusion proof, or `None` to fetch fresh.
-    /// - `session_seed` — a cached session seed for session proofs, or `None` to derive via OPRF.
+    /// - `account_inclusion_proof` — a cached inclusion proof if available (a fresh one will be fetched otherwise)
+    /// - `session_id_r_seed` — a cached session `r` seed for Session Proofs. If not available, it will be
+    ///   re-computed.
+    ///
+    /// # Caller Responsibilities
+    /// 1. The caller must ensure the request can be fulfilled with the credentials which the user has available,
+    ///    and provide such credentials.
+    /// 2. The caller must ensure the nullifier has not been used before.
     ///
     /// # Errors
     /// - [`AuthenticatorError::CredentialMismatch`] if the provided credentials
@@ -807,7 +815,7 @@ impl Authenticator {
         nullifier: FullOprfOutput,
         credentials: &[CredentialInput],
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
-        session_seed: Option<FieldElement>,
+        session_id_r_seed: Option<FieldElement>,
     ) -> Result<ProofResult, AuthenticatorError> {
         // 1. Determine request items to prove
         let available: std::collections::HashSet<u64> = credentials
@@ -820,7 +828,7 @@ impl Authenticator {
 
         // 2. Resolve session seed
         let resolved_session_seed = if proof_request.is_session_proof() {
-            if let Some(seed) = session_seed {
+            if let Some(seed) = session_id_r_seed {
                 // Validate the cached seed produces the expected session ID
                 let oprf_seed = proof_request
                     .session_id
@@ -836,7 +844,7 @@ impl Authenticator {
                 Some(seed)
             } else {
                 let (_session_id, seed) = self
-                    .generate_session_id(proof_request, None, account_inclusion_proof)
+                    .build_session_id(proof_request, None, account_inclusion_proof)
                     .await?;
                 Some(seed)
             }
@@ -938,7 +946,7 @@ impl Authenticator {
             oprf_nullifier,
             request_item,
             session_id.map(|v| v.commitment),
-            session_id_r_seed.unwrap_or(FieldElement::ZERO),
+            session_id_r_seed,
             expires_at_min,
         )?;
 
