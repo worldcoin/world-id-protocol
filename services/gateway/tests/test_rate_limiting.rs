@@ -1,7 +1,7 @@
 #![cfg(feature = "integration-tests")]
 
 use alloy::{
-    primitives::{Address, Bytes, U256, address},
+    primitives::{Address, Signature, U256, address},
     signers::{Signer, local::PrivateKeySigner},
     sol_types::SolStruct,
 };
@@ -14,11 +14,9 @@ use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::{start_redis, wait_http_ready};
+use crate::common::{GW_PRIVATE_KEY, start_redis, wait_http_ready};
 
 mod common;
-
-const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
 /// Helper to sign an InsertAuthenticator request
 #[allow(clippy::too_many_arguments)]
@@ -32,7 +30,7 @@ async fn sign_insert_authenticator(
     signer: &PrivateKeySigner,
     chain_id: u64,
     verifying_contract: Address,
-) -> Bytes {
+) -> Signature {
     let typed_data = InsertAuthenticatorTypedData {
         leafIndex: leaf_index,
         newAuthenticatorAddress: new_authenticator_address,
@@ -50,9 +48,7 @@ async fn sign_insert_authenticator(
     };
 
     let hash = typed_data.eip712_signing_hash(&domain);
-    let signature = signer.sign_hash(&hash).await.unwrap();
-
-    Bytes::from(signature.as_bytes())
+    signer.sign_hash(&hash).await.unwrap()
 }
 
 #[tokio::test]
@@ -119,7 +115,7 @@ async fn test_rate_limit_basic() {
         new_authenticator_pubkey: U256::from(100),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(2),
-        signature: signature1.to_vec(),
+        signature: signature1,
         nonce: U256::from(0),
     };
 
@@ -159,7 +155,7 @@ async fn test_rate_limit_basic() {
         new_authenticator_pubkey: U256::from(200),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(3),
-        signature: signature2.to_vec(),
+        signature: signature2,
         nonce: U256::from(0),
     };
 
@@ -197,7 +193,7 @@ async fn test_rate_limit_basic() {
         new_authenticator_pubkey: U256::from(300),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(4),
-        signature: signature3.to_vec(),
+        signature: signature3,
         nonce: U256::from(0),
     };
 
@@ -235,7 +231,7 @@ async fn test_rate_limit_basic() {
         new_authenticator_pubkey: U256::from(400),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(5),
-        signature: signature4.to_vec(),
+        signature: signature4,
         nonce: U256::from(0),
     };
 
@@ -324,7 +320,7 @@ async fn test_rate_limit_different_leaf_indexes() {
             new_authenticator_pubkey: U256::from(100 + i),
             old_offchain_signer_commitment: U256::from(1),
             new_offchain_signer_commitment: U256::from(2 + i as u64),
-            signature: signature.to_vec(),
+            signature,
             nonce: U256::from(0),
         };
 
@@ -360,7 +356,7 @@ async fn test_rate_limit_different_leaf_indexes() {
             new_authenticator_pubkey: U256::from(200 + i),
             old_offchain_signer_commitment: U256::from(1),
             new_offchain_signer_commitment: U256::from(3 + i as u64),
-            signature: signature.to_vec(),
+            signature,
             nonce: U256::from(0),
         };
 
@@ -400,7 +396,7 @@ async fn test_rate_limit_different_leaf_indexes() {
         new_authenticator_pubkey: U256::from(500),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(10),
-        signature: signature_extra.to_vec(),
+        signature: signature_extra,
         nonce: U256::from(0),
     };
 
@@ -481,7 +477,7 @@ async fn test_rate_limit_sliding_window() {
             new_authenticator_pubkey: U256::from(100 + i),
             old_offchain_signer_commitment: U256::from(1),
             new_offchain_signer_commitment: U256::from(2 + i as u64),
-            signature: signature.to_vec(),
+            signature,
             nonce: U256::from(0),
         };
 
@@ -516,7 +512,7 @@ async fn test_rate_limit_sliding_window() {
         new_authenticator_pubkey: U256::from(300),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(5),
-        signature: signature3.to_vec(),
+        signature: signature3,
         nonce: U256::from(0),
     };
 
@@ -553,7 +549,7 @@ async fn test_rate_limit_sliding_window() {
         new_authenticator_pubkey: U256::from(400),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(6),
-        signature: signature4.to_vec(),
+        signature: signature4,
         nonce: U256::from(0),
     };
 
@@ -633,7 +629,7 @@ async fn test_rate_limit_multiple_endpoints() {
         new_authenticator_pubkey: U256::from(100),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(2),
-        signature: insert_signature.to_vec(),
+        signature: insert_signature,
         nonce: U256::from(0),
     };
 
@@ -671,8 +667,8 @@ async fn test_rate_limit_multiple_endpoints() {
                 verifying_contract: registry_addr,
             };
             let hash = typed_data.eip712_signing_hash(&domain);
-            let sig = signer.sign_hash(&hash).await.unwrap();
-            Bytes::from(sig.as_bytes()).to_vec()
+
+            signer.sign_hash(&hash).await.unwrap()
         },
         nonce: U256::from(0),
     };
@@ -706,7 +702,7 @@ async fn test_rate_limit_multiple_endpoints() {
         new_authenticator_pubkey: U256::from(300),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(4),
-        signature: insert_signature2.to_vec(),
+        signature: insert_signature2,
         nonce: U256::from(0),
     };
 
@@ -739,7 +735,7 @@ async fn test_rate_limit_multiple_endpoints() {
         new_authenticator_pubkey: U256::from(400),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(5),
-        signature: insert_signature3.to_vec(),
+        signature: insert_signature3,
         nonce: U256::from(0),
     };
 

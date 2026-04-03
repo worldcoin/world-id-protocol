@@ -21,7 +21,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.6.0"
+version = "0.8.2"
 license = "MIT"
 authors = [
   "World Foundation",
@@ -57,9 +57,9 @@ groth16-material = { package = "taceo-groth16-material", version = "0.2.3", defa
 hex = { version = "0.4" }
 k256 = { version = "0.13" }
 taceo-groth16-sol = { version = "0.2.2" }
-taceo-oprf = { version = "0.8", default-features = false }
-taceo-oprf-test-utils = { version = "0.8", default-features = false }
-taceo-oprf-key-gen = { version = "0.7" }
+taceo-oprf = { version = "0.11", default-features = false }
+taceo-oprf-test-utils = { version = "0.9", default-features = false }
+taceo-oprf-key-gen = { version = "0.8" }
 telemetry-batteries = "0.2"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }
@@ -80,7 +80,7 @@ url = { version = "2", features = ["serde"] }
 utoipa = "5"
 reqwest = { version = "0.12", default-features = false, features = [
   "json",
-  "rustls-tls",
+  "rustls-tls-webpki-roots",
 ] }
 uuid = { version = "1" }
 webpki-roots = "1.0"
@@ -125,16 +125,25 @@ taceo-nodes-common = { version = "0.4.3", default-features=false }
 taceo-nodes-observability = "0.1"
 tempfile = "3"
 tokio-util = "0.7"
+tempo-alloy = "1.4"
 tower = "0.5.3"
 uniffi = "0.28"
 
 # Internal
-world-id-core = { version = "0.6.0", default-features = false, path = "crates/core" }
-world-id-issuer = { version = "0.6.0", path = "crates/issuer" }
-world-id-proof = { version = "0.6.0", path = "crates/proof" }
-world-id-authenticator = { version = "0.6.0", path = "crates/authenticator" }
-world-id-primitives = { version = "0.6.0", path = "crates/primitives", default-features = false }
+world-id-core = { version = "0.8.2", default-features = false, path = "crates/core" }
+world-id-issuer = { version = "0.8.2", path = "crates/issuer" }
+world-id-proof = { version = "0.8.2", path = "crates/proof" }
+world-id-authenticator = { version = "0.8.2", path = "crates/authenticator" }
+world-id-primitives = { version = "0.8.2", path = "crates/primitives", default-features = false }
 world-id-oprf-node = { version = "0.1.0", path = "services/oprf-node" }
 world-id-test-utils = { version = "0.1.0", path = "crates/test-utils" }
 world-id-services-common = { path = "services/common" }
 world-id-relay = { path = "services/relay" }
+
+# Compile all third-party dependencies with optimizations, even in dev/test builds.
+# This is essential because arkworks-based zkey deserialization (used by
+# taceo-oprf-key-gen) performs elliptic-curve point validation that is
+# prohibitively slow at opt-level 0 (~94s for a 21MB proving key).
+# With opt-level 2 the same deserialization completes in seconds.
+[profile.dev.package."*"]
+opt-level = 2

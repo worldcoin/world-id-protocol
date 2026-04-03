@@ -8,7 +8,7 @@ use axum::{Extension, Json, extract::State};
 use tracing::instrument;
 use world_id_core::api_types::{GatewayStatusResponse, RemoveAuthenticatorRequest};
 
-/// POST /v1/authenticators/remove
+/// POST /remove-authenticator
 ///
 /// Remove an authenticator from an account.
 #[instrument(name = "remove_authenticator", skip(state, payload), fields(request_id = %id))]

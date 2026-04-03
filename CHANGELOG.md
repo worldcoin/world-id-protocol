@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.8.1...world-id-primitives-v0.8.2) - 2026-04-02
+
+### Added
+
+- generate session_id_r_seed through OPRF nodes ([#628](https://github.com/worldcoin/world-id-protocol/pull/628))
+- rename sign_initiate_recovery_agent_update → danger_sign_initiate_recovery_agent_update (PROTO-4477) ([#631](https://github.com/worldcoin/world-id-protocol/pull/631))
+
+### Other
+
+- WIP-103 - Proof of Ownership ([#622](https://github.com/worldcoin/world-id-protocol/pull/622))
+
+## [0.8.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.8.0...world-id-primitives-v0.8.1) - 2026-04-01
+
+### Added
+
+- expose sign_initiate_recovery_agent_update on CoreAuthenticator (PROTO-4477) ([#630](https://github.com/worldcoin/world-id-protocol/pull/630))
+
+## [0.8.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.7.1...world-id-primitives-v0.8.0) - 2026-03-31
+
+### Added
+
+- expose from_be_bytes_mod_order ([#624](https://github.com/worldcoin/world-id-protocol/pull/624))
+
+### Fixed
+
+- use hex serde for all signature Vec<u8> fields in API types ([#619](https://github.com/worldcoin/world-id-protocol/pull/619))
+
+### Other
+
+- use hex_signature for signature parsing ([#626](https://github.com/worldcoin/world-id-protocol/pull/626))
+- *(oprf-nodes)* [**breaking**] uses the nodes_common rpc provider over ws provider everywhere + removes AWS deps ([#617](https://github.com/worldcoin/world-id-protocol/pull/617))
+- update Cargo.toml dependencies
+
+## [0.7.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.7.0...world-id-primitives-v0.7.1) - 2026-03-26
+
+### Added
+
+- add recovery agent update methods to CoreAuthenticator ([#602](https://github.com/worldcoin/world-id-protocol/pull/602))
+
+### Other
+
+- *(oprf-node)* misc stuff for oprf-nodes (v1.1) ([#608](https://github.com/worldcoin/world-id-protocol/pull/608))
+- update Cargo.toml dependencies
+
+## [0.7.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.6.0...world-id-primitives-v0.7.0) - 2026-03-25
+
+### Added
+
+- GatewayRequestId newtype and Authenticator::poll_status ([#603](https://github.com/worldcoin/world-id-protocol/pull/603))
+- improve docs for OPRF errors ([#606](https://github.com/worldcoin/world-id-protocol/pull/606))
+- *(oprf-node)* add session route for OPRF ([#596](https://github.com/worldcoin/world-id-protocol/pull/596))
+- rename to associated data commitment ([#586](https://github.com/worldcoin/world-id-protocol/pull/586))
+- *(indexer)* expose offchain_signer_commitment ([#593](https://github.com/worldcoin/world-id-protocol/pull/593))
+- recovery agent management gateway endpoints ([#589](https://github.com/worldcoin/world-id-protocol/pull/589))
+- separate action prefix ([#581](https://github.com/worldcoin/world-id-protocol/pull/581))
+
+### Fixed
+
+- sign_recover_account with async processing ([#597](https://github.com/worldcoin/world-id-protocol/pull/597))
+
+### Other
+
+- lifecycle terminology ([#605](https://github.com/worldcoin/world-id-protocol/pull/605))
+- *(nodes)* [**breaking**] add fine-grained error types for nodes ([#585](https://github.com/worldcoin/world-id-protocol/pull/585))
+- improved documentation on main crate ([#600](https://github.com/worldcoin/world-id-protocol/pull/600))
+- increase zstd compression level to 9 for circuit files ([#591](https://github.com/worldcoin/world-id-protocol/pull/591))
+
 ## [0.6.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.5.4...world-id-primitives-v0.6.0) - 2026-03-18
 
 ### Added

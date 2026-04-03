@@ -25,9 +25,6 @@ use crate::{request::Registry, types::MAX_AUTHENTICATORS};
 /// Global OnceCell to store the chain ID.
 pub static CHAIN_ID: OnceCell<u64> = OnceCell::const_new();
 
-/// Standard ECDSA signature length.
-const ECDSA_SIGNATURE_LEN: usize = 65;
-
 /// Returns the EIP-712 domain for the WorldIdRegistry contract.
 fn eip712_domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain {
     eip712_domain!(
@@ -105,58 +102,21 @@ async fn simulate_calldata(
         .map_err(GatewayErrorResponse::from_simulation_error)
 }
 
-/// Basic ECDSA signature format validation.
-fn validate_ecdsa_signature_format(signature: &[u8]) -> Result<(), GatewayErrorResponse> {
-    if signature.len() != ECDSA_SIGNATURE_LEN {
-        return Err(GatewayErrorResponse::bad_request_message(
-            "ECDSA signature must be exactly 65 bytes long".to_string(),
-        ));
-    }
-    if signature.iter().all(|&byte| byte == 0) {
-        return Err(GatewayErrorResponse::bad_request_message(
-            "ECDSA signature cannot be all zeros".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-/// Parse a 65-byte signature into an alloy Signature.
-fn parse_signature(signature: &[u8]) -> Result<Signature, GatewayErrorResponse> {
-    validate_ecdsa_signature_format(signature)?;
-
-    // Signature format: r (32 bytes) || s (32 bytes) || v (1 byte)
-    let r = U256::from_be_slice(&signature[0..32]);
-    let s = U256::from_be_slice(&signature[32..64]);
-    let v = signature[64];
-
-    // v should be 27 or 28 (or 0/1 for some implementations)
-    let y_parity = match v {
-        0 | 27 => false,
-        1 | 28 => true,
-        _ => {
-            return Err(GatewayErrorResponse::bad_request_message(format!(
-                "invalid signature recovery id: {v}"
-            )));
-        }
-    };
-
-    Ok(Signature::new(r, s, y_parity))
-}
-
 /// Recover the signer address from an EIP-712 typed data hash and signature.
 fn recover_signer<T: SolStruct>(
     typed_data: &T,
-    signature: &[u8],
+    signature: &Signature,
     chain_id: u64,
     verifying_contract: Address,
 ) -> Result<Address, GatewayErrorResponse> {
-    let sig = parse_signature(signature)?;
     let domain = eip712_domain(chain_id, verifying_contract);
     let digest = typed_data.eip712_signing_hash(&domain);
 
-    sig.recover_address_from_prehash(&digest).map_err(|e| {
-        GatewayErrorResponse::bad_request_message(format!("signature recovery failed: {e}"))
-    })
+    signature
+        .recover_address_from_prehash(&digest)
+        .map_err(|e| {
+            GatewayErrorResponse::bad_request_message(format!("signature recovery failed: {e}"))
+        })
 }
 
 // =============================================================================
@@ -267,7 +227,7 @@ impl RequestValidation for InsertAuthenticatorRequest {
                 self.new_authenticator_pubkey,
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
-                Bytes::from(self.signature.clone()),
+                Bytes::copy_from_slice(&self.signature.as_bytes()),
                 self.nonce,
             )
             .calldata()
@@ -338,7 +298,7 @@ impl RequestValidation for UpdateAuthenticatorRequest {
                 self.new_authenticator_pubkey,
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
-                Bytes::from(self.signature.clone()),
+                Bytes::copy_from_slice(&self.signature.as_bytes()),
                 self.nonce,
             )
             .calldata()
@@ -410,7 +370,7 @@ impl RequestValidation for RemoveAuthenticatorRequest {
                 authenticator_pubkey,
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
-                Bytes::from(self.signature.clone()),
+                Bytes::copy_from_slice(&self.signature.as_bytes()),
                 self.nonce,
             )
             .calldata()
@@ -463,7 +423,7 @@ impl RequestValidation for UpdateRecoveryAgentRequest {
             .initiateRecoveryAgentUpdate(
                 self.leaf_index,
                 self.new_recovery_agent,
-                Bytes::from(self.signature.clone()),
+                Bytes::copy_from_slice(&self.signature.as_bytes()),
                 self.nonce,
             )
             .calldata()
@@ -507,7 +467,7 @@ impl RequestValidation for CancelRecoveryAgentUpdateRequest {
         registry
             .cancelRecoveryAgentUpdate(
                 self.leaf_index,
-                Bytes::from(self.signature.clone()),
+                Bytes::copy_from_slice(&self.signature.as_bytes()),
                 self.nonce,
             )
             .calldata()
@@ -597,7 +557,7 @@ impl RequestValidation for RecoverAccountRequest {
                 new_pubkey,
                 self.old_offchain_signer_commitment,
                 self.new_offchain_signer_commitment,
-                Bytes::from(self.signature.clone()),
+                Bytes::copy_from_slice(&self.signature.as_bytes()),
                 self.nonce,
             )
             .calldata()
@@ -646,7 +606,7 @@ mod tests {
         let req = UpdateRecoveryAgentRequest {
             leaf_index: 0,
             new_recovery_agent: non_zero_agent,
-            signature: sig.as_bytes().to_vec(),
+            signature: sig,
             nonce: U256::ZERO,
         };
         assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
@@ -663,7 +623,7 @@ mod tests {
         let req = UpdateRecoveryAgentRequest {
             leaf_index: 1,
             new_recovery_agent: Address::ZERO,
-            signature: sig.as_bytes().to_vec(),
+            signature: sig,
             nonce: U256::ZERO,
         };
         assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
@@ -689,7 +649,7 @@ mod tests {
         let req = UpdateRecoveryAgentRequest {
             leaf_index,
             new_recovery_agent,
-            signature: sig.as_bytes().to_vec(),
+            signature: sig,
             nonce,
         };
         assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_ok());
@@ -700,10 +660,9 @@ mod tests {
         let req = UpdateRecoveryAgentRequest {
             leaf_index: 1,
             new_recovery_agent: address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
-            signature: vec![0u8; 65],
+            signature: Signature::new(U256::ZERO, U256::ZERO, false),
             nonce: U256::ZERO,
         };
-        // all-zero signature is explicitly rejected by validate_ecdsa_signature_format
         assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
     }
 
@@ -719,7 +678,7 @@ mod tests {
 
         let req = CancelRecoveryAgentUpdateRequest {
             leaf_index: 0,
-            signature: sig.as_bytes().to_vec(),
+            signature: sig,
             nonce: U256::ZERO,
         };
         assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
@@ -736,17 +695,17 @@ mod tests {
 
         let req = CancelRecoveryAgentUpdateRequest {
             leaf_index,
-            signature: sig.as_bytes().to_vec(),
+            signature: sig,
             nonce,
         };
         assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_ok());
     }
 
     #[test]
-    fn cancel_preflight_rejects_wrong_length_signature() {
+    fn cancel_preflight_rejects_invalid_signature() {
         let req = CancelRecoveryAgentUpdateRequest {
             leaf_index: 1,
-            signature: vec![0u8; 32], // wrong length
+            signature: Signature::new(U256::ZERO, U256::ZERO, false),
             nonce: U256::ZERO,
         };
         assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());

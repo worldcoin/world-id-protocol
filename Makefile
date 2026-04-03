@@ -29,6 +29,7 @@ fmt:
 	$(MAKE) sol-fmt
 
 lint:
+	$(MAKE) check-rust-fmt
 	$(MAKE) rust-clippy
 
 rust-build:
@@ -39,6 +40,9 @@ rust-test:
 
 rust-fmt:
 	cargo +nightly fmt --all
+
+check-rust-fmt:
+	cargo +nightly fmt --all -- --check
 
 rust-clippy:
 	cargo clippy --workspace --all-targets -- -D warnings

@@ -7,7 +7,10 @@ use std::{
 };
 
 use crate::{
-    auth::schema_issuer_registry_watcher::CredentialSchemaIssuerRegistry::IssuerSchemaRemoved,
+    auth::schema_issuer_registry_watcher::CredentialSchemaIssuerRegistry::{
+        CredentialSchemaIssuerRegistryInstance, IssuerSchemaRemoved,
+    },
+    config::WatcherCacheConfig,
     metrics::{
         METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS,
         METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES,
@@ -17,12 +20,14 @@ use crate::{
 use alloy::{
     eips::BlockNumberOrTag,
     primitives::Address,
-    providers::{DynProvider, Provider as _, ProviderBuilder, WsConnect},
+    providers::{DynProvider, Provider as _},
     rpc::types::Filter,
     sol_types::SolEvent,
 };
+use eyre::Context;
 use futures::StreamExt as _;
 use moka::future::Cache;
+use taceo_nodes_common::web3;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
@@ -36,13 +41,12 @@ alloy::sol! {
 /// Error returned by the [`IssuerSchemaRegistryWatcher`] implementation.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum SchemaIssuerRegistryWatcherError {
-    /// Error communicating with the chain.
-    #[error("alloy error: {0}")]
-    AlloyError(alloy::contract::Error),
-
     /// Unknown schema issuer.
     #[error("unknown schema issuer: {0}")]
-    UnknownSchemaIssuer(u64),
+    UnknownSchemaIssuerId(u64),
+    /// Internal Error
+    #[error(transparent)]
+    Internal(#[from] eyre::Report),
 }
 
 /// Monitors the issuer from the `CredentialSchemaIssuerRegistry` contract.
@@ -53,29 +57,25 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
 #[derive(Clone)]
 pub(crate) struct SchemaIssuerRegistryWatcher {
     issuer_schema_store: Cache<u64, ()>,
-    provider: DynProvider, // do not drop provider while we want to stay subscribed
-    contract_address: Address,
+    contract: CredentialSchemaIssuerRegistryInstance<DynProvider>,
 }
 
 impl SchemaIssuerRegistryWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
-        ws_rpc_url: &str,
-        max_issuer_registry_store_size: u64,
-        cache_maintenance_interval: Duration,
+        rpc_provider: &web3::RpcProvider,
+        cache_config: WatcherCacheConfig,
+        maintenance_interval: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
-        tracing::info!("creating provider for issuer-schema-registry-watcher...");
-        let ws = WsConnect::new(ws_rpc_url);
-        let provider = ProviderBuilder::new().connect_ws(ws).await?;
         tracing::info!("listening for events...");
         let filter = Filter::new()
             .address(contract_address)
             .from_block(BlockNumberOrTag::Latest)
             .event_signature(IssuerSchemaRemoved::SIGNATURE_HASH);
-        let sub = provider.subscribe_logs(&filter).await?;
+        let sub = rpc_provider.subscriptions().subscribe_logs(&filter).await?;
         let mut stream = sub.into_stream();
 
         ::metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE).set(0.0);
@@ -83,8 +83,16 @@ impl SchemaIssuerRegistryWatcher {
         // indicate that the IssuerRegistry watcher has started
         started.store(true, Ordering::Relaxed);
 
+        let WatcherCacheConfig {
+            max_cache_size,
+            time_to_live,
+            time_to_idle,
+        } = cache_config;
+
         let issuer_schema_store: Cache<u64, ()> = Cache::builder()
-            .max_capacity(max_issuer_registry_store_size)
+            .max_capacity(max_cache_size)
+            .time_to_live(time_to_live)
+            .time_to_idle(time_to_idle)
             .build();
         let subscribe_task = tokio::task::spawn({
             let issuer_schema_store = issuer_schema_store.clone();
@@ -128,7 +136,7 @@ impl SchemaIssuerRegistryWatcher {
         // periodically run maintenance tasks on the cache and update metrics
         tokio::spawn({
             let issuer_schema_store = issuer_schema_store.clone();
-            let mut interval = tokio::time::interval(cache_maintenance_interval);
+            let mut interval = tokio::time::interval(maintenance_interval);
             async move {
                 loop {
                     interval.tick().await;
@@ -141,8 +149,10 @@ impl SchemaIssuerRegistryWatcher {
         });
         let schema_issuer_registry = Self {
             issuer_schema_store,
-            provider: provider.erased(),
-            contract_address,
+            contract: CredentialSchemaIssuerRegistryInstance::new(
+                contract_address,
+                rpc_provider.http(),
+            ),
         };
         Ok((schema_issuer_registry, subscribe_task))
     }
@@ -159,25 +169,25 @@ impl SchemaIssuerRegistryWatcher {
                 .await
                 .is_some()
             {
-                tracing::debug!("issuer {issuer_schema_id} found in store");
+                tracing::trace!("issuer {issuer_schema_id} found in store");
                 ::metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS)
                     .increment(1);
                 return Ok(());
             }
         }
 
-        tracing::debug!(
+        tracing::trace!(
             "issuer {issuer_schema_id} not found in store, querying CredentialSchemaIssuerRegistry..."
         );
-        let contract = CredentialSchemaIssuerRegistry::new(self.contract_address, &self.provider);
-        let signer = contract
+        let signer = self
+            .contract
             .getSignerForIssuerSchemaId(issuer_schema_id)
             .call()
             .await
-            .map_err(SchemaIssuerRegistryWatcherError::AlloyError)?;
+            .context("while getting signer for issuer-schema")?;
 
         if signer == Address::ZERO {
-            Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(
+            Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(
                 issuer_schema_id,
             ))
         } else {
