@@ -338,7 +338,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     oprf_output: FullOprfOutput,
     request_item: &RequestItem,
     session_id: Option<FieldElement>,
-    session_id_r_seed: FieldElement,
+    session_id_r_seed: Option<FieldElement>,
     expires_at_min: u64,
 ) -> Result<
     (
@@ -370,7 +370,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         cred_sub_blinding_factor: *credential_sub_blinding_factor,
         cred_s: cred_signature.s,
         cred_r: cred_signature.r,
-        id_commitment_r: *session_id_r_seed,
+        id_commitment_r: *session_id_r_seed.unwrap_or(FieldElement::ZERO),
         id_commitment: *session_id.unwrap_or(FieldElement::ZERO),
         dlog_e: oprf_output.verifiable_oprf_output.dlog_proof.e(),
         dlog_s: oprf_output.verifiable_oprf_output.dlog_proof.s(),

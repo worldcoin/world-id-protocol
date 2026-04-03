@@ -333,7 +333,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         request_item,
         &credential,
         credential_sub_blinding_factor,
-        session_id_r_seed,
+        Some(session_id_r_seed),
         proof_request.session_id,
         proof_request.created_at,
     )?;
