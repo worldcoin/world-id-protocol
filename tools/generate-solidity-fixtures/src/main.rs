@@ -296,7 +296,7 @@ async fn main() -> Result<()> {
         request_item,
         &credential,
         credential_sub_blinding_factor,
-        FieldElement::ZERO, // for uniqueness proofs this can be zero
+        None, // uniqueness proof
         uniqueness_request.session_id,
         uniqueness_request.created_at,
     )?;
@@ -343,7 +343,7 @@ async fn main() -> Result<()> {
         request_item,
         &credential,
         credential_sub_blinding_factor,
-        session_id_r_seed,
+        Some(session_id_r_seed),
         Some(session_id),
         uniqueness_request.created_at,
     )?;

@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
         request_item,
         &credential,
         cred_sub_blinding_factor,
-        session_id_r_seed,
+        Some(session_id_r_seed),
         None, // Uniqueness Proof
         proof_request.created_at,
     )?;
