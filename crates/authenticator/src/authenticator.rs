@@ -806,7 +806,7 @@ impl Authenticator {
     /// 2. The caller must ensure the nullifier has not been used before.
     ///
     /// # Errors
-    /// - [`AuthenticatorError::CredentialMismatch`] if the provided credentials
+    /// - [`AuthenticatorError::UnfullfilableRequest`] if the provided credentials
     ///   cannot satisfy the request (including constraints).
     /// - Other `AuthenticatorError` variants on proof circuit or validation failures.
     pub async fn generate_proof(
@@ -830,15 +830,14 @@ impl Authenticator {
         let resolved_session_seed = if proof_request.is_session_proof() {
             if let Some(seed) = session_id_r_seed {
                 // Validate the cached seed produces the expected session ID
-                let oprf_seed = proof_request
-                    .session_id
-                    .expect("session proof must have session_id")
-                    .oprf_seed;
-                let computed = SessionId::from_r_seed(self.leaf_index(), seed, oprf_seed)?;
-                let expected = proof_request
+                let session_id = proof_request
                     .session_id
                     .expect("session proof must have session_id");
-                if computed != expected {
+
+                let computed =
+                    SessionId::from_r_seed(self.leaf_index(), seed, session_id.oprf_seed)?;
+
+                if computed != session_id {
                     return Err(AuthenticatorError::SessionIdMismatch);
                 }
                 Some(seed)
@@ -1612,8 +1611,8 @@ pub enum AuthenticatorError {
 
     /// The session ID computed for this proof does not match the expected session ID from the proof request.
     ///
-    /// This indicates the `session_id` provided by the RP is invalid or compromised, as
-    /// the only other failure option is OPRFs not having performed correct computations.
+    /// This indicates the `session_id` provided by the RP is invalid or compromised, or
+    /// the authenticator cached the wrong `session_id_r_seed` for the `oprf_seed`.
     #[error("the expected session id and the generated session id do not match")]
     SessionIdMismatch,
 
