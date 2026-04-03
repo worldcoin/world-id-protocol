@@ -906,7 +906,7 @@ impl Authenticator {
     /// - Will error if any of the required network requests fail.
     /// - Will error if the user does not have a registered World ID.
     #[expect(clippy::too_many_arguments)]
-    pub fn generate_credential_proof(
+    fn generate_credential_proof(
         &self,
         oprf_nullifier: FullOprfOutput,
         request_item: &RequestItem,

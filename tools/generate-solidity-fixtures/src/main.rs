@@ -26,7 +26,7 @@ use taceo_oprf_test_utils::health_checks;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use world_id_core::{
-    Authenticator, EdDSAPrivateKey,
+    Authenticator, CredentialInput, EdDSAPrivateKey,
     requests::{ProofRequest, RequestItem, RequestVersion},
 };
 use world_id_gateway::{
@@ -284,6 +284,11 @@ async fn main() -> Result<()> {
         .find_request_by_issuer_schema_id(issuer_schema_id)
         .unwrap();
 
+    let credentials = [CredentialInput {
+        credential: credential.clone(),
+        blinding_factor: credential_sub_blinding_factor,
+    }];
+
     let nullifier_data = authenticator
         .generate_nullifier(&uniqueness_request, None)
         .await?;
@@ -291,15 +296,16 @@ async fn main() -> Result<()> {
     // Clone the nullifier data before it's consumed — we reuse it for the session proof.
     let nullifier_data_for_session = nullifier_data.clone();
 
-    let uniqueness_response = authenticator.generate_credential_proof(
-        nullifier_data,
-        request_item,
-        &credential,
-        credential_sub_blinding_factor,
-        None, // for uniqueness proofs the seed is not needed
-        uniqueness_request.session_id,
-        uniqueness_request.created_at,
-    )?;
+    let uniqueness_result = authenticator
+        .generate_proof(
+            &uniqueness_request,
+            nullifier_data,
+            &credentials,
+            None,
+            None,
+        )
+        .await?;
+    let uniqueness_response = &uniqueness_result.proof_response.responses[0];
 
     // Verify on-chain.
     info!("Verifying uniqueness proof on-chain...");
@@ -337,16 +343,23 @@ async fn main() -> Result<()> {
     )
     .unwrap();
 
-    // ── SESSION PROOF (reuse cloned OPRF data with a non-zero session_id) ──
-    let session_response = authenticator.generate_credential_proof(
-        nullifier_data_for_session,
-        request_item,
-        &credential,
-        credential_sub_blinding_factor,
-        Some(session_id_r_seed),
-        Some(session_id),
-        uniqueness_request.created_at,
-    )?;
+    // ── SESSION PROOF (reuse cloned OPRF data with a session_id on the request) ──
+    let session_request = ProofRequest {
+        session_id: Some(session_id),
+        action: None, // session proofs use an internal random action
+        ..uniqueness_request.clone()
+    };
+
+    let session_result = authenticator
+        .generate_proof(
+            &session_request,
+            nullifier_data_for_session,
+            &credentials,
+            None,
+            Some(session_id_r_seed),
+        )
+        .await?;
+    let session_response = &session_result.proof_response.responses[0];
 
     let session_nullifier = session_response
         .session_nullifier

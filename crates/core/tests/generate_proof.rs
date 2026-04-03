@@ -16,15 +16,13 @@ use taceo_oprf_test_utils::health_checks;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use world_id_core::{
-    Authenticator, AuthenticatorError, EdDSAPrivateKey,
+    Authenticator, AuthenticatorError, CredentialInput, EdDSAPrivateKey,
     requests::{ProofRequest, RequestItem, RequestVersion},
 };
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
 };
-use world_id_primitives::{
-    Config, FieldElement, Nullifier, TREE_DEPTH, merkle::AccountInclusionProof,
-};
+use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
     fixtures::{
@@ -314,37 +312,26 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         }],
         constraints: None,
     };
-    let request_item = proof_request
-        .find_request_by_issuer_schema_id(issuer_schema_id)
-        .unwrap();
-
     let nullifier = authenticator
         .generate_nullifier(&proof_request, None)
         .await?;
-    assert_ne!(nullifier.verifiable_oprf_output.output, *FieldElement::ZERO);
+    assert_ne!(nullifier.oprf_output(), FieldElement::ZERO);
 
-    // Generate session_id_r_seed for proof generation
-    let session_id_r_seed = FieldElement::random(&mut rng); // Normally the authenticator would provide this from cache or (in the future) OPRF Nodes
+    let credentials = [CredentialInput {
+        credential: credential.clone(),
+        blinding_factor: credential_sub_blinding_factor,
+    }];
 
-    // Normally here the authenticator would check the nullifier is UNIQUE.
-
-    let response_item = authenticator.generate_single_proof(
-        nullifier.clone(),
-        request_item,
-        &credential,
-        credential_sub_blinding_factor,
-        session_id_r_seed,
-        proof_request.session_id,
-        proof_request.created_at,
-    )?;
+    let result = authenticator
+        .generate_proof(&proof_request, nullifier, &credentials, None, None)
+        .await?;
     info!("generated uniqueness proof");
 
-    assert_eq!(
-        response_item.nullifier,
-        Some(Nullifier::from(nullifier.verifiable_oprf_output.output))
-    );
+    let response_item = &result.proof_response.responses[0];
+    assert!(response_item.nullifier.is_some());
 
     // verify proof with verifier contract
+    let request_item = &proof_request.requests[0];
     let world_id_verifier: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =
         WorldIDVerifier::new(world_id_verifier, anvil.provider()?);
     world_id_verifier
