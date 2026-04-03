@@ -763,7 +763,7 @@ impl Authenticator {
     /// - `request_item`: The specific `RequestItem` that is being resolved from the RP's `ProofRequest`.
     /// - `credential`: The Credential to be used for the proof that fulfills the `RequestItem`.
     /// - `credential_sub_blinding_factor`: The blinding factor for the Credential's sub.
-    /// - `session_id_r_seed`: The session ID random seed, obtained via [`generate_session_id`](Self::generate_session_id).
+    /// - `session_id_r_seed`: The session ID random seed, obtained via [`build_session_id`](Self::build_session_id).
     ///   For Uniqueness Proofs (when `session_id` is `None`), this value is ignored by the circuit.
     /// - `session_id`: The expected session ID provided by the RP. Only needed for Session Proofs. Obtained from the RP's [`ProofRequest`].
     /// - `request_timestamp`: The timestamp of the request. Obtained from the RP's [`ProofRequest`].
