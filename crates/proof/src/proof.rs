@@ -169,15 +169,13 @@ pub fn load_query_material_from_reader(
 
 /// Loads the [`CircomGroth16Material`] for the nullifier proof from the provided paths.
 ///
-/// # Panics
-/// Will panic if the material cannot be loaded or verified.
+/// # Errors
+/// Will return an error if the material cannot be loaded or verified.
 pub fn load_nullifier_material_from_paths(
     zkey: impl AsRef<Path>,
     graph: impl AsRef<Path>,
-) -> CircomGroth16Material {
-    build_nullifier_builder()
-        .build_from_paths(zkey, graph)
-        .expect("works when loading embedded groth16-material")
+) -> eyre::Result<CircomGroth16Material> {
+    Ok(build_nullifier_builder().build_from_paths(zkey, graph)?)
 }
 
 /// Loads the [`CircomGroth16Material`] for the query proof from the provided paths.
