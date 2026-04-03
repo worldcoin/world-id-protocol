@@ -291,12 +291,12 @@ async fn main() -> Result<()> {
     // Clone the nullifier data before it's consumed — we reuse it for the session proof.
     let nullifier_data_for_session = nullifier_data.clone();
 
-    let uniqueness_response = authenticator.generate_single_proof(
+    let uniqueness_response = authenticator.generate_credential_proof(
         nullifier_data,
         request_item,
         &credential,
         credential_sub_blinding_factor,
-        FieldElement::ZERO, // for uniqueness proofs this can be zero
+        None, // for uniqueness proofs the seed is not needed
         uniqueness_request.session_id,
         uniqueness_request.created_at,
     )?;
@@ -338,12 +338,12 @@ async fn main() -> Result<()> {
     .unwrap();
 
     // ── SESSION PROOF (reuse cloned OPRF data with a non-zero session_id) ──
-    let session_response = authenticator.generate_single_proof(
+    let session_response = authenticator.generate_credential_proof(
         nullifier_data_for_session,
         request_item,
         &credential,
         credential_sub_blinding_factor,
-        session_id_r_seed,
+        Some(session_id_r_seed),
         Some(session_id),
         uniqueness_request.created_at,
     )?;
