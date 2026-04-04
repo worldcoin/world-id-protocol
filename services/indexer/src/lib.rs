@@ -3,12 +3,14 @@ use crate::{
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
     db::DB,
     events_committer::EventsCommitter,
+    recovery_executor::RecoveryExecutorConfig,
     rollback_executor::rollback_to_last_valid_root,
 };
 use alloy::{primitives::Address, providers::DynProvider};
 use futures_util::StreamExt;
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc, time::Duration};
 use tracing::instrument;
+use url::Url;
 use world_id_core::world_id_registry::WorldIdRegistry;
 
 // re-exports
@@ -22,6 +24,7 @@ mod error;
 pub mod events_committer;
 pub mod events_processor;
 pub mod metrics;
+pub mod recovery_executor;
 pub mod rollback_executor;
 mod routes;
 mod sanity_check;
@@ -121,6 +124,13 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
     db.run_migrations().await?;
     tracing::info!("🟢 DB successfully created .");
 
+    // Keep the first HTTP URL for the recovery executor (needs its own signing provider).
+    let first_rpc_url = cfg
+        .provider
+        .http
+        .as_ref()
+        .and_then(|urls| urls.first().cloned());
+
     let http_provider = cfg.provider.http().await?;
 
     match cfg.run_mode {
@@ -137,6 +147,7 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
                 cfg.registry_address,
                 indexer_config,
                 tree_state,
+                first_rpc_url.clone(),
             )
             .await
         }
@@ -172,6 +183,7 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
                 indexer_config,
                 http_config,
                 tree_state,
+                first_rpc_url.clone(),
             )
             .await
         }
@@ -186,18 +198,28 @@ async fn run_indexer_only(
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     tree_state: tree::TreeState,
+    rpc_url: Option<Url>,
 ) -> eyre::Result<()> {
-    process_registry_events(
-        http_provider,
-        ws_rpc_url,
-        registry_address,
-        indexer_cfg,
-        &db,
-        &tree_state,
-    )
-    .await?;
+    // Optionally start the recovery executor background loop
+    let recovery_handle = maybe_spawn_recovery_executor(db.clone(), rpc_url, registry_address);
 
-    Ok(())
+    tokio::select! {
+        result = process_registry_events(
+            http_provider,
+            ws_rpc_url,
+            registry_address,
+            indexer_cfg,
+            &db,
+            &tree_state,
+        ) => {
+            result?;
+            Ok(())
+        }
+        result = async { recovery_handle.unwrap().await }, if recovery_handle.is_some() => {
+            result??;
+            eyre::bail!("recovery executor exited unexpectedly");
+        }
+    }
 }
 
 #[instrument(level = "info", skip_all)]
@@ -267,6 +289,7 @@ async fn run_http_only(
 }
 
 /// Runs both the indexer and HTTP server in the same process, sharing the same DB and in-memory tree.
+#[allow(clippy::too_many_arguments)]
 #[instrument(level = "info", skip_all)]
 async fn run_both(
     db: DB,
@@ -276,6 +299,7 @@ async fn run_both(
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
     tree_state: tree::TreeState,
+    rpc_url: Option<Url>,
 ) -> eyre::Result<()> {
     // --- Start HTTP server + sanity check ---
     let http_tree_state = tree_state.clone();
@@ -314,6 +338,9 @@ async fn run_both(
         None
     };
 
+    // Optionally start the recovery executor background loop
+    let recovery_handle = maybe_spawn_recovery_executor(db.clone(), rpc_url, registry_address);
+
     // Stream live events; wait for the first task to complete — any failure is fatal.
     tokio::select! {
         result = process_registry_events(
@@ -335,7 +362,30 @@ async fn run_both(
             result??;
             eyre::bail!("sanity check loop exited unexpectedly");
         }
+        result = async { recovery_handle.unwrap().await }, if recovery_handle.is_some() => {
+            result??;
+            eyre::bail!("recovery executor exited unexpectedly");
+        }
     }
+}
+
+/// Optionally spawn the recovery executor background loop based on env config.
+/// Returns `None` if the executor is disabled.
+fn maybe_spawn_recovery_executor(
+    db: DB,
+    rpc_url: Option<Url>,
+    registry_address: Address,
+) -> Option<tokio::task::JoinHandle<eyre::Result<()>>> {
+    let config = RecoveryExecutorConfig::from_env();
+    if !config.enabled {
+        tracing::info!("Recovery executor is disabled (RECOVERY_EXECUTOR_ENABLED != true)");
+        return None;
+    }
+    let rpc_url = rpc_url.expect("RPC URL is required when recovery executor is enabled");
+    tracing::info!("Recovery executor is enabled, starting background loop");
+    Some(tokio::spawn(async move {
+        recovery_executor::run_recovery_executor(db, rpc_url, registry_address, config).await
+    }))
 }
 
 pub async fn handle_registry_event<'a>(

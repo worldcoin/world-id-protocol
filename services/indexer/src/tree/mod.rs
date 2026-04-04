@@ -103,7 +103,10 @@ pub fn extract_leaf_commitment(event: &crate::blockchain::RegistryEvent) -> Opti
         RegistryEvent::AccountRecovered(ev) => {
             Some((ev.leaf_index, ev.new_offchain_signer_commitment))
         }
-        RegistryEvent::RootRecorded(_) => None,
+        RegistryEvent::RootRecorded(_)
+        | RegistryEvent::RecoveryAgentUpdateInitiated(_)
+        | RegistryEvent::RecoveryAgentUpdateExecuted(_)
+        | RegistryEvent::RecoveryAgentUpdateCancelled(_) => None,
     }
 }
 

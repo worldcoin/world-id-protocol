@@ -29,31 +29,22 @@ pub(crate) async fn handler(
         ));
     }
 
-    if !state
+    let recovery_agent = state
         .db
         .accounts()
-        .get_account_exists(req.leaf_index)
+        .get_recovery_address(req.leaf_index)
         .await
         .map_err(|e| {
-            tracing::error!("DB error checking account existence: {}", e);
+            tracing::error!("DB error getting recovery agent: {}", e);
             IndexerErrorResponse::internal_server_error()
         })?
-    {
-        return Err(IndexerErrorResponse::bad_request(
-            IndexerErrorCode::AccountDoesNotExist,
-            "Leaf index does not exist.".to_string(),
-        ));
-    }
-
-    let recovery_agent = state
-        .registry
-        .getRecoveryAgent(req.leaf_index)
-        .call()
-        .await
-        .map_err(|e| {
-            tracing::error!("RPC error getting recovery agent: {}", e);
-            IndexerErrorResponse::internal_server_error()
+        .ok_or_else(|| {
+            IndexerErrorResponse::bad_request(
+                IndexerErrorCode::AccountDoesNotExist,
+                "Leaf index does not exist.".to_string(),
+            )
         })?;
 
+    // The DB stores the recovery address; if it's the zero address, no recovery agent is set
     Ok(Json(IndexerRecoveryAgentResponse { recovery_agent }))
 }

@@ -6,8 +6,9 @@ use tracing::instrument;
 use crate::{
     blockchain::{
         AccountCreatedEvent, AccountRecoveredEvent, AccountUpdatedEvent,
-        AuthenticatorInsertedEvent, AuthenticatorRemovedEvent, BlockchainEvent, RegistryEvent,
-        RootRecordedEvent,
+        AuthenticatorInsertedEvent, AuthenticatorRemovedEvent, BlockchainEvent,
+        RecoveryAgentUpdateCancelledEvent, RecoveryAgentUpdateExecutedEvent,
+        RecoveryAgentUpdateInitiatedEvent, RegistryEvent, RootRecordedEvent,
     },
     db::{DBError, DBResult},
     invalid_field, missing_field,
@@ -50,6 +51,9 @@ pub enum WorldIdRegistryEventType {
     AuthenticatorRemoved,
     AccountRecovered,
     RootRecorded,
+    RecoveryAgentUpdateInitiated,
+    RecoveryAgentUpdateExecuted,
+    RecoveryAgentUpdateCancelled,
 }
 
 impl std::fmt::Display for WorldIdRegistryEventType {
@@ -63,6 +67,15 @@ impl std::fmt::Display for WorldIdRegistryEventType {
             WorldIdRegistryEventType::AuthenticatorRemoved => write!(f, "authenticator_removed"),
             WorldIdRegistryEventType::AccountRecovered => write!(f, "account_recovered"),
             WorldIdRegistryEventType::RootRecorded => write!(f, "root_recorded"),
+            WorldIdRegistryEventType::RecoveryAgentUpdateInitiated => {
+                write!(f, "recovery_agent_update_initiated")
+            }
+            WorldIdRegistryEventType::RecoveryAgentUpdateExecuted => {
+                write!(f, "recovery_agent_update_executed")
+            }
+            WorldIdRegistryEventType::RecoveryAgentUpdateCancelled => {
+                write!(f, "recovery_agent_update_cancelled")
+            }
         }
     }
 }
@@ -78,6 +91,15 @@ impl<'a> TryFrom<&'a str> for WorldIdRegistryEventType {
             "authenticator_removed" => Ok(WorldIdRegistryEventType::AuthenticatorRemoved),
             "account_recovered" => Ok(WorldIdRegistryEventType::AccountRecovered),
             "root_recorded" => Ok(WorldIdRegistryEventType::RootRecorded),
+            "recovery_agent_update_initiated" => {
+                Ok(WorldIdRegistryEventType::RecoveryAgentUpdateInitiated)
+            }
+            "recovery_agent_update_executed" => {
+                Ok(WorldIdRegistryEventType::RecoveryAgentUpdateExecuted)
+            }
+            "recovery_agent_update_cancelled" => {
+                Ok(WorldIdRegistryEventType::RecoveryAgentUpdateCancelled)
+            }
             _ => Err(DBError::UnknownEventType(value.to_string())),
         }
     }
@@ -143,6 +165,33 @@ pub fn serialize_root_recorded(ev: &RootRecordedEvent) -> serde_json::Value {
     })
 }
 
+pub fn serialize_recovery_agent_update_initiated(
+    ev: &RecoveryAgentUpdateInitiatedEvent,
+) -> serde_json::Value {
+    serde_json::json!({
+        "old_recovery_agent": format!("{:?}", ev.old_recovery_agent),
+        "new_recovery_agent": format!("{:?}", ev.new_recovery_agent),
+        "execute_after": format!("{}", ev.execute_after),
+    })
+}
+
+pub fn serialize_recovery_agent_update_executed(
+    ev: &RecoveryAgentUpdateExecutedEvent,
+) -> serde_json::Value {
+    serde_json::json!({
+        "old_recovery_agent": format!("{:?}", ev.old_recovery_agent),
+        "new_recovery_agent": format!("{:?}", ev.new_recovery_agent),
+    })
+}
+
+pub fn serialize_recovery_agent_update_cancelled(
+    ev: &RecoveryAgentUpdateCancelledEvent,
+) -> serde_json::Value {
+    serde_json::json!({
+        "cancelled_recovery_agent": format!("{:?}", ev.cancelled_recovery_agent),
+    })
+}
+
 /// Serialize event data to JSON for storage
 pub fn serialize_event_data(event: &RegistryEvent) -> serde_json::Value {
     match event {
@@ -152,6 +201,15 @@ pub fn serialize_event_data(event: &RegistryEvent) -> serde_json::Value {
         RegistryEvent::AuthenticatorRemoved(ev) => serialize_authenticator_removed(ev),
         RegistryEvent::AccountRecovered(ev) => serialize_account_recovered(ev),
         RegistryEvent::RootRecorded(ev) => serialize_root_recorded(ev),
+        RegistryEvent::RecoveryAgentUpdateInitiated(ev) => {
+            serialize_recovery_agent_update_initiated(ev)
+        }
+        RegistryEvent::RecoveryAgentUpdateExecuted(ev) => {
+            serialize_recovery_agent_update_executed(ev)
+        }
+        RegistryEvent::RecoveryAgentUpdateCancelled(ev) => {
+            serialize_recovery_agent_update_cancelled(ev)
+        }
     }
 }
 
@@ -381,6 +439,75 @@ pub fn deserialize_root_recorded(event_data: &serde_json::Value) -> DBResult<Roo
     Ok(RootRecordedEvent { root, timestamp })
 }
 
+pub fn deserialize_recovery_agent_update_initiated(
+    leaf_index: Option<u64>,
+    event_data: &serde_json::Value,
+) -> DBResult<RecoveryAgentUpdateInitiatedEvent> {
+    let old_recovery_agent = event_data["old_recovery_agent"]
+        .as_str()
+        .ok_or_else(|| missing_field!("old_recovery_agent"))?
+        .parse()
+        .map_err(|_| invalid_field!("old_recovery_agent", "failed to parse address"))?;
+
+    let new_recovery_agent = event_data["new_recovery_agent"]
+        .as_str()
+        .ok_or_else(|| missing_field!("new_recovery_agent"))?
+        .parse()
+        .map_err(|_| invalid_field!("new_recovery_agent", "failed to parse address"))?;
+
+    let execute_after = event_data["execute_after"]
+        .as_str()
+        .ok_or_else(|| missing_field!("execute_after"))?
+        .parse()
+        .map_err(|_| invalid_field!("execute_after", "failed to parse U256"))?;
+
+    Ok(RecoveryAgentUpdateInitiatedEvent {
+        leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
+        old_recovery_agent,
+        new_recovery_agent,
+        execute_after,
+    })
+}
+
+pub fn deserialize_recovery_agent_update_executed(
+    leaf_index: Option<u64>,
+    event_data: &serde_json::Value,
+) -> DBResult<RecoveryAgentUpdateExecutedEvent> {
+    let old_recovery_agent = event_data["old_recovery_agent"]
+        .as_str()
+        .ok_or_else(|| missing_field!("old_recovery_agent"))?
+        .parse()
+        .map_err(|_| invalid_field!("old_recovery_agent", "failed to parse address"))?;
+
+    let new_recovery_agent = event_data["new_recovery_agent"]
+        .as_str()
+        .ok_or_else(|| missing_field!("new_recovery_agent"))?
+        .parse()
+        .map_err(|_| invalid_field!("new_recovery_agent", "failed to parse address"))?;
+
+    Ok(RecoveryAgentUpdateExecutedEvent {
+        leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
+        old_recovery_agent,
+        new_recovery_agent,
+    })
+}
+
+pub fn deserialize_recovery_agent_update_cancelled(
+    leaf_index: Option<u64>,
+    event_data: &serde_json::Value,
+) -> DBResult<RecoveryAgentUpdateCancelledEvent> {
+    let cancelled_recovery_agent = event_data["cancelled_recovery_agent"]
+        .as_str()
+        .ok_or_else(|| missing_field!("cancelled_recovery_agent"))?
+        .parse()
+        .map_err(|_| invalid_field!("cancelled_recovery_agent", "failed to parse address"))?;
+
+    Ok(RecoveryAgentUpdateCancelledEvent {
+        leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
+        cancelled_recovery_agent,
+    })
+}
+
 /// Deserialize event data from JSON back to RegistryEvent
 pub fn deserialize_registry_event(
     event_type: WorldIdRegistryEventType,
@@ -408,6 +535,21 @@ pub fn deserialize_registry_event(
         WorldIdRegistryEventType::RootRecorded => Ok(RegistryEvent::RootRecorded(
             deserialize_root_recorded(event_data)?,
         )),
+        WorldIdRegistryEventType::RecoveryAgentUpdateInitiated => {
+            Ok(RegistryEvent::RecoveryAgentUpdateInitiated(
+                deserialize_recovery_agent_update_initiated(leaf_index, event_data)?,
+            ))
+        }
+        WorldIdRegistryEventType::RecoveryAgentUpdateExecuted => {
+            Ok(RegistryEvent::RecoveryAgentUpdateExecuted(
+                deserialize_recovery_agent_update_executed(leaf_index, event_data)?,
+            ))
+        }
+        WorldIdRegistryEventType::RecoveryAgentUpdateCancelled => {
+            Ok(RegistryEvent::RecoveryAgentUpdateCancelled(
+                deserialize_recovery_agent_update_cancelled(leaf_index, event_data)?,
+            ))
+        }
     }
 }
 
@@ -451,6 +593,15 @@ where
             }
             RegistryEvent::AccountRecovered(_) => WorldIdRegistryEventType::AccountRecovered,
             RegistryEvent::RootRecorded(_) => WorldIdRegistryEventType::RootRecorded,
+            RegistryEvent::RecoveryAgentUpdateInitiated(_) => {
+                WorldIdRegistryEventType::RecoveryAgentUpdateInitiated
+            }
+            RegistryEvent::RecoveryAgentUpdateExecuted(_) => {
+                WorldIdRegistryEventType::RecoveryAgentUpdateExecuted
+            }
+            RegistryEvent::RecoveryAgentUpdateCancelled(_) => {
+                WorldIdRegistryEventType::RecoveryAgentUpdateCancelled
+            }
         };
 
         let leaf_index = match &event.details {
@@ -460,6 +611,9 @@ where
             RegistryEvent::AuthenticatorRemoved(ev) => Some(ev.leaf_index as i64),
             RegistryEvent::AccountRecovered(ev) => Some(ev.leaf_index as i64),
             RegistryEvent::RootRecorded(_) => None,
+            RegistryEvent::RecoveryAgentUpdateInitiated(ev) => Some(ev.leaf_index as i64),
+            RegistryEvent::RecoveryAgentUpdateExecuted(ev) => Some(ev.leaf_index as i64),
+            RegistryEvent::RecoveryAgentUpdateCancelled(ev) => Some(ev.leaf_index as i64),
         };
 
         let event_data = serialize_event_data(&event.details);

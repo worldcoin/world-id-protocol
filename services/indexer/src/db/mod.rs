@@ -2,9 +2,11 @@ use sqlx::{Acquire, PgConnection, PgPool, Postgres, Transaction, postgres::PgPoo
 use thiserror::Error;
 
 mod accounts;
+mod pending_recovery_agent_updates;
 mod world_id_registry_events;
 
 pub use accounts::Accounts;
+pub use pending_recovery_agent_updates::{PendingRecoveryAgentUpdate, PendingRecoveryAgentUpdates};
 pub use world_id_registry_events::{
     BlockWithConflictingHashes, WorldIdRegistryEvent, WorldIdRegistryEventId,
     WorldIdRegistryEventType, WorldIdRegistryEvents,
@@ -93,6 +95,10 @@ impl PostgresDB {
         WorldIdRegistryEvents::with_executor(&self.pool)
     }
 
+    pub fn pending_recovery_agent_updates(&self) -> PendingRecoveryAgentUpdates<'_, &PgPool> {
+        PendingRecoveryAgentUpdates::with_executor(&self.pool)
+    }
+
     pub async fn ping(&self) -> DBResult<()> {
         sqlx::query("SELECT 1").fetch_one(&self.pool).await?;
         Ok(())
@@ -158,6 +164,14 @@ impl<'a> PostgresDBTransaction<'a> {
     ) -> DBResult<WorldIdRegistryEvents<'_, &mut PgConnection>> {
         let conn = self.tx.acquire().await?;
         Ok(WorldIdRegistryEvents::with_executor(conn))
+    }
+
+    /// Get a pending_recovery_agent_updates table accessor for executing a single query.
+    pub async fn pending_recovery_agent_updates(
+        &mut self,
+    ) -> DBResult<PendingRecoveryAgentUpdates<'_, &mut PgConnection>> {
+        let conn = self.tx.acquire().await?;
+        Ok(PendingRecoveryAgentUpdates::with_executor(conn))
     }
 
     pub async fn commit(self) -> DBResult<()> {

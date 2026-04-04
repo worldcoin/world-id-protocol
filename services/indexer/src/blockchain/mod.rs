@@ -14,7 +14,9 @@ use thiserror::Error;
 
 pub use crate::blockchain::events::{
     AccountCreatedEvent, AccountRecoveredEvent, AccountUpdatedEvent, AuthenticatorInsertedEvent,
-    AuthenticatorRemovedEvent, BlockchainEvent, RegistryEvent, RootRecordedEvent,
+    AuthenticatorRemovedEvent, BlockchainEvent, RecoveryAgentUpdateCancelledEvent,
+    RecoveryAgentUpdateExecutedEvent, RecoveryAgentUpdateInitiatedEvent, RegistryEvent,
+    RootRecordedEvent,
 };
 
 mod events;
