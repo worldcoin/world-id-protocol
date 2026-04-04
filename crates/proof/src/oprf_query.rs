@@ -172,8 +172,9 @@ impl<'a> OprfEntrypoint<'a> {
             merkle_root: *self.authenticator_input.inclusion_proof.root,
             current_time_stamp: proof_request.created_at,
             expiration_timestamp: proof_request.expires_at,
-            signature: proof_request.signature,
+            signature: Some(proof_request.signature),
             rp_id: proof_request.rp_id,
+            auxiliary_wip101_bytes: None,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(
@@ -215,8 +216,9 @@ impl<'a> OprfEntrypoint<'a> {
             merkle_root: *self.authenticator_input.inclusion_proof.root,
             current_time_stamp: proof_request.created_at,
             expiration_timestamp: proof_request.expires_at,
-            signature: proof_request.signature,
+            signature: Some(proof_request.signature),
             rp_id: proof_request.rp_id,
+            auxiliary_wip101_bytes: None,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(

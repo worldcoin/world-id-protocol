@@ -23,6 +23,7 @@ pub(crate) mod nonce_history;
 pub(crate) mod rp_module;
 pub(crate) mod rp_registry_watcher;
 pub(crate) mod schema_issuer_registry_watcher;
+pub(crate) mod wip101;
 
 pub(crate) fn verify_query_proof(
     vk: &PreparedVerifyingKey<Bn254>,
@@ -52,6 +53,7 @@ mod tests {
     use std::time::Duration;
 
     use alloy::{
+        node_bindings::AnvilInstance,
         primitives::{Address, U256},
         signers::local::LocalSigner,
     };
@@ -68,7 +70,7 @@ mod tests {
     };
     use world_id_test_utils::{
         anvil::TestAnvil,
-        fixtures::{RegistryTestContext, RpFixture, generate_rp_fixture},
+        fixtures::{self, RegistryTestContext, RpFixture},
         merkle::first_leaf_merkle_path,
     };
 
@@ -94,7 +96,7 @@ mod tests {
         pub(crate) signer: Signer,
     }
 
-    pub(crate) async fn build_rpc_provider(anvil: &TestAnvil) -> web3::RpcProvider {
+    pub(crate) async fn build_rpc_provider(anvil: &AnvilInstance) -> web3::RpcProvider {
         let http_url = anvil
             .endpoint()
             .parse()
@@ -106,6 +108,7 @@ mod tests {
         RpcProviderBuilder::with_default_values(vec![http_url], ws_url)
             .environment(taceo_nodes_common::Environment::Dev)
             .chain_id(31_337)
+            .wallet(anvil.wallet().expect("Should have signer wallet"))
             .build()
             .await
             .expect("can build RPC providers")
@@ -124,7 +127,7 @@ mod tests {
 
             let deployer = anvil.signer(0)?;
 
-            let rp_fixture = generate_rp_fixture();
+            let rp_fixture = fixtures::generate_rp_fixture();
 
             // Register the RP which also triggers a OPRF key-gen.
             let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
@@ -218,6 +221,7 @@ mod tests {
         pub(crate) schema_issuer_registry_watcher: SchemaIssuerRegistryWatcher,
         pub(crate) nonce_history: NonceHistory,
         pub(crate) current_time_stamp_max_difference: Duration,
+        pub(crate) rpc_provider: web3::RpcProvider,
     }
 
     impl AuthModulesTestSetup {
@@ -230,7 +234,7 @@ mod tests {
             let started_services = StartedServices::default();
             let cancellation_token = CancellationToken::new();
 
-            let rpc_provider = build_rpc_provider(&setup.anvil).await;
+            let rpc_provider = build_rpc_provider(&setup.anvil.instance).await;
 
             let (merkle_watcher, _) = MerkleWatcher::init(
                 setup.world_id_registry,
@@ -244,7 +248,7 @@ mod tests {
 
             let (rp_registry_watcher, _) = RpRegistryWatcher::init(
                 setup.rp_registry,
-                &rpc_provider,
+                rpc_provider.clone(),
                 WatcherCacheConfig::default(),
                 cache_maintenance_interval,
                 started_services.new_service(),
@@ -274,6 +278,7 @@ mod tests {
                 schema_issuer_registry_watcher,
                 nonce_history,
                 current_time_stamp_max_difference,
+                rpc_provider,
             })
         }
 

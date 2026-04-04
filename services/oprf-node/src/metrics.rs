@@ -18,6 +18,19 @@ pub const METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES: &str =
 /// Number of stored RPs in the `rp_registry_watcher` cache.
 pub const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE: &str =
     "taceo.oprf.node.rp_registry_watcher_cache.size";
+
+/// Number of stored RPs with an EOA signer.
+pub const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_EOA_ACCOUNTS: &str =
+    "taceo.oprf.node.rp_registry_watcher_cache.account.eoa";
+
+/// Number of stored RPs with a contract backed signer.
+pub const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS: &str =
+    "taceo.oprf.node.rp_registry_watcher_cache.account.contract";
+
+/// Number of stored RPs with a contract backed signer, that does not confirm to WIP101.
+pub const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS_BUT_UNSUPPORTED: &str =
+    "taceo.oprf.node.rp_registry_watcher_cache.account.unsupported";
+
 /// Number of hits in the `rp_registry_watcher` cache.
 pub const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS: &str =
     "taceo.oprf.node.rp_registry_watcher_cache.hits";
@@ -78,6 +91,24 @@ pub fn describe_metrics() {
         METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES,
         metrics::Unit::Count,
         "Number of misses in the rp_registry_watcher cache."
+    );
+
+    metrics::describe_gauge!(
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_EOA_ACCOUNTS,
+        metrics::Unit::Count,
+        "Number of cached RPs with an EOA signer."
+    );
+
+    metrics::describe_gauge!(
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS,
+        metrics::Unit::Count,
+        "Number of cached RPs with a WIP101-compliant contract signer."
+    );
+
+    metrics::describe_gauge!(
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS_BUT_UNSUPPORTED,
+        metrics::Unit::Count,
+        "Number of cached RPs with a contract signer that does not conform to WIP101."
     );
 
     metrics::describe_gauge!(
