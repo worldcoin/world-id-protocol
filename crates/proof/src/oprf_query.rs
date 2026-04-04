@@ -53,6 +53,16 @@ pub struct FullOprfOutput {
     pub verifiable_oprf_output: VerifiableOprfOutput,
 }
 
+impl FullOprfOutput {
+    /// Returns the final OPRF output as a field element.
+    ///
+    /// This may represent a nullifier, a credential blinding factor, etc.
+    #[must_use]
+    pub fn oprf_output(&self) -> FieldElement {
+        self.verifiable_oprf_output.output.into()
+    }
+}
+
 impl<'a> OprfEntrypoint<'a> {
     pub fn new(
         services: &'a [String],
