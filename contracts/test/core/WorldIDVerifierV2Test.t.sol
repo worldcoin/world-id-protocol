@@ -77,8 +77,6 @@ contract WorldIDVerifierV2Test is Test {
         );
     }
 
-<<<<<<< HEAD
-=======
     function test_SessionRevertsWhenActionMissing0x02Prefix() public {
         // Action with 0x00 prefix (valid for uniqueness, not for session)
         uint256 action = 0x00d4b66e5417cb9875f6a2b5be9814dca80651d7c74b3b21685fdd494566e7;
@@ -138,7 +136,6 @@ contract WorldIDVerifierV2Test is Test {
         );
     }
 
->>>>>>> main
     function test_PassesActionCheckWhenFirstByteZero() public {
         // passes the prefix check but fails proof verification
         uint256 action = 0x00d4b66e5417cb9875f6a2b5be9814dca80651d7c74b3b21685fdd494566e7;
