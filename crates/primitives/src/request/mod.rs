@@ -702,6 +702,14 @@ mod tests {
         FieldElement::from(n)
     }
 
+    /// Creates an action with the required `0x02` session prefix
+    fn test_action(n: u64) -> FieldElement {
+        use ruint::{aliases::U256, uint};
+        let v = U256::from(n)
+            | uint!(0x0200000000000000000000000000000000000000000000000000000000000000_U256);
+        FieldElement::try_from(v).expect("test value fits in field")
+    }
+
     #[test]
     fn constraints_all_any_nested() {
         // Build a response that has test_req_1 and test_req_2 provided
@@ -1370,7 +1378,7 @@ mod tests {
                 "test_req_1".into(),
                 1,
                 ZeroKnowledgeProof::default(),
-                SessionNullifier::new(test_field_element(1001), test_field_element(1)),
+                SessionNullifier::new(test_field_element(1001), test_action(1)).unwrap(),
                 1_725_381_192,
             )],
         };
@@ -1652,10 +1660,9 @@ mod tests {
         assert!(ok.responses[0].is_uniqueness());
 
         // Canonical session nullifier representation (prefixed hex bytes).
-        let canonical_session_nullifier = serde_json::to_string(&SessionNullifier::new(
-            test_field_element(1001),
-            test_field_element(42),
-        ))
+        let canonical_session_nullifier = serde_json::to_string(
+            &SessionNullifier::new(test_field_element(1001), test_action(42)).unwrap(),
+        )
         .unwrap();
         let sess_json_canonical = format!(
             r#"{{
@@ -1677,7 +1684,7 @@ mod tests {
         assert_eq!(sess_canonical.successful_credentials(), vec![100]);
         assert!(sess_canonical.responses[0].is_session());
         assert_eq!(
-            sess_canonical.session_id.unwrap().oprf_seed().to_u256(),
+            sess_canonical.session_id.unwrap().oprf_seed.to_u256(),
             uint!(0x0100000000000000000000000000000000000000000000000000000000000001_U256)
         );
     }
@@ -2243,7 +2250,7 @@ mod tests {
                 "orb".into(),
                 1,
                 ZeroKnowledgeProof::default(),
-                SessionNullifier::new(test_field_element(1001), test_field_element(42)),
+                SessionNullifier::new(test_field_element(1001), test_action(42)).unwrap(),
                 1_735_689_600,
             )],
         };
@@ -2336,7 +2343,7 @@ mod tests {
                 "orb".into(),
                 1,
                 ZeroKnowledgeProof::default(),
-                SessionNullifier::new(test_field_element(1001), test_field_element(42)), // Using session nullifier instead of uniqueness!
+                SessionNullifier::new(test_field_element(1001), test_action(42)).unwrap(), // Using session nullifier instead of uniqueness!
                 1_735_689_600,
             )],
         };

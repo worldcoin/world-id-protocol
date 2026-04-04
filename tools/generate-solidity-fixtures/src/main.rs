@@ -33,7 +33,7 @@ use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
 };
 use world_id_primitives::{
-    Config, FieldElement, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
+    Config, FieldElement, SessionFieldElement, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
@@ -159,7 +159,7 @@ async fn main() -> Result<()> {
     .await;
 
     let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
-        anvil.ws_endpoint(),
+        &anvil,
         node_secret_managers,
         oprf_key_registry,
         world_id_registry,
@@ -284,10 +284,10 @@ async fn main() -> Result<()> {
         .find_request_by_issuer_schema_id(issuer_schema_id)
         .unwrap();
 
-    let (incl_proof, key_set) = authenticator.fetch_inclusion_proof().await?;
     let nullifier_data = authenticator
-        .generate_nullifier(&uniqueness_request, incl_proof, key_set)
+        .generate_nullifier(&uniqueness_request, None)
         .await?;
+
     // Clone the nullifier data before it's consumed — we reuse it for the session proof.
     let nullifier_data_for_session = nullifier_data.clone();
 
@@ -296,7 +296,7 @@ async fn main() -> Result<()> {
         request_item,
         &credential,
         credential_sub_blinding_factor,
-        FieldElement::ZERO, // for uniqueness proofs this can be zero
+        None, // uniqueness proof
         uniqueness_request.session_id,
         uniqueness_request.created_at,
     )?;
@@ -330,7 +330,12 @@ async fn main() -> Result<()> {
 
     //  ── CREATE SESSION
     let session_id_r_seed = FieldElement::random(&mut rng); // TODO: Create through OPRF
-    let session_id = SessionId::from_r_seed(leaf_index, session_id_r_seed, None, &mut rng).unwrap();
+    let session_id = SessionId::from_r_seed(
+        leaf_index,
+        session_id_r_seed,
+        FieldElement::random_for_session(&mut rng, world_id_primitives::SessionFeType::OprfSeed),
+    )
+    .unwrap();
 
     // ── SESSION PROOF (reuse cloned OPRF data with a non-zero session_id) ──
     let session_response = authenticator.generate_single_proof(
@@ -338,7 +343,7 @@ async fn main() -> Result<()> {
         request_item,
         &credential,
         credential_sub_blinding_factor,
-        session_id_r_seed,
+        Some(session_id_r_seed),
         Some(session_id),
         uniqueness_request.created_at,
     )?;
@@ -361,7 +366,7 @@ async fn main() -> Result<()> {
                 .unwrap_or_default()
                 .try_into()
                 .expect("u64 fits into U256"),
-            session_id.commitment().into(),
+            session_id.commitment.into(),
             session_nullifier.as_ethereum_representation(),
             session_response.proof.as_ethereum_representation(),
         )
@@ -438,7 +443,7 @@ async fn main() -> Result<()> {
     println!();
 
     println!("// ── Session Proof inputs ──");
-    let session_id_u256: U256 = session_id.commitment().into();
+    let session_id_u256: U256 = session_id.commitment.into();
     let s_proof = session_response.proof.as_ethereum_representation();
     let s_null = session_nullifier.as_ethereum_representation();
     println!("uint256 sessionId = {:#x};", session_id_u256);

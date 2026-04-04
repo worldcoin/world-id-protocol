@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {WorldIDVerifierV2} from "../../src/core/WorldIDVerifierV2.sol";
+import {WorldIDVerifierV2} from "../../src/core/WorldIDVerifierV2Unreleased.sol";
 import {WorldIDVerifier} from "../../src/core/WorldIDVerifier.sol";
 import {IWorldIDVerifier} from "../../src/core/interfaces/IWorldIDVerifier.sol";
 import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
@@ -77,6 +77,68 @@ contract WorldIDVerifierV2Test is Test {
         );
     }
 
+<<<<<<< HEAD
+=======
+    function test_SessionRevertsWhenActionMissing0x02Prefix() public {
+        // Action with 0x00 prefix (valid for uniqueness, not for session)
+        uint256 action = 0x00d4b66e5417cb9875f6a2b5be9814dca80651d7c74b3b21685fdd494566e7;
+        uint256 sessionId = 1;
+
+        vm.warp(expiresAtMin + 1 hours);
+        vm.expectRevert(abi.encodeWithSelector(WorldIDVerifierV2.InvalidAction.selector));
+        verifier.verifySession(
+            rpIdCorrect,
+            nonce,
+            signalHash,
+            expiresAtMin,
+            credentialIssuerIdCorrect,
+            0,
+            sessionId,
+            [nullifier, action],
+            proof
+        );
+    }
+
+    function testFuzz_SessionRevertsWhenActionPrefixNot0x02(uint256 action) public {
+        vm.assume(uint8(action >> 248) != 2);
+        uint256 sessionId = 1;
+
+        vm.warp(expiresAtMin + 1 hours);
+        vm.expectRevert(abi.encodeWithSelector(WorldIDVerifierV2.InvalidAction.selector));
+        verifier.verifySession(
+            rpIdCorrect,
+            nonce,
+            signalHash,
+            expiresAtMin,
+            credentialIssuerIdCorrect,
+            0,
+            sessionId,
+            [nullifier, action],
+            proof
+        );
+    }
+
+    function test_SessionPassesActionCheckWhenFirstByte0x02() public {
+        // Action with correct 0x02 prefix — passes prefix check but fails proof verification
+        uint256 action = 0x0200000000000000000000000000000000000000000000000000000000000001;
+        uint256 sessionId = 1;
+
+        vm.warp(expiresAtMin + 1 hours);
+        vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
+        verifier.verifySession(
+            rpIdCorrect,
+            nonce,
+            signalHash,
+            expiresAtMin,
+            credentialIssuerIdCorrect,
+            0,
+            sessionId,
+            [nullifier, action],
+            proof
+        );
+    }
+
+>>>>>>> main
     function test_PassesActionCheckWhenFirstByteZero() public {
         // passes the prefix check but fails proof verification
         uint256 action = 0x00d4b66e5417cb9875f6a2b5be9814dca80651d7c74b3b21685fdd494566e7;

@@ -2,116 +2,29 @@ use alloy::{
     primitives::{Address, U256},
     signers::local::PrivateKeySigner,
 };
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSAPublicKey, OnchainKeyRepresentable,
-    api_types::{GatewayRequestKind, GatewayStatusResponse, RecoverAccountRequest},
+    api_types::{
+        GatewayRequestId, GatewayRequestKind, GatewayStatusResponse, RecoverAccountRequest,
+    },
     primitives::{Config, TREE_DEPTH, merkle::AccountInclusionProof},
     world_id_registry::{domain as ag_domain, sign_recover_account},
 };
-use world_id_gateway::{BatchPolicyConfig, GatewayConfig, SignerArgs, spawn_gateway_for_tests};
-use world_id_services_common::ProviderArgs;
+
 use world_id_test_utils::{
-    anvil::TestAnvil,
     fixtures::{MerkleFixture, single_leaf_merkle_fixture},
     stubs::MutableIndexerStub,
 };
 
-use crate::common::{start_redis, wait_for_finalized, wait_http_ready};
+use crate::common::{TestGateway, spawn_test_gateway, wait_for_finalized};
 
 mod common;
-
-const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
 
 /// `Authenticator::init` builds a `rustls::ClientConfig` internally, which
 /// requires a globally-installed crypto provider.
 fn ensure_crypto_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();
-}
-
-// ---------------------------------------------------------------------------
-// Test gateway wrapper
-// ---------------------------------------------------------------------------
-
-struct TestGateway {
-    client: Client,
-    base_url: String,
-    registry_addr: Address,
-    rpc_url: String,
-    chain_id: u64,
-    redis_url: String,
-    _handle: world_id_gateway::GatewayHandle,
-    _anvil: TestAnvil,
-    // Keep the Redis container alive for the duration of the test.
-    _redis: testcontainers_modules::testcontainers::ContainerAsync<
-        testcontainers_modules::redis::Redis,
-    >,
-}
-
-async fn spawn_test_gateway(batch_ms: u64) -> TestGateway {
-    let mut fork_url = std::env::var("TESTS_RPC_FORK_URL").unwrap_or_default();
-    if fork_url.is_empty() {
-        fork_url = RPC_FORK_URL.to_string();
-    }
-    let anvil = TestAnvil::spawn_fork(&fork_url).expect("failed to spawn forked anvil");
-    let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
-    let registry_addr = anvil
-        .deploy_world_id_registry(deployer)
-        .await
-        .expect("failed to deploy WorldIDRegistry");
-    let rpc_url = anvil.endpoint().to_string();
-    let chain_id = anvil.instance.chain_id();
-
-    let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
-
-    let max_wait_secs = (batch_ms / 1000).max(1);
-    let reeval_ms = batch_ms.min(200);
-
-    let (redis_url, redis_container) = start_redis().await;
-
-    let cfg = GatewayConfig {
-        registry_addr,
-        provider: ProviderArgs {
-            http: Some(vec![rpc_url.parse().unwrap()]),
-            signer: Some(signer_args),
-            ..Default::default()
-        },
-        batch_policy: BatchPolicyConfig {
-            max_wait_secs,
-            reeval_ms,
-            ..BatchPolicyConfig::default()
-        },
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
-        max_create_batch_size: 10,
-        max_ops_batch_size: 10,
-        redis_url: redis_url.clone(),
-        request_timeout_secs: 10,
-        rate_limit_window_secs: None,
-        rate_limit_max_requests: None,
-        sweeper_interval_secs: max_wait_secs + 1,
-        stale_queued_threshold_secs: max_wait_secs + 1,
-        stale_submitted_threshold_secs: 600,
-    };
-
-    let handle = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
-    let addr = handle.listen_addr;
-    let base_url = format!("http://{}:{}", addr.ip(), addr.port());
-
-    let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, addr.port()).await;
-
-    TestGateway {
-        client,
-        base_url,
-        registry_addr,
-        rpc_url,
-        chain_id,
-        redis_url,
-        _handle: handle,
-        _anvil: anvil,
-        _redis: redis_container,
-    }
 }
 
 const LEAF_OPS: [GatewayRequestKind; 4] = [
@@ -202,7 +115,7 @@ async fn send_recover_via_auth(
     recovery_signer: &PrivateKeySigner,
     new_authenticator_address: Address,
     new_authenticator_pubkey: EdDSAPublicKey,
-) -> Result<String, AuthenticatorError> {
+) -> Result<GatewayRequestId, AuthenticatorError> {
     let leaf_index = auth.leaf_index();
     let nonce = auth.signing_nonce().await?;
     let mut key_set = auth.fetch_authenticator_pubkeys().await?;
@@ -234,6 +147,7 @@ async fn send_recover_via_auth(
         nonce,
         &eip712_domain,
     )
+    .await
     .map_err(|e| AuthenticatorError::Generic(format!("Failed to sign recover account: {e}")))?;
 
     let req = RecoverAccountRequest {
@@ -241,7 +155,7 @@ async fn send_recover_via_auth(
         new_authenticator_address,
         old_offchain_signer_commitment: old_commitment,
         new_offchain_signer_commitment: new_commitment,
-        signature: signature.as_bytes().to_vec(),
+        signature,
         nonce,
         new_authenticator_pubkey: Some(encoded_pubkey),
     };
@@ -275,7 +189,7 @@ async fn dispatch_op(
     op: GatewayRequestKind,
     aux_seed: [u8; 32],
     recovery_signer: &PrivateKeySigner,
-) -> Result<String, AuthenticatorError> {
+) -> Result<GatewayRequestId, AuthenticatorError> {
     let (aux_pubkey, aux_addr) = derive_keys_from_seed(aux_seed);
     match op {
         GatewayRequestKind::InsertAuthenticator => {
@@ -347,7 +261,7 @@ fn assert_duplicate_in_flight(err: AuthenticatorError, ctx: &str) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lock_created_on_submit() {
     ensure_crypto_provider();
-    let gw = spawn_test_gateway(30_000).await;
+    let gw = spawn_test_gateway(Some(30_000)).await;
 
     // -- create-account --
     let seed: [u8; 32] = rand::random();
@@ -390,7 +304,7 @@ async fn test_lock_created_on_submit() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_same_leaf_conflict_matrix() {
     ensure_crypto_provider();
-    let gw = spawn_test_gateway(30_000).await;
+    let gw = spawn_test_gateway(Some(30_000)).await;
 
     for first_op in &LEAF_OPS {
         let op_seed: [u8; 32] = rand::random();
@@ -427,7 +341,7 @@ async fn test_same_leaf_conflict_matrix() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_lock_removed_after_finalization() {
     ensure_crypto_provider();
-    let gw = spawn_test_gateway(200).await;
+    let gw = spawn_test_gateway(Some(200)).await;
 
     // -- create-account --
     let seed: [u8; 32] = rand::random();

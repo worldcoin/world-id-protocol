@@ -11,16 +11,6 @@ rust-version.workspace = true
 repository.workspace = true
 include = ["src/**/*", "bin/**/*", "tests/**/*", "Cargo.toml", "README.md"]
 
-[[example]]
-name = "authenticator"
-path = "examples/authenticator.rs"
-required-features = ["authenticator", "embed-zkeys"]
-
-[[example]]
-name = "issuer"
-path = "examples/issuer.rs"
-required-features = ["issuer"]
-
 [features]
 default = ["authenticator", "embed-zkeys"]
 

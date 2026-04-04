@@ -1,20 +1,23 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use alloy::{
-    primitives::{Address, B256, Bytes, keccak256},
+    primitives::{Address, B256, Bytes},
     providers::DynProvider,
-    sol_types::SolValue,
 };
 use eyre::Result;
 
 use crate::{
-    bindings::IGateway::IGatewayInstance, cli::PermissionedGatewayConfig,
-    primitives::ChainCommitment, relay::send_relay_tx,
+    bindings::{IGateway::IGatewayInstance, IWorldIDSatellite::IWorldIDSatelliteInstance},
+    cli::PermissionedGatewayConfig,
+    primitives::ChainCommitment,
+    relay::send_relay_tx,
+    satellite::Satellite,
 };
 
-use super::Satellite;
+use super::build_chain_head_attribute;
 
-/// A satellite that uses the Permissioned gateway (owner-attested chain head).
+/// A satellite that uses the Permissioned gateway (owner-attested chain head)
+/// on standard EVM-compatible chains.
 ///
 /// The simplest proof path: the relay operator is the gateway owner, so `build_proof`
 /// just encodes `chainHead(bytes32)` as the attribute. No MPT proofs or ZK proofs.
@@ -25,6 +28,8 @@ pub struct PermissionedSatellite {
     chain_id: u64,
     /// The gateway contract on the destination chain.
     gateway: IGatewayInstance<Arc<DynProvider>>,
+    /// The satellite (bridge) contract on the destination chain.
+    satellite: IWorldIDSatelliteInstance<Arc<DynProvider>>,
     /// The satellite (bridge) contract address on the destination chain.
     satellite_address: Address,
     /// The chain ID of the anchor (source) chain, used for ERC-7930 address encoding.
@@ -45,20 +50,11 @@ impl PermissionedSatellite {
             name: name.into(),
             chain_id: config.destination_chain_id,
             gateway: IGatewayInstance::new(config.gateway, provider.clone()),
+            satellite: IWorldIDSatelliteInstance::new(config.satellite, provider.clone()),
             satellite_address: config.satellite,
             anchor_chain_id,
             provider,
         }
-    }
-
-    /// Builds the `chainHead(bytes32)` attribute for the permissioned gateway.
-    fn build_attribute(chain_head: B256) -> Bytes {
-        let selector = &keccak256(b"chainHead(bytes32)")[..4];
-        let encoded_head = chain_head.abi_encode();
-        let mut attribute = Vec::with_capacity(4 + encoded_head.len());
-        attribute.extend_from_slice(selector);
-        attribute.extend_from_slice(&encoded_head);
-        attribute.into()
     }
 }
 
@@ -71,12 +67,19 @@ impl Satellite for PermissionedSatellite {
         self.chain_id
     }
 
+    fn remote_chain_head<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<B256>> + Send + 'a>> {
+        Box::pin(async move {
+            let result = self.satellite.KECCAK_CHAIN().call().await?;
+            Ok(result.head)
+        })
+    }
+
     fn build_proof<'a>(
         &'a self,
         commitment: &'a ChainCommitment,
     ) -> Pin<Box<dyn Future<Output = Result<(Bytes, Bytes)>> + Send + 'a>> {
         Box::pin(async move {
-            let attribute = Self::build_attribute(commitment.chain_head);
+            let attribute = build_chain_head_attribute(commitment.chain_head);
             let payload = commitment.commitment_payload.clone();
             Ok((attribute, payload))
         })
@@ -98,25 +101,5 @@ impl Satellite for PermissionedSatellite {
             )
             .await
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use alloy_primitives::B256;
-
-    #[test]
-    fn build_attribute_encodes_correctly() {
-        let head = B256::from([0xAB; 32]);
-        let attr = PermissionedSatellite::build_attribute(head);
-
-        // First 4 bytes: selector
-        let expected_selector = &keccak256(b"chainHead(bytes32)")[..4];
-        assert_eq!(&attr[..4], expected_selector);
-
-        // Remaining bytes: ABI-encoded bytes32
-        let decoded = B256::abi_decode(&attr[4..]).expect("should decode");
-        assert_eq!(decoded, head);
     }
 }

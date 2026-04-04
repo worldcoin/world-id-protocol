@@ -17,7 +17,7 @@ use rand::{CryptoRng, Rng};
 use std::{io::Read, path::Path};
 use world_id_primitives::{
     Credential, FieldElement, Nullifier, RequestItem, TREE_DEPTH,
-    circuit_inputs::NullifierProofCircuitInput,
+    circuit_inputs::NullifierProofCircuitInput, oprf::WorldIdRequestAuthError,
 };
 
 pub use groth16_material::circom::{
@@ -82,9 +82,12 @@ static CIRCUIT_FILES: std::sync::OnceLock<Result<EmbeddedCircuitFiles, String>> 
 /// Error type for OPRF operations and proof generation.
 #[derive(Debug, thiserror::Error)]
 pub enum ProofError {
-    /// Error originating from `oprf_client`.
+    /// Authentication error returned by the OPRF nodes (e.g. unknown RP, invalid proof).
     #[error(transparent)]
-    OprfError(#[from] taceo_oprf::client::Error),
+    RequestAuthError(#[from] WorldIdRequestAuthError),
+    /// Non-auth error originating from `oprf_client`.
+    #[error(transparent)]
+    OprfError(taceo_oprf::client::Error),
     /// Errors originating from proof inputs
     #[error(transparent)]
     ProofInputError(#[from] errors::ProofInputError),
@@ -94,6 +97,17 @@ pub enum ProofError {
     /// Catch-all for other internal errors.
     #[error(transparent)]
     InternalError(#[from] eyre::Report),
+}
+
+impl From<taceo_oprf::client::Error> for ProofError {
+    fn from(err: taceo_oprf::client::Error) -> Self {
+        if let taceo_oprf::client::Error::ThresholdServiceError(ref svc) = err {
+            if svc.kind.is_auth() {
+                return Self::RequestAuthError(WorldIdRequestAuthError::from(svc.error_code));
+            }
+        }
+        Self::OprfError(err)
+    }
 }
 
 // ============================================================================
@@ -324,7 +338,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     oprf_output: FullOprfOutput,
     request_item: &RequestItem,
     session_id: Option<FieldElement>,
-    session_id_r_seed: FieldElement,
+    session_id_r_seed: Option<FieldElement>,
     expires_at_min: u64,
 ) -> Result<
     (
@@ -345,7 +359,10 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         query_input: oprf_output.query_proof_input,
         issuer_schema_id: credential.issuer_schema_id.into(),
         cred_pk: credential.issuer.pk,
-        cred_hashes: [*credential.claims_hash()?, *credential.associated_data_hash],
+        cred_hashes: [
+            *credential.claims_hash()?,
+            *credential.associated_data_commitment,
+        ],
         cred_genesis_issued_at: credential.genesis_issued_at.into(),
         cred_genesis_issued_at_min: request_item.genesis_issued_at_min.unwrap_or(0).into(),
         cred_expires_at: credential.expires_at.into(),
@@ -353,7 +370,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         cred_sub_blinding_factor: *credential_sub_blinding_factor,
         cred_s: cred_signature.s,
         cred_r: cred_signature.r,
-        id_commitment_r: *session_id_r_seed,
+        id_commitment_r: *session_id_r_seed.unwrap_or(FieldElement::ZERO),
         id_commitment: *session_id.unwrap_or(FieldElement::ZERO),
         dlog_e: oprf_output.verifiable_oprf_output.dlog_proof.e(),
         dlog_s: oprf_output.verifiable_oprf_output.dlog_proof.s(),
