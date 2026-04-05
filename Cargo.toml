@@ -6,6 +6,7 @@ members = [
   "crates/proof",
   "crates/primitives",
   "crates/test-utils",
+  "crates/zk-mobile-bench",
   "services/indexer",
   "services/gateway",
   "services/oprf-node",
@@ -29,7 +30,7 @@ authors = [
 ]
 homepage = "https://docs.world.org/world-id"
 repository = "https://github.com/worldcoin/world-id-protocol"
-rust-version = "1.87"
+rust-version = "1.91"
 
 [workspace.dependencies]
 # alloy
@@ -126,6 +127,7 @@ tempfile = "3"
 tokio-util = "0.7"
 tempo-alloy = "1.4"
 tower = "0.5.3"
+uniffi = "0.28"
 
 # Internal
 world-id-core = { version = "0.8.2", default-features = false, path = "crates/core" }
