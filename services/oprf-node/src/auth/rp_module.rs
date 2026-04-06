@@ -105,6 +105,10 @@ pub(crate) enum RpModuleError {
     DuplicateNonce(#[from] DuplicateNonce),
     #[error("RP signer is a contract but does not conform to WIP101")]
     Wip101IncompatibleRpSigner,
+    #[error("Ran into timeout while doing wip101 account check on RP: {0}")]
+    Wip101AccountCheckTimeout(RpId),
+    #[error("Ran into timeout while verifying RP signature")]
+    Wip101VerificaionTimeout,
     #[error("RP signer contract reverted with custom error")]
     Wip101CustomRevert,
     #[error("RP signer contract reverts with code: {0:?}")]
@@ -129,6 +133,7 @@ impl From<RpRegistryWatcherError> for RpModuleError {
         match value {
             RpRegistryWatcherError::UnknownRp(rp_id) => Self::UnknownRp(rp_id),
             RpRegistryWatcherError::InactiveRp(rp_id) => Self::InactiveRp(rp_id),
+            RpRegistryWatcherError::Timeout(rp_id) => Self::Wip101AccountCheckTimeout(rp_id),
             RpRegistryWatcherError::Internal(report) => Self::Internal(report),
         }
     }
@@ -157,6 +162,9 @@ impl From<RpModuleError> for WorldIdRequestAuthError {
             } => WorldIdRequestAuthError::RpSignatureExpired,
             RpModuleError::InvalidTimestamp(_) => WorldIdRequestAuthError::InvalidTimestamp,
             RpModuleError::RpSignatureMissing => WorldIdRequestAuthError::RpSignatureMissing,
+            RpModuleError::Wip101AccountCheckTimeout(_) => {
+                WorldIdRequestAuthError::Wip101AccountCheckTimeout
+            }
             RpModuleError::UnknownRp(_) => WorldIdRequestAuthError::UnknownRp,
             RpModuleError::InactiveRp(_) => WorldIdRequestAuthError::InactiveRp,
             RpModuleError::CorruptSignature(_) | RpModuleError::InvalidSignature => {
@@ -165,6 +173,9 @@ impl From<RpModuleError> for WorldIdRequestAuthError {
             RpModuleError::DuplicateNonce(_) => WorldIdRequestAuthError::DuplicateNonce,
             RpModuleError::Wip101IncompatibleRpSigner => {
                 WorldIdRequestAuthError::Wip101IncompatibleRpSigner
+            }
+            RpModuleError::Wip101VerificaionTimeout => {
+                WorldIdRequestAuthError::Wip101VerificationTimeout
             }
             RpModuleError::Wip101VerificationFailed(code) => {
                 WorldIdRequestAuthError::Wip101VerificationFailed(code)
@@ -228,6 +239,7 @@ pub(crate) struct RpModuleAuth {
     rp_registry_watcher: RpRegistryWatcher,
     nonce_history: NonceHistory,
     current_time_stamp_max_difference: Duration,
+    timeout_external_eth_call: Duration,
     merkle_watcher: MerkleWatcher,
     rpc_provider: web3::RpcProvider,
     query_vk: Arc<PreparedVerifyingKey<Bn254>>,
@@ -266,6 +278,7 @@ impl RelyingParty {
         &self,
         action: Option<ark_babyjubjub::Fq>,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
+        wip101_timeout: Duration,
         rpc_provider: &web3::RpcProvider,
     ) -> Result<(), RpModuleError> {
         match self.account_type {
@@ -275,7 +288,7 @@ impl RelyingParty {
             }
             RpAccountType::Contract => {
                 tracing::trace!("RP signer is WIP101");
-                self.verify_wip101(action, &request.auth, rpc_provider)
+                self.verify_wip101(action, &request.auth, rpc_provider, wip101_timeout)
                     .await
             }
             RpAccountType::IncompatibleWip101 => {
@@ -283,52 +296,39 @@ impl RelyingParty {
                 // NOTE: Spec #7 says non-ERC-165-compliant signers should fall back to ECDSA.
                 //
                 // We ignore the error we got from EOA verification and send back RpModuleError::Wip101IncompatibleRpSigner to highlight that the contract needs to update their interfaces.
-                self.verify_eoa(action, request)
-                    .map_err(|_| RpModuleError::Wip101IncompatibleRpSigner)
+                self.verify_eoa(action, request).map_err(|err| match err {
+                    RpModuleError::Internal(internal) => RpModuleError::Internal(internal),
+                    x => {
+                        tracing::debug!("IncompatibleWip101 EOA fallback failed: {x}");
+                        RpModuleError::Wip101IncompatibleRpSigner
+                    }
+                })
             }
         }
     }
 }
 
 impl RpModuleAuth {
-    fn new(
-        kind: RpModuleKind,
-        merkle_watcher: MerkleWatcher,
-        rp_registry_watcher: RpRegistryWatcher,
-        nonce_history: NonceHistory,
-        current_time_stamp_max_difference: Duration,
-        rpc_provider: web3::RpcProvider,
-        query_vk: Arc<PreparedVerifyingKey<Bn254>>,
-    ) -> Self {
-        Self {
-            kind,
-            rp_registry_watcher,
-            nonce_history,
-            current_time_stamp_max_difference,
-            merkle_watcher,
-            rpc_provider,
-            query_vk,
-        }
-    }
-
     /// Initializes a session-module authenticator.
     pub(crate) fn new_session(
         merkle_watcher: MerkleWatcher,
         rp_registry_watcher: RpRegistryWatcher,
         nonce_history: NonceHistory,
         current_time_stamp_max_difference: Duration,
+        timeout_external_eth_call: Duration,
         rpc_provider: web3::RpcProvider,
         query_vk: Arc<PreparedVerifyingKey<Bn254>>,
     ) -> Self {
-        Self::new(
-            RpModuleKind::Session,
-            merkle_watcher,
+        Self {
+            kind: RpModuleKind::Session,
             rp_registry_watcher,
             nonce_history,
             current_time_stamp_max_difference,
+            timeout_external_eth_call,
+            merkle_watcher,
             rpc_provider,
             query_vk,
-        )
+        }
     }
 
     /// Initializes a uniqueness-module authenticator.
@@ -337,18 +337,20 @@ impl RpModuleAuth {
         rp_registry_watcher: RpRegistryWatcher,
         nonce_history: NonceHistory,
         current_time_stamp_max_difference: Duration,
+        timeout_external_eth_call: Duration,
         rpc_provider: web3::RpcProvider,
         query_vk: Arc<PreparedVerifyingKey<Bn254>>,
     ) -> Self {
-        Self::new(
-            RpModuleKind::Uniqueness,
-            merkle_watcher,
+        Self {
+            kind: RpModuleKind::Uniqueness,
             rp_registry_watcher,
             nonce_history,
             current_time_stamp_max_difference,
+            timeout_external_eth_call,
+            merkle_watcher,
             rpc_provider,
             query_vk,
-        )
+        }
     }
 
     async fn verify_rp_signature(
@@ -395,8 +397,13 @@ impl RpModuleAuth {
         // fetch the RP info
         let rp = self.rp_registry_watcher.get_rp(&request.auth.rp_id).await?;
 
-        rp.ensure_signature_valid(action, request, &self.rpc_provider)
-            .await?;
+        rp.ensure_signature_valid(
+            action,
+            request,
+            self.timeout_external_eth_call,
+            &self.rpc_provider,
+        )
+        .await?;
 
         tracing::trace!("add nonce to store...");
         // add nonce to history to check if the nonces where only used once

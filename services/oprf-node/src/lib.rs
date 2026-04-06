@@ -173,6 +173,7 @@ pub async fn start(
         rpc_provider.clone(),
         config.rp_cache_config,
         config.cache_maintenance_interval,
+        config.timeout_external_eth_call,
         started_services.new_service(),
         cancellation_token.clone(),
     )
@@ -193,6 +194,7 @@ pub async fn start(
             config.cache_maintenance_interval,
         ),
         config.current_time_stamp_max_difference,
+        config.timeout_external_eth_call,
         rpc_provider.clone(),
         Arc::clone(&query_vk),
     ));
@@ -209,6 +211,7 @@ pub async fn start(
             config.cache_maintenance_interval,
         ),
         config.current_time_stamp_max_difference,
+        config.timeout_external_eth_call,
         rpc_provider.clone(),
         Arc::clone(&query_vk),
     ));

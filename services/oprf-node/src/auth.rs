@@ -220,6 +220,7 @@ mod tests {
         pub(crate) schema_issuer_registry_watcher: SchemaIssuerRegistryWatcher,
         pub(crate) nonce_history: NonceHistory,
         pub(crate) current_time_stamp_max_difference: Duration,
+        pub(crate) timeout_external_eth_call: Duration,
         pub(crate) rpc_provider: web3::RpcProvider,
     }
 
@@ -230,6 +231,7 @@ mod tests {
             let max_cache_size = 100;
             let cache_maintenance_interval = Duration::from_secs(60);
             let current_time_stamp_max_difference = Duration::from_secs(1800);
+            let timeout_external_eth_call = Duration::from_secs(10);
             let started_services = StartedServices::default();
             let cancellation_token = CancellationToken::new();
 
@@ -250,6 +252,7 @@ mod tests {
                 rpc_provider.clone(),
                 WatcherCacheConfig::default(),
                 cache_maintenance_interval,
+                timeout_external_eth_call,
                 started_services.new_service(),
                 cancellation_token.clone(),
             )
@@ -277,6 +280,7 @@ mod tests {
                 schema_issuer_registry_watcher,
                 nonce_history,
                 current_time_stamp_max_difference,
+                timeout_external_eth_call,
                 rpc_provider,
             })
         }

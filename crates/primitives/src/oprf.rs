@@ -189,6 +189,12 @@ pub enum WorldIdRequestAuthError {
     /// WIP101 specifies that provided `data` must be smaller than 1024 bytes.
     #[error("wip101_aux_data_too_large")]
     Wip101AuxDataTooLarge,
+    /// WIP101 signature verification ran into timeout.
+    #[error("wip101_verification_timeout")]
+    Wip101VerificationTimeout,
+    /// Doing WIP101/ERC165 check on RP's signer ran into timeout.
+    #[error("wip101_account_check_timeout")]
+    Wip101AccountCheckTimeout,
     /// Internal server error.
     #[error("internal_server_error")]
     Internal,
@@ -227,7 +233,9 @@ impl WorldIdRequestAuthError {
             | Self::InvalidActionNullifier
             | Self::Wip101IncompatibleRpSigner
             | Self::Wip101VerificationFailed(_)
-            | Self::Wip101CustomRevert => ErrorActor::Rp,
+            | Self::Wip101CustomRevert
+            | Self::Wip101VerificationTimeout
+            | Self::Wip101AccountCheckTimeout => ErrorActor::Rp,
             Self::UnknownSchemaIssuerId => ErrorActor::Issuer,
             Self::InvalidMerkleRoot
             | Self::InvalidQueryProof
@@ -260,6 +268,8 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::INVALID_TIMESTAMP => Self::InvalidTimestamp,
             error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE => Self::TimestampTooFarInFuture,
             error_codes::WIP101_INCOMPATIBLE_RP_SIGNER => Self::Wip101IncompatibleRpSigner,
+            error_codes::WIP101_VERIFICATION_TIMEOUT => Self::Wip101VerificationTimeout,
+            error_codes::WIP101_ACCOUNT_CHECK_TIMEOUT => Self::Wip101AccountCheckTimeout,
             // we lost the additional code when converting from just the u16
             error_codes::WIP101_VERIFICATION_FAILED => Self::Wip101VerificationFailed(None),
             error_codes::WIP101_CUSTOM_REVERT => Self::Wip101CustomRevert,
@@ -299,10 +309,16 @@ impl From<WorldIdRequestAuthError> for u16 {
             WorldIdRequestAuthError::Wip101VerificationFailed(_) => {
                 error_codes::WIP101_VERIFICATION_FAILED
             }
+            WorldIdRequestAuthError::Wip101VerificationTimeout => {
+                error_codes::WIP101_VERIFICATION_TIMEOUT
+            }
             WorldIdRequestAuthError::Wip101CustomRevert => error_codes::WIP101_CUSTOM_REVERT,
             WorldIdRequestAuthError::Wip101AuxDataOnEoa => error_codes::WIP101_AUX_DATA_ON_EOA,
             WorldIdRequestAuthError::Wip101AuxDataTooLarge => {
                 error_codes::WIP101_AUX_DATA_TOO_LARGE
+            }
+            WorldIdRequestAuthError::Wip101AccountCheckTimeout => {
+                error_codes::WIP101_ACCOUNT_CHECK_TIMEOUT
             }
             WorldIdRequestAuthError::Internal => error_codes::INTERNAL,
             WorldIdRequestAuthError::Unknown(other) => other,
@@ -352,6 +368,10 @@ pub mod error_codes {
     pub const RP_SIGNATURE_MISSING: u16 = 4518;
     /// Error code for [`super::WorldIdRequestAuthError::Wip101AuxDataOnEoa`]
     pub const WIP101_AUX_DATA_ON_EOA: u16 = 4519;
+    /// Error code for [`super::WorldIdRequestAuthError::Wip101VerificationTimeout`]
+    pub const WIP101_VERIFICATION_TIMEOUT: u16 = 4520;
+    /// Error code for [`super::WorldIdRequestAuthError::Wip101AccountCheckTimeout`]
+    pub const WIP101_ACCOUNT_CHECK_TIMEOUT: u16 = 4521;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
     pub const INTERNAL: u16 = 1011;
 }
@@ -421,6 +441,9 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
                 // send empty message so that it is easier to parse the code in case there is any
                 taceo_oprf::types::close_frame_message!("")
             }
+            WorldIdRequestAuthError::Wip101VerificationTimeout => {
+                taceo_oprf::types::close_frame_message!("WIP101 verification ran into timeout")
+            }
             WorldIdRequestAuthError::Wip101VerificationFailed(Some(code)) => {
                 // this should never truncate as code is a U256 encoded as hex
                 CloseFrameMessage::new_truncate(format!("{:#x}", code))
@@ -431,6 +454,11 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             WorldIdRequestAuthError::Wip101AuxDataTooLarge => {
                 taceo_oprf::types::close_frame_message!(
                     "Auxiliary data for WIP101 contract too large - max 1024 bytes"
+                )
+            }
+            WorldIdRequestAuthError::Wip101AccountCheckTimeout => {
+                taceo_oprf::types::close_frame_message!(
+                    "Ran into timeout while doing WIP101/ERC165 check on RP's signer"
                 )
             }
             WorldIdRequestAuthError::Internal => {
@@ -471,6 +499,8 @@ mod tests {
             error_codes::WIP101_AUX_DATA_TOO_LARGE,
             error_codes::RP_SIGNATURE_MISSING,
             error_codes::WIP101_AUX_DATA_ON_EOA,
+            error_codes::WIP101_VERIFICATION_TIMEOUT,
+            error_codes::WIP101_ACCOUNT_CHECK_TIMEOUT,
             error_codes::INTERNAL,
         ];
         for &code in codes {

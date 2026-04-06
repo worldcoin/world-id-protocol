@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use alloy::{
     primitives::{Address, Bytes},
     sol_types::SolCall as _,
@@ -58,6 +60,7 @@ impl RelyingParty {
         action: Option<ark_babyjubjub::Fq>,
         auth: &NullifierOprfRequestAuthV1,
         rpc_provider: &web3::RpcProvider,
+        timeout: Duration,
     ) -> Result<(), RpModuleError> {
         tracing::trace!("RP signer is WIP101");
         let iwip101 = IWIP101Instance::new(self.signer, rpc_provider.http());
@@ -78,18 +81,19 @@ impl RelyingParty {
             .clone()
             .map(Bytes::from)
             .unwrap_or_default();
-        let result = iwip101
-            .verifyRpRequest(
-                RequestVersion::V1 as u8,
-                auth.nonce.into(),
-                auth.current_time_stamp,
-                auth.expiration_timestamp,
-                action.into(),
-                auxiliary_data,
-            )
-            .call()
-            .await;
-        match result {
+        let wip101_call = iwip101.verifyRpRequest(
+            RequestVersion::V1 as u8,
+            auth.nonce.into(),
+            auth.current_time_stamp,
+            auth.expiration_timestamp,
+            action.into(),
+            auxiliary_data,
+        );
+
+        match tokio::time::timeout(timeout, wip101_call.call())
+            .await
+            .map_err(|_| RpModuleError::Wip101VerificaionTimeout)?
+        {
             Ok(x) if x == SUCCESS_MAGIC_VALUE => Ok(()),
             Ok(_) => Err(RpModuleError::Wip101VerificationFailed(None)),
             Err(

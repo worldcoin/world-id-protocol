@@ -1,6 +1,6 @@
 #![allow(clippy::large_futures, reason = "Is ok in tests")]
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use alloy::{
     primitives::Address,
@@ -23,7 +23,8 @@ use crate::{
             RpModuleAuth, RpModuleKind,
             wip101::tests::{
                 NoERC165, NoWIP101, WIP101BrokenERC165, WIP101Correct, WIP101CorrectWhenAuxData,
-                WIP101PlainRevert, WIP101RevertsWithCode, WIP101WrongMagic, WrongSignature,
+                WIP101PlainRevert, WIP101RevertsWithCode, WIP101TimeoutERC165, WIP101TimeoutVerify,
+                WIP101WrongMagic, WrongSignature,
             },
         },
         tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup},
@@ -60,6 +61,7 @@ impl RpModuleTestSetup {
             infra.rp_registry_watcher.clone(),
             infra.nonce_history.clone(),
             infra.current_time_stamp_max_difference,
+            infra.timeout_external_eth_call,
             infra.rpc_provider.clone(),
             Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
         );
@@ -112,6 +114,7 @@ impl RpModuleTestSetup {
             infra.rp_registry_watcher.clone(),
             infra.nonce_history.clone(),
             infra.current_time_stamp_max_difference,
+            infra.timeout_external_eth_call,
             infra.rpc_provider.clone(),
             Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
         );
@@ -480,6 +483,27 @@ async fn check_wip101_success(kind: RpModuleKind) -> eyre::Result<()> {
     Ok(())
 }
 
+async fn check_wip101_with_max_data_success(kind: RpModuleKind) -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new(kind).await?;
+    // deploy success
+
+    let wip101_instance = WIP101Correct::deploy(setup.request_authenticator.rpc_provider.http())
+        .await
+        .expect("Should be able to deploy contract");
+    // should still work
+    setup
+        .wip101_test_with_data(*wip101_instance.address(), Some(vec![0xAB; 1024]))
+        .await;
+
+    let oprf_key_id = setup
+        .request_authenticator
+        .authenticate(&setup.request)
+        .await
+        .expect("Should succeed");
+    assert_eq!(oprf_key_id, setup.setup.rp_fixture.oprf_key_id);
+    Ok(())
+}
+
 async fn check_wip101_success_if_data(kind: RpModuleKind) -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new(kind).await?;
     // deploy success
@@ -719,6 +743,58 @@ async fn check_wip101_aux_data_on_eoa(kind: RpModuleKind) -> eyre::Result<()> {
     Ok(())
 }
 
+async fn check_wip101_verification_timeout(kind: RpModuleKind) -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new(kind).await?;
+
+    let wip101_instance =
+        WIP101TimeoutVerify::deploy(setup.request_authenticator.rpc_provider.http())
+            .await
+            .expect("Should be able to deploy contract");
+    setup.wip101_test(*wip101_instance.address()).await;
+
+    // set timeout to 0
+    setup.request_authenticator.timeout_external_eth_call = Duration::from_secs(0);
+    let auth_error = setup
+        .request_authenticator
+        .authenticate(&setup.request)
+        .await
+        .expect_err("Should fail when timeout is zero");
+    assert_eq!(
+        auth_error.code(),
+        primitives::oprf::error_codes::WIP101_VERIFICATION_TIMEOUT
+    );
+    assert_eq!(auth_error.message(), "WIP101 verification ran into timeout");
+    Ok(())
+}
+
+async fn check_wip101_account_check_timeout(kind: RpModuleKind) -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new(kind).await?;
+    // set timeout to 0
+    setup
+        .request_authenticator
+        .rp_registry_watcher
+        .set_timeout_external_eth_call(Duration::from_secs(0));
+    let wip101_instance =
+        WIP101TimeoutERC165::deploy(setup.request_authenticator.rpc_provider.http())
+            .await
+            .expect("Should be able to deploy contract");
+    setup.wip101_test(*wip101_instance.address()).await;
+    let auth_error = setup
+        .request_authenticator
+        .authenticate(&setup.request)
+        .await
+        .expect_err("Should fail when timeout is zero");
+    assert_eq!(
+        auth_error.code(),
+        primitives::oprf::error_codes::WIP101_ACCOUNT_CHECK_TIMEOUT
+    );
+    assert_eq!(
+        auth_error.message(),
+        "Ran into timeout while doing WIP101/ERC165 check on RP's signer"
+    );
+    Ok(())
+}
+
 async fn check_wip101_aux_data_too_large(kind: RpModuleKind) -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new(kind).await?;
     let wip101_instance = WIP101Correct::deploy(setup.request_authenticator.rpc_provider.http())
@@ -932,6 +1008,11 @@ async fn test_session_wip101_success() -> eyre::Result<()> {
 }
 
 #[tokio::test]
+async fn test_session_wip101_success_max_data() -> eyre::Result<()> {
+    check_wip101_with_max_data_success(RpModuleKind::Session).await
+}
+
+#[tokio::test]
 async fn test_session_wip101_wrong_magic() -> eyre::Result<()> {
     check_wip101_wrong_magic(RpModuleKind::Session).await
 }
@@ -984,6 +1065,16 @@ async fn test_session_wip101_aux_data_on_eoa() -> eyre::Result<()> {
 #[tokio::test]
 async fn test_session_wip101_aux_data_too_large() -> eyre::Result<()> {
     check_wip101_aux_data_too_large(RpModuleKind::Session).await
+}
+
+#[tokio::test]
+async fn test_session_wip101_verification_timeout() -> eyre::Result<()> {
+    check_wip101_verification_timeout(RpModuleKind::Session).await
+}
+
+#[tokio::test]
+async fn test_session_wip101_account_check_timeout() -> eyre::Result<()> {
+    check_wip101_account_check_timeout(RpModuleKind::Session).await
 }
 
 // ── Shared tests: uniqueness ─────────────────────────────────────────────
@@ -1074,6 +1165,11 @@ async fn test_uniqueness_wip101_success() -> eyre::Result<()> {
 }
 
 #[tokio::test]
+async fn test_uniqueness_wip101_success_max_data() -> eyre::Result<()> {
+    check_wip101_with_max_data_success(RpModuleKind::Uniqueness).await
+}
+
+#[tokio::test]
 async fn test_uniqueness_wip101_wrong_magic() -> eyre::Result<()> {
     check_wip101_wrong_magic(RpModuleKind::Uniqueness).await
 }
@@ -1126,4 +1222,14 @@ async fn test_uniqueness_wip101_aux_data_on_eoa() -> eyre::Result<()> {
 #[tokio::test]
 async fn test_uniqueness_wip101_aux_data_too_large() -> eyre::Result<()> {
     check_wip101_aux_data_too_large(RpModuleKind::Uniqueness).await
+}
+
+#[tokio::test]
+async fn test_uniqueness_wip101_verification_timeout() -> eyre::Result<()> {
+    check_wip101_verification_timeout(RpModuleKind::Uniqueness).await
+}
+
+#[tokio::test]
+async fn test_uniqueness_wip101_account_check_timeout() -> eyre::Result<()> {
+    check_wip101_account_check_timeout(RpModuleKind::Uniqueness).await
 }

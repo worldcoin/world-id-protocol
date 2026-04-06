@@ -48,6 +48,9 @@ pub(crate) enum RpRegistryWatcherError {
     /// Unknown RP.
     #[error("unknown rp: {0}")]
     UnknownRp(RpId),
+    /// Timeout while doing wip101 check
+    #[error("timeout during wip101 account check for: {0}")]
+    Timeout(RpId),
     /// Inactive RP.
     #[error("inactive rp: {0}")]
     InactiveRp(RpId),
@@ -68,6 +71,7 @@ pub(crate) enum RpRegistryWatcherError {
 pub(crate) struct RpRegistryWatcher {
     rp_store: Cache<RpId, RelyingParty>,
     contract: RpRegistryInstance<DynProvider>,
+    timeout_external_eth_call: Duration,
     rpc_provider: web3::RpcProvider,
 }
 
@@ -78,6 +82,7 @@ impl RpRegistryWatcher {
         rpc_provider: web3::RpcProvider,
         cache_config: WatcherCacheConfig,
         maintenance_interval: Duration,
+        timeout_external_eth_call: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
@@ -135,6 +140,7 @@ impl RpRegistryWatcher {
         let rp_registry = Self {
             rp_store,
             contract: RpRegistry::new(contract_address, rpc_provider.http()),
+            timeout_external_eth_call,
             rpc_provider,
         };
 
@@ -146,7 +152,7 @@ impl RpRegistryWatcher {
         &self,
         rp_id: &RpId,
     ) -> Result<RelyingParty, RpRegistryWatcherError> {
-        if let Some(rp) = self.rp_store.get(rp_id).await {
+        if let Some(rp) = self.rp_store.get_wi(rp_id).await {
             tracing::trace!("rp {rp_id} found in store");
             ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS).increment(1);
             return Ok(rp);
@@ -174,9 +180,13 @@ impl RpRegistryWatcher {
         tracing::trace!("checking if RP is EOA or smart contract..");
         metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
 
-        let account_type = wip101::account_check(rp.signer, &self.rpc_provider)
-            .await
-            .context("while performing WIP101 check")?;
+        let account_type = tokio::time::timeout(
+            self.timeout_external_eth_call,
+            wip101::account_check(rp.signer, &self.rpc_provider),
+        )
+        .await
+        .map_err(|_| RpRegistryWatcherError::Timeout(*rp_id))?
+        .context("while performing WIP101 check")?;
 
         metrics::gauge!(
             METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
@@ -231,4 +241,77 @@ async fn subscribe_task(
     }
     tracing::info!("Successfully shutdown RpRegistry");
     eyre::Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::{Arc, atomic::AtomicBool},
+        time::Duration,
+    };
+
+    use alloy::signers::local::LocalSigner;
+    use tokio_util::sync::CancellationToken;
+    use world_id_test_utils::fixtures::{self, RegistryTestContext};
+
+    use crate::{
+        auth::{
+            rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
+            tests::build_rpc_provider,
+        },
+        config::WatcherCacheConfig,
+    };
+
+    impl RpRegistryWatcher {
+        #[allow(dead_code, reason = "is only used in tests")]
+        pub(crate) fn set_timeout_external_eth_call(&mut self, duration: Duration) {
+            self.timeout_external_eth_call = duration;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_timeout_wip101_account_check() -> eyre::Result<()> {
+        let RegistryTestContext {
+            anvil, rp_registry, ..
+        } = RegistryTestContext::new_with_mock_oprf_key_registry()
+            .await
+            .expect("Should be able to create test-fixture");
+        let rpc_provider = build_rpc_provider(&anvil.instance).await;
+
+        let (watcher, _) = RpRegistryWatcher::init(
+            rp_registry,
+            rpc_provider,
+            WatcherCacheConfig::default(),
+            Duration::from_secs(60),
+            Duration::from_secs(0), // timeout set to zero
+            Arc::new(AtomicBool::default()),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("Should be able to start registry watcher");
+
+        let rp_fixture = fixtures::generate_rp_fixture();
+
+        // Register the RP which also triggers a OPRF key-gen.
+        let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
+        anvil
+            .register_rp(
+                rp_registry,
+                anvil.signer(0)?,
+                rp_fixture.world_rp_id,
+                rp_signer.address(),
+                rp_signer.address(),
+                "taceo.oprf".to_string(),
+            )
+            .await?;
+
+        let should_err = watcher
+            .get_rp(&rp_fixture.world_rp_id)
+            .await
+            .expect_err("Should be an error");
+        assert!(
+            matches!(should_err, RpRegistryWatcherError::Timeout(id) if id == rp_fixture.world_rp_id)
+        );
+        Ok(())
+    }
 }
