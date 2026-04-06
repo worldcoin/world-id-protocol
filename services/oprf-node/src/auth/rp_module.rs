@@ -108,7 +108,7 @@ pub(crate) enum RpModuleError {
     #[error("Ran into timeout while doing wip101 account check on RP: {0}")]
     Wip101AccountCheckTimeout(RpId),
     #[error("Ran into timeout while verifying RP signature")]
-    Wip101VerificaionTimeout,
+    Wip101VerificationTimeout,
     #[error("RP signer contract reverted with custom error")]
     Wip101CustomRevert,
     #[error("RP signer contract reverts with code: {0:?}")]
@@ -174,7 +174,7 @@ impl From<RpModuleError> for WorldIdRequestAuthError {
             RpModuleError::Wip101IncompatibleRpSigner => {
                 WorldIdRequestAuthError::Wip101IncompatibleRpSigner
             }
-            RpModuleError::Wip101VerificaionTimeout => {
+            RpModuleError::Wip101VerificationTimeout => {
                 WorldIdRequestAuthError::Wip101VerificationTimeout
             }
             RpModuleError::Wip101VerificationFailed(code) => {

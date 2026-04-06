@@ -92,7 +92,7 @@ impl RelyingParty {
 
         match tokio::time::timeout(timeout, wip101_call.call())
             .await
-            .map_err(|_| RpModuleError::Wip101VerificaionTimeout)?
+            .map_err(|_| RpModuleError::Wip101VerificationTimeout)?
         {
             Ok(x) if x == SUCCESS_MAGIC_VALUE => Ok(()),
             Ok(_) => Err(RpModuleError::Wip101VerificationFailed(None)),
