@@ -7,9 +7,11 @@ use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, proof::generate_nullifier_proof,
 };
 
-use crate::authenticator::{Authenticator, CredentialInput, ProofResult};
-use crate::error::AuthenticatorError;
-use crate::api_types::AccountInclusionProof;
+use crate::{
+    api_types::AccountInclusionProof,
+    authenticator::{Authenticator, CredentialInput, ProofResult},
+    error::AuthenticatorError,
+};
 use world_id_primitives::TREE_DEPTH;
 
 #[expect(unused_imports, reason = "used for docs")]

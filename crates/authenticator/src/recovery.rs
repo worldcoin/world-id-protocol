@@ -1,13 +1,13 @@
 use alloy::{primitives::Address, signers::Signature};
 use ruint::aliases::U256;
 
-use crate::authenticator::{Authenticator, response_body_or_fallback};
-use crate::error::AuthenticatorError;
 use crate::{
     api_types::{
         CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest, GatewayRequestId,
         GatewayStatusResponse, UpdateRecoveryAgentRequest,
     },
+    authenticator::{Authenticator, response_body_or_fallback},
+    error::AuthenticatorError,
     registry::{domain, sign_cancel_recovery_agent_update, sign_initiate_recovery_agent_update},
 };
 

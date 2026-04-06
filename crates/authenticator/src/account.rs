@@ -4,17 +4,17 @@ use alloy::primitives::Address;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use ruint::aliases::U256;
 
-use crate::authenticator::{Authenticator, fetch_gateway_status, response_body_or_fallback};
-use crate::error::AuthenticatorError;
-use crate::traits::OnchainKeyRepresentable;
 use crate::{
     api_types::{
         GatewayRequestId, GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest,
         RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
+    authenticator::{Authenticator, fetch_gateway_status, response_body_or_fallback},
+    error::AuthenticatorError,
     registry::{
         domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
     },
+    traits::OnchainKeyRepresentable,
 };
 
 impl Authenticator {

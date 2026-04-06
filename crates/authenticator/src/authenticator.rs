@@ -1,8 +1,10 @@
 //! This module contains all the base functionality to support Authenticators in World ID. See
 //! [`Authenticator`] for a definition.
 
-use crate::error::{AuthenticatorError, PollResult};
-use crate::init::InitializingAuthenticator;
+use crate::{
+    error::{AuthenticatorError, PollResult},
+    init::InitializingAuthenticator,
+};
 
 use std::sync::Arc;
 
@@ -35,7 +37,7 @@ use world_id_primitives::{
 };
 
 #[expect(unused_imports, reason = "used for docs")]
-use world_id_primitives::Nullifier;
+use world_id_primitives::{Nullifier, SessionId};
 
 /// Shared helper that polls `GET {gateway_url}/status/{request_id}` and
 /// returns the current [`GatewayRequestState`].
@@ -577,8 +579,7 @@ impl Authenticator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::AuthenticatorError;
-    use crate::traits::OnchainKeyRepresentable;
+    use crate::{error::AuthenticatorError, traits::OnchainKeyRepresentable};
     use alloy::primitives::{U256, address};
     use world_id_primitives::authenticator::MAX_AUTHENTICATOR_KEYS;
 

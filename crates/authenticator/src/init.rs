@@ -3,10 +3,12 @@ use ark_serialize::CanonicalSerialize;
 use ruint::aliases::U256;
 use world_id_primitives::{PrimitiveError, Signer, authenticator::AuthenticatorPublicKeySet};
 
-use crate::authenticator::{fetch_gateway_status, response_body_or_fallback};
-use crate::error::AuthenticatorError;
-use crate::api_types::{
-    CreateAccountRequest, GatewayRequestId, GatewayRequestState, GatewayStatusResponse,
+use crate::{
+    api_types::{
+        CreateAccountRequest, GatewayRequestId, GatewayRequestState, GatewayStatusResponse,
+    },
+    authenticator::{fetch_gateway_status, response_body_or_fallback},
+    error::AuthenticatorError,
 };
 
 pub use world_id_primitives::Config;
