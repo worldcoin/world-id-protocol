@@ -8,16 +8,12 @@ use std::{
 
 use crate::{
     auth::{
-        rp_module::{RelyingParty, RpAccountType},
+        rp_module::{RelyingParty, wip101},
         rp_registry_watcher::RpRegistry::{RpRegistryInstance, RpUpdated},
-        wip101,
     },
     config::WatcherCacheConfig,
     metrics::{
-        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS,
-        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS_BUT_UNSUPPORTED,
-        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_EOA_ACCOUNTS,
-        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS,
+        METRICS_ATTRID_RP_TYPE, METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS,
         METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES,
         METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
     },
@@ -86,12 +82,6 @@ impl RpRegistryWatcher {
         cancellation_token: CancellationToken,
     ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
         ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).set(0.0);
-        ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_EOA_ACCOUNTS).set(0.0);
-        ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS).set(0.0);
-        ::metrics::gauge!(
-            METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS_BUT_UNSUPPORTED
-        )
-        .set(0.0);
 
         tracing::info!("listening for events...");
         let filter = Filter::new()
@@ -116,22 +106,12 @@ impl RpRegistryWatcher {
             .time_to_idle(time_to_idle)
             .eviction_listener(move |k, v: RelyingParty, cause| {
                 tracing::debug!("removing {k}/{} because: {cause:?}", v.account_type);
-                match v.account_type {
-                    RpAccountType::Eoa => {
-                        metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_EOA_ACCOUNTS)
-                            .decrement(1);
-                    }
-                    RpAccountType::Contract => {
-                        metrics::gauge!(
-                            METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS
-                        )
-                        .decrement(1);
-                    }
-                    RpAccountType::IncompatibleWip101 => metrics::gauge!(
-                        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS_BUT_UNSUPPORTED
-                    )
-                    .decrement(1),
-                }
+
+                metrics::gauge!(
+                    METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
+                    METRICS_ATTRID_RP_TYPE => v.account_type.metrics_label(),
+                )
+                .decrement(1);
             })
             .build();
         tracing::info!("starting subscribe task");
@@ -198,22 +178,11 @@ impl RpRegistryWatcher {
             .await
             .context("while performing WIP101 check")?;
 
-        match account_type {
-            RpAccountType::Eoa => {
-                metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_EOA_ACCOUNTS)
-                    .increment(1);
-            }
-            RpAccountType::Contract => {
-                metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS)
-                    .increment(1);
-            }
-            RpAccountType::IncompatibleWip101 => {
-                metrics::gauge!(
-                    METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_CONTRACT_ACCOUNTS_BUT_UNSUPPORTED
-                )
-                .increment(1);
-            }
-        }
+        metrics::gauge!(
+            METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
+            METRICS_ATTRID_RP_TYPE => account_type.metrics_label(),
+        )
+        .increment(1);
 
         let relying_party = RelyingParty {
             signer: rp.signer,

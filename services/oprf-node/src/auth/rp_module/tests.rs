@@ -19,12 +19,14 @@ use world_id_primitives::{
 use crate::{
     QUERY_VERIFICATION_KEY,
     auth::{
-        rp_module::{RpModuleAuth, RpModuleKind},
-        tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup},
-        wip101::tests::{
-            NoERC165, NoWIP101, WIP101BrokenERC165, WIP101Correct, WIP101CorrectWhenAuxData,
-            WIP101PlainRevert, WIP101RevertsWithCode, WIP101WrongMagic, WrongSignature,
+        rp_module::{
+            RpModuleAuth, RpModuleKind,
+            wip101::tests::{
+                NoERC165, NoWIP101, WIP101BrokenERC165, WIP101Correct, WIP101CorrectWhenAuxData,
+                WIP101PlainRevert, WIP101RevertsWithCode, WIP101WrongMagic, WrongSignature,
+            },
         },
+        tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup},
     },
 };
 
@@ -606,12 +608,19 @@ async fn check_wip101_broken_erc165(kind: RpModuleKind) -> eyre::Result<()> {
     setup.wip101_test(*wip101_instance.address()).await;
 
     // as call the contract irrelevant whether it confirms to WIP101 as reported by ERC165, this will still work
-    let oprf_key_id = setup
+    let auth_err = setup
         .request_authenticator
         .authenticate(&setup.request)
         .await
-        .expect("Should succeed");
-    assert_eq!(oprf_key_id, setup.setup.rp_fixture.oprf_key_id);
+        .expect_err("Should err");
+    assert_eq!(
+        auth_err.code(),
+        primitives::oprf::error_codes::WIP101_INCOMPATIBLE_RP_SIGNER
+    );
+    assert_eq!(
+        auth_err.message(),
+        "RP has a contract backed signer but doesn't conform to WIP101"
+    );
     Ok(())
 }
 

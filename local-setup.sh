@@ -85,7 +85,7 @@ deploy_wip101_contracts() {
 start_node() {
     local i="$1"
     local port=$((10000 + i))
-    local db_conn="postgres://postgres:postgres@localhost:5432/postgres"
+    local db_conn="postgres://postgres:postgres@localhost:5433/postgres"
     RUST_LOG="taceo=trace,world_id_oprf_node=trace,alloy_provider=debug,warn" \
     TACEO_OPRF_NODE__BIND_ADDR=127.0.0.1:$port \
     TACEO_OPRF_NODE__SERVICE__WORLD_ID_REGISTRY_CONTRACT=$world_id_registry \
@@ -105,12 +105,14 @@ start_node() {
 }
 
 run_indexer_and_gateway() {
-    REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WS_URL=ws://localhost:8545 DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres TREE_CACHE_FILE=/tmp/tree.mmap cargo run --release -p world-id-indexer -- --http --indexer > logs/world-id-indexer.log 2>&1 &
+    # remove the tree_cache_file as we have a new DB everytime we run local_setup
+    rm -f /tmp/tree.mmap
+    REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WS_URL=ws://localhost:8545 DATABASE_URL=postgres://postgres:postgres@localhost:5433/postgres TREE_CACHE_FILE=/tmp/tree.mmap cargo run --release -p world-id-indexer -- --http --indexer > logs/world-id-indexer.log 2>&1 &
     indexer_pid=$!
     echo "started indexer with PID $indexer_pid"
     wait_for_health 8080 "world-id-indexer" 300
 
-    REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WALLET_PRIVATE_KEY=$PK REDIS_URL=redis://localhost:6379 cargo run --release -p world-id-gateway > logs/world-id-gateway.log 2>&1 &
+    REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WALLET_PRIVATE_KEY=$PK REDIS_URL=redis://localhost:6380 cargo run --release -p world-id-gateway > logs/world-id-gateway.log 2>&1 &
     gateway_pid=$!
     echo "started gateway with PID $gateway_pid"
     wait_for_health 8081 "world-id-gateway" 300
@@ -150,7 +152,7 @@ setup() {
     wait_for_health 20002 "oprf-key-gen2" 300
 
     echo -e "${GREEN}starting OPRF nodes..${NOCOLOR}"
-    cargo build -p world-id-oprf-node --release
+    cargo build -p world-id-oprf-node --release -q
     start_node 0
     start_node 1
     start_node 2
@@ -178,6 +180,7 @@ client() {
     fi
 
     if [[ $1 == "setup-test" ]]; then
+        export TACEO_ADMIN_PRIVATE_KEY=$PK
         deploy_wip101_contracts
         RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- --rp-id 123 --create-key test
         RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-issuer-blinding -- --issuer-schema-id 124 --create-key test

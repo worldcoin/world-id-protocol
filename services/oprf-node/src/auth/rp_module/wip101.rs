@@ -6,9 +6,8 @@ use taceo_nodes_common::web3::{self, erc165::ERC165ConfirmError};
 use tracing::instrument;
 use world_id_primitives::{RequestVersion, oprf::NullifierOprfRequestAuthV1};
 
-use crate::auth::{
-    rp_module::{RelyingParty, RpAccountType, RpModuleError},
-    wip101::IWIP101::IWIP101Instance,
+use crate::auth::rp_module::{
+    RelyingParty, RpAccountType, RpModuleError, wip101::IWIP101::IWIP101Instance,
 };
 
 #[cfg(test)]
@@ -60,6 +59,7 @@ impl RelyingParty {
         auth: &NullifierOprfRequestAuthV1,
         rpc_provider: &web3::RpcProvider,
     ) -> Result<(), RpModuleError> {
+        tracing::trace!("RP signer is WIP101");
         let iwip101 = IWIP101Instance::new(self.signer, rpc_provider.http());
 
         // To not transmit the action to the verifier contract, we build an effigy that highlights that this is a session action

@@ -9,10 +9,16 @@
 //! [`RpModuleKind`] captures these differences; [`RpModuleAuth`] holds the shared
 //! state and branches on the kind at runtime.
 
-use crate::auth::{
-    merkle_watcher::{MerkleWatcher, MerkleWatcherError},
-    nonce_history::{DuplicateNonce, NonceHistory},
-    rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
+use crate::{
+    auth::{
+        merkle_watcher::{MerkleWatcher, MerkleWatcherError},
+        nonce_history::{DuplicateNonce, NonceHistory},
+        rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
+    },
+    metrics::{
+        METRICS_ATTRVAL_RP_TYPE_CONTRACT, METRICS_ATTRVAL_RP_TYPE_EOA,
+        METRICS_ATTRVAL_RP_TYPE_INCOMPATIBLE_WIP101_CONTRACT,
+    },
 };
 use alloy::primitives::{Address, U256};
 use ark_bn254::Bn254;
@@ -32,6 +38,8 @@ use world_id_primitives::{
     oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
     rp::RpId,
 };
+
+pub(crate) mod wip101;
 
 /// Distinguishes the two RP-authenticated OPRF modules.
 #[derive(Debug, Clone, Copy)]
@@ -186,12 +194,24 @@ pub(crate) enum RpAccountType {
     IncompatibleWip101,
 }
 
+impl RpAccountType {
+    pub(crate) fn metrics_label(self) -> &'static str {
+        match self {
+            RpAccountType::Eoa => METRICS_ATTRVAL_RP_TYPE_EOA,
+            RpAccountType::Contract => METRICS_ATTRVAL_RP_TYPE_CONTRACT,
+            RpAccountType::IncompatibleWip101 => {
+                METRICS_ATTRVAL_RP_TYPE_INCOMPATIBLE_WIP101_CONTRACT
+            }
+        }
+    }
+}
+
 impl fmt::Display for RpAccountType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RpAccountType::Eoa => write!(f, "eoa"),
             RpAccountType::Contract => write!(f, "contract"),
-            RpAccountType::IncompatibleWip101 => write!(f, "unsupported"),
+            RpAccountType::IncompatibleWip101 => write!(f, "incompatible wip101 contract"),
         }
     }
 }
@@ -219,7 +239,6 @@ impl RelyingParty {
         action: Option<ark_babyjubjub::Fq>,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
     ) -> Result<(), RpModuleError> {
-        tracing::trace!("RP signer is EOA");
         let signature = request
             .auth
             .signature
@@ -250,16 +269,22 @@ impl RelyingParty {
         rpc_provider: &web3::RpcProvider,
     ) -> Result<(), RpModuleError> {
         match self.account_type {
-            RpAccountType::Eoa => self.verify_eoa(action, request),
-            // NOTE: Spec #7 says non-ERC-165-compliant signers should fall back to ECDSA.
-            // However, a contract address cannot produce valid ECDSA signatures, so ECDSA
-            // verification would always fail with a confusing error. We intentionally route
-            // IncompatibleWip101 through verify_wip101 to provide a clearer error message
-            // ("RP signer is a contract but does not conform to WIP101").
-            RpAccountType::Contract | RpAccountType::IncompatibleWip101 => {
+            RpAccountType::Eoa => {
+                tracing::trace!("RP signer is EOA");
+                self.verify_eoa(action, request)
+            }
+            RpAccountType::Contract => {
                 tracing::trace!("RP signer is WIP101");
                 self.verify_wip101(action, &request.auth, rpc_provider)
                     .await
+            }
+            RpAccountType::IncompatibleWip101 => {
+                tracing::trace!("RP signer is incompatible WIP101");
+                // NOTE: Spec #7 says non-ERC-165-compliant signers should fall back to ECDSA.
+                //
+                // We ignore the error we got from EOA verification and send back RpModuleError::Wip101IncompatibleRpSigner to highlight that the contract needs to update their interfaces.
+                self.verify_eoa(action, request)
+                    .map_err(|_| RpModuleError::Wip101IncompatibleRpSigner)
             }
         }
     }

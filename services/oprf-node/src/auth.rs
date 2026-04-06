@@ -23,7 +23,6 @@ pub(crate) mod nonce_history;
 pub(crate) mod rp_module;
 pub(crate) mod rp_registry_watcher;
 pub(crate) mod schema_issuer_registry_watcher;
-pub(crate) mod wip101;
 
 pub(crate) fn verify_query_proof(
     vk: &PreparedVerifyingKey<Bn254>,
