@@ -16,24 +16,44 @@ import {PackedAccountData} from "./libraries/PackedAccountData.sol";
  * @custom:repo https://github.com/world-id/world-id-protocol
  */
 contract WorldIDRegistryV2 is WorldIDRegistry {
+    ////////////////////////////////////////////////////////////
+    //                        ERRORS                          //
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Thrown when the provided authenticator address does not match the type stored in the bitmap.
+     *      For limited-signing authenticators (WIP-104), address must be zero. For management-key
+     *      authenticators, address must be non-zero.
+     */
+    error AuthenticatorTypeMismatch(uint32 pubkeyId, bool isLimitedSigner);
+
+    ////////////////////////////////////////////////////////////
+    //                        Members                         //
+    ////////////////////////////////////////////////////////////
+
     /// @dev root -> timestamp when the root was replaced (i.e. stopped being the latest root).
     ///      Used by V2's `isValidRoot` to measure TTL from replacement time, not creation time.
     mapping(uint256 => uint256) internal _rootToValidityTimestamp;
 
-    /**
-     * @dev Captures `_latestRoot` before `super._recordCurrentRoot()` overwrites it, and stores
-     *   `block.timestamp` in `_rootToValidityTimestamp` for that root.
-     * @custom:override Overrides V1 to record the timestamp when the current root stops being the latest.
-     */
-    function _recordCurrentRoot() internal virtual override {
-        // Take the currentRoot before we update the new root and
-        // set the validity timestamp of that root.
-        //
-        // In `isValidRoot` this timestamp is checked.
-        uint256 currentRoot = _latestRoot;
-        _rootToValidityTimestamp[currentRoot] = block.timestamp;
-        super._recordCurrentRoot();
-    }
+    ////////////////////////////////////////////////////////////
+    //                        Constants                       //
+    ////////////////////////////////////////////////////////////
+
+    /// @dev The 96-bit bitmap representing the authenticators; off-chain public keys is now
+    ///   split: bits [0-47] for occupancy (i.e. is the key id space), bits [48-95] for the type
+    ///   of authenticator (i.e. is it a limited signer authenticator or a full authenticator).
+    ///   V1 accounts with pubkeyId < 48 are backward-compatible (upper bits default to 0,
+    ///   meaning full authenticator).
+    /// @custom:override "Overrides" V1 as the hard limit is lowered by half, because the upper half is used
+    ///   to store the type of authenticator.
+    uint256 public constant MAX_AUTHENTICATORS_V2_HARD_LIMIT = 48;
+
+    /// @dev Bit offset within the 96-bit bitmap where limited-signing flags begin.
+    uint256 internal constant _LIMITED_SIGNING_OFFSET = 48;
+
+    ////////////////////////////////////////////////////////////
+    //                    ROOT VALIDITY                       //
+    ////////////////////////////////////////////////////////////
 
     /// @inheritdoc IWorldIDRegistry
     /// @custom:override Overrides V1 to use `_rootToValidityTimestamp` (when root was replaced) instead of
@@ -48,8 +68,15 @@ contract WorldIDRegistryV2 is WorldIDRegistry {
         return block.timestamp <= ts + _rootValidityWindow;
     }
 
+    ////////////////////////////////////////////////////////////
+    //              AUTHENTICATOR MANAGEMENT                  //
+    ////////////////////////////////////////////////////////////
+
     /// @inheritdoc IWorldIDRegistry
-    /// @custom:override Overrides V1 to allow inserting authenticators without on-chain management (WIP-104).
+    /// @custom:override Overrides V1 to allow inserting limited-signing authenticators without on-chain
+    ///   management keys (WIP-104). When `newAuthenticatorAddress` is `address(0)`, the authenticator's
+    ///   limited-signing flag is set in the bitmap and no `_authenticatorAddressToPackedAccountData`
+    ///   entry is created.
     function insertAuthenticator(
         uint64 leafIndex,
         address newAuthenticatorAddress,
@@ -60,7 +87,9 @@ contract WorldIDRegistryV2 is WorldIDRegistry {
         bytes memory signature,
         uint256 nonce
     ) external virtual override onlyProxy onlyInitialized {
-        _validateNewAuthenticatorAddress(newAuthenticatorAddress);
+        if (newAuthenticatorAddress != address(0)) {
+            _validateNewAuthenticatorAddress(newAuthenticatorAddress);
+        }
 
         if (pubkeyId >= _maxAuthenticators) {
             revert PubkeyIdOutOfBounds();
@@ -98,19 +127,22 @@ contract WorldIDRegistryV2 is WorldIDRegistry {
         }
         _leafIndexToSignatureNonce[leafIndex]++;
 
-        if (_leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
-            revert RecoveryCounterOverflow();
-        }
-
-        // Add new authenticator
+        // Set occupancy bit
+        uint256 newBitmap = bitmap | (1 << uint256(pubkeyId));
 
         if (newAuthenticatorAddress != address(0)) {
-            // only register the on-chain management address if provided
+            // Management-key authenticator: store on-chain mapping
+            if (_leafIndexToRecoveryCounter[leafIndex] > type(uint32).max) {
+                revert RecoveryCounterOverflow();
+            }
             _authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
                 PackedAccountData.pack(leafIndex, uint32(_leafIndexToRecoveryCounter[leafIndex]), pubkeyId);
+        } else {
+            // Limited-signing authenticator: set type flag in bitmap upper half
+            newBitmap |= (1 << (_LIMITED_SIGNING_OFFSET + uint256(pubkeyId)));
         }
 
-        _setPubkeyBitmap(leafIndex, bitmap | (1 << uint256(pubkeyId)));
+        _setPubkeyBitmap(leafIndex, newBitmap);
 
         emit AuthenticatorInserted(
             leafIndex,
@@ -124,7 +156,9 @@ contract WorldIDRegistryV2 is WorldIDRegistry {
     }
 
     /// @inheritdoc IWorldIDRegistry
-    /// @custom:override Overrides V1 to allow handling authenticators without on-chain management (WIP-104).
+    /// @custom:override Overrides V1 to handle limited-signing authenticators (WIP-104). The bitmap's
+    ///   upper half encodes authenticator type: if the limited-signing flag is set, `authenticatorAddress`
+    ///   must be `address(0)`; otherwise it must match the on-chain mapping.
     function removeAuthenticator(
         uint64 leafIndex,
         address authenticatorAddress,
@@ -161,8 +195,24 @@ contract WorldIDRegistryV2 is WorldIDRegistry {
         }
         _leafIndexToSignatureNonce[leafIndex]++;
 
-        uint256 packedToRemove = _authenticatorAddressToPackedAccountData[authenticatorAddress];
-        if (packedToRemove != 0) {
+        uint256 bitmap = _getPubkeyBitmap(leafIndex);
+        bool isLimitedSigning = (bitmap & (1 << (_LIMITED_SIGNING_OFFSET + pubkeyId))) != 0;
+
+        if (isLimitedSigning) {
+            // For limited-signing authenticator, the address must be 0
+            if (authenticatorAddress != address(0)) {
+                revert AuthenticatorTypeMismatch(pubkeyId, true);
+            }
+        } else {
+            if (authenticatorAddress == address(0)) {
+                revert AuthenticatorTypeMismatch(pubkeyId, false);
+            }
+
+            uint256 packedToRemove = _authenticatorAddressToPackedAccountData[authenticatorAddress];
+            if (packedToRemove == 0) {
+                revert AuthenticatorDoesNotExist(authenticatorAddress);
+            }
+
             uint64 actualLeafIndex = PackedAccountData.leafIndex(packedToRemove);
             if (actualLeafIndex != leafIndex) {
                 revert AuthenticatorDoesNotBelongToAccount(leafIndex, actualLeafIndex);
@@ -178,13 +228,13 @@ contract WorldIDRegistryV2 is WorldIDRegistry {
             if (actualRecoveryCounter != expectedRecoveryCounter) {
                 revert MismatchedRecoveryCounter(leafIndex, expectedRecoveryCounter, actualRecoveryCounter);
             }
+
+            delete _authenticatorAddressToPackedAccountData[authenticatorAddress];
         }
 
-        // Delete authenticator
-        delete _authenticatorAddressToPackedAccountData[authenticatorAddress];
-        _setPubkeyBitmap(leafIndex, _getPubkeyBitmap(leafIndex) & ~(1 << pubkeyId));
+        // Clear both occupancy and type of authenticator bits
+        _setPubkeyBitmap(leafIndex, bitmap & ~(1 << pubkeyId) & ~(1 << (_LIMITED_SIGNING_OFFSET + pubkeyId)));
 
-        // Update tree
         emit AuthenticatorRemoved(
             leafIndex,
             pubkeyId,
@@ -197,28 +247,25 @@ contract WorldIDRegistryV2 is WorldIDRegistry {
     }
 
     ////////////////////////////////////////////////////////////
-    //                   INTERNAL FUNCTIONS                   //
+    //                    OWNER FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
 
-    /**
-     * @dev Validates that a new authenticator address is not in use by another World ID,
-     * or if it was previously used, the account has been recovered (recovery counter increased),
-     * making the address available again. NOTE that `_registerAccount` still has an additional check
-     * to ensure authenticators are not registered at account creation with a zero address.
-     * @custom:override Overrides V1 by removing restriction that newAuthenticatorAddress must not equal 0 to
-     * comply with WIP-104.
-     * @param newAuthenticatorAddress The new authenticator address to validate.
-     */
-    function _validateNewAuthenticatorAddress(address newAuthenticatorAddress) internal view override {
-        uint256 packedAccountData = _authenticatorAddressToPackedAccountData[newAuthenticatorAddress];
-        // If the authenticatorAddress is non-zero, we could permit it to be used if the recovery counter is less than the
-        // leafIndex's recovery counter. This means the account was recovered and the authenticator address is no longer in use.
-        if (packedAccountData != 0) {
-            uint64 existingLeafIndex = PackedAccountData.leafIndex(packedAccountData);
-            uint256 existingRecoveryCounter = PackedAccountData.recoveryCounter(packedAccountData);
-            if (existingRecoveryCounter >= _leafIndexToRecoveryCounter[existingLeafIndex]) {
-                revert AuthenticatorAddressAlreadyInUse(newAuthenticatorAddress);
-            }
+    /// @inheritdoc IWorldIDRegistry
+    /// @custom:override Overrides V1 to enforce V2 hard limit of 48 (bitmap split between occupancy
+    ///   and limited-signing flags).
+    function setMaxAuthenticators(uint256 newMaxAuthenticators)
+        external
+        virtual
+        override
+        onlyOwner
+        onlyProxy
+        onlyInitialized
+    {
+        if (newMaxAuthenticators > MAX_AUTHENTICATORS_V2_HARD_LIMIT) {
+            revert OwnerMaxAuthenticatorsOutOfBounds();
         }
+        uint256 old = _maxAuthenticators;
+        _maxAuthenticators = newMaxAuthenticators;
+        emit MaxAuthenticatorsUpdated(old, _maxAuthenticators);
     }
 }
