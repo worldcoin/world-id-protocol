@@ -5,7 +5,7 @@ services:  # world-id-indexer
   postgres:
     image: postgres:latest
     ports:
-      - "5433:5432"
+      - "5432:5432"
     environment:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_USER=postgres
@@ -14,7 +14,7 @@ services:  # world-id-indexer
   redis:
     image: redis:latest
     ports:
-      - "6380:6379"
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -38,7 +38,7 @@ services:  # world-id-indexer
       TACEO_OPRF_KEY_GEN__SERVICE__ZKEY_PATH: /app/circom/OPRFKeyGen.13.arks.zkey
       TACEO_OPRF_KEY_GEN__SERVICE__WITNESS_GRAPH_PATH: /app/circom/OPRFKeyGenGraph.13.bin
       TACEO_OPRF_KEY_GEN__SERVICE__CONFIRMATIONS_FOR_TRANSACTION: 1
-      TACEO_OPRF_KEY_GEN__POSTGRES__CONNECTION_STRING: postgres://postgres:postgres@localhost:5433/postgres
+      TACEO_OPRF_KEY_GEN__POSTGRES__CONNECTION_STRING: postgres://postgres:postgres@localhost:5432/postgres
       TACEO_OPRF_KEY_GEN__POSTGRES__SCHEMA: oprf0
     volumes:
       - ./circom:/app/circom:ro
@@ -60,7 +60,7 @@ services:  # world-id-indexer
       TACEO_OPRF_KEY_GEN__SERVICE__ZKEY_PATH: /app/circom/OPRFKeyGen.13.arks.zkey
       TACEO_OPRF_KEY_GEN__SERVICE__WITNESS_GRAPH_PATH: /app/circom/OPRFKeyGenGraph.13.bin
       TACEO_OPRF_KEY_GEN__SERVICE__CONFIRMATIONS_FOR_TRANSACTION: 1
-      TACEO_OPRF_KEY_GEN__POSTGRES__CONNECTION_STRING: postgres://postgres:postgres@localhost:5433/postgres
+      TACEO_OPRF_KEY_GEN__POSTGRES__CONNECTION_STRING: postgres://postgres:postgres@localhost:5432/postgres
       TACEO_OPRF_KEY_GEN__POSTGRES__SCHEMA: oprf1
     volumes:
       - ./circom:/app/circom:ro
@@ -82,7 +82,7 @@ services:  # world-id-indexer
       TACEO_OPRF_KEY_GEN__SERVICE__ZKEY_PATH: /app/circom/OPRFKeyGen.13.arks.zkey
       TACEO_OPRF_KEY_GEN__SERVICE__WITNESS_GRAPH_PATH: /app/circom/OPRFKeyGenGraph.13.bin
       TACEO_OPRF_KEY_GEN__SERVICE__CONFIRMATIONS_FOR_TRANSACTION: 1
-      TACEO_OPRF_KEY_GEN__POSTGRES__CONNECTION_STRING: postgres://postgres:postgres@localhost:5433/postgres
+      TACEO_OPRF_KEY_GEN__POSTGRES__CONNECTION_STRING: postgres://postgres:postgres@localhost:5432/postgres
       TACEO_OPRF_KEY_GEN__POSTGRES__SCHEMA: oprf2
     volumes:
       - ./circom:/app/circom:ro
