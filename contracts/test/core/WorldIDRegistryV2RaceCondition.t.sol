@@ -88,5 +88,33 @@ contract WorldIDRegistryV2RaceConditionTest is Test {
         vm.warp(ROOT_VALIDITY_WINDOW + 2 + ROOT_VALIDITY_WINDOW + 1);
         assertFalse(registry.isValidRoot(rootA), "rootA expires after full window from replacement time");
     }
-}
 
+    /// @notice getRootExpiration returns 0 for the latest root (not yet replaced),
+    ///         the replacement timestamp for a superseded root, and reverts for unknown roots.
+    function test_getRootExpiration() public {
+        WorldIDRegistryV2 implementationV2 = new WorldIDRegistryV2();
+        WorldIDRegistry(address(proxy)).upgradeToAndCall(address(implementationV2), "");
+        WorldIDRegistryV2 registry = WorldIDRegistryV2(address(proxy));
+
+        _createAccount(address(0x111), 0xAAAA);
+        uint256 rootA = registry.currentRoot();
+
+        // Latest root has no replacement timestamp yet
+        assertEq(registry.getRootExpiration(rootA), 0, "latest root should return 0");
+
+        // Unknown root reverts
+        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistryV2.UnknownRoot.selector, 0xDEAD));
+        registry.getRootExpiration(0xDEAD);
+
+        // Replace rootA at a known timestamp
+        vm.warp(500);
+        _createAccount(address(0x222), 0xBBBB);
+
+        // rootA was replaced at T=500
+        assertEq(registry.getRootExpiration(rootA), 500, "replaced root should have replacement timestamp");
+
+        // New latest root still returns 0
+        uint256 rootB = registry.currentRoot();
+        assertEq(registry.getRootExpiration(rootB), 0, "new latest root should return 0");
+    }
+}

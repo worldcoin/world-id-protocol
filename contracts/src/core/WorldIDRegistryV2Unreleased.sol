@@ -15,6 +15,9 @@ import {IWorldIDRegistry} from "./interfaces/IWorldIDRegistry.sol";
  * @custom:repo https://github.com/world-id/world-id-protocol
  */
 contract WorldIDRegistryV2 is WorldIDRegistry {
+    /// @dev Thrown when querying expiration for a root that was never recorded.
+    error UnknownRoot(uint256 root);
+
     /// @dev root -> timestamp when the root was replaced (i.e. stopped being the latest root).
     ///      Used by V2's `isValidRoot` to measure TTL from replacement time, not creation time.
     mapping(uint256 => uint256) internal _rootToValidityTimestamp;
@@ -45,5 +48,14 @@ contract WorldIDRegistryV2 is WorldIDRegistry {
         uint256 ts = _rootToValidityTimestamp[root];
         if (ts == 0) return false;
         return block.timestamp <= ts + _rootValidityWindow;
+    }
+
+    /// @dev Gets the replacement timestamp of a root. Returns 0 for the current latest root
+    ///   (not yet replaced). Reverts with `UnknownRoot` if the root was never recorded.
+    function getRootExpiration(uint256 root) external view virtual onlyProxy onlyInitialized returns (uint256) {
+        if (root == _latestRoot) return 0;
+        uint256 ts = _rootToValidityTimestamp[root];
+        if (ts == 0) revert UnknownRoot(root);
+        return ts;
     }
 }
