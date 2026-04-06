@@ -50,12 +50,12 @@ contract WorldIDRegistryV2 is WorldIDRegistry {
         return block.timestamp <= ts + _rootValidityWindow;
     }
 
-    /// @dev Gets the replacement timestamp of a root. Returns 0 for the current latest root
-    ///   (not yet replaced). Reverts with `UnknownRoot` if the root was never recorded.
+    /// @dev Gets the expiration timestamp of a root. Returns 0 for the current latest unreplaced root.
+    /// Reverts with `UnknownRoot` if the root was never recorded.
     function getRootExpiration(uint256 root) external view virtual onlyProxy onlyInitialized returns (uint256) {
         if (root == _latestRoot) return 0;
         uint256 ts = _rootToValidityTimestamp[root];
         if (ts == 0) revert UnknownRoot(root);
-        return ts;
+        return ts + _rootValidityWindow;
     }
 }

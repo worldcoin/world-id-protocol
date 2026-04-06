@@ -110,8 +110,8 @@ contract WorldIDRegistryV2RaceConditionTest is Test {
         vm.warp(500);
         _createAccount(address(0x222), 0xBBBB);
 
-        // rootA was replaced at T=500
-        assertEq(registry.getRootExpiration(rootA), 500, "replaced root should have replacement timestamp");
+        // rootA was replaced at T=500, expires at T=500+3600=4100
+        assertEq(registry.getRootExpiration(rootA), 500 + ROOT_VALIDITY_WINDOW);
 
         // New latest root still returns 0
         uint256 rootB = registry.currentRoot();
