@@ -29,9 +29,6 @@ pub const METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES: &str =
 /// Number of stored RPs in the `rp_registry_watcher` cache.
 pub const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE: &str =
     "taceo.oprf.node.rp_registry_watcher_cache.size";
-/// Number of hits in the `rp_registry_watcher` cache.
-pub const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS: &str =
-    "taceo.oprf.node.rp_registry_watcher_cache.hits";
 /// Number of misses in the `rp_registry_watcher` cache.
 pub const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES: &str =
     "taceo.oprf.node.rp_registry_watcher_cache.misses";
@@ -39,9 +36,6 @@ pub const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES: &str =
 /// Number of stored schema issuers in the `schema_issuer_registry_watcher` cache.
 pub const METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE: &str =
     "taceo.oprf.node.schema_issuer_registry_watcher_cache.size";
-/// Number of hits in the `schema_issuer_registry_watcher` cache.
-pub const METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS: &str =
-    "taceo.oprf.node.schema_issuer_registry_watcher_cache.hits";
 /// Number of misses in the `schema_issuer_registry_watcher` cache.
 pub const METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES: &str =
     "taceo.oprf.node.schema_issuer_registry_watcher_cache.misses";
@@ -81,12 +75,6 @@ pub fn describe_metrics() {
     );
 
     metrics::describe_counter!(
-        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS,
-        metrics::Unit::Count,
-        "Number of hits in the rp_registry_watcher cache."
-    );
-
-    metrics::describe_counter!(
         METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES,
         metrics::Unit::Count,
         "Number of misses in the rp_registry_watcher cache."
@@ -96,12 +84,6 @@ pub fn describe_metrics() {
         METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE,
         metrics::Unit::Count,
         "Number of stored schema issuers in the schema_issuer_registry_watcher cache."
-    );
-
-    metrics::describe_counter!(
-        METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS,
-        metrics::Unit::Count,
-        "Number of hits in the schema_issuer_registry_watcher cache."
     );
 
     metrics::describe_counter!(

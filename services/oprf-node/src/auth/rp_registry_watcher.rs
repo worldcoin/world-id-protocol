@@ -13,8 +13,7 @@ use crate::{
     },
     config::WatcherCacheConfig,
     metrics::{
-        METRICS_ATTRID_RP_TYPE, METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS,
-        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES,
+        METRICS_ATTRID_RP_TYPE, METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES,
         METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
     },
 };
@@ -57,6 +56,17 @@ pub(crate) enum RpRegistryWatcherError {
     /// Internal Error
     #[error(transparent)]
     Internal(#[from] eyre::Report),
+}
+
+impl From<Arc<RpRegistryWatcherError>> for RpRegistryWatcherError {
+    fn from(value: Arc<RpRegistryWatcherError>) -> Self {
+        match value.as_ref() {
+            RpRegistryWatcherError::UnknownRp(rp_id) => Self::UnknownRp(*rp_id),
+            RpRegistryWatcherError::Timeout(rp_id) => Self::Timeout(*rp_id),
+            RpRegistryWatcherError::InactiveRp(rp_id) => Self::InactiveRp(*rp_id),
+            RpRegistryWatcherError::Internal(report) => Self::Internal(eyre::eyre!("{report:#?}")),
+        }
+    }
 }
 
 /// Monitors the RPs from the `RpRegistry` contract.
@@ -152,59 +162,77 @@ impl RpRegistryWatcher {
         &self,
         rp_id: &RpId,
     ) -> Result<RelyingParty, RpRegistryWatcherError> {
-        if let Some(rp) = self.rp_store.get_wi(rp_id).await {
-            tracing::trace!("rp {rp_id} found in store");
-            ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS).increment(1);
-            return Ok(rp);
-        }
-
-        tracing::trace!("rp {rp_id} not found in store, querying RpRegistry...");
-        let rp = match self.contract.getRp(rp_id.into_inner()).call().await {
-            Ok(rp) => rp,
-            Err(err) => {
-                if let Some(RpRegistry::RpIdDoesNotExist) =
-                    err.as_decoded_error::<RpRegistry::RpIdDoesNotExist>()
-                {
-                    return Err(RpRegistryWatcherError::UnknownRp(*rp_id));
-                } else if let Some(RpRegistry::RpIdInactive) =
-                    err.as_decoded_error::<RpRegistry::RpIdInactive>()
-                {
-                    return Err(RpRegistryWatcherError::InactiveRp(*rp_id));
+        let rp = self
+            .rp_store
+            .try_get_with(*rp_id, {
+                let contract = self.contract.clone();
+                let rpc_provider = self.rpc_provider.clone();
+                async {
+                    try_load_rp_from_chain(
+                        *rp_id,
+                        contract,
+                        self.timeout_external_eth_call,
+                        rpc_provider,
+                    )
+                    .await
                 }
-                return Err(RpRegistryWatcherError::Internal(eyre::eyre!(
-                    "failed to fetch RP info from chain: {err:?}"
-                )));
-            }
-        };
-
-        tracing::trace!("checking if RP is EOA or smart contract..");
-        metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
-
-        let account_type = tokio::time::timeout(
-            self.timeout_external_eth_call,
-            wip101::account_check(rp.signer, &self.rpc_provider),
-        )
-        .await
-        .map_err(|_| RpRegistryWatcherError::Timeout(*rp_id))?
-        .context("while performing WIP101 check")?;
-
-        metrics::gauge!(
-            METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
-            METRICS_ATTRID_RP_TYPE => account_type.metrics_label(),
-        )
-        .increment(1);
-
-        let relying_party = RelyingParty {
-            signer: rp.signer,
-            oprf_key_id: OprfKeyId::new(rp.oprfKeyId),
-            account_type,
-        };
-        self.rp_store.insert(*rp_id, relying_party.clone()).await;
-
-        tracing::debug!("rp {rp_id}/{account_type} loaded from chain and stored");
-
-        Ok(relying_party)
+            })
+            .await?;
+        tracing::trace!("returning {rp_id}/{}", rp.account_type);
+        Ok(rp)
     }
+}
+
+async fn try_load_rp_from_chain(
+    rp_id: RpId,
+    contract: RpRegistryInstance<DynProvider>,
+    timeout_external_eth_call: Duration,
+    rpc_provider: web3::RpcProvider,
+) -> Result<RelyingParty, RpRegistryWatcherError> {
+    tracing::trace!("rp {rp_id} not found in store, querying RpRegistry...");
+    let rp = match contract.getRp(rp_id.into_inner()).call().await {
+        Ok(rp) => rp,
+        Err(err) => {
+            if let Some(RpRegistry::RpIdDoesNotExist) =
+                err.as_decoded_error::<RpRegistry::RpIdDoesNotExist>()
+            {
+                return Err(RpRegistryWatcherError::UnknownRp(rp_id));
+            } else if let Some(RpRegistry::RpIdInactive) =
+                err.as_decoded_error::<RpRegistry::RpIdInactive>()
+            {
+                return Err(RpRegistryWatcherError::InactiveRp(rp_id));
+            }
+            return Err(RpRegistryWatcherError::Internal(eyre::eyre!(
+                "failed to fetch RP info from chain: {err:?}"
+            )));
+        }
+    };
+
+    tracing::trace!("checking if RP is EOA or smart contract..");
+    metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
+
+    let account_type = tokio::time::timeout(
+        timeout_external_eth_call,
+        wip101::account_check(rp.signer, &rpc_provider),
+    )
+    .await
+    .map_err(|_| RpRegistryWatcherError::Timeout(rp_id))?
+    .context("while performing WIP101 check")?;
+
+    metrics::gauge!(
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
+        METRICS_ATTRID_RP_TYPE => account_type.metrics_label(),
+    )
+    .increment(1);
+
+    let relying_party = RelyingParty {
+        signer: rp.signer,
+        oprf_key_id: OprfKeyId::new(rp.oprfKeyId),
+        account_type,
+    };
+
+    tracing::debug!("rp {rp_id}/{account_type} loaded from chain");
+    Ok(relying_party)
 }
 
 async fn subscribe_task(
