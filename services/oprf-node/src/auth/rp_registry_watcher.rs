@@ -141,8 +141,6 @@ impl RpRegistryWatcher {
                 loop {
                     interval.tick().await;
                     rp_store.run_pending_tasks().await;
-                    let size = rp_store.entry_count() as f64;
-                    ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).set(size);
                 }
             }
         });
