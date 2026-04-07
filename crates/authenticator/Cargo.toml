@@ -43,7 +43,7 @@ world-id-primitives = { workspace = true }
 secrecy = { workspace = true }
 taceo-oprf = { workspace = true, features = ["client"] }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["macros", "sync"] }
 rand = { workspace = true }
 backon = { workspace = true }
 ruint = { workspace = true }
