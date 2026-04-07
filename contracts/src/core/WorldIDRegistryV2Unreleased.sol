@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {WorldIDRegistry} from "./WorldIDRegistry.sol";
 import {IWorldIDRegistry} from "./interfaces/IWorldIDRegistry.sol";
+import {IWorldIDRegistryV2} from "./interfaces/IWorldIDRegistryV2.sol";
 import {PackedAccountData} from "./libraries/PackedAccountData.sol";
 
 /**
@@ -15,18 +16,7 @@ import {PackedAccountData} from "./libraries/PackedAccountData.sol";
  *      when a root stopped being the latest, so the full validity window applies from that moment.
  * @custom:repo https://github.com/world-id/world-id-protocol
  */
-contract WorldIDRegistryV2 is WorldIDRegistry {
-    ////////////////////////////////////////////////////////////
-    //                        ERRORS                          //
-    ////////////////////////////////////////////////////////////
-
-    /**
-     * @dev Thrown when the provided authenticator address does not match the type stored in the bitmap.
-     *      For limited-signing authenticators (WIP-104), address must be zero. For management-key
-     *      authenticators, address must be non-zero.
-     */
-    error AuthenticatorTypeMismatch(uint32 pubkeyId, bool isLimitedSigner);
-
+contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
     ////////////////////////////////////////////////////////////
     //                        Members                         //
     ////////////////////////////////////////////////////////////
@@ -58,7 +48,15 @@ contract WorldIDRegistryV2 is WorldIDRegistry {
     /// @inheritdoc IWorldIDRegistry
     /// @custom:override Overrides V1 to use `_rootToValidityTimestamp` (when root was replaced) instead of
     ///   `_rootToTimestamp` (when root was created), fixing the race condition.
-    function isValidRoot(uint256 root) external view virtual override onlyProxy onlyInitialized returns (bool) {
+    function isValidRoot(uint256 root)
+        external
+        view
+        virtual
+        override(IWorldIDRegistry, WorldIDRegistry)
+        onlyProxy
+        onlyInitialized
+        returns (bool)
+    {
         // The latest root is always valid.
         if (root == _latestRoot) return true;
         // Check if the root is known and not expired
@@ -86,7 +84,7 @@ contract WorldIDRegistryV2 is WorldIDRegistry {
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
         uint256 nonce
-    ) external virtual override onlyProxy onlyInitialized {
+    ) external virtual override(IWorldIDRegistry, WorldIDRegistry) onlyProxy onlyInitialized {
         if (newAuthenticatorAddress != address(0)) {
             _validateNewAuthenticatorAddress(newAuthenticatorAddress);
         }
@@ -168,7 +166,7 @@ contract WorldIDRegistryV2 is WorldIDRegistry {
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
         uint256 nonce
-    ) external virtual override onlyProxy onlyInitialized {
+    ) external virtual override(IWorldIDRegistry, WorldIDRegistry) onlyProxy onlyInitialized {
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(
@@ -246,6 +244,19 @@ contract WorldIDRegistryV2 is WorldIDRegistry {
         _updateLeafAndRecord(leafIndex, oldOffchainSignerCommitment, newOffchainSignerCommitment);
     }
 
+    /// @inheritdoc IWorldIDRegistry
+    /// @custom:override Overrides V1 to remove this functionality. The path introduces significant surface
+    /// area and doesn't have very concrete use cases. Key rotation can be accomplished with a multi-call.
+    function updateAuthenticator(uint64, address, address, uint32, uint256, uint256, uint256, bytes memory, uint256)
+        external
+        virtual
+        override(WorldIDRegistry, IWorldIDRegistry)
+        onlyProxy
+        onlyInitialized
+    {
+        revert MethodUnsupported();
+    }
+
     ////////////////////////////////////////////////////////////
     //                    OWNER FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
@@ -256,7 +267,7 @@ contract WorldIDRegistryV2 is WorldIDRegistry {
     function setMaxAuthenticators(uint256 newMaxAuthenticators)
         external
         virtual
-        override
+        override(IWorldIDRegistry, WorldIDRegistry)
         onlyOwner
         onlyProxy
         onlyInitialized
