@@ -12,7 +12,8 @@ use crate::api_types::{
     ServiceApiError, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
 };
 use world_id_primitives::{
-    Credential, FieldElement, ProofRequest, RequestItem, ResponseItem, SessionNullifier, Signer,
+    Credential, FieldElement, ProofRequest, ProofResponse, RequestItem, ResponseItem,
+    SessionNullifier, Signer, ValidationError,
 };
 
 use crate::registry::{
@@ -83,6 +84,29 @@ static MASK_PUBKEY_ID: U256 =
     uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
 static MASK_LEAF_INDEX: U256 =
     uint!(0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF_U256);
+
+/// Input for a single credential proof within a proof request.
+pub struct CredentialInput {
+    /// The credential to prove.
+    pub credential: Credential,
+    /// The blinding factor for the credential's sub.
+    pub blinding_factor: FieldElement,
+}
+
+/// Output from proof generation process.
+///
+/// The [`Authenticator`] herein deliberately does not handle caching or replay guards as
+/// those are SDK concerns.
+#[derive(Debug)]
+pub struct ProofResult {
+    /// The session_id_r_seed (`r`), if a session proof was generated.
+    ///
+    /// The SDK should cache this keyed by [`SessionId::oprf_seed`].
+    pub session_id_r_seed: Option<FieldElement>,
+
+    /// The response to deliver to an RP.
+    pub proof_response: ProofResponse,
+}
 
 /// An Authenticator is the agent of a **user** interacting with the World ID Protocol.
 ///
@@ -692,7 +716,9 @@ impl Authenticator {
         Ok(blinding_factor)
     }
 
-    /// Creates a Session for a World ID with an RP.
+    /// Builds a [`SessionId`] object which can be used for Session Proofs. This has two uses:
+    /// 1. Creating a new Sesssion, i.e. generating a [`SessionId`] for the first time.
+    /// 2. Reconstructing a session for a Session Proof, particularly if the `session_id_r_seed` is not cached.
     ///
     /// Internally, this generates the session's random seed (`r`) using OPRF Nodes. This seed is used to
     /// compute the [`SessionId::commitment`] for Session Proofs.
@@ -713,7 +739,7 @@ impl Authenticator {
     ///   context (i.e. `rpId`, [`SessionId::oprf_seed`]). This means caching `r` is optional but RECOMMENDED.
     /// -  Caching behavior is the responsibility of the Authenticator (and/or its relevant SDKs), not this crate.
     /// - More information about the seed can be found in [`SessionId::from_r_seed`].
-    pub async fn generate_session_id(
+    pub async fn build_session_id(
         &self,
         proof_request: &ProofRequest,
         session_id_r_seed: Option<FieldElement>,
@@ -748,8 +774,126 @@ impl Authenticator {
         Ok((session_id, session_id_r_seed))
     }
 
+    /// Generates a complete [`ProofResponse`] for
+    /// the given [`ProofRequest`] to respond to an RP request.
+    ///
+    /// This orchestrates session resolution, per-credential proof generation,
+    /// response assembly, and self-validation.
+    ///
+    /// # Typical flow
+    /// ```rust,ignore
+    /// // <- check request can be fulfilled with available credentials
+    /// let nullifier = authenticator.generate_nullifier(&request, None).await?;
+    /// // <- check replay guard using nullifier.oprf_output()
+    /// let (response, meta) = authenticator.generate_proof(&request, nullifier, &creds, ...).await?;
+    /// // <- cache `session_id_r_seed` (to speed future proofs) and `nullifier` (to prevent replays)
+    /// ```
+    ///
+    /// # Arguments
+    /// - `proof_request` — the RP's full request.
+    /// - `nullifier` — the OPRF nullifier output, obtained from
+    ///   [`generate_nullifier`](Self::generate_nullifier). The caller MUST check
+    ///   for replays before calling this method to avoid wasted computation.
+    /// - `credentials` — one [`CredentialInput`] per credential to prove,
+    ///   matched to request items by `issuer_schema_id`.
+    /// - `account_inclusion_proof` — a cached inclusion proof if available (a fresh one will be fetched otherwise)
+    /// - `session_id_r_seed` — a cached session `r` seed for Session Proofs. If not available, it will be
+    ///   re-computed.
+    ///
+    /// # Caller Responsibilities
+    /// 1. The caller must ensure the request can be fulfilled with the credentials which the user has available,
+    ///    and provide such credentials.
+    /// 2. The caller must ensure the nullifier has not been used before.
+    ///
+    /// # Errors
+    /// - [`AuthenticatorError::UnfullfilableRequest`] if the provided credentials
+    ///   cannot satisfy the request (including constraints).
+    /// - Other `AuthenticatorError` variants on proof circuit or validation failures.
+    pub async fn generate_proof(
+        &self,
+        proof_request: &ProofRequest,
+        nullifier: FullOprfOutput,
+        credentials: &[CredentialInput],
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
+        session_id_r_seed: Option<FieldElement>,
+    ) -> Result<ProofResult, AuthenticatorError> {
+        // 1. Determine request items to prove
+        let available: std::collections::HashSet<u64> = credentials
+            .iter()
+            .map(|c| c.credential.issuer_schema_id)
+            .collect();
+        let items_to_prove = proof_request
+            .credentials_to_prove(&available)
+            .ok_or(AuthenticatorError::UnfullfilableRequest)?;
+
+        // 2. Resolve session seed
+        let resolved_session_seed = if proof_request.is_session_proof() {
+            if let Some(seed) = session_id_r_seed {
+                // Validate the cached seed produces the expected session ID
+                let session_id = proof_request
+                    .session_id
+                    .expect("session proof must have session_id");
+
+                let computed =
+                    SessionId::from_r_seed(self.leaf_index(), seed, session_id.oprf_seed)?;
+
+                if computed != session_id {
+                    return Err(AuthenticatorError::SessionIdMismatch);
+                }
+                Some(seed)
+            } else {
+                let (_session_id, seed) = self
+                    .build_session_id(proof_request, None, account_inclusion_proof)
+                    .await?;
+                Some(seed)
+            }
+        } else {
+            None
+        };
+
+        // 3. Generate per-credential proofs for the selected items
+        let creds_by_schema: std::collections::HashMap<u64, &CredentialInput> = credentials
+            .iter()
+            .map(|c| (c.credential.issuer_schema_id, c))
+            .collect();
+
+        let mut responses = Vec::with_capacity(items_to_prove.len());
+        for request_item in &items_to_prove {
+            let cred_input = creds_by_schema[&request_item.issuer_schema_id];
+
+            let response_item = self.generate_credential_proof(
+                nullifier.clone(),
+                request_item,
+                &cred_input.credential,
+                cred_input.blinding_factor,
+                resolved_session_seed,
+                proof_request.session_id,
+                proof_request.created_at,
+            )?;
+            responses.push(response_item);
+        }
+
+        // 3. Assemble response
+        let proof_response = ProofResponse {
+            id: proof_request.id.clone(),
+            version: proof_request.version,
+            session_id: proof_request.session_id,
+            responses,
+            error: None,
+        };
+
+        // 4. Validate and return response
+        proof_request.validate_response(&proof_response)?;
+        Ok(ProofResult {
+            session_id_r_seed: resolved_session_seed,
+            proof_response,
+        })
+    }
+
     /// Generates a single World ID Proof from a provided `[ProofRequest]` and `[Credential]`. This
     /// method generates the raw proof to be translated into a Uniqueness Proof or a Session Proof for the RP.
+    ///
+    /// The correct entrypoint for an RP request is [`Self::generate_proof`].
     ///
     /// This assumes the RP's `[ProofRequest]` has already been parsed to determine
     /// which `[Credential]` is appropriate for the request. This method responds to a
@@ -761,9 +905,8 @@ impl Authenticator {
     /// - `request_item`: The specific `RequestItem` that is being resolved from the RP's `ProofRequest`.
     /// - `credential`: The Credential to be used for the proof that fulfills the `RequestItem`.
     /// - `credential_sub_blinding_factor`: The blinding factor for the Credential's sub.
-    /// - `session_id_r_seed`: The session ID random seed, obtained via [`generate_session_id`](Self::generate_session_id).
-    ///   For Uniqueness Proofs (when `session_id` is `None`), this value is ignored by the circuit
-    ///   but must still be provided.
+    /// - `session_id_r_seed`: The session ID random seed, obtained via [`build_session_id`](Self::build_session_id).
+    ///   For Uniqueness Proofs (when `session_id` is `None`), this value is ignored by the circuit.
     /// - `session_id`: The expected session ID provided by the RP. Only needed for Session Proofs. Obtained from the RP's [`ProofRequest`].
     /// - `request_timestamp`: The timestamp of the request. Obtained from the RP's [`ProofRequest`].
     ///
@@ -771,28 +914,28 @@ impl Authenticator {
     /// - Will error if the any of the provided parameters are not valid.
     /// - Will error if any of the required network requests fail.
     /// - Will error if the user does not have a registered World ID.
-    #[allow(clippy::too_many_arguments)]
-    pub fn generate_single_proof(
+    #[expect(clippy::too_many_arguments)]
+    fn generate_credential_proof(
         &self,
         oprf_nullifier: FullOprfOutput,
         request_item: &RequestItem,
         credential: &Credential,
         credential_sub_blinding_factor: FieldElement,
-        session_id_r_seed: FieldElement,
+        session_id_r_seed: Option<FieldElement>,
         session_id: Option<SessionId>,
         request_timestamp: u64,
     ) -> Result<ResponseItem, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
-        let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
-        let action_from_query: FieldElement = oprf_nullifier.query_proof_input.action.into();
-
-        let expires_at_min = request_item.effective_expires_at_min(request_timestamp);
-
         let nullifier_material = self
             .nullifier_material
             .as_ref()
             .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
+
+        let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
+        let action_from_query: FieldElement = oprf_nullifier.query_proof_input.action.into();
+
+        let expires_at_min = request_item.effective_expires_at_min(request_timestamp);
 
         let (proof, _public_inputs, nullifier) = generate_nullifier_proof(
             nullifier_material,
@@ -1426,6 +1569,12 @@ pub enum AuthenticatorError {
     #[error("The provided credential is not valid for the provided proof request")]
     InvalidCredentialForProofRequest,
 
+    /// The provided credentials do not satisfy the proof request.
+    ///
+    /// This usually means the authenticator made an incorrect selection of credentials.
+    #[error("Proof request cannot be fulfilled with the provided credentials.")]
+    UnfullfilableRequest,
+
     /// Error during the World ID registration process.
     ///
     /// This usually occurs from an on-chain revert.
@@ -1452,14 +1601,18 @@ pub enum AuthenticatorError {
         max_supported_slot: usize,
     },
 
+    /// The assembled proof response failed self-validation against the request.
+    #[error(transparent)]
+    ResponseValidationError(#[from] ValidationError),
+
     /// Proof materials not loaded. Call `with_proof_materials` before generating proofs.
     #[error("Proof materials not loaded. Call `with_proof_materials` before generating proofs.")]
     ProofMaterialsNotLoaded,
 
     /// The session ID computed for this proof does not match the expected session ID from the proof request.
     ///
-    /// This indicates the `session_id` provided by the RP is invalid or compromised, as
-    /// the only other failure option is OPRFs not having performed correct computations.
+    /// This indicates the `session_id` provided by the RP is invalid or compromised, or
+    /// the authenticator cached the wrong `session_id_r_seed` for the `oprf_seed`.
     #[error("the expected session id and the generated session id do not match")]
     SessionIdMismatch,
 

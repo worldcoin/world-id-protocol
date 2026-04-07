@@ -169,15 +169,13 @@ pub fn load_query_material_from_reader(
 
 /// Loads the [`CircomGroth16Material`] for the nullifier proof from the provided paths.
 ///
-/// # Panics
-/// Will panic if the material cannot be loaded or verified.
+/// # Errors
+/// Will return an error if the material cannot be loaded or verified.
 pub fn load_nullifier_material_from_paths(
     zkey: impl AsRef<Path>,
     graph: impl AsRef<Path>,
-) -> CircomGroth16Material {
-    build_nullifier_builder()
-        .build_from_paths(zkey, graph)
-        .expect("works when loading embedded groth16-material")
+) -> eyre::Result<CircomGroth16Material> {
+    Ok(build_nullifier_builder().build_from_paths(zkey, graph)?)
 }
 
 /// Loads the [`CircomGroth16Material`] for the query proof from the provided paths.
@@ -338,7 +336,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     oprf_output: FullOprfOutput,
     request_item: &RequestItem,
     session_id: Option<FieldElement>,
-    session_id_r_seed: FieldElement,
+    session_id_r_seed: Option<FieldElement>,
     expires_at_min: u64,
 ) -> Result<
     (
@@ -370,7 +368,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         cred_sub_blinding_factor: *credential_sub_blinding_factor,
         cred_s: cred_signature.s,
         cred_r: cred_signature.r,
-        id_commitment_r: *session_id_r_seed,
+        id_commitment_r: *session_id_r_seed.unwrap_or(FieldElement::ZERO),
         id_commitment: *session_id.unwrap_or(FieldElement::ZERO),
         dlog_e: oprf_output.verifiable_oprf_output.dlog_proof.e(),
         dlog_s: oprf_output.verifiable_oprf_output.dlog_proof.s(),

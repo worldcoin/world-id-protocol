@@ -8,7 +8,9 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub(crate) mod oprf_query;
 pub use oprf_query::{FullOprfOutput, OprfEntrypoint};
+
 pub mod proof;
+pub use proof::*;
 
 /// Inputs from the Authenticator to generate a nullifier or blinding factor.
 #[derive(Zeroize, ZeroizeOnDrop)]

@@ -9,3 +9,12 @@ pub use registry::{
     sign_initiate_recovery_agent_update, sign_insert_authenticator, sign_recover_account,
     sign_remove_authenticator, sign_update_authenticator,
 };
+
+pub mod proof {
+    pub use world_id_proof::*;
+}
+
+/// Re-export of all the World ID primitives
+pub mod primitives {
+    pub use world_id_primitives::*;
+}
