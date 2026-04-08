@@ -31,4 +31,9 @@ interface IWorldIDRegistryV2 is IWorldIDRegistry {
      *      on the account, making it unmanageable.
      */
     error UnmanageableNotAllowed();
+
+    /**
+     * @dev Thrown when querying expiration for a root that was never recorded.
+     */
+    error UnknownRoot(uint256 root);
 }
