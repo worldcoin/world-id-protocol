@@ -15,14 +15,20 @@ interface IWorldIDRegistryV2 is IWorldIDRegistry {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev Thrown when the provided authenticator address does not match the type stored in the bitmap.
-     *      For limited-signing authenticators (WIP-104), address must be zero. For management-key
-     *      authenticators, address must be non-zero.
+     * @dev Thrown when the provided authenticator address does not match the class stored in the bitmap.
+     *      For Proving Authenticators (WIP-104), address must be zero. For Admin Authenticators,
+     *      address must be non-zero.
      */
-    error AuthenticatorTypeMismatch(uint32 pubkeyId, bool isLimitedSigner);
+    error AuthenticatorClassMismatch(uint32 pubkeyId, bool isLimitedSigner);
 
     /**
      * @dev The requested method is no longer supported.
      */
     error MethodUnsupported();
+
+    /**
+     * @dev Thrown when removing an Admin Authenticator would leave only Proving Authenticators
+     *      on the account, making it unmanageable.
+     */
+    error UnmanageableNotAllowed();
 }

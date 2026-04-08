@@ -30,16 +30,16 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
     ////////////////////////////////////////////////////////////
 
     /// @dev The 96-bit bitmap representing the authenticators; off-chain public keys is now
-    ///   split: bits [0-47] for occupancy (i.e. is the key id space), bits [48-95] for the type
+    ///   split: bits [0-47] for occupancy (i.e. is the key id space), bits [48-95] for the class
     ///   of authenticator (i.e. is it a limited signer authenticator or a full authenticator).
     ///   V1 accounts with pubkeyId < 48 are backward-compatible (upper bits default to 0,
     ///   meaning full authenticator).
     /// @custom:override "Overrides" V1 as the hard limit is lowered by half, because the upper half is used
-    ///   to store the type of authenticator.
+    ///   to store the class of authenticator.
     uint256 public constant MAX_AUTHENTICATORS_V2_HARD_LIMIT = 48;
 
-    /// @dev Bit offset within the 96-bit bitmap where limited-signing flags begin.
-    uint256 internal constant _LIMITED_SIGNING_OFFSET = 48;
+    /// @dev Bit offset within the 96-bit pubkey bitmap where the flag for the class of authenticator begins.
+    uint256 internal constant _AUTHENTICATOR_CLASS_OFFSET = 48;
 
     ////////////////////////////////////////////////////////////
     //                    ROOT VALIDITY                       //
@@ -136,8 +136,8 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
             _authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
                 PackedAccountData.pack(leafIndex, uint32(_leafIndexToRecoveryCounter[leafIndex]), pubkeyId);
         } else {
-            // Limited-signing authenticator: set type flag in bitmap upper half
-            newBitmap |= (1 << (_LIMITED_SIGNING_OFFSET + uint256(pubkeyId)));
+            // Limited-signing authenticator: set class flag in bitmap upper half
+            newBitmap |= (1 << (_AUTHENTICATOR_CLASS_OFFSET + uint256(pubkeyId)));
         }
 
         _setPubkeyBitmap(leafIndex, newBitmap);
@@ -155,7 +155,7 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
 
     /// @inheritdoc IWorldIDRegistry
     /// @custom:override Overrides V1 to handle limited-signing authenticators (WIP-104). The bitmap's
-    ///   upper half encodes authenticator type: if the limited-signing flag is set, `authenticatorAddress`
+    ///   upper half encodes authenticator class: if the limited-signing flag is set, `authenticatorAddress`
     ///   must be `address(0)`; otherwise it must match the on-chain mapping.
     function removeAuthenticator(
         uint64 leafIndex,
@@ -194,16 +194,16 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         _leafIndexToSignatureNonce[leafIndex]++;
 
         uint256 bitmap = _getPubkeyBitmap(leafIndex);
-        bool isLimitedSigning = (bitmap & (1 << (_LIMITED_SIGNING_OFFSET + pubkeyId))) != 0;
+        bool isLimitedSigning = (bitmap & (1 << (_AUTHENTICATOR_CLASS_OFFSET + pubkeyId))) != 0;
 
         if (isLimitedSigning) {
             // For limited-signing authenticator, the address must be 0
             if (authenticatorAddress != address(0)) {
-                revert AuthenticatorTypeMismatch(pubkeyId, true);
+                revert AuthenticatorClassMismatch(pubkeyId, true);
             }
         } else {
             if (authenticatorAddress == address(0)) {
-                revert AuthenticatorTypeMismatch(pubkeyId, false);
+                revert AuthenticatorClassMismatch(pubkeyId, false);
             }
 
             uint256 packedToRemove = _authenticatorAddressToPackedAccountData[authenticatorAddress];
@@ -230,8 +230,19 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
             delete _authenticatorAddressToPackedAccountData[authenticatorAddress];
         }
 
-        // Clear both occupancy and type of authenticator bits
-        _setPubkeyBitmap(leafIndex, bitmap & ~(1 << pubkeyId) & ~(1 << (_LIMITED_SIGNING_OFFSET + pubkeyId)));
+        // Clear both occupancy and class of authenticator bits
+        uint256 newBitmap = bitmap & ~(1 << pubkeyId) & ~(1 << (_AUTHENTICATOR_CLASS_OFFSET + pubkeyId));
+
+        // Prevent orphaning proving authenticators without any admin to manage them
+        if (!isLimitedSigning) {
+            uint256 occupancy = newBitmap & ((1 << _AUTHENTICATOR_CLASS_OFFSET) - 1);
+            uint256 provingFlags = newBitmap >> _AUTHENTICATOR_CLASS_OFFSET;
+            if (occupancy != 0 && (occupancy & ~provingFlags) == 0) {
+                revert UnmanageableNotAllowed();
+            }
+        }
+
+        _setPubkeyBitmap(leafIndex, newBitmap);
 
         emit AuthenticatorRemoved(
             leafIndex,
