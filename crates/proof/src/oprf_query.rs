@@ -184,7 +184,7 @@ impl<'a> OprfEntrypoint<'a> {
             expiration_timestamp: proof_request.expires_at,
             signature: Some(proof_request.signature),
             rp_id: proof_request.rp_id,
-            auxiliary_wip101_bytes: None,
+            wip101_data: None,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(
@@ -228,7 +228,7 @@ impl<'a> OprfEntrypoint<'a> {
             expiration_timestamp: proof_request.expires_at,
             signature: Some(proof_request.signature),
             rp_id: proof_request.rp_id,
-            auxiliary_wip101_bytes: None,
+            wip101_data: None,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(

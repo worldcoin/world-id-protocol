@@ -18,19 +18,6 @@ pub(crate) mod tests;
 /// Max size of the auxiliary data according to WIP101.
 const MAX_AUX_DATA_SIZE: usize = 1024;
 
-/// Effigy action value for session-type WIP-101 contract calls.
-///
-/// When the action is `None` (session mode), we still need to pass an action
-/// to the WIP-101 `verifyRpRequest` contract. This value is `0x02 << 248`
-/// (i.e., `0x02` in the MSB followed by 31 zero bytes), which signals a
-/// session Action type per WIP-101 "Authorizing Sessions" section.
-///
-/// We always use the `0x02` (Action) prefix rather than differentiating
-/// between `OprfSeed` (`0x01`) and Action (`0x02`) because the contract only
-/// needs to know this is a session request, not the specific sub-type.
-const SESSION_EFFIGY: ark_babyjubjub::Fq =
-    ark_ff::MontFp!("904625697166532776746648320380374280103671755200316906558262375061821325312");
-
 #[allow(
     clippy::unreadable_literal,
     reason = "actually easier to read like this"
@@ -57,7 +44,7 @@ alloy::sol!(
 impl RelyingParty {
     pub(crate) async fn verify_wip101(
         &self,
-        action: Option<ark_babyjubjub::Fq>,
+        action: ark_babyjubjub::Fq,
         auth: &NullifierOprfRequestAuthV1,
         rpc_provider: &web3::RpcProvider,
         timeout: Duration,
@@ -65,11 +52,8 @@ impl RelyingParty {
         tracing::trace!("RP signer is WIP101");
         let iwip101 = IWIP101Instance::new(self.signer, rpc_provider.http());
 
-        // To not transmit the action to the verifier contract, we build an effigy that highlights that this is a session action
-        let action = action.unwrap_or(SESSION_EFFIGY);
-
         if auth
-            .auxiliary_wip101_bytes
+            .wip101_data
             .as_ref()
             .is_some_and(|bytes| bytes.len() > MAX_AUX_DATA_SIZE)
         {
@@ -77,7 +61,7 @@ impl RelyingParty {
         }
         // cloning here is not a problem as we only allow up to 1kb anyways
         let auxiliary_data = auth
-            .auxiliary_wip101_bytes
+            .wip101_data
             .clone()
             .map(Bytes::from)
             .unwrap_or_default();

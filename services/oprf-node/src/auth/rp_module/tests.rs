@@ -90,7 +90,7 @@ impl RpModuleTestSetup {
             expiration_timestamp: infra.setup.rp_fixture.expiration_timestamp,
             signature: Some(signature),
             rp_id: infra.setup.rp_fixture.world_rp_id,
-            auxiliary_wip101_bytes: None,
+            wip101_data: None,
         };
 
         Ok(Self {
@@ -135,7 +135,7 @@ impl RpModuleTestSetup {
             expiration_timestamp: infra.setup.rp_fixture.expiration_timestamp,
             signature: Some(infra.setup.rp_fixture.signature),
             rp_id: infra.setup.rp_fixture.world_rp_id,
-            auxiliary_wip101_bytes: None,
+            wip101_data: None,
         };
 
         Ok(Self {
@@ -175,7 +175,7 @@ impl RpModuleTestSetup {
             .expect("Should be able to update RP signer");
 
         self.request.auth.signature = None;
-        self.request.auth.auxiliary_wip101_bytes = data;
+        self.request.auth.wip101_data = data;
     }
 }
 
@@ -726,7 +726,7 @@ async fn check_wip101_wrong_method_signature(kind: RpModuleKind) -> eyre::Result
 async fn check_wip101_aux_data_on_eoa(kind: RpModuleKind) -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new(kind).await?;
     // EOA signer (default). Setting aux data should be rejected before any contract call.
-    setup.request.auth.auxiliary_wip101_bytes = Some(vec![0x01, 0x02, 0x03]);
+    setup.request.auth.wip101_data = Some(vec![0x01, 0x02, 0x03]);
     let auth_error = setup
         .request_authenticator
         .authenticate(&setup.request)

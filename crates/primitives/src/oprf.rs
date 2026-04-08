@@ -70,7 +70,7 @@ pub struct NullifierOprfRequestAuthV1 {
         skip_serializing_if = "Option::is_none",
         with = "serde_utils::hex_bytes_opt"
     )]
-    pub auxiliary_wip101_bytes: Option<Vec<u8>>,
+    pub wip101_data: Option<Vec<u8>>,
 }
 
 /// A request sent by a client for OPRF credential blinding factor authentication.
@@ -235,15 +235,15 @@ impl WorldIdRequestAuthError {
             | Self::Wip101VerificationFailed(_)
             | Self::Wip101CustomRevert
             | Self::Wip101VerificationTimeout
+            | Self::Wip101AuxDataOnEoa
+            | Self::Wip101AuxDataTooLarge
             | Self::Wip101AccountCheckTimeout => ErrorActor::Rp,
             Self::UnknownSchemaIssuerId => ErrorActor::Issuer,
             Self::InvalidMerkleRoot
             | Self::InvalidQueryProof
             | Self::InvalidActionSchemaIssuer
             | Self::InvalidActionSession
-            | Self::RpSignatureMissing
-            | Self::Wip101AuxDataOnEoa
-            | Self::Wip101AuxDataTooLarge => ErrorActor::Authenticator,
+            | Self::RpSignatureMissing => ErrorActor::Authenticator,
             Self::Internal | Self::Unknown(_) => ErrorActor::OprfNode,
         }
     }

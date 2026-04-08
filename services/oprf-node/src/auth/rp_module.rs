@@ -255,7 +255,7 @@ impl RelyingParty {
             .auth
             .signature
             .ok_or_else(|| RpModuleError::RpSignatureMissing)?;
-        if request.auth.auxiliary_wip101_bytes.is_some() {
+        if request.auth.wip101_data.is_some() {
             return Err(RpModuleError::Wip101AuxDataOnEoa);
         }
         // check the RP nonce signature
@@ -276,7 +276,8 @@ impl RelyingParty {
 
     async fn ensure_signature_valid(
         &self,
-        action: Option<ark_babyjubjub::Fq>,
+        kind: RpModuleKind,
+        action: ark_babyjubjub::Fq,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
         wip101_timeout: Duration,
         rpc_provider: &web3::RpcProvider,
@@ -284,6 +285,10 @@ impl RelyingParty {
         match self.account_type {
             RpAccountType::Eoa => {
                 tracing::trace!("RP signer is EOA");
+                let action = match kind {
+                    RpModuleKind::Uniqueness => Some(action),
+                    RpModuleKind::Session => None,
+                };
                 self.verify_eoa(action, request)
             }
             RpAccountType::Contract => {
@@ -293,16 +298,7 @@ impl RelyingParty {
             }
             RpAccountType::IncompatibleWip101 => {
                 tracing::trace!("RP signer is incompatible WIP101");
-                // NOTE: Spec #7 says non-ERC-165-compliant signers should fall back to ECDSA.
-                //
-                // We ignore the error we got from EOA verification and send back RpModuleError::Wip101IncompatibleRpSigner to highlight that the contract needs to update their interfaces.
-                self.verify_eoa(action, request).map_err(|err| match err {
-                    RpModuleError::Internal(internal) => RpModuleError::Internal(internal),
-                    x => {
-                        tracing::debug!("IncompatibleWip101 EOA fallback failed: {x}");
-                        RpModuleError::Wip101IncompatibleRpSigner
-                    }
-                })
+                Err(RpModuleError::Wip101IncompatibleRpSigner)
             }
         }
     }
@@ -355,7 +351,7 @@ impl RpModuleAuth {
 
     async fn verify_rp_signature(
         &self,
-        action: Option<ark_babyjubjub::Fq>,
+        action: ark_babyjubjub::Fq,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
     ) -> Result<OprfKeyId, RpModuleError> {
         let current_time = Utc::now();
@@ -398,6 +394,7 @@ impl RpModuleAuth {
         let rp = self.rp_registry_watcher.get_rp(&request.auth.rp_id).await?;
 
         rp.ensure_signature_valid(
+            self.kind,
             action,
             request,
             self.timeout_external_eth_call,
@@ -443,14 +440,8 @@ impl RpModuleAuth {
             }
         }
 
-        // Session does not include the action in the RP signature; uniqueness does.
-        let signed_action = match self.kind {
-            RpModuleKind::Session => None,
-            RpModuleKind::Uniqueness => Some(request.auth.action),
-        };
-
         let (rp_check, merkle_check) = tokio::join!(
-            self.verify_rp_signature(signed_action, request),
+            self.verify_rp_signature(request.auth.action, request),
             self.merkle_watcher
                 .ensure_root_valid(FieldElement::from(request.auth.merkle_root))
         );

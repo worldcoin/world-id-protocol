@@ -359,7 +359,7 @@ fn generate_oprf_auth_request(
         expiration_timestamp: proof_request.expires_at,
         signature: Some(proof_request.signature),
         rp_id: proof_request.rp_id,
-        auxiliary_wip101_bytes: None,
+        wip101_data: None,
     };
 
     Ok(auth)
