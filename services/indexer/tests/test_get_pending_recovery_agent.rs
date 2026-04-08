@@ -75,6 +75,12 @@ async fn test_get_pending_recovery_agent_endpoint() {
         .await
         .expect("initiateRecoveryAgentUpdate transaction failed");
 
+    let pending_recovery_agent_update = registry
+        .getPendingRecoveryAgentUpdate(leaf_index)
+        .call()
+        .await
+        .unwrap();
+
     let temp_cache_path =
         std::env::temp_dir().join(format!("test_cache_{}.mmap", uuid::Uuid::new_v4()));
     let global_config = GlobalConfig {
@@ -138,6 +144,12 @@ async fn test_get_pending_recovery_agent_endpoint() {
     assert_eq!(
         pending_recovery_agent.to_lowercase(),
         format!("{new_recovery_agent}").to_lowercase()
+    );
+
+    let execute_after = json["execute_after"].as_str().unwrap();
+    assert_eq!(
+        execute_after.to_lowercase(),
+        format!("0x{:x}", pending_recovery_agent_update.executeAfter).to_lowercase()
     );
 
     let resp = client

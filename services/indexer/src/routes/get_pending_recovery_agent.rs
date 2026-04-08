@@ -6,9 +6,9 @@ use world_id_core::api_types::{
 
 use crate::config::AppState;
 
-/// Get the pending recovery agent for a particular World ID given its leaf index.
+/// Get the pending recovery agent update for a particular World ID given its leaf index.
 ///
-/// If no recovery agent update is pending, the zero address is returned.
+/// If no recovery agent update is pending, the zero address and zero execute-after timestamp are returned.
 #[utoipa::path(
     post,
     path = "/pending-recovery-agent",
@@ -57,5 +57,6 @@ pub(crate) async fn handler(
 
     Ok(Json(IndexerPendingRecoveryAgentResponse {
         pending_recovery_agent: pending_recovery_agent_update.newRecoveryAgent,
+        execute_after: pending_recovery_agent_update.executeAfter,
     }))
 }
