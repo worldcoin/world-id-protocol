@@ -439,6 +439,28 @@ pub struct IndexerRecoveryAgentResponse {
     pub recovery_agent: Address,
 }
 
+/// Response containing the pending recovery agent from the indexer.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct IndexerPendingRecoveryAgentResponse {
+    /// The pending recovery agent for the World ID.
+    ///
+    /// Please note this may be the zero address if no recovery agent update is pending.
+    ///
+    /// Serialized as a canonical `0x`-prefixed hex string.
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x0"))]
+    pub pending_recovery_agent: Address,
+
+    /// The earliest timestamp at which the pending recovery agent update may be executed.
+    ///
+    /// Please note this may be zero if no recovery agent update is pending.
+    ///
+    /// Serialized as a canonical `0x`-prefixed hex string.
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x0"))]
+    pub execute_after: U256,
+}
+
 /// Response containing authenticator public keys for an account from the indexer.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
