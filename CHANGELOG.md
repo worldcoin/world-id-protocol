@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.8.0...world-id-primitives-v0.8.1) - 2026-04-01
+
+### Added
+
+- expose sign_initiate_recovery_agent_update on CoreAuthenticator (PROTO-4477) ([#630](https://github.com/worldcoin/world-id-protocol/pull/630))
+
+## [0.8.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.7.1...world-id-primitives-v0.8.0) - 2026-03-31
+
+### Added
+
+- expose from_be_bytes_mod_order ([#624](https://github.com/worldcoin/world-id-protocol/pull/624))
+
+### Fixed
+
+- use hex serde for all signature Vec<u8> fields in API types ([#619](https://github.com/worldcoin/world-id-protocol/pull/619))
+
+### Other
+
+- use hex_signature for signature parsing ([#626](https://github.com/worldcoin/world-id-protocol/pull/626))
+- *(oprf-nodes)* [**breaking**] uses the nodes_common rpc provider over ws provider everywhere + removes AWS deps ([#617](https://github.com/worldcoin/world-id-protocol/pull/617))
+- update Cargo.toml dependencies
+
 ## [0.7.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.7.0...world-id-primitives-v0.7.1) - 2026-03-26
 
 ### Added
