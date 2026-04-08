@@ -26,14 +26,14 @@ use taceo_oprf_test_utils::health_checks;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use world_id_core::{
-    Authenticator, EdDSAPrivateKey,
+    Authenticator, CredentialInput, EdDSAPrivateKey,
     requests::{ProofRequest, RequestItem, RequestVersion},
 };
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
 };
 use world_id_primitives::{
-    Config, FieldElement, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
+    Config, FieldElement, SessionFieldElement, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
@@ -287,22 +287,28 @@ async fn main() -> Result<()> {
         .find_request_by_issuer_schema_id(issuer_schema_id)
         .unwrap();
 
-    let (incl_proof, key_set) = authenticator.fetch_inclusion_proof().await?;
+    let credentials = [CredentialInput {
+        credential: credential.clone(),
+        blinding_factor: credential_sub_blinding_factor,
+    }];
+
     let nullifier_data = authenticator
-        .generate_nullifier(&uniqueness_request, incl_proof, key_set)
+        .generate_nullifier(&uniqueness_request, None)
         .await?;
+
     // Clone the nullifier data before it's consumed — we reuse it for the session proof.
     let nullifier_data_for_session = nullifier_data.clone();
 
-    let uniqueness_response = authenticator.generate_single_proof(
-        nullifier_data,
-        request_item,
-        &credential,
-        credential_sub_blinding_factor,
-        FieldElement::ZERO, // for uniqueness proofs this can be zero
-        uniqueness_request.session_id,
-        uniqueness_request.created_at,
-    )?;
+    let uniqueness_result = authenticator
+        .generate_proof(
+            &uniqueness_request,
+            nullifier_data,
+            &credentials,
+            None,
+            None,
+        )
+        .await?;
+    let uniqueness_response = &uniqueness_result.proof_response.responses[0];
 
     // Verify on-chain.
     info!("Verifying uniqueness proof on-chain...");
@@ -333,18 +339,30 @@ async fn main() -> Result<()> {
 
     //  ── CREATE SESSION
     let session_id_r_seed = FieldElement::random(&mut rng); // TODO: Create through OPRF
-    let session_id = SessionId::from_r_seed(leaf_index, session_id_r_seed, None, &mut rng).unwrap();
-
-    // ── SESSION PROOF (reuse cloned OPRF data with a non-zero session_id) ──
-    let session_response = authenticator.generate_single_proof(
-        nullifier_data_for_session,
-        request_item,
-        &credential,
-        credential_sub_blinding_factor,
+    let session_id = SessionId::from_r_seed(
+        leaf_index,
         session_id_r_seed,
-        Some(session_id),
-        uniqueness_request.created_at,
-    )?;
+        FieldElement::random_for_session(&mut rng, world_id_primitives::SessionFeType::OprfSeed),
+    )
+    .unwrap();
+
+    // ── SESSION PROOF (reuse cloned OPRF data with a session_id on the request) ──
+    let session_request = ProofRequest {
+        session_id: Some(session_id),
+        action: None, // session proofs use an internal random action
+        ..uniqueness_request.clone()
+    };
+
+    let session_result = authenticator
+        .generate_proof(
+            &session_request,
+            nullifier_data_for_session,
+            &credentials,
+            None,
+            Some(session_id_r_seed),
+        )
+        .await?;
+    let session_response = &session_result.proof_response.responses[0];
 
     let session_nullifier = session_response
         .session_nullifier
@@ -364,7 +382,7 @@ async fn main() -> Result<()> {
                 .unwrap_or_default()
                 .try_into()
                 .expect("u64 fits into U256"),
-            session_id.commitment().into(),
+            session_id.commitment.into(),
             session_nullifier.as_ethereum_representation(),
             session_response.proof.as_ethereum_representation(),
         )
@@ -441,7 +459,7 @@ async fn main() -> Result<()> {
     println!();
 
     println!("// ── Session Proof inputs ──");
-    let session_id_u256: U256 = session_id.commitment().into();
+    let session_id_u256: U256 = session_id.commitment.into();
     let s_proof = session_response.proof.as_ethereum_representation();
     let s_null = session_nullifier.as_ethereum_representation();
     println!("uint256 sessionId = {:#x};", session_id_u256);

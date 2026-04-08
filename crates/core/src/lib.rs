@@ -10,8 +10,8 @@ pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 
 #[cfg(feature = "authenticator")]
 pub use world_id_authenticator::{
-    Authenticator, AuthenticatorConfig, AuthenticatorError, InitializingAuthenticator,
-    OnchainKeyRepresentable,
+    Authenticator, AuthenticatorConfig, AuthenticatorError, CredentialInput,
+    InitializingAuthenticator, OnchainKeyRepresentable, ProofResult,
 };
 
 #[cfg(feature = "authenticator")]

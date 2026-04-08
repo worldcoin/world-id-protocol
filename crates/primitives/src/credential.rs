@@ -122,7 +122,8 @@ pub struct Credential {
     /// The underlying identifier comes from the `WorldIDRegistry` and is
     /// the `leaf_index` of the World ID on the Merkle tree. However, this is blinded
     /// for each `issuer_schema_id` with a blinding factor to prevent correlation of credentials
-    /// by malicious issuers.
+    /// by malicious issuers. See [`Self::compute_sub`] for details on how the credential blinding factor
+    /// is computed.
     pub sub: FieldElement,
     /// Timestamp of **first issuance** of this credential (unix seconds), i.e. this represents when the holder
     /// first obtained the credential. Even if the credential has been issued multiple times (e.g. because of a renewal),

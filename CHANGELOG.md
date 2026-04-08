@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.8.1...world-id-primitives-v0.8.2) - 2026-04-02
+
+### Added
+
+- generate session_id_r_seed through OPRF nodes ([#628](https://github.com/worldcoin/world-id-protocol/pull/628))
+- rename sign_initiate_recovery_agent_update → danger_sign_initiate_recovery_agent_update (PROTO-4477) ([#631](https://github.com/worldcoin/world-id-protocol/pull/631))
+
+### Other
+
+- WIP-103 - Proof of Ownership ([#622](https://github.com/worldcoin/world-id-protocol/pull/622))
+
+## [0.8.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.8.0...world-id-primitives-v0.8.1) - 2026-04-01
+
+### Added
+
+- expose sign_initiate_recovery_agent_update on CoreAuthenticator (PROTO-4477) ([#630](https://github.com/worldcoin/world-id-protocol/pull/630))
+
 ## [0.8.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.7.1...world-id-primitives-v0.8.0) - 2026-03-31
 
 ### Added

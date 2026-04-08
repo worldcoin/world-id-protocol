@@ -444,8 +444,8 @@ async fn fetch_inclusion_proof_roundtrips_through_ohttp() -> eyre::Result<()> {
     )
     .await;
 
-    let (returned_proof, _key_set) = auth.fetch_inclusion_proof().await?;
-    let proof_root: U256 = returned_proof.root.into();
+    let returned_proof = auth.fetch_inclusion_proof().await?;
+    let proof_root: U256 = returned_proof.inclusion_proof.root.into();
     assert_eq!(proof_root, expected_root);
 
     let idx_req = f
