@@ -394,7 +394,7 @@ mod tests {
         let started_services = StartedServices::default();
 
         let cancellation_token = CancellationToken::new();
-        let rpc_provider = build_rpc_provider(&anvil).await;
+        let rpc_provider = build_rpc_provider(&anvil.instance).await;
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
@@ -442,7 +442,7 @@ mod tests {
         let started_services = StartedServices::default();
 
         let cancellation_token = CancellationToken::new();
-        let rpc_provider = build_rpc_provider(&anvil).await;
+        let rpc_provider = build_rpc_provider(&anvil.instance).await;
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
@@ -509,7 +509,7 @@ mod tests {
         let started_services = StartedServices::default();
 
         let cancellation_token = CancellationToken::new();
-        let rpc_provider = build_rpc_provider(&anvil).await;
+        let rpc_provider = build_rpc_provider(&anvil.instance).await;
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,

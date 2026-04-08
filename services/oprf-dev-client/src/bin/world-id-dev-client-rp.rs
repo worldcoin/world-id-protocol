@@ -1,7 +1,7 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy::{
-    primitives::{Address, U160},
+    primitives::Address,
     providers::DynProvider,
     signers::{SignerSync as _, k256::ecdsa::SigningKey, local::LocalSigner},
 };
@@ -35,7 +35,11 @@ use world_id_test_utils::anvil::RpRegistry;
 struct RpConfig {
     /// rp id of already registered rp
     #[clap(long, env = "OPRF_DEV_CLIENT_RP_ID")]
-    pub rp_id: Option<u64>,
+    pub rp_id: u64,
+
+    /// If set to `true`, will try to create a new OPRF key
+    #[clap(long, env = "OPRF_DEV_CLIENT_RP_CREATE_KEY")]
+    pub create_key: bool,
 
     /// The Address of the RpRegistry contract.
     #[clap(long, env = "OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT")]
@@ -46,7 +50,8 @@ struct RpConfig {
 }
 
 struct WorldIdRpDevClient {
-    rp_id: Option<u64>,
+    rp_id: u64,
+    create_key: bool,
     rp_registry_contract: Address,
     components: SharedDevClientComponents,
 }
@@ -81,7 +86,7 @@ impl DevClient for WorldIdRpDevClient {
 
         tracing::info!("fetched data from authenticator");
 
-        let (rp_id, rp_oprf_public_key) = tokio::time::timeout(
+        let rp_oprf_public_key = tokio::time::timeout(
             config.max_wait_time,
             self.setup_rp(config, signer_address, &provider),
         )
@@ -90,7 +95,7 @@ impl DevClient for WorldIdRpDevClient {
         .context("while setup of RP")?;
 
         Ok(WorldIdRpDevClientSetup {
-            rp_id,
+            rp_id: RpId::from(self.rp_id),
             rp_oprf_public_key,
             inclusion_proof,
             key_set,
@@ -213,6 +218,7 @@ impl WorldIdRpDevClient {
     async fn new(config: &RpConfig) -> eyre::Result<Self> {
         let components = world_id_oprf_dev_client::init_shared_components(&config.base).await?;
         Ok(Self {
+            create_key: config.create_key,
             rp_id: config.rp_id,
             rp_registry_contract: config.rp_registry_contract,
             components,
@@ -224,26 +230,13 @@ impl WorldIdRpDevClient {
         config: &DevClientConfig,
         signer: Address,
         provider: &DynProvider,
-    ) -> eyre::Result<(RpId, OprfPublicKey)> {
-        if let Some(rp_id) = self.rp_id {
-            let oprf_key_id = OprfKeyId::new(U160::from(rp_id));
-            let share_epoch = ShareEpoch::new(config.share_epoch);
-            let oprf_public_key = health_checks::oprf_public_key_from_services(
-                oprf_key_id,
-                share_epoch,
-                &config.nodes,
-                Duration::from_secs(10), // should already be there
-            )
-            .await?;
-            Ok((RpId::new(rp_id), oprf_public_key))
-        } else {
+    ) -> eyre::Result<OprfPublicKey> {
+        if self.create_key {
+            tracing::info!("trying to create new RP: {}", self.rp_id);
             let rp_registry = RpRegistry::new(self.rp_registry_contract, provider.clone());
-            let rp_id = RpId::new(rand::random());
-            let oprf_key_id = OprfKeyId::new(U160::from(rp_id.into_inner()));
-            tracing::info!("registering new RP");
             let receipt = rp_registry
                 .register(
-                    rp_id.into_inner(),
+                    self.rp_id,
                     signer,
                     signer,
                     "taceo.oprf.dev.client".to_string(),
@@ -256,17 +249,17 @@ impl WorldIdRpDevClient {
             if !receipt.status() {
                 eyre::bail!("failed to register RP");
             }
-            tracing::info!("registered RP with OPRF key: {oprf_key_id}");
-            tracing::info!("now waiting for key-gen to finish");
-            let oprf_public_key = health_checks::oprf_public_key_from_services(
-                oprf_key_id,
-                ShareEpoch::default(),
-                &config.nodes,
-                config.max_wait_time,
-            )
-            .await?;
-            Ok((rp_id, oprf_public_key))
+            tracing::info!("registered RP with id: {}", self.rp_id);
         }
+        tracing::info!("fetching key from nodes..");
+        health_checks::oprf_public_key_from_services(
+            OprfKeyId::from(self.rp_id),
+            ShareEpoch::default(),
+            &config.nodes,
+            config.max_wait_time,
+        )
+        .await
+        .context("while fetching public key from services")
     }
 }
 
@@ -364,8 +357,9 @@ fn generate_oprf_auth_request(
         merkle_root: *setup.inclusion_proof.root,
         current_time_stamp: proof_request.created_at,
         expiration_timestamp: proof_request.expires_at,
-        signature: proof_request.signature,
+        signature: Some(proof_request.signature),
         rp_id: proof_request.rp_id,
+        wip101_data: None,
     };
 
     Ok(auth)
