@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Test} from "forge-std/Test.sol";
 import {WorldIDRegistry} from "../../src/core/WorldIDRegistry.sol";
 import {WorldIDRegistryV2} from "../../src/core/WorldIDRegistryV2Unreleased.sol";
+import {IWorldIDRegistryV2} from "../../src/core/interfaces/IWorldIDRegistryV2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
@@ -103,7 +104,7 @@ contract WorldIDRegistryV2RaceConditionTest is Test {
         assertEq(registry.getRootExpiration(rootA), 0, "latest root should return 0");
 
         // Unknown root reverts
-        vm.expectRevert(abi.encodeWithSelector(WorldIDRegistryV2.UnknownRoot.selector, 0xDEAD));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistryV2.UnknownRoot.selector, 0xDEAD));
         registry.getRootExpiration(0xDEAD);
 
         // Replace rootA at a known timestamp
