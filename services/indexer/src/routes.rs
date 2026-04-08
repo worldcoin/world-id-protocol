@@ -3,13 +3,14 @@ use axum::{Json, Router, middleware::from_fn, response::IntoResponse};
 use utoipa::OpenApi;
 use world_id_core::api_types::{
     AccountInclusionProofSchema, IndexerAuthenticatorPubkeysResponse, IndexerPackedAccountRequest,
-    IndexerPackedAccountResponse, IndexerQueryRequest, IndexerRecoveryAgentResponse,
-    IndexerSignatureNonceResponse,
+    IndexerPackedAccountResponse, IndexerPendingRecoveryAgentResponse, IndexerQueryRequest,
+    IndexerRecoveryAgentResponse, IndexerSignatureNonceResponse,
 };
 
 use crate::config::AppState;
 mod get_authenticator_pubkeys;
 mod get_packed_account;
+mod get_pending_recovery_agent;
 mod get_recovery_agent;
 mod get_signature_nonce;
 mod health;
@@ -23,6 +24,7 @@ mod middleware;
         get_packed_account::handler,
         get_signature_nonce::handler,
         get_recovery_agent::handler,
+        get_pending_recovery_agent::handler,
         inclusion_proof::handler,
     ),
     components(schemas(
@@ -32,6 +34,7 @@ mod middleware;
         IndexerQueryRequest,
         IndexerSignatureNonceResponse,
         IndexerRecoveryAgentResponse,
+        IndexerPendingRecoveryAgentResponse,
         AccountInclusionProofSchema,
         IndexerErrorBody,
     )),
@@ -66,6 +69,10 @@ pub(crate) fn handler(state: AppState, request_timeout_secs: u64) -> Router {
         .route(
             "/recovery-agent",
             axum::routing::post(get_recovery_agent::handler),
+        )
+        .route(
+            "/pending-recovery-agent",
+            axum::routing::post(get_pending_recovery_agent::handler),
         )
         .route("/health", axum::routing::get(health::handler))
         .route("/openapi.json", axum::routing::get(openapi))

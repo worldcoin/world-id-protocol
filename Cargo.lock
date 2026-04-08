@@ -7586,9 +7586,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-nodes-common"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9faae853c9877475a4b50731ed80fe5325227d26acca1ad82092dac592400b4b"
+checksum = "7b463ab18039730c44b38167f09acbaf91c0ceaea30c6218d259b9f3cb44f30f"
 dependencies = [
  "alloy",
  "axum",
@@ -7598,6 +7598,7 @@ dependencies = [
  "secrecy",
  "serde",
  "sqlx",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tower",
