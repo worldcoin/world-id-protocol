@@ -19,7 +19,7 @@ interface IWorldIDRegistryV2 is IWorldIDRegistry {
      *      For Proving Authenticators (WIP-104), address must be zero. For Admin Authenticators,
      *      address must be non-zero.
      */
-    error AuthenticatorClassMismatch(uint32 pubkeyId, bool isLimitedSigner);
+    error AuthenticatorClassMismatch(uint32 pubkeyId, bool isProvingAuthenticator);
 
     /**
      * @dev The requested method is no longer supported.

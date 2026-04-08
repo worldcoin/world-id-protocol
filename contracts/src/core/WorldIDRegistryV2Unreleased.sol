@@ -31,7 +31,7 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
 
     /// @dev The 96-bit bitmap representing the authenticators; off-chain public keys is now
     ///   split: bits [0-47] for occupancy (i.e. is the key id space), bits [48-95] for the class
-    ///   of authenticator (i.e. is it a limited signer authenticator or a full authenticator).
+    ///   of authenticator (i.e. is it a Proving Authenticator or an Admin Authenticator).
     ///   V1 accounts with pubkeyId < 48 are backward-compatible (upper bits default to 0,
     ///   meaning full authenticator).
     /// @custom:override "Overrides" V1 as the hard limit is lowered by half, because the upper half is used
@@ -44,6 +44,17 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
     ////////////////////////////////////////////////////////////
     //                    ROOT VALIDITY                       //
     ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Captures `_latestRoot` before `super._recordCurrentRoot()` overwrites it, and stores
+     *   `block.timestamp` in `_rootToValidityTimestamp` for that root.
+     * @custom:override Overrides V1 to record the timestamp when the current root stops being the latest.
+     */
+    function _recordCurrentRoot() internal virtual override {
+        uint256 currentRoot = _latestRoot;
+        _rootToValidityTimestamp[currentRoot] = block.timestamp;
+        super._recordCurrentRoot();
+    }
 
     /// @inheritdoc IWorldIDRegistry
     /// @custom:override Overrides V1 to use `_rootToValidityTimestamp` (when root was replaced) instead of
@@ -71,9 +82,9 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
     ////////////////////////////////////////////////////////////
 
     /// @inheritdoc IWorldIDRegistry
-    /// @custom:override Overrides V1 to allow inserting limited-signing authenticators without on-chain
+    /// @custom:override Overrides V1 to allow inserting Proving Authenticators without on-chain
     ///   management keys (WIP-104). When `newAuthenticatorAddress` is `address(0)`, the authenticator's
-    ///   limited-signing flag is set in the bitmap and no `_authenticatorAddressToPackedAccountData`
+    ///   class flag is set in the bitmap and no `_authenticatorAddressToPackedAccountData`
     ///   entry is created.
     function insertAuthenticator(
         uint64 leafIndex,
@@ -136,7 +147,7 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
             _authenticatorAddressToPackedAccountData[newAuthenticatorAddress] =
                 PackedAccountData.pack(leafIndex, uint32(_leafIndexToRecoveryCounter[leafIndex]), pubkeyId);
         } else {
-            // Limited-signing authenticator: set class flag in bitmap upper half
+            // Proving Authenticator: set class flag in bitmap upper half
             newBitmap |= (1 << (_AUTHENTICATOR_CLASS_OFFSET + uint256(pubkeyId)));
         }
 
@@ -154,8 +165,8 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
     }
 
     /// @inheritdoc IWorldIDRegistry
-    /// @custom:override Overrides V1 to handle limited-signing authenticators (WIP-104). The bitmap's
-    ///   upper half encodes authenticator class: if the limited-signing flag is set, `authenticatorAddress`
+    /// @custom:override Overrides V1 to handle Proving Authenticators (WIP-104). The bitmap's
+    ///   upper half encodes authenticator class: if the class flag is set, `authenticatorAddress`
     ///   must be `address(0)`; otherwise it must match the on-chain mapping.
     function removeAuthenticator(
         uint64 leafIndex,
@@ -194,10 +205,10 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         _leafIndexToSignatureNonce[leafIndex]++;
 
         uint256 bitmap = _getPubkeyBitmap(leafIndex);
-        bool isLimitedSigning = (bitmap & (1 << (_AUTHENTICATOR_CLASS_OFFSET + pubkeyId))) != 0;
+        bool isProvingAuthenticator = (bitmap & (1 << (_AUTHENTICATOR_CLASS_OFFSET + pubkeyId))) != 0;
 
-        if (isLimitedSigning) {
-            // For limited-signing authenticator, the address must be 0
+        if (isProvingAuthenticator) {
+            // For Proving Authenticator, the address must be 0
             if (authenticatorAddress != address(0)) {
                 revert AuthenticatorClassMismatch(pubkeyId, true);
             }
@@ -234,7 +245,7 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         uint256 newBitmap = bitmap & ~(1 << pubkeyId) & ~(1 << (_AUTHENTICATOR_CLASS_OFFSET + pubkeyId));
 
         // Prevent orphaning proving authenticators without any admin to manage them
-        if (!isLimitedSigning) {
+        if (!isProvingAuthenticator) {
             uint256 occupancy = newBitmap & ((1 << _AUTHENTICATOR_CLASS_OFFSET) - 1);
             uint256 provingFlags = newBitmap >> _AUTHENTICATOR_CLASS_OFFSET;
             if (occupancy != 0 && (occupancy & ~provingFlags) == 0) {
@@ -274,7 +285,7 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
 
     /// @inheritdoc IWorldIDRegistry
     /// @custom:override Overrides V1 to enforce V2 hard limit of 48 (bitmap split between occupancy
-    ///   and limited-signing flags).
+    ///   and authenticator class flags).
     function setMaxAuthenticators(uint256 newMaxAuthenticators)
         external
         virtual
