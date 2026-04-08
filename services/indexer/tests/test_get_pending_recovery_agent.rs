@@ -9,7 +9,6 @@ use alloy::{
     network::EthereumWallet,
     primitives::{Address, Bytes, U256, address},
     providers::{Provider, ProviderBuilder},
-    signers::local::PrivateKeySigner,
 };
 use http::StatusCode;
 use world_id_core::{
@@ -27,7 +26,10 @@ use world_id_services_common::ProviderArgs;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_get_pending_recovery_agent_endpoint() {
     let setup = TestSetup::new().await;
-    let signer = PrivateKeySigner::random();
+    let signer = setup
+        ._anvil
+        .signer(1)
+        .expect("failed to obtain funded signer");
     let auth_addr: Address = signer.address();
     let sk = EdDSAPrivateKey::random(&mut rand::thread_rng());
     let pk = sk.public().to_compressed_bytes().unwrap();
