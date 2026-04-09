@@ -17,7 +17,11 @@ pub fn main(
     inputs: OwnershipProofInputs<MAX_DEPTH, NUM_KEYS>,
 ) -> pub OwnershipProofOutputs {
     // 1. Generate query
-    let message = generate_message(inputs.merkle_proof.mt_index, inputs.commitment_r);
+    let message = generate_message(
+        inputs.domain_separator,
+        inputs.merkle_proof.mt_index,
+        inputs.commitment_r,
+    );
 
     // 1. Verify sk/pk by verifying a signature to a known message
     assert_lt(inputs.pk_index, NUM_KEYS as Field);

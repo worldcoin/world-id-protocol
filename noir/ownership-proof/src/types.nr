@@ -13,9 +13,8 @@ pub struct OwnershipProofInputs<let MAX_DEPTH: u32, let NUM_KEYS: u32> {
     pub pk_index: Field,
     pub query_s: Field,
     pub query_r: [Field; 2],
-
     pub merkle_proof: MerkleProof<MAX_DEPTH>,
-
+    pub domain_separator: Field,
     pub commitment_r: Field,
 }
 
