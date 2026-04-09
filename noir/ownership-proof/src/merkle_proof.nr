@@ -29,6 +29,7 @@ pub fn compute_merkle_root_poseidon2<let N: u32>(
     depth.assert_max_bit_size::<5>();
     let depth_u32 = depth as u32;
     assert(idx < (1 << depth_u32), "Index must be less than 2^depth");
+    assert(depth == N as Field);
 
     for i in 0..N {
         if i < depth_u32 {
@@ -132,4 +133,11 @@ fn test_compute_merkle_root_depth_2_index_3() {
 fn test_compute_merkle_root_index_out_of_range() {
     // index=2 with depth=1 means max valid index is 1
     let _ = compute_merkle_root_poseidon2(123, 1, 2, [456]);
+}
+
+#[test(should_fail)]
+fn test_compute_merkle_root_rejects_exceeding_depth() {
+    // depth=31 must be rejected because it exceeds the MAX_DEPTH size.
+    let siblings = [0; 30];
+    let _ = compute_merkle_root_poseidon2(0, 31, 0, siblings);
 }
