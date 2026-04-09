@@ -17,4 +17,4 @@ jobs:
       - uses: actions/checkout@v6
       - run: curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
       - run: ~/.nargo/bin/noirup
-      - run: cd ownership_proof && ~/.nargo/bin/nargo fmt --check && ~/.nargo/bin/nargo test
+      - run: cd ownership-proof && ~/.nargo/bin/nargo fmt --check && ~/.nargo/bin/nargo test
