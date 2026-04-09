@@ -61,6 +61,27 @@ deploy_contracts() {
     (cd contracts && TACEO_ADMIN_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry ADMIN_ADDRESS_REGISTER=$credential_schema_issuer_registry forge script lib/oprf-key-registry/script/RegisterKeyGenAdmin.s.sol --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
 }
 
+deploy_wip101_contracts() {
+    # deploy the WIP101 scripts for testing
+    (cd contracts && forge script script/core/Wip101Mock.s.sol:DeployWIP101 --broadcast --rpc-url http://localhost:8545 --private-key $PK)
+
+    wip101_correct=$(jq -r '.transactions[] | select(.contractName == "WIP101Correct") | .contractAddress' ./contracts/broadcast/Wip101Mock.s.sol/31337/run-latest.json)
+    wip101_aux=$(jq -r '.transactions[] | select(.contractName == "WIP101CorrectWhenAuxData") | .contractAddress' ./contracts/broadcast/Wip101Mock.s.sol/31337/run-latest.json)
+
+    # create two RPs with hardcoded ID to test WIP101
+    cast send $rp_registry \
+    "register(uint64,address,address,string)" \
+    101 $wip101_correct $wip101_correct "wip correct" \
+    --private-key $PK \
+    --rpc-url http://127.0.0.1:8545
+
+    cast send $rp_registry \
+    "register(uint64,address,address,string)" \
+    102 $wip101_aux $wip101_aux "wip with aux" \
+    --private-key $PK \
+    --rpc-url http://127.0.0.1:8545
+}
+
 start_node() {
     local i="$1"
     local port=$((10000 + i))
@@ -84,6 +105,8 @@ start_node() {
 }
 
 run_indexer_and_gateway() {
+    # remove the tree_cache_file as we have a new DB everytime we run local_setup
+    rm -f /tmp/tree.mmap
     REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WS_URL=ws://localhost:8545 DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres TREE_CACHE_FILE=/tmp/tree.mmap cargo run --release -p world-id-indexer -- --http --indexer > logs/world-id-indexer.log 2>&1 &
     indexer_pid=$!
     echo "started indexer with PID $indexer_pid"
@@ -96,7 +119,6 @@ run_indexer_and_gateway() {
 }
 
 teardown() {
-    docker compose down || true
     killall -9 world-id-oprf-node 2>/dev/null || true
     killall -9 world-id-indexer 2>/dev/null || true
     killall -9 world-id-gateway 2>/dev/null || true
@@ -109,7 +131,7 @@ setup() {
     teardown
     trap teardown EXIT SIGINT SIGTERM
 
-    anvil &
+    anvil > logs/anvil.log 2>&1 &
 
     docker compose up -d postgres redis
 
@@ -129,7 +151,7 @@ setup() {
     wait_for_health 20002 "oprf-key-gen2" 300
 
     echo -e "${GREEN}starting OPRF nodes..${NOCOLOR}"
-    cargo build -p world-id-oprf-node --release
+    cargo build -p world-id-oprf-node --release -q
     start_node 0
     start_node 1
     start_node 2
@@ -156,8 +178,18 @@ client() {
         export RUST_LOG="world_id_dev_client_rp=trace,world_id_dev_client_issuer_blinding=trace,world_id_oprf_dev_client=trace,taceo_oprf_dev_client=trace,taceo_oprf_client=trace,warn"
     fi
 
-    RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- "$@"
-    RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-issuer-blinding -- "$@"
+    if [[ $1 == "setup-test" ]]; then
+        export TACEO_ADMIN_PRIVATE_KEY=$PK
+        deploy_wip101_contracts
+        RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- --rp-id 123 --create-key test
+        RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-issuer-blinding -- --issuer-schema-id 124 --create-key test
+        RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- --rp-id 101 test 
+        # so far it is not possible to call WIP101 with custom interface
+        # RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- --rp-id 102 test 
+    else
+        RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- "$@"
+        RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-issuer-blinding -- "$@"
+    fi
 }
 
 main() {
@@ -177,7 +209,7 @@ main() {
     elif [[ $1 = "test" ]]; then
         echo -e "${GREEN}running test..${NOCOLOR}"
         setup
-        client test
+        client setup-test
     else
         echo "unknown command: '$1'"
         exit 1

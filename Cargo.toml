@@ -124,7 +124,7 @@ testcontainers-modules = { version = "0.15", features = ["redis"] }
 sqlx = "0.8"
 take_mut = "0.2.2"
 tar = "0.4"
-taceo-nodes-common = { version = "0.4.3", default-features=false }
+taceo-nodes-common = { version = "0.4.4", default-features=false }
 taceo-nodes-observability = "0.1"
 tempfile = "3"
 tokio-util = "0.7"

@@ -12,7 +12,6 @@ use crate::{
     },
     config::WatcherCacheConfig,
     metrics::{
-        METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS,
         METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES,
         METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE,
     },
@@ -162,43 +161,32 @@ impl SchemaIssuerRegistryWatcher {
         &self,
         issuer_schema_id: u64,
     ) -> Result<(), SchemaIssuerRegistryWatcherError> {
-        {
-            if self
-                .issuer_schema_store
-                .get(&issuer_schema_id)
+        self.issuer_schema_store.try_get_with(issuer_schema_id, async {
+            tracing::trace!(
+                "issuer {issuer_schema_id} not found in store, querying CredentialSchemaIssuerRegistry..."
+            );
+            let signer = self
+                .contract
+                .getSignerForIssuerSchemaId(issuer_schema_id)
+                .call()
                 .await
-                .is_some()
-            {
-                tracing::trace!("issuer {issuer_schema_id} found in store");
-                ::metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS)
+                .context("while getting signer for issuer-schema")?;
+
+            if signer == Address::ZERO {
+                Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(
+                    issuer_schema_id,
+                ))
+            } else {
+                ::metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES)
                     .increment(1);
-                return Ok(());
+
+                tracing::debug!("issuer {issuer_schema_id} loaded from chain");
+
+                Ok(())
             }
-        }
-
-        tracing::trace!(
-            "issuer {issuer_schema_id} not found in store, querying CredentialSchemaIssuerRegistry..."
-        );
-        let signer = self
-            .contract
-            .getSignerForIssuerSchemaId(issuer_schema_id)
-            .call()
-            .await
-            .context("while getting signer for issuer-schema")?;
-
-        if signer == Address::ZERO {
-            Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(
-                issuer_schema_id,
-            ))
-        } else {
-            ::metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES)
-                .increment(1);
-
-            self.issuer_schema_store.insert(issuer_schema_id, ()).await;
-
-            tracing::debug!("issuer {issuer_schema_id} loaded from chain and stored");
-
-            Ok(())
-        }
+        }).await.map_err(|arc| match arc.as_ref() {
+            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(id) => SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(*id),
+            SchemaIssuerRegistryWatcherError::Internal(report) => SchemaIssuerRegistryWatcherError::Internal(eyre::eyre!("{report:#?}")),
+        })
     }
 }
