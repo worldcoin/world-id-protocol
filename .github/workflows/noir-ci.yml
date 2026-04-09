@@ -1,0 +1,20 @@
+name: Noir CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    name: Noir CI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./noir
+    steps:
+      - uses: actions/checkout@v6
+      - run: curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+      - run: ~/.nargo/bin/noirup
+      - run: cd ownership_proof && ~/.nargo/bin/nargo fmt --check && ~/.nargo/bin/nargo test
