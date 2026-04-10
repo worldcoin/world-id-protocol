@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! Integration tests for the rollback feature
 //!
 //! These tests verify the functionality of RollbackExecutor which allows

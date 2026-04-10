@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 use std::{env, net::SocketAddr};
 use world_id_faux_issuer::{FauxIssuerConfig, spawn};
 

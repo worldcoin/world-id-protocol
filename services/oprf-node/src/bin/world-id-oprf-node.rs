@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! OPRF node Binary
 //!
 //! This is the main entry point for the OPRF node.
