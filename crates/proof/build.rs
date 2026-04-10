@@ -244,9 +244,6 @@ fn compile_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
     );
 
     let pkp_path = out_dir.join("ownership_proof.pkp");
-    if pkp_path.exists() {
-        return Ok(());
-    }
 
     // Run nargo compile
     let nargo_output = std::process::Command::new("nargo")
