@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./crates/world-id-proof/noir
+        working-directory: ./crates/proof/noir
     steps:
       - uses: actions/checkout@v6
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
