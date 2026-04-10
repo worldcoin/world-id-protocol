@@ -40,7 +40,9 @@ fn main() -> eyre::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
     // Compile noir ownership proof circuit and generate prover key package
-    compile_noir_ownership_proof(&out_dir)?;
+    if env::var("CARGO_FEATURE_PROVEKIT").is_ok() {
+        compile_noir_ownership_proof(&out_dir)?;
+    }
 
     if env::var("CARGO_FEATURE_EMBED_ZKEYS").is_err() {
         return Ok(());
@@ -241,9 +243,6 @@ fn compile_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
     );
 
     let pkp_path = out_dir.join("ownership_proof.pkp");
-    if pkp_path.exists() {
-        return Ok(());
-    }
 
     // Run nargo compile
     let nargo_output = std::process::Command::new("nargo")
