@@ -27,7 +27,7 @@ compress-zkeys = ["embed-zkeys", "dep:ark-serialize", "dep:circom-types"]
 # Compress the tar archive with zstd
 zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
 # Experimental: Introducing ProveKit ZK Backend
-provekit = ["dep:provekit-common", "dep:provekit-prover", "dep:noirc_abi"]
+provekit = ["dep:provekit-common", "dep:provekit-prover"]
 
 [dependencies]
 ark-babyjubjub = { workspace = true }
@@ -42,7 +42,6 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 zstd = { workspace = true, optional = true }
 eddsa-babyjubjub = { workspace = true }
-noirc_abi = { workspace = true, optional = true }
 provekit-common = { workspace = true, optional = true }
 provekit-prover = { workspace = true, optional = true }
 rand = { workspace = true }
@@ -66,3 +65,6 @@ tar = { workspace = true }
 zstd = { workspace = true }
 provekit-r1cs-compiler = { workspace = true }
 provekit-common = { workspace = true }
+
+[dev-dependencies]
+world-id-test-utils = { workspace = true }

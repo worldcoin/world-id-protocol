@@ -3,30 +3,6 @@
 version = 4
 
 [[package]]
-name = "acir"
-version = "1.0.0-beta.11"
-source = "git+https://github.com/noir-lang/noir?rev=v1.0.0-beta.11#fd3925aaaeb76c76319f44590d135498ef41ea6c"
-dependencies = [
- "acir_field 1.0.0-beta.11 (git+https://github.com/noir-lang/noir?rev=v1.0.0-beta.11)",
- "base64 0.22.1",
- "bincode",
- "brillig 1.0.0-beta.11 (git+https://github.com/noir-lang/noir?rev=v1.0.0-beta.11)",
- "color-eyre",
- "flate2",
- "noir_protobuf",
- "num_enum",
- "prost 0.13.5",
- "prost-build",
- "protoc-bin-vendored",
- "rmp-serde",
- "serde",
- "serde-big-array",
- "strum 0.24.1",
- "strum_macros 0.24.3",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "acir_field"
 version = "1.0.0-beta.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -39,53 +15,6 @@ dependencies = [
  "hex",
  "num-bigint",
  "serde",
-]
-
-[[package]]
-name = "acir_field"
-version = "1.0.0-beta.11"
-source = "git+https://github.com/noir-lang/noir?rev=v1.0.0-beta.11#fd3925aaaeb76c76319f44590d135498ef41ea6c"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "ark-std 0.5.0",
- "cfg-if",
- "hex",
- "num-bigint",
- "serde",
-]
-
-[[package]]
-name = "acvm"
-version = "1.0.0-beta.11"
-source = "git+https://github.com/noir-lang/noir?rev=v1.0.0-beta.11#fd3925aaaeb76c76319f44590d135498ef41ea6c"
-dependencies = [
- "acir",
- "acvm_blackbox_solver",
- "brillig_vm",
- "fxhash",
- "indexmap 2.13.0",
- "serde",
- "thiserror 1.0.69",
- "tracing",
-]
-
-[[package]]
-name = "acvm_blackbox_solver"
-version = "1.0.0-beta.11"
-source = "git+https://github.com/noir-lang/noir?rev=v1.0.0-beta.11#fd3925aaaeb76c76319f44590d135498ef41ea6c"
-dependencies = [
- "acir",
- "blake2",
- "blake3",
- "k256",
- "keccak",
- "libaes",
- "log",
- "num-bigint",
- "p256",
- "sha2",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -2556,29 +2485,8 @@ version = "1.0.0-beta.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfbe65c55645e99aa4dbe3b7657a568326189d895ee87d9d83e678dd61be4514"
 dependencies = [
- "acir_field 1.0.0-beta.11 (registry+https://github.com/rust-lang/crates.io-index)",
+ "acir_field",
  "serde",
-]
-
-[[package]]
-name = "brillig"
-version = "1.0.0-beta.11"
-source = "git+https://github.com/noir-lang/noir?rev=v1.0.0-beta.11#fd3925aaaeb76c76319f44590d135498ef41ea6c"
-dependencies = [
- "acir_field 1.0.0-beta.11 (git+https://github.com/noir-lang/noir?rev=v1.0.0-beta.11)",
- "serde",
-]
-
-[[package]]
-name = "brillig_vm"
-version = "1.0.0-beta.11"
-source = "git+https://github.com/noir-lang/noir?rev=v1.0.0-beta.11#fd3925aaaeb76c76319f44590d135498ef41ea6c"
-dependencies = [
- "acir",
- "acvm_blackbox_solver",
- "num-bigint",
- "num-traits",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -2880,7 +2788,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -4751,11 +4659,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
-name = "iter-extended"
-version = "1.0.0-beta.11"
-source = "git+https://github.com/noir-lang/noir?rev=v1.0.0-beta.11#fd3925aaaeb76c76319f44590d135498ef41ea6c"
-
-[[package]]
 name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5410,42 +5313,6 @@ dependencies = [
  "libc",
  "memoffset",
  "pin-utils",
-]
-
-[[package]]
-name = "noir_protobuf"
-version = "1.0.0-beta.11"
-source = "git+https://github.com/noir-lang/noir?rev=v1.0.0-beta.11#fd3925aaaeb76c76319f44590d135498ef41ea6c"
-dependencies = [
- "color-eyre",
- "prost 0.13.5",
-]
-
-[[package]]
-name = "noirc_abi"
-version = "1.0.0-beta.11"
-source = "git+https://github.com/noir-lang/noir?rev=v1.0.0-beta.11#fd3925aaaeb76c76319f44590d135498ef41ea6c"
-dependencies = [
- "acvm",
- "iter-extended",
- "noirc_printable_type",
- "num-bigint",
- "num-traits",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "toml 0.7.8",
-]
-
-[[package]]
-name = "noirc_printable_type"
-version = "1.0.0-beta.11"
-source = "git+https://github.com/noir-lang/noir?rev=v1.0.0-beta.11#fd3925aaaeb76c76319f44590d135498ef41ea6c"
-dependencies = [
- "acvm",
- "iter-extended",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -6588,9 +6455,9 @@ dependencies = [
 
 [[package]]
 name = "provekit-common"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "565f50f057355fbce738e3ed686f43079642e99dba4ca94fa47a71ae58c0af48"
+checksum = "022e0c1d27bf681742b393a4792ea40b6e95c9ded415add75ef1eb7dc1496739"
 dependencies = [
  "anyhow",
  "ark-bn254 0.5.0",
@@ -6774,10 +6641,10 @@ version = "1.0.0-beta.11-alpha.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "959971b1aef157ee72d079da9f4bd5ed7469a7856757ca181de567b83130e83a"
 dependencies = [
- "acir_field 1.0.0-beta.11 (registry+https://github.com/rust-lang/crates.io-index)",
+ "acir_field",
  "base64 0.22.1",
  "bincode",
- "brillig 1.0.0-beta.11 (registry+https://github.com/rust-lang/crates.io-index)",
+ "brillig",
  "color-eyre",
  "flate2",
  "num_enum",
@@ -10838,7 +10705,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -11599,7 +11466,6 @@ dependencies = [
  "ark-groth16 0.5.0",
  "ark-serialize 0.5.0",
  "eyre",
- "noirc_abi",
  "provekit-common",
  "provekit-prover",
  "provekit-r1cs-compiler",
@@ -11617,6 +11483,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "world-id-primitives",
+ "world-id-test-utils",
  "zeroize",
  "zstd",
 ]
