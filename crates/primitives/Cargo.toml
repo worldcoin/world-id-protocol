@@ -59,3 +59,6 @@ getrandom = { workspace = true, features = ["js"] }
 [dev-dependencies]
 ark-serialize = { workspace = true }
 ciborium = { workspace = true }
+
+[metadata.docs.rs]
+features = ["proofs"]
