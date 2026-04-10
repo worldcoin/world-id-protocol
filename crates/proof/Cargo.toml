@@ -19,13 +19,15 @@ include = [
 ]
 
 [features]
-default = ["embed-zkeys"]
+default = ["embed-zkeys", "provekit"]
 # Embed zkeys into binary
 embed-zkeys = ["dep:tar"]
 # Compress the embedded zkeys to reduce binary size (ARK point compression)
 compress-zkeys = ["embed-zkeys", "dep:ark-serialize", "dep:circom-types"]
 # Compress the tar archive with zstd
 zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
+# Experimental: Introducing ProveKit ZK Backend
+provekit = ["dep:provekit-common", "dep:provekit-prover", "dep:noirc_abi"]
 
 [dependencies]
 ark-babyjubjub = { workspace = true }
@@ -40,6 +42,9 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 zstd = { workspace = true, optional = true }
 eddsa-babyjubjub = { workspace = true }
+noirc_abi = { workspace = true, optional = true }
+provekit-common = { workspace = true, optional = true }
+provekit-prover = { workspace = true, optional = true }
 rand = { workspace = true }
 serde = { workspace = true }
 groth16-material = { workspace = true }

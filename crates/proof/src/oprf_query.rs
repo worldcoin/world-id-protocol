@@ -21,8 +21,8 @@ use world_id_primitives::{
 };
 
 use crate::{
-    AuthenticatorProofInput,
-    proof::{OPRF_PROOF_DS, ProofError, errors},
+    AuthenticatorProofInput, ProofError,
+    proof::{OPRF_PROOF_DS, errors},
 };
 
 #[expect(unused_imports, reason = "used for docs")]

@@ -7,7 +7,10 @@ use std::collections::HashMap;
 use groth16_material::circom::ProofInput;
 use ruint::aliases::U256;
 
-use crate::authenticator::MAX_AUTHENTICATOR_KEYS;
+use crate::{
+    authenticator::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS},
+    merkle::MerkleInclusionProof,
+};
 
 type BaseField = ark_babyjubjub::Fq;
 type ScalarField = ark_babyjubjub::Fr;
@@ -219,4 +222,13 @@ impl<const MAX_DEPTH: usize> ProofInput for NullifierProofCircuitInput<MAX_DEPTH
 
         map
     }
+}
+
+/// Inputs for the "Proof of Ownership" (WIP-103) circuit.
+#[derive(Debug, Clone)]
+pub struct OwnershipProofCircuitInput<const MAX_DEPTH: usize> {
+    /// The full authenticator key set for the user's World ID
+    pub key_set: AuthenticatorPublicKeySet,
+    /// The inclusion proof in the `WorldIDRegistry`
+    pub inclusion_proof: MerkleInclusionProof<MAX_DEPTH>,
 }

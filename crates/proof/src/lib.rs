@@ -1,8 +1,11 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use eddsa_babyjubjub::EdDSAPrivateKey;
+use groth16_material::Groth16Error;
+use noirc_abi::InputMap;
 use world_id_primitives::{
     TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
+    oprf::WorldIdRequestAuthError,
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -11,6 +14,48 @@ pub use oprf_query::{FullOprfOutput, OprfEntrypoint};
 
 pub mod proof;
 pub use proof::*;
+
+#[cfg(feature = "provekit")]
+pub mod ownership_proof;
+
+/// Error type for OPRF operations and proof generation.
+#[derive(Debug, thiserror::Error)]
+pub enum ProofError {
+    /// Authentication error returned by the OPRF nodes (e.g. unknown RP, invalid proof).
+    #[error(transparent)]
+    RequestAuthError(#[from] WorldIdRequestAuthError),
+    /// Non-auth error originating from `oprf_client`.
+    #[error(transparent)]
+    OprfError(taceo_oprf::client::Error),
+    /// Errors originating from proof inputs
+    #[error(transparent)]
+    ProofInputError(#[from] errors::ProofInputError),
+    /// Errors originating from Groth16 proof generation or verification.
+    #[error(transparent)]
+    ZkError(#[from] Groth16Error),
+    /// Error generating a Noir Proof with ProveKit
+    #[error("generation error: {0}")]
+    GenerationError(String),
+    /// Catch-all for other internal errors.
+    #[error(transparent)]
+    InternalError(#[from] eyre::Report),
+}
+
+#[cfg(feature = "provekit")]
+pub trait NoirCircuitInput {
+    fn into_witness(&self) -> Result<InputMap, ProofError>;
+}
+
+impl From<taceo_oprf::client::Error> for ProofError {
+    fn from(err: taceo_oprf::client::Error) -> Self {
+        if let taceo_oprf::client::Error::ThresholdServiceError(ref svc) = err {
+            if svc.kind.is_auth() {
+                return Self::RequestAuthError(WorldIdRequestAuthError::from(svc.error_code));
+            }
+        }
+        Self::OprfError(err)
+    }
+}
 
 /// Inputs from the Authenticator to generate a nullifier or blinding factor.
 #[derive(Zeroize, ZeroizeOnDrop)]
