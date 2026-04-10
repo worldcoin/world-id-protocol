@@ -92,7 +92,7 @@ parking_lot = { version = "0.12.5"}
 metrics = "0.24"
 secrecy = "0.10"
 mockito = "1"
-noirc_abi = { git = "https://github.com/noir-lang/noir", rev = "v1.0.0-beta.11" } # TODO: Export from ProveKit
+noirc_abi = { git = "https://github.com/noir-lang/noir", rev = "v1.0.0-beta.11" } # FIXME: Export from ProveKit
 ciborium = "0.2"
 arrayvec = "0.7"
 async-trait = "0.1"
@@ -111,6 +111,7 @@ humantime-serde = "1"
 once_cell = "1"
 provekit-common = { version = "0.1" }
 provekit-prover = { version = "0.1" }
+provekit-r1cs-compiler = { version = "0.1" }
 rayon = "1.11"
 redis = "1"
 regex = "1"

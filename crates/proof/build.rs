@@ -1,4 +1,6 @@
 use eyre::OptionExt;
+use provekit_common::{NoirProofScheme, Prover, file::write};
+use provekit_r1cs_compiler::NoirProofSchemeBuilder;
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -257,21 +259,10 @@ fn compile_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
 
     let compiled_json = circuit_dir.join("target/ownership_proof.json");
 
-    // Run provekit-cli prepare to generate prover key package
-    let prepare_output = std::process::Command::new("provekit-cli")
-        .arg("prepare")
-        .arg(&compiled_json)
-        .arg("--pkp")
-        .arg(&pkp_path)
-        .arg("--pkv")
-        .arg(out_dir.join("ownership_proof.pkv"))
-        .output()
-        .map_err(|e| eyre::eyre!("failed to run provekit-cli: {e}"))?;
-
-    if !prepare_output.status.success() {
-        let stderr = String::from_utf8_lossy(&prepare_output.stderr);
-        eyre::bail!("provekit-cli prepare failed:\n{stderr}");
-    }
+    let scheme =
+        NoirProofScheme::from_file(compiled_json).map_err(|e| eyre::eyre!(e.to_string()))?;
+    write(&Prover::from_noir_proof_scheme(scheme), &pkp_path)
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     Ok(())
 }

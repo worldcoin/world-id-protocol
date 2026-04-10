@@ -6635,6 +6635,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "provekit-ntt"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a584bba68fe72e0eaaf04dc289bf9e5ab44d6c8f8e24e1ca2c0e8831c689d08e"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "rayon",
+]
+
+[[package]]
 name = "provekit-prover"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6652,6 +6663,28 @@ dependencies = [
  "provekit_noir_artifact_cli",
  "provekit_noirc_abi",
  "rayon",
+ "tracing",
+]
+
+[[package]]
+name = "provekit-r1cs-compiler"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ba0abf85d01c83bc542a5982744f08c984658073c94594b685fcd9689353e71"
+dependencies = [
+ "anyhow",
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-std 0.5.0",
+ "postcard",
+ "provekit-common",
+ "provekit-ntt",
+ "provekit-whir",
+ "provekit_acir",
+ "provekit_noirc_abi",
+ "provekit_noirc_artifacts",
+ "serde",
+ "serde_json",
  "tracing",
 ]
 
@@ -11569,6 +11602,7 @@ dependencies = [
  "noirc_abi",
  "provekit-common",
  "provekit-prover",
+ "provekit-r1cs-compiler",
  "rand 0.8.5",
  "rayon",
  "reqwest",

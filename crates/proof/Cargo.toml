@@ -64,3 +64,5 @@ circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"] }
 rayon = { workspace = true }
 tar = { workspace = true }
 zstd = { workspace = true }
+provekit-r1cs-compiler = { workspace = true }
+provekit-common = { workspace = true }

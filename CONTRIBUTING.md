@@ -20,7 +20,6 @@ Thank you for your interest in contributing to our project! This document provid
   curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
   noirup --version v1.0.0-beta.11 # this specific Noir Lang version is needed
   ```
-- [ProveKit CLI](https://github.com/worldfnd/provekit): `cargo +nightly install --git https://github.com/worldfnd/provekit --locked provekit-cli`
 - For running the Rust services look at the specific READMEs of each service.
 
 ## Crates Organization
