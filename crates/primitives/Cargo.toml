@@ -11,26 +11,31 @@ rust-version.workspace = true
 repository.workspace = true
 
 [features]
+default = []
 # Enable OpenAPI schema derives for API types.
 openapi = ["dep:utoipa"]
+# Enable proof generation types (circuit inputs, Groth16 proof construction).
+proofs = ["dep:ark-groth16", "dep:groth16-material", "dep:taceo-groth16-sol"]
+
+
 [dependencies]
-alloy = { workspace = true, features = ["sol-types", "signer-local"] }
 alloy-primitives = { workspace = true, default-features = false, features = [
     "serde",
     "std",
 ] }
+alloy-signer = { workspace = true }
+alloy-signer-local = { workspace = true }
 ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
-ark-groth16 = { workspace = true }
+ark-groth16 = { workspace = true, optional = true }
 ark-serde-compat = { workspace = true }
 arrayvec = { workspace = true, features = ["serde"] }
 circom-types = { workspace = true, features = ["groth16"] }
-groth16-material = { workspace = true, features = ["circom"] }
+groth16-material = { workspace = true, features = ["circom"], optional = true }
 eddsa-babyjubjub = { workspace = true }
-eyre = { workspace = true }
 hex = { workspace = true }
-taceo-groth16-sol = { workspace = true }
+taceo-groth16-sol = { workspace = true, optional = true }
 taceo-oprf = { workspace = true, features = ["types"] }
 ruint = { workspace = true, features = ["ark-ff-05"] }
 serde_json = { workspace = true }
@@ -54,3 +59,6 @@ getrandom = { workspace = true, features = ["js"] }
 [dev-dependencies]
 ark-serialize = { workspace = true }
 ciborium = { workspace = true }
+
+[metadata.docs.rs]
+features = ["proofs"]

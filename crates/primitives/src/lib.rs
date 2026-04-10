@@ -26,6 +26,7 @@ pub use config::Config;
 /// Contains the raw circuit input types for the World ID Protocol.
 ///
 /// These types are used to prepare the inputs for the Groth16 circuits.
+#[cfg(feature = "proofs")]
 pub mod circuit_inputs;
 
 /// SAFE-style sponge utilities and helpers.

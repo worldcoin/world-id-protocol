@@ -75,7 +75,7 @@ pub struct ProofRequest {
     pub action: Option<FieldElement>,
     /// The RP's ECDSA signature over the request.
     #[serde(with = "crate::serde_utils::hex_signature")]
-    pub signature: alloy::signers::Signature,
+    pub signature: alloy_signer::Signature,
     /// Unique nonce for this request provided by the RP.
     pub nonce: FieldElement,
     /// Specific credential requests. This defines which credentials to ask for.
@@ -681,14 +681,13 @@ where
 mod tests {
     use super::*;
     use crate::SessionNullifier;
-    use alloy::{
-        signers::{SignerSync, local::PrivateKeySigner},
-        uint,
-    };
+    use alloy_signer::SignerSync;
+    use alloy_signer_local::PrivateKeySigner;
     use k256::ecdsa::SigningKey;
+    use ruint::uint;
 
     // Test helpers
-    fn test_signature() -> alloy::signers::Signature {
+    fn test_signature() -> alloy_signer::Signature {
         let signer =
             PrivateKeySigner::from_signing_key(SigningKey::from_bytes(&[1u8; 32].into()).unwrap());
         signer.sign_message_sync(b"test").expect("can sign")
