@@ -683,8 +683,8 @@ mod tests {
     use crate::SessionNullifier;
     use alloy_signer::SignerSync;
     use alloy_signer_local::PrivateKeySigner;
-    use ruint::uint;
     use k256::ecdsa::SigningKey;
+    use ruint::uint;
 
     // Test helpers
     fn test_signature() -> alloy_signer::Signature {
