@@ -1,5 +1,6 @@
 use crate::PrimitiveError;
-use alloy::{primitives::Address, signers::local::PrivateKeySigner};
+use alloy_primitives::Address;
+use alloy_signer_local::PrivateKeySigner;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use secrecy::{ExposeSecret, SecretBox};
 

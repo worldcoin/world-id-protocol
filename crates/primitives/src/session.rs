@@ -3,6 +3,7 @@ use embed_doc_image::embed_doc_image;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
+#[cfg(feature = "proofs")]
 #[expect(unused_imports, reason = "used in doc comments")]
 use crate::circuit_inputs::QueryProofCircuitInput;
 
