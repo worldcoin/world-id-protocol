@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.8.2...world-id-primitives-v0.8.3) - 2026-04-10
+
+### Added
+
+- Add indexer endpoint for pending recovery agent ([#644](https://github.com/worldcoin/world-id-protocol/pull/644))
+- *(oprf-nodes)* added WIP101 support at the nodes ([#634](https://github.com/worldcoin/world-id-protocol/pull/634))
+- proof orchestration ([#640](https://github.com/worldcoin/world-id-protocol/pull/640))
+
+### Fixed
+
+- minor nomenclature improvements to sessions ([#637](https://github.com/worldcoin/world-id-protocol/pull/637))
+
+### Other
+
+- remove examples ([#638](https://github.com/worldcoin/world-id-protocol/pull/638))
+
 ## [0.8.2](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.8.1...world-id-primitives-v0.8.2) - 2026-04-02
 
 ### Added
