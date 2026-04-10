@@ -18,9 +18,12 @@ use world_id_primitives::{
     merkle::AccountInclusionProof,
 };
 
+use crate::anvil::TestAnvil;
 use std::sync::RwLock;
 
-use crate::anvil::TestAnvil;
+// OPRF node and key-gen startup is CPU-heavy and can take several minutes when
+// nextest runs other crypto-heavy binaries in parallel.
+const SERVICE_STARTUP_TIMEOUT: Duration = Duration::from_secs(600);
 
 #[derive(Clone)]
 struct IndexerState {
@@ -234,7 +237,7 @@ async fn spawn_orpf_node(
         tracing::error!("service failed to start: {res:?}");
     });
     // very graceful timeout for CI
-    tokio::time::timeout(Duration::from_secs(60), async {
+    tokio::time::timeout(SERVICE_STARTUP_TIMEOUT, async {
         loop {
             if reqwest::get(url.clone() + "/health").await.is_ok() {
                 break;
@@ -358,7 +361,7 @@ async fn spawn_key_gen(
         tracing::error!("service failed to start: {res:?}");
     });
     // very graceful timeout for CI
-    tokio::time::timeout(Duration::from_secs(300), async {
+    tokio::time::timeout(SERVICE_STARTUP_TIMEOUT, async {
         loop {
             if reqwest::get(url.clone() + "/health").await.is_ok() {
                 break;

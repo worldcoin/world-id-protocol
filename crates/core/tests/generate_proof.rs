@@ -8,7 +8,10 @@ use std::{
 
 use alloy::{
     primitives::{U160, U256},
-    signers::local::LocalSigner,
+    signers::{
+        SignerSync as _,
+        local::{LocalSigner, PrivateKeySigner},
+    },
 };
 use eyre::{Context as _, Result, eyre};
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
@@ -169,8 +172,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .await
         .wrap_err("failed to start indexer stub")?;
 
-    let rp_fixture = generate_rp_fixture();
-
     let (key_gen_secret_managers, node_secret_managers) =
         world_id_test_utils::stubs::init_test_secret_managers();
 
@@ -194,9 +195,13 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .await;
 
-    health_checks::services_health_check(&nodes, Duration::from_secs(60)).await?;
-    health_checks::services_health_check(&oprf_key_gens, Duration::from_secs(60)).await?;
+    // OPRF material loading is CPU-heavy and can take several minutes when the
+    // full nextest matrix is running in parallel.
+    health_checks::services_health_check(&nodes, Duration::from_secs(600)).await?;
+    health_checks::services_health_check(&oprf_key_gens, Duration::from_secs(600)).await?;
     info!("oprf nodes and key-gen services passed health checks");
+
+    let mut rp_fixture = generate_rp_fixture();
 
     // Register an issuer which also triggers a OPRF key-gen.
     let issuer_schema_id = 1u64;
@@ -231,7 +236,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         rp_fixture.oprf_key_id,
         ShareEpoch::default(),
         &nodes,
-        Duration::from_secs(120),
+        Duration::from_secs(600),
     )
     .await?;
     // Wait for issuer OPRF key-gen and until the public key is available from the nodes.
@@ -240,7 +245,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         OprfKeyId::new(U160::from(issuer_schema_id)),
         ShareEpoch::default(),
         &nodes,
-        Duration::from_secs(120),
+        Duration::from_secs(600),
     )
     .await?;
     info!("oprf public keys became available for rp and issuer");
@@ -290,6 +295,25 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .hash()
         .wrap_err("failed to hash credential prior to signing")?;
     credential.signature = Some(issuer_sk.sign(*credential_hash));
+
+    // Refresh the RP request window after the long OPRF/bootstrap phase so
+    // the signed request does not age into `TimeStampDifference` under CI
+    // load.
+    let current_timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time after epoch")
+        .as_secs();
+    let expiration_timestamp = current_timestamp + 300;
+    let rp_signer = PrivateKeySigner::from_signing_key(rp_fixture.signing_key.clone());
+    let msg = world_id_primitives::rp::compute_rp_signature_msg(
+        rp_fixture.nonce,
+        current_timestamp,
+        expiration_timestamp,
+        Some(rp_fixture.action),
+    );
+    rp_fixture.current_timestamp = current_timestamp;
+    rp_fixture.expiration_timestamp = expiration_timestamp;
+    rp_fixture.signature = rp_signer.sign_message_sync(&msg).expect("can sign");
 
     // Create a ProofRequest
     let proof_request = ProofRequest {
