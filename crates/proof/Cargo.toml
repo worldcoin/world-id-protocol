@@ -19,7 +19,7 @@ include = [
 ]
 
 [features]
-default = ["embed-zkeys", "provekit"]
+default = ["embed-zkeys"]
 # Embed zkeys into binary
 embed-zkeys = ["dep:tar"]
 # Compress the embedded zkeys to reduce binary size (ARK point compression)
