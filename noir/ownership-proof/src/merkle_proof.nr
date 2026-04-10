@@ -29,7 +29,7 @@ pub fn compute_merkle_root_poseidon2<let N: u32>(
     depth.assert_max_bit_size::<5>();
     let depth_u32 = depth as u32;
     assert(idx < (1 << depth_u32), "Index must be less than 2^depth");
-    assert(depth <= N as Field);
+    assert(depth as u32 <= N);
 
     for i in 0..N {
         if i < depth_u32 {
