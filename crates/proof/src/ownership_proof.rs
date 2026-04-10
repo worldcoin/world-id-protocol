@@ -122,27 +122,18 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
 mod tests {
     use super::*;
 
+    use ark_bn254::Fr;
     use eddsa_babyjubjub::EdDSAPrivateKey;
     use world_id_primitives::{
-        FieldElement, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
+        Credential, FieldElement, authenticator::AuthenticatorPublicKeySet,
+        merkle::MerkleInclusionProof,
     };
-
-    /// Domain separator for `H_CS(id, r)` (WIP-103).
-    const DS_C_CS: u128 = 87_492_525_752_134_038_588_518_953;
 
     /// Builds a Merkle inclusion proof for a single leaf at index 1
     /// in an otherwise empty (all-zeros) tree of depth `TREE_DEPTH`.
     fn build_merkle_proof(leaf: ark_bn254::Fr) -> MerkleInclusionProof<TREE_DEPTH> {
         let (siblings, root) = world_id_test_utils::merkle::first_leaf_merkle_path(leaf);
         MerkleInclusionProof::new(root, 1, siblings)
-    }
-
-    /// Computes the ownership-proof message that the circuit expects
-    /// the authenticator to sign.
-    fn generate_message(mt_index: u64, commitment_blinder: FieldElement) -> ark_bn254::Fr {
-        let ds = ark_bn254::Fr::from(DS_C_CS);
-        let idx = ark_bn254::Fr::from(mt_index);
-        poseidon2::bn254::t3::permutation(&[ds, idx, *commitment_blinder])[1]
     }
 
     #[test]
@@ -159,27 +150,28 @@ mod tests {
         let inclusion_proof = build_merkle_proof(leaf);
 
         // 4. Compute the message and sign it
-        let nonce = FieldElement::from(1_234_567_890u64);
+        let nonce = FieldElement::from(1234567890u64);
         let commitment_blinder = FieldElement::from(999u64);
-        let message = generate_message(inclusion_proof.leaf_index, commitment_blinder);
-        let signature = sk.sign(message);
+        let commitment = Credential::compute_sub(1, commitment_blinder);
+        let signature = sk.sign(*commitment);
 
         // 5. Construct circuit input and generate proof
         let circuit_input = OwnershipProofCircuitInput {
             key_index: 0,
             key_set,
-            inclusion_proof,
+            inclusion_proof: inclusion_proof.clone(),
             nonce,
             signature,
             commitment_blinder,
         };
 
-        let proof =
-            generate_ownership_proof(circuit_input).expect("proof generation should succeed");
+        let proof = generate_ownership_proof(circuit_input).unwrap();
 
-        assert!(
-            !proof.public_inputs.is_empty(),
-            "proof should have public inputs"
-        );
+        assert!(!proof.public_inputs.is_empty());
+
+        assert_eq!(proof.public_inputs.0[0], *inclusion_proof.root);
+        assert_eq!(proof.public_inputs.0[1], Fr::from(30));
+        assert_eq!(proof.public_inputs.0[2], *nonce);
+        assert_eq!(proof.public_inputs.0[3], *commitment);
     }
 }
