@@ -15,11 +15,22 @@ use world_id_primitives::{TREE_DEPTH, circuit_inputs::OwnershipProofCircuitInput
 
 /// Raw bytes of the embedded Proving Key Package (PKP).
 const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
-/// Loads a [`provekit_common::Prover`] from the embedded PKP bytes.
+
+/// Cached deserialized prover (or the error message from the first attempt).
+static OWNERSHIP_PROVER: std::sync::OnceLock<Result<provekit_common::Prover, String>> =
+    std::sync::OnceLock::new();
+
+/// Returns a clone of the cached [`provekit_common::Prover`] deserialized
+/// from the embedded PKP bytes. The deserialization happens only once.
 fn load_ownership_prover() -> Result<provekit_common::Prover, ProofError> {
-    provekit_common::register_ntt();
-    provekit_common::file::deserialize(PKP_BYTES)
-        .map_err(|e| ProofError::InternalError(eyre::eyre!(e)))
+    let cached = OWNERSHIP_PROVER.get_or_init(|| {
+        provekit_common::register_ntt();
+        provekit_common::file::deserialize(PKP_BYTES).map_err(|e| e.to_string())
+    });
+    match cached {
+        Ok(prover) => Ok(prover.clone()),
+        Err(err) => Err(ProofError::InternalError(eyre::eyre!(err.clone()))),
+    }
 }
 
 /// Generates an ownership proof for WIP-103.
