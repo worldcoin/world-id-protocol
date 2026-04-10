@@ -12,6 +12,7 @@ repository.workspace = true
 include = [
     "src/**/*",
     "tests/**/*",
+    "noir/**/*",
     "build.rs",
     "Cargo.toml",
     "README.md",
