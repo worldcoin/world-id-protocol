@@ -58,3 +58,7 @@ circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"] }
 rayon = { workspace = true }
 tar = { workspace = true }
 zstd = { workspace = true }
+
+
+[metadata.docs.rs]
+features = ["proofs"]
