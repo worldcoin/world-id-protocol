@@ -1,4 +1,3 @@
-#![recursion_limit = "256"]
 //! Integration tests for `rollback_to_last_valid_root`.
 //!
 //! These tests require a PostgreSQL database and Anvil.

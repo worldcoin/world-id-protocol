@@ -1,5 +1,4 @@
 #![cfg(feature = "integration-tests")]
-#![recursion_limit = "256"]
 
 mod helpers;
 

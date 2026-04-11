@@ -1,5 +1,4 @@
 #![cfg(feature = "integration-tests")]
-#![recursion_limit = "256"]
 
 use std::{sync::atomic::Ordering, time::Duration};
 

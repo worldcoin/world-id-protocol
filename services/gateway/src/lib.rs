@@ -1,5 +1,3 @@
-#![recursion_limit = "256"]
-
 pub use crate::{
     config::{
         BatchPolicyConfig, BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig,

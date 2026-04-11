@@ -1,5 +1,4 @@
 #![cfg(feature = "integration-tests")]
-#![recursion_limit = "256"]
 mod helpers;
 use helpers::common::{TestSetup, query_count};
 use serial_test::serial;

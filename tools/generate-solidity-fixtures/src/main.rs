@@ -1,4 +1,3 @@
-#![recursion_limit = "256"]
 //! Generates Solidity test fixtures for `WorldIDVerifierTest.t.sol`.
 //!
 //! Spins up a local Anvil node, gateway, OPRF nodes, and indexer stub, then

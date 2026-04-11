@@ -1,4 +1,3 @@
-#![recursion_limit = "256"]
 //! E2E tests for recovery-agent-update gateway routes.
 //!
 //! Exercises `initiate-recovery-agent-update`, `cancel-recovery-agent-update`,

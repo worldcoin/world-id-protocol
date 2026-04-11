@@ -1,4 +1,3 @@
-#![recursion_limit = "256"]
 mod helpers;
 
 use alloy::primitives::{Address, U256};

@@ -1,5 +1,4 @@
 #![cfg(feature = "issuer")]
-#![recursion_limit = "256"]
 
 use eyre::Result;
 use taceo_oprf_test_utils::PEER_ADDRESSES;

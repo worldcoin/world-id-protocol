@@ -1,4 +1,3 @@
-#![recursion_limit = "256"]
 
 use crate::{
     blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
