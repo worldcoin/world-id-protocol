@@ -2788,7 +2788,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6433,31 +6433,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95067976aca6421a523e491fce939a3e65249bac4b977adee0ee9771568e8aa3"
 
 [[package]]
-name = "provekit-bn254-multiplier"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24683687b5b74f714081f1423e3200932c084c85958ced91275f9de37c5e68ba"
-dependencies = [
- "provekit-bn254-multiplier-codegen",
- "provekit-fp-rounding",
- "provekit-hla",
- "seq-macro",
-]
-
-[[package]]
-name = "provekit-bn254-multiplier-codegen"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8885dd6904209100c32b1ec765a613e055d3e44194c2e23acf1d148858c521fd"
-dependencies = [
- "provekit-hla",
-]
-
-[[package]]
 name = "provekit-common"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "022e0c1d27bf681742b393a4792ea40b6e95c9ded415add75ef1eb7dc1496739"
+checksum = "1ccf4963b7d2939bdc611e4263f74085f54ae0c508b35cab0bc0cff65134d4ec"
 dependencies = [
  "anyhow",
  "ark-bn254 0.5.0",
@@ -6466,10 +6445,10 @@ dependencies = [
  "ark-std 0.5.0",
  "base64 0.22.1",
  "bytes",
+ "ciborium",
  "hex",
  "itertools 0.14.0",
  "postcard",
- "provekit-skyscraper",
  "provekit-spongefish",
  "provekit-spongefish-pow",
  "provekit-whir",
@@ -6479,6 +6458,7 @@ dependencies = [
  "ruint",
  "serde",
  "serde_json",
+ "sha2",
  "sha3",
  "tracing",
  "xz2",
@@ -6487,36 +6467,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "provekit-fp-rounding"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "293685f085f34bfe2a2c8397f39b5cb473ec43c61fe7c4c55f5d919f1c20b8d3"
-
-[[package]]
-name = "provekit-hla"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed104fa5c5fee00468fe2bf058308fb059c8272b73e83dbcf35f34a12f943c08"
-dependencies = [
- "paste",
-]
-
-[[package]]
-name = "provekit-ntt"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a584bba68fe72e0eaaf04dc289bf9e5ab44d6c8f8e24e1ca2c0e8831c689d08e"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "rayon",
-]
-
-[[package]]
 name = "provekit-prover"
-version = "0.1.1"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3bd44ae9d6051a42fc87c4e4964bcab69c2ce54d58f670ea9a15c92db9e83aa"
+checksum = "20f938b13bdfe9f09c4facfad92b8bfcda99427789ed962aefe6fedcbf1b5025"
 dependencies = [
  "anyhow",
  "ark-ff 0.5.0",
@@ -6535,9 +6489,9 @@ dependencies = [
 
 [[package]]
 name = "provekit-r1cs-compiler"
-version = "0.1.1"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ba0abf85d01c83bc542a5982744f08c984658073c94594b685fcd9689353e71"
+checksum = "c12f62ae3d63fcfa934f8b792143e3bba4394ef81797c801cc3f184a1d3a45f8"
 dependencies = [
  "anyhow",
  "ark-bn254 0.5.0",
@@ -6545,7 +6499,6 @@ dependencies = [
  "ark-std 0.5.0",
  "postcard",
  "provekit-common",
- "provekit-ntt",
  "provekit-whir",
  "provekit_acir",
  "provekit_noirc_abi",
@@ -6553,21 +6506,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
-]
-
-[[package]]
-name = "provekit-skyscraper"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39ddc2e446e2286c847b0dc9adaa8184cf5a6caf711e32fae15b4dc2d303f2c3"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "provekit-bn254-multiplier",
- "provekit-fp-rounding",
- "rayon",
- "seq-macro",
- "zerocopy",
 ]
 
 [[package]]
@@ -8209,12 +8147,6 @@ name = "send_wrapper"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd0b0ec5f1c1ca621c432a25813d8d60c88abe6d3e08a3eb9cf37d97a0fe3d73"
-
-[[package]]
-name = "seq-macro"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bc711410fbe7399f390ca1c3b60ad0f53f80e95c5eb935e52268a0e2cd49acc"
 
 [[package]]
 name = "serde"
@@ -10705,7 +10637,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
