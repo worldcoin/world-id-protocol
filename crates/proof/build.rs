@@ -29,17 +29,21 @@ fn main() -> eyre::Result<()> {
         println!("cargo:rustc-check-cfg=cfg(docsrs)");
     }
 
-    // Skip for docs.rs as it doesn't have network access
+    // Skip for docs.rs as it doesn't have network access or nargo
     if env::var("DOCS_RS").is_ok() {
-        println!("cargo:warning=Building for docs.rs, skipping circuit file downloads");
+        println!("cargo:warning=Building for docs.rs, skipping circuit compilation");
         return Ok(());
     }
+
+    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+
+    // Compile noir ownership proof circuit and generate prover key package
+    #[cfg(feature = "provekit")]
+    compile_noir_ownership_proof(&out_dir)?;
 
     if env::var("CARGO_FEATURE_EMBED_ZKEYS").is_err() {
         return Ok(());
     };
-
-    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
     for path_str in CIRCUIT_FILES {
         let path = Path::new(path_str);
@@ -217,6 +221,48 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
 
             Ok(())
         })?;
+
+    Ok(())
+}
+
+#[cfg(feature = "provekit")]
+fn compile_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
+    use provekit_common::{NoirProofScheme, Prover};
+    use provekit_r1cs_compiler::NoirProofSchemeBuilder as _;
+
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    let circuit_dir = manifest_dir.join("noir/ownership-proof");
+
+    // Watch noir source files for changes
+    println!(
+        "cargo:rerun-if-changed={}",
+        circuit_dir.join("src").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        circuit_dir.join("Nargo.toml").display()
+    );
+
+    let pkp_path = out_dir.join("ownership_proof.pkp");
+
+    // Run nargo compile
+    let nargo_output = std::process::Command::new("nargo")
+        .arg("compile")
+        .current_dir(&circuit_dir)
+        .output()
+        .map_err(|e| eyre::eyre!("failed to run nargo: {e}"))?;
+
+    if !nargo_output.status.success() {
+        let stderr = String::from_utf8_lossy(&nargo_output.stderr);
+        eyre::bail!("nargo compile failed:\n{stderr}");
+    }
+
+    let compiled_json = circuit_dir.join("target/ownership_proof.json");
+
+    let scheme =
+        NoirProofScheme::from_file(compiled_json).map_err(|e| eyre::eyre!(e.to_string()))?;
+    provekit_common::file::write(&Prover::from_noir_proof_scheme(scheme), &pkp_path)
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     Ok(())
 }

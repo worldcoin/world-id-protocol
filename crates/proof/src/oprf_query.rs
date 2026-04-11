@@ -21,8 +21,8 @@ use world_id_primitives::{
 };
 
 use crate::{
-    AuthenticatorProofInput,
-    proof::{OPRF_PROOF_DS, ProofError, errors},
+    AuthenticatorProofInput, ProofError,
+    proof::{OPRF_PROOF_DS, errors},
 };
 
 #[expect(unused_imports, reason = "used for docs")]
@@ -251,7 +251,7 @@ impl<'a> OprfEntrypoint<'a> {
 
 impl<'a> OprfEntrypoint<'a> {
     /// Generates a query proof: creates a blinding factor, computes
-    /// the query hash, signs it, builds `QueryProofCircuitInput`, and
+    /// the query hash, signs it, builds [`QueryProofCircuitInput`], and
     /// runs Groth16 prove + verify.
     fn generate_query_proof<R: rand::CryptoRng + rand::RngCore>(
         query_material: &CircomGroth16Material,

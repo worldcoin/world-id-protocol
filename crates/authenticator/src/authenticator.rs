@@ -42,8 +42,8 @@ use world_id_primitives::{
     },
 };
 use world_id_proof::{
-    AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint,
-    proof::{ProofError, generate_nullifier_proof},
+    AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofError,
+    proof::generate_nullifier_proof,
 };
 
 #[expect(unused_imports, reason = "used for docs")]
