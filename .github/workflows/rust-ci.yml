@@ -197,6 +197,9 @@ jobs:
     needs: build-contracts
     runs-on:
       group: arc-public-8xlarge-amd64-runner
+    strategy:
+      matrix:
+        toolchain: [stable, nightly]
     permissions:
       contents: read
 
@@ -217,7 +220,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
-          toolchain: stable
+          toolchain: ${{ matrix.toolchain }}
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
