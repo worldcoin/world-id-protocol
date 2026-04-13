@@ -1,8 +1,7 @@
-use ark_bn254::Bn254;
-use ark_groth16::Proof;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
+#[cfg(feature = "proofs")]
 use crate::FieldElement;
 
 /// Encoded World ID Proof.
@@ -19,10 +18,14 @@ pub struct ZeroKnowledgeProof {
     inner: [U256; 5],
 }
 
+#[cfg(feature = "proofs")]
 impl ZeroKnowledgeProof {
     /// Initialize a new proof from a Groth16 proof and Merkle root.
     #[must_use]
-    pub fn from_groth16_proof(groth16_proof: &Proof<Bn254>, merkle_root: FieldElement) -> Self {
+    pub fn from_groth16_proof(
+        groth16_proof: &ark_groth16::Proof<ark_bn254::Bn254>,
+        merkle_root: FieldElement,
+    ) -> Self {
         let compressed_proof = taceo_groth16_sol::prepare_compressed_proof(groth16_proof);
         Self {
             inner: [
@@ -34,7 +37,9 @@ impl ZeroKnowledgeProof {
             ],
         }
     }
+}
 
+impl ZeroKnowledgeProof {
     /// Outputs the proof as a Solidity-friendly representation.
     #[must_use]
     pub const fn as_ethereum_representation(&self) -> [U256; 5] {

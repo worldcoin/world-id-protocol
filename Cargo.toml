@@ -35,6 +35,8 @@ rust-version = "1.87"
 # alloy
 alloy = { version = "1.7.3", default-features = false }
 alloy-primitives = { version = "1.5.6", default-features = false }
+alloy-signer = { version = "1.7.3", default-features = false }
+alloy-signer-local = { version = "1.7.3", default-features = false }
 alloy-node-bindings = "1.0.42"
 
 anyhow = "1"

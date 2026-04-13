@@ -307,9 +307,16 @@ impl Credential {
     /// # Errors
     /// Will error if there are more claims than the maximum allowed.
     /// Will error if the claims cannot be lowered into the field. Should not occur in practice.
-    pub fn claims_hash(&self) -> Result<FieldElement, eyre::Error> {
+    pub fn claims_hash(&self) -> Result<FieldElement, PrimitiveError> {
         if self.claims.len() > Self::MAX_CLAIMS {
-            eyre::bail!("There can be at most {} claims", Self::MAX_CLAIMS);
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "claims".to_string(),
+                reason: format!(
+                    "there can be at most {} claims, got {}",
+                    Self::MAX_CLAIMS,
+                    self.claims.len()
+                ),
+            });
         }
         let mut input = [*FieldElement::ZERO; Self::MAX_CLAIMS];
         for (i, claim) in self.claims.iter().enumerate() {
@@ -326,7 +333,7 @@ impl Credential {
     /// # Errors
     /// - Will error if there are more claims than the maximum allowed.
     /// - Will error if the claims cannot be lowered into the field. Should not occur in practice.
-    pub fn hash(&self) -> Result<FieldElement, eyre::Error> {
+    pub fn hash(&self) -> Result<FieldElement, PrimitiveError> {
         match self.version {
             CredentialVersion::V1 => {
                 let mut input = [
@@ -349,7 +356,7 @@ impl Credential {
     ///
     /// # Errors
     /// Will error if the credential cannot be hashed.
-    pub fn sign(self, signer: &EdDSAPrivateKey) -> Result<Self, eyre::Error> {
+    pub fn sign(self, signer: &EdDSAPrivateKey) -> Result<Self, PrimitiveError> {
         let mut credential = self;
         credential.signature = Some(signer.sign(*credential.hash()?));
         credential.issuer = signer.public();
@@ -364,16 +371,20 @@ impl Credential {
     pub fn verify_signature(
         &self,
         expected_issuer_pubkey: &EdDSAPublicKey,
-    ) -> Result<bool, eyre::Error> {
+    ) -> Result<bool, PrimitiveError> {
         if &self.issuer != expected_issuer_pubkey {
-            return Err(eyre::eyre!(
-                "Issuer public key does not match expected public key"
-            ));
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "issuer".to_string(),
+                reason: "issuer public key does not match expected public key".to_string(),
+            });
         }
         if let Some(signature) = &self.signature {
             return Ok(self.issuer.verify(*self.hash()?, signature));
         }
-        Err(eyre::eyre!("Credential not signed"))
+        Err(PrimitiveError::InvalidInput {
+            attribute: "signature".to_string(),
+            reason: "credential not signed".to_string(),
+        })
     }
 
     /// Compute the `sub` for a credential computed from `leaf_index` and a `blinding_factor`.

@@ -30,6 +30,7 @@ alloy = { workspace = true, features = [
   "providers",
   "contract",
   "reqwest",
+  "signer-local"
 ] }
 anyhow = { workspace = true }
 ark-babyjubjub = { workspace = true }
@@ -39,7 +40,7 @@ reqwest = { workspace = true, features = ["json"] }
 poseidon2 = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 eyre = { workspace = true }
-world-id-primitives = { workspace = true }
+world-id-primitives = { workspace = true, features = ["proofs"] }
 secrecy = { workspace = true }
 taceo-oprf = { workspace = true, features = ["client"] }
 thiserror = { workspace = true }

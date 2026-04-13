@@ -36,9 +36,6 @@ use world_id_primitives::{
     },
 };
 
-#[expect(unused_imports, reason = "used for docs")]
-use world_id_primitives::{Nullifier, SessionId};
-
 /// Shared helper that polls `GET {gateway_url}/status/{request_id}` and
 /// returns the current [`GatewayRequestState`].
 pub(crate) async fn fetch_gateway_status(
@@ -91,7 +88,7 @@ pub struct CredentialInput {
 pub struct ProofResult {
     /// The session_id_r_seed (`r`), if a session proof was generated.
     ///
-    /// The SDK should cache this keyed by [`SessionId::oprf_seed`].
+    /// The SDK should cache this keyed by [`SessionId::oprf_seed`](world_id_primitives::SessionId::oprf_seed).
     pub session_id_r_seed: Option<FieldElement>,
 
     /// The response to deliver to an RP.
