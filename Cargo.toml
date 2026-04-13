@@ -40,7 +40,7 @@ alloy-node-bindings = "1.0.42"
 anyhow = "1"
 ark-ec = "0.5"
 ark-babyjubjub = { package = "taceo-ark-babyjubjub", version = "0.5" }
-ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.4.1", default-features = false, features = [
+ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.5", default-features = false, features = [
   "babyjubjub",
 ] }
 ark-bn254 = "0.5"
@@ -50,19 +50,19 @@ ark-serialize = "0.5"
 backon = "1"
 base64 = "0.22"
 circom-types = { package = "taceo-circom-types", version = "0.2", default-features = false }
-eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5.4" }
+eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5.5" }
 eyre = "0.6"
 futures = "0.3"
-groth16-material = { package = "taceo-groth16-material", version = "0.2.3", default-features = false }
+groth16-material = { package = "taceo-groth16-material", version = "0.3", default-features = false }
 hex = { version = "0.4" }
 ohttp = { version = "0.7", default-features = false }
 bhttp = "0.7"
 itertools = "0.14"
 k256 = { version = "0.13" }
-taceo-groth16-sol = { version = "0.2.2" }
-taceo-oprf = { version = "0.11", default-features = false }
-taceo-oprf-test-utils = { version = "0.9", default-features = false }
-taceo-oprf-key-gen = { version = "0.8" }
+taceo-groth16-sol = { version = "0.3.1" }
+taceo-oprf = { version = "0.12.1", default-features = false }
+taceo-oprf-test-utils = { version = "0.10", default-features = false }
+taceo-oprf-key-gen = { version = "0.9" }
 telemetry-batteries = "0.2"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }

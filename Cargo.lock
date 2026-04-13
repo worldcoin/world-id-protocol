@@ -8434,9 +8434,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-ark-serde-compat"
-version = "0.4.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07528b4dd1a0c9e49ef352f96219c611af0aa2f7cbd97ddb7276dcf3c2cf8dd0"
+checksum = "18fcd6f55fec9dd131019bdc0319db2271915056607b75bf8b8bc0a6ec496347"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -8449,9 +8449,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-circom-types"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "677eb3ed8275b2f179d4b1a93126a51c5b4f409c5ea9d7bc50398b13e517e30b"
+checksum = "a4ae56552ed9a44722d293640d5aedd90b9940284bf1f1bf4df727b3ce5bc34b"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -8462,7 +8462,6 @@ dependencies = [
  "ark-serialize 0.5.0",
  "ark-std 0.5.0",
  "byteorder",
- "num-traits",
  "rayon",
  "serde",
  "serde_json",
@@ -8473,9 +8472,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-eddsa-babyjubjub"
-version = "0.5.4"
+version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75dbec63f7a89093b4116a7164e6a92d3cda33dec248da8c8a5922a80a06e7dd"
+checksum = "10becbd559ee21d8376a4c2e18f0e38257ec1b5bfff3dcb2cb2945ca1db38906"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -8493,9 +8492,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-groth16"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4983857c95d20ca2dc0400a3a116e6931c012ecc4b78ccede8238cfb0c298e3"
+checksum = "56b4c2cb727c5e3312f88e0ae5785d4d5c28ccb3afa4ebe297cf9ea32b358262"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -8503,7 +8502,6 @@ dependencies = [
  "ark-poly 0.5.0",
  "ark-relations 0.5.1",
  "eyre",
- "num-traits",
  "rayon",
  "tracing",
 ]
@@ -8534,10 +8532,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "taceo-groth16-material"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3231b9df1847b843a1178e5dfdc6fd4b35b6571adb017408b073db885960f71"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-groth16 0.5.0",
+ "ark-serialize 0.5.0",
+ "circom-witness-rs",
+ "eyre",
+ "hex",
+ "postcard",
+ "rand 0.8.5",
+ "ruint",
+ "sha2 0.11.0",
+ "taceo-circom-types",
+ "taceo-groth16",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "taceo-groth16-sol"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c6a7b90f2ecb6db1212557550890d9d9d114447688f6146d726024ec7a3410b"
+dependencies = [
+ "alloy-primitives",
+ "ark-bn254 0.5.0",
+ "ark-ec 0.5.0",
+ "ark-ff 0.5.0",
+ "ark-groth16 0.5.0",
+ "eyre",
+ "ruint",
+]
+
+[[package]]
+name = "taceo-groth16-sol"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d590d9ef92eee2cf8930ba4732bfbbd56d98b42545b0611b7c4ec7f112adc908"
 dependencies = [
  "alloy-primitives",
  "ark-bn254 0.5.0",
@@ -8591,9 +8626,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf"
-version = "0.11.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e2b4f0c8650d5b66f01966d0bdabafcfb25cbd84b1bff46c9665368ba0a9d5"
+checksum = "2cdb5bdabfe916822e6a7def8b8538c24d9582daf050e924a15263b68563b766"
 dependencies = [
  "taceo-oprf-client",
  "taceo-oprf-core",
@@ -8604,9 +8639,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-client"
-version = "0.9.2"
+version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "607f2351a17c651c3e651a31bd340f683134e3578b24dea8d942251e46af6aba"
+checksum = "6d838f14570d303c837afc71d435ce3d4cc252f222870c3b2329190bde880941"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -8628,9 +8663,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-core"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d810bcca913b125555c7c3d05429d312ca57fffa57296630c193e970c6b2e204"
+checksum = "6d91f7437662a6445bffc7ed6c1e97147d2c8b23cfee3f65b2ab19102559d050"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
@@ -8650,9 +8685,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-dev-client"
-version = "0.8.1"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56441751fbcdefe5f759c2e6d272f14a441f17214701dd95aa0d2f8f97e24443"
+checksum = "7c60884ae3e03221a27fb20a07da1477e6844d113794e59d7c955e52c04b57c7"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -8661,13 +8696,13 @@ dependencies = [
  "humantime",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
+ "reqwest 0.12.28",
  "rustls",
  "secrecy",
  "serde",
  "taceo-ark-babyjubjub",
  "taceo-oprf-client",
  "taceo-oprf-core",
- "taceo-oprf-test-utils",
  "taceo-oprf-types",
  "tokio",
  "tracing",
@@ -8677,9 +8712,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-key-gen"
-version = "0.8.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc014a67e1e42bd4d26e3cd92daf592e75a7a000d2d07a6234e3fe4deb49ce9d"
+checksum = "873b63f6fd60b9fa002b4f2e010a347f2cf9d25730417fcc3786144720e7bb44"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -8705,7 +8740,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "taceo-ark-babyjubjub",
- "taceo-groth16-material",
+ "taceo-groth16-material 0.2.3",
  "taceo-nodes-common",
  "taceo-nodes-observability",
  "taceo-oprf-core",
@@ -8720,9 +8755,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-service"
-version = "0.12.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ee77ba8397208d8815f385c50cda43f113d9e8248a9f9ec69f5c38f4737a949"
+checksum = "2e3ccc1ad83b568664c72a25add3dda0344324542f563c253afc3126f96f47da"
 dependencies = [
  "alloy",
  "ark-serialize 0.5.0",
@@ -8760,9 +8795,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-test-utils"
-version = "0.9.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cce9ae55b393ed943a21c0b72bebb0771875d14058195b1430aedb13a4beaba"
+checksum = "718619e3e09c699383aee5cbc430be30073afd7fa90df940067b203ecc98d79e"
 dependencies = [
  "alloy",
  "ark-ec 0.5.0",
@@ -8776,9 +8811,11 @@ dependencies = [
  "rand_chacha 0.3.1",
  "reqwest 0.12.28",
  "serde_json",
+ "sqlx",
  "taceo-ark-babyjubjub",
  "taceo-oprf-core",
  "taceo-oprf-types",
+ "testcontainers-modules",
  "tokio",
  "tokio-util",
  "tracing",
@@ -8786,9 +8823,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-types"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "694d80f5b74d32494f669049e48f18ff3fed6f4a88f12d8d5b7bbc15117fee18"
+checksum = "e47dc5b492084daa80ed0f2b1a935ed2c1dba5f8290fb30521c93b6c13f43759"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -8800,7 +8837,7 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat",
  "taceo-circom-types",
- "taceo-groth16-sol",
+ "taceo-groth16-sol 0.2.2",
  "taceo-oprf-core",
  "uuid",
 ]
@@ -10544,7 +10581,7 @@ dependencies = [
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
- "taceo-groth16-material",
+ "taceo-groth16-material 0.3.0",
  "taceo-oprf",
  "taceo-poseidon2",
  "testcontainers",
@@ -10718,7 +10755,6 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-nodes-observability",
  "taceo-oprf",
- "taceo-oprf-test-utils",
  "tokio",
  "tracing",
  "uuid",
@@ -10796,8 +10832,8 @@ dependencies = [
  "taceo-ark-serde-compat",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
- "taceo-groth16-material",
- "taceo-groth16-sol",
+ "taceo-groth16-material 0.3.0",
+ "taceo-groth16-sol 0.3.1",
  "taceo-oprf",
  "taceo-poseidon2",
  "thiserror 2.0.18",
@@ -10823,7 +10859,7 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
- "taceo-groth16-material",
+ "taceo-groth16-material 0.3.0",
  "taceo-oprf",
  "taceo-poseidon2",
  "tar",
@@ -10906,6 +10942,7 @@ dependencies = [
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
+ "taceo-nodes-common",
  "taceo-oprf",
  "taceo-oprf-key-gen",
  "taceo-oprf-test-utils",
