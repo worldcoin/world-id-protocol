@@ -1,0 +1,23 @@
+name: Mobile Bench PR Auto
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_run:
+    workflows: ["Compile Gate"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: read
+  checks: read
+
+jobs:
+  dispatch:
+    uses: worldcoin/mobile-bench-rs/.github/workflows/reusable-pr-auto.yml@5749c073c341fa6beeacf7d059f95937e8a4e4aa
+    with:
+      benchmark_workflow: .github/workflows/mobile-bench.yml
+      compile_gate_workflow_name: "Compile Gate"
+      crate_path: ./crates/zk-mobile-bench
+      functions: '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_proof_only","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only"]'
