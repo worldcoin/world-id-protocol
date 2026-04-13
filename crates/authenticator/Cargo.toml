@@ -30,6 +30,7 @@ alloy = { workspace = true, features = [
   "providers",
   "contract",
   "reqwest",
+  "signer-local"
 ] }
 anyhow = { workspace = true }
 ark-babyjubjub = { workspace = true }
