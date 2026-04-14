@@ -64,7 +64,7 @@ impl From<Arc<RpRegistryWatcherError>> for RpRegistryWatcherError {
             RpRegistryWatcherError::UnknownRp(rp_id) => Self::UnknownRp(*rp_id),
             RpRegistryWatcherError::Timeout(rp_id) => Self::Timeout(*rp_id),
             RpRegistryWatcherError::InactiveRp(rp_id) => Self::InactiveRp(*rp_id),
-            RpRegistryWatcherError::Internal(report) => Self::Internal(eyre::eyre!("{report:#?}")),
+            RpRegistryWatcherError::Internal(report) => Self::Internal(eyre::eyre!("{report:?}")),
         }
     }
 }
@@ -91,7 +91,6 @@ impl RpRegistryWatcher {
         contract_address: Address,
         rpc_provider: web3::RpcProvider,
         cache_config: WatcherCacheConfig,
-        maintenance_interval: Duration,
         timeout_external_eth_call: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
@@ -130,20 +129,11 @@ impl RpRegistryWatcher {
             })
             .build();
         tracing::info!("starting subscribe task");
-        let subscribe_task =
-            tokio::task::spawn(subscribe_task(stream, rp_store.clone(), cancellation_token));
-
-        // periodically run maintenance tasks on the cache and update metrics
-        tokio::spawn({
-            let rp_store = rp_store.clone();
-            let mut interval = tokio::time::interval(maintenance_interval);
-            async move {
-                loop {
-                    interval.tick().await;
-                    rp_store.run_pending_tasks().await;
-                }
-            }
-        });
+        let subscribe_task = tokio::task::spawn(subscribe_task(
+            stream,
+            rp_store.clone(),
+            cancellation_token.clone(),
+        ));
 
         let rp_registry = Self {
             rp_store,
@@ -308,7 +298,6 @@ mod tests {
             rp_registry,
             rpc_provider,
             WatcherCacheConfig::default(),
-            Duration::from_secs(60),
             Duration::from_secs(0), // timeout set to zero
             Arc::new(AtomicBool::default()),
             CancellationToken::new(),

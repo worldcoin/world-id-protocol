@@ -229,7 +229,6 @@ mod tests {
             let setup = OprfRequestAuthTestSetup::new().await?;
 
             let max_cache_size = 100;
-            let cache_maintenance_interval = Duration::from_secs(60);
             let current_time_stamp_max_difference = Duration::from_secs(1800);
             let timeout_external_eth_call = Duration::from_secs(10);
             let started_services = StartedServices::default();
@@ -241,7 +240,6 @@ mod tests {
                 setup.world_id_registry,
                 &rpc_provider,
                 max_cache_size,
-                cache_maintenance_interval,
                 started_services.new_service(),
                 cancellation_token.clone(),
             )
@@ -251,7 +249,6 @@ mod tests {
                 setup.rp_registry,
                 rpc_provider.clone(),
                 WatcherCacheConfig::default(),
-                cache_maintenance_interval,
                 timeout_external_eth_call,
                 started_services.new_service(),
                 cancellation_token.clone(),
@@ -262,16 +259,12 @@ mod tests {
                 setup.credential_schema_issuer_registry,
                 &rpc_provider,
                 WatcherCacheConfig::default(),
-                cache_maintenance_interval,
                 started_services.new_service(),
                 cancellation_token.clone(),
             )
             .await?;
 
-            let nonce_history = NonceHistory::init(
-                current_time_stamp_max_difference * 2,
-                cache_maintenance_interval,
-            );
+            let nonce_history = NonceHistory::init(current_time_stamp_max_difference * 2);
 
             Ok(Self {
                 setup,

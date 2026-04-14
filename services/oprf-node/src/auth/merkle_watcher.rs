@@ -96,7 +96,6 @@ impl MerkleWatcher {
     /// * `contract_address` - Address of the `WorldIDRegistry` contract
     /// * `rpc_provider` - A configured `RpcProvider` from the `nodes-common` crate
     /// * `max_merkle_cache_size` - Maximum number of merkle roots to cache
-    /// * `cache_maintenance_interval` - Interval for running cache maintenance tasks
     /// * `started` - `AtomicBool` to indicate when the service has started
     /// * `cancellation_token` - `CancellationToken` to cancel the service in case of an error
     #[instrument(level = "info", skip_all)]
@@ -104,7 +103,6 @@ impl MerkleWatcher {
         contract_address: Address,
         rpc_provider: &web3::RpcProvider,
         max_merkle_cache_size: u64,
-        cache_maintenance_interval: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
@@ -120,6 +118,10 @@ impl MerkleWatcher {
         let merkle_root_cache = Cache::builder()
             .max_capacity(max_merkle_cache_size)
             .expire_after(RootExpiry)
+            .eviction_listener(move |k, _, cause| {
+                tracing::trace!("removing root {k} because: {cause:?}");
+                metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE,).decrement(1);
+            })
             .build();
 
         // we subscribe here to not miss any events between fetching the latest root and starting the subscription
@@ -178,6 +180,7 @@ impl MerkleWatcher {
             merkle_root_cache
                 .insert(latest_root, remaining_validity)
                 .await;
+            ::metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS).increment(1);
         }
 
         let latest_root = Arc::new(RwLock::new(latest_root));
@@ -192,22 +195,8 @@ impl MerkleWatcher {
             Arc::clone(&latest_root),
             merkle_root_cache.clone(),
             root_validity_window,
-            cancellation_token,
+            cancellation_token.clone(),
         ));
-
-        // periodically run maintenance tasks on the cache and update metrics
-        tokio::spawn({
-            let merkle_root_cache = merkle_root_cache.clone();
-            let mut interval = tokio::time::interval(cache_maintenance_interval);
-            async move {
-                loop {
-                    interval.tick().await;
-                    merkle_root_cache.run_pending_tasks().await;
-                    let size = merkle_root_cache.entry_count() as f64;
-                    ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(size);
-                }
-            }
-        });
 
         let merkle_watcher = Self {
             latest_root,
@@ -295,6 +284,8 @@ async fn subscribe_task(
                             "insert root with current validity window {root_validity_window:?}"
                         );
                         merkle_root_cache.insert(root, root_validity_window).await;
+
+                        ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).increment(1);
                     }
                     Err(err) => {
                         tracing::warn!("failed to decode contract event: {err:?}");
@@ -400,7 +391,6 @@ mod tests {
             registry_address,
             &rpc_provider,
             100,
-            Duration::from_secs(3600),
             started_services.new_service(),
             cancellation_token,
         )
@@ -448,7 +438,6 @@ mod tests {
             registry_address,
             &rpc_provider,
             100,
-            Duration::from_secs(1),
             started_services.new_service(),
             cancellation_token,
         )
@@ -515,7 +504,6 @@ mod tests {
             registry_address,
             &rpc_provider,
             100,
-            Duration::from_secs(1),
             started_services.new_service(),
             cancellation_token,
         )

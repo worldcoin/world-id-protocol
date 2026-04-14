@@ -1,9 +1,6 @@
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 use crate::{
@@ -65,7 +62,6 @@ impl SchemaIssuerRegistryWatcher {
         contract_address: Address,
         rpc_provider: &web3::RpcProvider,
         cache_config: WatcherCacheConfig,
-        maintenance_interval: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
     ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
@@ -92,9 +88,15 @@ impl SchemaIssuerRegistryWatcher {
             .max_capacity(max_cache_size)
             .time_to_live(time_to_live)
             .time_to_idle(time_to_idle)
+            .eviction_listener(move |k, (), cause| {
+                tracing::debug!("removing {k} because: {cause:?}");
+                metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE,)
+                    .decrement(1);
+            })
             .build();
         let subscribe_task = tokio::task::spawn({
             let issuer_schema_store = issuer_schema_store.clone();
+            let cancellation_token = cancellation_token.clone();
             async move {
                 // shutdown service if issuer registry watcher encounters an error and drops this guard
                 let _drop_guard = cancellation_token.clone().drop_guard();
@@ -132,20 +134,6 @@ impl SchemaIssuerRegistryWatcher {
             }
         });
 
-        // periodically run maintenance tasks on the cache and update metrics
-        tokio::spawn({
-            let issuer_schema_store = issuer_schema_store.clone();
-            let mut interval = tokio::time::interval(maintenance_interval);
-            async move {
-                loop {
-                    interval.tick().await;
-                    issuer_schema_store.run_pending_tasks().await;
-                    let size = issuer_schema_store.entry_count() as f64;
-                    ::metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE)
-                        .set(size);
-                }
-            }
-        });
         let schema_issuer_registry = Self {
             issuer_schema_store,
             contract: CredentialSchemaIssuerRegistryInstance::new(
@@ -179,6 +167,8 @@ impl SchemaIssuerRegistryWatcher {
             } else {
                 ::metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES)
                     .increment(1);
+                metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE,)
+                    .increment(1);
 
                 tracing::debug!("issuer {issuer_schema_id} loaded from chain");
 
@@ -186,7 +176,7 @@ impl SchemaIssuerRegistryWatcher {
             }
         }).await.map_err(|arc| match arc.as_ref() {
             SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(id) => SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(*id),
-            SchemaIssuerRegistryWatcherError::Internal(report) => SchemaIssuerRegistryWatcherError::Internal(eyre::eyre!("{report:#?}")),
+            SchemaIssuerRegistryWatcherError::Internal(report) => SchemaIssuerRegistryWatcherError::Internal(eyre::eyre!("{report:?}")),
         })
     }
 }
