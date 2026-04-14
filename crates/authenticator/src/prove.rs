@@ -107,7 +107,7 @@ impl Authenticator {
     ///
     /// # Errors
     ///
-    /// - Will raise a [`ProofError`](world_id_proof::proof::ProofError) if there is any issue
+    /// - Will raise a [`ProofError`](world_id_proof::ProofError) if there is any issue
     ///   generating the nullifier. For example, network issues, unexpected incorrect responses
     ///   from OPRF Nodes.
     /// - Raises an error if the OPRF Nodes configuration is not correctly set.
@@ -131,7 +131,7 @@ impl Authenticator {
     ///
     /// # Errors
     ///
-    /// - Will raise a [`ProofError`](world_id_proof::proof::ProofError) if there is any issue
+    /// - Will raise a [`ProofError`](world_id_proof::ProofError) if there is any issue
     ///   generating the blinding factor. For example, network issues, unexpected incorrect
     ///   responses from OPRF Nodes.
     /// - Raises an error if the OPRF Nodes configuration is not correctly set.
