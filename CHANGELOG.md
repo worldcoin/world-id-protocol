@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.8.3](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.8.2...world-id-primitives-v0.8.3) - 2026-04-14
+## [0.9.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.8.2...world-id-primitives-v0.9.0) - 2026-04-14
+
+### Breaking Changes
+
+- refactor authenticator: `get_packed_account_data` is now `pub(crate)`, `generate_single_proof` removed, `generate_session_id` signature changed, `load_nullifier_material_from_paths` now returns `Result` ([#641](https://github.com/worldcoin/world-id-protocol/pull/641))
 
 ### Added
 
