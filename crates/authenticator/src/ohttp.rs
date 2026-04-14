@@ -260,4 +260,48 @@ mod tests {
             "expected InvalidConfig for garbage key config, got: {result:?}"
         );
     }
+
+    #[test]
+    fn missing_scheme_in_target_url_returns_invalid_config() {
+        let config = OhttpClientConfig::new(
+            "http://localhost:1234".into(),
+            base64::engine::general_purpose::STANDARD.encode(b"irrelevant"),
+        );
+
+        let result = OhttpClient::new(
+            reqwest::Client::new(),
+            "test_scope",
+            "localhost:9999",
+            config,
+        );
+        match result {
+            Err(AuthenticatorError::InvalidConfig { attribute, reason }) => {
+                assert_eq!(attribute, "test_scope.target_url");
+                assert!(
+                    reason.contains("expected scheme://authority"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected InvalidConfig, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_key_config_returns_invalid_config() {
+        let config = OhttpClientConfig::new(
+            "http://localhost:1234".into(),
+            base64::engine::general_purpose::STANDARD.encode(b""),
+        );
+
+        let result = OhttpClient::new(
+            reqwest::Client::new(),
+            "test_scope",
+            "https://localhost:9999",
+            config,
+        );
+        assert!(
+            matches!(result, Err(AuthenticatorError::InvalidConfig { .. })),
+            "expected InvalidConfig for empty key config, got: {result:?}"
+        );
+    }
 }

@@ -18,6 +18,8 @@ jobs:
         working-directory: ./noir
     steps:
       - uses: actions/checkout@v6
-      - run: curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
-      - run: ~/.nargo/bin/noirup
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+        with:
+          # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
+          toolchain: v1.0.0-beta.11
       - run: cd ownership-proof && ~/.nargo/bin/nargo fmt --check && ~/.nargo/bin/nargo test
