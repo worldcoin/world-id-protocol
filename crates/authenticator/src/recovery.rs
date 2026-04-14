@@ -6,7 +6,7 @@ use crate::{
         CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest, GatewayRequestId,
         GatewayStatusResponse, UpdateRecoveryAgentRequest,
     },
-    authenticator::{Authenticator, response_body_or_fallback},
+    authenticator::Authenticator,
     error::AuthenticatorError,
     registry::{domain, sign_cancel_recovery_agent_update, sign_initiate_recovery_agent_update},
 };
@@ -36,27 +36,15 @@ impl Authenticator {
             nonce,
         };
 
-        let resp = self
-            .http_client
-            .post(format!(
-                "{}/initiate-recovery-agent-update",
-                self.config.gateway_url()
-            ))
-            .json(&req)
-            .send()
+        let gateway_resp: GatewayStatusResponse = self
+            .gateway_client
+            .post_json(
+                self.config.gateway_url(),
+                "/initiate-recovery-agent-update",
+                &req,
+            )
             .await?;
-
-        let status = resp.status();
-        if status.is_success() {
-            let gateway_resp: GatewayStatusResponse = resp.json().await?;
-            Ok(gateway_resp.request_id)
-        } else {
-            let body_text = response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        Ok(gateway_resp.request_id)
     }
 
     /// Signs the EIP-712 `InitiateRecoveryAgentUpdate` payload and returns the
@@ -114,27 +102,15 @@ impl Authenticator {
             leaf_index: self.leaf_index(),
         };
 
-        let resp = self
-            .http_client
-            .post(format!(
-                "{}/execute-recovery-agent-update",
-                self.config.gateway_url()
-            ))
-            .json(&req)
-            .send()
+        let gateway_resp: GatewayStatusResponse = self
+            .gateway_client
+            .post_json(
+                self.config.gateway_url(),
+                "/execute-recovery-agent-update",
+                &req,
+            )
             .await?;
-
-        let status = resp.status();
-        if status.is_success() {
-            let gateway_resp: GatewayStatusResponse = resp.json().await?;
-            Ok(gateway_resp.request_id)
-        } else {
-            let body_text = response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        Ok(gateway_resp.request_id)
     }
 
     /// Cancels a pending recovery agent update for the holder's World ID.
@@ -164,26 +140,14 @@ impl Authenticator {
             nonce,
         };
 
-        let resp = self
-            .http_client
-            .post(format!(
-                "{}/cancel-recovery-agent-update",
-                self.config.gateway_url()
-            ))
-            .json(&req)
-            .send()
+        let gateway_resp: GatewayStatusResponse = self
+            .gateway_client
+            .post_json(
+                self.config.gateway_url(),
+                "/cancel-recovery-agent-update",
+                &req,
+            )
             .await?;
-
-        let status = resp.status();
-        if status.is_success() {
-            let gateway_resp: GatewayStatusResponse = resp.json().await?;
-            Ok(gateway_resp.request_id)
-        } else {
-            let body_text = response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        Ok(gateway_resp.request_id)
     }
 }

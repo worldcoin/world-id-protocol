@@ -16,6 +16,10 @@ pub mod api_types {
     pub use world_id_primitives::api_types::*;
 }
 
+mod service_client;
+
+pub mod ohttp;
+
 pub mod registry;
 pub use registry::{
     WorldIdRegistry, domain, sign_cancel_recovery_agent_update,

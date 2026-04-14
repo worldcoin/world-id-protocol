@@ -7,8 +7,8 @@ use crate::{
     api_types::{
         CreateAccountRequest, GatewayRequestId, GatewayRequestState, GatewayStatusResponse,
     },
-    authenticator::{fetch_gateway_status, response_body_or_fallback},
     error::AuthenticatorError,
+    service_client::ServiceClient,
 };
 
 pub use world_id_primitives::Config;
@@ -17,7 +17,7 @@ pub use world_id_primitives::Config;
 /// i.e. it is not yet registered in the `WorldIDRegistry` contract.
 pub struct InitializingAuthenticator {
     request_id: GatewayRequestId,
-    http_client: reqwest::Client,
+    gateway_client: ServiceClient,
     config: Config,
 }
 
@@ -37,7 +37,7 @@ impl InitializingAuthenticator {
         seed: &[u8],
         config: Config,
         recovery_address: Option<Address>,
-        http_client: reqwest::Client,
+        gateway_client: ServiceClient,
     ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
@@ -60,27 +60,14 @@ impl InitializingAuthenticator {
             offchain_signer_commitment: leaf_hash.into(),
         };
 
-        let resp = http_client
-            .post(format!("{}/create-account", config.gateway_url()))
-            .json(&req)
-            .send()
+        let body: GatewayStatusResponse = gateway_client
+            .post_json(config.gateway_url(), "/create-account", &req)
             .await?;
-
-        let status = resp.status();
-        if status.is_success() {
-            let body: GatewayStatusResponse = resp.json().await?;
-            Ok(Self {
-                request_id: body.request_id,
-                http_client,
-                config,
-            })
-        } else {
-            let body_text = response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        Ok(Self {
+            request_id: body.request_id,
+            gateway_client,
+            config,
+        })
     }
 
     /// Poll the status of the World ID creation request.
@@ -89,11 +76,11 @@ impl InitializingAuthenticator {
     /// - Will error if the network request fails.
     /// - Will error if the gateway returns an error response.
     pub async fn poll_status(&self) -> Result<GatewayRequestState, AuthenticatorError> {
-        fetch_gateway_status(
-            &self.http_client,
-            self.config.gateway_url(),
-            &self.request_id,
-        )
-        .await
+        let path = format!("/status/{}", self.request_id);
+        let body: GatewayStatusResponse = self
+            .gateway_client
+            .get_json(self.config.gateway_url(), &path)
+            .await?;
+        Ok(body.status)
     }
 }

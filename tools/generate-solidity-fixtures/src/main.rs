@@ -121,12 +121,15 @@ async fn main() -> Result<()> {
         3,
     )
     .unwrap();
-    let _authenticator =
-        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
-            .await
-            .unwrap();
+    let _authenticator = Authenticator::init_or_register(
+        &seed,
+        creation_config.clone().into(),
+        Some(recovery_address),
+    )
+    .await
+    .unwrap();
 
-    let authenticator = Authenticator::init(&seed, creation_config)
+    let authenticator = Authenticator::init(&seed, creation_config.into())
         .await
         .wrap_err("expected authenticator to initialize after account creation")?;
 
@@ -230,7 +233,7 @@ async fn main() -> Result<()> {
     .unwrap();
 
     let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator = Authenticator::init(&seed, proof_config)
+    let authenticator = Authenticator::init(&seed, proof_config.into())
         .await
         .wrap_err("failed to reinitialize authenticator with proof config")?
         .with_proof_materials(query_material, nullifier_material);

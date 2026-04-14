@@ -126,7 +126,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .unwrap();
     // World ID should not yet exist.
-    let init_result = Authenticator::init(&seed, creation_config.clone()).await;
+    let init_result = Authenticator::init(&seed, creation_config.clone().into()).await;
     assert!(
         matches!(init_result, Err(AuthenticatorError::AccountDoesNotExist)),
         "expected missing account error before creation"
@@ -134,10 +134,13 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // Create the account via the gateway, blocking until confirmed.
     let start = SystemTime::now();
-    let authenticator =
-        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
-            .await
-            .unwrap();
+    let authenticator = Authenticator::init_or_register(
+        &seed,
+        creation_config.clone().into(),
+        Some(recovery_address),
+    )
+    .await
+    .unwrap();
     info!(
         elapsed_ms = SystemTime::now().duration_since(start).unwrap().as_millis(),
         "authenticator account creation finished"
@@ -147,7 +150,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);
 
     // Re-initialize to ensure account metadata is persisted.
-    let authenticator = Authenticator::init(&seed, creation_config)
+    let authenticator = Authenticator::init(&seed, creation_config.into())
         .await
         .wrap_err("expected authenticator to initialize after account creation")?;
     assert_eq!(authenticator.leaf_index(), 1);
@@ -262,7 +265,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     .unwrap();
 
     let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator = Authenticator::init(&seed, proof_config)
+    let authenticator = Authenticator::init(&seed, proof_config.into())
         .await
         .wrap_err("failed to reinitialize authenticator with proof config")?
         .with_proof_materials(query_material, nullifier_material);

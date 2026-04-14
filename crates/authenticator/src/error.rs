@@ -52,7 +52,7 @@ pub enum AuthenticatorError {
     #[error("Invalid configuration for {attribute}: {reason}")]
     InvalidConfig {
         /// The config attribute that is invalid.
-        attribute: &'static str,
+        attribute: String,
         /// Description of why it is invalid.
         reason: String,
     },
@@ -92,6 +92,28 @@ pub enum AuthenticatorError {
         /// Highest supported slot index.
         max_supported_slot: usize,
     },
+
+    /// OHTTP encapsulation or decapsulation error.
+    #[error("OHTTP encapsulation error: {0}")]
+    OhttpEncapsulationError(#[from] ohttp::Error),
+
+    /// Binary HTTP framing error.
+    #[error("Binary HTTP error: {0}")]
+    BhttpError(#[from] bhttp::Error),
+
+    /// The OHTTP relay itself returned a non-success status.
+    #[error("OHTTP relay error (status {status}): {body}")]
+    OhttpRelayError {
+        /// HTTP status code from the relay.
+        status: StatusCode,
+        /// Response body from the relay.
+        body: String,
+    },
+
+    /// A service returned a success status but the response body could not be
+    /// deserialized into the expected type.
+    #[error("Invalid service response: {0}")]
+    InvalidServiceResponse(String),
 
     /// The assembled proof response failed self-validation against the request.
     #[error(transparent)]

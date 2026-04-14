@@ -42,7 +42,7 @@ impl Authenticator {
         let requested_threshold = self.config.nullifier_oracle_threshold();
         if requested_threshold == 0 {
             return Err(AuthenticatorError::InvalidConfig {
-                attribute: "nullifier_oracle_threshold",
+                attribute: "nullifier_oracle_threshold".to_string(),
                 reason: "must be at least 1".to_string(),
             });
         }

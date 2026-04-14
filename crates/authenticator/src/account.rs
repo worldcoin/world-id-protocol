@@ -9,7 +9,7 @@ use crate::{
         GatewayRequestId, GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest,
         RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
-    authenticator::{Authenticator, fetch_gateway_status, response_body_or_fallback},
+    authenticator::Authenticator,
     error::AuthenticatorError,
     registry::{
         domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
@@ -71,27 +71,11 @@ impl Authenticator {
             nonce,
         };
 
-        let resp = self
-            .http_client
-            .post(format!(
-                "{}/insert-authenticator",
-                self.config.gateway_url()
-            ))
-            .json(&req)
-            .send()
+        let body: GatewayStatusResponse = self
+            .gateway_client
+            .post_json(self.config.gateway_url(), "/insert-authenticator", &req)
             .await?;
-
-        let status = resp.status();
-        if status.is_success() {
-            let body: GatewayStatusResponse = resp.json().await?;
-            Ok(body.request_id)
-        } else {
-            let body_text = response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        Ok(body.request_id)
     }
 
     /// Updates an existing authenticator slot with a new authenticator.
@@ -146,27 +130,11 @@ impl Authenticator {
             new_authenticator_pubkey: encoded_offchain_pubkey,
         };
 
-        let resp = self
-            .http_client
-            .post(format!(
-                "{}/update-authenticator",
-                self.config.gateway_url()
-            ))
-            .json(&req)
-            .send()
+        let gateway_resp: GatewayStatusResponse = self
+            .gateway_client
+            .post_json(self.config.gateway_url(), "/update-authenticator", &req)
             .await?;
-
-        let status = resp.status();
-        if status.is_success() {
-            let gateway_resp: GatewayStatusResponse = resp.json().await?;
-            Ok(gateway_resp.request_id)
-        } else {
-            let body_text = response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        Ok(gateway_resp.request_id)
     }
 
     /// Removes an authenticator from the account.
@@ -222,27 +190,11 @@ impl Authenticator {
             authenticator_pubkey: Some(encoded_old_offchain_pubkey),
         };
 
-        let resp = self
-            .http_client
-            .post(format!(
-                "{}/remove-authenticator",
-                self.config.gateway_url()
-            ))
-            .json(&req)
-            .send()
+        let gateway_resp: GatewayStatusResponse = self
+            .gateway_client
+            .post_json(self.config.gateway_url(), "/remove-authenticator", &req)
             .await?;
-
-        let status = resp.status();
-        if status.is_success() {
-            let gateway_resp: GatewayStatusResponse = resp.json().await?;
-            Ok(gateway_resp.request_id)
-        } else {
-            let body_text = response_body_or_fallback(resp).await;
-            Err(AuthenticatorError::GatewayError {
-                status,
-                body: body_text,
-            })
-        }
+        Ok(gateway_resp.request_id)
     }
 
     /// Polls the gateway for the current status of a previously submitted request.
@@ -258,6 +210,11 @@ impl Authenticator {
         &self,
         request_id: &GatewayRequestId,
     ) -> Result<GatewayRequestState, AuthenticatorError> {
-        fetch_gateway_status(&self.http_client, self.config.gateway_url(), request_id).await
+        let path = format!("/status/{request_id}");
+        let body: GatewayStatusResponse = self
+            .gateway_client
+            .get_json(self.config.gateway_url(), &path)
+            .await?;
+        Ok(body.status)
     }
 }
