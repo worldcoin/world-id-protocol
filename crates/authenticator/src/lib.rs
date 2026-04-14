@@ -1,7 +1,24 @@
 mod authenticator;
 pub use authenticator::*;
 
-pub mod api_types;
+mod error;
+pub use error::AuthenticatorError;
+
+mod account;
+mod init;
+mod prove;
+mod recovery;
+mod traits;
+pub use init::InitializingAuthenticator;
+pub use traits::OnchainKeyRepresentable;
+
+pub mod api_types {
+    pub use world_id_primitives::api_types::*;
+}
+
+mod service_client;
+
+pub mod ohttp;
 
 pub mod registry;
 pub use registry::{

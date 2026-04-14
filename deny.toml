@@ -44,5 +44,7 @@ ignore = [
     "RUSTSEC-2023-0089", # Unmaintained `atomic-polyfill` (2025-04-29)
     "RUSTSEC-2025-0057", # Unmaintained `fxhash` (2026-04-10), requires bumps on `provekit`
     "RUSTSEC-2025-0141", # Unmaintained `bincode` (2026-04-10), requires bumps on `provekit`
+    "RUSTSEC-2026-0049", # `rustls-webpki` (requires upstream dep updates); low severity, requires compromised CA (2026-03-23)
+    "RUSTSEC-2026-0074", # `libcrux-sha3` via testcontainers->russh; dev-only, does not affect our usage (2026-03-26)
     "RUSTSEC-2026-0097"  # Unsoundness in `rand@0.8.5` (2026-04-11), multiple upstream deps on `rand`. Not directly using custom logger
 ]
