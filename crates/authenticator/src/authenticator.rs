@@ -364,6 +364,20 @@ impl Authenticator {
         }
     }
 
+    /// Re-fetches the packed account data for this authenticator from the indexer or registry.
+    ///
+    /// # Errors
+    /// Will error if the network call fails or if the account does not exist.
+    pub async fn refresh_packed_account_data(&self) -> Result<U256, AuthenticatorError> {
+        Self::get_packed_account_data(
+            self.onchain_address(),
+            self.registry().as_deref(),
+            &self.config,
+            &self.indexer_client,
+        )
+        .await
+    }
+
     /// Returns the packed account data for the holder's World ID.
     ///
     /// The packed account data is a 256 bit integer which includes the World ID's leaf index, their recovery counter,
@@ -371,7 +385,7 @@ impl Authenticator {
     ///
     /// # Errors
     /// Will error if the network call fails or if the account does not exist.
-    pub(crate) async fn get_packed_account_data(
+    async fn get_packed_account_data(
         onchain_signer_address: Address,
         registry: Option<&WorldIdRegistryInstance<DynProvider>>,
         config: &Config,
