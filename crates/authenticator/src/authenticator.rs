@@ -65,6 +65,23 @@ pub struct AuthenticatorConfig {
     pub ohttp_gateway: Option<OhttpClientConfig>,
 }
 
+impl AuthenticatorConfig {
+    /// Loads an authenticator configuration from JSON.
+    ///
+    /// Accepts both plain `Config` JSON (OHTTP fields default to `None`) and
+    /// extended JSON with `ohttp_indexer` / `ohttp_gateway` fields.
+    ///
+    /// # Errors
+    /// Will error if the JSON is not valid.
+    pub fn from_json(json_str: &str) -> Result<Self, AuthenticatorError> {
+        serde_json::from_str(json_str).map_err(|e| {
+            AuthenticatorError::from(PrimitiveError::Serialization(format!(
+                "failed to parse authenticator config: {e}"
+            )))
+        })
+    }
+}
+
 impl From<Config> for AuthenticatorConfig {
     fn from(config: Config) -> Self {
         Self {
