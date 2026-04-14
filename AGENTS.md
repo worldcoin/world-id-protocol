@@ -26,11 +26,6 @@
 - Binary: `world-id-oprf-node` (see `services/oprf-node/src/bin/world-id-oprf-node.rs`).
 - Implements the OPRF service used by the protocol. Look in `services/oprf-node/src/` for request auth and service wiring.
 
-## OHTTP Integration
-- The Cloudflare gateway server used here is referred to in-repo as `ohttp-gateway`; a local checkout of the upstream repo is available at `/tmp/privacy-gateway-server-go`.
-- The Rust OHTTP dependency used here is `ohttp`; a local checkout of that repo is available at `/tmp/ohttp`.
-- The OHTTP flow here uses a Cloudflare-operated relay that forwards traffic to `ohttp-gateway`, which then routes requests to the World ID `indexer` or `gateway` services based on the target domain and can apply target rewrites to reach local domain names during development.
-
 ## Smart Contracts
 - All contracts must follow the guidelines set out in contracts/README.md.
 - Key contract rules from `contracts/README.md`:
