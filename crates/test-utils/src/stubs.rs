@@ -6,9 +6,20 @@ use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, Result};
 use secrecy::SecretString;
 use semver::VersionReq;
-use taceo_oprf::service::web3::RpcProviderConfig;
-use taceo_oprf_key_gen::{StartedServices, config::OprfKeyGenServiceConfigMandatoryValues};
-use taceo_oprf_test_utils::{PEER_PRIVATE_KEYS, test_secret_manager::TestSecretManager};
+use taceo_nodes_common::postgres::PostgresConfig;
+use taceo_oprf::service::{
+    secret_manager::SecretManagerService as NodeSecretManagerService, web3::RpcProviderConfig,
+};
+use taceo_oprf_key_gen::{
+    StartedServices,
+    config::OprfKeyGenServiceConfigMandatoryValues,
+    secret_manager::{SecretManager, SecretManagerService as KeyGenSecretManagerService},
+};
+use taceo_oprf_test_utils::{
+    OPRF_PEER_ADDRESS_0, OPRF_PEER_ADDRESS_1, OPRF_PEER_ADDRESS_2, OPRF_PEER_ADDRESS_3,
+    OPRF_PEER_ADDRESS_4, OPRF_PEER_PRIVATE_KEY_0, OPRF_PEER_PRIVATE_KEY_1, OPRF_PEER_PRIVATE_KEY_2,
+    OPRF_PEER_PRIVATE_KEY_3, OPRF_PEER_PRIVATE_KEY_4,
+};
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use world_id_oprf_node::config::{WorldIdNodeContracts, WorldOprfNodeConfig};
@@ -190,7 +201,7 @@ impl MutableIndexerStub {
 async fn spawn_orpf_node(
     id: usize,
     anvil: &TestAnvil,
-    secret_manager: OprfNodeTestSecretManager,
+    secret_manager: NodeSecretManagerService,
     oprf_key_registry_contract: Address,
     world_id_registry_contract: Address,
     rp_registry_contract: Address,
@@ -222,7 +233,7 @@ async fn spawn_orpf_node(
     tokio::spawn(async move {
         let cancellation_token = CancellationToken::new();
         let (router, _) =
-            world_id_oprf_node::start(config, Arc::new(secret_manager), cancellation_token.clone())
+            world_id_oprf_node::start(config, secret_manager, cancellation_token.clone())
                 .await
                 .expect("Can start");
         let listener = tokio::net::TcpListener::bind(bind_addr)
@@ -255,7 +266,7 @@ pub async fn spawn_oprf_nodes(
         secret_manager2,
         secret_manager3,
         secret_manager4,
-    ]: [OprfNodeTestSecretManager; 5],
+    ]: [NodeSecretManagerService; 5],
     key_gen_contract: Address,
     world_id_registry_contract: Address,
     rp_registry_contract: Address,
@@ -311,11 +322,13 @@ pub async fn spawn_oprf_nodes(
     .into()
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn spawn_key_gen(
     id: usize,
     chain_http_rpc_url: &str,
     chain_ws_rpc_url: &str,
-    secret_manager: OprfKeyGenTestSecretManager,
+    wallet_private_key: &str,
+    secret_manager: KeyGenSecretManagerService,
     oprf_key_registry_contract: Address,
     expected_threshold: NonZeroU16,
     expected_num_peers: NonZeroU16,
@@ -327,7 +340,7 @@ async fn spawn_key_gen(
         OprfKeyGenServiceConfigMandatoryValues {
             environment: taceo_oprf_key_gen::Environment::Dev,
             oprf_key_registry_contract,
-            wallet_private_key: SecretString::from(secret_manager.wallet_private_key_hex_string()),
+            wallet_private_key: SecretString::from(wallet_private_key),
             zkey_path: dir.join("../../circom/OPRFKeyGen.25.arks.zkey"),
             witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.25.bin"),
             expected_threshold,
@@ -343,7 +356,7 @@ async fn spawn_key_gen(
         let cancellation_token = CancellationToken::new();
         let (router, _) = taceo_oprf_key_gen::start(
             config,
-            Arc::new(secret_manager),
+            secret_manager,
             StartedServices::new(),
             cancellation_token.clone(),
         )
@@ -380,7 +393,7 @@ pub async fn spawn_key_gens(
         secret_manager2,
         secret_manager3,
         secret_manager4,
-    ]: [OprfKeyGenTestSecretManager; 5],
+    ]: [KeyGenSecretManagerService; 5],
     key_gen_contract: Address,
 ) -> [String; 5] {
     let threshold = NonZeroU16::new(3).expect("3 is non-zero");
@@ -390,6 +403,7 @@ pub async fn spawn_key_gens(
             0,
             chain_http_rpc_url,
             chain_ws_rpc_url,
+            OPRF_PEER_PRIVATE_KEY_0,
             secret_manager0,
             key_gen_contract,
             threshold,
@@ -399,6 +413,7 @@ pub async fn spawn_key_gens(
             1,
             chain_http_rpc_url,
             chain_ws_rpc_url,
+            OPRF_PEER_PRIVATE_KEY_1,
             secret_manager1,
             key_gen_contract,
             threshold,
@@ -408,6 +423,7 @@ pub async fn spawn_key_gens(
             2,
             chain_http_rpc_url,
             chain_ws_rpc_url,
+            OPRF_PEER_PRIVATE_KEY_2,
             secret_manager2,
             key_gen_contract,
             threshold,
@@ -417,6 +433,7 @@ pub async fn spawn_key_gens(
             3,
             chain_http_rpc_url,
             chain_ws_rpc_url,
+            OPRF_PEER_PRIVATE_KEY_3,
             secret_manager3,
             key_gen_contract,
             threshold,
@@ -426,6 +443,7 @@ pub async fn spawn_key_gens(
             4,
             chain_http_rpc_url,
             chain_ws_rpc_url,
+            OPRF_PEER_PRIVATE_KEY_4,
             secret_manager4,
             key_gen_contract,
             threshold,
@@ -435,40 +453,50 @@ pub async fn spawn_key_gens(
     .into()
 }
 
-pub fn init_test_secret_managers() -> (
-    [OprfKeyGenTestSecretManager; 5],
-    [OprfNodeTestSecretManager; 5],
-) {
-    let test_secret_manager0 = Arc::new(TestSecretManager::new(PEER_PRIVATE_KEYS[0]));
-    let test_secret_manager1 = Arc::new(TestSecretManager::new(PEER_PRIVATE_KEYS[1]));
-    let test_secret_manager2 = Arc::new(TestSecretManager::new(PEER_PRIVATE_KEYS[2]));
-    let test_secret_manager3 = Arc::new(TestSecretManager::new(PEER_PRIVATE_KEYS[3]));
-    let test_secret_manager4 = Arc::new(TestSecretManager::new(PEER_PRIVATE_KEYS[4]));
-
-    (
-        [
-            OprfKeyGenTestSecretManager(test_secret_manager0.clone()),
-            OprfKeyGenTestSecretManager(test_secret_manager1.clone()),
-            OprfKeyGenTestSecretManager(test_secret_manager2.clone()),
-            OprfKeyGenTestSecretManager(test_secret_manager3.clone()),
-            OprfKeyGenTestSecretManager(test_secret_manager4.clone()),
-        ],
-        [
-            OprfNodeTestSecretManager(test_secret_manager0),
-            OprfNodeTestSecretManager(test_secret_manager1),
-            OprfNodeTestSecretManager(test_secret_manager2),
-            OprfNodeTestSecretManager(test_secret_manager3),
-            OprfNodeTestSecretManager(test_secret_manager4),
-        ],
-    )
+pub async fn init_oprf_secret_manager(
+    connection_string: &SecretString,
+    schema: &'static str,
+    address: Address,
+) -> eyre::Result<(KeyGenSecretManagerService, NodeSecretManagerService)> {
+    let db_config = PostgresConfig::with_default_values(
+        connection_string.clone(),
+        schema.parse().expect("should be valid config"),
+    );
+    let key_gen = Arc::new(
+        taceo_oprf_key_gen::secret_manager::postgres::PostgresSecretManager::init(&db_config)
+            .await?,
+    );
+    key_gen.store_wallet_address(address.to_string()).await?;
+    let node = Arc::new(
+        taceo_oprf::service::secret_manager::postgres::PostgresSecretManager::init(&db_config)
+            .await?,
+    );
+    Ok((key_gen, node))
 }
 
-taceo_oprf_test_utils::key_gen_test_secret_manager!(
-    taceo_oprf_key_gen::secret_manager::SecretManager,
-    OprfKeyGenTestSecretManager
-);
+pub async fn init_test_secret_managers(
+    connection_string: SecretString,
+) -> eyre::Result<(
+    [taceo_oprf_key_gen::secret_manager::SecretManagerService; 5],
+    [taceo_oprf::service::secret_manager::SecretManagerService; 5],
+)> {
+    let (res0, res1, res2, res3, res4) = tokio::join!(
+        init_oprf_secret_manager(&connection_string, "node0", OPRF_PEER_ADDRESS_0),
+        init_oprf_secret_manager(&connection_string, "node1", OPRF_PEER_ADDRESS_1),
+        init_oprf_secret_manager(&connection_string, "node2", OPRF_PEER_ADDRESS_2),
+        init_oprf_secret_manager(&connection_string, "node3", OPRF_PEER_ADDRESS_3),
+        init_oprf_secret_manager(&connection_string, "node4", OPRF_PEER_ADDRESS_4),
+    );
 
-taceo_oprf_test_utils::oprf_node_test_secret_manager!(
-    taceo_oprf::service::secret_manager::SecretManager,
-    OprfNodeTestSecretManager
-);
+    // then handle results
+    let (key_gen0, node0) = res0?;
+    let (key_gen1, node1) = res1?;
+    let (key_gen2, node2) = res2?;
+    let (key_gen3, node3) = res3?;
+    let (key_gen4, node4) = res4?;
+
+    Ok((
+        [key_gen0, key_gen1, key_gen2, key_gen3, key_gen4],
+        [node0, node1, node2, node3, node4],
+    ))
+}
