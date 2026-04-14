@@ -1020,4 +1020,49 @@ mod tests {
         mock.assert_async().await;
         drop(server);
     }
+
+    #[test]
+    fn test_authenticator_config_from_json_plain_config() {
+        let json = serde_json::json!({
+            "chain_id": 480,
+            "registry_address": "0x0000000000000000000000000000000000000001",
+            "indexer_url": "http://indexer.example.com",
+            "gateway_url": "http://gateway.example.com",
+            "nullifier_oracle_urls": [],
+            "nullifier_oracle_threshold": 2
+        });
+
+        let config = AuthenticatorConfig::from_json(&json.to_string()).unwrap();
+        assert!(config.ohttp_indexer.is_none());
+        assert!(config.ohttp_gateway.is_none());
+        assert_eq!(config.config.gateway_url(), "http://gateway.example.com");
+    }
+
+    #[test]
+    fn test_authenticator_config_from_json_with_ohttp() {
+        let json = serde_json::json!({
+            "chain_id": 480,
+            "registry_address": "0x0000000000000000000000000000000000000001",
+            "indexer_url": "http://indexer.example.com",
+            "gateway_url": "http://gateway.example.com",
+            "nullifier_oracle_urls": [],
+            "nullifier_oracle_threshold": 2,
+            "ohttp_indexer": {
+                "relay_url": "https://relay.example.com/gateway",
+                "key_config_base64": "dGVzdC1rZXk="
+            },
+            "ohttp_gateway": {
+                "relay_url": "https://relay.example.com/gateway",
+                "key_config_base64": "dGVzdC1rZXk="
+            }
+        });
+
+        let config = AuthenticatorConfig::from_json(&json.to_string()).unwrap();
+        let ohttp_indexer = config.ohttp_indexer.unwrap();
+        assert_eq!(ohttp_indexer.relay_url, "https://relay.example.com/gateway");
+        assert_eq!(ohttp_indexer.key_config_base64, "dGVzdC1rZXk=");
+        let ohttp_gateway = config.ohttp_gateway.unwrap();
+        assert_eq!(ohttp_gateway.relay_url, "https://relay.example.com/gateway");
+        assert_eq!(ohttp_gateway.key_config_base64, "dGVzdC1rZXk=");
+    }
 }
