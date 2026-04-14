@@ -39,10 +39,6 @@ use world_id_primitives::{
         decode_sparse_authenticator_pubkeys,
     },
 };
-use world_id_proof::{
-    AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofError,
-    proof::generate_nullifier_proof,
-};
 
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::{Nullifier, SessionId};
