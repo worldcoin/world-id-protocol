@@ -57,10 +57,11 @@ impl BatcherHandle {
                 };
                 self.create.tx.send(envelope).await.is_ok()
             }
-            Command::Operation { id, calldata, .. } => {
+            Command::Operation { id, calldata, gas } => {
                 let envelope = OpsEnvelope {
                     id: id.to_string(),
                     calldata,
+                    gas,
                 };
                 self.ops.tx.send(envelope).await.is_ok()
             }
@@ -79,7 +80,6 @@ pub enum Command {
     Operation {
         id: Uuid,
         calldata: Bytes,
-        #[allow(dead_code)]
         gas: u64,
     },
 }

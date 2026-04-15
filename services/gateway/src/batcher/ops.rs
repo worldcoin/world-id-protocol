@@ -17,14 +17,12 @@ use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingB
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
-/// Base gas overhead for the Multicall3 `aggregate3` call itself (ABI
-/// decoding, result encoding, proxy overhead).
+/// Base gas overhead for the Multicall3 `aggregate3` call itself.
 const OPS_BATCH_FIXED_GAS: u64 = 50_000;
 
-/// Worst-case per-call gas for an individual registry operation routed
-/// through Multicall3.  Uses `DEFAULT_REMOVE_AUTHENTICATOR_GAS` (721,044)
-/// — the most expensive op — plus Multicall3 per-call overhead (~30k).
-const OPS_BATCH_PER_CALL_GAS: u64 = 750_000;
+/// Per-call overhead added by Multicall3 routing (calldata decoding, result
+/// encoding, CALL dispatch).
+const MULTICALL3_PER_CALL_OVERHEAD: u64 = 25_000;
 
 alloy::sol! {
     #[allow(missing_docs)]
@@ -41,11 +39,13 @@ pub struct OpsBatcherHandle {
     pub tx: mpsc::Sender<OpsEnvelope>,
 }
 
-/// Envelope for ops batcher containing pre-computed calldata.
+/// Envelope for ops batcher containing pre-computed calldata and the
+/// per-operation gas estimate set by the route handler.
 #[derive(Debug)]
 pub struct OpsEnvelope {
     pub id: String,
     pub calldata: Bytes,
+    pub gas: u64,
 }
 
 impl BatcherEnvelope for OpsEnvelope {
@@ -73,17 +73,21 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
     ) -> Result<PendingBatchTx, alloy::contract::Error> {
         let mc = Multicall3::new(MULTICALL3_ADDR, registry.provider().clone());
 
-        let num_calls = batch.len() as u64;
+        let mut per_op_gas_sum: u64 = 0;
         let calls: Vec<Multicall3::Call3> = batch
             .into_iter()
-            .map(|env| Multicall3::Call3 {
-                target: *registry.address(),
-                allowFailure: false,
-                callData: env.calldata,
+            .map(|env| {
+                per_op_gas_sum =
+                    per_op_gas_sum.saturating_add(env.gas + MULTICALL3_PER_CALL_OVERHEAD);
+                Multicall3::Call3 {
+                    target: *registry.address(),
+                    allowFailure: false,
+                    callData: env.calldata,
+                }
             })
             .collect();
 
-        let gas_limit = OPS_BATCH_FIXED_GAS + OPS_BATCH_PER_CALL_GAS * num_calls;
+        let gas_limit = OPS_BATCH_FIXED_GAS.saturating_add(per_op_gas_sum);
 
         let builder = mc.aggregate3(calls).gas(gas_limit).send().await?;
 
