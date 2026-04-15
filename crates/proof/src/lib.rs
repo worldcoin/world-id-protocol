@@ -9,6 +9,9 @@ use world_id_primitives::{
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+/// Circuit input types for Circom/Groth16 circuits (query, nullifier, ownership proofs).
+pub mod circuit_inputs;
+
 pub(crate) mod oprf_query;
 pub use oprf_query::{FullOprfOutput, OprfEntrypoint};
 
