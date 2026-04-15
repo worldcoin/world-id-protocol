@@ -76,13 +76,13 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
         let mut per_op_gas_sum: u64 = 0;
         let calls: Vec<Multicall3::Call3> = batch
             .into_iter()
-            .map(|env| {
+            .map(|envelope| {
                 per_op_gas_sum =
-                    per_op_gas_sum.saturating_add(env.gas + MULTICALL3_PER_CALL_OVERHEAD);
+                    per_op_gas_sum.saturating_add(envelope.gas + MULTICALL3_PER_CALL_OVERHEAD);
                 Multicall3::Call3 {
                     target: *registry.address(),
                     allowFailure: false,
-                    callData: env.calldata,
+                    callData: envelope.calldata,
                 }
             })
             .collect();
