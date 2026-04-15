@@ -8,7 +8,7 @@ use eddsa_babyjubjub::EdDSASignature;
 use groth16_material::circom::ProofInput;
 use ruint::aliases::U256;
 
-use crate::{
+use world_id_primitives::{
     FieldElement,
     authenticator::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS},
     merkle::MerkleInclusionProof,

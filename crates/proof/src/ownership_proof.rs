@@ -11,7 +11,9 @@ use provekit_common::{InputMap, InputValue, NoirElement, NoirProof};
 use provekit_prover::Prove;
 
 use crate::{NoirCircuitInput, NoirRepresentable, ProofError};
-use world_id_primitives::{TREE_DEPTH, circuit_inputs::OwnershipProofCircuitInput};
+use world_id_primitives::TREE_DEPTH;
+
+use crate::circuit_inputs::OwnershipProofCircuitInput;
 
 /// Raw bytes of the embedded Proving Key Package (PKP).
 const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));

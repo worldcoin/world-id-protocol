@@ -25,7 +25,6 @@ ark-ff = { workspace = true }
 ark-serde-compat = { workspace = true }
 arrayvec = { workspace = true, features = ["serde"] }
 circom-types = { workspace = true, features = ["groth16"] }
-groth16-material = { workspace = true, features = ["circom"] }
 eddsa-babyjubjub = { workspace = true }
 eyre = { workspace = true }
 hex = { workspace = true }
@@ -42,7 +41,7 @@ secrecy = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 utoipa = { workspace = true, optional = true }
 uuid = { workspace = true, features = ["js"] }
-k256 = { workspace = true, features = ["ecdsa", "serde"] }
+sha2 = { workspace = true }
 embed-doc-image = "0.1.4"
 
 # WASM support: getrandom needs 'js' feature in browsers
@@ -52,3 +51,4 @@ getrandom = { workspace = true, features = ["js"] }
 [dev-dependencies]
 ark-serialize = { workspace = true }
 ciborium = { workspace = true }
+k256 = { workspace = true, features = ["ecdsa"] }
