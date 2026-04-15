@@ -4,7 +4,7 @@ use world_id_primitives::{
     SessionNullifier, ZeroKnowledgeProof,
 };
 use world_id_proof::{
-    AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, WhirR1CSProof,
+    AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofCompression, WhirR1CSProof,
     proof::generate_nullifier_proof,
 };
 
