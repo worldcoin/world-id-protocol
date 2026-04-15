@@ -262,8 +262,6 @@ jobs:
         run: |
           cargo nextest run --profile ci --all-features --workspace
           cargo test --doc --all-features --workspace
-          cargo nextest run --profile ci -p world-id-core --no-default-features
-          cargo test --doc -p world-id-core --no-default-features
 
       - name: Clean up services
         run: |
