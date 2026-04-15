@@ -67,6 +67,11 @@ pub enum AuthenticatorError {
     #[error("Proof request cannot be fulfilled with the provided credentials.")]
     UnfullfilableRequest,
 
+    /// Used in Ownership Proofs. The provided `blinding_factor` does not match for the
+    /// provided `sub`, ownership cannot be proven.
+    #[error("the sub or blinding factor provided do not match the expected value.")]
+    InvalidSubOrBlindingFactor,
+
     /// Error during the World ID registration process.
     ///
     /// This usually occurs from an on-chain revert.

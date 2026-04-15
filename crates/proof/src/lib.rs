@@ -24,6 +24,9 @@ use world_id_primitives::FieldElement;
 #[cfg(feature = "provekit")]
 pub mod ownership_proof;
 
+#[cfg(feature = "provekit")]
+pub use provekit_common::{NoirProof, WhirR1CSProof};
+
 /// Error type for OPRF operations and proof generation.
 #[derive(Debug, thiserror::Error)]
 pub enum ProofError {
@@ -80,14 +83,14 @@ impl From<taceo_oprf::client::Error> for ProofError {
 pub struct AuthenticatorProofInput {
     /// The set of all public keys for all the user's authenticators.
     #[zeroize(skip)]
-    key_set: AuthenticatorPublicKeySet,
+    pub key_set: AuthenticatorPublicKeySet,
     /// Inclusion proof in the World ID Registry.
     #[zeroize(skip)]
-    inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
+    pub inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     /// The off-chain signer key for the Authenticator.
     private_key: EdDSAPrivateKey,
     /// The index at which the authenticator key is located in the `key_set`.
-    key_index: u64,
+    pub key_index: u64,
 }
 
 impl AuthenticatorProofInput {

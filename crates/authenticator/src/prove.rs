@@ -3,6 +3,8 @@ use world_id_primitives::{
     Credential, FieldElement, ProofRequest, ProofResponse, RequestItem, ResponseItem, SessionId,
     SessionNullifier, ZeroKnowledgeProof,
 };
+#[cfg(feature = "provekit")]
+use world_id_proof::WhirR1CSProof;
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, proof::generate_nullifier_proof,
 };
@@ -53,6 +55,23 @@ impl Authenticator {
             .as_ref()
             .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
 
+        let authenticator_input = self
+            .prepare_authenticator_input(account_inclusion_proof)
+            .await?;
+
+        Ok(OprfEntrypoint::new(
+            services,
+            threshold,
+            query_material,
+            authenticator_input,
+            &self.ws_connector,
+        ))
+    }
+
+    async fn prepare_authenticator_input(
+        &self,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
+    ) -> Result<AuthenticatorProofInput, AuthenticatorError> {
         // Fetch inclusion_proof && authenticator key_set if not provided
         let account_inclusion_proof = if let Some(account_inclusion_proof) = account_inclusion_proof
         {
@@ -80,13 +99,7 @@ impl Authenticator {
             key_index,
         );
 
-        Ok(OprfEntrypoint::new(
-            services,
-            threshold,
-            query_material,
-            authenticator_input,
-            &self.ws_connector,
-        ))
+        Ok(authenticator_input)
     }
 
     /// Generates a nullifier for a World ID Proof (through OPRF Nodes).
@@ -408,5 +421,46 @@ impl Authenticator {
         };
 
         Ok(response_item)
+    }
+
+    #[cfg(feature = "provekit")]
+    pub async fn prove_credential_sub(
+        &self,
+        nonce: FieldElement,
+        credential_blinding_factor: FieldElement,
+        sub: FieldElement,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
+    ) -> Result<WhirR1CSProof, AuthenticatorError> {
+        use world_id_primitives::circuit_inputs::OwnershipProofCircuitInput;
+        use world_id_proof::ownership_proof::generate_ownership_proof;
+
+        let authenticator_input = self
+            .prepare_authenticator_input(account_inclusion_proof)
+            .await?;
+
+        let commitment = Credential::compute_sub(self.leaf_index(), credential_blinding_factor);
+
+        if commitment != sub {
+            return Err(AuthenticatorError::InvalidSubOrBlindingFactor);
+        }
+
+        let signature = self
+            .signer
+            .offchain_signer_private_key()
+            .expose_secret()
+            .sign(*commitment);
+
+        let input = OwnershipProofCircuitInput {
+            key_index: authenticator_input.key_index,
+            key_set: authenticator_input.key_set.clone(),
+            inclusion_proof: authenticator_input.inclusion_proof.clone(),
+            nonce,
+            signature,
+            commitment_blinder: credential_blinding_factor,
+        };
+
+        let proof = generate_ownership_proof(input)?;
+
+        Ok(proof.whir_r1cs_proof)
     }
 }
