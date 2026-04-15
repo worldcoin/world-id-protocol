@@ -6,7 +6,8 @@ use world_id_primitives::{
 #[cfg(feature = "provekit")]
 use world_id_proof::WhirR1CSProof;
 use world_id_proof::{
-    AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, proof::generate_nullifier_proof,
+    AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ZeroKnowledgeProofExt,
+    proof::generate_nullifier_proof,
 };
 
 use crate::{

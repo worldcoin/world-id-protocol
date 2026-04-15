@@ -48,6 +48,7 @@ rand = { workspace = true }
 serde = { workspace = true }
 groth16-material = { workspace = true }
 poseidon2 = { workspace = true }
+taceo-groth16-sol = { workspace = true }
 taceo-oprf = { workspace = true, features = ["client", "core"] }
 eyre = { workspace = true }
 zeroize = { workspace = true }
