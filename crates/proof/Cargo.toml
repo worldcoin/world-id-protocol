@@ -28,6 +28,8 @@ compress-zkeys = ["embed-zkeys", "dep:ark-serialize", "dep:circom-types"]
 zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
 
 # Experimental: Feature Flags for Specific Circuits
+# RATIONALE: We feature flag each circuit and based on the proving/verifying action because each require
+# a proving and verifying key that generally is above >1Mb. So selecting circuits optimizes bundle size.
 zk-ownership-prove = ["dep:provekit-prover"]
 zk-ownership-verify = ["dep:provekit-verifier"]
 
