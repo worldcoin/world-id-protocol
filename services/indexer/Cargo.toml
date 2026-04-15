@@ -43,14 +43,12 @@ axum = { workspace = true, features = ["macros", "json"] }
 http = { workspace = true }
 take_mut = { workspace = true }
 utoipa = { workspace = true }
-world-id-core = { workspace = true, features = [
-  "authenticator",
-  "embed-zkeys",
-] }
 world-id-primitives = { workspace = true, features = ["openapi"] }
+world-id-registries = { workspace = true }
 metrics = { workspace = true }
 
 [dev-dependencies]
+eddsa-babyjubjub = { workspace = true }
 world-id-test-utils = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }

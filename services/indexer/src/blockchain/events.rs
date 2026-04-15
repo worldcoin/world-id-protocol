@@ -2,7 +2,7 @@ use alloy::{
     primitives::{Address, FixedBytes, Log, U256},
     sol_types::SolEvent,
 };
-use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_registries::world_id::WorldIdRegistry;
 
 use super::{BlockchainError, BlockchainResult};
 
@@ -246,7 +246,7 @@ mod tests {
         rpc::types::Log as RpcLog,
         sol_types::SolEvent,
     };
-    use world_id_core::world_id_registry::WorldIdRegistry;
+    use world_id_registries::world_id::WorldIdRegistry;
 
     /// Helper to create a mock RPC log
     fn create_mock_rpc_log(

@@ -37,16 +37,14 @@ use axum::{
 use moka::future::Cache;
 use tokio::sync::mpsc;
 use utoipa::OpenApi;
-use world_id_core::{
-    api_types::{
-        CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
-        GatewayErrorCode, GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
-        HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery, IsValidRootResponse,
-        RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
-        UpdateRecoveryAgentRequest,
-    },
-    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
+use world_id_primitives::api_types::{
+    CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
+    GatewayErrorCode, GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
+    HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery, IsValidRootResponse,
+    RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+    UpdateRecoveryAgentRequest,
 };
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 // Health and status routes
 mod health;

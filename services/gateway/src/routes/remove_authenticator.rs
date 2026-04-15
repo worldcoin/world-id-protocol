@@ -6,7 +6,7 @@ use crate::{
 };
 use axum::{Extension, Json, extract::State};
 use tracing::instrument;
-use world_id_core::api_types::{GatewayStatusResponse, RemoveAuthenticatorRequest};
+use world_id_primitives::api_types::{GatewayStatusResponse, RemoveAuthenticatorRequest};
 
 /// POST /remove-authenticator
 ///

@@ -4,7 +4,7 @@ use alloy::{
     primitives::TxHash,
     providers::{DynProvider, Provider},
 };
-use world_id_core::api_types::{GatewayErrorCode, GatewayRequestState};
+use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestState};
 
 use crate::{
     config::OrphanSweeperConfig,

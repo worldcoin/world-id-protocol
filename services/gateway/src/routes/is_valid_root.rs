@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tracing::{instrument, warn};
-use world_id_core::api_types::{IsValidRootQuery, IsValidRootResponse};
+use world_id_primitives::api_types::{IsValidRootQuery, IsValidRootResponse};
 
 /// Safety buffer for expirations, so we expire a bit early relative to chain time.
 const CACHE_SKEW_SECS: u64 = 120;

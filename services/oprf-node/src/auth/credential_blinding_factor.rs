@@ -21,9 +21,9 @@ use taceo_oprf::types::{
     api::{OprfRequest, OprfRequestAuthenticator, OprfRequestAuthenticatorError},
 };
 use tracing::instrument;
-use world_id_core::FieldElement;
-use world_id_primitives::oprf::{
-    CredentialBlindingFactorOprfRequestAuthV1, WorldIdRequestAuthError,
+use world_id_primitives::{
+    FieldElement,
+    oprf::{CredentialBlindingFactorOprfRequestAuthV1, WorldIdRequestAuthError},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -181,8 +181,9 @@ mod tests {
     use circom_types::groth16::VerificationKey;
     use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
     use uuid::Uuid;
-    use world_id_core::{FieldElement, primitives};
-    use world_id_primitives::oprf::CredentialBlindingFactorOprfRequestAuthV1;
+    use world_id_primitives::{
+        self as primitives, FieldElement, oprf::CredentialBlindingFactorOprfRequestAuthV1,
+    };
 
     use crate::{
         QUERY_VERIFICATION_KEY,

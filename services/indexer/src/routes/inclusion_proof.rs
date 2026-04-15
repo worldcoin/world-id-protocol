@@ -3,9 +3,9 @@ use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use http::StatusCode;
 use semaphore_rs_trees::{Branch, proof::InclusionProof};
-use world_id_core::api_types::{AccountInclusionProof, IndexerErrorCode, IndexerQueryRequest};
 use world_id_primitives::{
     FieldElement, TREE_DEPTH,
+    api_types::{AccountInclusionProof, IndexerErrorCode, IndexerQueryRequest},
     authenticator::{SparseAuthenticatorPubkeysError, decode_sparse_authenticator_pubkeys},
     merkle::MerkleInclusionProof,
 };
