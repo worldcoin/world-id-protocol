@@ -2,7 +2,7 @@
 
 ## Repo Overview
 - Rust workspace + Solidity contracts + Circom circuits + deployable services.
-- Protocol is WIP and unaudited. See `README.md` for global status and prerequisites.
+- See `README.md` for global status and prerequisites.
 - Primary docs: `docs/README.md`, per-crate READMEs under `crates/`, per-service READMEs under `services/`.
 
 ## Core World ID Protocol 4.0
