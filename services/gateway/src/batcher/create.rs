@@ -13,6 +13,16 @@ use crate::request_tracker::BacklogScope;
 
 use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx};
 
+/// Fixed gas overhead for `createManyAccounts` (proxy dispatch, tree root
+/// path recomputation, calldata decoding). Derived from empirical
+/// `eth_estimateGas` measurements at N=1..16 against WorldChain Mainnet.
+const CREATE_BATCH_FIXED_GAS: u64 = 500_000;
+
+/// Marginal gas per account in a `createManyAccounts` batch
+/// (`_registerAccount` + leaf-level Poseidon hash + SSTORE). From the same
+/// empirical measurement, rounded up for ~10% headroom.
+const CREATE_BATCH_PER_ACCOUNT_GAS: u64 = 120_000;
+
 #[derive(Clone)]
 pub struct CreateBatcherHandle {
     pub tx: mpsc::Sender<CreateReqEnvelope>,
@@ -52,6 +62,7 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
         let mut pubkeys: Vec<Vec<U256>> = Vec::new();
         let mut commits: Vec<U256> = Vec::new();
 
+        let batch_len = batch.len() as u64;
         for env in batch {
             recovery_addresses.push(env.req.recovery_address.unwrap_or(Address::ZERO));
             auths.push(env.req.authenticator_addresses);
@@ -59,8 +70,20 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
             commits.push(env.req.offchain_signer_commitment);
         }
 
+        // Set an explicit gas limit to bypass Alloy's GasFiller (eth_estimateGas).
+        //
+        // Without this, the filler pipeline acquires a nonce via
+        // CachedNonceManager *before* calling eth_estimateGas.  If estimation
+        // fails (contract revert or transient RPC error) the nonce is never
+        // consumed on-chain, creating an irrecoverable nonce gap.
+        //
+        // Formula: fixed overhead + marginal per-account cost.
+        // See gas_analysis.md in the PROTO-4494 investigation for derivation.
+        let gas_limit = CREATE_BATCH_FIXED_GAS + CREATE_BATCH_PER_ACCOUNT_GAS * batch_len;
+
         let builder = registry
             .createManyAccounts(recovery_addresses, auths, pubkeys, commits)
+            .gas(gas_limit)
             .send()
             .await?;
 

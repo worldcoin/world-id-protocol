@@ -32,7 +32,13 @@ use world_id_test_utils::anvil::TestAnvil;
 const SIGNER_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
 /// Gas budget per `createAccount` call (from gateway defaults).
-const DEFAULT_CREATE_ACCOUNT_GAS: u64 = 600_000;
+const DEFAULT_CREATE_ACCOUNT_GAS: u64 = 620_000;
+
+/// Fixed gas overhead for `createManyAccounts` — must match batcher constant.
+const CREATE_BATCH_FIXED_GAS: u64 = 500_000;
+
+/// Marginal gas per account in a `createManyAccounts` batch.
+const CREATE_BATCH_PER_ACCOUNT_GAS: u64 = 120_000;
 
 /// Build the **same** provider stack used in production:
 /// `CachedNonceManager` + `GasFiller` + wallet.
@@ -101,8 +107,11 @@ async fn test_duplicate_create_must_consume_nonce() {
 
     // ── Step 2: Attempt a duplicate registration ───────────────────
     // This SHOULD be broadcast, revert on-chain, and consume the nonce.
-    // On unpatched code it fails at eth_estimateGas (pre-broadcast),
-    // leaking the nonce.
+    //
+    // The gateway's batcher sets an explicit gas limit so that Alloy's
+    // GasFiller (eth_estimateGas) is bypassed.  We mirror that here:
+    let gas_limit = CREATE_BATCH_FIXED_GAS + CREATE_BATCH_PER_ACCOUNT_GAS * 1;
+
     let send_result: Result<_, alloy::contract::Error> = registry
         .createManyAccounts(
             vec![Address::ZERO],
@@ -110,9 +119,7 @@ async fn test_duplicate_create_must_consume_nonce() {
             vec![vec![pubkey]],
             vec![commitment],
         )
-        // NOTE: production code currently does NOT set .gas() here — that is
-        // the bug.  Once .gas(N) is added, send() will succeed (broadcast)
-        // and the tx will revert on-chain, consuming the nonce.
+        .gas(gas_limit)
         .send()
         .await;
 

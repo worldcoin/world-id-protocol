@@ -17,6 +17,15 @@ use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingB
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
+/// Base gas overhead for the Multicall3 `aggregate3` call itself (ABI
+/// decoding, result encoding, proxy overhead).
+const OPS_BATCH_FIXED_GAS: u64 = 50_000;
+
+/// Worst-case per-call gas for an individual registry operation routed
+/// through Multicall3.  Uses `DEFAULT_REMOVE_AUTHENTICATOR_GAS` (721,044)
+/// — the most expensive op — plus Multicall3 per-call overhead (~30k).
+const OPS_BATCH_PER_CALL_GAS: u64 = 750_000;
+
 alloy::sol! {
     #[allow(missing_docs)]
     #[sol(rpc)]
@@ -64,6 +73,7 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
     ) -> Result<PendingBatchTx, alloy::contract::Error> {
         let mc = Multicall3::new(MULTICALL3_ADDR, registry.provider().clone());
 
+        let num_calls = batch.len() as u64;
         let calls: Vec<Multicall3::Call3> = batch
             .into_iter()
             .map(|env| Multicall3::Call3 {
@@ -73,7 +83,10 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
             })
             .collect();
 
-        let builder = mc.aggregate3(calls).send().await?;
+        // Explicit gas limit — same rationale as create.rs.
+        let gas_limit = OPS_BATCH_FIXED_GAS + OPS_BATCH_PER_CALL_GAS * num_calls;
+
+        let builder = mc.aggregate3(calls).gas(gas_limit).send().await?;
 
         Ok(PendingBatchTx::new(builder))
     }
