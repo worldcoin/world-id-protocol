@@ -15,16 +15,13 @@ pub use oprf_query::{FullOprfOutput, OprfEntrypoint};
 pub mod proof;
 pub use proof::*;
 
-#[cfg(feature = "provekit")]
 use provekit_common::{InputMap, InputValue, NoirElement};
 
-#[cfg(feature = "provekit")]
 use world_id_primitives::FieldElement;
 
-#[cfg(feature = "provekit")]
+#[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
 pub mod ownership_proof;
 
-#[cfg(feature = "provekit")]
 pub use provekit_common::{NoirProof, WhirR1CSProof};
 
 /// Error type for OPRF operations and proof generation.

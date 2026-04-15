@@ -14,14 +14,21 @@ use crate::{NoirCircuitInput, NoirRepresentable, ProofError};
 use world_id_primitives::{TREE_DEPTH, circuit_inputs::OwnershipProofCircuitInput};
 
 /// Raw bytes of the embedded Proving Key Package (PKP).
+#[cfg(feature = "zk-ownership-prove")]
 const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
 
+/// Raw bytes of the embedded Verifying Key Package (PKV).
+#[cfg(feature = "zk-ownership-verify")]
+const PKV_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkv"));
+
 /// Cached deserialized prover (or the error message from the first attempt).
+#[cfg(feature = "zk-ownership-prove")]
 static OWNERSHIP_PROVER: std::sync::OnceLock<Result<provekit_common::Prover, String>> =
     std::sync::OnceLock::new();
 
 /// Returns a clone of the cached [`provekit_common::Prover`] deserialized
 /// from the embedded PKP bytes. The deserialization happens only once.
+#[cfg(feature = "zk-ownership-prove")]
 fn load_ownership_prover() -> Result<provekit_common::Prover, ProofError> {
     let cached = OWNERSHIP_PROVER.get_or_init(|| {
         provekit_common::register_ntt();
@@ -44,6 +51,7 @@ fn load_ownership_prover() -> Result<provekit_common::Prover, ProofError> {
 /// # Errors
 /// Returns [`ProofError`] if signing, serialization, or proving
 /// fails.
+#[cfg(feature = "zk-ownership-prove")]
 pub fn generate_ownership_proof(
     input: OwnershipProofCircuitInput<TREE_DEPTH>,
 ) -> Result<NoirProof, ProofError> {

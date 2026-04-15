@@ -38,7 +38,6 @@ fn main() -> eyre::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
     // Compile noir ownership proof circuit and generate prover key package
-    #[cfg(feature = "provekit")]
     compile_noir_ownership_proof(&out_dir)?;
 
     if env::var("CARGO_FEATURE_EMBED_ZKEYS").is_err() {
@@ -225,7 +224,6 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "provekit")]
 fn compile_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
     use provekit_common::{NoirProofScheme, Prover};
     use provekit_r1cs_compiler::NoirProofSchemeBuilder as _;

@@ -436,7 +436,6 @@ impl Authenticator {
     /// # Returns
     /// - The Noir ZKP.
     /// - The root of the Merkle tree used for inclusion in the `WorldIDRegistry`.
-    #[cfg(feature = "provekit")]
     pub async fn prove_credential_sub(
         &self,
         nonce: FieldElement,
@@ -480,7 +479,6 @@ impl Authenticator {
 }
 
 #[cfg(test)]
-#[cfg(feature = "provekit")]
 mod tests {
     use crate::{
         authenticator::Authenticator,

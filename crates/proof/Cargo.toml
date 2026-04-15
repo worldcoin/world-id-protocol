@@ -26,8 +26,10 @@ embed-zkeys = ["dep:tar"]
 compress-zkeys = ["embed-zkeys", "dep:ark-serialize", "dep:circom-types"]
 # Compress the tar archive with zstd
 zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
-# Experimental: Introducing ProveKit ZK Backend
-provekit = ["dep:provekit-common", "dep:provekit-prover", "dep:provekit-r1cs-compiler"]
+
+# Experimental: Feature Flags for Specific Circuits
+zk-ownership-prove = []
+zk-ownership-verify = []
 
 [dependencies]
 ark-babyjubjub = { workspace = true }
@@ -42,8 +44,8 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 zstd = { workspace = true, optional = true }
 eddsa-babyjubjub = { workspace = true }
-provekit-common = { workspace = true, optional = true }
-provekit-prover = { workspace = true, optional = true }
+provekit-common = { workspace = true }
+provekit-prover = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 groth16-material = { workspace = true }
@@ -63,8 +65,8 @@ circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"] }
 rayon = { workspace = true }
 tar = { workspace = true }
 zstd = { workspace = true }
-provekit-r1cs-compiler = { workspace = true, optional = true }
-provekit-common = { workspace = true, optional = true }
+provekit-r1cs-compiler = { workspace = true }
+provekit-common = { workspace = true }
 
 [dev-dependencies]
 world-id-test-utils = { workspace = true }
