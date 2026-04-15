@@ -16,9 +16,10 @@ use taceo_oprf::{
 
 use world_id_primitives::{
     FieldElement, ProofRequest, SessionFeType, SessionFieldElement, TREE_DEPTH,
-    circuit_inputs::QueryProofCircuitInput,
     oprf::{CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule},
 };
+
+use crate::circuit_inputs::QueryProofCircuitInput;
 
 use crate::{
     AuthenticatorProofInput, ProofError,

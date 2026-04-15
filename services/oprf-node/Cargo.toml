@@ -54,4 +54,5 @@ world-id-primitives = { workspace = true }
 [dev-dependencies]
 ark-serialize.workspace = true
 rand.workspace = true
+world-id-proof = { workspace = true }
 world-id-test-utils = { workspace = true }

@@ -12446,6 +12446,7 @@ dependencies = [
  "uuid",
  "world-id-core",
  "world-id-primitives",
+ "world-id-proof",
  "world-id-test-utils",
 ]
 
@@ -12477,7 +12478,6 @@ dependencies = [
  "taceo-ark-serde-compat",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
- "taceo-groth16-material 0.3.0",
  "taceo-oprf",
  "taceo-poseidon2",
  "thiserror 2.0.18",
@@ -12502,6 +12502,7 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "reqwest 0.12.28",
+ "ruint",
  "serde",
  "taceo-ark-babyjubjub",
  "taceo-circom-types",

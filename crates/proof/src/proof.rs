@@ -15,10 +15,9 @@ use crate::ProofError;
 use ark_bn254::Bn254;
 use rand::{CryptoRng, Rng};
 use std::{io::Read, path::Path};
-use world_id_primitives::{
-    Credential, FieldElement, Nullifier, RequestItem, TREE_DEPTH,
-    circuit_inputs::NullifierProofCircuitInput,
-};
+use world_id_primitives::{Credential, FieldElement, Nullifier, RequestItem, TREE_DEPTH};
+
+use crate::circuit_inputs::NullifierProofCircuitInput;
 
 pub use groth16_material::circom::{
     CircomGroth16Material, CircomGroth16MaterialBuilder, ZkeyError,
