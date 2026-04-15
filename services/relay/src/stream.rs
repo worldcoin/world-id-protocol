@@ -219,11 +219,7 @@ pub async fn backfill_commitments(world_chain: &WorldChain, log: &CommitmentLog)
         let logs = provider.get_logs(&filter).await?;
         chunks_done += 1;
 
-        let pct = if total_chunks > 0 {
-            (chunks_done * 100) / total_chunks
-        } else {
-            100
-        };
+        let pct = (chunks_done * 100).checked_div(total_chunks).unwrap_or(100);
 
         tracing::debug!(
             from_block = from,

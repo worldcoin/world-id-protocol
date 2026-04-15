@@ -1,6 +1,6 @@
 use reqwest::StatusCode;
 use world_id_primitives::{PrimitiveError, ValidationError};
-use world_id_proof::proof::ProofError;
+use world_id_proof::ProofError;
 
 /// Errors that can occur when interacting with the Authenticator.
 #[derive(Debug, thiserror::Error)]

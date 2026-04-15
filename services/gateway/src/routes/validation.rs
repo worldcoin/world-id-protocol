@@ -392,11 +392,6 @@ impl RequestValidation for UpdateRecoveryAgentRequest {
                 "leaf_index cannot be zero".to_string(),
             ));
         }
-        if self.new_recovery_agent.is_zero() {
-            return Err(GatewayErrorResponse::bad_request_message(
-                "new_recovery_agent cannot be the zero address".to_string(),
-            ));
-        }
 
         // Verify EIP-712 signature format and recoverability.
         //
@@ -613,7 +608,7 @@ mod tests {
     }
 
     #[test]
-    fn initiate_preflight_rejects_zero_recovery_agent() {
+    fn initiate_preflight_allows_zero_recovery_agent() {
         let signer = PrivateKeySigner::random();
         let domain = make_domain();
         let sig =
@@ -626,7 +621,7 @@ mod tests {
             signature: sig,
             nonce: U256::ZERO,
         };
-        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_ok());
     }
 
     #[test]

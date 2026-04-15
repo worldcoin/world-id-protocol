@@ -21,8 +21,10 @@ use alloy::{
     signers::local::LocalSigner,
 };
 use eyre::{Context as _, Result, eyre};
-use taceo_oprf::types::{OprfKeyId, ShareEpoch};
-use taceo_oprf_test_utils::health_checks;
+use taceo_oprf::{
+    dev_client::health_checks,
+    types::{OprfKeyId, ShareEpoch},
+};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use world_id_core::{
@@ -150,8 +152,10 @@ async fn main() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
+    let (_postgres, connection_string) = taceo_oprf_test_utils::postgres_testcontainer().await?;
+
     let (key_gen_secret_managers, node_secret_managers) =
-        world_id_test_utils::stubs::init_test_secret_managers();
+        world_id_test_utils::stubs::init_test_secret_managers(connection_string.into()).await?;
 
     let oprf_key_gens = world_id_test_utils::stubs::spawn_key_gens(
         anvil.endpoint(),

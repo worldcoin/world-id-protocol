@@ -16,7 +16,12 @@ ark-groth16 = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["json", "macros"] }
 chrono = { workspace = true }
-circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"] }
+circom-types = { workspace = true, features = [
+  "bn254",
+  "groth16",
+  "verification-key",
+  "zkey"
+] }
 config.workspace = true
 eyre = { workspace = true }
 futures = { workspace = true }

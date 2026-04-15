@@ -65,6 +65,23 @@ pub struct AuthenticatorConfig {
     pub ohttp_gateway: Option<OhttpClientConfig>,
 }
 
+impl AuthenticatorConfig {
+    /// Loads an authenticator configuration from JSON.
+    ///
+    /// Accepts both plain `Config` JSON (OHTTP fields default to `None`) and
+    /// extended JSON with `ohttp_indexer` / `ohttp_gateway` fields.
+    ///
+    /// # Errors
+    /// Will error if the JSON is not valid.
+    pub fn from_json(json_str: &str) -> Result<Self, AuthenticatorError> {
+        serde_json::from_str(json_str).map_err(|e| {
+            AuthenticatorError::from(PrimitiveError::Serialization(format!(
+                "failed to parse authenticator config: {e}"
+            )))
+        })
+    }
+}
+
 impl From<Config> for AuthenticatorConfig {
     fn from(config: Config) -> Self {
         Self {
@@ -347,6 +364,20 @@ impl Authenticator {
         }
     }
 
+    /// Re-fetches the packed account data for this authenticator from the indexer or registry.
+    ///
+    /// # Errors
+    /// Will error if the network call fails or if the account does not exist.
+    pub async fn refresh_packed_account_data(&self) -> Result<U256, AuthenticatorError> {
+        Self::get_packed_account_data(
+            self.onchain_address(),
+            self.registry().as_deref(),
+            &self.config,
+            &self.indexer_client,
+        )
+        .await
+    }
+
     /// Returns the packed account data for the holder's World ID.
     ///
     /// The packed account data is a 256 bit integer which includes the World ID's leaf index, their recovery counter,
@@ -354,7 +385,7 @@ impl Authenticator {
     ///
     /// # Errors
     /// Will error if the network call fails or if the account does not exist.
-    pub(crate) async fn get_packed_account_data(
+    async fn get_packed_account_data(
         onchain_signer_address: Address,
         registry: Option<&WorldIdRegistryInstance<DynProvider>>,
         config: &Config,
@@ -1002,5 +1033,50 @@ mod tests {
         ));
         mock.assert_async().await;
         drop(server);
+    }
+
+    #[test]
+    fn test_authenticator_config_from_json_plain_config() {
+        let json = serde_json::json!({
+            "chain_id": 480,
+            "registry_address": "0x0000000000000000000000000000000000000001",
+            "indexer_url": "http://indexer.example.com",
+            "gateway_url": "http://gateway.example.com",
+            "nullifier_oracle_urls": [],
+            "nullifier_oracle_threshold": 2
+        });
+
+        let config = AuthenticatorConfig::from_json(&json.to_string()).unwrap();
+        assert!(config.ohttp_indexer.is_none());
+        assert!(config.ohttp_gateway.is_none());
+        assert_eq!(config.config.gateway_url(), "http://gateway.example.com");
+    }
+
+    #[test]
+    fn test_authenticator_config_from_json_with_ohttp() {
+        let json = serde_json::json!({
+            "chain_id": 480,
+            "registry_address": "0x0000000000000000000000000000000000000001",
+            "indexer_url": "http://indexer.example.com",
+            "gateway_url": "http://gateway.example.com",
+            "nullifier_oracle_urls": [],
+            "nullifier_oracle_threshold": 2,
+            "ohttp_indexer": {
+                "relay_url": "https://relay.example.com/gateway",
+                "key_config_base64": "dGVzdC1rZXk="
+            },
+            "ohttp_gateway": {
+                "relay_url": "https://relay.example.com/gateway",
+                "key_config_base64": "dGVzdC1rZXk="
+            }
+        });
+
+        let config = AuthenticatorConfig::from_json(&json.to_string()).unwrap();
+        let ohttp_indexer = config.ohttp_indexer.unwrap();
+        assert_eq!(ohttp_indexer.relay_url, "https://relay.example.com/gateway");
+        assert_eq!(ohttp_indexer.key_config_base64, "dGVzdC1rZXk=");
+        let ohttp_gateway = config.ohttp_gateway.unwrap();
+        assert_eq!(ohttp_gateway.relay_url, "https://relay.example.com/gateway");
+        assert_eq!(ohttp_gateway.key_config_base64, "dGVzdC1rZXk=");
     }
 }

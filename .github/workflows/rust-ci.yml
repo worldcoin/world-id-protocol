@@ -80,13 +80,13 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
-          toolchain: stable
-          components: clippy
+          toolchain: nightly
+          components: rustfmt
 
       - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
-          toolchain: nightly
-          components: rustfmt
+          toolchain: stable
+          components: clippy
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
@@ -104,6 +104,11 @@ jobs:
 
       - name: Check code formatting
         run: cargo +nightly fmt --all -- --check
+
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+        with:
+          # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
+          toolchain: v1.0.0-beta.11
 
       - name: Run clippy
         env:
@@ -123,7 +128,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
-          toolchain: 1.87
+          toolchain: 1.93.0
+
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+        with:
+          # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
+          toolchain: v1.0.0-beta.11
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
@@ -168,6 +178,11 @@ jobs:
         with:
           name: contract-abis
 
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+        with:
+          # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
+          toolchain: v1.0.0-beta.11
+
       - name: Install cargo-hack
         uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6 # v2.69.1 https://github.com/taiki-e/install-action/releases/tag/v2.69.1
         with:
@@ -182,6 +197,9 @@ jobs:
     needs: build-contracts
     runs-on:
       group: arc-public-8xlarge-amd64-runner
+    strategy:
+      matrix:
+        toolchain: [stable, nightly]
     permissions:
       contents: read
 
@@ -202,7 +220,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
-          toolchain: stable
+          toolchain: ${{ matrix.toolchain }}
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
@@ -210,6 +228,11 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         # Anvil is used for integration tests
+
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+        with:
+          # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
+          toolchain: v1.0.0-beta.11
 
       - name: Download contract ABIs
         uses: actions/download-artifact@v4
@@ -277,6 +300,11 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+        with:
+          # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
+          toolchain: v1.0.0-beta.11
 
       - name: Build contracts
         run: |
