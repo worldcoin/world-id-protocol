@@ -412,10 +412,10 @@ impl RpModuleAuth {
         Ok(rp.oprf_key_id)
     }
 
-    async fn authenticate_inner(
+    fn validate_action(
         &self,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
-    ) -> Result<OprfKeyId, RpModuleError> {
+    ) -> Result<(), RpModuleError> {
         tracing::trace!("Validating action for {}", self.kind);
         let action = FieldElement::from(request.auth.action);
 
@@ -440,14 +440,23 @@ impl RpModuleAuth {
             }
         }
 
-        let (rp_check, merkle_check) = tokio::join!(
-            self.verify_rp_signature(request.auth.action, request),
-            self.merkle_watcher
-                .ensure_root_valid(FieldElement::from(request.auth.merkle_root))
-        );
+        Ok(())
+    }
 
-        let oprf_key_id = rp_check?;
-        merkle_check?;
+    async fn authenticate_inner(
+        &self,
+        request: &OprfRequest<NullifierOprfRequestAuthV1>,
+    ) -> Result<OprfKeyId, RpModuleError> {
+        self.validate_action(request)?;
+
+        self.merkle_watcher
+            .ensure_root_valid(FieldElement::from(request.auth.merkle_root))
+            .await?;
+
+        // we don't wrap the futures into a tokio::join because otherwise the size of the future drastically increases
+        let oprf_key_id = self
+            .verify_rp_signature(request.auth.action, request)
+            .await?;
 
         let valid = super::verify_query_proof(
             &self.query_vk,
