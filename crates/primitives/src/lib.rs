@@ -23,7 +23,6 @@ pub mod authenticator;
 mod config;
 pub use config::Config;
 
-
 /// SAFE-style sponge utilities and helpers.
 pub mod sponge;
 

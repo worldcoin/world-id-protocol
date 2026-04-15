@@ -444,8 +444,9 @@ impl Authenticator {
         sub: FieldElement,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<(WhirR1CSProof, FieldElement), AuthenticatorError> {
-        use world_id_proof::circuit_inputs::OwnershipProofCircuitInput;
-        use world_id_proof::ownership_proof::generate_ownership_proof;
+        use world_id_proof::{
+            circuit_inputs::OwnershipProofCircuitInput, ownership_proof::generate_ownership_proof,
+        };
 
         let authenticator_input = self
             .prepare_authenticator_input(account_inclusion_proof)

@@ -421,9 +421,9 @@ fn hash_credential(
 
 #[cfg(test)]
 mod tests {
+    use crate::circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput};
     use ark_ec::twisted_edwards::Affine;
     use std::str::FromStr;
-    use crate::circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput};
 
     use crate::proof::errors::{check_nullifier_input_validity, check_query_input_validity};
 

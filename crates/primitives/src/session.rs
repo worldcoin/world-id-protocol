@@ -3,8 +3,6 @@ use embed_doc_image::embed_doc_image;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
-
-
 /// Type of field elements for Session Proofs
 #[repr(u8)]
 pub enum SessionFeType {
