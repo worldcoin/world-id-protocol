@@ -81,3 +81,4 @@ ruint = { workspace = true }
 rand = { workspace = true }
 mockito = { workspace = true }
 testcontainers = { workspace = true }
+world-id-test-utils = { workspace = true }

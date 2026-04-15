@@ -473,3 +473,110 @@ impl Authenticator {
         Ok(proof.whir_r1cs_proof)
     }
 }
+
+#[cfg(test)]
+#[cfg(feature = "provekit")]
+mod tests {
+    use crate::{
+        authenticator::Authenticator,
+        error::AuthenticatorError,
+        service_client::{ServiceClient, ServiceKind},
+    };
+    use alloy::primitives::address;
+    use ruint::aliases::U256;
+    use taceo_oprf::client::Connector;
+    use world_id_primitives::{
+        Config, Credential, FieldElement, Signer, TREE_DEPTH,
+        merkle::AccountInclusionProof,
+    };
+    use world_id_test_utils::fixtures::single_leaf_merkle_fixture;
+
+    fn build_test_authenticator(
+        seed: &[u8; 32],
+        leaf_index: u64,
+    ) -> (Authenticator, AccountInclusionProof<TREE_DEPTH>) {
+        let signer = Signer::from_seed_bytes(seed).expect("valid seed");
+        let pubkey = signer.offchain_signer_pubkey();
+
+        let fixture =
+            single_leaf_merkle_fixture(vec![pubkey], leaf_index).expect("valid merkle fixture");
+        let account_inclusion_proof =
+            AccountInclusionProof::new(fixture.inclusion_proof, fixture.key_set);
+
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            "http://indexer.example.com".to_string(),
+            "http://gateway.example.com".to_string(),
+            Vec::new(),
+            2,
+        )
+        .expect("valid config");
+
+        let http_client = reqwest::Client::new();
+        let authenticator = Authenticator {
+            config: config.clone(),
+            packed_account_data: U256::from(leaf_index),
+            signer,
+            registry: None,
+            indexer_client: ServiceClient::new(
+                http_client.clone(),
+                ServiceKind::Indexer,
+                config.indexer_url(),
+                None,
+            )
+            .expect("valid indexer client"),
+            gateway_client: ServiceClient::new(
+                http_client,
+                ServiceKind::Gateway,
+                config.gateway_url(),
+                None,
+            )
+            .expect("valid gateway client"),
+            ws_connector: Connector::Plain,
+            query_material: None,
+            nullifier_material: None,
+        };
+
+        (authenticator, account_inclusion_proof)
+    }
+
+    #[tokio::test]
+    async fn test_prove_credential_sub_rejects_wrong_sub() {
+        let leaf_index = 1u64;
+        let (authenticator, inclusion_proof) = build_test_authenticator(&[42u8; 32], leaf_index);
+
+        let blinding_factor = FieldElement::from(999u64);
+        let wrong_sub = FieldElement::from(123u64);
+
+        let result = authenticator
+            .prove_credential_sub(
+                FieldElement::from(1_234_567_890u64),
+                blinding_factor,
+                wrong_sub,
+                Some(inclusion_proof),
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::InvalidSubOrBlindingFactor)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_prove_credential_sub_succeeds_with_correct_sub() {
+        let leaf_index = 1u64;
+        let (authenticator, inclusion_proof) = build_test_authenticator(&[42u8; 32], leaf_index);
+
+        let blinding_factor = FieldElement::from(999u64);
+        let correct_sub = Credential::compute_sub(leaf_index, blinding_factor);
+        let nonce = FieldElement::from(1_234_567_890u64);
+
+        authenticator
+            .prove_credential_sub(nonce, blinding_factor, correct_sub, Some(inclusion_proof))
+            .await
+            .expect("proof generation should succeed");
+    }
+}
