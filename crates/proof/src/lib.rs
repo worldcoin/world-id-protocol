@@ -10,7 +10,7 @@ use world_id_primitives::{
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub mod compress;
-pub use compress::ZeroKnowledgeProofExt;
+pub use compress::ProofCompression;
 pub(crate) mod oprf_query;
 pub use oprf_query::{FullOprfOutput, OprfEntrypoint};
 

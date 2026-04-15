@@ -8,7 +8,7 @@ use ark_groth16::Proof;
 use world_id_primitives::{FieldElement, ZeroKnowledgeProof};
 
 /// Extension trait for constructing a [`ZeroKnowledgeProof`] from a raw Groth16 proof.
-pub trait ZeroKnowledgeProofExt {
+pub trait ProofCompression {
     /// Compresses a raw Groth16 proof together with a Merkle root into a
     /// [`ZeroKnowledgeProof`].
     ///
@@ -19,7 +19,7 @@ pub trait ZeroKnowledgeProofExt {
     fn from_groth16_proof(groth16_proof: &Proof<Bn254>, merkle_root: FieldElement) -> Self;
 }
 
-impl ZeroKnowledgeProofExt for ZeroKnowledgeProof {
+impl ProofCompression for ZeroKnowledgeProof {
     fn from_groth16_proof(groth16_proof: &Proof<Bn254>, merkle_root: FieldElement) -> Self {
         let compressed_proof = taceo_groth16_sol::prepare_compressed_proof(groth16_proof);
         Self::from_ethereum_representation([
