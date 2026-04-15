@@ -40,24 +40,24 @@ pub enum ProofError {
     #[error(transparent)]
     ZkError(#[from] Groth16Error),
     /// Error generating a Noir Proof with ProveKit
-    #[error("generation error: {0}")]
+    #[error("proof generation error: {0}")]
     GenerationError(String),
+    /// Error verifying a Noir Proof with ProveKit. This usually means the proof is invalid.
+    #[error("proof verification error: {0}")]
+    Verification(String),
     /// Catch-all for other internal errors.
     #[error(transparent)]
     InternalError(#[from] eyre::Report),
 }
 
-#[cfg(feature = "provekit")]
 pub trait NoirCircuitInput {
     fn into_witness(self) -> Result<InputMap, ProofError>;
 }
 
-#[cfg(feature = "provekit")]
 pub trait NoirRepresentable {
     fn into_noir_value(self) -> InputValue;
 }
 
-#[cfg(feature = "provekit")]
 impl NoirRepresentable for FieldElement {
     fn into_noir_value(self) -> InputValue {
         InputValue::Field(NoirElement::from_repr(*self))

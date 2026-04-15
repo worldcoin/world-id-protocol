@@ -28,8 +28,8 @@ compress-zkeys = ["embed-zkeys", "dep:ark-serialize", "dep:circom-types"]
 zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
 
 # Experimental: Feature Flags for Specific Circuits
-zk-ownership-prove = []
-zk-ownership-verify = []
+zk-ownership-prove = ["dep:provekit-prover"]
+zk-ownership-verify = ["dep:provekit-verifier"]
 
 [dependencies]
 ark-babyjubjub = { workspace = true }
@@ -45,7 +45,8 @@ tracing = { workspace = true }
 zstd = { workspace = true, optional = true }
 eddsa-babyjubjub = { workspace = true }
 provekit-common = { workspace = true }
-provekit-prover = { workspace = true }
+provekit-prover = { workspace = true, optional = true }
+provekit-verifier = { workspace = true, optional = true }
 rand = { workspace = true }
 serde = { workspace = true }
 groth16-material = { workspace = true }
