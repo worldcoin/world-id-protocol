@@ -11,10 +11,11 @@ use crate::{
     },
     authenticator::Authenticator,
     error::AuthenticatorError,
-    registry::{
-        domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
-    },
     traits::OnchainKeyRepresentable,
+};
+
+use world_id_registries::world_id::{
+    domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
 
 impl Authenticator {

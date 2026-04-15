@@ -8,7 +8,9 @@ use crate::{
     },
     authenticator::Authenticator,
     error::AuthenticatorError,
-    registry::{domain, sign_cancel_recovery_agent_update, sign_initiate_recovery_agent_update},
+};
+use world_id_registries::world_id::{
+    domain, sign_cancel_recovery_agent_update, sign_initiate_recovery_agent_update,
 };
 
 impl Authenticator {

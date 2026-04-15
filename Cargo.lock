@@ -12234,6 +12234,7 @@ dependencies = [
  "webpki-roots 1.0.6",
  "world-id-primitives",
  "world-id-proof",
+ "world-id-registries",
  "world-id-test-utils",
 ]
 
@@ -12263,6 +12264,7 @@ dependencies = [
  "world-id-issuer",
  "world-id-primitives",
  "world-id-proof",
+ "world-id-registries",
  "world-id-test-utils",
 ]
 
@@ -12516,6 +12518,15 @@ dependencies = [
  "world-id-test-utils",
  "zeroize",
  "zstd",
+]
+
+[[package]]
+name = "world-id-registries"
+version = "0.9.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "tokio",
 ]
 
 [[package]]
