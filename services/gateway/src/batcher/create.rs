@@ -70,15 +70,6 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
             commits.push(env.req.offchain_signer_commitment);
         }
 
-        // Set an explicit gas limit to bypass Alloy's GasFiller (eth_estimateGas).
-        //
-        // Without this, the filler pipeline acquires a nonce via
-        // CachedNonceManager *before* calling eth_estimateGas.  If estimation
-        // fails (contract revert or transient RPC error) the nonce is never
-        // consumed on-chain, creating an irrecoverable nonce gap.
-        //
-        // Formula: fixed overhead + marginal per-account cost.
-        // See gas_analysis.md in the PROTO-4494 investigation for derivation.
         let gas_limit = CREATE_BATCH_FIXED_GAS + CREATE_BATCH_PER_ACCOUNT_GAS * batch_len;
 
         let builder = registry

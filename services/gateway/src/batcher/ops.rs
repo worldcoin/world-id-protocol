@@ -83,7 +83,6 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
             })
             .collect();
 
-        // Explicit gas limit — same rationale as create.rs.
         let gas_limit = OPS_BATCH_FIXED_GAS + OPS_BATCH_PER_CALL_GAS * num_calls;
 
         let builder = mc.aggregate3(calls).gas(gas_limit).send().await?;
