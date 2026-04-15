@@ -30,13 +30,13 @@ use crate::{
 /// Default gas estimates for operation types.
 pub(super) mod defaults {
     pub const DEFAULT_CREATE_ACCOUNT_GAS: u64 = 600_000;
-    pub const DEFAULT_INSERT_AUTHENTICATOR_GAS: u64 = 252_784;
-    pub const DEFAULT_UPDATE_AUTHENTICATOR_GAS: u64 = 385_775;
-    pub const DEFAULT_REMOVE_AUTHENTICATOR_GAS: u64 = 721_044;
-    pub const DEFAULT_RECOVER_ACCOUNT_GAS: u64 = 516_400;
-    pub const DEFAULT_INITIATE_RECOVERY_AGENT_UPDATE_GAS: u64 = 100_000;
-    pub const DEFAULT_CANCEL_RECOVERY_AGENT_UPDATE_GAS: u64 = 43_000;
-    pub const DEFAULT_EXECUTE_RECOVERY_AGENT_UPDATE_GAS: u64 = 25_000;
+    pub const DEFAULT_INSERT_AUTHENTICATOR_GAS: u64 = 380_000;
+    pub const DEFAULT_UPDATE_AUTHENTICATOR_GAS: u64 = 580_000;
+    pub const DEFAULT_REMOVE_AUTHENTICATOR_GAS: u64 = 1_100_000;
+    pub const DEFAULT_RECOVER_ACCOUNT_GAS: u64 = 780_000;
+    pub const DEFAULT_INITIATE_RECOVERY_AGENT_UPDATE_GAS: u64 = 150_000;
+    pub const DEFAULT_CANCEL_RECOVERY_AGENT_UPDATE_GAS: u64 = 65_000;
+    pub const DEFAULT_EXECUTE_RECOVERY_AGENT_UPDATE_GAS: u64 = 50_000;
 }
 
 /// Unified batcher handle that routes to the appropriate batcher.
