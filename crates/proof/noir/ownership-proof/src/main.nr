@@ -3,7 +3,7 @@ pub(crate) mod types;
 pub(crate) mod commitment;
 pub(crate) mod merkle_proof;
 
-use commitment::generate_message;
+use commitment::{generate_commitment, generate_message};
 use constants::{MAX_DEPTH, NUM_KEYS};
 use eddsa_poseidon2::verify_eddsa_poseidon2;
 use merkle_proof::{compute_merkle_root_poseidon2, merkle_leaf};
@@ -16,10 +16,11 @@ pub fn main(
     nonce: pub Field,
     inputs: OwnershipProofInputs<MAX_DEPTH, NUM_KEYS>,
 ) -> pub OwnershipProofOutputs {
-    // 1. Generate query
-    let message = generate_message(inputs.merkle_proof.mt_index, inputs.commitment_r);
+    // 1. Generate query commitment & signed message
+    let commitment = generate_commitment(inputs.merkle_proof.mt_index, inputs.commitment_r); // the commitment is the output being proven
+    let message = generate_message(commitment, nonce); // the message is the query which the authenticator signs
 
-    // 1. Verify sk/pk by verifying a signature to a known message
+    // 2. Verify sk/pk by verifying a signature to a known message
     assert_lt(inputs.pk_index, NUM_KEYS as Field);
     let chosen_pk = inputs.user_pk[inputs.pk_index as u32];
 
@@ -32,7 +33,7 @@ pub fn main(
     );
     assert(is_valid, "Invalid signature");
 
-    // Compute and verify merkle proof
+    // 3. Compute and verify merkle proof
     let merkle_leaf = merkle_leaf(inputs.user_pk);
     let computed_root = compute_merkle_root_poseidon2(
         merkle_leaf,
@@ -46,7 +47,7 @@ pub fn main(
     let nonce_squared = unsafe { unconstrained_mul(nonce, nonce) };
     assert(nonce_squared == nonce * nonce, "Nonce dummy constraint failed");
 
-    OwnershipProofOutputs { commitment: message }
+    OwnershipProofOutputs { commitment: commitment }
 }
 
 unconstrained fn unconstrained_mul(a: Field, b: Field) -> Field {
