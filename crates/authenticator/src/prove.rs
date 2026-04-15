@@ -3,6 +3,8 @@ use world_id_primitives::{
     Credential, FieldElement, ProofRequest, ProofResponse, RequestItem, ResponseItem, SessionId,
     SessionNullifier, ZeroKnowledgeProof,
 };
+#[cfg(feature = "provekit")]
+use world_id_proof::WhirR1CSProof;
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, proof::generate_nullifier_proof,
 };
@@ -53,6 +55,23 @@ impl Authenticator {
             .as_ref()
             .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
 
+        let authenticator_input = self
+            .prepare_authenticator_input(account_inclusion_proof)
+            .await?;
+
+        Ok(OprfEntrypoint::new(
+            services,
+            threshold,
+            query_material,
+            authenticator_input,
+            &self.ws_connector,
+        ))
+    }
+
+    async fn prepare_authenticator_input(
+        &self,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
+    ) -> Result<AuthenticatorProofInput, AuthenticatorError> {
         // Fetch inclusion_proof && authenticator key_set if not provided
         let account_inclusion_proof = if let Some(account_inclusion_proof) = account_inclusion_proof
         {
@@ -80,13 +99,7 @@ impl Authenticator {
             key_index,
         );
 
-        Ok(OprfEntrypoint::new(
-            services,
-            threshold,
-            query_material,
-            authenticator_input,
-            &self.ws_connector,
-        ))
+        Ok(authenticator_input)
     }
 
     /// Generates a nullifier for a World ID Proof (through OPRF Nodes).
@@ -408,5 +421,166 @@ impl Authenticator {
         };
 
         Ok(response_item)
+    }
+
+    /// Generates an Ownership Proof (WIP-103) over a Credential's `sub`.
+    ///
+    /// This proof MUST only be shared with each relevant issuer. This is the responsibility of Authenticators.
+    ///
+    /// # Arguments
+    /// - `nonce`: The nonce of the request provided by the Issuer.
+    /// - `credential_blinding_factor`: The blinding factor generated for the credential.
+    /// - `sub`: The expected `sub` of the Credential in question.
+    /// - `account_inclusion_proof`: An optionally cached account inclusion proof. If not provided, a new inclusion proof will be fetched.
+    ///
+    /// # Returns
+    /// - The Noir ZKP.
+    /// - The root of the Merkle tree used for inclusion in the `WorldIDRegistry`.
+    #[cfg(feature = "provekit")]
+    pub async fn prove_credential_sub(
+        &self,
+        nonce: FieldElement,
+        credential_blinding_factor: FieldElement,
+        sub: FieldElement,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
+    ) -> Result<(WhirR1CSProof, FieldElement), AuthenticatorError> {
+        use world_id_primitives::circuit_inputs::OwnershipProofCircuitInput;
+        use world_id_proof::ownership_proof::generate_ownership_proof;
+
+        let authenticator_input = self
+            .prepare_authenticator_input(account_inclusion_proof)
+            .await?;
+
+        let commitment = Credential::compute_sub(self.leaf_index(), credential_blinding_factor);
+
+        if commitment != sub {
+            return Err(AuthenticatorError::InvalidSubOrBlindingFactor);
+        }
+
+        let signature = self
+            .signer
+            .offchain_signer_private_key()
+            .expose_secret()
+            .sign(*commitment);
+
+        let input = OwnershipProofCircuitInput {
+            key_index: authenticator_input.key_index,
+            key_set: authenticator_input.key_set.clone(),
+            inclusion_proof: authenticator_input.inclusion_proof.clone(),
+            nonce,
+            signature,
+            commitment_blinder: credential_blinding_factor,
+        };
+
+        let proof = generate_ownership_proof(input)?;
+
+        // TODO: Create a unified typed response (requires updates to ProveKit)
+        Ok((proof.whir_r1cs_proof, proof.public_inputs.0[0].into()))
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "provekit")]
+mod tests {
+    use crate::{
+        authenticator::Authenticator,
+        error::AuthenticatorError,
+        service_client::{ServiceClient, ServiceKind},
+    };
+    use alloy::primitives::address;
+    use ruint::aliases::U256;
+    use taceo_oprf::client::Connector;
+    use world_id_primitives::{
+        Config, Credential, FieldElement, Signer, TREE_DEPTH, merkle::AccountInclusionProof,
+    };
+    use world_id_test_utils::fixtures::single_leaf_merkle_fixture;
+
+    fn build_test_authenticator(
+        seed: &[u8; 32],
+        leaf_index: u64,
+    ) -> (Authenticator, AccountInclusionProof<TREE_DEPTH>) {
+        let signer = Signer::from_seed_bytes(seed).expect("valid seed");
+        let pubkey = signer.offchain_signer_pubkey();
+
+        let fixture =
+            single_leaf_merkle_fixture(vec![pubkey], leaf_index).expect("valid merkle fixture");
+        let account_inclusion_proof =
+            AccountInclusionProof::new(fixture.inclusion_proof, fixture.key_set);
+
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            "http://indexer.example.com".to_string(),
+            "http://gateway.example.com".to_string(),
+            Vec::new(),
+            2,
+        )
+        .expect("valid config");
+
+        let http_client = reqwest::Client::new();
+        let authenticator = Authenticator {
+            config: config.clone(),
+            packed_account_data: U256::from(leaf_index),
+            signer,
+            registry: None,
+            indexer_client: ServiceClient::new(
+                http_client.clone(),
+                ServiceKind::Indexer,
+                config.indexer_url(),
+                None,
+            )
+            .expect("valid indexer client"),
+            gateway_client: ServiceClient::new(
+                http_client,
+                ServiceKind::Gateway,
+                config.gateway_url(),
+                None,
+            )
+            .expect("valid gateway client"),
+            ws_connector: Connector::Plain,
+            query_material: None,
+            nullifier_material: None,
+        };
+
+        (authenticator, account_inclusion_proof)
+    }
+
+    #[tokio::test]
+    async fn test_prove_credential_sub_rejects_wrong_sub() {
+        let leaf_index = 1u64;
+        let (authenticator, inclusion_proof) = build_test_authenticator(&[42u8; 32], leaf_index);
+
+        let blinding_factor = FieldElement::from(999u64);
+        let wrong_sub = FieldElement::from(123u64);
+
+        let result = authenticator
+            .prove_credential_sub(
+                FieldElement::from(1_234_567_890u64),
+                blinding_factor,
+                wrong_sub,
+                Some(inclusion_proof),
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::InvalidSubOrBlindingFactor)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_prove_credential_sub_succeeds_with_correct_sub() {
+        let leaf_index = 1u64;
+        let (authenticator, inclusion_proof) = build_test_authenticator(&[42u8; 32], leaf_index);
+
+        let blinding_factor = FieldElement::from(999u64);
+        let correct_sub = Credential::compute_sub(leaf_index, blinding_factor);
+        let nonce = FieldElement::from(1_234_567_890u64);
+
+        authenticator
+            .prove_credential_sub(nonce, blinding_factor, correct_sub, Some(inclusion_proof))
+            .await
+            .expect("proof generation should succeed");
     }
 }

@@ -12234,6 +12234,7 @@ dependencies = [
  "webpki-roots 1.0.6",
  "world-id-primitives",
  "world-id-proof",
+ "world-id-test-utils",
 ]
 
 [[package]]

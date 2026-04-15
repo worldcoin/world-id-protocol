@@ -20,6 +20,7 @@ include = [
 [features]
 default = ["embed-zkeys"]
 embed-zkeys = ["world-id-proof/embed-zkeys"]
+provekit = ["world-id-proof/provekit"]
 
 [dependencies]
 # Use WASM-safe base features only
@@ -80,3 +81,4 @@ ruint = { workspace = true }
 rand = { workspace = true }
 mockito = { workspace = true }
 testcontainers = { workspace = true }
+world-id-test-utils = { workspace = true }

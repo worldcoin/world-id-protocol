@@ -229,16 +229,16 @@ impl<const MAX_DEPTH: usize> ProofInput for NullifierProofCircuitInput<MAX_DEPTH
 /// Inputs for the "Proof of Ownership" (WIP-103) circuit.
 #[derive(Debug, Clone)]
 pub struct OwnershipProofCircuitInput<const MAX_DEPTH: usize> {
-    /// The index of the authenticator key used to sign the proof request
+    /// Private input. The index of the authenticator key used to sign the proof request
     pub key_index: u64,
-    /// The full authenticator key set for the user's World ID
+    /// Private input. The full authenticator key set for the user's World ID
     pub key_set: AuthenticatorPublicKeySet,
-    /// The inclusion proof in the `WorldIDRegistry`
+    /// Private input (**except** the `root` and `depth`). The inclusion proof in the `WorldIDRegistry`
     pub inclusion_proof: MerkleInclusionProof<MAX_DEPTH>,
-    /// The nonce of the proof request. See `ProofRequest` for more details.
+    /// **Public input**. The nonce of the proof request as provided by the verifier.
     pub nonce: FieldElement,
-    /// Signature from the authenticator on the query.
+    /// Private input. Signature from the authenticator on the query.
     pub signature: EdDSASignature,
-    /// The commitment's `r` blinder
+    /// Private input. The commitment's `r` blinder
     pub commitment_blinder: FieldElement,
 }
