@@ -432,6 +432,10 @@ impl Authenticator {
     /// - `credential_blinding_factor`: The blinding factor generated for the credential.
     /// - `sub`: The expected `sub` of the Credential in question.
     /// - `account_inclusion_proof`: An optionally cached account inclusion proof. If not provided, a new inclusion proof will be fetched.
+    ///
+    /// # Returns
+    /// - The Noir ZKP.
+    /// - The root of the Merkle tree used for inclusion in the `WorldIDRegistry`.
     #[cfg(feature = "provekit")]
     pub async fn prove_credential_sub(
         &self,
@@ -439,7 +443,7 @@ impl Authenticator {
         credential_blinding_factor: FieldElement,
         sub: FieldElement,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
-    ) -> Result<WhirR1CSProof, AuthenticatorError> {
+    ) -> Result<(WhirR1CSProof, FieldElement), AuthenticatorError> {
         use world_id_primitives::circuit_inputs::OwnershipProofCircuitInput;
         use world_id_proof::ownership_proof::generate_ownership_proof;
 
@@ -470,7 +474,8 @@ impl Authenticator {
 
         let proof = generate_ownership_proof(input)?;
 
-        Ok(proof.whir_r1cs_proof)
+        // TODO: Create a unified typed response (requires updates to ProveKit)
+        Ok((proof.whir_r1cs_proof, proof.public_inputs.0[0].into()))
     }
 }
 
@@ -486,8 +491,7 @@ mod tests {
     use ruint::aliases::U256;
     use taceo_oprf::client::Connector;
     use world_id_primitives::{
-        Config, Credential, FieldElement, Signer, TREE_DEPTH,
-        merkle::AccountInclusionProof,
+        Config, Credential, FieldElement, Signer, TREE_DEPTH, merkle::AccountInclusionProof,
     };
     use world_id_test_utils::fixtures::single_leaf_merkle_fixture;
 
