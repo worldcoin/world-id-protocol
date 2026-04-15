@@ -3,9 +3,9 @@ use world_id_primitives::{
     Credential, FieldElement, ProofRequest, ProofResponse, RequestItem, ResponseItem, SessionId,
     SessionNullifier, ZeroKnowledgeProof,
 };
-use world_id_proof::WhirR1CSProof;
 use world_id_proof::{
-    AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, proof::generate_nullifier_proof,
+    AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, WhirR1CSProof,
+    proof::generate_nullifier_proof,
 };
 
 use crate::{

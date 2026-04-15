@@ -39,6 +39,7 @@ fn main() -> eyre::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
     // Compile noir ownership proof circuit and generate prover key package
+    #[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
     compile_noir_ownership_proof(&out_dir)?;
 
     if env::var("CARGO_FEATURE_EMBED_ZKEYS").is_err() {
