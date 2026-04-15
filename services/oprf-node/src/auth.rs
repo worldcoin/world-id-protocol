@@ -65,9 +65,9 @@ mod tests {
     use tokio_util::sync::CancellationToken;
     use world_id_primitives::{
         FieldElement, Signer, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
-        circuit_inputs::QueryProofCircuitInput, merkle::MerkleInclusionProof,
+        merkle::MerkleInclusionProof,
     };
-    use world_id_proof::errors;
+    use world_id_proof::{circuit_inputs::QueryProofCircuitInput, errors};
     use world_id_test_utils::{
         anvil::TestAnvil,
         fixtures::{self, RegistryTestContext, RpFixture},

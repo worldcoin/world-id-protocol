@@ -12234,6 +12234,7 @@ dependencies = [
  "webpki-roots 1.0.6",
  "world-id-primitives",
  "world-id-proof",
+ "world-id-registries",
  "world-id-test-utils",
 ]
 
@@ -12263,6 +12264,7 @@ dependencies = [
  "world-id-issuer",
  "world-id-primitives",
  "world-id-proof",
+ "world-id-registries",
  "world-id-test-utils",
 ]
 
@@ -12308,6 +12310,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strum 0.27.2",
+ "taceo-eddsa-babyjubjub",
  "telemetry-batteries 0.2.1",
  "testcontainers",
  "testcontainers-modules",
@@ -12317,8 +12320,9 @@ dependencies = [
  "tracing-subscriber 0.3.22",
  "utoipa",
  "uuid",
- "world-id-core",
+ "world-id-authenticator",
  "world-id-primitives",
+ "world-id-registries",
  "world-id-services-common",
  "world-id-test-utils",
 ]
@@ -12350,6 +12354,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "sqlx",
+ "taceo-eddsa-babyjubjub",
  "taceo-poseidon2",
  "take_mut",
  "telemetry-batteries 0.2.1",
@@ -12361,8 +12366,8 @@ dependencies = [
  "url",
  "utoipa",
  "uuid",
- "world-id-core",
  "world-id-primitives",
+ "world-id-registries",
  "world-id-services-common",
  "world-id-test-utils",
 ]
@@ -12436,6 +12441,7 @@ dependencies = [
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-circom-types",
+ "taceo-eddsa-babyjubjub",
  "taceo-nodes-common",
  "taceo-nodes-observability",
  "taceo-oprf",
@@ -12444,9 +12450,9 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
- "world-id-core",
  "world-id-primitives",
  "world-id-proof",
+ "world-id-registries",
  "world-id-test-utils",
 ]
 
@@ -12518,6 +12524,15 @@ dependencies = [
  "world-id-test-utils",
  "zeroize",
  "zstd",
+]
+
+[[package]]
+name = "world-id-registries"
+version = "0.9.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "tokio",
 ]
 
 [[package]]
