@@ -27,16 +27,28 @@ use crate::{
     metrics,
     request_tracker::BacklogScope,
 };
-/// Default gas estimates for operation types.
+
+/// Default gas estimates for gateway-submitted operations.
+///
+/// Methodology:
+/// - Run `just gas` to obtain the Foundry gas report for
+///   `src/core/WorldIDRegistry.sol:WorldIDRegistry Contract`.
+/// - For each gateway operation, take the report's `Max` gas value for the
+///   matching registry entrypoint.
+/// - Apply a 20% safety bump (`max * 1.2`).
+/// - Round up to a simple decimal bucket for readability and headroom.
+///
+/// These defaults represent the per-operation gas component only. Additional
+/// batching overhead for Multicall3 is added separately in `ops.rs`.
 pub(super) mod defaults {
-    pub const DEFAULT_CREATE_ACCOUNT_GAS: u64 = 600_000;
-    pub const DEFAULT_INSERT_AUTHENTICATOR_GAS: u64 = 252_784;
-    pub const DEFAULT_UPDATE_AUTHENTICATOR_GAS: u64 = 385_775;
-    pub const DEFAULT_REMOVE_AUTHENTICATOR_GAS: u64 = 721_044;
-    pub const DEFAULT_RECOVER_ACCOUNT_GAS: u64 = 516_400;
-    pub const DEFAULT_INITIATE_RECOVERY_AGENT_UPDATE_GAS: u64 = 100_000;
-    pub const DEFAULT_CANCEL_RECOVERY_AGENT_UPDATE_GAS: u64 = 43_000;
-    pub const DEFAULT_EXECUTE_RECOVERY_AGENT_UPDATE_GAS: u64 = 25_000;
+    pub const DEFAULT_CREATE_ACCOUNT_GAS: u64 = 680_000;
+    pub const DEFAULT_INSERT_AUTHENTICATOR_GAS: u64 = 620_000;
+    pub const DEFAULT_UPDATE_AUTHENTICATOR_GAS: u64 = 620_000;
+    pub const DEFAULT_REMOVE_AUTHENTICATOR_GAS: u64 = 600_000;
+    pub const DEFAULT_RECOVER_ACCOUNT_GAS: u64 = 650_000;
+    pub const DEFAULT_INITIATE_RECOVERY_AGENT_UPDATE_GAS: u64 = 120_000;
+    pub const DEFAULT_CANCEL_RECOVERY_AGENT_UPDATE_GAS: u64 = 50_000;
+    pub const DEFAULT_EXECUTE_RECOVERY_AGENT_UPDATE_GAS: u64 = 30_000;
 }
 
 /// Unified batcher handle that routes to the appropriate batcher.
@@ -57,10 +69,11 @@ impl BatcherHandle {
                 };
                 self.create.tx.send(envelope).await.is_ok()
             }
-            Command::Operation { id, calldata, .. } => {
+            Command::Operation { id, calldata, gas } => {
                 let envelope = OpsEnvelope {
                     id: id.to_string(),
                     calldata,
+                    gas,
                 };
                 self.ops.tx.send(envelope).await.is_ok()
             }
@@ -79,7 +92,6 @@ pub enum Command {
     Operation {
         id: Uuid,
         calldata: Bytes,
-        #[allow(dead_code)]
         gas: u64,
     },
 }
