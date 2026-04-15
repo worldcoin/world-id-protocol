@@ -423,6 +423,15 @@ impl Authenticator {
         Ok(response_item)
     }
 
+    /// Generates an Ownership Proof (WIP-103) over a Credential's `sub`.
+    ///
+    /// This proof MUST only be shared with each relevant issuer. This is the responsibility of Authenticators.
+    ///
+    /// # Arguments
+    /// - `nonce`: The nonce of the request provided by the Issuer.
+    /// - `credential_blinding_factor`: The blinding factor generated for the credential.
+    /// - `sub`: The expected `sub` of the Credential in question.
+    /// - `account_inclusion_proof`: An optionally cached account inclusion proof. If not provided, a new inclusion proof will be fetched.
     #[cfg(feature = "provekit")]
     pub async fn prove_credential_sub(
         &self,
