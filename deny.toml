@@ -47,5 +47,5 @@ ignore = [
     "RUSTSEC-2023-0089", # Unmaintained `atomic-polyfill` (2025-04-29)
     "RUSTSEC-2026-0049", # `rustls-webpki` (requires upstream dep updates); low severity, requires compromised CA (2026-03-23)
     "RUSTSEC-2026-0074", # `libcrux-sha3` via testcontainers->russh; dev-only, does not affect our usage (2026-03-26)
-    "RUSTSEC-2026-0097"  # Unsoundness in `rand@0.8.5` (2026-04-11), multiple upstream deps on `rand`. Not directly using custom logger
+    "RUSTSEC-2026-0097"  # Unsoundness in `rand` (2026-04-11); rand@0.9.2 bumped to 0.9.4 (patched), rand@0.8.5 remains (no 0.8.x patch). Not exploitable — requires custom logger calling rand::rng()
 ]
