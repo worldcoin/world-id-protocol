@@ -32,9 +32,8 @@ use taceo_oprf::types::{
     api::{OprfRequest, OprfRequestAuthenticator, OprfRequestAuthenticatorError},
 };
 use tracing::instrument;
-use world_id_core::FieldElement;
 use world_id_primitives::{
-    SessionFeType, SessionFieldElement as _,
+    FieldElement, SessionFeType, SessionFieldElement as _,
     oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
     rp::RpId,
 };

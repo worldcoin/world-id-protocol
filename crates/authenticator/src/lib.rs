@@ -20,13 +20,6 @@ mod service_client;
 
 pub mod ohttp;
 
-pub mod registry;
-pub use registry::{
-    WorldIdRegistry, domain, sign_cancel_recovery_agent_update,
-    sign_initiate_recovery_agent_update, sign_insert_authenticator, sign_recover_account,
-    sign_remove_authenticator, sign_update_authenticator,
-};
-
 pub mod proof {
     pub use world_id_proof::*;
 }

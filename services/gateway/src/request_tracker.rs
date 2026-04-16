@@ -4,7 +4,7 @@ use alloy::{network::Ethereum, providers::PendingTransactionBuilder};
 use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use world_id_core::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
+use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
 
 use crate::{
     batch_policy::BacklogUrgencyStats,

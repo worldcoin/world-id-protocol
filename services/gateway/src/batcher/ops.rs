@@ -9,7 +9,7 @@ use alloy::{
     providers::DynProvider,
 };
 use tokio::sync::mpsc;
-use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::request_tracker::BacklogScope;
 

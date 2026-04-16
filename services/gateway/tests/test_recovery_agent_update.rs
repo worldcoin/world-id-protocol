@@ -11,15 +11,13 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use reqwest::StatusCode;
-use world_id_core::{
-    api_types::{
-        CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest, GatewayStatusResponse,
-        UpdateRecoveryAgentRequest,
-    },
-    world_id_registry::{
-        WorldIdRegistry, domain as ag_domain, sign_cancel_recovery_agent_update,
-        sign_initiate_recovery_agent_update,
-    },
+use world_id_primitives::api_types::{
+    CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest, GatewayStatusResponse,
+    UpdateRecoveryAgentRequest,
+};
+use world_id_registries::world_id::{
+    WorldIdRegistry, domain as ag_domain, sign_cancel_recovery_agent_update,
+    sign_initiate_recovery_agent_update,
 };
 
 use crate::common::{TestGateway, spawn_test_gateway, wait_for_finalized};

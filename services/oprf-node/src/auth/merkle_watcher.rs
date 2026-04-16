@@ -36,10 +36,10 @@ use moka::{Expiry, future::Cache};
 use taceo_nodes_common::web3;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
-use world_id_core::world_id_registry::WorldIdRegistry::{
+use world_id_primitives::FieldElement;
+use world_id_registries::world_id::WorldIdRegistry::{
     self, RootRecorded, RootValidityWindowUpdated, WorldIdRegistryInstance,
 };
-use world_id_primitives::FieldElement;
 
 use crate::metrics::{
     METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS, METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES,

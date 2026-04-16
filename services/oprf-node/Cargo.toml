@@ -48,11 +48,12 @@ tokio = { workspace = true, features = [
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
-world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys"] }
 world-id-primitives = { workspace = true }
+world-id-registries = { workspace = true }
 
 [dev-dependencies]
 ark-serialize.workspace = true
 rand.workspace = true
-world-id-proof = { workspace = true }
+eddsa-babyjubjub = { workspace = true }
+world-id-proof = { workspace = true, features = ["embed-zkeys"] }
 world-id-test-utils = { workspace = true }

@@ -6,8 +6,8 @@ use alloy::{
 };
 use redis::{AsyncTypedCommands, IntegerReplyOrNoOp, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
-use world_id_core::api_types::GatewayStatusResponse;
 use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway_for_tests};
+use world_id_primitives::api_types::GatewayStatusResponse;
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
@@ -62,7 +62,7 @@ async fn redis_integration() {
     let base = format!("http://{}:{}", gw_addr.ip(), gw_addr.port());
 
     // Create a test request
-    let body = world_id_core::api_types::CreateAccountRequest {
+    let body = world_id_primitives::api_types::CreateAccountRequest {
         recovery_address: Some(wallet_addr),
         authenticator_addresses: vec![address!("0x1111111111111111111111111111111111111111")],
         authenticator_pubkeys: vec![U256::from(100)],

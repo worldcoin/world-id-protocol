@@ -5,6 +5,7 @@ members = [
   "crates/issuer",
   "crates/proof",
   "crates/primitives",
+  "crates/registry",
   "crates/test-utils",
   "services/indexer",
   "services/gateway",
@@ -139,6 +140,7 @@ tower = "0.5.3"
 world-id-core = { version = "0.9.0", default-features = false, path = "crates/core" }
 world-id-issuer = { version = "0.9.0", path = "crates/issuer" }
 world-id-proof = { version = "0.9.0", path = "crates/proof" }
+world-id-registries = { version = "0.9.0", path = "crates/registry" }
 world-id-authenticator = { version = "0.9.0", path = "crates/authenticator" }
 world-id-primitives = { version = "0.9.0", path = "crates/primitives", default-features = false }
 world-id-oprf-node = { version = "0.1.0", path = "services/oprf-node" }

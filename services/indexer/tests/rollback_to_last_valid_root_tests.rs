@@ -28,13 +28,13 @@ fn make_versioned_tree() -> VersionedTreeState {
 }
 
 use alloy::providers::{Provider, ProviderBuilder};
-use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_registries::world_id::WorldIdRegistry;
 use world_id_test_utils::anvil::TestAnvil;
 
 /// Spin up Anvil, deploy the registry, and return a registry instance + test DB.
 async fn setup() -> (
     TestAnvil,
-    world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance<
+    world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance<
         alloy::providers::DynProvider,
     >,
     helpers::db_helpers::TestDatabase,
@@ -158,7 +158,10 @@ async fn test_rolls_back_to_last_valid_root() {
         .rev()
         .find(|l| {
             use alloy::sol_types::SolEvent;
-            l.topics().first() == Some(&world_id_core::world_id_registry::WorldIdRegistry::RootRecorded::SIGNATURE_HASH)
+            l.topics().first()
+                == Some(
+                    &world_id_registries::world_id::WorldIdRegistry::RootRecorded::SIGNATURE_HASH,
+                )
         })
         .expect("RootRecorded log not in receipt");
     let valid_block = receipt.block_number.expect("missing block number");
@@ -266,7 +269,10 @@ async fn test_no_rollback_needed_when_latest_root_is_valid() {
         .rev()
         .find(|l| {
             use alloy::sol_types::SolEvent;
-            l.topics().first() == Some(&world_id_core::world_id_registry::WorldIdRegistry::RootRecorded::SIGNATURE_HASH)
+            l.topics().first()
+                == Some(
+                    &world_id_registries::world_id::WorldIdRegistry::RootRecorded::SIGNATURE_HASH,
+                )
         })
         .expect("RootRecorded log not in receipt");
     let valid_block = receipt.block_number.expect("missing block number");

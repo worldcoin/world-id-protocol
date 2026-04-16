@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use crate::metrics::METRICS_ID_NODE_NONCE_HISTORY_SIZE;
 use moka::future::Cache;
-use world_id_core::FieldElement;
+use world_id_primitives::FieldElement;
 
 #[derive(Debug, thiserror::Error)]
 #[error("duplicate nonce - already used")]

@@ -35,7 +35,7 @@ jobs:
         with:
           path: |
             contracts/out/
-            crates/authenticator/abi/
+            crates/registry/abi/
             crates/issuer/abi/
             services/oprf-node/abi/
           key: contract-artifacts-${{ hashFiles('contracts/src/**', 'contracts/foundry.toml', 'contracts/foundry.lock', 'Makefile', 'contracts/test/core/**') }}
@@ -54,7 +54,7 @@ jobs:
         with:
           name: contract-abis
           path: |
-            crates/authenticator/abi/
+            crates/registry/abi/
             crates/issuer/abi/
             services/oprf-node/abi/
           retention-days: 1
@@ -262,8 +262,6 @@ jobs:
         run: |
           cargo nextest run --profile ci --all-features --workspace
           cargo test --doc --all-features --workspace
-          cargo nextest run --profile ci -p world-id-core --no-default-features
-          cargo test --doc -p world-id-core --no-default-features
 
       - name: Clean up services
         run: |

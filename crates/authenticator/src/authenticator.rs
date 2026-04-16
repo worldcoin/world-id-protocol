@@ -20,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use world_id_primitives::{Credential, FieldElement, ProofResponse, Signer};
 
 pub use crate::ohttp::OhttpClientConfig;
-use crate::registry::WorldIdRegistry::WorldIdRegistryInstance;
 use alloy::{
     primitives::Address,
     providers::DynProvider,
@@ -39,6 +38,7 @@ use world_id_primitives::{
         decode_sparse_authenticator_pubkeys,
     },
 };
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::{Nullifier, SessionId};
@@ -177,7 +177,7 @@ impl Authenticator {
                 let provider = alloy::providers::ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
                     .connect_http(rpc_url.clone());
-                Arc::new(crate::registry::WorldIdRegistry::new(
+                Arc::new(world_id_registries::world_id::WorldIdRegistry::new(
                     *config.registry_address(),
                     alloy::providers::Provider::erased(provider),
                 ))
