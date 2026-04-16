@@ -59,8 +59,12 @@ mod tests {
     use ark_serialize::CanonicalSerialize;
     use rand::Rng;
     use secrecy::ExposeSecret as _;
-    use taceo_nodes_common::web3::{self, RpcProviderBuilder};
+    use taceo_nodes_common::{
+        StartedServices,
+        web3::{self, RpcProviderBuilder},
+    };
     use taceo_oprf::core::oprf::BlindingFactor;
+    use tokio_util::sync::CancellationToken;
     use world_id_core::{EdDSAPrivateKey, FieldElement, Signer, proof::errors};
     use world_id_primitives::{
         TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
@@ -230,17 +234,21 @@ mod tests {
             let max_cache_size = 100;
             let current_time_stamp_max_difference = Duration::from_secs(1800);
             let timeout_external_eth_call = Duration::from_secs(10);
+            let started_services = StartedServices::default();
+            let cancellation_token = CancellationToken::new();
 
             let rpc_provider = build_rpc_provider(&setup.anvil.instance).await;
 
             let merkle_watcher =
                 MerkleWatcher::init(setup.world_id_registry, &rpc_provider, max_cache_size).await?;
 
-            let rp_registry_watcher = RpRegistryWatcher::init(
+            let (rp_registry_watcher, _) = RpRegistryWatcher::init(
                 setup.rp_registry,
                 rpc_provider.clone(),
                 WatcherCacheConfig::default(),
                 timeout_external_eth_call,
+                started_services.new_service(),
+                cancellation_token,
             )
             .await?;
 

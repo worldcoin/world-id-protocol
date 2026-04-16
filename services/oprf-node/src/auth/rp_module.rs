@@ -391,7 +391,7 @@ impl RpModuleAuth {
 
         tracing::trace!("fetching RP info...");
         // fetch the RP info
-        let rp = self.rp_registry_watcher.get_rp(&request.auth.rp_id).await?;
+        let rp = self.rp_registry_watcher.get_rp(request.auth.rp_id).await?;
 
         rp.ensure_signature_valid(
             self.kind,

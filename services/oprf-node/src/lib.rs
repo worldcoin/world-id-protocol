@@ -58,6 +58,7 @@ pub mod metrics;
 /// The tasks spawned by the oprf-node. Should call [`WorldOprfNodeTasks::join`] when shutting down for graceful shutdown.
 pub struct WorldOprfNodeTasks {
     key_event_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
+    rp_registry_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
     // We also store the RpcProvider here.
     //
     // We want it to live at least as long as the sub-tasks need to complete their graceful shutdown.
@@ -77,6 +78,7 @@ impl WorldOprfNodeTasks {
     /// - any task panics or is aborted.
     pub async fn join(self) -> eyre::Result<()> {
         self.key_event_watcher.await??;
+        self.rp_registry_watcher.await??;
         Ok(())
     }
 }
@@ -147,11 +149,13 @@ pub async fn start(
     .context("while starting merkle watcher")?;
 
     tracing::info!("init RpRegistry watcher..");
-    let rp_registry_watcher = RpRegistryWatcher::init(
+    let (rp_registry_watcher, rp_registry_watcher_task) = RpRegistryWatcher::init(
         config.rp_registry_contract,
         rpc_provider.clone(),
         config.rp_cache_config,
         config.timeout_external_eth_call,
+        started_services.new_service(),
+        cancellation_token.clone(),
     )
     .await
     .context("while starting rp registry watcher")?;
@@ -231,6 +235,7 @@ pub async fn start(
     .build();
     let tasks = WorldOprfNodeTasks {
         key_event_watcher,
+        rp_registry_watcher: rp_registry_watcher_task,
         _rpc_provider: rpc_provider,
     };
 
