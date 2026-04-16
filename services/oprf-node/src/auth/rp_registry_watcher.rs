@@ -64,7 +64,7 @@ impl From<Arc<RpRegistryWatcherError>> for RpRegistryWatcherError {
             RpRegistryWatcherError::UnknownRp(rp_id) => Self::UnknownRp(*rp_id),
             RpRegistryWatcherError::Timeout(rp_id) => Self::Timeout(*rp_id),
             RpRegistryWatcherError::InactiveRp(rp_id) => Self::InactiveRp(*rp_id),
-            RpRegistryWatcherError::Internal(report) => Self::Internal(eyre::eyre!("{report:#?}")),
+            RpRegistryWatcherError::Internal(report) => Self::Internal(eyre::eyre!("{report:?}")),
         }
     }
 }
@@ -200,9 +200,7 @@ async fn try_load_rp_from_chain(
             {
                 return Err(RpRegistryWatcherError::InactiveRp(rp_id));
             }
-            return Err(RpRegistryWatcherError::Internal(eyre::eyre!(
-                "failed to fetch RP info from chain: {err:?}"
-            )));
+            return Err(RpRegistryWatcherError::Internal(eyre::Report::from(err)));
         }
     };
 

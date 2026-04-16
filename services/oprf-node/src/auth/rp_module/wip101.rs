@@ -98,9 +98,7 @@ impl RelyingParty {
                         Err(RpModuleError::Wip101CustomRevert)
                     }
                 } else {
-                    Err(RpModuleError::Internal(eyre::eyre!(
-                        "Error during WIP101 verification: {err},{err:?}"
-                    )))
+                    Err(RpModuleError::Internal(eyre::Report::from(err)))
                 }
             }
         }
