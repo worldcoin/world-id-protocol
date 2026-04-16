@@ -149,13 +149,26 @@ impl std::fmt::Debug for Authenticator {
 impl Authenticator {
     /// Initialize an Authenticator from a seed and config.
     ///
-    /// This method will error if the World ID account does not exist on the registry.
+    /// This method requires the authenticator address derived from `seed` to already be present
+    /// on-chain in the `WorldIDRegistry`.
+    ///
+    /// If no account exists for that authenticator, it returns
+    /// [`AuthenticatorError::AccountDoesNotExist`]. The same error can also occur transiently
+    /// while a create-account or authenticator-management operation is still pending on-chain and
+    /// the authenticator address has not been registered yet. Consumers that are coordinating such
+    /// operations should poll the gateway request and retry initialization after finalization.
+    ///
+    /// Indexer DB catch-up is separate and does not block initialization, since packed account data
+    /// is read from the registry (directly or via the indexer's chain-backed packed-account
+    /// endpoint).
     ///
     /// # Errors
     /// - Will error if the provided seed is invalid (not 32 bytes).
     /// - Will error if the RPC URL is invalid.
     /// - Will error if there are contract call failures.
-    /// - Will error if the account does not exist (`AccountDoesNotExist`).
+    /// - Will return [`AuthenticatorError::AccountDoesNotExist`] if the authenticator address
+    ///   derived from `seed` is not currently registered on-chain, whether permanently or because a
+    ///   relevant on-chain operation has not finalized yet.
     pub async fn init(
         seed: &[u8],
         config: AuthenticatorConfig,
