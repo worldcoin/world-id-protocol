@@ -1,44 +1,20 @@
-//! This module provides functionality for watching and validating Merkle roots.
-//! The `MerkleWatcher` subscribes to events from the `WorldIDRegistry` contract, and maintains a cache of valid Merkle roots with expiration based on a validity window.
-//! In addition to the cache, it keeps track of the latest Merkle root (since it is always valid).
-//! If a new root is recorded, it is added to the cache and the latest root is updated.
-//! If the validity window is updated, the cache is adjusted accordingly.
+//! This module provides functionality for validating Merkle roots on-demand.
 //!
-//! The `is_root_valid` method checks if a given root is valid like this:
-//! - First, it checks if the root is the latest root or is present in the cache.
-//! - If not found, it queries the contract to check if the root is valid.
-//!   If valid, it adds the root to the cache with its remaining validity duration.
+//! The `MerkleWatcher` maintains an in-memory cache of recently validated Merkle roots with a
+//! fixed time-to-live. On a cache miss, it queries the `WorldIDRegistry` contract's `isValidRoot`
+//! method. Valid roots are inserted into the cache; invalid roots are never cached.
 //!
-//! # Caveats
-//! - If the `root_validity_window` is updated to a smaller value, some roots in the cache may still be valid in the contract for a some time until they expire.
-//!   The `MerkleWatcher` just evicts all cached roots in this case to avoid false positives.
-//! - If the `root_validity_window` is updated to a larger value, existing cached roots are still valid but their expiration time is not extended.
+//! Concurrent requests for the same root are deduplicated by moka: only one contract call is made
+//! and the result is shared among all waiters.
 
-use std::{
-    sync::{
-        Arc, RwLock,
-        atomic::{AtomicBool, AtomicU64, Ordering},
-    },
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 
-use alloy::{
-    eips::BlockNumberOrTag,
-    primitives::Address,
-    providers::{DynProvider, Provider as _},
-    pubsub::SubscriptionStream,
-    rpc::types::{Filter, Log},
-    sol_types::SolEvent as _,
-};
+use alloy::{primitives::Address, providers::DynProvider};
 use eyre::Context;
-use futures::StreamExt as _;
-use moka::{Expiry, future::Cache};
+use moka::future::Cache;
 use taceo_nodes_common::web3;
-use tokio_util::sync::CancellationToken;
 use tracing::instrument;
-use world_id_core::world_id_registry::WorldIdRegistry::{
-    self, RootRecorded, RootValidityWindowUpdated, WorldIdRegistryInstance,
-};
+use world_id_core::world_id_registry::WorldIdRegistry::{self, WorldIdRegistryInstance};
 use world_id_primitives::FieldElement;
 
 use crate::metrics::{
@@ -55,59 +31,42 @@ pub(crate) enum MerkleWatcherError {
     Internal(#[from] eyre::Report),
 }
 
-/// An expiry that implements `moka::Expiry` trait. `Expiry` trait provides the
-/// default implementations of three callback methods `expire_after_create`,
-/// `expire_after_read`, and `expire_after_update`.
-///
-/// In this example, we only override the `expire_after_create` method to set
-/// the expiration duration based on `root_validity_window` (the value of the entry).
-pub struct RootExpiry;
-
-impl Expiry<FieldElement, Duration> for RootExpiry {
-    /// Returns the duration of the expiration of the value that was just created.
-    fn expire_after_create(
-        &self,
-        _key: &FieldElement,
-        value: &Duration,
-        _current_time: Instant,
-    ) -> Option<Duration> {
-        Some(*value)
+impl From<Arc<MerkleWatcherError>> for MerkleWatcherError {
+    fn from(value: Arc<MerkleWatcherError>) -> Self {
+        match value.as_ref() {
+            MerkleWatcherError::InvalidMerkleRoot => MerkleWatcherError::InvalidMerkleRoot,
+            MerkleWatcherError::Internal(report) => {
+                MerkleWatcherError::Internal(eyre::eyre!("{report:?}"))
+            }
+        }
     }
 }
-
-/// Monitors merkle roots from an on-chain `WorldIDRegistry` contract.
+/// Validates merkle roots on-demand against the `WorldIDRegistry` contract.
 ///
-/// Subscribes to blockchain events and maintains a cache of valid merkle roots.
+/// Maintains an in-memory cache of recently validated roots with a fixed time-to-live.
 /// Uses LRU eviction when the cache exceeds the configured maximum capacity.
 #[derive(Clone)]
 pub(crate) struct MerkleWatcher {
-    latest_root: Arc<RwLock<FieldElement>>,
-    merkle_root_cache: Cache<FieldElement, Duration>,
+    merkle_root_cache: Cache<FieldElement, ()>,
     contract: WorldIdRegistryInstance<DynProvider>,
 }
 
 impl MerkleWatcher {
-    /// Initializes the merkle watcher and starts listening for events.
+    /// Initializes the merkle watcher.
     ///
-    /// Connects to the blockchain via WebSocket, fetches the current merkle root,
-    /// and spawns a background task to monitor for new `RootRecorded` events.
+    /// Connects to the blockchain via the provided `rpc_provider` and sets up an in-memory cache
+    /// for validated merkle roots.
     ///
     /// # Arguments
     /// * `contract_address` - Address of the `WorldIDRegistry` contract
     /// * `rpc_provider` - A configured `RpcProvider` from the `nodes-common` crate
     /// * `max_merkle_cache_size` - Maximum number of merkle roots to cache
-    /// * `cache_maintenance_interval` - Interval for running cache maintenance tasks
-    /// * `started` - `AtomicBool` to indicate when the service has started
-    /// * `cancellation_token` - `CancellationToken` to cancel the service in case of an error
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
         rpc_provider: &web3::RpcProvider,
         max_merkle_cache_size: u64,
-        cache_maintenance_interval: Duration,
-        started: Arc<AtomicBool>,
-        cancellation_token: CancellationToken,
-    ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
+    ) -> eyre::Result<Self> {
         ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(0.0);
 
         eyre::ensure!(
@@ -119,103 +78,19 @@ impl MerkleWatcher {
 
         let merkle_root_cache = Cache::builder()
             .max_capacity(max_merkle_cache_size)
-            .expire_after(RootExpiry)
+            .time_to_live(Duration::from_secs(10 * 60))
+            .eviction_listener(move |k, (), cause| {
+                tracing::trace!("removing root {k} because: {cause:?}");
+                metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE,).decrement(1);
+            })
             .build();
 
-        // we subscribe here to not miss any events between fetching the latest root and starting the subscription
-        let filter = Filter::new()
-            .address(contract_address)
-            .from_block(BlockNumberOrTag::Latest)
-            .event_signature(vec![
-                RootRecorded::SIGNATURE_HASH,
-                RootValidityWindowUpdated::SIGNATURE_HASH,
-            ]);
-        let subscription = rpc_provider
-            .subscriptions()
-            .subscribe_logs(&filter)
-            .await?
-            .into_stream();
-
-        let get_latest_root = contract.getLatestRoot();
-        let get_root_validity_window = contract.getRootValidityWindow();
-        let (latest_root, root_validity_window) =
-            tokio::join!(get_latest_root.call(), get_root_validity_window.call());
-
-        let latest_root =
-            FieldElement::try_from(latest_root.context("while fetching latest root")?)
-                .expect("root is in field");
-        let root_validity_window =
-            u64::try_from(root_validity_window.context("while fetching root validity window")?)
-                .context("while setting root validity window")?;
-
-        tracing::info!("latest root = {latest_root}");
-        tracing::info!("root validity window = {root_validity_window} seconds");
-
-        // insert the latest root into the cache
-        // it might be older than the validity window, so we use the actual timestamp from the contract
-        // to calculate the remaining validity duration
-        let current_timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time after epoch")
-            .as_secs();
-        tracing::info!("getting timestamp for latest root");
-        let latest_root_timestamp = u64::try_from(
-            contract
-                .getRootTimestamp(latest_root.into())
-                .call()
-                .await
-                .context("while fetching root timestamp")?,
-        )
-        .context("while converting root timestamp to u64")?;
-        let elapsed = current_timestamp.saturating_sub(latest_root_timestamp);
-
-        if elapsed >= root_validity_window {
-            tracing::debug!("latest root is expired, not caching");
-        } else {
-            let remaining_validity =
-                Duration::from_secs(root_validity_window.saturating_sub(elapsed));
-            tracing::debug!("insert latest root with remaining validity {remaining_validity:?}");
-            merkle_root_cache
-                .insert(latest_root, remaining_validity)
-                .await;
-        }
-
-        let latest_root = Arc::new(RwLock::new(latest_root));
-        let root_validity_window = Arc::new(AtomicU64::new(root_validity_window));
-
-        // indicate that the merkle watcher has started
-        started.store(true, Ordering::Relaxed);
-
-        tracing::info!("listening for events...");
-        let subscribe_task = tokio::spawn(subscribe_task(
-            subscription,
-            Arc::clone(&latest_root),
-            merkle_root_cache.clone(),
-            root_validity_window,
-            cancellation_token,
-        ));
-
-        // periodically run maintenance tasks on the cache and update metrics
-        tokio::spawn({
-            let merkle_root_cache = merkle_root_cache.clone();
-            let mut interval = tokio::time::interval(cache_maintenance_interval);
-            async move {
-                loop {
-                    interval.tick().await;
-                    merkle_root_cache.run_pending_tasks().await;
-                    let size = merkle_root_cache.entry_count() as f64;
-                    ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(size);
-                }
-            }
-        });
-
         let merkle_watcher = Self {
-            latest_root,
             merkle_root_cache,
             contract,
         };
 
-        Ok((merkle_watcher, subscribe_task))
+        Ok(merkle_watcher)
     }
 
     #[instrument(level = "debug", skip_all, fields(root=%root))]
@@ -223,33 +98,29 @@ impl MerkleWatcher {
         &self,
         root: FieldElement,
     ) -> Result<(), MerkleWatcherError> {
-        // first check if the merkle root is already in cache or is the latest root
-        if *self.latest_root.read().expect("not poisoned") == root
-            || self.merkle_root_cache.contains_key(&root)
-        {
-            tracing::trace!("root was in cache");
-            tracing::trace!("root valid: true");
+        // moka promises that requests on the same key will only evaluate once and only the inserted entry will get entry.is_fresh() == true
+        let entry = self
+            .merkle_root_cache
+            .entry(root)
+            .or_try_insert_with(self.is_root_valid(root))
+            .await?;
+        if entry.is_fresh() {
+            ::metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES).increment(1);
+            metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).increment(1);
+        } else {
             ::metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS).increment(1);
-            return Ok(());
         }
+        Ok(())
+    }
 
-        tracing::trace!("check in contract");
+    async fn is_root_valid(&self, root: FieldElement) -> Result<(), MerkleWatcherError> {
         let valid = self
             .contract
             .isValidRoot(root.into())
             .call()
             .await
             .context("while calling isValidRoot")?;
-
-        // We don't update the cache on success, as we expect to receive valid roots from the subscription anyway.
-        // A valid root not being in the cache should only happen during runtime in two cases: (1) we haven't yet received the event from the stream (which should arrive shortly after), or (2) the root is old and no longer in the cache but still valid for a short period. In the latter case, the root won't remain valid for long and shouldn't be sent frequently anyway.
-        //
-        // Additionally, on startup, the cache is empty and we may encounter older roots. Nevertheless, authenticators fetch the latest root when making a request anyways, so this should also be rare and is mainly relevant for TTL after start-up (which is 1h at time of writing), since we will receive all roots through the stream.
-
-        tracing::trace!("root valid: {valid}");
-
         if valid {
-            ::metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES).increment(1);
             Ok(())
         } else {
             Err(MerkleWatcherError::InvalidMerkleRoot)
@@ -257,127 +128,17 @@ impl MerkleWatcher {
     }
 }
 
-async fn subscribe_task(
-    mut subscription: SubscriptionStream<Log>,
-    latest_root: Arc<RwLock<FieldElement>>,
-    merkle_root_cache: Cache<FieldElement, Duration>,
-    root_validity_window: Arc<AtomicU64>,
-    cancellation_token: CancellationToken,
-) -> eyre::Result<()> {
-    // shutdown service if merkle watcher encounters an error and drops this guard
-    let _drop_guard = cancellation_token.clone().drop_guard();
-    loop {
-        let log = tokio::select! {
-            log = subscription.next() => {
-                log.ok_or_else(||{
-                    tracing::warn!("MerkleWatcher subscribe stream was closed");
-                    eyre::eyre!("MerkleWatcher subscribe stream was closed")
-                })?
-            }
-            () = cancellation_token.cancelled() => {
-                break;
-            }
-        };
-
-        match log.topic0() {
-            Some(&RootRecorded::SIGNATURE_HASH) => {
-                match RootRecorded::decode_log(log.as_ref()) {
-                    Ok(event) => {
-                        tracing::trace!("got root {}", event.root,);
-                        let root = FieldElement::try_from(event.root).expect("root is in field");
-
-                        // update latest root
-                        *latest_root.write().expect("not poisoned") = root;
-
-                        let root_validity_window =
-                            Duration::from_secs(root_validity_window.load(Ordering::Relaxed));
-                        tracing::trace!(
-                            "insert root with current validity window {root_validity_window:?}"
-                        );
-                        merkle_root_cache.insert(root, root_validity_window).await;
-                    }
-                    Err(err) => {
-                        tracing::warn!("failed to decode contract event: {err:?}");
-                    }
-                }
-            }
-            Some(&RootValidityWindowUpdated::SIGNATURE_HASH) => {
-                match RootValidityWindowUpdated::decode_log(log.as_ref()) {
-                    Ok(event) => {
-                        tracing::trace!("got root validity window update");
-                        let old_window = u64::try_from(event.oldWindow).expect("fits in u64");
-                        let new_window = u64::try_from(event.newWindow).expect("fits in u64");
-
-                        tracing::info!(
-                            "root validity window updated from {old_window}s to {new_window}s"
-                        );
-                        root_validity_window.store(new_window, Ordering::Relaxed);
-
-                        // invalidate all cached roots if the validity window decreased
-                        if new_window < old_window {
-                            merkle_root_cache.invalidate_all();
-                        }
-
-                        // could theoretically be optimized to only invalidate roots that are expired after the update.
-                        // in case the validity window increased, all existing roots are still valid but should be valid for longer.
-                        // could re-insert them with the remaining validity time, but not strictly necessary.
-                    }
-                    Err(err) => {
-                        tracing::warn!("failed to decode contract event: {err:?}");
-                    }
-                }
-            }
-            x => {
-                tracing::warn!("received unknown event {x:?}");
-            }
-        }
-    }
-    tracing::info!("Successfully shutdown MerkleWatcher");
-    eyre::Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use crate::auth::tests::build_rpc_provider;
 
     use super::*;
-    use alloy::primitives::{U256, address};
-    use taceo_oprf::service::StartedServices;
-    use tokio_util::sync::CancellationToken;
     use world_id_test_utils::anvil::TestAnvil;
 
-    const CACHED: u8 = 0b0001;
-    const LATEST: u8 = 0b0010;
-
-    macro_rules! assert_root {
-        ($merkle_watcher: expr, $root: expr, $flags: expr) => {
-            if ($flags & CACHED) != 0 {
-                assert!(
-                    $merkle_watcher.merkle_root_cache.contains_key(&$root),
-                    concat!(stringify!($root), " should be cached")
-                );
-            } else {
-                assert!(
-                    !$merkle_watcher.merkle_root_cache.contains_key(&$root),
-                    concat!(stringify!($root), " should NOT be cached")
-                );
-            }
-
-            if ($flags & LATEST) != 0 {
-                assert!(
-                    *$merkle_watcher.latest_root.read().expect("not poisoned") == $root,
-                    concat!(stringify!($root), " should be latest")
-                );
-            } else {
-                assert!(
-                    *$merkle_watcher.latest_root.read().expect("not poisoned") != $root,
-                    concat!(stringify!($root), " should NOT be latest")
-                );
-            }
-        };
-    }
-
     /// Regression test for `HackerOne` report #3494201.
+    ///
+    /// Ensures that an invalid root queried from the contract is not inserted into the cache
+    /// (so a subsequent call still hits the contract, not a stale cached "invalid" entry).
     #[tokio::test]
     async fn test_invalid_root_not_cached() {
         let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
@@ -386,30 +147,47 @@ mod tests {
             .deploy_world_id_registry(signer)
             .await
             .expect("failed to deploy WorldIDRegistry");
+
+        let rpc_provider = build_rpc_provider(&anvil.instance).await;
+
+        let merkle_watcher = MerkleWatcher::init(registry_address, &rpc_provider, 100)
+            .await
+            .expect("failed to init MerkleWatcher");
+
+        let invalid_root = FieldElement::from(12345u64);
+
+        let result = merkle_watcher.ensure_root_valid(invalid_root).await;
+        assert!(
+            matches!(result, Err(MerkleWatcherError::InvalidMerkleRoot)),
+            "expected InvalidMerkleRoot, got {result:?}"
+        );
+        assert!(
+            !merkle_watcher.merkle_root_cache.contains_key(&invalid_root),
+            "invalid root must not be inserted into the cache"
+        );
+    }
+
+    /// Verifies that a valid root is cached after the first call and that a second call is served
+    /// from the cache (i.e., both calls succeed).
+    #[tokio::test]
+    async fn test_valid_root_is_cached_on_hit() {
+        let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
+        let signer = anvil.signer(0).expect("failed to get signer");
+        let registry_address = anvil
+            .deploy_world_id_registry(signer)
+            .await
+            .expect("failed to deploy WorldIDRegistry");
+
         let contract = WorldIdRegistry::new(
             registry_address,
             anvil.provider().expect("Can get anvil provider"),
         );
 
-        let started_services = StartedServices::default();
-
-        let cancellation_token = CancellationToken::new();
         let rpc_provider = build_rpc_provider(&anvil.instance).await;
 
-        let (merkle_watcher, _) = MerkleWatcher::init(
-            registry_address,
-            &rpc_provider,
-            100,
-            Duration::from_secs(3600),
-            started_services.new_service(),
-            cancellation_token,
-        )
-        .await
-        .expect("failed to init MerkleWatcher");
-
-        let invalid_root = FieldElement::from(12345u64);
-
-        assert_root!(merkle_watcher, invalid_root, !(CACHED | LATEST));
+        let merkle_watcher = MerkleWatcher::init(registry_address, &rpc_provider, 100)
+            .await
+            .expect("failed to init MerkleWatcher");
 
         let valid_root = FieldElement::try_from(
             contract
@@ -420,141 +198,21 @@ mod tests {
         )
         .expect("root in field");
 
-        assert_root!(merkle_watcher, valid_root, CACHED | LATEST);
-    }
-
-    #[tokio::test]
-    async fn test_root_validity_window() {
-        let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
-        let signer = anvil.signer(0).expect("failed to get signer");
-        let registry_address = anvil
-            .deploy_world_id_registry(signer.clone())
+        // First call: cache miss — contract is queried, root inserted into cache.
+        merkle_watcher
+            .ensure_root_valid(valid_root)
             .await
-            .expect("failed to deploy WorldIDRegistry");
-        let contract = WorldIdRegistry::new(
-            registry_address,
-            anvil.provider().expect("Can get anvil provider"),
+            .expect("first call should succeed");
+
+        assert!(
+            merkle_watcher.merkle_root_cache.contains_key(&valid_root),
+            "valid root should be in cache after first call"
         );
-        anvil
-            .set_root_validity_window(registry_address, signer.clone(), 5)
-            .await;
 
-        let started_services = StartedServices::default();
-
-        let cancellation_token = CancellationToken::new();
-        let rpc_provider = build_rpc_provider(&anvil.instance).await;
-
-        let (merkle_watcher, _) = MerkleWatcher::init(
-            registry_address,
-            &rpc_provider,
-            100,
-            Duration::from_secs(1),
-            started_services.new_service(),
-            cancellation_token,
-        )
-        .await
-        .expect("failed to init MerkleWatcher");
-
-        let root_0 = FieldElement::try_from(
-            contract
-                .getLatestRoot()
-                .call()
-                .await
-                .expect("failed to fetch root"),
-        )
-        .expect("root in field");
-
-        // root_0 should be cached and latest, unless it took longer than validity window to get here
-        assert_root!(merkle_watcher, root_0, CACHED | LATEST);
-
-        let root_1 = anvil
-            .create_account(
-                registry_address,
-                signer.clone(),
-                address!("0x0000000000000000000000000000000000000011"),
-                U256::from(11),
-                U256::from(1),
-            )
-            .await;
-
-        // root_0 should still be cached, unless createAccount took longer than validity window
-        assert_root!(merkle_watcher, root_0, CACHED);
-
-        assert_root!(merkle_watcher, root_1, CACHED | LATEST);
-
-        // wait for validity window to pass
-        tokio::time::sleep(Duration::from_secs(6)).await;
-
-        assert_root!(merkle_watcher, root_0, !(CACHED | LATEST));
-
-        assert_root!(merkle_watcher, root_1, LATEST);
-    }
-
-    #[tokio::test]
-    async fn test_root_validity_window_update() {
-        let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
-        let signer = anvil.signer(0).expect("failed to get signer");
-        let registry_address = anvil
-            .deploy_world_id_registry(signer.clone())
+        // Second call: cache hit — must still succeed.
+        merkle_watcher
+            .ensure_root_valid(valid_root)
             .await
-            .expect("failed to deploy WorldIDRegistry");
-        let contract = WorldIdRegistry::new(
-            registry_address,
-            anvil.provider().expect("Can get anvil provider"),
-        );
-        anvil
-            .set_root_validity_window(registry_address, signer.clone(), 5)
-            .await;
-
-        let started_services = StartedServices::default();
-
-        let cancellation_token = CancellationToken::new();
-        let rpc_provider = build_rpc_provider(&anvil.instance).await;
-
-        let (merkle_watcher, _) = MerkleWatcher::init(
-            registry_address,
-            &rpc_provider,
-            100,
-            Duration::from_secs(1),
-            started_services.new_service(),
-            cancellation_token,
-        )
-        .await
-        .expect("failed to init MerkleWatcher");
-        let root_0 = FieldElement::try_from(
-            contract
-                .getLatestRoot()
-                .call()
-                .await
-                .expect("failed to fetch root"),
-        )
-        .expect("root in field");
-
-        // root_0 should be cached and latest, unless it took longer than validity window to get here
-        assert_root!(merkle_watcher, root_0, CACHED | LATEST);
-
-        // set longer validity window
-        anvil
-            .set_root_validity_window(registry_address, signer.clone(), 3600)
-            .await;
-
-        let root_1 = anvil
-            .create_account(
-                registry_address,
-                signer.clone(),
-                address!("0x0000000000000000000000000000000000000011"),
-                U256::from(11),
-                U256::from(1),
-            )
-            .await;
-
-        // wait for old validity window to pass
-        tokio::time::sleep(Duration::from_secs(6)).await;
-
-        // atm we dont reinsert old roots on validity window update, so root_0 is not cached anymore
-        assert_root!(merkle_watcher, root_0, !(CACHED | LATEST));
-
-        // root_1 should be cached and latest because validity window is 1h
-        assert_root!(merkle_watcher, root_1, CACHED | LATEST);
+            .expect("second call (cache hit) should succeed");
     }
 }

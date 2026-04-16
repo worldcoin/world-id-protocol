@@ -49,17 +49,6 @@ pub struct WorldOprfNodeConfig {
     )]
     pub current_time_stamp_max_difference: Duration,
 
-    /// Interval for running maintenance tasks for caches
-    ///
-    /// This includes removing expired entries from caches (invalidated automatically,
-    /// but not removed unless entries are added/removed or maintenance tasks are run)
-    /// and running potential eviction listeners to update metrics.
-    #[serde(
-        default = "WorldOprfNodeConfig::default_cache_maintenance_interval",
-        with = "humantime_serde"
-    )]
-    pub cache_maintenance_interval: Duration,
-
     /// Max time for an `eth_call` to an unknown contract.
     ///
     /// During runtime, the nodes may perform `eth_call`s to unknown contracts (i.e. wip101 verification). To prevent malicious contracts to `DoS` attack, we wrap these calls in a timeout.
@@ -133,11 +122,6 @@ impl WorldOprfNodeConfig {
         Duration::from_secs(300) // 5 minutes
     }
 
-    /// Default interval for cache maintenance tasks
-    fn default_cache_maintenance_interval() -> Duration {
-        Duration::from_secs(60) // 1 minute
-    }
-
     /// Default timeout for an `eth_call` to an unknown contract.
     fn default_timeout_external_eth_call() -> Duration {
         Duration::from_secs(10)
@@ -168,7 +152,6 @@ impl WorldOprfNodeConfig {
             rpc_provider_config,
             max_merkle_cache_size: Self::default_max_merkle_cache_size(),
             current_time_stamp_max_difference: Self::default_current_time_stamp_max_difference(),
-            cache_maintenance_interval: Self::default_cache_maintenance_interval(),
             timeout_external_eth_call: Self::default_timeout_external_eth_call(),
             node_config: OprfNodeServiceConfig::with_default_values(
                 environment,
