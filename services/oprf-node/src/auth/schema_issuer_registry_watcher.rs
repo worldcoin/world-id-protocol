@@ -186,7 +186,7 @@ impl SchemaIssuerRegistryWatcher {
             }
         }).await.map_err(|arc| match arc.as_ref() {
             SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(id) => SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(*id),
-            SchemaIssuerRegistryWatcherError::Internal(report) => SchemaIssuerRegistryWatcherError::Internal(eyre::eyre!("{report:#?}")),
+            SchemaIssuerRegistryWatcherError::Internal(report) => SchemaIssuerRegistryWatcherError::Internal(eyre::eyre!("{report:?}")),
         })
     }
 }
