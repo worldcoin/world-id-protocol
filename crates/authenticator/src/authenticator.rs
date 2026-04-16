@@ -199,7 +199,7 @@ impl Authenticator {
             ohttp_gateway,
         )?;
 
-        let packed_account_data = Self::get_packed_account_data(
+        let packed_account_data = Self::fetch_packed_account_data_for(
             signer.onchain_signer_address(),
             registry.as_deref(),
             &config,
@@ -364,18 +364,29 @@ impl Authenticator {
         }
     }
 
-    /// Re-fetches the packed account data for this authenticator from the indexer or registry.
+    /// Fetches the packed account data for this authenticator from the indexer or registry
+    /// without mutating local state.
     ///
     /// # Errors
     /// Will error if the network call fails or if the account does not exist.
-    pub async fn refresh_packed_account_data(&self) -> Result<U256, AuthenticatorError> {
-        Self::get_packed_account_data(
+    pub async fn fetch_packed_account_data(&self) -> Result<U256, AuthenticatorError> {
+        Self::fetch_packed_account_data_for(
             self.onchain_address(),
             self.registry().as_deref(),
             &self.config,
             &self.indexer_client,
         )
         .await
+    }
+
+    /// Re-fetches the packed account data for this authenticator and updates local state.
+    ///
+    /// # Errors
+    /// Will error if the network call fails or if the account does not exist.
+    pub async fn refresh_packed_account_data(&mut self) -> Result<U256, AuthenticatorError> {
+        let packed_account_data = self.fetch_packed_account_data().await?;
+        self.packed_account_data = packed_account_data;
+        Ok(packed_account_data)
     }
 
     /// Returns the packed account data for the holder's World ID.
@@ -385,7 +396,7 @@ impl Authenticator {
     ///
     /// # Errors
     /// Will error if the network call fails or if the account does not exist.
-    async fn get_packed_account_data(
+    async fn fetch_packed_account_data_for(
         onchain_signer_address: Address,
         registry: Option<&WorldIdRegistryInstance<DynProvider>>,
         config: &Config,
@@ -733,7 +744,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = Authenticator::get_packed_account_data(
+        let result = Authenticator::fetch_packed_account_data_for(
             test_address,
             None, // No registry, force indexer usage
             &config,
@@ -778,9 +789,13 @@ mod tests {
         )
         .unwrap();
 
-        let result =
-            Authenticator::get_packed_account_data(test_address, None, &config, &indexer_client)
-                .await;
+        let result = Authenticator::fetch_packed_account_data_for(
+            test_address,
+            None,
+            &config,
+            &indexer_client,
+        )
+        .await;
 
         assert!(matches!(
             result,
