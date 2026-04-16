@@ -32,11 +32,7 @@ use ruint::{aliases::U256, uint};
 use taceo_oprf::client::Connector;
 pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
-    PrimitiveError,
-    authenticator::{
-        AuthenticatorPublicKeySet, SparseAuthenticatorPubkeysError,
-        decode_sparse_authenticator_pubkeys,
-    },
+    AuthenticatorPublicKeySet, PrimitiveError, SparseAuthenticatorPubkeysError,
 };
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
@@ -602,7 +598,7 @@ impl Authenticator {
     pub(crate) fn decode_indexer_pubkeys(
         pubkeys: Vec<Option<U256>>,
     ) -> Result<AuthenticatorPublicKeySet, AuthenticatorError> {
-        decode_sparse_authenticator_pubkeys(pubkeys).map_err(|e| match e {
+        AuthenticatorPublicKeySet::from_sparse_encoded_pubkeys(pubkeys).map_err(|e| match e {
             SparseAuthenticatorPubkeysError::SlotOutOfBounds {
                 slot_index,
                 max_supported_slot,
@@ -618,19 +614,6 @@ impl Authenticator {
             }
         })
     }
-
-    pub(crate) fn insert_or_reuse_authenticator_key(
-        key_set: &mut AuthenticatorPublicKeySet,
-        new_authenticator_pubkey: EdDSAPublicKey,
-    ) -> Result<usize, AuthenticatorError> {
-        if let Some(index) = key_set.iter().position(Option::is_none) {
-            key_set.try_set_at_index(index, new_authenticator_pubkey)?;
-            Ok(index)
-        } else {
-            key_set.try_push(new_authenticator_pubkey)?;
-            Ok(key_set.len() - 1)
-        }
-    }
 }
 
 #[cfg(test)]
@@ -638,7 +621,7 @@ mod tests {
     use super::*;
     use crate::{error::AuthenticatorError, traits::OnchainKeyRepresentable};
     use alloy::primitives::{U256, address};
-    use world_id_primitives::authenticator::MAX_AUTHENTICATOR_KEYS;
+    use world_id_primitives::MAX_AUTHENTICATOR_KEYS;
 
     fn test_pubkey(seed_byte: u8) -> EdDSAPublicKey {
         Signer::from_seed_bytes(&[seed_byte; 32])
@@ -658,8 +641,7 @@ mod tests {
         key_set[1] = None;
         let new_key = test_pubkey(3);
 
-        let index =
-            Authenticator::insert_or_reuse_authenticator_key(&mut key_set, new_key).unwrap();
+        let index = key_set.insert_or_reuse(new_key).unwrap();
 
         assert_eq!(index, 1);
         assert_eq!(key_set.len(), 3);
@@ -671,8 +653,7 @@ mod tests {
         let mut key_set = AuthenticatorPublicKeySet::new(vec![test_pubkey(1)]).unwrap();
         let new_key = test_pubkey(2);
 
-        let index =
-            Authenticator::insert_or_reuse_authenticator_key(&mut key_set, new_key).unwrap();
+        let index = key_set.insert_or_reuse(new_key).unwrap();
 
         assert_eq!(index, 1);
         assert_eq!(key_set.len(), 2);

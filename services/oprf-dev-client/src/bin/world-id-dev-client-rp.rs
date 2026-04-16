@@ -21,9 +21,8 @@ use world_id_core::{
 };
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
-    ProofRequest, RequestItem, RequestVersion, SessionFeType, SessionFieldElement as _, SessionId,
-    TREE_DEPTH,
-    authenticator::AuthenticatorPublicKeySet,
+    AuthenticatorPublicKeySet, ProofRequest, RequestItem, RequestVersion, SessionFeType,
+    SessionFieldElement as _, SessionId, TREE_DEPTH,
     merkle::MerkleInclusionProof,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
     rp::RpId,

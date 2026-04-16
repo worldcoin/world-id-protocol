@@ -8,9 +8,7 @@ use ark_ff::{PrimeField, Zero};
 use eddsa_babyjubjub::EdDSAPublicKey;
 use taceo_oprf::core::{dlog_equality::DLogEqualityProof, oprf::BlindingFactor};
 use world_id_primitives::{
-    FieldElement,
-    authenticator::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS},
-    merkle::MerkleInclusionProof,
+    AuthenticatorPublicKeySet, FieldElement, MAX_AUTHENTICATOR_KEYS, merkle::MerkleInclusionProof,
 };
 
 use crate::circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput};
@@ -568,7 +566,7 @@ mod tests {
             };
 
             // Recompute the merkle root so the proof is valid
-            let pk_set = world_id_primitives::authenticator::AuthenticatorPublicKeySet::new(
+            let pk_set = world_id_primitives::AuthenticatorPublicKeySet::new(
                 inputs
                     .pk
                     .iter()

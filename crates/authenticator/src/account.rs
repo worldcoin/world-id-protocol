@@ -37,8 +37,7 @@ impl Authenticator {
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
         let old_offchain_signer_commitment = key_set.leaf_hash();
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
-        let index =
-            Self::insert_or_reuse_authenticator_key(&mut key_set, new_authenticator_pubkey)?;
+        let index = key_set.insert_or_reuse(new_authenticator_pubkey)?;
         let new_offchain_signer_commitment = key_set.leaf_hash();
 
         let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());

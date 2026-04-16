@@ -9,9 +9,7 @@ use groth16_material::circom::ProofInput;
 use ruint::aliases::U256;
 
 use world_id_primitives::{
-    FieldElement,
-    authenticator::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS},
-    merkle::MerkleInclusionProof,
+    AuthenticatorPublicKeySet, FieldElement, MAX_AUTHENTICATOR_KEYS, merkle::MerkleInclusionProof,
 };
 
 type BaseField = ark_babyjubjub::Fq;

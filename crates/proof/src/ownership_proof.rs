@@ -138,8 +138,7 @@ mod tests {
     use ark_bn254::Fr;
     use eddsa_babyjubjub::EdDSAPrivateKey;
     use world_id_primitives::{
-        Credential, FieldElement, authenticator::AuthenticatorPublicKeySet,
-        merkle::MerkleInclusionProof,
+        AuthenticatorPublicKeySet, Credential, FieldElement, merkle::MerkleInclusionProof,
     };
 
     /// Builds a Merkle inclusion proof for a single leaf at index 1

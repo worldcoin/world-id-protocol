@@ -19,6 +19,11 @@ use std::{
 /// Contains types related to the Authenticator.
 pub mod authenticator;
 
+mod key_set;
+pub use key_set::{
+    AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS, SparseAuthenticatorPubkeysError,
+};
+
 /// Contains the global configuration for interacting with the World ID Protocol.
 mod config;
 pub use config::Config;
