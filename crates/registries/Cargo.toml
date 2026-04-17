@@ -11,6 +11,9 @@ rust-version.workspace = true
 repository.workspace = true
 include = ["src/**/*", "abi/*", "Cargo.toml", "README.md"]
 
+[lints]
+workspace = true
+
 [dependencies]
 alloy = { workspace = true, features = [
   "sol-types",
