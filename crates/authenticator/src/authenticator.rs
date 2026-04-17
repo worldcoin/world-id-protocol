@@ -30,10 +30,10 @@ use eddsa_babyjubjub::EdDSAPublicKey;
 use groth16_material::circom::CircomGroth16Material;
 use ruint::{aliases::U256, uint};
 use taceo_oprf::client::Connector;
-pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
     AuthenticatorPublicKeySet, PrimitiveError, SparseAuthenticatorPubkeysError,
 };
+pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 #[expect(unused_imports, reason = "used for docs")]
