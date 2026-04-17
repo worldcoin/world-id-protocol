@@ -5,7 +5,7 @@ members = [
   "crates/issuer",
   "crates/proof",
   "crates/primitives",
-  "crates/registry",
+  "crates/registries",
   "crates/test-utils",
   "services/indexer",
   "services/gateway",
@@ -31,6 +31,15 @@ authors = [
 homepage = "https://docs.world.org/world-id"
 repository = "https://github.com/worldcoin/world-id-protocol"
 rust-version = "1.87"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+
+[workspace.lints.rust]
+missing_docs = "deny"
+dead_code = "deny"
 
 [workspace.dependencies]
 # alloy
