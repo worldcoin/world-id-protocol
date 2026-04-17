@@ -64,8 +64,7 @@ mod tests {
     use taceo_oprf::{core::oprf::BlindingFactor, service::StartedServices};
     use tokio_util::sync::CancellationToken;
     use world_id_primitives::{
-        FieldElement, Signer, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
-        merkle::MerkleInclusionProof,
+        AuthenticatorPublicKeySet, FieldElement, Signer, TREE_DEPTH, merkle::MerkleInclusionProof,
     };
     use world_id_proof::{circuit_inputs::QueryProofCircuitInput, errors};
     use world_id_test_utils::{

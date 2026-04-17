@@ -298,8 +298,7 @@ fn build_test_inclusion_proof(
     leaf_index: u64,
 ) -> world_id_primitives::merkle::AccountInclusionProof<{ world_id_primitives::TREE_DEPTH }> {
     use world_id_primitives::{
-        FieldElement, TREE_DEPTH,
-        authenticator::AuthenticatorPublicKeySet,
+        AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH,
         merkle::{AccountInclusionProof, MerkleInclusionProof},
     };
 

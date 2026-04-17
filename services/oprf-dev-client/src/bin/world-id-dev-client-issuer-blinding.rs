@@ -16,8 +16,7 @@ use uuid::Uuid;
 use world_id_core::{EdDSAPrivateKey, EdDSASignature, FieldElement, proof::CircomGroth16Material};
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
-    TREE_DEPTH,
-    authenticator::AuthenticatorPublicKeySet,
+    AuthenticatorPublicKeySet, TREE_DEPTH,
     merkle::MerkleInclusionProof,
     oprf::{CredentialBlindingFactorOprfRequestAuthV1, OprfModule},
 };

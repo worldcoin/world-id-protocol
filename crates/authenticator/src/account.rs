@@ -25,8 +25,9 @@ impl Authenticator {
     /// Will error if the provided RPC URL is not valid or if there are HTTP call failures.
     ///
     /// # Note
-    /// TODO: After successfully inserting an authenticator, the `packed_account_data` should be
-    /// refreshed from the registry to reflect the new `pubkey_id` commitment.
+    /// Inserting another authenticator changes the account's off-chain signer commitment, but does
+    /// not change this authenticator's own `packed_account_data`. Indexer-backed account views may
+    /// remain stale until the gateway request finalizes and the indexer catches up.
     pub async fn insert_authenticator(
         &self,
         new_authenticator_pubkey: EdDSAPublicKey,
@@ -37,8 +38,7 @@ impl Authenticator {
         let mut key_set = self.fetch_authenticator_pubkeys().await?;
         let old_offchain_signer_commitment = key_set.leaf_hash();
         let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
-        let index =
-            Self::insert_or_reuse_authenticator_key(&mut key_set, new_authenticator_pubkey)?;
+        let index = key_set.insert_or_reuse(new_authenticator_pubkey)?;
         let new_offchain_signer_commitment = key_set.leaf_hash();
 
         let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
@@ -85,8 +85,9 @@ impl Authenticator {
     /// Returns an error if the gateway rejects the request or a network error occurs.
     ///
     /// # Note
-    /// TODO: After successfully updating an authenticator, the `packed_account_data` should be
-    /// refreshed from the registry to reflect the new `pubkey_id` commitment.
+    /// After this request finalizes on-chain, the current `Authenticator` may become unusable if it
+    /// corresponds to the authenticator being updated. Consumers should poll the gateway request and
+    /// re-initialize the appropriate authenticator as needed.
     pub async fn update_authenticator(
         &self,
         old_authenticator_address: Address,
@@ -144,8 +145,9 @@ impl Authenticator {
     /// Returns an error if the gateway rejects the request or a network error occurs.
     ///
     /// # Note
-    /// TODO: After successfully removing an authenticator, the `packed_account_data` should be
-    /// refreshed from the registry to reflect the new `pubkey_id` commitment.
+    /// After this request finalizes on-chain, the current `Authenticator` may become unusable if it
+    /// corresponds to the authenticator being removed. Consumers should poll the gateway request and
+    /// re-initialize or discard this authenticator as needed.
     pub async fn remove_authenticator(
         &self,
         authenticator_address: Address,
