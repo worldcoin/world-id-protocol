@@ -3,9 +3,6 @@ use embed_doc_image::embed_doc_image;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
-#[expect(unused_imports, reason = "used in doc comments")]
-use crate::circuit_inputs::QueryProofCircuitInput;
-
 /// Type of field elements for Session Proofs
 #[repr(u8)]
 pub enum SessionFeType {
@@ -76,7 +73,7 @@ pub struct SessionId {
     /// # Important: Prefix
     /// To ensure there are no collisions between the generated `r`s and the nullifiers
     /// for Uniqueness Proofs (as they use the same OPRF Key and query structure), the
-    /// `oprf_seed`s, which are plugged as `action` in the Query Proof (see [`QueryProofCircuitInput`]),
+    /// `oprf_seed`s, which are plugged as `action` in the Query Proof (see `QueryProofCircuitInput` in `world-id-proof`),
     /// MUST be prefixed with an explicit byte of `0x01`. All other actions have a `0x00` byte prefix. This
     /// collision avoidance is important because it ensures that any requests for nullifiers meant
     /// for Uniqueness Proofs are always signed by the RP (otherwise, an RP signature for a Session Proof

@@ -12,7 +12,6 @@ repository.workspace = true
 include = [
     "src/**/*",
     "tests/**/*",
-    "abi/*",
     "Cargo.toml",
     "README.md",
 ]
@@ -20,6 +19,10 @@ include = [
 [features]
 default = ["embed-zkeys"]
 embed-zkeys = ["world-id-proof/embed-zkeys"]
+# Compress the embedded zkeys to reduce binary size (ARK point compression)
+compress-zkeys = ["embed-zkeys", "world-id-proof/compress-zkeys"]
+# Compress the tar archive with zstd
+zstd-compress-zkeys = ["embed-zkeys", "world-id-proof/zstd-compress-zkeys"]
 
 [dependencies]
 # Use WASM-safe base features only
@@ -61,6 +64,7 @@ base64 = { workspace = true }
 
 # Internal
 world-id-proof = { workspace = true, features = ["zk-ownership-prove"] }
+world-id-registries = { workspace = true }
 
 # Native-only dependencies (not available on wasm32)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

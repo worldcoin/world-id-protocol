@@ -1,7 +1,6 @@
-//! Minimal World ID Registry contract bindings.
+//! World ID Registry contract bindings and EIP-712 signing utilities.
 //!
-//! This crate provides only the contract bindings and EIP-712 signing utilities.
-//! It has no dependencies on other world-id crates to avoid circular dependencies.
+//! See `contracts/src/core/WorldIDRegistry.sol`
 
 use alloy::{
     primitives::{Address, Signature, U256},

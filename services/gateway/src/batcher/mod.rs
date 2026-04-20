@@ -12,10 +12,8 @@ use std::{collections::VecDeque, sync::Arc, time::Duration};
 use alloy::{network::Ethereum, primitives::Bytes, providers::DynProvider};
 use tokio::{sync::mpsc, time::Instant};
 use uuid::Uuid;
-use world_id_core::{
-    api_types::{CreateAccountRequest, GatewayRequestState},
-    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
-};
+use world_id_primitives::api_types::{CreateAccountRequest, GatewayRequestState};
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::{
     RequestTracker,

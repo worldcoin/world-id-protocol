@@ -14,10 +14,8 @@ use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSASignature, FieldElement,
     proof::{CircomGroth16Material, errors},
 };
-use world_id_primitives::{
-    TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, circuit_inputs::QueryProofCircuitInput,
-    merkle::MerkleInclusionProof,
-};
+use world_id_primitives::{AuthenticatorPublicKeySet, TREE_DEPTH, merkle::MerkleInclusionProof};
+use world_id_proof::circuit_inputs::QueryProofCircuitInput;
 
 const HARDCODED_RP_SIGNER: &str =
     "1111111111111111111111111111111111111111111111111111111111111111";

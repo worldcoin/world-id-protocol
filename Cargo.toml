@@ -5,6 +5,7 @@ members = [
   "crates/issuer",
   "crates/proof",
   "crates/primitives",
+  "crates/registries",
   "crates/test-utils",
   "services/indexer",
   "services/gateway",
@@ -30,6 +31,16 @@ authors = [
 homepage = "https://docs.world.org/world-id"
 repository = "https://github.com/worldcoin/world-id-protocol"
 rust-version = "1.87"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+
+[workspace.lints.rust]
+missing_docs = "deny"
+dead_code = "deny"
+unused_crate_dependencies = "deny"
 
 [workspace.dependencies]
 # alloy
@@ -59,6 +70,7 @@ ohttp = { version = "0.7", default-features = false }
 bhttp = "0.7"
 itertools = "0.14"
 k256 = { version = "0.13" }
+sha2 = { version = "0.11", default-features = false }
 taceo-groth16-sol = { version = "0.3.1" }
 taceo-oprf = { version = "0.12.1", default-features = false }
 taceo-oprf-test-utils = { version = "0.10", default-features = false }
@@ -139,6 +151,7 @@ tower = "0.5.3"
 world-id-core = { version = "0.9.0", default-features = false, path = "crates/core" }
 world-id-issuer = { version = "0.9.0", path = "crates/issuer" }
 world-id-proof = { version = "0.9.0", path = "crates/proof" }
+world-id-registries = { version = "0.9.0", path = "crates/registries" }
 world-id-authenticator = { version = "0.9.0", path = "crates/authenticator" }
 world-id-primitives = { version = "0.9.0", path = "crates/primitives", default-features = false }
 world-id-oprf-node = { version = "0.1.0", path = "services/oprf-node" }

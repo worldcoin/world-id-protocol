@@ -5,9 +5,8 @@ use alloy::{
     providers::DynProvider,
 };
 use tokio::sync::mpsc;
-use world_id_core::{
-    api_types::CreateAccountRequest, world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
-};
+use world_id_primitives::api_types::CreateAccountRequest;
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::request_tracker::BacklogScope;
 

@@ -11,9 +11,9 @@ use ark_ff::PrimeField as _;
 use circom_types::groth16::VerificationKey;
 use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
 use uuid::Uuid;
-use world_id_core::{FieldElement, primitives};
 use world_id_primitives::{
-    SessionFeType, SessionFieldElement as _, oprf::NullifierOprfRequestAuthV1, rp::RpId,
+    self as primitives, FieldElement, SessionFeType, SessionFieldElement as _,
+    oprf::NullifierOprfRequestAuthV1, rp::RpId,
 };
 
 use crate::{

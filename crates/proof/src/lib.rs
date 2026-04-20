@@ -4,10 +4,13 @@ use eddsa_babyjubjub::EdDSAPrivateKey;
 use groth16_material::Groth16Error;
 
 use world_id_primitives::{
-    TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
+    AuthenticatorPublicKeySet, TREE_DEPTH, merkle::MerkleInclusionProof,
     oprf::WorldIdRequestAuthError,
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
+
+/// Circuit input types for Circom/Groth16 circuits (query, nullifier, ownership proofs).
+pub mod circuit_inputs;
 
 pub mod compress;
 pub use compress::ProofCompression;

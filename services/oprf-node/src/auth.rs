@@ -57,16 +57,16 @@ mod tests {
         signers::local::LocalSigner,
     };
     use ark_serialize::CanonicalSerialize;
+    use eddsa_babyjubjub::EdDSAPrivateKey;
     use rand::Rng;
     use secrecy::ExposeSecret as _;
     use taceo_nodes_common::web3::{self, RpcProviderBuilder};
     use taceo_oprf::{core::oprf::BlindingFactor, service::StartedServices};
     use tokio_util::sync::CancellationToken;
-    use world_id_core::{EdDSAPrivateKey, FieldElement, Signer, proof::errors};
     use world_id_primitives::{
-        TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
-        circuit_inputs::QueryProofCircuitInput, merkle::MerkleInclusionProof,
+        AuthenticatorPublicKeySet, FieldElement, Signer, TREE_DEPTH, merkle::MerkleInclusionProof,
     };
+    use world_id_proof::{circuit_inputs::QueryProofCircuitInput, errors};
     use world_id_test_utils::{
         anvil::TestAnvil,
         fixtures::{self, RegistryTestContext, RpFixture},
@@ -298,8 +298,8 @@ mod tests {
         ) -> eyre::Result<QueryProofBundle> {
             let mut rng = rand::thread_rng();
 
-            let query_material = world_id_core::proof::load_embedded_query_material()
-                .expect("Can load query material");
+            let query_material =
+                world_id_proof::load_embedded_query_material().expect("Can load query material");
 
             let query_blinding_factor = BlindingFactor::rand(&mut rng);
 

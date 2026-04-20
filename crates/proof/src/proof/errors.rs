@@ -8,11 +8,10 @@ use ark_ff::{PrimeField, Zero};
 use eddsa_babyjubjub::EdDSAPublicKey;
 use taceo_oprf::core::{dlog_equality::DLogEqualityProof, oprf::BlindingFactor};
 use world_id_primitives::{
-    FieldElement,
-    authenticator::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS},
-    circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
-    merkle::MerkleInclusionProof,
+    AuthenticatorPublicKeySet, FieldElement, MAX_AUTHENTICATOR_KEYS, merkle::MerkleInclusionProof,
 };
+
+use crate::circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput};
 
 type BaseField = ark_babyjubjub::Fq;
 type Affine = ark_babyjubjub::EdwardsAffine;
@@ -420,9 +419,9 @@ fn hash_credential(
 
 #[cfg(test)]
 mod tests {
+    use crate::circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput};
     use ark_ec::twisted_edwards::Affine;
     use std::str::FromStr;
-    use world_id_primitives::circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput};
 
     use crate::proof::errors::{check_nullifier_input_validity, check_query_input_validity};
 
@@ -567,7 +566,7 @@ mod tests {
             };
 
             // Recompute the merkle root so the proof is valid
-            let pk_set = world_id_primitives::authenticator::AuthenticatorPublicKeySet::new(
+            let pk_set = world_id_primitives::AuthenticatorPublicKeySet::new(
                 inputs
                     .pk
                     .iter()

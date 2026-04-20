@@ -20,15 +20,13 @@ use alloy::{
 };
 use moka::future::Cache;
 use uuid::Uuid;
-use world_id_core::{
-    api_types::{
-        CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
-        GatewayErrorCode, GatewayRequestId, GatewayRequestKind, GatewayRequestState,
-        GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
-        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
-    },
-    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
+use world_id_primitives::api_types::{
+    CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
+    GatewayErrorCode, GatewayRequestId, GatewayRequestKind, GatewayRequestState,
+    GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
 };
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 /// Type alias for the registry instance.
 pub type Registry = WorldIdRegistryInstance<Arc<DynProvider>>;

@@ -1,11 +1,9 @@
 use std::backtrace::Backtrace;
 use thiserror::Error;
-use world_id_core::{
-    api_types::{GatewayErrorCode, ServiceApiError},
-    world_id_registry::WorldIdRegistry::{
-        AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
-        AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
-    },
+use world_id_primitives::api_types::{GatewayErrorCode, ServiceApiError};
+use world_id_registries::world_id::WorldIdRegistry::{
+    AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
+    AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
 };
 use world_id_services_common::ProviderError;
 

@@ -8,10 +8,8 @@ use eddsa_babyjubjub::EdDSASignature;
 use groth16_material::circom::ProofInput;
 use ruint::aliases::U256;
 
-use crate::{
-    FieldElement,
-    authenticator::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS},
-    merkle::MerkleInclusionProof,
+use world_id_primitives::{
+    AuthenticatorPublicKeySet, FieldElement, MAX_AUTHENTICATOR_KEYS, merkle::MerkleInclusionProof,
 };
 
 type BaseField = ark_babyjubjub::Fq;

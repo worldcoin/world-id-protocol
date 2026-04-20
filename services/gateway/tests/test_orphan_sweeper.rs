@@ -9,10 +9,12 @@ use alloy::{
 };
 use redis::{AsyncCommands, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
-use world_id_core::api_types::{GatewayRequestKind, GatewayRequestState, GatewayStatusResponse};
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, OrphanSweeperConfig, RequestRecord, RequestTracker, defaults,
     now_unix_secs, request_tracker::BacklogScope, spawn_gateway_for_tests, sweep_once,
+};
+use world_id_primitives::api_types::{
+    GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
 };
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
@@ -705,7 +707,7 @@ async fn sweep_submitted_with_real_receipt() {
     wait_http_ready(&client, 4200).await;
     let base = "http://127.0.0.1:4200";
 
-    let body = world_id_core::api_types::CreateAccountRequest {
+    let body = world_id_primitives::api_types::CreateAccountRequest {
         recovery_address: Some(wallet_addr),
         authenticator_addresses: vec![address!("0x2222222222222222222222222222222222222222")],
         authenticator_pubkeys: vec![U256::from(100)],
