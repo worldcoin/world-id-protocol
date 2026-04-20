@@ -1,7 +1,7 @@
 #![cfg_attr(all(),
 doc = ::embed_doc_image::embed_image!("world-id-protocol-parties", "assets/world-id-protocol-parties.png"))]
 #![doc = include_str!("../README.md")]
-#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+#![cfg_attr(not(test), deny(unused_crate_dependencies))]
 #![deny(clippy::all, clippy::nursery, missing_docs, dead_code)]
 #![allow(clippy::option_if_let_else)]
 

@@ -13,8 +13,10 @@ repository.workspace = true
 [features]
 # Enable OpenAPI schema derives for API types.
 openapi = ["dep:utoipa"]
+
 [dependencies]
 alloy = { workspace = true, features = ["sol-types", "signer-local"] }
+base64 = { workspace = true }
 alloy-primitives = { workspace = true, default-features = false, features = [
     "serde",
     "std",

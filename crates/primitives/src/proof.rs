@@ -100,9 +100,6 @@ impl From<ZeroKnowledgeProof> for [U256; 5] {
 
 /// A WIP-103 Ownership Proof.
 ///
-/// Carries the serialized ZK proof bytes and the Merkle root used in the
-/// circuit. Implements [`fmt::Display`]/[`std::str::FromStr`] as
-/// CBOR → base64url for compact header transmission.
 ///
 /// `zkp` is serialized as base64url in JSON via [`base64_bytes`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
