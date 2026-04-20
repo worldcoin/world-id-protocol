@@ -14,6 +14,9 @@ use crate::{
     error::AuthenticatorError,
 };
 use world_id_primitives::TREE_DEPTH;
+use world_id_proof::{
+    circuit_inputs::OwnershipProofCircuitInput, ownership_proof::generate_ownership_proof,
+};
 
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::Nullifier;
@@ -441,9 +444,6 @@ impl Authenticator {
         sub: FieldElement,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<OwnershipProof, AuthenticatorError> {
-        use world_id_primitives::circuit_inputs::OwnershipProofCircuitInput;
-        use world_id_proof::ownership_proof::generate_ownership_proof;
-
         let authenticator_input = self
             .prepare_authenticator_input(account_inclusion_proof)
             .await?;

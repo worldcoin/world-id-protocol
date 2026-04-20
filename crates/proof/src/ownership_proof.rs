@@ -9,16 +9,16 @@ pub use prover::generate_ownership_proof;
 
 #[cfg(feature = "zk-ownership-prove")]
 mod prover {
-    use crate::{NoirCircuitInput, NoirRepresentable, ProofError};
+    use crate::{
+        NoirCircuitInput, NoirRepresentable, ProofError, circuit_inputs::OwnershipProofCircuitInput,
+    };
     use provekit_common::{InputMap, InputValue, NoirElement};
     use provekit_prover::Prove;
     use std::collections::BTreeMap;
 
     use ark_ff::{BigInteger as _, PrimeField as _};
 
-    use world_id_primitives::{
-        TREE_DEPTH, circuit_inputs::OwnershipProofCircuitInput, proof::OwnershipProof,
-    };
+    use world_id_primitives::{TREE_DEPTH, proof::OwnershipProof};
 
     /// Raw bytes of the embedded Proving Key Package (PKP).
     const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
