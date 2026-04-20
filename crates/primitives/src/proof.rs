@@ -100,8 +100,8 @@ impl From<ZeroKnowledgeProof> for [U256; 5] {
 
 /// A WIP-103 Ownership Proof.
 ///
-///
-/// `zkp` is serialized as base64url in JSON via [`base64_bytes`].
+/// This item contains the full ZKP and the required public inputs which the verifier
+/// doesn't initially provide.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OwnershipProof {
     /// Serialized ZK proof (opaque bytes from ProveKit). Serialization uses base64 vs hex normally used due

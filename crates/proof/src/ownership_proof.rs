@@ -10,13 +10,15 @@ pub use prover::generate_ownership_proof;
 #[cfg(feature = "zk-ownership-prove")]
 mod prover {
     use crate::{NoirCircuitInput, NoirRepresentable, ProofError};
-    use provekit_common::{InputMap, InputValue, NoirElement, NoirProof};
+    use provekit_common::{InputMap, InputValue, NoirElement};
     use provekit_prover::Prove;
     use std::collections::BTreeMap;
 
     use ark_ff::{BigInteger as _, PrimeField as _};
 
-    use world_id_primitives::{TREE_DEPTH, circuit_inputs::OwnershipProofCircuitInput};
+    use world_id_primitives::{
+        TREE_DEPTH, circuit_inputs::OwnershipProofCircuitInput, proof::OwnershipProof,
+    };
 
     /// Raw bytes of the embedded Proving Key Package (PKP).
     const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
@@ -40,23 +42,24 @@ mod prover {
 
     /// Generates an ownership proof for WIP-103.
     ///
-    /// # Arguments
-    /// * `input` - Authenticator keys, Merkle inclusion proof, signing
-    ///   key, and key index.
-    /// * `nonce` - Public nonce (signal hash placeholder).
-    /// * `commitment_r` - Randomness used to derive the commitment.
-    ///
     /// # Errors
     /// Returns [`ProofError`] if signing, serialization, or proving
     /// fails.
     pub fn generate_ownership_proof(
         input: OwnershipProofCircuitInput<TREE_DEPTH>,
-    ) -> Result<NoirProof, ProofError> {
+    ) -> Result<OwnershipProof, ProofError> {
+        let merkle_root = input.inclusion_proof.root;
         let prover = load_ownership_prover()?;
         let witness = input.into_witness()?;
-        prover
+        let noir_proof = prover
             .prove(witness)
-            .map_err(|e| ProofError::GenerationError(e.to_string()))
+            .map_err(|e| ProofError::GenerationError(e.to_string()))?;
+
+        let mut zkp = Vec::new();
+        ciborium::into_writer(&noir_proof.whir_r1cs_proof, &mut zkp)
+            .map_err(|e| ProofError::InternalError(eyre::eyre!("CBOR encode proof: {e}")))?;
+
+        Ok(OwnershipProof { zkp, merkle_root })
     }
 
     impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
@@ -143,9 +146,9 @@ pub use verifier::verify_ownership_proof;
 mod verifier {
     use crate::ProofError;
     use ark_babyjubjub::Fq;
-    use provekit_common::{NoirProof, PublicInputs, WhirR1CSProof};
+    use provekit_common::{NoirProof, PublicInputs};
     use provekit_verifier::Verify;
-    use world_id_primitives::{FieldElement, TREE_DEPTH};
+    use world_id_primitives::{FieldElement, TREE_DEPTH, proof::OwnershipProof};
 
     /// Raw bytes of the embedded Verifying Key Package (PKV).
     const PKV_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkv"));
@@ -170,25 +173,28 @@ mod verifier {
     /// Verifies an ownership proof.
     ///
     /// # Errors
-    /// Returns an error if the verifier cannot be loaded or verification fails.
+    /// Returns an error if the proof bytes are malformed, the verifier
+    /// cannot be loaded, or verification fails.
     pub fn verify_ownership_proof(
-        proof: WhirR1CSProof,
-        merkle_root: FieldElement,
+        proof: &OwnershipProof,
         nonce: FieldElement,
         commitment: FieldElement,
     ) -> Result<(), ProofError> {
-        // TODO: Type the proof and the Merkle root into a single proof result
         let mut verifier = load_ownership_verifier()?;
-        let public_inputs = vec![
-            *merkle_root,
+
+        let whir_r1cs_proof = ciborium::from_reader(proof.zkp.as_slice())
+            .map_err(|e| ProofError::InternalError(eyre::eyre!("CBOR decode proof: {e}")))?;
+
+        let public_inputs = PublicInputs::from_vec(vec![
+            *proof.merkle_root,
             Fq::from(TREE_DEPTH as u64),
             *nonce,
             *commitment,
-        ];
-        let public_inputs = PublicInputs::from_vec(public_inputs);
+        ]);
+
         let noir_proof = NoirProof {
             public_inputs,
-            whir_r1cs_proof: proof,
+            whir_r1cs_proof,
         };
         verifier
             .verify(&noir_proof)
@@ -202,15 +208,13 @@ mod tests {
 
     use super::*;
 
-    use ark_bn254::Fr;
     use eddsa_babyjubjub::EdDSAPrivateKey;
     use world_id_primitives::{
         Credential, FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
         circuit_inputs::OwnershipProofCircuitInput, merkle::MerkleInclusionProof,
+        proof::OwnershipProof,
     };
 
-    /// Builds a Merkle inclusion proof for a single leaf at index 1
-    /// in an otherwise empty (all-zeros) tree of depth `TREE_DEPTH`.
     fn build_merkle_proof(leaf: ark_bn254::Fr) -> MerkleInclusionProof<TREE_DEPTH> {
         let (siblings, root) = world_id_test_utils::merkle::first_leaf_merkle_path(leaf);
         MerkleInclusionProof::new(root, 1, siblings)
@@ -218,24 +222,18 @@ mod tests {
 
     #[test]
     fn test_generate_and_verify_ownership_proof() {
-        // 1. Generate an EdDSA keypair
+        // Setup: keypair, key set, Merkle proof, signature
         let sk = EdDSAPrivateKey::from_bytes([42u8; 32]);
         let pk = sk.public();
-
-        // 2. Build a key set containing a single authenticator key
         let key_set = AuthenticatorPublicKeySet::new(vec![pk]).expect("single key fits");
-
-        // 3. Compute the leaf hash and build a Merkle proof
         let leaf = key_set.leaf_hash();
         let inclusion_proof = build_merkle_proof(leaf);
 
-        // 4. Compute the message and sign it
         let nonce = FieldElement::from(1234567890u64);
         let commitment_blinder = FieldElement::from(999u64);
         let commitment = Credential::compute_sub(1, commitment_blinder);
         let signature = sk.sign(*commitment);
 
-        // 5. Construct circuit input and generate proof
         let circuit_input = OwnershipProofCircuitInput {
             key_index: 0,
             key_set,
@@ -247,41 +245,21 @@ mod tests {
 
         let proof = generate_ownership_proof(circuit_input).unwrap();
 
-        assert!(!proof.public_inputs.is_empty());
+        // Public input: merkle root is directly accessible
+        assert_eq!(proof.merkle_root, inclusion_proof.root);
+        assert!(!proof.zkp.is_empty());
 
-        assert_eq!(proof.public_inputs.0[0], *inclusion_proof.root);
-        assert_eq!(proof.public_inputs.0[1], Fr::from(30));
-        assert_eq!(proof.public_inputs.0[2], *nonce);
-        assert_eq!(proof.public_inputs.0[3], *commitment);
+        // Verification succeeds with correct public inputs. Depth is currently hardcoded in the
+        // verification call.
+        verify_ownership_proof(&proof, nonce, commitment).expect("ownership proof verifies");
 
-        let whir_proof = proof.whir_r1cs_proof.clone();
-
-        // 6. Now we verify the proof
-        verify_ownership_proof(
-            proof.whir_r1cs_proof,
-            inclusion_proof.root,
-            nonce,
-            commitment,
-        )
-        .expect("ownership proof verifies");
-
-        // 7. Check failures with incorrect public inputs
-        let err = verify_ownership_proof(
-            whir_proof.clone(),
-            inclusion_proof.root,
-            nonce,
-            FieldElement::from(1u64), // wrong commitment
-        )
-        .unwrap_err();
+        // Wrong commitment → verification fails
+        let err = verify_ownership_proof(&proof, nonce, FieldElement::from(1u64)).unwrap_err();
         assert!(matches!(err, ProofError::Verification(_)));
 
-        let err = verify_ownership_proof(
-            whir_proof.clone(),
-            inclusion_proof.root,
-            FieldElement::from(1234567891u64), // wrong nonce
-            commitment,
-        )
-        .unwrap_err();
+        // Wrong nonce → verification fails
+        let err = verify_ownership_proof(&proof, FieldElement::from(1234567891u64), commitment)
+            .unwrap_err();
         assert!(matches!(err, ProofError::Verification(_)));
     }
 }
