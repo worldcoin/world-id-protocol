@@ -157,7 +157,17 @@ impl SignerArgs {
     }
 
     async fn aws_kms_wallet(key_id: &str, rpc_url: &Url) -> ProviderResult<EthereumWallet> {
-        let temp_provider = ProviderBuilder::new().connect_http(rpc_url.clone());
+        // Build the temporary provider using the workspace `reqwest` client (via
+        // `alloy::transports::http::reqwest`) so that TLS is provided by
+        // `rustls-tls-webpki-roots` — the same path taken by
+        // `http_with_nonce_manager`.  This replaces the previous
+        // `ProviderBuilder::new().connect_http(…)` call, which relied on
+        // `alloy-transport-http`'s own TLS feature flag and therefore caused
+        // an inconsistency between the two provider-creation paths.
+        let http_client = reqwest::Client::new();
+        let transport = Http::with_client(http_client, rpc_url.clone());
+        let rpc_client = RpcClient::builder().transport(transport, false);
+        let temp_provider = ProviderBuilder::new().connect_client(rpc_client);
         let chain_id = temp_provider
             .get_chain_id()
             .await
