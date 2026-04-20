@@ -16,6 +16,9 @@ use std::{
     str::FromStr,
 };
 
+#[cfg(target_arch = "wasm32")]
+use getrandom as _;
+
 /// Contains types related to the Authenticator.
 pub mod authenticator;
 

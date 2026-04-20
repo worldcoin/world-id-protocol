@@ -204,14 +204,14 @@ mod verifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::ProofError;
+    use crate::{ProofError, circuit_inputs::OwnershipProofCircuitInput};
 
     use super::*;
 
     use eddsa_babyjubjub::EdDSAPrivateKey;
     use world_id_primitives::{
-        Credential, FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
-        circuit_inputs::OwnershipProofCircuitInput, merkle::MerkleInclusionProof,
+        AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH,
+        merkle::MerkleInclusionProof,
     };
 
     fn build_merkle_proof(leaf: ark_bn254::Fr) -> MerkleInclusionProof<TREE_DEPTH> {
@@ -220,6 +220,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
     fn test_generate_and_verify_ownership_proof() {
         // Setup: keypair, key set, Merkle proof, signature
         let sk = EdDSAPrivateKey::from_bytes([42u8; 32]);

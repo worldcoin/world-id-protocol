@@ -226,6 +226,7 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
     Ok(())
 }
 
+#[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
 fn compile_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
     use provekit_common::{NoirProofScheme, Prover};
     use provekit_r1cs_compiler::NoirProofSchemeBuilder as _;
