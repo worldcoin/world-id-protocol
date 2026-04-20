@@ -212,7 +212,6 @@ mod tests {
     use world_id_primitives::{
         Credential, FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
         circuit_inputs::OwnershipProofCircuitInput, merkle::MerkleInclusionProof,
-        proof::OwnershipProof,
     };
 
     fn build_merkle_proof(leaf: ark_bn254::Fr) -> MerkleInclusionProof<TREE_DEPTH> {
