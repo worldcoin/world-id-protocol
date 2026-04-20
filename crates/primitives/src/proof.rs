@@ -1,6 +1,8 @@
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
+use crate::FieldElement;
+
 /// Encoded World ID Proof.
 ///
 /// Internally, the first 4 elements are a compressed Groth16 proof
@@ -96,6 +98,23 @@ impl From<ZeroKnowledgeProof> for [U256; 5] {
     }
 }
 
+/// A WIP-103 Ownership Proof.
+///
+/// Carries the serialized ZK proof bytes and the Merkle root used in the
+/// circuit. Implements [`fmt::Display`]/[`std::str::FromStr`] as
+/// CBOR → base64url for compact header transmission.
+///
+/// `zkp` is serialized as base64url in JSON via [`base64_bytes`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnershipProof {
+    /// Serialized ZK proof (opaque bytes from ProveKit). Serialization uses base64 vs hex normally used due
+    /// to the size savings.
+    #[serde(with = "crate::serde_utils::base64_bytes")]
+    pub zkp: Vec<u8>,
+    /// Merkle tree root used for inclusion within the circuit.
+    pub merkle_root: FieldElement,
+}
+
 #[cfg(test)]
 mod tests {
     use ruint::uint;
@@ -164,5 +183,31 @@ mod tests {
         let result = ZeroKnowledgeProof::from_compressed_bytes(&too_long);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid length"));
+    }
+
+    #[test]
+    fn test_ownership_proof_json_roundtrip() {
+        let proof = OwnershipProof {
+            zkp: vec![1, 2, 3],
+            merkle_root: crate::FieldElement::from(999u64),
+        };
+        let json = serde_json::to_string(&proof).unwrap();
+        // JSON is a struct with base64url zkp + hex merkle_root
+        assert!(json.contains("zkp"));
+        assert!(json.contains("merkle_root"));
+        let decoded: OwnershipProof = serde_json::from_str(&json).unwrap();
+        assert_eq!(proof, decoded);
+    }
+
+    #[test]
+    fn test_ownership_proof_cbor_roundtrip() {
+        let proof = OwnershipProof {
+            zkp: vec![10, 20, 30],
+            merkle_root: crate::FieldElement::from(123u64),
+        };
+        let mut buf = Vec::new();
+        ciborium::into_writer(&proof, &mut buf).unwrap();
+        let decoded: OwnershipProof = ciborium::from_reader(&buf[..]).unwrap();
+        assert_eq!(proof, decoded);
     }
 }

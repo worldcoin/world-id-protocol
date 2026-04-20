@@ -54,7 +54,7 @@ pub use session::{SessionFeType, SessionFieldElement, SessionId, SessionNullifie
 
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;
-pub use proof::ZeroKnowledgeProof;
+pub use proof::{OwnershipProof, ZeroKnowledgeProof};
 
 /// Contains types specifically related to relying parties.
 pub mod rp;

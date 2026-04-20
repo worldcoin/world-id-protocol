@@ -1,10 +1,10 @@
 use secrecy::ExposeSecret;
 use world_id_primitives::{
-    Credential, FieldElement, ProofRequest, ProofResponse, RequestItem, ResponseItem, SessionId,
-    SessionNullifier, ZeroKnowledgeProof,
+    Credential, FieldElement, OwnershipProof, ProofRequest, ProofResponse, RequestItem,
+    ResponseItem, SessionId, SessionNullifier, ZeroKnowledgeProof,
 };
 use world_id_proof::{
-    AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofCompression, WhirR1CSProof,
+    AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofCompression,
     proof::generate_nullifier_proof,
 };
 
@@ -433,15 +433,14 @@ impl Authenticator {
     /// - `account_inclusion_proof`: An optionally cached account inclusion proof. If not provided, a new inclusion proof will be fetched.
     ///
     /// # Returns
-    /// - The Noir ZKP.
-    /// - The root of the Merkle tree used for inclusion in the `WorldIDRegistry`.
+    /// The [`OwnershipProof`] containing the ZKP and Merkle root.
     pub async fn prove_credential_sub(
         &self,
         nonce: FieldElement,
         credential_blinding_factor: FieldElement,
         sub: FieldElement,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
-    ) -> Result<(WhirR1CSProof, FieldElement), AuthenticatorError> {
+    ) -> Result<OwnershipProof, AuthenticatorError> {
         use world_id_primitives::circuit_inputs::OwnershipProofCircuitInput;
         use world_id_proof::ownership_proof::generate_ownership_proof;
 
@@ -470,10 +469,7 @@ impl Authenticator {
             commitment_blinder: credential_blinding_factor,
         };
 
-        let proof = generate_ownership_proof(input)?;
-
-        // TODO: Create a unified typed response (requires updates to ProveKit)
-        Ok((proof.whir_r1cs_proof, proof.public_inputs.0[0].into()))
+        Ok(generate_ownership_proof(input)?)
     }
 }
 
