@@ -268,37 +268,6 @@ pub mod hex_signature {
     }
 }
 
-/// Serialize a byte vec as base64url (human-readable) or raw bytes (binary).
-pub mod base64_bytes {
-    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
-
-    /// Serialize bytes as base64url for JSON, raw bytes for CBOR.
-    pub fn serialize<S>(v: &[u8], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        if serializer.is_human_readable() {
-            serializer.serialize_str(&URL_SAFE_NO_PAD.encode(v))
-        } else {
-            serializer.serialize_bytes(v)
-        }
-    }
-
-    /// Deserialize bytes from base64url (JSON) or raw bytes (CBOR).
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        if deserializer.is_human_readable() {
-            let s = String::deserialize(deserializer)?;
-            URL_SAFE_NO_PAD.decode(s).map_err(D::Error::custom)
-        } else {
-            Vec::<u8>::deserialize(deserializer)
-        }
-    }
-}
-
 /// Serializes an optional byte array as a `0x`-prefixed hex string if using a human-readable serializer
 pub mod hex_bytes_opt {
     use serde::{Deserialize, Deserializer, Serializer, de::Error as _};

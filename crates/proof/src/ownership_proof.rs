@@ -55,11 +55,10 @@ mod prover {
             .prove(witness)
             .map_err(|e| ProofError::GenerationError(e.to_string()))?;
 
-        let mut zkp = Vec::new();
-        ciborium::into_writer(&noir_proof.whir_r1cs_proof, &mut zkp)
-            .map_err(|e| ProofError::InternalError(eyre::eyre!("CBOR encode proof: {e}")))?;
-
-        Ok(OwnershipProof { zkp, merkle_root })
+        Ok(OwnershipProof {
+            proof: noir_proof.whir_r1cs_proof,
+            merkle_root,
+        })
     }
 
     impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
@@ -182,9 +181,6 @@ mod verifier {
     ) -> Result<(), ProofError> {
         let mut verifier = load_ownership_verifier()?;
 
-        let whir_r1cs_proof = ciborium::from_reader(proof.zkp.as_slice())
-            .map_err(|e| ProofError::InternalError(eyre::eyre!("CBOR decode proof: {e}")))?;
-
         let public_inputs = PublicInputs::from_vec(vec![
             *proof.merkle_root,
             Fq::from(TREE_DEPTH as u64),
@@ -194,7 +190,7 @@ mod verifier {
 
         let noir_proof = NoirProof {
             public_inputs,
-            whir_r1cs_proof,
+            whir_r1cs_proof: proof.proof.clone(),
         };
         verifier
             .verify(&noir_proof)
@@ -247,7 +243,7 @@ mod tests {
 
         // Public input: merkle root is directly accessible
         assert_eq!(proof.merkle_root, inclusion_proof.root);
-        assert!(!proof.zkp.is_empty());
+        assert!(!proof.proof.narg_string.is_empty());
 
         // Verification succeeds with correct public inputs. Depth is currently hardcoded in the
         // verification call.

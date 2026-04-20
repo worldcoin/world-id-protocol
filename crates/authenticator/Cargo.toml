@@ -85,3 +85,8 @@ rand = { workspace = true }
 mockito = { workspace = true }
 testcontainers = { workspace = true }
 world-id-test-utils = { workspace = true }
+
+
+[package.metadata.docs.rs]
+no-default-features = true
+features = ["embed-zkeys"]

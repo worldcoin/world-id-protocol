@@ -100,14 +100,12 @@ impl From<ZeroKnowledgeProof> for [U256; 5] {
 
 /// A WIP-103 Ownership Proof.
 ///
-/// This item contains the full ZKP and the required public inputs which the verifier
+/// Contains the ZKP and the Merkle root public input that the verifier
 /// doesn't initially provide.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OwnershipProof {
-    /// Serialized ZK proof (opaque bytes from ProveKit). Serialization uses base64 vs hex normally used due
-    /// to the size savings.
-    #[serde(with = "crate::serde_utils::base64_bytes")]
-    pub zkp: Vec<u8>,
+    /// The WHIR R1CS proof from ProveKit.
+    pub proof: provekit_common::WhirR1CSProof,
     /// Merkle tree root used for inclusion within the circuit.
     pub merkle_root: FieldElement,
 }
@@ -184,27 +182,20 @@ mod tests {
 
     #[test]
     fn test_ownership_proof_json_roundtrip() {
+        let whir_proof = provekit_common::WhirR1CSProof {
+            narg_string: vec![1, 2, 3],
+            hints: vec![4, 5],
+            #[cfg(debug_assertions)]
+            pattern: vec![],
+        };
         let proof = OwnershipProof {
-            zkp: vec![1, 2, 3],
+            proof: whir_proof,
             merkle_root: crate::FieldElement::from(999u64),
         };
         let json = serde_json::to_string(&proof).unwrap();
-        // JSON is a struct with base64url zkp + hex merkle_root
-        assert!(json.contains("zkp"));
+        assert!(json.contains("proof"));
         assert!(json.contains("merkle_root"));
         let decoded: OwnershipProof = serde_json::from_str(&json).unwrap();
-        assert_eq!(proof, decoded);
-    }
-
-    #[test]
-    fn test_ownership_proof_cbor_roundtrip() {
-        let proof = OwnershipProof {
-            zkp: vec![10, 20, 30],
-            merkle_root: crate::FieldElement::from(123u64),
-        };
-        let mut buf = Vec::new();
-        ciborium::into_writer(&proof, &mut buf).unwrap();
-        let decoded: OwnershipProof = ciborium::from_reader(&buf[..]).unwrap();
         assert_eq!(proof, decoded);
     }
 }

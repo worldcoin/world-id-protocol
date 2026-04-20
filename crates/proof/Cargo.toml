@@ -30,8 +30,8 @@ zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
 # Experimental: Feature Flags for Specific Circuits
 # RATIONALE: We feature flag each circuit and based on the proving/verifying action because each require
 # a proving and verifying key that generally is above >1Mb. So selecting circuits optimizes bundle size.
-zk-ownership-prove = ["dep:provekit-prover", "dep:ciborium"]
-zk-ownership-verify = ["dep:provekit-verifier", "dep:ciborium"]
+zk-ownership-prove = ["dep:provekit-prover"]
+zk-ownership-verify = ["dep:provekit-verifier"]
 
 [dependencies]
 ark-babyjubjub = { workspace = true }
@@ -46,7 +46,6 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 zstd = { workspace = true, optional = true }
 eddsa-babyjubjub = { workspace = true }
-ciborium = { workspace = true, optional = true }
 provekit-common = { workspace = true }
 provekit-prover = { workspace = true, optional = true }
 provekit-verifier = { workspace = true, optional = true }

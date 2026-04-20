@@ -16,7 +16,6 @@ openapi = ["dep:utoipa"]
 
 [dependencies]
 alloy = { workspace = true, features = ["sol-types", "signer-local"] }
-base64 = { workspace = true }
 alloy-primitives = { workspace = true, default-features = false, features = [
     "serde",
     "std",
@@ -37,6 +36,7 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 poseidon2 = { workspace = true }
+provekit-common = { workspace = true }
 sha3 = { workspace = true, default-features = false }
 rand = { workspace = true }
 secrecy = { workspace = true }
