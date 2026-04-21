@@ -26,29 +26,6 @@ use crate::{
     request_tracker::BacklogScope,
 };
 
-/// Default gas estimates for gateway-submitted operations.
-///
-/// Methodology:
-/// - Run `just gas` to obtain the Foundry gas report for
-///   `src/core/WorldIDRegistry.sol:WorldIDRegistry Contract`.
-/// - For each gateway operation, take the report's `Max` gas value for the
-///   matching registry entrypoint.
-/// - Apply a 20% safety bump (`max * 1.2`).
-/// - Round up to a simple decimal bucket for readability and headroom.
-///
-/// These defaults represent the per-operation gas component only. Additional
-/// batching overhead for Multicall3 is added separately in `ops.rs`.
-pub(super) mod defaults {
-    pub const DEFAULT_CREATE_ACCOUNT_GAS: u64 = 680_000;
-    pub const DEFAULT_INSERT_AUTHENTICATOR_GAS: u64 = 620_000;
-    pub const DEFAULT_UPDATE_AUTHENTICATOR_GAS: u64 = 620_000;
-    pub const DEFAULT_REMOVE_AUTHENTICATOR_GAS: u64 = 600_000;
-    pub const DEFAULT_RECOVER_ACCOUNT_GAS: u64 = 650_000;
-    pub const DEFAULT_INITIATE_RECOVERY_AGENT_UPDATE_GAS: u64 = 120_000;
-    pub const DEFAULT_CANCEL_RECOVERY_AGENT_UPDATE_GAS: u64 = 50_000;
-    pub const DEFAULT_EXECUTE_RECOVERY_AGENT_UPDATE_GAS: u64 = 30_000;
-}
-
 /// Unified batcher handle that routes to the appropriate batcher.
 #[derive(Clone)]
 pub struct BatcherHandle {
@@ -60,18 +37,17 @@ impl BatcherHandle {
     /// Submit a command to the appropriate batcher.
     pub async fn submit(&self, cmd: Command) -> bool {
         match cmd {
-            Command::CreateAccount { id, req, .. } => {
+            Command::CreateAccount { id, req } => {
                 let envelope = CreateReqEnvelope {
                     id: id.to_string(),
                     req,
                 };
                 self.create.tx.send(envelope).await.is_ok()
             }
-            Command::Operation { id, calldata, gas } => {
+            Command::Operation { id, calldata } => {
                 let envelope = OpsEnvelope {
                     id: id.to_string(),
                     calldata,
-                    gas,
                 };
                 self.ops.tx.send(envelope).await.is_ok()
             }
@@ -81,28 +57,19 @@ impl BatcherHandle {
 
 /// Unified command type for all batcher operations.
 pub enum Command {
-    CreateAccount {
-        id: Uuid,
-        req: CreateAccountRequest,
-        #[allow(dead_code)]
-        gas: u64,
-    },
-    Operation {
-        id: Uuid,
-        calldata: Bytes,
-        gas: u64,
-    },
+    CreateAccount { id: Uuid, req: CreateAccountRequest },
+    Operation { id: Uuid, calldata: Bytes },
 }
 
 impl Command {
     /// Create a new account creation command.
-    pub fn create_account(id: Uuid, req: CreateAccountRequest, gas: u64) -> Self {
-        Self::CreateAccount { id, req, gas }
+    pub fn create_account(id: Uuid, req: CreateAccountRequest) -> Self {
+        Self::CreateAccount { id, req }
     }
 
     /// Create a new operation command (insert/update/remove/recover).
-    pub fn operation(id: Uuid, calldata: Bytes, gas: u64) -> Self {
-        Self::Operation { id, calldata, gas }
+    pub fn operation(id: Uuid, calldata: Bytes) -> Self {
+        Self::Operation { id, calldata }
     }
 }
 

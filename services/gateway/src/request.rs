@@ -1,15 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    batcher::{
-        BatcherHandle, Command,
-        defaults::{
-            DEFAULT_CANCEL_RECOVERY_AGENT_UPDATE_GAS, DEFAULT_CREATE_ACCOUNT_GAS,
-            DEFAULT_EXECUTE_RECOVERY_AGENT_UPDATE_GAS, DEFAULT_INITIATE_RECOVERY_AGENT_UPDATE_GAS,
-            DEFAULT_INSERT_AUTHENTICATOR_GAS, DEFAULT_RECOVER_ACCOUNT_GAS,
-            DEFAULT_REMOVE_AUTHENTICATOR_GAS, DEFAULT_UPDATE_AUTHENTICATOR_GAS,
-        },
-    },
+    batcher::{BatcherHandle, Command},
     error::GatewayErrorResponse,
     request_tracker::RequestTracker,
     routes::validation::RequestValidation,
@@ -154,7 +146,7 @@ impl IntoRequest for CreateAccountRequest {
 
 impl IntoCommand for CreateAccountRequest {
     fn into_command(id: Uuid, payload: Self, _calldata: Bytes) -> Command {
-        Command::create_account(id, payload, DEFAULT_CREATE_ACCOUNT_GAS)
+        Command::create_account(id, payload)
     }
 }
 
@@ -184,7 +176,7 @@ impl IntoRequest for InsertAuthenticatorRequest {
 
 impl IntoCommand for InsertAuthenticatorRequest {
     fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::operation(id, calldata, DEFAULT_INSERT_AUTHENTICATOR_GAS)
+        Command::operation(id, calldata)
     }
 }
 
@@ -215,7 +207,7 @@ impl IntoRequest for UpdateAuthenticatorRequest {
 
 impl IntoCommand for UpdateAuthenticatorRequest {
     fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::operation(id, calldata, DEFAULT_UPDATE_AUTHENTICATOR_GAS)
+        Command::operation(id, calldata)
     }
 }
 
@@ -246,7 +238,7 @@ impl IntoRequest for RemoveAuthenticatorRequest {
 
 impl IntoCommand for RemoveAuthenticatorRequest {
     fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::operation(id, calldata, DEFAULT_REMOVE_AUTHENTICATOR_GAS)
+        Command::operation(id, calldata)
     }
 }
 
@@ -277,7 +269,7 @@ impl IntoRequest for UpdateRecoveryAgentRequest {
 
 impl IntoCommand for UpdateRecoveryAgentRequest {
     fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::operation(id, calldata, DEFAULT_INITIATE_RECOVERY_AGENT_UPDATE_GAS)
+        Command::operation(id, calldata)
     }
 }
 
@@ -308,7 +300,7 @@ impl IntoRequest for CancelRecoveryAgentUpdateRequest {
 
 impl IntoCommand for CancelRecoveryAgentUpdateRequest {
     fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::operation(id, calldata, DEFAULT_CANCEL_RECOVERY_AGENT_UPDATE_GAS)
+        Command::operation(id, calldata)
     }
 }
 
@@ -339,7 +331,7 @@ impl IntoRequest for ExecuteRecoveryAgentUpdateRequest {
 
 impl IntoCommand for ExecuteRecoveryAgentUpdateRequest {
     fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::operation(id, calldata, DEFAULT_EXECUTE_RECOVERY_AGENT_UPDATE_GAS)
+        Command::operation(id, calldata)
     }
 }
 
@@ -370,7 +362,7 @@ impl IntoRequest for RecoverAccountRequest {
 
 impl IntoCommand for RecoverAccountRequest {
     fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::operation(id, calldata, DEFAULT_RECOVER_ACCOUNT_GAS)
+        Command::operation(id, calldata)
     }
 }
 
