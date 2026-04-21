@@ -57,14 +57,8 @@ impl BatcherHandle {
 
 /// Unified command type for all batcher operations.
 pub enum Command {
-    CreateAccount {
-        id: Uuid,
-        req: CreateAccountRequest,
-    },
-    Operation {
-        id: Uuid,
-        calldata: Bytes,
-    },
+    CreateAccount { id: Uuid, req: CreateAccountRequest },
+    Operation { id: Uuid, calldata: Bytes },
 }
 
 impl Command {
