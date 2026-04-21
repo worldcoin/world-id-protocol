@@ -1,6 +1,8 @@
 //! Operations batcher for insert/remove/recover/update operations.
 //!
 //! This batcher collects operations and submits them via Multicall3.
+//! Gas estimation is handled automatically by the `GasEstimateWithFallbackFiller`
+//! in the shared provider stack.
 
 use std::sync::Arc;
 
@@ -17,13 +19,6 @@ use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingB
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
-/// Base gas overhead for the Multicall3 `aggregate3` call itself.
-const OPS_BATCH_FIXED_GAS: u64 = 50_000;
-
-/// Per-call overhead added by Multicall3 routing (calldata decoding, result
-/// encoding, CALL dispatch).
-const MULTICALL3_PER_CALL_OVERHEAD: u64 = 25_000;
-
 alloy::sol! {
     #[allow(missing_docs)]
     #[sol(rpc)]
@@ -39,13 +34,12 @@ pub struct OpsBatcherHandle {
     pub tx: mpsc::Sender<OpsEnvelope>,
 }
 
-/// Envelope for ops batcher containing pre-computed calldata and the
-/// per-operation gas estimate set by the route handler.
+/// Envelope for ops batcher containing pre-computed calldata for a single
+/// registry operation.
 #[derive(Debug)]
 pub struct OpsEnvelope {
     pub id: String,
     pub calldata: Bytes,
-    pub gas: u64,
 }
 
 impl BatcherEnvelope for OpsEnvelope {
@@ -73,23 +67,19 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
     ) -> Result<PendingBatchTx, alloy::contract::Error> {
         let mc = Multicall3::new(MULTICALL3_ADDR, registry.provider().clone());
 
-        let mut per_op_gas_sum: u64 = 0;
         let calls: Vec<Multicall3::Call3> = batch
             .into_iter()
-            .map(|envelope| {
-                per_op_gas_sum =
-                    per_op_gas_sum.saturating_add(envelope.gas + MULTICALL3_PER_CALL_OVERHEAD);
-                Multicall3::Call3 {
-                    target: *registry.address(),
-                    allowFailure: false,
-                    callData: envelope.calldata,
-                }
+            .map(|envelope| Multicall3::Call3 {
+                target: *registry.address(),
+                allowFailure: false,
+                callData: envelope.calldata,
             })
             .collect();
 
-        let gas_limit = OPS_BATCH_FIXED_GAS.saturating_add(per_op_gas_sum);
-
-        let builder = mc.aggregate3(calls).gas(gas_limit).send().await?;
+        // No explicit gas limit — the GasEstimateWithFallbackFiller in the
+        // shared provider stack will call eth_estimateGas on the assembled
+        // Multicall3 batch and apply a 20 % margin automatically.
+        let builder = mc.aggregate3(calls).send().await?;
 
         Ok(PendingBatchTx::new(builder))
     }
