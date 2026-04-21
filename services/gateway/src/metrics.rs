@@ -10,9 +10,16 @@ pub const METRICS_ROOT_CACHE_MISSES: &str = "root_cache.misses";
 // Batcher metrics
 pub const METRICS_BATCH_SUBMITTED: &str = "batch.submitted";
 pub const METRICS_BATCH_SIZE: &str = "batch.size";
+/// Latency from batch creation to on-chain confirmation (success or revert).
 pub const METRICS_BATCH_LATENCY_MS: &str = "batch.latency_ms";
+/// Latency of the RPC `eth_sendRawTransaction` call only.
+pub const METRICS_BATCH_SEND_LATENCY_MS: &str = "batch.send_latency_ms";
+/// Incremented when a batch transaction is confirmed on-chain without reverting.
 pub const METRICS_BATCH_SUCCESS: &str = "batch.success";
+/// Incremented when a batch transaction reverts on-chain OR fails to confirm.
 pub const METRICS_BATCH_FAILURE: &str = "batch.failure";
+/// Incremented when a batch transaction fails to submit to the RPC node.
+pub const METRICS_BATCH_SEND_FAILED: &str = "batch.send_failed";
 pub const METRICS_BATCH_POLICY_COST_SCORE: &str = "batch.policy.cost_score";
 pub const METRICS_BATCH_POLICY_URGENCY_SCORE: &str = "batch.policy.urgency_score";
 pub const METRICS_BATCH_POLICY_DEFER: &str = "batch.policy.defer";
@@ -43,7 +50,7 @@ pub fn describe_metrics() {
     ::metrics::describe_counter!(
         METRICS_BATCH_SUBMITTED,
         ::metrics::Unit::Count,
-        "Number of submitted batches."
+        "Number of batches successfully submitted to the RPC node."
     );
     ::metrics::describe_histogram!(
         METRICS_BATCH_SIZE,
@@ -53,17 +60,27 @@ pub fn describe_metrics() {
     ::metrics::describe_histogram!(
         METRICS_BATCH_LATENCY_MS,
         ::metrics::Unit::Milliseconds,
-        "Batch submission latency in milliseconds."
+        "End-to-end batch latency from submission to on-chain confirmation in milliseconds."
+    );
+    ::metrics::describe_histogram!(
+        METRICS_BATCH_SEND_LATENCY_MS,
+        ::metrics::Unit::Milliseconds,
+        "Latency of the RPC eth_sendRawTransaction call in milliseconds."
     );
     ::metrics::describe_counter!(
         METRICS_BATCH_SUCCESS,
         ::metrics::Unit::Count,
-        "Number of successfully submitted batches."
+        "Number of batches confirmed on-chain successfully (transaction did not revert)."
     );
     ::metrics::describe_counter!(
         METRICS_BATCH_FAILURE,
         ::metrics::Unit::Count,
-        "Number of failed batch submissions."
+        "Number of batches that failed on-chain (transaction reverted or confirmation error)."
+    );
+    ::metrics::describe_counter!(
+        METRICS_BATCH_SEND_FAILED,
+        ::metrics::Unit::Count,
+        "Number of batches that failed to submit to the RPC node."
     );
 
     ::metrics::describe_histogram!(
@@ -130,7 +147,30 @@ pub fn record_batch_submitted(batch_type: &'static str, batch_size: usize) {
     ::metrics::histogram!(METRICS_BATCH_SIZE, "type" => batch_type).record(batch_size as f64);
 }
 
-pub fn record_batch_result(batch_type: &'static str, success: bool, latency_ms: f64) {
+/// Records the latency and outcome of the RPC `eth_sendRawTransaction` call.
+///
+/// This reflects whether the transaction was accepted by the node, **not**
+/// whether it was confirmed on-chain. Use [`record_batch_confirmed`] for
+/// on-chain outcomes.
+pub fn record_batch_send_failed(batch_type: &'static str, send_latency_ms: f64) {
+    ::metrics::histogram!(METRICS_BATCH_SEND_LATENCY_MS, "type" => batch_type)
+        .record(send_latency_ms);
+    ::metrics::counter!(METRICS_BATCH_SEND_FAILED, "type" => batch_type).increment(1);
+}
+
+/// Records the RPC send latency after a successful submission to the node.
+pub fn record_batch_send_latency(batch_type: &'static str, send_latency_ms: f64) {
+    ::metrics::histogram!(METRICS_BATCH_SEND_LATENCY_MS, "type" => batch_type)
+        .record(send_latency_ms);
+}
+
+/// Records the on-chain confirmation outcome of a previously submitted batch.
+///
+/// `success` is `true` when the transaction was mined without reverting,
+/// `false` when it reverted or could not be confirmed.
+/// `latency_ms` is measured from when the batch was first submitted to the
+/// RPC node until the receipt was obtained.
+pub fn record_batch_confirmed(batch_type: &'static str, success: bool, latency_ms: f64) {
     ::metrics::histogram!(METRICS_BATCH_LATENCY_MS, "type" => batch_type).record(latency_ms);
 
     if success {

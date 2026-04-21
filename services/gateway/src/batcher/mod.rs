@@ -218,8 +218,19 @@ where
         let start = Instant::now();
         match self.strategy.send_batch(&self.registry, batch).await {
             Ok(sent) => {
-                let latency_ms = start.elapsed().as_millis() as f64;
-                metrics::record_batch_result(batch_type, true, latency_ms);
+                // Record only the RPC send latency here.  The on-chain outcome
+                // (success / failure / confirmation latency) is recorded later
+                // in `spawn_receipt_tracker` once the receipt is obtained.
+                let send_latency_ms = start.elapsed().as_millis() as f64;
+                metrics::record_batch_send_latency(batch_type, send_latency_ms);
+
+                tracing::info!(
+                    tx_hash = %sent.formatted_tx_hash,
+                    batch_type,
+                    batch_size = ids.len(),
+                    send_latency_ms,
+                    "batch transaction submitted to RPC node"
+                );
 
                 self.tracker
                     .set_status_batch(
@@ -230,15 +241,25 @@ where
                     )
                     .await;
 
-                self.tracker
-                    .spawn_receipt_tracker(ids, sent.builder, sent.formatted_tx_hash);
+                self.tracker.spawn_receipt_tracker(
+                    ids,
+                    sent.builder,
+                    sent.formatted_tx_hash,
+                    batch_type,
+                    start,
+                );
             }
             Err(err) => {
-                let latency_ms = start.elapsed().as_millis() as f64;
-                metrics::record_batch_result(batch_type, false, latency_ms);
+                let send_latency_ms = start.elapsed().as_millis() as f64;
+                metrics::record_batch_send_failed(batch_type, send_latency_ms);
 
                 let error_str = err.to_string();
-                tracing::error!(error = %error_str, "{batch_type} batch send failed");
+                tracing::error!(
+                    error = %error_str,
+                    batch_type,
+                    send_latency_ms,
+                    "{batch_type} batch failed to submit to RPC node"
+                );
                 let code = parse_contract_error(&error_str);
                 self.tracker
                     .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))

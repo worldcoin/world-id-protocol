@@ -3,6 +3,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use alloy::{network::Ethereum, providers::PendingTransactionBuilder};
 use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
+use tokio::time::Instant;
 use utoipa::ToSchema;
 use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
 
@@ -238,11 +239,19 @@ impl RequestTracker {
 
     /// Spawns a background task that awaits a pending transaction receipt and
     /// finalizes the associated requests based on the outcome.
+    ///
+    /// `batch_type` and `submitted_at` are used to record on-chain confirmation
+    /// metrics (`batch.success`, `batch.failure`, `batch.latency_ms`) once the
+    /// receipt is obtained.  Success and failure metrics are intentionally
+    /// deferred to this point so they reflect the actual on-chain outcome
+    /// rather than the RPC submission result.
     pub fn spawn_receipt_tracker(
         &self,
         ids: Vec<String>,
         builder: PendingTransactionBuilder<Ethereum>,
         tx_hash: String,
+        batch_type: &'static str,
+        submitted_at: Instant,
     ) {
         let tracker = self.clone();
         let timeout = Duration::from_secs(self.receipt_timeout_secs);
@@ -250,11 +259,40 @@ impl RequestTracker {
             let result = tokio::time::timeout(timeout, builder.get_receipt()).await;
             match result {
                 Ok(Ok(receipt)) => {
+                    let confirmed = receipt.status();
+                    let latency_ms = submitted_at.elapsed().as_millis() as f64;
+                    metrics::record_batch_confirmed(batch_type, confirmed, latency_ms);
+
+                    if confirmed {
+                        tracing::info!(
+                            tx_hash = %tx_hash,
+                            batch_type,
+                            latency_ms,
+                            "batch transaction confirmed on-chain"
+                        );
+                    } else {
+                        tracing::error!(
+                            tx_hash = %tx_hash,
+                            batch_type,
+                            "batch transaction reverted on-chain"
+                        );
+                    }
+
                     tracker
-                        .finalize_from_receipt(&ids, receipt.status(), &tx_hash)
+                        .finalize_from_receipt(&ids, confirmed, &tx_hash)
                         .await;
                 }
                 Ok(Err(err)) => {
+                    let latency_ms = submitted_at.elapsed().as_millis() as f64;
+                    metrics::record_batch_confirmed(batch_type, false, latency_ms);
+
+                    tracing::error!(
+                        tx_hash = %tx_hash,
+                        batch_type,
+                        error = %err,
+                        "batch transaction confirmation error"
+                    );
+
                     tracker
                         .set_status_batch(
                             &ids,
@@ -268,6 +306,7 @@ impl RequestTracker {
                 Err(_) => {
                     tracing::warn!(
                         tx_hash = %tx_hash,
+                        batch_type,
                         "receipt polling timed out, orphan sweeper will handle cleanup",
                     );
                 }
