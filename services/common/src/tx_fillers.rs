@@ -9,10 +9,10 @@ use alloy::{
 
 /// Fallback gas limit used when `eth_estimateGas` fails.
 ///
-/// This path is intended for transport/RPC failures and reverted transactions,
-/// where the transaction is expected to fail anyway. The fallback only needs to
-/// cover the cost of a basic revert while still allowing the transaction to be
-/// submitted to avoid nonce gaps.
+/// This path is intended for transactions that will revert — `eth_estimateGas`
+/// returns an error precisely because the transaction would fail on-chain.
+/// The fallback only needs to cover the cost of a basic revert while still
+/// allowing the transaction to be submitted to avoid nonce gaps.
 pub(crate) const GAS_ESTIMATION_FALLBACK: u64 = 500_000;
 
 const GAS_ESTIMATION_MARGIN_NUMERATOR: u64 = 120;
