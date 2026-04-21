@@ -22,7 +22,6 @@ mod prover {
 
     /// Raw bytes of the embedded ProveKit Prover (PKP).
     #[cfg(not(docsrs))]
-
     const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
 
     #[cfg(docsrs)]
@@ -216,7 +215,7 @@ mod tests {
     use eddsa_babyjubjub::EdDSAPrivateKey;
     use world_id_primitives::{
         AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH,
-        merkle::MerkleInclusionProof,
+        merkle::MerkleInclusionProof, proof::OwnershipProof,
     };
 
     fn build_merkle_proof(leaf: ark_bn254::Fr) -> MerkleInclusionProof<TREE_DEPTH> {
@@ -224,8 +223,7 @@ mod tests {
         MerkleInclusionProof::new(root, 1, siblings)
     }
 
-    fn generate_valid_ownership_proof_fixture()
-    -> (super::OwnershipProof, FieldElement, FieldElement) {
+    fn generate_valid_ownership_proof_fixture() -> (OwnershipProof, FieldElement, FieldElement) {
         let sk = EdDSAPrivateKey::from_bytes([42u8; 32]);
         let pk = sk.public();
         let key_set = AuthenticatorPublicKeySet::new(vec![pk]).expect("single key fits");
