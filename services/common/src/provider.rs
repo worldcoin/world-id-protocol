@@ -383,13 +383,7 @@ impl ProviderArgs {
 
             provider.erased()
         } else {
-            let provider = ProviderBuilder::default()
-                .filler(GasEstimateWithFallbackFiller)
-                .with_gas_estimation()
-                .with_blob_gas_estimation()
-                .with_nonce_management(nonce_manager)
-                .fetch_chain_id()
-                .connect_client(client);
+            let provider = ProviderBuilder::default().connect_client(client);
             provider.erased()
         };
 
