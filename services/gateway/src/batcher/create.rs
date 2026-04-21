@@ -12,9 +12,6 @@ use crate::request_tracker::BacklogScope;
 
 use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx};
 
-/// Fallback gas limit for `createManyAccounts` when `eth_estimateGas` fails.
-const GAS_ESTIMATION_FALLBACK: u64 = 3_000_000;
-
 #[derive(Clone)]
 pub struct CreateBatcherHandle {
     pub tx: mpsc::Sender<CreateReqEnvelope>,
@@ -61,20 +58,10 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
             commits.push(env.req.offchain_signer_commitment);
         }
 
-        let call = registry.createManyAccounts(recovery_addresses, auths, pubkeys, commits);
-        let gas_limit = match call.estimate_gas().await {
-            Ok(estimate) => estimate * 120 / 100,
-            Err(error) => {
-                tracing::warn!(
-                    %error,
-                    gas_limit = GAS_ESTIMATION_FALLBACK,
-                    "gas estimation failed for create batch, using fallback"
-                );
-                GAS_ESTIMATION_FALLBACK
-            }
-        };
-
-        let builder = call.gas(gas_limit).send().await?;
+        let builder = registry
+            .createManyAccounts(recovery_addresses, auths, pubkeys, commits)
+            .send()
+            .await?;
 
         Ok(PendingBatchTx::new(builder))
     }
