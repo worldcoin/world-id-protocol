@@ -22,6 +22,7 @@ mod prover {
 
     /// Raw bytes of the embedded ProveKit Prover (PKP).
     #[cfg(not(docsrs))]
+
     const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
 
     #[cfg(docsrs)]
@@ -223,9 +224,8 @@ mod tests {
         MerkleInclusionProof::new(root, 1, siblings)
     }
 
-    #[test]
-    fn test_generate_and_verify_ownership_proof() {
-        // Setup: keypair, key set, Merkle proof, signature
+    fn generate_valid_ownership_proof_fixture()
+    -> (super::OwnershipProof, FieldElement, FieldElement) {
         let sk = EdDSAPrivateKey::from_bytes([42u8; 32]);
         let pk = sk.public();
         let key_set = AuthenticatorPublicKeySet::new(vec![pk]).expect("single key fits");
@@ -252,6 +252,13 @@ mod tests {
         assert_eq!(proof.merkle_root, inclusion_proof.root);
         assert!(!proof.proof.narg_string.is_empty());
 
+        (proof, nonce, commitment)
+    }
+
+    #[test]
+    fn test_generate_and_verify_ownership_proof() {
+        let (proof, nonce, commitment) = generate_valid_ownership_proof_fixture();
+
         // Verification succeeds with correct public inputs. Depth is currently hardcoded in the
         // verification call.
         verify_ownership_proof(&proof, nonce, commitment).expect("ownership proof verifies");
@@ -263,6 +270,30 @@ mod tests {
         // Wrong nonce → verification fails
         let err = verify_ownership_proof(&proof, FieldElement::from(1234567891u64), commitment)
             .unwrap_err();
+        assert!(matches!(err, ProofError::Verification(_)));
+    }
+
+    #[test]
+    fn test_verify_ownership_proof_fails_with_wrong_merkle_root() {
+        let (proof, nonce, commitment) = generate_valid_ownership_proof_fixture();
+
+        let mut tampered_proof = proof.clone();
+        let mut merkle_root_bytes = tampered_proof.merkle_root.to_be_bytes();
+        merkle_root_bytes[31] ^= 0x01;
+        tampered_proof.merkle_root = FieldElement::from_be_bytes(&merkle_root_bytes).unwrap();
+
+        let err = verify_ownership_proof(&tampered_proof, nonce, commitment).unwrap_err();
+        assert!(matches!(err, ProofError::Verification(_)));
+    }
+
+    #[test]
+    fn test_verify_ownership_proof_fails_with_tampered_proof_bytes() {
+        let (proof, nonce, commitment) = generate_valid_ownership_proof_fixture();
+
+        let mut tampered_proof = proof.clone();
+        tampered_proof.proof.narg_string[0] ^= 0x01;
+
+        let err = verify_ownership_proof(&tampered_proof, nonce, commitment).unwrap_err();
         assert!(matches!(err, ProofError::Verification(_)));
     }
 }
