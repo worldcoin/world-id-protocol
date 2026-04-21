@@ -12,15 +12,8 @@ use crate::request_tracker::BacklogScope;
 
 use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx};
 
-/// Fixed gas overhead for `createManyAccounts` (proxy dispatch, tree root
-/// path recomputation, calldata decoding). Derived from empirical
-/// `eth_estimateGas` measurements at N=1..16 against WorldChain Mainnet.
-const CREATE_BATCH_FIXED_GAS: u64 = 500_000;
-
-/// Marginal gas per account in a `createManyAccounts` batch
-/// (`_registerAccount` + leaf-level Poseidon hash + SSTORE). From the same
-/// empirical measurement, rounded up for ~10% headroom.
-const CREATE_BATCH_PER_ACCOUNT_GAS: u64 = 120_000;
+/// Flat gas ceiling used when `eth_estimateGas` fails for any reason.
+const GAS_ESTIMATION_FALLBACK: u64 = 3_000_000;
 
 #[derive(Clone)]
 pub struct CreateBatcherHandle {
@@ -61,7 +54,6 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
         let mut pubkeys: Vec<Vec<U256>> = Vec::new();
         let mut commits: Vec<U256> = Vec::new();
 
-        let batch_len = batch.len() as u64;
         for env in batch {
             recovery_addresses.push(env.req.recovery_address.unwrap_or(Address::ZERO));
             auths.push(env.req.authenticator_addresses);
@@ -69,13 +61,28 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
             commits.push(env.req.offchain_signer_commitment);
         }
 
-        let gas_limit = CREATE_BATCH_FIXED_GAS + CREATE_BATCH_PER_ACCOUNT_GAS * batch_len;
+        let call = registry.createManyAccounts(recovery_addresses, auths, pubkeys, commits);
+        let gas_limit = match call.estimate_gas().await {
+            Ok(estimate) => {
+                let gas_limit = estimate.saturating_mul(120) / 100;
+                tracing::info!(
+                    estimate,
+                    gas_limit,
+                    "estimated gas for createManyAccounts batch"
+                );
+                gas_limit
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    gas_limit = GAS_ESTIMATION_FALLBACK,
+                    "eth_estimateGas failed for createManyAccounts batch; using fallback gas limit"
+                );
+                GAS_ESTIMATION_FALLBACK
+            }
+        };
 
-        let builder = registry
-            .createManyAccounts(recovery_addresses, auths, pubkeys, commits)
-            .gas(gas_limit)
-            .send()
-            .await?;
+        let builder = call.gas(gas_limit).send().await?;
 
         Ok(PendingBatchTx::new(builder))
     }
