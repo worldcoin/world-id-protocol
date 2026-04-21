@@ -39,10 +39,25 @@ fn load_world_id_config() -> eyre::Result<FullWorldOprfNodeConfig> {
             .try_parsing(true),
     );
 
-    cfg.build()
+    let oprf_config = cfg
+        .build()
         .context("while building from config")?
         .try_deserialize()
-        .context("while parsing config")
+        .context("while parsing config")?;
+
+    // Unset all env vars with our prefix to prevent leakage to subprocesses.
+    // Safety: this is called before any threads are spawned.
+    let keys_to_remove: Vec<String> = std::env::vars()
+        .filter_map(|(k, _)| k.starts_with("TACEO_OPRF_NODE").then_some(k))
+        .collect();
+    for key in keys_to_remove {
+        // SAFETY: no other threads are running at this point in the startup sequence.
+        unsafe {
+            std::env::remove_var(&key);
+        }
+    }
+
+    Ok(oprf_config)
 }
 
 fn default_bind_addr() -> SocketAddr {
@@ -53,12 +68,11 @@ const fn default_max_wait_shutdown() -> Duration {
     Duration::from_secs(10)
 }
 
-async fn run() -> eyre::Result<()> {
+async fn run(config: FullWorldOprfNodeConfig) -> eyre::Result<()> {
     taceo_oprf::service::metrics::describe_metrics();
     world_id_oprf_node::metrics::describe_metrics();
     tracing::info!("{}", taceo_nodes_common::version_info!());
 
-    let config = load_world_id_config()?;
     tracing::info!("starting oprf-node with config: {config:#?}");
 
     // Load the postgres secret manager.
@@ -121,24 +135,43 @@ async fn run() -> eyre::Result<()> {
     }
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
+    // try loading config and unsetting vars before we do any potentially multithreaded work;
+    let maybe_config = load_world_id_config();
+
+    // we panic if we cannot setup tracing + TLS - if that fails we won't see anything anyways on tracing endpoint
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("can install");
-    let tracing_config =
-        taceo_nodes_observability::TracingConfig::try_from_env().expect("Can create TryingConfig");
-    let _tracing_handle = taceo_nodes_observability::initialize_tracing(&tracing_config)
-        .expect("Can get tracing handle");
-    match run().await {
-        Ok(_) => {
-            tracing::info!("good night");
-            ExitCode::SUCCESS
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Can build Tokio runtime");
+    runtime.block_on(async {
+        let tracing_config = taceo_nodes_observability::TracingConfig::try_from_env()
+            .expect("Can create TryingConfig");
+        let _tracing_handle = taceo_nodes_observability::initialize_tracing(&tracing_config)
+            .expect("Can get tracing handle");
+        // load the config
+        let config = match maybe_config {
+            Ok(config) => config,
+            Err(err) => {
+                tracing::error!("failed to load config: {err:?}");
+                return ExitCode::FAILURE;
+            }
+        };
+
+        match run(config).await {
+            Ok(_) => {
+                tracing::info!("good night");
+                ExitCode::SUCCESS
+            }
+            Err(err) => {
+                tracing::error!("oprf-node did shutdown: {err:?}");
+                tracing::error!("good night anyways");
+                ExitCode::FAILURE
+            }
         }
-        Err(err) => {
-            tracing::error!("oprf-node did shutdown: {err:?}");
-            tracing::error!("good night anyways");
-            ExitCode::FAILURE
-        }
-    }
+    })
 }
