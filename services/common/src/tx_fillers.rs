@@ -4,13 +4,12 @@ use alloy::{
         Provider, SendableTx,
         fillers::{FillerControlFlow, TxFiller},
     },
-    transports::TransportResult,
+    transports::{RpcError, TransportResult},
 };
 
-/// Fallback gas limit used when `eth_estimateGas` fails.
+/// Fallback gas limit used when `eth_estimateGas` returns a JSON-RPC error
+/// because the transaction would revert on-chain.
 ///
-/// This path is intended for transactions that will revert — `eth_estimateGas`
-/// returns an error precisely because the transaction would fail on-chain.
 /// The fallback only needs to cover the cost of a basic revert while still
 /// allowing the transaction to be submitted to avoid nonce gaps.
 pub(crate) const GAS_ESTIMATION_FALLBACK: u64 = 500_000;
@@ -20,6 +19,17 @@ const GAS_ESTIMATION_MARGIN_DENOMINATOR: u64 = 100;
 
 /// A transaction filler that populates missing gas limits via
 /// `eth_estimateGas`, with a fallback when estimation fails.
+///
+/// Two error cases are handled differently:
+///
+/// - **Execution revert** (`eth_estimateGas` returned a JSON-RPC `ErrorResp`
+///   because the transaction would fail on-chain): the filler uses
+///   [`GAS_ESTIMATION_FALLBACK`] and logs a warning, allowing the transaction
+///   to be submitted so the revert is recorded and nonce gaps are avoided.
+///
+/// - **Transport / RPC error** (network failure, timeout, malformed response,
+///   etc.): the error is propagated to the caller so it can be retried or
+///   surfaced appropriately.
 ///
 /// This filler only sets `gas_limit`, leaving gas price / fee fields to the
 /// standard alloy [`GasFiller`](alloy::providers::fillers::GasFiller).
@@ -59,14 +69,20 @@ where
     {
         let gas_limit = match provider.estimate_gas(tx.clone()).await {
             Ok(estimate) => Self::apply_margin(estimate),
-            Err(error) => {
+            // JSON-RPC error: the node ran the transaction and it reverted.
+            // Use the fallback so we can still submit and record the failure.
+            Err(RpcError::ErrorResp(error)) => {
                 tracing::warn!(
                     %error,
                     gas_limit = GAS_ESTIMATION_FALLBACK,
-                    "eth_estimateGas failed, using fallback gas limit"
+                    "eth_estimateGas returned an execution error, \
+                     transaction will likely revert — using fallback gas limit"
                 );
                 GAS_ESTIMATION_FALLBACK
             }
+            // Transport / infrastructure error: propagate so the caller can
+            // retry or surface the failure.
+            Err(error) => return Err(error),
         };
 
         Ok(gas_limit)
@@ -137,9 +153,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn falls_back_when_gas_estimation_fails() {
+    async fn falls_back_on_execution_revert_error() {
         let asserter = Asserter::new();
-        asserter.push_failure_msg("estimate failed");
+        // push_failure_msg pushes a JSON-RPC ErrorPayload → RpcError::ErrorResp
+        asserter.push_failure_msg("execution reverted");
 
         let provider = ProviderBuilder::default()
             .filler(GasEstimateWithFallbackFiller)
@@ -151,6 +168,25 @@ mod tests {
         assert!(
             asserter.read_q().is_empty(),
             "all mock responses should be used"
+        );
+    }
+
+    #[tokio::test]
+    async fn propagates_transport_error() {
+        let asserter = Asserter::new();
+        // Empty asserter queue → MockTransport returns TransportErrorKind::Custom
+        // which surfaces as RpcError::Transport — not ErrorResp.
+
+        let provider = ProviderBuilder::default()
+            .filler(GasEstimateWithFallbackFiller)
+            .connect_mocked_client(asserter.clone());
+
+        let result: Result<alloy::providers::SendableTx<Ethereum>, _> =
+            provider.fill(TransactionRequest::default()).await;
+
+        assert!(
+            result.is_err(),
+            "transport errors must be propagated, not swallowed"
         );
     }
 }
