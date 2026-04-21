@@ -15,12 +15,12 @@ use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingB
 /// Fixed gas overhead for `createManyAccounts` (proxy dispatch, tree root
 /// path recomputation, calldata decoding). Derived from empirical
 /// `eth_estimateGas` measurements at N=1..16 against WorldChain Mainnet.
-const CREATE_BATCH_FIXED_GAS: u64 = 500_000;
+const CREATE_BATCH_FIXED_GAS: u64 = 600_000;
 
 /// Marginal gas per account in a `createManyAccounts` batch
 /// (`_registerAccount` + leaf-level Poseidon hash + SSTORE). From the same
-/// empirical measurement, rounded up for ~10% headroom.
-const CREATE_BATCH_PER_ACCOUNT_GAS: u64 = 120_000;
+/// empirical measurement, rounded up with additional safety headroom.
+const CREATE_BATCH_PER_ACCOUNT_GAS: u64 = 144_000;
 
 #[derive(Clone)]
 pub struct CreateBatcherHandle {
