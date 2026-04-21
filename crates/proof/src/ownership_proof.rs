@@ -20,8 +20,12 @@ mod prover {
 
     use world_id_primitives::{TREE_DEPTH, proof::OwnershipProof};
 
-    /// Raw bytes of the embedded Proving Key Package (PKP).
+    /// Raw bytes of the embedded ProveKit Prover (PKP).
+    #[cfg(not(docsrs))]
     const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
+
+    #[cfg(docsrs)]
+    const PKP_BYTES: &[u8] = &[];
 
     /// Cached deserialized prover (or the error message from the first attempt).
     static OWNERSHIP_PROVER: std::sync::OnceLock<Result<provekit_common::Prover, String>> =
@@ -150,7 +154,11 @@ mod verifier {
     use world_id_primitives::{FieldElement, TREE_DEPTH, proof::OwnershipProof};
 
     /// Raw bytes of the embedded Verifying Key Package (PKV).
+    #[cfg(not(docsrs))]
     const PKV_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkv"));
+
+    #[cfg(docsrs)]
+    const PKV_BYTES: &[u8] = &[];
 
     /// Cached deserialized verifier (or the error message from the first attempt).
     static OWNERSHIP_VERIFIER: std::sync::OnceLock<Result<provekit_common::Verifier, String>> =
@@ -198,7 +206,7 @@ mod verifier {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
 mod tests {
     use crate::{ProofError, circuit_inputs::OwnershipProofCircuitInput};
 
@@ -216,7 +224,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
     fn test_generate_and_verify_ownership_proof() {
         // Setup: keypair, key set, Merkle proof, signature
         let sk = EdDSAPrivateKey::from_bytes([42u8; 32]);
