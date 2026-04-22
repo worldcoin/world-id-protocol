@@ -38,7 +38,7 @@ fn main() -> eyre::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
     // Compile noir ownership proof circuit and generate prover key package
-    #[cfg(feature = "provekit")]
+    #[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
     compile_noir_ownership_proof(&out_dir)?;
 
     if env::var("CARGO_FEATURE_EMBED_ZKEYS").is_err() {
@@ -225,9 +225,9 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "provekit")]
+#[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
 fn compile_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
-    use provekit_common::{NoirProofScheme, Prover};
+    use provekit_common::{NoirProofScheme, Prover, Verifier};
     use provekit_r1cs_compiler::NoirProofSchemeBuilder as _;
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
@@ -244,6 +244,7 @@ fn compile_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
     );
 
     let pkp_path = out_dir.join("ownership_proof.pkp");
+    let pkv_path = out_dir.join("ownership_proof.pkv");
 
     // Run nargo compile
     let nargo_output = std::process::Command::new("nargo")
@@ -261,7 +262,9 @@ fn compile_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
 
     let scheme =
         NoirProofScheme::from_file(compiled_json).map_err(|e| eyre::eyre!(e.to_string()))?;
-    provekit_common::file::write(&Prover::from_noir_proof_scheme(scheme), &pkp_path)
+    provekit_common::file::write(&Prover::from_noir_proof_scheme(scheme.clone()), &pkp_path)
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
+    provekit_common::file::write(&Verifier::from_noir_proof_scheme(scheme), &pkv_path)
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     Ok(())

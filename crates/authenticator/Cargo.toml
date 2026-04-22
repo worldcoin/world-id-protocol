@@ -19,7 +19,6 @@ include = [
 [features]
 default = ["embed-zkeys"]
 embed-zkeys = ["world-id-proof/embed-zkeys"]
-provekit = ["world-id-proof/provekit"]
 # Compress the embedded zkeys to reduce binary size (ARK point compression)
 compress-zkeys = ["embed-zkeys", "world-id-proof/compress-zkeys"]
 # Compress the tar archive with zstd
@@ -64,7 +63,7 @@ hex = { workspace = true }
 base64 = { workspace = true }
 
 # Internal
-world-id-proof = { workspace = true }
+world-id-proof = { workspace = true, features = ["zk-ownership-prove"] }
 world-id-registries = { workspace = true }
 
 # Native-only dependencies (not available on wasm32)
@@ -86,3 +85,8 @@ rand = { workspace = true }
 mockito = { workspace = true }
 testcontainers = { workspace = true }
 world-id-test-utils = { workspace = true }
+
+
+[package.metadata.docs.rs]
+no-default-features = true
+features = ["embed-zkeys"]

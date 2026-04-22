@@ -1,10 +1,8 @@
 use secrecy::ExposeSecret;
 use world_id_primitives::{
-    Credential, FieldElement, ProofRequest, ProofResponse, RequestItem, ResponseItem, SessionId,
-    SessionNullifier, ZeroKnowledgeProof,
+    Credential, FieldElement, OwnershipProof, ProofRequest, ProofResponse, RequestItem,
+    ResponseItem, SessionId, SessionNullifier, ZeroKnowledgeProof,
 };
-#[cfg(feature = "provekit")]
-use world_id_proof::WhirR1CSProof;
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofCompression,
     proof::generate_nullifier_proof,
@@ -16,6 +14,9 @@ use crate::{
     error::AuthenticatorError,
 };
 use world_id_primitives::TREE_DEPTH;
+use world_id_proof::{
+    circuit_inputs::OwnershipProofCircuitInput, ownership_proof::generate_ownership_proof,
+};
 
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::Nullifier;
@@ -435,20 +436,14 @@ impl Authenticator {
     /// - `account_inclusion_proof`: An optionally cached account inclusion proof. If not provided, a new inclusion proof will be fetched.
     ///
     /// # Returns
-    /// - The Noir ZKP.
-    /// - The root of the Merkle tree used for inclusion in the `WorldIDRegistry`.
-    #[cfg(feature = "provekit")]
+    /// The [`OwnershipProof`] containing the ZKP and Merkle root.
     pub async fn prove_credential_sub(
         &self,
         nonce: FieldElement,
         credential_blinding_factor: FieldElement,
         sub: FieldElement,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
-    ) -> Result<(WhirR1CSProof, FieldElement), AuthenticatorError> {
-        use world_id_proof::{
-            circuit_inputs::OwnershipProofCircuitInput, ownership_proof::generate_ownership_proof,
-        };
-
+    ) -> Result<OwnershipProof, AuthenticatorError> {
         let authenticator_input = self
             .prepare_authenticator_input(account_inclusion_proof)
             .await?;
@@ -474,15 +469,11 @@ impl Authenticator {
             commitment_blinder: credential_blinding_factor,
         };
 
-        let proof = generate_ownership_proof(input)?;
-
-        // TODO: Create a unified typed response (requires updates to ProveKit)
-        Ok((proof.whir_r1cs_proof, proof.public_inputs.0[0].into()))
+        Ok(generate_ownership_proof(input)?)
     }
 }
 
 #[cfg(test)]
-#[cfg(feature = "provekit")]
 mod tests {
     use crate::{
         authenticator::Authenticator,
