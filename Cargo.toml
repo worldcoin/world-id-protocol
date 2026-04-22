@@ -30,7 +30,7 @@ authors = [
 ]
 homepage = "https://docs.world.org/world-id"
 repository = "https://github.com/worldcoin/world-id-protocol"
-rust-version = "1.87"
+rust-version = "1.91"
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
@@ -44,9 +44,9 @@ unused_crate_dependencies = "deny"
 
 [workspace.dependencies]
 # alloy
-alloy = { version = "1.7.3", default-features = false }
-alloy-primitives = { version = "1.5.6", default-features = false }
-alloy-node-bindings = "1.0.42"
+alloy = { version = "2.0.1", default-features = false }
+alloy-primitives = { version = "1.5.7", default-features = false }
+alloy-node-bindings = "2.0.1"
 
 anyhow = "1"
 ark-ec = "0.5"
@@ -143,7 +143,7 @@ taceo-nodes-common = { version = "0.4.4", default-features=false }
 taceo-nodes-observability = "0.1"
 tempfile = "3"
 tokio-util = "0.7"
-tempo-alloy = "1.4"
+tempo-alloy = "1.6"
 tower = "0.5.3"
 
 # Internal
@@ -165,3 +165,10 @@ world-id-relay = { path = "services/relay" }
 # With opt-level 2 the same deserialization completes in seconds.
 [profile.dev.package."*"]
 opt-level = 2
+
+# Force all `alloy = "1.x"` requests from external crates (taceo-nodes-common,
+# taceo-oprf-test-utils, taceo-oprf-key-gen) to resolve to alloy 2.x so the
+# whole workspace links against a single alloy version.
+[patch.crates-io]
+alloy = { git = "https://github.com/alloy-rs/alloy", tag = "v2.0.1" }
+alloy-node-bindings = { git = "https://github.com/alloy-rs/alloy", tag = "v2.0.1" }
