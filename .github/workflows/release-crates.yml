@@ -27,6 +27,11 @@ jobs:
         with:
           toolchain: stable
 
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+        with:
+          # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
+          toolchain: v1.0.0-beta.11
+
       - name: Run release-plz
         uses: release-plz/action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5.128 (https://github.com/release-plz/action/releases/tag/v0.5.128)
         env:
