@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.9.0...world-id-primitives-v0.10.0) - 2026-04-23
+
+### Added
+
+- ownership proof verification ([#669](https://github.com/worldcoin/world-id-protocol/pull/669))
+- ownership proof generation ([#657](https://github.com/worldcoin/world-id-protocol/pull/657))
+- ownership proof generation ([#648](https://github.com/worldcoin/world-id-protocol/pull/648))
+- expose compression in authenticator crate ([#670](https://github.com/worldcoin/world-id-protocol/pull/670))
+
+### Other
+
+- Update docs & clarify around Authenticator management ([#673](https://github.com/worldcoin/world-id-protocol/pull/673))
+- *(primitives)* move circuit_inputs to world-id-proof ([#667](https://github.com/worldcoin/world-id-protocol/pull/667))
+- *(primitives)* move k256 to dev-dependencies ([#666](https://github.com/worldcoin/world-id-protocol/pull/666))
+- *(primitives)* move proof compression to world-id-proof ([#668](https://github.com/worldcoin/world-id-protocol/pull/668))
+- introduce registries crate ([#671](https://github.com/worldcoin/world-id-protocol/pull/671))
+- fix registries crate ([#678](https://github.com/worldcoin/world-id-protocol/pull/678))
+
 ## [0.9.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.8.2...world-id-primitives-v0.9.0) - 2026-04-14
 
 ### Breaking Changes
