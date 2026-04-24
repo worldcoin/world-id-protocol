@@ -46,14 +46,6 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
     /// @dev Bit offset within the 96-bit pubkey bitmap where the flag for the class of authenticator begins.
     uint256 internal constant _AUTHENTICATOR_CLASS_OFFSET = 48;
 
-    /// @dev EIP-712 typehash for `updateRecoveryAgent` (WIP-102).
-    bytes32 public constant UPDATE_RECOVERY_AGENT_TYPEHASH =
-        keccak256("UpdateRecoveryAgent(uint64 leafIndex,address newRecoveryAgent,uint256 nonce)");
-
-    /// @dev EIP-712 typehash for `revertRecoveryAgentUpdate` (WIP-102).
-    bytes32 public constant REVERT_RECOVERY_AGENT_UPDATE_TYPEHASH =
-        keccak256("RevertRecoveryAgentUpdate(uint64 leafIndex,uint256 nonce)");
-
     ////////////////////////////////////////////////////////////
     //                    ROOT VALIDITY                       //
     ////////////////////////////////////////////////////////////
@@ -323,8 +315,10 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
             revert RecoveryAgentUpdateStillActive(leafIndex, prev.invalidAfter);
         }
 
-        bytes32 messageHash =
-            _hashTypedDataV4(keccak256(abi.encode(UPDATE_RECOVERY_AGENT_TYPEHASH, leafIndex, newRecoveryAgent, nonce)));
+        // Reuse `INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH` to work with existing clients
+        bytes32 messageHash = _hashTypedDataV4(
+            keccak256(abi.encode(INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH, leafIndex, newRecoveryAgent, nonce))
+        );
 
         (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
         uint64 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
@@ -371,8 +365,9 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
             revert RecoveryAgentUpdateWindowExpired(leafIndex, prev.invalidAfter);
         }
 
+        // Reuse `CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH` to keep working with exsiting clients
         bytes32 messageHash =
-            _hashTypedDataV4(keccak256(abi.encode(REVERT_RECOVERY_AGENT_UPDATE_TYPEHASH, leafIndex, nonce)));
+            _hashTypedDataV4(keccak256(abi.encode(CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH, leafIndex, nonce)));
 
         (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
         uint64 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
