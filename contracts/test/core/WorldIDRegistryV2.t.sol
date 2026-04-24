@@ -31,11 +31,7 @@ abstract contract WorldIDRegistryV2TestBase is Test {
         registry = WorldIDRegistryV2(address(proxy));
     }
 
-    function _eip712Sign(bytes32 typeHash, bytes memory data, uint256 privateKey)
-        internal
-        view
-        returns (bytes memory)
-    {
+    function _eip712Sign(bytes32 typeHash, bytes memory data, uint256 privateKey) internal view returns (bytes memory) {
         bytes32 structHash = keccak256(abi.encodePacked(typeHash, data));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", registry.domainSeparatorV4(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
@@ -336,9 +332,7 @@ contract WorldIDRegistryV2WIP102Test is WorldIDRegistryV2TestBase {
         view
         returns (bytes memory)
     {
-        return _eip712Sign(
-            registry.REVERT_RECOVERY_AGENT_UPDATE_TYPEHASH(), abi.encode(leafIndex, nonce), privateKey
-        );
+        return _eip712Sign(registry.REVERT_RECOVERY_AGENT_UPDATE_TYPEHASH(), abi.encode(leafIndex, nonce), privateKey);
     }
 
     function _recoverAccountSig(
@@ -548,7 +542,8 @@ contract WorldIDRegistryV2WIP102Test is WorldIDRegistryV2TestBase {
         address newAuth = address(0xBEE1);
         uint256 nonce = 1;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
-        bytes memory recoverySig = _recoverAccountSig(leafIndex, newAuth, newCommitment, nonce, RECOVERY_OLD_PRIVATE_KEY);
+        bytes memory recoverySig =
+            _recoverAccountSig(leafIndex, newAuth, newCommitment, nonce, RECOVERY_OLD_PRIVATE_KEY);
         registry.recoverAccount(
             leafIndex, newAuth, newCommitment, OFFCHAIN_SIGNER_COMMITMENT, newCommitment, recoverySig, nonce
         );
@@ -571,7 +566,8 @@ contract WorldIDRegistryV2WIP102Test is WorldIDRegistryV2TestBase {
         address newAuth = address(0xBEE1);
         uint256 nonce = 1;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
-        bytes memory recoverySig = _recoverAccountSig(leafIndex, newAuth, newCommitment, nonce, RECOVERY_NEW_PRIVATE_KEY);
+        bytes memory recoverySig =
+            _recoverAccountSig(leafIndex, newAuth, newCommitment, nonce, RECOVERY_NEW_PRIVATE_KEY);
 
         vm.expectRevert(IWorldIDRegistry.InvalidSignature.selector);
         registry.recoverAccount(
@@ -591,7 +587,8 @@ contract WorldIDRegistryV2WIP102Test is WorldIDRegistryV2TestBase {
         address newAuth = address(0xBEE1);
         uint256 nonce = 1;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
-        bytes memory recoverySig = _recoverAccountSig(leafIndex, newAuth, newCommitment, nonce, RECOVERY_NEW_PRIVATE_KEY);
+        bytes memory recoverySig =
+            _recoverAccountSig(leafIndex, newAuth, newCommitment, nonce, RECOVERY_NEW_PRIVATE_KEY);
 
         registry.recoverAccount(
             leafIndex, newAuth, newCommitment, OFFCHAIN_SIGNER_COMMITMENT, newCommitment, recoverySig, nonce
@@ -611,7 +608,8 @@ contract WorldIDRegistryV2WIP102Test is WorldIDRegistryV2TestBase {
         address newAuth = address(0xBEE1);
         uint256 nonce = 1;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
-        bytes memory recoverySig = _recoverAccountSig(leafIndex, newAuth, newCommitment, nonce, RECOVERY_OLD_PRIVATE_KEY);
+        bytes memory recoverySig =
+            _recoverAccountSig(leafIndex, newAuth, newCommitment, nonce, RECOVERY_OLD_PRIVATE_KEY);
 
         vm.expectRevert(IWorldIDRegistry.InvalidSignature.selector);
         registry.recoverAccount(
@@ -625,7 +623,8 @@ contract WorldIDRegistryV2WIP102Test is WorldIDRegistryV2TestBase {
         address newAuth = address(0xBEE1);
         uint256 nonce = 0;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
-        bytes memory recoverySig = _recoverAccountSig(leafIndex, newAuth, newCommitment, nonce, RECOVERY_OLD_PRIVATE_KEY);
+        bytes memory recoverySig =
+            _recoverAccountSig(leafIndex, newAuth, newCommitment, nonce, RECOVERY_OLD_PRIVATE_KEY);
 
         registry.recoverAccount(
             leafIndex, newAuth, newCommitment, OFFCHAIN_SIGNER_COMMITMENT, newCommitment, recoverySig, nonce
@@ -650,7 +649,8 @@ contract WorldIDRegistryV2WIP102Test is WorldIDRegistryV2TestBase {
         address newAuth = address(0xBEE1);
         uint256 nonce = 1;
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
-        bytes memory recoverySig = _recoverAccountSig(leafIndex, newAuth, newCommitment, nonce, RECOVERY_OLD_PRIVATE_KEY);
+        bytes memory recoverySig =
+            _recoverAccountSig(leafIndex, newAuth, newCommitment, nonce, RECOVERY_OLD_PRIVATE_KEY);
 
         registry.recoverAccount(
             leafIndex, newAuth, newCommitment, OFFCHAIN_SIGNER_COMMITMENT, newCommitment, recoverySig, nonce

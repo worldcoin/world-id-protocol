@@ -323,9 +323,8 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
             revert RecoveryAgentUpdateStillActive(leafIndex, prev.invalidAfter);
         }
 
-        bytes32 messageHash = _hashTypedDataV4(
-            keccak256(abi.encode(UPDATE_RECOVERY_AGENT_TYPEHASH, leafIndex, newRecoveryAgent, nonce))
-        );
+        bytes32 messageHash =
+            _hashTypedDataV4(keccak256(abi.encode(UPDATE_RECOVERY_AGENT_TYPEHASH, leafIndex, newRecoveryAgent, nonce)));
 
         (, uint256 packedAccountData) = _recoverAccountDataFromSignature(messageHash, signature);
         uint64 recoveredLeafIndex = PackedAccountData.leafIndex(packedAccountData);
