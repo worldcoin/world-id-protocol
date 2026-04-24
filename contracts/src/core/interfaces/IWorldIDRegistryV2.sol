@@ -88,9 +88,7 @@ interface IWorldIDRegistryV2 is IWorldIDRegistry {
      *      being displaced; `restoredRecoveryAgent` is the previous agent being restored.
      */
     event RecoveryAgentUpdateReverted(
-        uint64 indexed leafIndex,
-        address indexed restoredRecoveryAgent,
-        address indexed revertedRecoveryAgent
+        uint64 indexed leafIndex, address indexed restoredRecoveryAgent, address indexed revertedRecoveryAgent
     );
 
     ////////////////////////////////////////////////////////////
@@ -107,12 +105,8 @@ interface IWorldIDRegistryV2 is IWorldIDRegistry {
      * @param signature The EIP-712 signature from an existing authenticator authorizing the update.
      * @param nonce The signature nonce for replay protection.
      */
-    function updateRecoveryAgent(
-        uint64 leafIndex,
-        address newRecoveryAgent,
-        bytes memory signature,
-        uint256 nonce
-    ) external;
+    function updateRecoveryAgent(uint64 leafIndex, address newRecoveryAgent, bytes memory signature, uint256 nonce)
+        external;
 
     /**
      * @dev Reverts a pending Recovery Agent update, restoring the previous Recovery Agent (WIP-102).
