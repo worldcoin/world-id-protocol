@@ -18,6 +18,16 @@ sol!(
     "abi/WorldIDRegistryAbi.json"
 );
 
+sol!(
+    /// V2 of the World ID registry: bundles the root-validity race-condition fix, WIP-104
+    /// Proving Authenticators, and WIP-102 simplified optimistic Recovery Agent update
+    /// (`updateRecoveryAgent` / `revertRecoveryAgentUpdate`). ABI is a superset of V1.
+    #[allow(clippy::too_many_arguments)]
+    #[sol(rpc, ignore_unlinked)]
+    WorldIdRegistryV2,
+    "abi/WorldIDRegistryV2Abi.json"
+);
+
 /// These structs are created in a private module to avoid confusion with their exports.
 ///
 /// They are only used to compute the EIP-712 typed data for signature.
