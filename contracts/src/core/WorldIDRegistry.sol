@@ -293,7 +293,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
      * the account has been recovered (recovery counter increased), making the address available again.
      * @param newAuthenticatorAddress The new authenticator address to validate.
      */
-    function _validateNewAuthenticatorAddress(address newAuthenticatorAddress) internal view {
+    function _validateNewAuthenticatorAddress(address newAuthenticatorAddress) internal view virtual {
         if (newAuthenticatorAddress == address(0)) {
             revert ZeroAddress();
         }
@@ -889,7 +889,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
     }
 
     /// @inheritdoc IWorldIDRegistry
-    function setMaxAuthenticators(uint256 newMaxAuthenticators) external onlyOwner onlyProxy onlyInitialized {
+    function setMaxAuthenticators(uint256 newMaxAuthenticators) external virtual onlyOwner onlyProxy onlyInitialized {
         if (newMaxAuthenticators > MAX_AUTHENTICATORS_HARD_LIMIT) {
             revert OwnerMaxAuthenticatorsOutOfBounds();
         }
