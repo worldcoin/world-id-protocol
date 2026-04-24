@@ -323,8 +323,10 @@ contract WorldIDRegistryV2WIP102Test is WorldIDRegistryV2TestBase {
         view
         returns (bytes memory)
     {
-        return
-            _eip712Sign(registry.UPDATE_RECOVERY_AGENT_TYPEHASH(), abi.encode(leafIndex, newAgent, nonce), privateKey);
+        // WIP-102 reuses the `INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH` on `updateRecoveryAgent`
+        return _eip712Sign(
+            registry.INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH(), abi.encode(leafIndex, newAgent, nonce), privateKey
+        );
     }
 
     function _revertRecoveryAgentUpdateSig(uint64 leafIndex, uint256 nonce, uint256 privateKey)
@@ -332,7 +334,8 @@ contract WorldIDRegistryV2WIP102Test is WorldIDRegistryV2TestBase {
         view
         returns (bytes memory)
     {
-        return _eip712Sign(registry.REVERT_RECOVERY_AGENT_UPDATE_TYPEHASH(), abi.encode(leafIndex, nonce), privateKey);
+        // WIP-102 reuses the `CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH` on `revertRecoveryAgentUpdate`
+        return _eip712Sign(registry.CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH(), abi.encode(leafIndex, nonce), privateKey);
     }
 
     function _recoverAccountSig(
@@ -776,7 +779,8 @@ contract WorldIDRegistryV2WIP102OrphanTest is Test {
         // Nonce is now 1 (V1 initiate incremented it).
         bytes memory v2UpdateSig = _eip712SignV1(
             WorldIDRegistry(address(v2)),
-            v2.UPDATE_RECOVERY_AGENT_TYPEHASH(),
+            // WIP-102: `updateRecoveryAgent` verifies against V1's INITIATE typehash.
+            v2.INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH(),
             abi.encode(leafIndex, recoveryPostUpgrade, uint256(1)),
             WIP102_ORPHAN_AUTH1_PRIVATE_KEY
         );

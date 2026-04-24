@@ -118,33 +118,7 @@
   },
   {
     "type": "function",
-    "name": "REVERT_RECOVERY_AGENT_UPDATE_TYPEHASH",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "UPDATE_AUTHENTICATOR_TYPEHASH",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "UPDATE_RECOVERY_AGENT_TYPEHASH",
     "inputs": [],
     "outputs": [
       {
