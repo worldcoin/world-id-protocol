@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use alloy::primitives::{Address, U256};
 use ark_serialize::CanonicalSerialize;
@@ -14,7 +14,7 @@ use taceo_oprf_test_utils::{
 };
 use testcontainers::{
     ContainerAsync, GenericImage, ImageExt,
-    core::{AccessMode, IntoContainerPort, Mount, WaitFor, wait::HttpWaitStrategy},
+    core::{IntoContainerPort, WaitFor, wait::HttpWaitStrategy},
     runners::AsyncRunner,
 };
 use tokio::{net::TcpListener, task::JoinHandle};
@@ -321,7 +321,7 @@ pub async fn spawn_oprf_nodes(
 }
 
 const OPRF_KEY_GEN_IMAGE: &str = "ghcr.io/taceolabs/oprf-service/oprf-key-gen";
-const OPRF_KEY_GEN_TAG: &str = "v1.1.0-rc.3";
+const OPRF_KEY_GEN_TAG: &str = "v1.1.0-rc.8";
 const OPRF_KEY_GEN_INTERNAL_PORT: u16 = 8080;
 
 pub struct SpawnedKeyGens {
@@ -354,10 +354,6 @@ async fn spawn_key_gen_container(
     schema: &str,
     oprf_key_registry_contract: Address,
 ) -> Result<(String, ContainerAsync<GenericImage>)> {
-    let circom_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../circom")
-        .canonicalize()
-        .wrap_err("failed to resolve circom directory for key-gen container")?;
     let http_port = host_exposed_port(chain_http_rpc_url)?;
     let ws_port = host_exposed_port(chain_ws_rpc_url)?;
     let postgres_port = host_exposed_port(postgres_connection_string)?;
@@ -368,10 +364,6 @@ async fn spawn_key_gen_container(
             HttpWaitStrategy::new("/health").with_expected_status_code(200_u16),
         )))
         .with_exposed_host_ports([http_port, ws_port, postgres_port])
-        .with_mount(
-            Mount::bind_mount(circom_dir.display().to_string(), "/app/circom")
-                .with_access_mode(AccessMode::ReadOnly),
-        )
         .with_env_var("RUST_LOG", "taceo=trace,warn")
         .with_env_var("TACEO_OPRF_KEY_GEN__SERVICE__ENVIRONMENT", "dev")
         .with_env_var(
@@ -398,11 +390,11 @@ async fn spawn_key_gen_container(
         .with_env_var("TACEO_OPRF_KEY_GEN__SERVICE__EXPECTED_THRESHOLD", "3")
         .with_env_var(
             "TACEO_OPRF_KEY_GEN__SERVICE__ZKEY_PATH",
-            "/app/circom/OPRFKeyGen.25.arks.zkey",
+            "/app/OPRFKeyGen.25.arks.zkey",
         )
         .with_env_var(
             "TACEO_OPRF_KEY_GEN__SERVICE__WITNESS_GRAPH_PATH",
-            "/app/circom/OPRFKeyGenGraph.25.bin",
+            "/app/OPRFKeyGenGraph.25.bin",
         )
         .with_env_var(
             "TACEO_OPRF_KEY_GEN__SERVICE__CONFIRMATIONS_FOR_TRANSACTION",
