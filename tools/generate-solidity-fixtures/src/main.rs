@@ -154,16 +154,13 @@ async fn main() -> Result<()> {
 
     let (_postgres, connection_string) = taceo_oprf_test_utils::postgres_testcontainer().await?;
 
-    let (key_gen_secret_managers, node_secret_managers) =
-        world_id_test_utils::stubs::init_test_secret_managers(connection_string.into()).await?;
+    let node_secret_managers =
+        world_id_test_utils::stubs::init_test_secret_managers(connection_string.clone().into())
+            .await?;
 
-    let oprf_key_gens = world_id_test_utils::stubs::spawn_key_gens(
-        anvil.endpoint(),
-        anvil.ws_endpoint(),
-        key_gen_secret_managers,
-        oprf_key_registry,
-    )
-    .await;
+    let oprf_key_gens =
+        world_id_test_utils::stubs::spawn_key_gens(&anvil, &connection_string, oprf_key_registry)
+            .await?;
 
     let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
         &anvil,
@@ -176,7 +173,7 @@ async fn main() -> Result<()> {
     .await;
 
     health_checks::services_health_check(&nodes, Duration::from_secs(60)).await?;
-    health_checks::services_health_check(&oprf_key_gens, Duration::from_secs(60)).await?;
+    health_checks::services_health_check(&oprf_key_gens.urls, Duration::from_secs(60)).await?;
 
     // Register issuer.
     let issuer_schema_id = 1u64;

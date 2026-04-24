@@ -10215,49 +10215,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "taceo-oprf-key-gen"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69759ef2ffc526b44ac119bf1379e76c4a00daf31aab85e8f15c27b18f5088b5"
-dependencies = [
- "alloy",
- "ark-bn254 0.5.0",
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-serialize 0.5.0",
- "async-trait",
- "axum",
- "backon",
- "config",
- "eyre",
- "futures",
- "humantime",
- "humantime-serde",
- "itertools 0.14.0",
- "k256",
- "metrics",
- "rand 0.8.5",
- "reqwest 0.12.28",
- "rustls",
- "secrecy",
- "serde",
- "serde_json",
- "sqlx",
- "taceo-ark-babyjubjub",
- "taceo-groth16-material",
- "taceo-nodes-common",
- "taceo-nodes-observability",
- "taceo-oprf-core",
- "taceo-oprf-types",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tower-http",
- "tracing",
- "zeroize",
-]
-
-[[package]]
 name = "taceo-oprf-service"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12618,9 +12575,9 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "taceo-nodes-common",
  "taceo-oprf",
- "taceo-oprf-key-gen",
  "taceo-oprf-test-utils",
  "taceo-poseidon2",
+ "testcontainers",
  "tokio",
  "tokio-util",
  "tracing",

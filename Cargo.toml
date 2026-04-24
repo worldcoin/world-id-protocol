@@ -74,7 +74,6 @@ sha2 = { version = "0.11", default-features = false }
 taceo-groth16-sol = { version = "0.3.1" }
 taceo-oprf = { version = "0.13.0", default-features = false }
 taceo-oprf-test-utils = { version = "0.11", default-features = false }
-taceo-oprf-key-gen = { version = "0.10" }
 telemetry-batteries = "0.2"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }
