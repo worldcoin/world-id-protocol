@@ -214,10 +214,10 @@ impl Authenticator {
 
         let session_id = SessionId::from_r_seed(self.leaf_index(), session_id_r_seed, oprf_seed)?;
 
-        if let Some(request_session_id) = proof_request.session_id {
-            if request_session_id != session_id {
-                return Err(AuthenticatorError::SessionIdMismatch);
-            }
+        if let Some(request_session_id) = proof_request.session_id
+            && request_session_id != session_id
+        {
+            return Err(AuthenticatorError::SessionIdMismatch);
         }
 
         Ok((session_id, session_id_r_seed))
