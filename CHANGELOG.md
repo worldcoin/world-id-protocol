@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.10.0...world-id-primitives-v0.10.1) - 2026-04-24
+
+### Other
+
+- update Cargo.toml dependencies
+- bump alloy to 2.0.1 ([#687](https://github.com/worldcoin/world-id-protocol/pull/687))
+
 ## [0.10.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.9.0...world-id-primitives-v0.10.0) - 2026-04-23
 
 ### Added
