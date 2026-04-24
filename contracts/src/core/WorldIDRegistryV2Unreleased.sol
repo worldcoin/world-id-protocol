@@ -544,20 +544,30 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
     }
 
     /// @inheritdoc IWorldIDRegistry
-    /// @custom:override Overrides V1 (WIP-102). The V1 "pending update" mapping is orphaned after
-    ///     upgrade and this view would only ever return `(address(0), 0)`, which could be mistaken
-    ///     for "no active update" when in fact the mechanism has been replaced. Consumers must
-    ///     migrate to `getPreviousRecoveryAgentUpdate`.
-    function getPendingRecoveryAgentUpdate(uint64)
+    /// @custom:override Overrides V1 (WIP-102) to translate V2 active-update state into the
+    ///     legacy V1 shape. `newRecoveryAgent` is the scheduled agent sitting in the packed
+    ///     slot awaiting window elapse; the second return value is the timestamp at which
+    ///     that agent becomes the effective recovery signer (equal to V2's `invalidAfter`).
+    ///     Renamed from V1's `executeAfter` because WIP-102 removes the explicit execute
+    ///     step — the new agent becomes valid automatically once the timestamp elapses.
+    ///     Returns `(address(0), 0)` when no active update exists or when the window has
+    ///     already elapsed — matching V1's "no pending update" contract. Orphaned V1
+    ///     `_pendingRecoveryAgentUpdates` entries are correctly invisible (we read the V2
+    ///     mapping, not the V1 one); the indexer notifies affected users off-chain.
+    function getPendingRecoveryAgentUpdate(uint64 leafIndex)
         external
         view
         virtual
         override(IWorldIDRegistry, WorldIDRegistry)
         onlyProxy
         onlyInitialized
-        returns (address, uint256)
+        returns (address newRecoveryAgent, uint256 validAfter)
     {
-        revert MethodUnsupported();
+        PreviousRecoveryAgentUpdate memory prev = _prevRecoveryAgentUpdates[leafIndex];
+        if (prev.invalidAfter == 0 || block.timestamp >= prev.invalidAfter) {
+            return (address(0), 0);
+        }
+        return (_getRecoveryAgent(leafIndex), prev.invalidAfter);
     }
 
     ////////////////////////////////////////////////////////////

@@ -425,19 +425,19 @@
     "name": "getPendingRecoveryAgentUpdate",
     "inputs": [
       {
-        "name": "",
+        "name": "leafIndex",
         "type": "uint64",
         "internalType": "uint64"
       }
     ],
     "outputs": [
       {
-        "name": "",
+        "name": "newRecoveryAgent",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "",
+        "name": "validAfter",
         "type": "uint256",
         "internalType": "uint256"
       }

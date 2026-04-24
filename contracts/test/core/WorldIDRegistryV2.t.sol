@@ -686,10 +686,39 @@ contract WorldIDRegistryV2WIP102Test is WorldIDRegistryV2TestBase {
         registry.executeRecoveryAgentUpdate(leafIndex);
     }
 
-    function test_GetPendingRecoveryAgentUpdate_RevertsMethodUnsupported() public {
+    function test_GetPendingRecoveryAgentUpdate_NoActiveUpdate_ReturnsZero() public {
         uint64 leafIndex = _createAccount(auth1, recoveryOld);
-        vm.expectRevert(IWorldIDRegistryV2.MethodUnsupported.selector);
-        registry.getPendingRecoveryAgentUpdate(leafIndex);
+        (address pendingAgent, uint256 validAfter) = registry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgent, address(0));
+        assertEq(validAfter, 0);
+    }
+
+    function test_GetPendingRecoveryAgentUpdate_DuringWindow_ReturnsTranslatedV2State() public {
+        uint64 leafIndex = _createAccount(auth1, recoveryOld);
+        uint256 cooldown = registry.getRecoveryAgentUpdateCooldown();
+        uint256 expectedValidAfter = block.timestamp + cooldown;
+
+        bytes memory sig = _updateRecoveryAgentSig(leafIndex, recoveryNew, 0, AUTH1_PRIVATE_KEY);
+        registry.updateRecoveryAgent(leafIndex, recoveryNew, sig, 0);
+
+        // V1 shape: `newRecoveryAgent` = the scheduled agent, `validAfter` = when it takes effect.
+        (address pendingAgent, uint256 validAfter) = registry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgent, recoveryNew);
+        assertEq(validAfter, expectedValidAfter);
+    }
+
+    function test_GetPendingRecoveryAgentUpdate_AfterWindow_ReturnsZero() public {
+        uint64 leafIndex = _createAccount(auth1, recoveryOld);
+        uint256 cooldown = registry.getRecoveryAgentUpdateCooldown();
+
+        bytes memory sig = _updateRecoveryAgentSig(leafIndex, recoveryNew, 0, AUTH1_PRIVATE_KEY);
+        registry.updateRecoveryAgent(leafIndex, recoveryNew, sig, 0);
+        skip(cooldown + 1);
+
+        // Once the window elapses the update is no longer "pending" in V1 terms.
+        (address pendingAgent, uint256 validAfter) = registry.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgent, address(0));
+        assertEq(validAfter, 0);
     }
 }
 
@@ -736,10 +765,12 @@ contract WorldIDRegistryV2WIP102OrphanTest is Test {
         v1.upgradeToAndCall(address(implementationV2), "");
         WorldIDRegistryV2 v2 = WorldIDRegistryV2(address(proxy));
 
-        // V1 pending-update view is loudly deprecated — consumers must migrate to
-        // `getPreviousRecoveryAgentUpdate`. The underlying V1 storage slot is not cleared.
-        vm.expectRevert(IWorldIDRegistryV2.MethodUnsupported.selector);
-        v2.getPendingRecoveryAgentUpdate(leafIndex);
+        // V1 pending-update view now reports V2 active-update state in the legacy tuple shape.
+        // The orphaned V1 entry is correctly invisible: the view reads the V2 mapping and
+        // returns (0, 0), reflecting that no V2-side update is active.
+        (address orphanedPending, uint256 orphanedValidAfter) = v2.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(orphanedPending, address(0));
+        assertEq(orphanedValidAfter, 0);
 
         // The new V2 flow works on the same leaf without tripping over the orphaned slot.
         // Nonce is now 1 (V1 initiate incremented it).
