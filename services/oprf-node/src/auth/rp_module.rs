@@ -240,7 +240,7 @@ pub(crate) struct RpModuleAuth {
     current_time_stamp_max_difference: Duration,
     timeout_external_eth_call: Duration,
     merkle_watcher: MerkleWatcher,
-    rpc_provider: web3::RpcProvider,
+    rpc_provider: web3::HttpRpcProvider,
     query_vk: Arc<PreparedVerifyingKey<Bn254>>,
 }
 
@@ -279,7 +279,7 @@ impl RelyingParty {
         action: ark_babyjubjub::Fq,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
         wip101_timeout: Duration,
-        rpc_provider: &web3::RpcProvider,
+        rpc_provider: &web3::HttpRpcProvider,
     ) -> Result<(), RpModuleError> {
         match self.account_type {
             RpAccountType::Eoa => {
@@ -311,7 +311,7 @@ impl RpModuleAuth {
         nonce_history: NonceHistory,
         current_time_stamp_max_difference: Duration,
         timeout_external_eth_call: Duration,
-        rpc_provider: web3::RpcProvider,
+        rpc_provider: web3::HttpRpcProvider,
         query_vk: Arc<PreparedVerifyingKey<Bn254>>,
     ) -> Self {
         Self {
@@ -333,7 +333,7 @@ impl RpModuleAuth {
         nonce_history: NonceHistory,
         current_time_stamp_max_difference: Duration,
         timeout_external_eth_call: Duration,
-        rpc_provider: web3::RpcProvider,
+        rpc_provider: web3::HttpRpcProvider,
         query_vk: Arc<PreparedVerifyingKey<Bn254>>,
     ) -> Self {
         Self {
@@ -439,14 +439,13 @@ impl RpModuleAuth {
             }
         }
 
-        let (rp_check, merkle_check) = tokio::join!(
-            self.verify_rp_signature(request.auth.action, request),
-            self.merkle_watcher
-                .ensure_root_valid(FieldElement::from(request.auth.merkle_root))
-        );
+        let oprf_key_id = self
+            .verify_rp_signature(request.auth.action, request)
+            .await?;
 
-        let oprf_key_id = rp_check?;
-        merkle_check?;
+        self.merkle_watcher
+            .ensure_root_valid(FieldElement::from(request.auth.merkle_root))
+            .await?;
 
         let valid = super::verify_query_proof(
             &self.query_vk,

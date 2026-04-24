@@ -71,10 +71,10 @@ impl NoirRepresentable for FieldElement {
 
 impl From<taceo_oprf::client::Error> for ProofError {
     fn from(err: taceo_oprf::client::Error) -> Self {
-        if let taceo_oprf::client::Error::ThresholdServiceError(ref svc) = err {
-            if svc.kind.is_auth() {
-                return Self::RequestAuthError(WorldIdRequestAuthError::from(svc.error_code));
-            }
+        if let taceo_oprf::client::Error::ThresholdServiceError(ref svc) = err
+            && svc.kind.is_auth()
+        {
+            return Self::RequestAuthError(WorldIdRequestAuthError::from(svc.error_code));
         }
         Self::OprfError(err)
     }

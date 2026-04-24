@@ -63,7 +63,8 @@ impl SchemaIssuerRegistryWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
-        rpc_provider: &web3::RpcProvider,
+        http_rpc_provider: &web3::HttpRpcProvider,
+        ws_rpc_provider: &DynProvider,
         cache_config: WatcherCacheConfig,
         maintenance_interval: Duration,
         started: Arc<AtomicBool>,
@@ -74,7 +75,7 @@ impl SchemaIssuerRegistryWatcher {
             .address(contract_address)
             .from_block(BlockNumberOrTag::Latest)
             .event_signature(IssuerSchemaRemoved::SIGNATURE_HASH);
-        let sub = rpc_provider.subscriptions().subscribe_logs(&filter).await?;
+        let sub = ws_rpc_provider.subscribe_logs(&filter).await?;
         let mut stream = sub.into_stream();
 
         ::metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE).set(0.0);
@@ -150,7 +151,7 @@ impl SchemaIssuerRegistryWatcher {
             issuer_schema_store,
             contract: CredentialSchemaIssuerRegistryInstance::new(
                 contract_address,
-                rpc_provider.http(),
+                http_rpc_provider.inner(),
             ),
         };
         Ok((schema_issuer_registry, subscribe_task))

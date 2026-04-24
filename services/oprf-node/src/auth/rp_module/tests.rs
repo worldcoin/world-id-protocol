@@ -62,7 +62,7 @@ impl RpModuleTestSetup {
             infra.nonce_history.clone(),
             infra.current_time_stamp_max_difference,
             infra.timeout_external_eth_call,
-            infra.rpc_provider.clone(),
+            infra.http_rpc_provider.clone(),
             Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
         );
 
@@ -115,7 +115,7 @@ impl RpModuleTestSetup {
             infra.nonce_history.clone(),
             infra.current_time_stamp_max_difference,
             infra.timeout_external_eth_call,
-            infra.rpc_provider.clone(),
+            infra.http_rpc_provider.clone(),
             Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
         );
 
@@ -469,7 +469,7 @@ async fn check_wip101_success(kind: RpModuleKind) -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new(kind).await?;
     // deploy success
 
-    let wip101_instance = WIP101Correct::deploy(setup.request_authenticator.rpc_provider.http())
+    let wip101_instance = WIP101Correct::deploy(setup.request_authenticator.rpc_provider.inner())
         .await
         .expect("Should be able to deploy contract");
     setup.wip101_test(*wip101_instance.address()).await;
@@ -487,7 +487,7 @@ async fn check_wip101_with_max_data_success(kind: RpModuleKind) -> eyre::Result<
     let mut setup = RpModuleTestSetup::new(kind).await?;
     // deploy success
 
-    let wip101_instance = WIP101Correct::deploy(setup.request_authenticator.rpc_provider.http())
+    let wip101_instance = WIP101Correct::deploy(setup.request_authenticator.rpc_provider.inner())
         .await
         .expect("Should be able to deploy contract");
     // should still work
@@ -509,7 +509,7 @@ async fn check_wip101_success_if_data(kind: RpModuleKind) -> eyre::Result<()> {
     // deploy success
 
     let wip101_instance =
-        WIP101CorrectWhenAuxData::deploy(setup.request_authenticator.rpc_provider.http())
+        WIP101CorrectWhenAuxData::deploy(setup.request_authenticator.rpc_provider.inner())
             .await
             .expect("Should be able to deploy contract");
     setup
@@ -530,7 +530,7 @@ async fn check_wip101_no_data_failure(kind: RpModuleKind) -> eyre::Result<()> {
     // deploy success
 
     let wip101_instance =
-        WIP101CorrectWhenAuxData::deploy(setup.request_authenticator.rpc_provider.http())
+        WIP101CorrectWhenAuxData::deploy(setup.request_authenticator.rpc_provider.inner())
             .await
             .expect("Should be able to deploy contract");
     setup.wip101_test(*wip101_instance.address()).await;
@@ -553,9 +553,10 @@ async fn check_wip101_wrong_magic(kind: RpModuleKind) -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new(kind).await?;
     // deploy success
 
-    let wip101_instance = WIP101WrongMagic::deploy(setup.request_authenticator.rpc_provider.http())
-        .await
-        .expect("Should be able to deploy contract");
+    let wip101_instance =
+        WIP101WrongMagic::deploy(setup.request_authenticator.rpc_provider.inner())
+            .await
+            .expect("Should be able to deploy contract");
     setup.wip101_test(*wip101_instance.address()).await;
 
     let auth_err = setup
@@ -576,7 +577,7 @@ async fn check_wip101_reverts_with_code(kind: RpModuleKind) -> eyre::Result<()> 
     // deploy success
 
     let wip101_instance =
-        WIP101RevertsWithCode::deploy(setup.request_authenticator.rpc_provider.http())
+        WIP101RevertsWithCode::deploy(setup.request_authenticator.rpc_provider.inner())
             .await
             .expect("Should be able to deploy contract");
     setup.wip101_test(*wip101_instance.address()).await;
@@ -600,7 +601,7 @@ async fn check_wip101_plain_revert(kind: RpModuleKind) -> eyre::Result<()> {
     // deploy success
 
     let wip101_instance =
-        WIP101PlainRevert::deploy(setup.request_authenticator.rpc_provider.http())
+        WIP101PlainRevert::deploy(setup.request_authenticator.rpc_provider.inner())
             .await
             .expect("Should be able to deploy contract");
     setup.wip101_test(*wip101_instance.address()).await;
@@ -626,7 +627,7 @@ async fn check_wip101_broken_erc165(kind: RpModuleKind) -> eyre::Result<()> {
     // deploy success
 
     let wip101_instance =
-        WIP101BrokenERC165::deploy(setup.request_authenticator.rpc_provider.http())
+        WIP101BrokenERC165::deploy(setup.request_authenticator.rpc_provider.inner())
             .await
             .expect("Should be able to deploy contract");
     setup.wip101_test(*wip101_instance.address()).await;
@@ -652,7 +653,7 @@ async fn check_wip101_no_erc165(kind: RpModuleKind) -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new(kind).await?;
     // deploy success
 
-    let wip101_instance = NoERC165::deploy(setup.request_authenticator.rpc_provider.http())
+    let wip101_instance = NoERC165::deploy(setup.request_authenticator.rpc_provider.inner())
         .await
         .expect("Should be able to deploy contract");
     setup.wip101_test(*wip101_instance.address()).await;
@@ -677,7 +678,7 @@ async fn check_wip101_no_verify_rp_request(kind: RpModuleKind) -> eyre::Result<(
     let mut setup = RpModuleTestSetup::new(kind).await?;
     // deploy success
 
-    let wip101_instance = NoWIP101::deploy(setup.request_authenticator.rpc_provider.http())
+    let wip101_instance = NoWIP101::deploy(setup.request_authenticator.rpc_provider.inner())
         .await
         .expect("Should be able to deploy contract");
     setup.wip101_test(*wip101_instance.address()).await;
@@ -702,7 +703,7 @@ async fn check_wip101_wrong_method_signature(kind: RpModuleKind) -> eyre::Result
     let mut setup = RpModuleTestSetup::new(kind).await?;
     // deploy success
 
-    let wip101_instance = WrongSignature::deploy(setup.request_authenticator.rpc_provider.http())
+    let wip101_instance = WrongSignature::deploy(setup.request_authenticator.rpc_provider.inner())
         .await
         .expect("Should be able to deploy contract");
     setup.wip101_test(*wip101_instance.address()).await;
@@ -747,7 +748,7 @@ async fn check_wip101_verification_timeout(kind: RpModuleKind) -> eyre::Result<(
     let mut setup = RpModuleTestSetup::new(kind).await?;
 
     let wip101_instance =
-        WIP101TimeoutVerify::deploy(setup.request_authenticator.rpc_provider.http())
+        WIP101TimeoutVerify::deploy(setup.request_authenticator.rpc_provider.inner())
             .await
             .expect("Should be able to deploy contract");
     setup.wip101_test(*wip101_instance.address()).await;
@@ -775,7 +776,7 @@ async fn check_wip101_account_check_timeout(kind: RpModuleKind) -> eyre::Result<
         .rp_registry_watcher
         .set_timeout_external_eth_call(Duration::from_secs(0));
     let wip101_instance =
-        WIP101TimeoutERC165::deploy(setup.request_authenticator.rpc_provider.http())
+        WIP101TimeoutERC165::deploy(setup.request_authenticator.rpc_provider.inner())
             .await
             .expect("Should be able to deploy contract");
     setup.wip101_test(*wip101_instance.address()).await;
@@ -797,7 +798,7 @@ async fn check_wip101_account_check_timeout(kind: RpModuleKind) -> eyre::Result<
 
 async fn check_wip101_aux_data_too_large(kind: RpModuleKind) -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new(kind).await?;
-    let wip101_instance = WIP101Correct::deploy(setup.request_authenticator.rpc_provider.http())
+    let wip101_instance = WIP101Correct::deploy(setup.request_authenticator.rpc_provider.inner())
         .await
         .expect("Should be able to deploy contract");
     // 1025 bytes exceeds MAX_AUX_DATA_SIZE (1024)

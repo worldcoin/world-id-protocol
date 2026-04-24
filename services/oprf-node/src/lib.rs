@@ -28,10 +28,10 @@
 //! For details on the OPRF protocol, see the [design document](https://github.com/TaceoLabs/nullifier-oracle-service/blob/491416de204dcad8d46ee1296d59b58b5be54ed9/docs/oprf.pdf).
 use std::sync::Arc;
 
+use alloy::providers::{DynProvider, Provider as _, ProviderBuilder, WsConnect};
 use ark_bn254::Bn254;
 use circom_types::groth16::VerificationKey;
 use eyre::Context;
-use taceo_nodes_common::web3;
 use taceo_oprf::service::{
     OprfServiceBuilder, StartedServices, secret_manager::SecretManagerService,
 };
@@ -41,8 +41,10 @@ use world_id_primitives::oprf::OprfModule;
 use crate::{
     auth::{
         credential_blinding_factor::CredentialBlindingFactorModuleAuth,
-        merkle_watcher::MerkleWatcher, nonce_history::NonceHistory, rp_module::RpModuleAuth,
-        rp_registry_watcher::RpRegistryWatcher,
+        merkle_watcher::MerkleWatcher,
+        nonce_history::NonceHistory,
+        rp_module::RpModuleAuth,
+        rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherArgs},
         schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
     },
     config::WorldOprfNodeConfig,
@@ -62,10 +64,10 @@ pub struct WorldOprfNodeTasks {
     merkle_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
     rp_registry_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
     schema_issuer_registry_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
-    // We also store the RpcProvider here.
+    // We also store the web-socket RPC provider here.
     //
     // We want it to live at least as long as the sub-tasks need to complete their graceful shutdown.
-    _rpc_provider: web3::RpcProvider,
+    _ws_rpc_provider: DynProvider,
 }
 
 impl WorldOprfNodeTasks {
@@ -148,17 +150,23 @@ pub async fn start(
     let started_services = StartedServices::default();
 
     tracing::info!("connecting to RPC..");
-    let rpc_provider =
-        taceo_nodes_common::web3::RpcProviderBuilder::with_config(&config.rpc_provider_config)
+    let http_rpc_provider =
+        taceo_nodes_common::web3::HttpRpcProviderBuilder::with_config(&config.rpc_provider_config)
             .environment(node_config.environment)
             .build()
-            .await
             .context("while init blockchain connection")?;
+
+    let ws_rpc_provider = ProviderBuilder::new()
+        .connect_ws(WsConnect::new(node_config.ws_rpc_url.clone()))
+        .await
+        .context("while connecting ws provider")?
+        .erased();
 
     tracing::info!("init merkle watcher..");
     let (merkle_watcher, merkle_watcher_task) = MerkleWatcher::init(
         config.world_id_registry_contract,
-        &rpc_provider,
+        &http_rpc_provider,
+        &ws_rpc_provider,
         config.max_merkle_cache_size,
         config.cache_maintenance_interval,
         started_services.new_service(),
@@ -168,17 +176,19 @@ pub async fn start(
     .context("while starting merkle watcher")?;
 
     tracing::info!("init RpRegistry watcher..");
-    let (rp_registry_watcher, rp_registry_watcher_task) = RpRegistryWatcher::init(
-        config.rp_registry_contract,
-        rpc_provider.clone(),
-        config.rp_cache_config,
-        config.cache_maintenance_interval,
-        config.timeout_external_eth_call,
-        started_services.new_service(),
-        cancellation_token.clone(),
-    )
-    .await
-    .context("while starting rp registry watcher")?;
+    let (rp_registry_watcher, rp_registry_watcher_task) =
+        RpRegistryWatcher::init(RpRegistryWatcherArgs {
+            contract_address: config.rp_registry_contract,
+            http_rpc_provider: http_rpc_provider.clone(),
+            ws_rpc_provider: &ws_rpc_provider,
+            cache_config: config.rp_cache_config,
+            maintenance_interval: config.cache_maintenance_interval,
+            timeout_external_eth_call: config.timeout_external_eth_call,
+            started: started_services.new_service(),
+            cancellation_token: cancellation_token.clone(),
+        })
+        .await
+        .context("while starting rp registry watcher")?;
 
     let query_vk = serde_json::from_str::<VerificationKey<Bn254>>(QUERY_VERIFICATION_KEY)
         .expect("can deserialize embedded vk");
@@ -195,7 +205,7 @@ pub async fn start(
         ),
         config.current_time_stamp_max_difference,
         config.timeout_external_eth_call,
-        rpc_provider.clone(),
+        http_rpc_provider.clone(),
         Arc::clone(&query_vk),
     ));
 
@@ -212,7 +222,7 @@ pub async fn start(
         ),
         config.current_time_stamp_max_difference,
         config.timeout_external_eth_call,
-        rpc_provider.clone(),
+        http_rpc_provider.clone(),
         Arc::clone(&query_vk),
     ));
 
@@ -220,7 +230,8 @@ pub async fn start(
     let (schema_issuer_registry_watcher, schema_issuer_registry_watcher_task) =
         SchemaIssuerRegistryWatcher::init(
             config.credential_schema_issuer_registry_contract,
-            &rpc_provider,
+            &http_rpc_provider,
+            &ws_rpc_provider,
             config.issuer_cache_config,
             config.cache_maintenance_interval,
             started_services.new_service(),
@@ -241,7 +252,7 @@ pub async fn start(
     let (router, key_event_watcher) = OprfServiceBuilder::init(
         node_config,
         secret_manager,
-        rpc_provider.clone(),
+        http_rpc_provider.clone(),
         started_services,
         cancellation_token.clone(),
     )
@@ -264,7 +275,7 @@ pub async fn start(
         merkle_watcher: merkle_watcher_task,
         rp_registry_watcher: rp_registry_watcher_task,
         schema_issuer_registry_watcher: schema_issuer_registry_watcher_task,
-        _rpc_provider: rpc_provider,
+        _ws_rpc_provider: ws_rpc_provider,
     };
 
     Ok((router, tasks))

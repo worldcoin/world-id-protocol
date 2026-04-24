@@ -45,7 +45,7 @@ impl GasEstimateWithFallbackFiller {
 impl<N> TxFiller<N> for GasEstimateWithFallbackFiller
 where
     N: Network,
-    N::TransactionRequest: TransactionBuilder<N>,
+    N::TransactionRequest: TransactionBuilder,
 {
     type Fillable = u64;
 
