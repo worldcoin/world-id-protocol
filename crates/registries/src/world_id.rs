@@ -95,7 +95,9 @@ mod sol_types {
         /// EIP-712 typed-data payload for `cancelRecoveryAgentUpdate`.
         ///
         /// Matches `CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH` on the contract:
-        /// `CancelRecoveryAgentUpdate(uint64 leafIndex,uint256 nonce)`
+        /// `CancelRecoveryAgentUpdate(uint64 leafIndex,uint256 nonce)`.
+        /// WIP-102 reuses this same typehash on `revertRecoveryAgentUpdate`
+        /// entry point so pre-upgrade signatures remain valid post-upgrade.
         struct CancelRecoveryAgentUpdate {
             uint64 leafIndex;
             uint256 nonce;
@@ -112,8 +114,10 @@ pub type RemoveAuthenticatorTypedData = sol_types::RemoveAuthenticator;
 /// EIP-712 typed-data signature payload for `recoverAccount`.
 pub type RecoverAccountTypedData = sol_types::RecoverAccount;
 /// EIP-712 typed-data signature payload for `initiateRecoveryAgentUpdate`.
+/// Also used by V2 `updateRecoveryAgent` (WIP-102 — reuses the V1 typehash).
 pub type InitiateRecoveryAgentUpdateTypedData = sol_types::InitiateRecoveryAgentUpdate;
 /// EIP-712 typed-data signature payload for `cancelRecoveryAgentUpdate`.
+/// Also used by V2 `revertRecoveryAgentUpdate` (WIP-102 — reuses the V1 typehash).
 pub type CancelRecoveryAgentUpdateTypedData = sol_types::CancelRecoveryAgentUpdate;
 
 /// Returns the EIP-712 domain used by the `[WorldIdRegistry]` contract
@@ -277,8 +281,8 @@ pub fn sign_cancel_recovery_agent_update<S: SignerSync + Sync>(
     let digest = payload.eip712_signing_hash(domain);
     Ok(signer.sign_hash_sync(&digest)?)
 }
-
 #[cfg(test)]
+
 mod tests {
     use super::*;
     use alloy::{
