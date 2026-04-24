@@ -16,11 +16,14 @@ use world_id_core::{
     world_id_registry::{
         CancelRecoveryAgentUpdateTypedData, InitiateRecoveryAgentUpdateTypedData,
         InsertAuthenticatorTypedData, RecoverAccountTypedData, RemoveAuthenticatorTypedData,
-        UpdateAuthenticatorTypedData,
+        UpdateAuthenticatorTypedData, WorldIdRegistryV2::WorldIdRegistryV2Instance,
     },
 };
 
-use crate::{request::Registry, types::MAX_AUTHENTICATORS};
+use crate::{
+    request::{Registry, RevertRecoveryAgentUpdateRequest, UpdateRecoveryAgentV2Request},
+    types::MAX_AUTHENTICATORS,
+};
 
 /// Global OnceCell to store the chain ID.
 pub static CHAIN_ID: OnceCell<u64> = OnceCell::const_new();
@@ -501,6 +504,56 @@ impl RequestValidation for ExecuteRecoveryAgentUpdateRequest {
             .executeRecoveryAgentUpdate(self.leaf_index)
             .calldata()
             .clone()
+    }
+}
+
+// =============================================================================
+// V2 Recovery Agent flow (WIP-102): reuses V1 typehashes; targets V2 selectors.
+// `pre_flight` delegates to the inner V1 request since the field checks and
+// EIP-712 digest are identical — only the contract selector differs.
+// =============================================================================
+impl RequestValidation for UpdateRecoveryAgentV2Request {
+    fn pre_flight(
+        &self,
+        chain_id: u64,
+        verifying_contract: Address,
+    ) -> Result<(), GatewayErrorResponse> {
+        self.0.pre_flight(chain_id, verifying_contract)
+    }
+
+    fn calldata(&self, registry: &Registry) -> Bytes {
+        let v2 = WorldIdRegistryV2Instance::new(*registry.address(), registry.provider().clone());
+        let inner = &self.0;
+        v2.updateRecoveryAgent(
+            inner.leaf_index,
+            inner.new_recovery_agent,
+            Bytes::copy_from_slice(&inner.signature.as_bytes()),
+            inner.nonce,
+        )
+        .calldata()
+        .clone()
+    }
+}
+
+impl RequestValidation for RevertRecoveryAgentUpdateRequest {
+    fn pre_flight(
+        &self,
+        chain_id: u64,
+        verifying_contract: Address,
+    ) -> Result<(), GatewayErrorResponse> {
+        self.0.pre_flight(chain_id, verifying_contract)
+    }
+
+    fn calldata(&self, registry: &Registry) -> Bytes {
+        let v2 = WorldIdRegistryV2Instance::new(*registry.address(), registry.provider().clone());
+        let inner = &self.0;
+        v2.revertRecoveryAgentUpdate(
+            inner.leaf_index,
+            Bytes::copy_from_slice(&inner.signature.as_bytes()),
+            inner.nonce,
+        )
+        .calldata()
+        .clone()
     }
 }
 
