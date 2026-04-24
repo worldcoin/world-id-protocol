@@ -178,17 +178,14 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let (_postgres, connection_string) = taceo_oprf_test_utils::postgres_testcontainer().await?;
 
-    let (key_gen_secret_managers, node_secret_managers) =
-        world_id_test_utils::stubs::init_test_secret_managers(connection_string.into()).await?;
+    let node_secret_managers =
+        world_id_test_utils::stubs::init_test_secret_managers(connection_string.clone().into())
+            .await?;
 
     // OPRF key-gen instances
-    let oprf_key_gens = world_id_test_utils::stubs::spawn_key_gens(
-        anvil.endpoint(),
-        anvil.ws_endpoint(),
-        key_gen_secret_managers,
-        oprf_key_registry,
-    )
-    .await;
+    let oprf_key_gens =
+        world_id_test_utils::stubs::spawn_key_gens(&anvil, &connection_string, oprf_key_registry)
+            .await?;
 
     // OPRF nodes
     let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
@@ -202,7 +199,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     .await;
 
     health_checks::services_health_check(&nodes, Duration::from_secs(60)).await?;
-    health_checks::services_health_check(&oprf_key_gens, Duration::from_secs(60)).await?;
+    health_checks::services_health_check(&oprf_key_gens.urls, Duration::from_secs(60)).await?;
     info!("oprf nodes and key-gen services passed health checks");
 
     // Register an issuer which also triggers a OPRF key-gen.
