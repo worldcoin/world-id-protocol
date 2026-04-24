@@ -2,9 +2,9 @@
 
 use std::time::Duration;
 
-use alloy::primitives::Address;
+use alloy::{primitives::Address, transports::http::reqwest::Url};
 use serde::Deserialize;
-use taceo_nodes_common::web3::{self, RpcProviderConfig};
+use taceo_nodes_common::web3::{self};
 use taceo_oprf::service::{VersionReq, config::OprfNodeServiceConfig};
 
 /// The configuration for the OPRF node.
@@ -28,7 +28,7 @@ pub struct WorldOprfNodeConfig {
 
     /// The blockchain RPC config
     #[serde(rename = "rpc")]
-    pub rpc_provider_config: web3::RpcProviderConfig,
+    pub rpc_provider_config: web3::HttpRpcProviderConfig,
 
     /// Maximum size of the Merkle cache
     #[serde(default = "WorldOprfNodeConfig::default_max_merkle_cache_size")]
@@ -153,7 +153,8 @@ impl WorldOprfNodeConfig {
         environment: taceo_oprf::service::Environment,
         contracts: WorldIdNodeContracts,
         version_req: VersionReq,
-        rpc_provider_config: RpcProviderConfig,
+        rpc_provider_config: web3::HttpRpcProviderConfig,
+        ws_rpc_url: Url,
     ) -> Self {
         let WorldIdNodeContracts {
             world_id_registry_contract,
@@ -173,6 +174,7 @@ impl WorldOprfNodeConfig {
             node_config: OprfNodeServiceConfig::with_default_values(
                 environment,
                 oprf_key_registry_contract,
+                ws_rpc_url.clone(),
                 version_req,
             ),
             rp_cache_config: WatcherCacheConfig::with_default_values(),

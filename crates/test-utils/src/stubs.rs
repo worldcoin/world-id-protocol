@@ -8,7 +8,7 @@ use secrecy::SecretString;
 use semver::VersionReq;
 use taceo_nodes_common::postgres::PostgresConfig;
 use taceo_oprf::service::{
-    secret_manager::SecretManagerService as NodeSecretManagerService, web3::RpcProviderConfig,
+    secret_manager::SecretManagerService as NodeSecretManagerService, web3::HttpRpcProviderConfig,
 };
 use taceo_oprf_key_gen::{
     StartedServices,
@@ -227,12 +227,13 @@ async fn spawn_orpf_node(
         taceo_oprf::service::Environment::Dev,
         contracts,
         VersionReq::STAR,
-        RpcProviderConfig::with_default_values(vec![anvil_http], anvil_ws),
+        HttpRpcProviderConfig::with_default_values(vec![anvil_http]),
+        anvil_ws,
     );
 
     tokio::spawn(async move {
         let cancellation_token = CancellationToken::new();
-        let (router, _) =
+        let (router, _tasks) =
             world_id_oprf_node::start(config, secret_manager, cancellation_token.clone())
                 .await
                 .expect("Can start");
@@ -345,10 +346,10 @@ async fn spawn_key_gen(
             witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.25.bin"),
             expected_threshold,
             expected_num_peers,
-            rpc_provider_config: RpcProviderConfig::with_default_values(
-                vec![chain_http_rpc_url.parse().expect("Is a valid URL")],
-                chain_ws_rpc_url.parse().expect("Is a valid URL"),
-            ),
+            rpc_provider_config: HttpRpcProviderConfig::with_default_values(vec![
+                chain_http_rpc_url.parse().expect("Is a valid URL"),
+            ]),
+            ws_rpc_url: chain_ws_rpc_url.parse().expect("Is a valid URL"),
         },
     );
 

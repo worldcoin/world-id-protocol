@@ -46,11 +46,11 @@ impl RelyingParty {
         &self,
         action: ark_babyjubjub::Fq,
         auth: &NullifierOprfRequestAuthV1,
-        rpc_provider: &web3::RpcProvider,
+        rpc_provider: &web3::HttpRpcProvider,
         timeout: Duration,
     ) -> Result<(), RpModuleError> {
         tracing::trace!("RP signer is WIP101");
-        let iwip101 = IWIP101Instance::new(self.signer, rpc_provider.http());
+        let iwip101 = IWIP101Instance::new(self.signer, rpc_provider.inner());
 
         if auth
             .wip101_data
@@ -108,7 +108,7 @@ impl RelyingParty {
 #[instrument(level = "debug", skip_all, fields(signer=%signer))]
 pub(crate) async fn account_check(
     signer: Address,
-    rpc_provider: &web3::RpcProvider,
+    rpc_provider: &web3::HttpRpcProvider,
 ) -> eyre::Result<RpAccountType> {
     tracing::trace!("performing wip101 check on {signer}");
     let erc165_check = rpc_provider

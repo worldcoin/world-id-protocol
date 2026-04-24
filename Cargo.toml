@@ -72,9 +72,9 @@ itertools = "0.14"
 k256 = { version = "0.13" }
 sha2 = { version = "0.11", default-features = false }
 taceo-groth16-sol = { version = "0.3.1" }
-taceo-oprf = { version = "0.12.1", default-features = false }
-taceo-oprf-test-utils = { version = "0.10", default-features = false }
-taceo-oprf-key-gen = { version = "0.9" }
+taceo-oprf = { version = "0.13.0", default-features = false }
+taceo-oprf-test-utils = { version = "0.11", default-features = false }
+taceo-oprf-key-gen = { version = "0.10" }
 telemetry-batteries = "0.2"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }
@@ -139,7 +139,7 @@ testcontainers-modules = { version = "0.15", features = ["redis"] }
 sqlx = "0.8"
 take_mut = "0.2.2"
 tar = "0.4"
-taceo-nodes-common = { version = "0.4.4", default-features=false }
+taceo-nodes-common = { version = "0.5.1", default-features=false }
 taceo-nodes-observability = "0.1"
 tempfile = "3"
 tokio-util = "0.7"
@@ -166,9 +166,3 @@ world-id-relay = { path = "services/relay" }
 [profile.dev.package."*"]
 opt-level = 2
 
-# Force all `alloy = "1.x"` requests from external crates (taceo-nodes-common,
-# taceo-oprf-test-utils, taceo-oprf-key-gen) to resolve to alloy 2.x so the
-# whole workspace links against a single alloy version.
-[patch.crates-io]
-alloy = { git = "https://github.com/alloy-rs/alloy", tag = "v2.0.1" }
-alloy-node-bindings = { git = "https://github.com/alloy-rs/alloy", tag = "v2.0.1" }

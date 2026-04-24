@@ -102,7 +102,8 @@ impl MerkleWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
-        rpc_provider: &web3::RpcProvider,
+        http_rpc_provider: &web3::HttpRpcProvider,
+        ws_rpc_provider: &DynProvider,
         max_merkle_cache_size: u64,
         cache_maintenance_interval: Duration,
         started: Arc<AtomicBool>,
@@ -115,7 +116,7 @@ impl MerkleWatcher {
             "max merkle cache size must be > 0"
         );
 
-        let contract = WorldIdRegistry::new(contract_address, rpc_provider.http());
+        let contract = WorldIdRegistry::new(contract_address, http_rpc_provider.inner());
 
         let merkle_root_cache = Cache::builder()
             .max_capacity(max_merkle_cache_size)
@@ -130,11 +131,7 @@ impl MerkleWatcher {
                 RootRecorded::SIGNATURE_HASH,
                 RootValidityWindowUpdated::SIGNATURE_HASH,
             ]);
-        let subscription = rpc_provider
-            .subscriptions()
-            .subscribe_logs(&filter)
-            .await?
-            .into_stream();
+        let subscription = ws_rpc_provider.subscribe_logs(&filter).await?.into_stream();
 
         let get_latest_root = contract.getLatestRoot();
         let get_root_validity_window = contract.getRootValidityWindow();
@@ -338,7 +335,7 @@ async fn subscribe_task(
 
 #[cfg(test)]
 mod tests {
-    use crate::auth::tests::build_rpc_provider;
+    use crate::auth::tests::{build_http_provider, build_ws_provider};
 
     use super::*;
     use alloy::primitives::{U256, address};
@@ -394,11 +391,13 @@ mod tests {
         let started_services = StartedServices::default();
 
         let cancellation_token = CancellationToken::new();
-        let rpc_provider = build_rpc_provider(&anvil.instance).await;
+        let http_rpc_provider = build_http_provider(&anvil.instance);
+        let ws_rpc_provider = build_ws_provider(&anvil.instance).await;
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            &rpc_provider,
+            &http_rpc_provider,
+            &ws_rpc_provider,
             100,
             Duration::from_secs(3600),
             started_services.new_service(),
@@ -442,11 +441,13 @@ mod tests {
         let started_services = StartedServices::default();
 
         let cancellation_token = CancellationToken::new();
-        let rpc_provider = build_rpc_provider(&anvil.instance).await;
+        let http_rpc_provider = build_http_provider(&anvil.instance);
+        let ws_rpc_provider = build_ws_provider(&anvil.instance).await;
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            &rpc_provider,
+            &http_rpc_provider,
+            &ws_rpc_provider,
             100,
             Duration::from_secs(1),
             started_services.new_service(),
@@ -509,11 +510,13 @@ mod tests {
         let started_services = StartedServices::default();
 
         let cancellation_token = CancellationToken::new();
-        let rpc_provider = build_rpc_provider(&anvil.instance).await;
+        let http_rpc_provider = build_http_provider(&anvil.instance);
+        let ws_rpc_provider = build_ws_provider(&anvil.instance).await;
 
         let (merkle_watcher, _) = MerkleWatcher::init(
             registry_address,
-            &rpc_provider,
+            &http_rpc_provider,
+            &ws_rpc_provider,
             100,
             Duration::from_secs(1),
             started_services.new_service(),

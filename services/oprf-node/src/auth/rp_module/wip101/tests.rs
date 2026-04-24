@@ -223,8 +223,8 @@ alloy::sol!(
 #[tokio::test]
 async fn test_confirm_success() {
     let anvil = Anvil::new().spawn();
-    let rpc_provider = auth::tests::build_rpc_provider(&anvil).await;
-    let wip101_instance = WIP101Correct::deploy(rpc_provider.http())
+    let rpc_provider = auth::tests::build_http_provider(&anvil);
+    let wip101_instance = WIP101Correct::deploy(rpc_provider.inner())
         .await
         .expect("Should be able to deploy contract");
     let rp_type = super::account_check(*wip101_instance.address(), &rpc_provider)
@@ -237,7 +237,7 @@ async fn test_confirm_success() {
 #[tokio::test]
 async fn test_no_contract() {
     let anvil = Anvil::new().spawn();
-    let rpc_provider = auth::tests::build_rpc_provider(&anvil).await;
+    let rpc_provider = auth::tests::build_http_provider(&anvil);
     let zero_address = alloy::primitives::address!("0x0000000000000000000000000000000000000000");
 
     let rp_type = super::account_check(zero_address, &rpc_provider)
@@ -250,8 +250,8 @@ async fn test_no_contract() {
 #[tokio::test]
 async fn test_contract_broken_erc165() {
     let anvil = Anvil::new().spawn();
-    let rpc_provider = auth::tests::build_rpc_provider(&anvil).await;
-    let wip101_instance = WIP101BrokenERC165::deploy(rpc_provider.http())
+    let rpc_provider = auth::tests::build_http_provider(&anvil);
+    let wip101_instance = WIP101BrokenERC165::deploy(rpc_provider.inner())
         .await
         .expect("Should be able to deploy contract");
 
@@ -265,8 +265,8 @@ async fn test_contract_broken_erc165() {
 #[tokio::test]
 async fn test_contract_no_method() {
     let anvil = Anvil::new().spawn();
-    let rpc_provider = auth::tests::build_rpc_provider(&anvil).await;
-    let wip101_instance = NoERC165::deploy(rpc_provider.http())
+    let rpc_provider = auth::tests::build_http_provider(&anvil);
+    let wip101_instance = NoERC165::deploy(rpc_provider.inner())
         .await
         .expect("Should be able to deploy contract");
 

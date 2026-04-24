@@ -82,20 +82,35 @@ pub(crate) struct RpRegistryWatcher {
     rp_store: Cache<RpId, RelyingParty>,
     contract: RpRegistryInstance<DynProvider>,
     timeout_external_eth_call: Duration,
-    rpc_provider: web3::RpcProvider,
+    http_rpc_provider: web3::HttpRpcProvider,
+}
+
+pub(crate) struct RpRegistryWatcherArgs<'a> {
+    pub(crate) contract_address: Address,
+    pub(crate) http_rpc_provider: web3::HttpRpcProvider,
+    pub(crate) ws_rpc_provider: &'a DynProvider,
+    pub(crate) cache_config: WatcherCacheConfig,
+    pub(crate) maintenance_interval: Duration,
+    pub(crate) timeout_external_eth_call: Duration,
+    pub(crate) started: Arc<AtomicBool>,
+    pub(crate) cancellation_token: CancellationToken,
 }
 
 impl RpRegistryWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
-        contract_address: Address,
-        rpc_provider: web3::RpcProvider,
-        cache_config: WatcherCacheConfig,
-        maintenance_interval: Duration,
-        timeout_external_eth_call: Duration,
-        started: Arc<AtomicBool>,
-        cancellation_token: CancellationToken,
+        args: RpRegistryWatcherArgs<'_>,
     ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
+        let RpRegistryWatcherArgs {
+            contract_address,
+            http_rpc_provider,
+            ws_rpc_provider,
+            cache_config,
+            maintenance_interval,
+            timeout_external_eth_call,
+            started,
+            cancellation_token,
+        } = args;
         ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).set(0.0);
 
         tracing::info!("listening for events...");
@@ -103,7 +118,7 @@ impl RpRegistryWatcher {
             .address(contract_address)
             .from_block(BlockNumberOrTag::Latest)
             .event_signature(RpUpdated::SIGNATURE_HASH);
-        let sub = rpc_provider.subscriptions().subscribe_logs(&filter).await?;
+        let sub = ws_rpc_provider.subscribe_logs(&filter).await?;
         let stream = sub.into_stream();
 
         // indicate that the RpRegistry watcher has started
@@ -147,9 +162,9 @@ impl RpRegistryWatcher {
 
         let rp_registry = Self {
             rp_store,
-            contract: RpRegistry::new(contract_address, rpc_provider.http()),
+            contract: RpRegistry::new(contract_address, http_rpc_provider.inner()),
             timeout_external_eth_call,
-            rpc_provider,
+            http_rpc_provider,
         };
 
         Ok((rp_registry, subscribe_task))
@@ -164,7 +179,7 @@ impl RpRegistryWatcher {
             .rp_store
             .try_get_with(*rp_id, {
                 let contract = self.contract.clone();
-                let rpc_provider = self.rpc_provider.clone();
+                let rpc_provider = self.http_rpc_provider.clone();
                 async {
                     try_load_rp_from_chain(
                         *rp_id,
@@ -185,7 +200,7 @@ async fn try_load_rp_from_chain(
     rp_id: RpId,
     contract: RpRegistryInstance<DynProvider>,
     timeout_external_eth_call: Duration,
-    rpc_provider: web3::RpcProvider,
+    rpc_provider: web3::HttpRpcProvider,
 ) -> Result<RelyingParty, RpRegistryWatcherError> {
     tracing::trace!("rp {rp_id} not found in store, querying RpRegistry...");
     let rp = match contract.getRp(rp_id.into_inner()).call().await {
@@ -280,8 +295,10 @@ mod tests {
 
     use crate::{
         auth::{
-            rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
-            tests::build_rpc_provider,
+            rp_registry_watcher::{
+                RpRegistryWatcher, RpRegistryWatcherArgs, RpRegistryWatcherError,
+            },
+            tests::{build_http_provider, build_ws_provider},
         },
         config::WatcherCacheConfig,
     };
@@ -300,17 +317,19 @@ mod tests {
         } = RegistryTestContext::new_with_mock_oprf_key_registry()
             .await
             .expect("Should be able to create test-fixture");
-        let rpc_provider = build_rpc_provider(&anvil.instance).await;
+        let http_rpc_provider = build_http_provider(&anvil.instance);
+        let ws_rpc_provider = build_ws_provider(&anvil.instance).await;
 
-        let (watcher, _) = RpRegistryWatcher::init(
-            rp_registry,
-            rpc_provider,
-            WatcherCacheConfig::default(),
-            Duration::from_secs(60),
-            Duration::from_secs(0), // timeout set to zero
-            Arc::new(AtomicBool::default()),
-            CancellationToken::new(),
-        )
+        let (watcher, _) = RpRegistryWatcher::init(RpRegistryWatcherArgs {
+            contract_address: rp_registry,
+            http_rpc_provider,
+            ws_rpc_provider: &ws_rpc_provider,
+            cache_config: WatcherCacheConfig::default(),
+            maintenance_interval: Duration::from_secs(60),
+            timeout_external_eth_call: Duration::from_secs(0), // timeout set to zero
+            started: Arc::new(AtomicBool::default()),
+            cancellation_token: CancellationToken::new(),
+        })
         .await
         .expect("Should be able to start registry watcher");
 

@@ -54,13 +54,14 @@ mod tests {
     use alloy::{
         node_bindings::AnvilInstance,
         primitives::{Address, U256},
+        providers::{DynProvider, Provider, ProviderBuilder, WsConnect},
         signers::local::LocalSigner,
     };
     use ark_serialize::CanonicalSerialize;
     use eddsa_babyjubjub::EdDSAPrivateKey;
     use rand::Rng;
     use secrecy::ExposeSecret as _;
-    use taceo_nodes_common::web3::{self, RpcProviderBuilder};
+    use taceo_nodes_common::web3::{self, HttpRpcProviderBuilder};
     use taceo_oprf::{core::oprf::BlindingFactor, service::StartedServices};
     use tokio_util::sync::CancellationToken;
     use world_id_primitives::{
@@ -75,8 +76,9 @@ mod tests {
 
     use crate::{
         auth::{
-            merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
-            rp_registry_watcher::RpRegistryWatcher,
+            merkle_watcher::MerkleWatcher,
+            nonce_history::NonceHistory,
+            rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherArgs},
             schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
         },
         config::WatcherCacheConfig,
@@ -95,22 +97,21 @@ mod tests {
         pub(crate) signer: Signer,
     }
 
-    pub(crate) async fn build_rpc_provider(anvil: &AnvilInstance) -> web3::RpcProvider {
-        let http_url = anvil
-            .endpoint()
-            .parse()
-            .expect("anvil should have valid http url");
-        let ws_url = anvil
-            .ws_endpoint()
-            .parse()
-            .expect("anvil should have valid ws url");
-        RpcProviderBuilder::with_default_values(vec![http_url], ws_url)
+    pub(crate) fn build_http_provider(anvil: &AnvilInstance) -> web3::HttpRpcProvider {
+        HttpRpcProviderBuilder::with_default_values(vec![anvil.endpoint_url()])
             .environment(taceo_nodes_common::Environment::Dev)
             .chain_id(31_337)
             .wallet(anvil.wallet().expect("Should have signer wallet"))
             .build()
-            .await
             .expect("can build RPC providers")
+    }
+
+    pub(crate) async fn build_ws_provider(anvil: &AnvilInstance) -> DynProvider {
+        ProviderBuilder::new()
+            .connect_ws(WsConnect::new(anvil.ws_endpoint_url()).with_max_retries(0))
+            .await
+            .expect("Should be able to ws connect to anvil")
+            .erased()
     }
 
     impl OprfRequestAuthTestSetup {
@@ -221,7 +222,8 @@ mod tests {
         pub(crate) nonce_history: NonceHistory,
         pub(crate) current_time_stamp_max_difference: Duration,
         pub(crate) timeout_external_eth_call: Duration,
-        pub(crate) rpc_provider: web3::RpcProvider,
+        pub(crate) http_rpc_provider: web3::HttpRpcProvider,
+        pub(crate) _ws_rpc_provider: DynProvider,
     }
 
     impl AuthModulesTestSetup {
@@ -235,11 +237,14 @@ mod tests {
             let started_services = StartedServices::default();
             let cancellation_token = CancellationToken::new();
 
-            let rpc_provider = build_rpc_provider(&setup.anvil.instance).await;
+            let http_rpc_provider = build_http_provider(&setup.anvil.instance);
+
+            let ws_rpc_provider = build_ws_provider(&setup.anvil.instance).await;
 
             let (merkle_watcher, _) = MerkleWatcher::init(
                 setup.world_id_registry,
-                &rpc_provider,
+                &http_rpc_provider,
+                &ws_rpc_provider,
                 max_cache_size,
                 cache_maintenance_interval,
                 started_services.new_service(),
@@ -247,20 +252,22 @@ mod tests {
             )
             .await?;
 
-            let (rp_registry_watcher, _) = RpRegistryWatcher::init(
-                setup.rp_registry,
-                rpc_provider.clone(),
-                WatcherCacheConfig::default(),
-                cache_maintenance_interval,
+            let (rp_registry_watcher, _) = RpRegistryWatcher::init(RpRegistryWatcherArgs {
+                contract_address: setup.rp_registry,
+                http_rpc_provider: http_rpc_provider.clone(),
+                ws_rpc_provider: &ws_rpc_provider,
+                cache_config: WatcherCacheConfig::default(),
+                maintenance_interval: cache_maintenance_interval,
                 timeout_external_eth_call,
-                started_services.new_service(),
-                cancellation_token.clone(),
-            )
+                started: started_services.new_service(),
+                cancellation_token: cancellation_token.clone(),
+            })
             .await?;
 
             let (schema_issuer_registry_watcher, _) = SchemaIssuerRegistryWatcher::init(
                 setup.credential_schema_issuer_registry,
-                &rpc_provider,
+                &http_rpc_provider,
+                &ws_rpc_provider,
                 WatcherCacheConfig::default(),
                 cache_maintenance_interval,
                 started_services.new_service(),
@@ -281,7 +288,8 @@ mod tests {
                 nonce_history,
                 current_time_stamp_max_difference,
                 timeout_external_eth_call,
-                rpc_provider,
+                http_rpc_provider,
+                _ws_rpc_provider: ws_rpc_provider,
             })
         }
 
