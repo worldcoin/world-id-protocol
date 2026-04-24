@@ -194,6 +194,12 @@ impl RpRegistryWatcher {
         tracing::trace!("returning {rp_id}/{}", rp.account_type);
         Ok(rp)
     }
+
+    #[allow(dead_code, reason = "is only used in tests")]
+    #[cfg(test)]
+    pub(crate) fn set_timeout_external_eth_call(&mut self, duration: Duration) {
+        self.timeout_external_eth_call = duration;
+    }
 }
 
 async fn try_load_rp_from_chain(
@@ -280,81 +286,4 @@ async fn subscribe_task(
     }
     tracing::info!("Successfully shutdown RpRegistry");
     eyre::Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{
-        sync::{Arc, atomic::AtomicBool},
-        time::Duration,
-    };
-
-    use alloy::signers::local::LocalSigner;
-    use tokio_util::sync::CancellationToken;
-    use world_id_test_utils::fixtures::{self, RegistryTestContext};
-
-    use crate::{
-        auth::{
-            rp_registry_watcher::{
-                RpRegistryWatcher, RpRegistryWatcherArgs, RpRegistryWatcherError,
-            },
-            tests::{build_http_provider, build_ws_provider},
-        },
-        config::WatcherCacheConfig,
-    };
-
-    impl RpRegistryWatcher {
-        #[allow(dead_code, reason = "is only used in tests")]
-        pub(crate) fn set_timeout_external_eth_call(&mut self, duration: Duration) {
-            self.timeout_external_eth_call = duration;
-        }
-    }
-
-    #[tokio::test]
-    async fn test_timeout_wip101_account_check() -> eyre::Result<()> {
-        let RegistryTestContext {
-            anvil, rp_registry, ..
-        } = RegistryTestContext::new_with_mock_oprf_key_registry()
-            .await
-            .expect("Should be able to create test-fixture");
-        let http_rpc_provider = build_http_provider(&anvil.instance);
-        let ws_rpc_provider = build_ws_provider(&anvil.instance).await;
-
-        let (watcher, _) = RpRegistryWatcher::init(RpRegistryWatcherArgs {
-            contract_address: rp_registry,
-            http_rpc_provider,
-            ws_rpc_provider: &ws_rpc_provider,
-            cache_config: WatcherCacheConfig::default(),
-            maintenance_interval: Duration::from_secs(60),
-            timeout_external_eth_call: Duration::from_secs(0), // timeout set to zero
-            started: Arc::new(AtomicBool::default()),
-            cancellation_token: CancellationToken::new(),
-        })
-        .await
-        .expect("Should be able to start registry watcher");
-
-        let rp_fixture = fixtures::generate_rp_fixture();
-
-        // Register the RP which also triggers a OPRF key-gen.
-        let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
-        anvil
-            .register_rp(
-                rp_registry,
-                anvil.signer(0)?,
-                rp_fixture.world_rp_id,
-                rp_signer.address(),
-                rp_signer.address(),
-                "taceo.oprf".to_string(),
-            )
-            .await?;
-
-        let should_err = watcher
-            .get_rp(&rp_fixture.world_rp_id)
-            .await
-            .expect_err("Should be an error");
-        assert!(
-            matches!(should_err, RpRegistryWatcherError::Timeout(id) if id == rp_fixture.world_rp_id)
-        );
-        Ok(())
-    }
 }
