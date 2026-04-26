@@ -2,6 +2,10 @@
 //!
 //! Exercises `initiate-recovery-agent-update`, `cancel-recovery-agent-update`,
 //! and `execute-recovery-agent-update` through a real gateway ↔ anvil stack.
+//!
+//! TODO(WIP-102): delete this file together with the V1 legacy handlers once
+//! all clients have migrated to the V2 routes (covered by
+//! `test_recovery_agent_update_v2.rs`).
 
 use std::{future::Future, time::Duration};
 

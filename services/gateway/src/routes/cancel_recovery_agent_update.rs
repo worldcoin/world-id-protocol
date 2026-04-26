@@ -15,6 +15,9 @@ use world_id_core::api_types::{CancelRecoveryAgentUpdateRequest, GatewayStatusRe
 ///
 /// Legacy URL. Pre-V2: cancels a pending recovery agent update. Post-V2:
 /// translates into a WIP-102 `revertRecoveryAgentUpdate`.
+///
+/// TODO(WIP-102): remove this handler and its route once all clients have
+/// migrated to `POST /revert-recovery-agent-update`.
 #[instrument(name = "cancel_recovery_agent_update", skip(state, payload), fields(request_id = %id))]
 pub(crate) async fn cancel_recovery_agent_update(
     State(state): State<AppState>,

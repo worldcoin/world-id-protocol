@@ -16,6 +16,9 @@ use world_id_core::api_types::{
 /// Legacy URL. Pre-V2: executes a pending recovery agent update (permissionless;
 /// the contract enforces the 14-day cooldown). Post-V2: no-op — WIP-102 applies
 /// updates immediately, nothing to execute.
+///
+/// TODO(WIP-102): remove this handler and its route once all clients have
+/// stopped calling it (no V2 replacement — the operation no longer exists).
 #[instrument(name = "execute_recovery_agent_update", skip(state, payload), fields(request_id = %id))]
 pub(crate) async fn execute_recovery_agent_update(
     State(state): State<AppState>,

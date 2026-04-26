@@ -15,6 +15,9 @@ use world_id_core::api_types::{GatewayStatusResponse, UpdateRecoveryAgentRequest
 ///
 /// Legacy URL. Pre-V2: initiates a time-locked recovery agent update (14-day
 /// cooldown flow). Post-V2: translates into a WIP-102 `updateRecoveryAgent`.
+///
+/// TODO(WIP-102): remove this handler and its route once all clients have
+/// migrated to `POST /update-recovery-agent`.
 #[instrument(name = "initiate_recovery_agent_update", skip(state, payload), fields(request_id = %id))]
 pub(crate) async fn initiate_recovery_agent_update(
     State(state): State<AppState>,
