@@ -365,7 +365,7 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
             revert RecoveryAgentUpdateWindowExpired(leafIndex, prev.invalidAfter);
         }
 
-        // Reuse `CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH` to keep working with exsiting clients
+        // Reuse `CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH` to keep working with existing clients
         bytes32 messageHash =
             _hashTypedDataV4(keccak256(abi.encode(CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH, leafIndex, nonce)));
 
