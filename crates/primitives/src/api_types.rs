@@ -190,6 +190,9 @@ pub struct UpdateRecoveryAgentRequest {
 /// `RecoveryAgentUpdateStillInCooldown` if called too early.
 ///
 /// Numeric string fields in this request accept decimal or `0x`/`0X`-prefixed hex.
+// TODO(WIP-102): delete this type once V1 callers have migrated. WIP-102
+// removes the explicit execute step — the new agent activates automatically
+// when the revert window elapses.
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExecuteRecoveryAgentUpdateRequest {
@@ -202,6 +205,9 @@ pub struct ExecuteRecoveryAgentUpdateRequest {
 /// The request to cancel a pending recovery agent update.
 ///
 /// Numeric string fields in this request accept decimal or `0x`/`0X`-prefixed hex.
+// TODO(WIP-102): rename to `RevertRecoveryAgentUpdateRequest` once V1 callers
+// have migrated. The struct shape is identical; only the name needs to change
+// to reflect WIP-102's revert-window semantics.
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CancelRecoveryAgentUpdateRequest {
@@ -324,8 +330,12 @@ pub enum GatewayRequestKind {
     /// Recovery agent update initiation request.
     UpdateRecoveryAgent,
     /// Recovery agent update cancellation request.
+    // TODO(WIP-102): rename to `RevertRecoveryAgentUpdate` once V1 callers
+    // have migrated.
     CancelRecoveryAgentUpdate,
     /// Recovery agent update execution request.
+    // TODO(WIP-102): delete this variant once V1 callers have migrated — the
+    // execute step no longer exists in WIP-102.
     ExecuteRecoveryAgentUpdate,
     /// Account recovery request.
     RecoverAccount,
@@ -440,6 +450,13 @@ pub struct IndexerRecoveryAgentResponse {
 }
 
 /// Response containing the pending recovery agent from the indexer.
+// TODO(WIP-102): post-V1-sunset, rename this type and its `execute_after`
+// field to reflect WIP-102 semantics — the timestamp is no longer when the
+// update may be *executed* but when the new agent becomes the only valid
+// recovery signer (`validAfter` / `invalidAfter` for the previous agent).
+// The wire shape is preserved on V2 via a contract-side override of
+// `getPendingRecoveryAgentUpdate`, so no breaking change is required until
+// callers migrate to a new indexer route.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct IndexerPendingRecoveryAgentResponse {
