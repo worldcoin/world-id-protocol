@@ -37,6 +37,14 @@ pub(crate) struct TestGateway {
     pub(crate) _redis: ContainerAsync<Redis>,
 }
 
+fn spawn_test_anvil() -> TestAnvil {
+    let mut fork_url = std::env::var("TESTS_RPC_FORK_URL").unwrap_or_default();
+    if fork_url.is_empty() {
+        fork_url = RPC_FORK_URL.to_string();
+    }
+    TestAnvil::spawn_fork(&fork_url).expect("failed to spawn forked anvil")
+}
+
 /// Spawn a test gateway backed by a forked anvil chain and a Redis container.
 ///
 /// * `batch_ms` – when `None` the gateway uses `BatchPolicyConfig::default()`
@@ -44,16 +52,35 @@ pub(crate) struct TestGateway {
 ///   a custom batch window (used by `test_inflight.rs`).
 #[allow(dead_code)]
 pub(crate) async fn spawn_test_gateway(batch_ms: Option<u64>) -> TestGateway {
-    let mut fork_url = std::env::var("TESTS_RPC_FORK_URL").unwrap_or_default();
-    if fork_url.is_empty() {
-        fork_url = RPC_FORK_URL.to_string();
-    }
-    let anvil = TestAnvil::spawn_fork(&fork_url).expect("failed to spawn forked anvil");
+    let anvil = spawn_test_anvil();
     let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
     let registry_addr = anvil
         .deploy_world_id_registry(deployer)
         .await
         .expect("failed to deploy WorldIDRegistry");
+    spawn_test_gateway_for_registry(anvil, registry_addr, batch_ms).await
+}
+
+/// Same as [`spawn_test_gateway`] but deploys the V2 (WIP-102) registry —
+/// the V1 implementation behind an ERC1967 proxy upgraded to V2.
+#[allow(dead_code)]
+pub(crate) async fn spawn_test_gateway_v2(batch_ms: Option<u64>) -> TestGateway {
+    let anvil = spawn_test_anvil();
+    let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
+    let registry_addr = anvil
+        .deploy_world_id_registry_v2(deployer)
+        .await
+        .expect("failed to deploy WorldIDRegistry V2");
+    spawn_test_gateway_for_registry(anvil, registry_addr, batch_ms).await
+}
+
+/// Spawn the gateway/Redis half of the stack against an already-deployed
+/// registry. Shared by [`spawn_test_gateway`] and [`spawn_test_gateway_v2`].
+async fn spawn_test_gateway_for_registry(
+    anvil: TestAnvil,
+    registry_addr: Address,
+    batch_ms: Option<u64>,
+) -> TestGateway {
     let rpc_url = anvil.endpoint().to_string();
     let chain_id = anvil.instance.chain_id();
 

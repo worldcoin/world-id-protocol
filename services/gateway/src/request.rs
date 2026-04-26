@@ -30,6 +30,8 @@ use world_id_core::{
     world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
 };
 
+use crate::registry_version::RegistryVersion;
+
 /// Type alias for the registry instance.
 pub type Registry = WorldIdRegistryInstance<Arc<DynProvider>>;
 
@@ -37,6 +39,10 @@ pub type Registry = WorldIdRegistryInstance<Arc<DynProvider>>;
 #[derive(Clone)]
 pub struct GatewayContext {
     pub registry: Arc<Registry>,
+    /// Detected registry implementation version at gateway startup. Does not
+    /// change at runtime — the gateway is rolling-restarted after a contract
+    /// upgrade so the new fleet re-probes.
+    pub registry_version: RegistryVersion,
     pub tracker: RequestTracker,
     pub batcher: BatcherHandle,
     pub root_cache: Cache<U256, U256>,
@@ -348,6 +354,71 @@ impl IntoCommand for ExecuteRecoveryAgentUpdateRequest {
 impl IntoRequestWithRateLimit for ExecuteRecoveryAgentUpdateRequest {}
 
 impl Request<ExecuteRecoveryAgentUpdateRequest> {
+    pub async fn submit(
+        self,
+        ctx: &GatewayContext,
+    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+        submit_request(self, ctx).await
+    }
+}
+
+// =============================================================================
+// V2 Recovery Agent flow (WIP-102)
+// =============================================================================
+// Same wire shape as the V1 request types; calldata targets the V2 selector.
+
+/// Marks the gateway flow as WIP-102 `updateRecoveryAgent`.
+pub struct UpdateRecoveryAgentV2Request(pub UpdateRecoveryAgentRequest);
+
+impl HasLeafIndex for UpdateRecoveryAgentV2Request {
+    fn leaf_index(&self) -> u64 {
+        self.0.leaf_index
+    }
+}
+
+impl IntoRequest for UpdateRecoveryAgentV2Request {
+    const KIND: GatewayRequestKind = GatewayRequestKind::UpdateRecoveryAgent;
+}
+
+impl IntoCommand for UpdateRecoveryAgentV2Request {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata, DEFAULT_INITIATE_RECOVERY_AGENT_UPDATE_GAS)
+    }
+}
+
+impl IntoRequestWithRateLimit for UpdateRecoveryAgentV2Request {}
+
+impl Request<UpdateRecoveryAgentV2Request> {
+    pub async fn submit(
+        self,
+        ctx: &GatewayContext,
+    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+        submit_request(self, ctx).await
+    }
+}
+
+/// Marks the gateway flow as WIP-102 `revertRecoveryAgentUpdate`.
+pub struct RevertRecoveryAgentUpdateRequest(pub CancelRecoveryAgentUpdateRequest);
+
+impl HasLeafIndex for RevertRecoveryAgentUpdateRequest {
+    fn leaf_index(&self) -> u64 {
+        self.0.leaf_index
+    }
+}
+
+impl IntoRequest for RevertRecoveryAgentUpdateRequest {
+    const KIND: GatewayRequestKind = GatewayRequestKind::CancelRecoveryAgentUpdate;
+}
+
+impl IntoCommand for RevertRecoveryAgentUpdateRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata, DEFAULT_CANCEL_RECOVERY_AGENT_UPDATE_GAS)
+    }
+}
+
+impl IntoRequestWithRateLimit for RevertRecoveryAgentUpdateRequest {}
+
+impl Request<RevertRecoveryAgentUpdateRequest> {
     pub async fn submit(
         self,
         ctx: &GatewayContext,

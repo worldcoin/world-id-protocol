@@ -1226,6 +1226,9 @@ impl Authenticator {
     ///
     /// # Errors
     /// Returns an error if the gateway rejects the request or a network error occurs.
+    #[deprecated(
+        note = "WIP-102: use `update_recovery_agent`. The legacy URL still works against a V2-upgraded gateway, but the V2 contract changes the agent immediately (with a revert window) instead of starting a cooldown."
+    )]
     pub async fn initiate_recovery_agent_update(
         &self,
         new_recovery_agent: Address,
@@ -1306,6 +1309,60 @@ impl Authenticator {
         Ok((signature, nonce))
     }
 
+    /// Updates the holder's recovery agent (WIP-102).
+    ///
+    /// On a V2 registry the new agent becomes effective immediately, but for a
+    /// revert window (`getRecoveryAgentUpdateCooldown` seconds) any
+    /// authenticator can call [`Self::revert_recovery_agent_update`] to roll
+    /// back. During that window the *previous* agent remains the only valid
+    /// signer for `recoverAccount`, which mitigates a compromised authenticator
+    /// silently swapping in an attacker-controlled recovery address.
+    ///
+    /// Internally signs with the same EIP-712 typehash as the legacy
+    /// `initiate_recovery_agent_update` (typehash reuse), so existing keys and
+    /// signing helpers transfer over unchanged.
+    ///
+    /// # Errors
+    /// Returns an error if the gateway rejects the request or a network error occurs.
+    pub async fn update_recovery_agent(
+        &self,
+        new_recovery_agent: Address,
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
+        let leaf_index = self.leaf_index();
+        let (sig, nonce) = self
+            .danger_sign_initiate_recovery_agent_update(new_recovery_agent)
+            .await?;
+
+        let req = UpdateRecoveryAgentRequest {
+            leaf_index,
+            new_recovery_agent,
+            signature: sig,
+            nonce,
+        };
+
+        let resp = self
+            .http_client
+            .post(format!(
+                "{}/update-recovery-agent",
+                self.config.gateway_url()
+            ))
+            .json(&req)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let gateway_resp: GatewayStatusResponse = resp.json().await?;
+            Ok(gateway_resp.request_id)
+        } else {
+            let body_text = Self::response_body_or_fallback(resp).await;
+            Err(AuthenticatorError::GatewayError {
+                status,
+                body: body_text,
+            })
+        }
+    }
+
     /// Executes a pending recovery agent update for the holder's World ID.
     ///
     /// This is a permissionless operation that can be called by anyone after the cooldown
@@ -1313,6 +1370,9 @@ impl Authenticator {
     ///
     /// # Errors
     /// Returns an error if the gateway rejects the request or a network error occurs.
+    #[deprecated(
+        note = "WIP-102: this operation no longer exists. On a V2-upgraded gateway the call is a no-op (returns Queued without touching chain). Remove the call from your flow."
+    )]
     pub async fn execute_recovery_agent_update(
         &self,
     ) -> Result<GatewayRequestId, AuthenticatorError> {
@@ -1347,6 +1407,9 @@ impl Authenticator {
     ///
     /// # Errors
     /// Returns an error if the gateway rejects the request or a network error occurs.
+    #[deprecated(
+        note = "WIP-102: use `revert_recovery_agent_update`. The legacy URL still works against a V2-upgraded gateway, but the new method name reflects WIP-102 semantics: the operation can only succeed within the revert window after `update_recovery_agent`."
+    )]
     pub async fn cancel_recovery_agent_update(
         &self,
     ) -> Result<GatewayRequestId, AuthenticatorError> {
@@ -1374,6 +1437,62 @@ impl Authenticator {
             .http_client
             .post(format!(
                 "{}/cancel-recovery-agent-update",
+                self.config.gateway_url()
+            ))
+            .json(&req)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let gateway_resp: GatewayStatusResponse = resp.json().await?;
+            Ok(gateway_resp.request_id)
+        } else {
+            let body_text = Self::response_body_or_fallback(resp).await;
+            Err(AuthenticatorError::GatewayError {
+                status,
+                body: body_text,
+            })
+        }
+    }
+
+    /// Reverts an in-flight recovery agent update during the revert window (WIP-102).
+    ///
+    /// Only succeeds while `getPreviousRecoveryAgentUpdate` reports an active
+    /// window for this leaf — once the window has elapsed, the new agent is
+    /// permanent and this call reverts on-chain. Internally signs with the same
+    /// EIP-712 typehash as the legacy `cancel_recovery_agent_update` (typehash
+    /// reuse).
+    ///
+    /// # Errors
+    /// Returns an error if the gateway rejects the request or a network error occurs.
+    pub async fn revert_recovery_agent_update(
+        &self,
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
+        let leaf_index = self.leaf_index();
+        let nonce = self.signing_nonce().await?;
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
+
+        let sig = sign_cancel_recovery_agent_update(
+            &self.signer.onchain_signer(),
+            leaf_index,
+            nonce,
+            &eip712_domain,
+        )
+        .map_err(|e| {
+            AuthenticatorError::Generic(format!("Failed to sign revert recovery agent update: {e}"))
+        })?;
+
+        let req = CancelRecoveryAgentUpdateRequest {
+            leaf_index,
+            signature: sig,
+            nonce,
+        };
+
+        let resp = self
+            .http_client
+            .post(format!(
+                "{}/revert-recovery-agent-update",
                 self.config.gateway_url()
             ))
             .json(&req)
