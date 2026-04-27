@@ -118,22 +118,22 @@ pub(crate) enum RpModuleError {
     Internal(#[from] eyre::Report),
 }
 
-impl From<MerkleWatcherError> for RpModuleError {
-    fn from(value: MerkleWatcherError) -> Self {
-        match value {
+impl From<Arc<MerkleWatcherError>> for RpModuleError {
+    fn from(value: Arc<MerkleWatcherError>) -> Self {
+        match value.as_ref() {
             MerkleWatcherError::InvalidMerkleRoot => Self::InvalidMerkleRoot,
-            MerkleWatcherError::Internal(report) => Self::Internal(report),
+            MerkleWatcherError::Internal(_) => Self::Internal(eyre::Report::from(value)),
         }
     }
 }
 
-impl From<RpRegistryWatcherError> for RpModuleError {
-    fn from(value: RpRegistryWatcherError) -> Self {
-        match value {
-            RpRegistryWatcherError::UnknownRp(rp_id) => Self::UnknownRp(rp_id),
-            RpRegistryWatcherError::InactiveRp(rp_id) => Self::InactiveRp(rp_id),
-            RpRegistryWatcherError::Timeout(rp_id) => Self::Wip101AccountCheckTimeout(rp_id),
-            RpRegistryWatcherError::Internal(report) => Self::Internal(report),
+impl From<Arc<RpRegistryWatcherError>> for RpModuleError {
+    fn from(value: Arc<RpRegistryWatcherError>) -> Self {
+        match value.as_ref() {
+            RpRegistryWatcherError::UnknownRp(rp_id) => Self::UnknownRp(*rp_id),
+            RpRegistryWatcherError::InactiveRp(rp_id) => Self::InactiveRp(*rp_id),
+            RpRegistryWatcherError::Timeout(rp_id) => Self::Wip101AccountCheckTimeout(*rp_id),
+            RpRegistryWatcherError::Internal(_) => Self::Internal(eyre::Report::from(value)),
         }
     }
 }

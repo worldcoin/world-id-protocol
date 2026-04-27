@@ -42,22 +42,24 @@ pub(crate) enum CredentialBlindingFactorModuleError {
     Internal(#[from] eyre::Report),
 }
 
-impl From<SchemaIssuerRegistryWatcherError> for CredentialBlindingFactorModuleError {
-    fn from(value: SchemaIssuerRegistryWatcherError) -> Self {
-        match value {
+impl From<Arc<SchemaIssuerRegistryWatcherError>> for CredentialBlindingFactorModuleError {
+    fn from(value: Arc<SchemaIssuerRegistryWatcherError>) -> Self {
+        match value.as_ref() {
             SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(id) => {
-                Self::UnknownSchemaIssuer(id)
+                Self::UnknownSchemaIssuer(*id)
             }
-            SchemaIssuerRegistryWatcherError::Internal(report) => Self::Internal(report),
+            SchemaIssuerRegistryWatcherError::Internal(_) => {
+                Self::Internal(eyre::Report::from(value))
+            }
         }
     }
 }
 
-impl From<MerkleWatcherError> for CredentialBlindingFactorModuleError {
-    fn from(value: MerkleWatcherError) -> Self {
-        match value {
+impl From<Arc<MerkleWatcherError>> for CredentialBlindingFactorModuleError {
+    fn from(value: Arc<MerkleWatcherError>) -> Self {
+        match value.as_ref() {
             MerkleWatcherError::InvalidMerkleRoot => Self::InvalidMerkleRoot,
-            MerkleWatcherError::Internal(report) => Self::Internal(report),
+            MerkleWatcherError::Internal(_) => Self::Internal(eyre::Report::from(value)),
         }
     }
 }

@@ -1,6 +1,6 @@
 //! Configuration types and CLI/environment parsing for the OPRF node.
 
-use std::time::Duration;
+use std::{num::NonZeroU64, time::Duration};
 
 use alloy::{primitives::Address, transports::http::reqwest::Url};
 use serde::Deserialize;
@@ -30,9 +30,9 @@ pub struct WorldOprfNodeConfig {
     #[serde(rename = "rpc")]
     pub rpc_provider_config: web3::HttpRpcProviderConfig,
 
-    /// Maximum size of the Merkle cache
-    #[serde(default = "WorldOprfNodeConfig::default_max_merkle_cache_size")]
-    pub max_merkle_cache_size: u64,
+    /// Cache configuration for the [`MerkleWatcher`](crate::auth::merkle_watcher::MerkleWatcher)
+    #[serde(default)]
+    pub merkle_cache_config: WatcherCacheConfig,
 
     /// Cache configuration for the [`RpRegistryWatcher`](crate::auth::rp_registry_watcher::RpRegistryWatcher)
     #[serde(default)]
@@ -49,17 +49,6 @@ pub struct WorldOprfNodeConfig {
     )]
     pub current_time_stamp_max_difference: Duration,
 
-    /// Interval for running maintenance tasks for caches
-    ///
-    /// This includes removing expired entries from caches (invalidated automatically,
-    /// but not removed unless entries are added/removed or maintenance tasks are run)
-    /// and running potential eviction listeners to update metrics.
-    #[serde(
-        default = "WorldOprfNodeConfig::default_cache_maintenance_interval",
-        with = "humantime_serde"
-    )]
-    pub cache_maintenance_interval: Duration,
-
     /// Max time for an `eth_call` to an unknown contract.
     ///
     /// During runtime, the nodes may perform `eth_call`s to unknown contracts (i.e. wip101 verification). To prevent malicious contracts to `DoS` attack, we wrap these calls in a timeout.
@@ -71,39 +60,29 @@ pub struct WorldOprfNodeConfig {
 }
 
 /// Cache configuration for a registry watcher.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Copy, Clone, Debug, Deserialize)]
 #[non_exhaustive]
 pub struct WatcherCacheConfig {
     /// Maximum size of the cache.
     ///
     /// Will drop old entries if this capacity is reached.
     #[serde(default = "WatcherCacheConfig::default_max_cache_size")]
-    pub max_cache_size: u64,
+    pub max_cache_size: NonZeroU64,
     /// TTL of the cache.
     ///
     /// Will drop entries that are older than this time.
     #[serde(default = "WatcherCacheConfig::default_time_to_live")]
     pub time_to_live: Duration,
-    /// TTI of the cache.
-    ///
-    /// Will drop entries that are not used for this amount of time.
-    #[serde(default = "WatcherCacheConfig::default_time_to_idle")]
-    pub time_to_idle: Duration,
 }
 
 impl WatcherCacheConfig {
     /// Default maximum size of the cache
-    const fn default_max_cache_size() -> u64 {
-        1000
+    const fn default_max_cache_size() -> NonZeroU64 {
+        NonZeroU64::new(1000).expect("1000 is non-zero")
     }
     /// Default time-to-live for cache entries
     const fn default_time_to_live() -> Duration {
-        Duration::from_secs(60 * 60 * 24 * 7)
-    }
-
-    /// Default time-to-idle for cache entries
-    const fn default_time_to_idle() -> Duration {
-        Duration::from_secs(60 * 60 * 24)
+        Duration::from_mins(10)
     }
 
     /// Initialize with default values for all fields
@@ -111,7 +90,6 @@ impl WatcherCacheConfig {
         Self {
             max_cache_size: Self::default_max_cache_size(),
             time_to_live: Self::default_time_to_live(),
-            time_to_idle: Self::default_time_to_idle(),
         }
     }
 }
@@ -123,19 +101,9 @@ impl Default for WatcherCacheConfig {
 }
 
 impl WorldOprfNodeConfig {
-    /// Default maximum Merkle cache size
-    const fn default_max_merkle_cache_size() -> u64 {
-        100
-    }
-
     /// Default maximum allowed difference between received and node timestamp
     fn default_current_time_stamp_max_difference() -> Duration {
         Duration::from_secs(300) // 5 minutes
-    }
-
-    /// Default interval for cache maintenance tasks
-    fn default_cache_maintenance_interval() -> Duration {
-        Duration::from_secs(60) // 1 minute
     }
 
     /// Default timeout for an `eth_call` to an unknown contract.
@@ -143,7 +111,7 @@ impl WorldOprfNodeConfig {
         Duration::from_secs(10)
     }
 
-    /// Initialize with default values for all optional fields
+    /// Initialize with default values for all optional fields.
     #[must_use]
     #[allow(
         clippy::needless_pass_by_value,
@@ -167,9 +135,7 @@ impl WorldOprfNodeConfig {
             rp_registry_contract,
             credential_schema_issuer_registry_contract,
             rpc_provider_config,
-            max_merkle_cache_size: Self::default_max_merkle_cache_size(),
             current_time_stamp_max_difference: Self::default_current_time_stamp_max_difference(),
-            cache_maintenance_interval: Self::default_cache_maintenance_interval(),
             timeout_external_eth_call: Self::default_timeout_external_eth_call(),
             node_config: OprfNodeServiceConfig::with_default_values(
                 environment,
@@ -177,8 +143,9 @@ impl WorldOprfNodeConfig {
                 ws_rpc_url.clone(),
                 version_req,
             ),
-            rp_cache_config: WatcherCacheConfig::with_default_values(),
-            issuer_cache_config: WatcherCacheConfig::with_default_values(),
+            rp_cache_config: WatcherCacheConfig::default(),
+            issuer_cache_config: WatcherCacheConfig::default(),
+            merkle_cache_config: WatcherCacheConfig::default(),
         }
     }
 }
