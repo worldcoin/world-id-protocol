@@ -51,7 +51,7 @@ impl NonceHistory {
     /// # Errors
     /// Returns [`DuplicateNonce`] if the nonce already exists.
     pub(crate) async fn add_nonce(&self, nonce: FieldElement) -> Result<(), DuplicateNonce> {
-        let entry = self.nonces.entry(nonce).or_insert(()).await;
+        let entry = self.nonces.entry(nonce).or_insert_with(async {}).await;
         if !entry.is_fresh() {
             return Err(DuplicateNonce);
         }
@@ -62,6 +62,8 @@ impl NonceHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use tokio::sync::Barrier;
 
     #[tokio::test]
     async fn test_nonce_history_duplicate_detection() {
@@ -141,5 +143,42 @@ mod tests {
             .add_nonce(nonce)
             .await
             .expect("nonce should be accepted after TTL expiration");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_concurrent_nonce_insertion() {
+        const TASKS: usize = 1000;
+
+        let nonce = FieldElement::random(&mut rand::thread_rng());
+        let history = NonceHistory::init(Duration::from_secs(60));
+
+        // Barrier ensures all tasks attempt add_nonce as simultaneously as possible.
+        let barrier = Arc::new(Barrier::new(TASKS));
+        let mut join_set = tokio::task::JoinSet::new();
+
+        for _ in 0..TASKS {
+            let history = history.clone();
+            let barrier = Arc::clone(&barrier);
+            join_set.spawn(async move {
+                barrier.wait().await;
+                history.add_nonce(nonce).await
+            });
+        }
+
+        let mut ok_count = 0usize;
+        let mut err_count = 0usize;
+        while let Some(result) = join_set.join_next().await {
+            match result.expect("task did not panic") {
+                Ok(()) => ok_count += 1,
+                Err(DuplicateNonce) => err_count += 1,
+            }
+        }
+
+        assert_eq!(ok_count, 1, "exactly one task should succeed");
+        assert_eq!(
+            err_count,
+            TASKS - 1,
+            "all other tasks should get DuplicateNonce"
+        );
     }
 }
