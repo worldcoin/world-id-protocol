@@ -12,7 +12,6 @@ use crate::{
     },
     config::WatcherCacheConfig,
     metrics::{
-        METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS,
         METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES,
         METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE,
     },
@@ -64,7 +63,8 @@ impl SchemaIssuerRegistryWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         contract_address: Address,
-        rpc_provider: &web3::RpcProvider,
+        http_rpc_provider: &web3::HttpRpcProvider,
+        ws_rpc_provider: &DynProvider,
         cache_config: WatcherCacheConfig,
         maintenance_interval: Duration,
         started: Arc<AtomicBool>,
@@ -75,7 +75,7 @@ impl SchemaIssuerRegistryWatcher {
             .address(contract_address)
             .from_block(BlockNumberOrTag::Latest)
             .event_signature(IssuerSchemaRemoved::SIGNATURE_HASH);
-        let sub = rpc_provider.subscriptions().subscribe_logs(&filter).await?;
+        let sub = ws_rpc_provider.subscribe_logs(&filter).await?;
         let mut stream = sub.into_stream();
 
         ::metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE).set(0.0);
@@ -151,7 +151,7 @@ impl SchemaIssuerRegistryWatcher {
             issuer_schema_store,
             contract: CredentialSchemaIssuerRegistryInstance::new(
                 contract_address,
-                rpc_provider.http(),
+                http_rpc_provider.inner(),
             ),
         };
         Ok((schema_issuer_registry, subscribe_task))
@@ -162,43 +162,32 @@ impl SchemaIssuerRegistryWatcher {
         &self,
         issuer_schema_id: u64,
     ) -> Result<(), SchemaIssuerRegistryWatcherError> {
-        {
-            if self
-                .issuer_schema_store
-                .get(&issuer_schema_id)
+        self.issuer_schema_store.try_get_with(issuer_schema_id, async {
+            tracing::trace!(
+                "issuer {issuer_schema_id} not found in store, querying CredentialSchemaIssuerRegistry..."
+            );
+            let signer = self
+                .contract
+                .getSignerForIssuerSchemaId(issuer_schema_id)
+                .call()
                 .await
-                .is_some()
-            {
-                tracing::trace!("issuer {issuer_schema_id} found in store");
-                ::metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS)
+                .context("while getting signer for issuer-schema")?;
+
+            if signer == Address::ZERO {
+                Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(
+                    issuer_schema_id,
+                ))
+            } else {
+                ::metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES)
                     .increment(1);
-                return Ok(());
+
+                tracing::debug!("issuer {issuer_schema_id} loaded from chain");
+
+                Ok(())
             }
-        }
-
-        tracing::trace!(
-            "issuer {issuer_schema_id} not found in store, querying CredentialSchemaIssuerRegistry..."
-        );
-        let signer = self
-            .contract
-            .getSignerForIssuerSchemaId(issuer_schema_id)
-            .call()
-            .await
-            .context("while getting signer for issuer-schema")?;
-
-        if signer == Address::ZERO {
-            Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(
-                issuer_schema_id,
-            ))
-        } else {
-            ::metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES)
-                .increment(1);
-
-            self.issuer_schema_store.insert(issuer_schema_id, ()).await;
-
-            tracing::debug!("issuer {issuer_schema_id} loaded from chain and stored");
-
-            Ok(())
-        }
+        }).await.map_err(|arc| match arc.as_ref() {
+            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(id) => SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(*id),
+            SchemaIssuerRegistryWatcherError::Internal(report) => SchemaIssuerRegistryWatcherError::Internal(eyre::eyre!("{report:?}")),
+        })
     }
 }

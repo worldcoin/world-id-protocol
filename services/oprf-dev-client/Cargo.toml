@@ -23,7 +23,6 @@ rustls = { workspace = true }
 secrecy = { workspace = true }
 taceo-nodes-observability = { workspace = true }
 taceo-oprf = { workspace = true, features = ["core", "dev-client"] }
-taceo-oprf-test-utils = { workspace = true }
 tokio = { workspace = true, features = [
   "net",
   "rt-multi-thread",

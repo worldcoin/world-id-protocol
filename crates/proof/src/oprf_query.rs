@@ -16,13 +16,14 @@ use taceo_oprf::{
 
 use world_id_primitives::{
     FieldElement, ProofRequest, SessionFeType, SessionFieldElement, TREE_DEPTH,
-    circuit_inputs::QueryProofCircuitInput,
     oprf::{CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule},
 };
 
+use crate::circuit_inputs::QueryProofCircuitInput;
+
 use crate::{
-    AuthenticatorProofInput,
-    proof::{OPRF_PROOF_DS, ProofError, errors},
+    AuthenticatorProofInput, ProofError,
+    proof::{OPRF_PROOF_DS, errors},
 };
 
 #[expect(unused_imports, reason = "used for docs")]
@@ -51,6 +52,16 @@ pub struct FullOprfOutput {
     pub query_proof_input: QueryProofCircuitInput<TREE_DEPTH>,
     /// The result of the distributed OPRF protocol.
     pub verifiable_oprf_output: VerifiableOprfOutput,
+}
+
+impl FullOprfOutput {
+    /// Returns the final OPRF output as a field element.
+    ///
+    /// This may represent a nullifier, a credential blinding factor, etc.
+    #[must_use]
+    pub fn oprf_output(&self) -> FieldElement {
+        self.verifiable_oprf_output.output.into()
+    }
 }
 
 impl<'a> OprfEntrypoint<'a> {
@@ -172,8 +183,9 @@ impl<'a> OprfEntrypoint<'a> {
             merkle_root: *self.authenticator_input.inclusion_proof.root,
             current_time_stamp: proof_request.created_at,
             expiration_timestamp: proof_request.expires_at,
-            signature: proof_request.signature,
+            signature: Some(proof_request.signature),
             rp_id: proof_request.rp_id,
+            wip101_data: None,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(
@@ -215,8 +227,9 @@ impl<'a> OprfEntrypoint<'a> {
             merkle_root: *self.authenticator_input.inclusion_proof.root,
             current_time_stamp: proof_request.created_at,
             expiration_timestamp: proof_request.expires_at,
-            signature: proof_request.signature,
+            signature: Some(proof_request.signature),
             rp_id: proof_request.rp_id,
+            wip101_data: None,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(
@@ -239,7 +252,7 @@ impl<'a> OprfEntrypoint<'a> {
 
 impl<'a> OprfEntrypoint<'a> {
     /// Generates a query proof: creates a blinding factor, computes
-    /// the query hash, signs it, builds `QueryProofCircuitInput`, and
+    /// the query hash, signs it, builds [`QueryProofCircuitInput`], and
     /// runs Groth16 prove + verify.
     fn generate_query_proof<R: rand::CryptoRng + rand::RngCore>(
         query_material: &CircomGroth16Material,

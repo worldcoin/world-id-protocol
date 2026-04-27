@@ -23,11 +23,12 @@ use taceo_oprf::core::{
     oprf::{BlindedOprfResponse, BlindingFactor},
 };
 use world_id_primitives::{
-    authenticator::{oprf_query_digest, AuthenticatorPublicKeySet},
-    circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
-    FieldElement, TREE_DEPTH,
+    authenticator::oprf_query_digest, AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH,
 };
-use world_id_proof::proof;
+use world_id_proof::{
+    circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
+    proof,
+};
 
 use fixtures::{first_leaf_merkle_path, generate_rp_fixture};
 

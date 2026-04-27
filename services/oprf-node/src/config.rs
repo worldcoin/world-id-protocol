@@ -2,9 +2,9 @@
 
 use std::time::Duration;
 
-use alloy::primitives::Address;
+use alloy::{primitives::Address, transports::http::reqwest::Url};
 use serde::Deserialize;
-use taceo_nodes_common::web3::{self, RpcProviderConfig};
+use taceo_nodes_common::web3::{self};
 use taceo_oprf::service::{VersionReq, config::OprfNodeServiceConfig};
 
 /// The configuration for the OPRF node.
@@ -28,7 +28,7 @@ pub struct WorldOprfNodeConfig {
 
     /// The blockchain RPC config
     #[serde(rename = "rpc")]
-    pub rpc_provider_config: web3::RpcProviderConfig,
+    pub rpc_provider_config: web3::HttpRpcProviderConfig,
 
     /// Maximum size of the Merkle cache
     #[serde(default = "WorldOprfNodeConfig::default_max_merkle_cache_size")]
@@ -59,6 +59,15 @@ pub struct WorldOprfNodeConfig {
         with = "humantime_serde"
     )]
     pub cache_maintenance_interval: Duration,
+
+    /// Max time for an `eth_call` to an unknown contract.
+    ///
+    /// During runtime, the nodes may perform `eth_call`s to unknown contracts (i.e. wip101 verification). To prevent malicious contracts to `DoS` attack, we wrap these calls in a timeout.
+    #[serde(
+        default = "WorldOprfNodeConfig::default_timeout_external_eth_call",
+        with = "humantime_serde"
+    )]
+    pub timeout_external_eth_call: Duration,
 }
 
 /// Cache configuration for a registry watcher.
@@ -129,6 +138,11 @@ impl WorldOprfNodeConfig {
         Duration::from_secs(60) // 1 minute
     }
 
+    /// Default timeout for an `eth_call` to an unknown contract.
+    fn default_timeout_external_eth_call() -> Duration {
+        Duration::from_secs(10)
+    }
+
     /// Initialize with default values for all optional fields
     #[must_use]
     #[allow(
@@ -139,7 +153,8 @@ impl WorldOprfNodeConfig {
         environment: taceo_oprf::service::Environment,
         contracts: WorldIdNodeContracts,
         version_req: VersionReq,
-        rpc_provider_config: RpcProviderConfig,
+        rpc_provider_config: web3::HttpRpcProviderConfig,
+        ws_rpc_url: Url,
     ) -> Self {
         let WorldIdNodeContracts {
             world_id_registry_contract,
@@ -155,9 +170,11 @@ impl WorldOprfNodeConfig {
             max_merkle_cache_size: Self::default_max_merkle_cache_size(),
             current_time_stamp_max_difference: Self::default_current_time_stamp_max_difference(),
             cache_maintenance_interval: Self::default_cache_maintenance_interval(),
+            timeout_external_eth_call: Self::default_timeout_external_eth_call(),
             node_config: OprfNodeServiceConfig::with_default_values(
                 environment,
                 oprf_key_registry_contract,
+                ws_rpc_url.clone(),
                 version_req,
             ),
             rp_cache_config: WatcherCacheConfig::with_default_values(),

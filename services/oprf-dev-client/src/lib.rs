@@ -14,10 +14,8 @@ use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSASignature, FieldElement,
     proof::{CircomGroth16Material, errors},
 };
-use world_id_primitives::{
-    TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, circuit_inputs::QueryProofCircuitInput,
-    merkle::MerkleInclusionProof,
-};
+use world_id_primitives::{AuthenticatorPublicKeySet, TREE_DEPTH, merkle::MerkleInclusionProof};
+use world_id_proof::circuit_inputs::QueryProofCircuitInput;
 
 const HARDCODED_RP_SIGNER: &str =
     "1111111111111111111111111111111111111111111111111111111111111111";
@@ -200,7 +198,7 @@ pub async fn init_authenticator(
 
     tracing::info!("creating account..");
     let seed = [7u8; 32];
-    let authenticator = Authenticator::init_or_register(&seed, world_config.clone(), None)
+    let authenticator = Authenticator::init_or_register(&seed, world_config.into(), None)
         .await?
         .with_proof_materials(query_material, Arc::new(nullifier_material));
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);

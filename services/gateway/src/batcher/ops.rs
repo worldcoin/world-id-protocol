@@ -1,6 +1,8 @@
 //! Operations batcher for insert/remove/recover/update operations.
 //!
 //! This batcher collects operations and submits them via Multicall3.
+//! Gas estimation is handled automatically by the `GasEstimateWithFallbackFiller`
+//! in the shared provider stack.
 
 use std::sync::Arc;
 
@@ -9,7 +11,7 @@ use alloy::{
     providers::DynProvider,
 };
 use tokio::sync::mpsc;
-use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::request_tracker::BacklogScope;
 
@@ -32,7 +34,8 @@ pub struct OpsBatcherHandle {
     pub tx: mpsc::Sender<OpsEnvelope>,
 }
 
-/// Envelope for ops batcher containing pre-computed calldata.
+/// Envelope for ops batcher containing pre-computed calldata for a single
+/// registry operation.
 #[derive(Debug)]
 pub struct OpsEnvelope {
     pub id: String,
@@ -66,13 +69,16 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
 
         let calls: Vec<Multicall3::Call3> = batch
             .into_iter()
-            .map(|env| Multicall3::Call3 {
+            .map(|envelope| Multicall3::Call3 {
                 target: *registry.address(),
                 allowFailure: false,
-                callData: env.calldata,
+                callData: envelope.calldata,
             })
             .collect();
 
+        // No explicit gas limit — the GasEstimateWithFallbackFiller in the
+        // shared provider stack will call eth_estimateGas on the assembled
+        // Multicall3 batch and apply a 20 % margin automatically.
         let builder = mc.aggregate3(calls).send().await?;
 
         Ok(PendingBatchTx::new(builder))

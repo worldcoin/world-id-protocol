@@ -11,14 +11,13 @@
 //! 4. Verifying `DLog` equality proofs from OPRF nodes
 //! 5. Generating the final Uniqueness Proof `π2`
 
+use crate::ProofError;
 use ark_bn254::Bn254;
-use groth16_material::Groth16Error;
 use rand::{CryptoRng, Rng};
 use std::{io::Read, path::Path};
-use world_id_primitives::{
-    Credential, FieldElement, Nullifier, RequestItem, TREE_DEPTH,
-    circuit_inputs::NullifierProofCircuitInput, oprf::WorldIdRequestAuthError,
-};
+use world_id_primitives::{Credential, FieldElement, Nullifier, RequestItem, TREE_DEPTH};
+
+use crate::circuit_inputs::NullifierProofCircuitInput;
 
 pub use groth16_material::circom::{
     CircomGroth16Material, CircomGroth16MaterialBuilder, ZkeyError,
@@ -79,37 +78,6 @@ pub struct EmbeddedCircuitFiles {
 static CIRCUIT_FILES: std::sync::OnceLock<Result<EmbeddedCircuitFiles, String>> =
     std::sync::OnceLock::new();
 
-/// Error type for OPRF operations and proof generation.
-#[derive(Debug, thiserror::Error)]
-pub enum ProofError {
-    /// Authentication error returned by the OPRF nodes (e.g. unknown RP, invalid proof).
-    #[error(transparent)]
-    RequestAuthError(#[from] WorldIdRequestAuthError),
-    /// Non-auth error originating from `oprf_client`.
-    #[error(transparent)]
-    OprfError(taceo_oprf::client::Error),
-    /// Errors originating from proof inputs
-    #[error(transparent)]
-    ProofInputError(#[from] errors::ProofInputError),
-    /// Errors originating from Groth16 proof generation or verification.
-    #[error(transparent)]
-    ZkError(#[from] Groth16Error),
-    /// Catch-all for other internal errors.
-    #[error(transparent)]
-    InternalError(#[from] eyre::Report),
-}
-
-impl From<taceo_oprf::client::Error> for ProofError {
-    fn from(err: taceo_oprf::client::Error) -> Self {
-        if let taceo_oprf::client::Error::ThresholdServiceError(ref svc) = err {
-            if svc.kind.is_auth() {
-                return Self::RequestAuthError(WorldIdRequestAuthError::from(svc.error_code));
-            }
-        }
-        Self::OprfError(err)
-    }
-}
-
 // ============================================================================
 // Circuit Material Loaders
 // ============================================================================
@@ -169,15 +137,13 @@ pub fn load_query_material_from_reader(
 
 /// Loads the [`CircomGroth16Material`] for the nullifier proof from the provided paths.
 ///
-/// # Panics
-/// Will panic if the material cannot be loaded or verified.
+/// # Errors
+/// Will return an error if the material cannot be loaded or verified.
 pub fn load_nullifier_material_from_paths(
     zkey: impl AsRef<Path>,
     graph: impl AsRef<Path>,
-) -> CircomGroth16Material {
-    build_nullifier_builder()
-        .build_from_paths(zkey, graph)
-        .expect("works when loading embedded groth16-material")
+) -> eyre::Result<CircomGroth16Material> {
+    Ok(build_nullifier_builder().build_from_paths(zkey, graph)?)
 }
 
 /// Loads the [`CircomGroth16Material`] for the query proof from the provided paths.
@@ -338,7 +304,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
     oprf_output: FullOprfOutput,
     request_item: &RequestItem,
     session_id: Option<FieldElement>,
-    session_id_r_seed: FieldElement,
+    session_id_r_seed: Option<FieldElement>,
     expires_at_min: u64,
 ) -> Result<
     (
@@ -370,7 +336,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         cred_sub_blinding_factor: *credential_sub_blinding_factor,
         cred_s: cred_signature.s,
         cred_r: cred_signature.r,
-        id_commitment_r: *session_id_r_seed,
+        id_commitment_r: *session_id_r_seed.unwrap_or(FieldElement::ZERO),
         id_commitment: *session_id.unwrap_or(FieldElement::ZERO),
         dlog_e: oprf_output.verifiable_oprf_output.dlog_proof.e(),
         dlog_s: oprf_output.verifiable_oprf_output.dlog_proof.s(),

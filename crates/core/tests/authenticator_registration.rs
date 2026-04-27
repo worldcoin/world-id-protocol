@@ -65,7 +65,7 @@ async fn test_authenticator_registration() {
     let seed = [1u8; 32];
     let recovery_address = anvil.signer(1).unwrap().address();
     // Account doesn't exist, so init will error
-    let result = Authenticator::init(&seed, config.clone()).await;
+    let result = Authenticator::init(&seed, config.clone().into()).await;
     assert!(matches!(
         result,
         Err(AuthenticatorError::AccountDoesNotExist)
@@ -75,7 +75,7 @@ async fn test_authenticator_registration() {
     // NOTE how we use `register()` instead of `init_or_register()` to test this specific flow.
     let start = std::time::Instant::now();
     let initializing_account =
-        Authenticator::register(&seed, config.clone(), Some(recovery_address))
+        Authenticator::register(&seed, config.clone().into(), Some(recovery_address))
             .await
             .unwrap();
 
@@ -91,13 +91,15 @@ async fn test_authenticator_registration() {
         .await
         .unwrap();
 
-    let authenticator = Authenticator::init(&seed, config.clone()).await.unwrap();
+    let authenticator = Authenticator::init(&seed, config.clone().into())
+        .await
+        .unwrap();
     let elapsed = start.elapsed();
     tracing::info!("Account creation successful in {elapsed:?}");
     assert_eq!(authenticator.leaf_index(), 1);
     assert_eq!(authenticator.recovery_counter(), U256::from(0));
 
     // If we initialize again, it will work
-    let authenticator = Authenticator::init(&seed, config).await.unwrap();
+    let authenticator = Authenticator::init(&seed, config.into()).await.unwrap();
     assert_eq!(authenticator.leaf_index(), 1);
 }

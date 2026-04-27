@@ -2,15 +2,17 @@ use alloy::{
     primitives::{Address, U256},
     signers::local::PrivateKeySigner,
 };
+use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use reqwest::StatusCode;
-use world_id_core::{
-    Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSAPublicKey, OnchainKeyRepresentable,
+use world_id_authenticator::{Authenticator, AuthenticatorError, OnchainKeyRepresentable};
+use world_id_primitives::{
+    Config, TREE_DEPTH,
     api_types::{
         GatewayRequestId, GatewayRequestKind, GatewayStatusResponse, RecoverAccountRequest,
     },
-    primitives::{Config, TREE_DEPTH, merkle::AccountInclusionProof},
-    world_id_registry::{domain as ag_domain, sign_recover_account},
+    merkle::AccountInclusionProof,
 };
+use world_id_registries::world_id::{domain as ag_domain, sign_recover_account};
 
 use world_id_test_utils::{
     fixtures::{MerkleFixture, single_leaf_merkle_fixture},
@@ -78,14 +80,14 @@ async fn register_and_init(
 ) -> (Authenticator, MutableIndexerStub) {
     ensure_crypto_provider();
     let config = make_config(gw, "http://127.0.0.1:0");
-    let initializing = Authenticator::register(&seed, config, recovery_address)
+    let initializing = Authenticator::register(&seed, config.into(), recovery_address)
         .await
         .expect("register failed");
     wait_for_finalized(&gw.client, &gw.base_url, initializing.request_id()).await;
 
     let (pubkey, _) = derive_keys_from_seed(seed);
     let tmp_config = make_config(gw, "http://127.0.0.1:0");
-    let auth = Authenticator::init(&seed, tmp_config)
+    let auth = Authenticator::init(&seed, tmp_config.into())
         .await
         .expect("init failed after register");
 
@@ -96,7 +98,7 @@ async fn register_and_init(
         .expect("failed to spawn indexer stub");
 
     let config = make_config(gw, &stub.url);
-    let auth = Authenticator::init(&seed, config)
+    let auth = Authenticator::init(&seed, config.into())
         .await
         .expect("init with indexer stub failed");
 
@@ -267,7 +269,7 @@ async fn test_lock_created_on_submit() {
     let seed: [u8; 32] = rand::random();
     let (_, addr) = derive_keys_from_seed(seed);
     let config = make_config(&gw, "http://127.0.0.1:0");
-    let _initializing = Authenticator::register(&seed, config, None)
+    let _initializing = Authenticator::register(&seed, config.into(), None)
         .await
         .expect("register failed");
     let auth_key = format!("gateway:inflight:create:{addr}");
@@ -347,7 +349,7 @@ async fn test_lock_removed_after_finalization() {
     let seed: [u8; 32] = rand::random();
     let (_, addr) = derive_keys_from_seed(seed);
     let config = make_config(&gw, "http://127.0.0.1:0");
-    let initializing = Authenticator::register(&seed, config, None)
+    let initializing = Authenticator::register(&seed, config.into(), None)
         .await
         .expect("register failed");
     wait_for_finalized(&gw.client, &gw.base_url, initializing.request_id()).await;

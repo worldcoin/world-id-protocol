@@ -3,10 +3,9 @@ use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use http::StatusCode;
 use semaphore_rs_trees::{Branch, proof::InclusionProof};
-use world_id_core::api_types::{AccountInclusionProof, IndexerErrorCode, IndexerQueryRequest};
 use world_id_primitives::{
-    FieldElement, TREE_DEPTH,
-    authenticator::{SparseAuthenticatorPubkeysError, decode_sparse_authenticator_pubkeys},
+    AuthenticatorPublicKeySet, FieldElement, SparseAuthenticatorPubkeysError, TREE_DEPTH,
+    api_types::{AccountInclusionProof, IndexerErrorCode, IndexerQueryRequest},
     merkle::MerkleInclusionProof,
 };
 
@@ -66,7 +65,8 @@ pub(crate) async fn handler(
         .map_err(|_err| IndexerErrorResponse::internal_server_error())?
         .ok_or(IndexerErrorResponse::not_found())?;
 
-    let authenticator_pubkeys = decode_sparse_authenticator_pubkeys(pubkeys).map_err(|e| {
+    let authenticator_pubkeys =
+        AuthenticatorPublicKeySet::from_sparse_encoded_pubkeys(pubkeys).map_err(|e| {
         match e {
             SparseAuthenticatorPubkeysError::SlotOutOfBounds {
                 slot_index,
