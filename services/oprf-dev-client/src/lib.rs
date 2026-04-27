@@ -14,7 +14,9 @@ use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSASignature, FieldElement,
     proof::{CircomGroth16Material, errors},
 };
-use world_id_primitives::{AuthenticatorPublicKeySet, TREE_DEPTH, merkle::MerkleInclusionProof};
+use world_id_primitives::{
+    AuthenticatorPublicKeySet, Signer, TREE_DEPTH, merkle::MerkleInclusionProof,
+};
 use world_id_proof::circuit_inputs::QueryProofCircuitInput;
 
 const HARDCODED_RP_SIGNER: &str =
@@ -201,6 +203,13 @@ pub async fn init_authenticator(
     let authenticator = Authenticator::init_or_register(&seed, world_config.into(), None)
         .await?
         .with_proof_materials(query_material, Arc::new(nullifier_material));
-    let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);
+    // Mirror the Authenticator's internal off-chain key derivation so the
+    // returned private key matches the registered off-chain pubkey. The raw
+    // `seed` bytes are no longer used directly as an EdDSA secret since
+    // `Signer::from_seed_bytes` derives sub-keys via a domain-separated KDF.
+    let authenticator_private_key = Signer::from_seed_bytes(&seed)?
+        .offchain_signer_private_key()
+        .expose_secret()
+        .clone();
     Ok((authenticator, authenticator_private_key))
 }

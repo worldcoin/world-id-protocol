@@ -5,7 +5,6 @@ use std::time::Duration;
 use alloy::{
     primitives::{Address, U256},
     providers::ProviderBuilder,
-    signers::local::PrivateKeySigner,
 };
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use reqwest::Client;
@@ -16,7 +15,7 @@ use world_id_core::{
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
 };
-use world_id_primitives::{Config, TREE_DEPTH, merkle::AccountInclusionProof};
+use world_id_primitives::{Config, Signer, TREE_DEPTH, merkle::AccountInclusionProof};
 use world_id_test_utils::{
     anvil::{TestAnvil, WorldIDRegistry},
     fixtures::{MerkleFixture, single_leaf_merkle_fixture},
@@ -64,11 +63,12 @@ fn make_inclusion_proof(
     AccountInclusionProof::<{ TREE_DEPTH }>::new(inclusion_proof, key_set)
 }
 
-// Derives keys from seed using same logic as Authenticator's internal Signer
+// Derives keys from a master seed using the same domain-separated KDF as the
+// Authenticator's internal `Signer`, so the test-side pubkey/address match
+// what `Authenticator::init` derives from the same seed.
 fn derive_keys_from_seed(seed: [u8; 32]) -> (EdDSAPublicKey, Address) {
-    let onchain = PrivateKeySigner::from_bytes(&seed.into()).unwrap();
-    let offchain = EdDSAPrivateKey::from_bytes(seed);
-    (offchain.public(), onchain.address())
+    let signer = Signer::from_seed_bytes(&seed).unwrap();
+    (signer.offchain_signer_pubkey(), signer.onchain_signer_address())
 }
 
 fn make_config(
