@@ -21,6 +21,16 @@ on:
         required: false
         type: string
         default: "5"
+      fetch_timeout_secs:
+        description: "Seconds to wait for each BrowserStack run to complete"
+        required: false
+        type: string
+        default: "1800"
+      ios_completion_timeout_secs:
+        description: "Seconds before the generated iOS XCUITest harness times out"
+        required: false
+        type: string
+        default: "1800"
       platform:
         description: "Target platform: android, ios, or both"
         required: false
@@ -270,6 +280,8 @@ jobs:
           FUNCTIONS: ${{ inputs.functions }}
           ITERATIONS: ${{ inputs.iterations }}
           WARMUP: ${{ inputs.warmup }}
+          FETCH_TIMEOUT_SECS: ${{ inputs.fetch_timeout_secs }}
+          IOS_COMPLETION_TIMEOUT_SECS: ${{ inputs.ios_completion_timeout_secs }}
           IOS_DEVICE: ${{ steps.resolve_device.outputs.device_name }}
           IOS_OS_VERSION: ${{ steps.resolve_device.outputs.os_version }}
           RELEASE_FLAG: ${{ inputs.build_release && '--release' || '' }}
@@ -292,7 +304,9 @@ jobs:
             --devices "${device_spec}" \
             --crate-path "$CRATE_PATH" \
             $RELEASE_FLAG \
+            --ios-completion-timeout-secs "${IOS_COMPLETION_TIMEOUT_SECS}" \
             --fetch \
+            --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
             --output-dir target/mobench/ci/ios
 
       - name: Validate iOS benchmark outputs
@@ -489,6 +503,7 @@ jobs:
           FUNCTIONS: ${{ inputs.functions }}
           ITERATIONS: ${{ inputs.iterations }}
           WARMUP: ${{ inputs.warmup }}
+          FETCH_TIMEOUT_SECS: ${{ inputs.fetch_timeout_secs }}
           ANDROID_DEVICE: ${{ steps.resolve_device.outputs.device_name }}
           ANDROID_OS_VERSION: ${{ steps.resolve_device.outputs.os_version }}
           RELEASE_FLAG: ${{ inputs.build_release && '--release' || '' }}
@@ -512,6 +527,7 @@ jobs:
             --crate-path "$CRATE_PATH" \
             $RELEASE_FLAG \
             --fetch \
+            --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
             --output-dir target/mobench/ci/android
 
       - name: Validate Android benchmark outputs

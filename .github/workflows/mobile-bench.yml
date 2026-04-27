@@ -52,6 +52,11 @@ on:
         required: false
         type: string
         default: "5"
+      fetch_timeout_secs:
+        description: "Seconds to wait for each BrowserStack run to complete"
+        required: false
+        type: string
+        default: "1800"
       pr_number:
         description: "PR number for reporting"
         required: false
@@ -115,6 +120,7 @@ jobs:
       android_os_version: ${{ inputs.android_os_version }}
       iterations: ${{ inputs.iterations }}
       warmup: ${{ inputs.warmup }}
+      fetch_timeout_secs: ${{ inputs.fetch_timeout_secs }}
       pr_number: ${{ inputs.pr_number }}
       head_sha: ${{ inputs.head_sha }}
       requested_by: ${{ inputs.requested_by }}
