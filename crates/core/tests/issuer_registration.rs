@@ -18,11 +18,7 @@ async fn test_register_issuer_schema() -> Result<()> {
 
     // Register OPRF nodes (required before initKeyGen can be called)
     anvil
-        .register_oprf_nodes(
-            oprf_key_registry,
-            deployer.clone(),
-            PEER_ADDRESSES.to_vec(),
-        )
+        .register_oprf_nodes(oprf_key_registry, deployer.clone(), PEER_ADDRESSES.to_vec())
         .await?;
 
     let issuer_registry_address = anvil
@@ -31,11 +27,7 @@ async fn test_register_issuer_schema() -> Result<()> {
 
     // Add CredentialSchemaIssuerRegistry as OprfKeyRegistry admin so it can call initKeyGen
     anvil
-        .add_oprf_key_registry_admin(
-            oprf_key_registry,
-            deployer.clone(),
-            issuer_registry_address,
-        )
+        .add_oprf_key_registry_admin(oprf_key_registry, deployer.clone(), issuer_registry_address)
         .await?;
 
     // The issuer's on-chain SECP256K1 key is derived from `issuer_seed_bytes` via a

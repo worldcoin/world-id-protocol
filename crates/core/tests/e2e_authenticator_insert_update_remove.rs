@@ -68,7 +68,10 @@ fn make_inclusion_proof(
 // what `Authenticator::init` derives from the same seed.
 fn derive_keys_from_seed(seed: [u8; 32]) -> (EdDSAPublicKey, Address) {
     let signer = Signer::from_seed_bytes(&seed).unwrap();
-    (signer.offchain_signer_pubkey(), signer.onchain_signer_address())
+    (
+        signer.offchain_signer_pubkey(),
+        signer.onchain_signer_address(),
+    )
 }
 
 fn make_config(
