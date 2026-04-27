@@ -659,9 +659,78 @@ contract WorldIDRegistryV2WIP102Test is WorldIDRegistryV2TestBase {
             leafIndex, newAuth, newCommitment, OFFCHAIN_SIGNER_COMMITMENT, newCommitment, recoverySig, nonce
         );
 
-        // Attacker's mapping entry is cleared. Note the on-chain recovery agent is still `recoveryAttacker`
-        // at this point — the user must issue a fresh `updateRecoveryAgent` to restore their own agent.
-        // The critical property is that the attacker's update is no longer "protected" by a revert window.
+        // Mapping entry cleared and the legitimate recovery agent is restored to the slot. Without the
+        // restore, deleting the mapping would unmask the attacker's address as the effective agent and
+        // let them re-recover the account immediately afterwards.
+        (address prev, uint256 invalidAfter) = registry.getPreviousRecoveryAgentUpdate(leafIndex);
+        assertEq(prev, address(0));
+        assertEq(invalidAfter, 0);
+        assertEq(registry.getRecoveryAgent(leafIndex), recoveryOld);
+    }
+
+    function test_AttackMitigation_AttackerCannotReRecoverAfterVictimRecovery() public {
+        // Setup mirrors the mitigation test: attacker swaps the agent, victim recovers via the prev agent.
+        uint64 leafIndex = _createAccount(auth1, recoveryOld);
+        bytes memory attackerSig = _updateRecoveryAgentSig(leafIndex, recoveryAttacker, 0, AUTH1_PRIVATE_KEY);
+        registry.updateRecoveryAgent(leafIndex, recoveryAttacker, attackerSig, 0);
+
+        address victimNewAuth = address(0xBEE1);
+        uint256 victimNonce = 1;
+        uint256 victimCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+        bytes memory victimSig =
+            _recoverAccountSig(leafIndex, victimNewAuth, victimCommitment, victimNonce, RECOVERY_OLD_PRIVATE_KEY);
+        registry.recoverAccount(
+            leafIndex,
+            victimNewAuth,
+            victimCommitment,
+            OFFCHAIN_SIGNER_COMMITMENT,
+            victimCommitment,
+            victimSig,
+            victimNonce
+        );
+
+        // Attacker still controls `recoveryAttacker`'s ECDSA key. 
+        // Effective recovery agent is `recoveryOld` again, so the attacker's signature no longer
+        // matches the expected signer and the call reverts.
+        address attackerNewAuth = address(0xBAD2);
+        uint256 attackerNonce = 2;
+        uint256 attackerCommitment = victimCommitment + 1;
+        bytes memory attackerRecoverySig = _recoverAccountSig(
+            leafIndex, attackerNewAuth, attackerCommitment, attackerNonce, RECOVERY_ATTACKER_PRIVATE_KEY
+        );
+        vm.expectRevert(IWorldIDRegistry.InvalidSignature.selector);
+        registry.recoverAccount(
+            leafIndex,
+            attackerNewAuth,
+            attackerCommitment,
+            victimCommitment,
+            attackerCommitment,
+            attackerRecoverySig,
+            attackerNonce
+        );
+    }
+
+    function test_RecoverAccount_AfterWindow_DoesNotRestorePrev() public {
+        // Legitimate user rotates the recovery agent and lets the window elapse — `recoveryNew` is
+        // now fully effective. A subsequent recovery signed by the new agent must NOT restore the
+        // old agent into the slot.
+        uint64 leafIndex = _createAccount(auth1, recoveryOld);
+        bytes memory updateSig = _updateRecoveryAgentSig(leafIndex, recoveryNew, 0, AUTH1_PRIVATE_KEY);
+        registry.updateRecoveryAgent(leafIndex, recoveryNew, updateSig, 0);
+
+        skip(registry.getRecoveryAgentUpdateCooldown() + 1);
+
+        address newAuth = address(0xBEE2);
+        uint256 nonce = 1;
+        uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
+        bytes memory recoverySig =
+            _recoverAccountSig(leafIndex, newAuth, newCommitment, nonce, RECOVERY_NEW_PRIVATE_KEY);
+        registry.recoverAccount(
+            leafIndex, newAuth, newCommitment, OFFCHAIN_SIGNER_COMMITMENT, newCommitment, recoverySig, nonce
+        );
+
+        // Legitimate post-window state is preserved: the new agent stays in place, stale mapping cleared.
+        assertEq(registry.getRecoveryAgent(leafIndex), recoveryNew);
         (address prev, uint256 invalidAfter) = registry.getPreviousRecoveryAgentUpdate(leafIndex);
         assertEq(prev, address(0));
         assertEq(invalidAfter, 0);

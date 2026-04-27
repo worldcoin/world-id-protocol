@@ -485,8 +485,18 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
             PackedAccountData.pack(leafIndex, uint32(_leafIndexToRecoveryCounter[leafIndex]), uint32(0));
         _setPubkeyBitmap(leafIndex, 1); // Reset to only pubkeyId 0
 
-        // Clear any active Recovery Agent update so a malicious update by a compromised
-        // authenticator is undone as part of the true owner's recovery (WIP-102 attack mitigation).
+        // WIP-102 attack mitigation. When recovery succeeds during an active revert
+        // window, the attacker's `newRecoveryAgent` is currently in the recovery slot
+        // but masked by `_getEffectiveRecoveryAgent`. Restoring `prev.prevRecoveryAgent`
+        // here — before clearing the window mapping prevents the attacker's address
+        // from becoming the effective recovery agent the moment the mask is removed.
+        // The condition mirrors `_getEffectiveRecoveryAgent`'s window-active check so we
+        // only restore when the recovery actually used the prev agent's authority
+        // (post-window recoveries leave the legitimate new agent in place).
+        PreviousRecoveryAgentUpdate memory prev = _prevRecoveryAgentUpdates[leafIndex];
+        if (prev.invalidAfter != 0 && block.timestamp < prev.invalidAfter) {
+            _setRecoveryAddressAndBitmap(leafIndex, prev.prevRecoveryAgent, _getPubkeyBitmap(leafIndex));
+        }
         delete _prevRecoveryAgentUpdates[leafIndex];
 
         emit AccountRecovered(
