@@ -282,7 +282,6 @@ pub fn sign_cancel_recovery_agent_update<S: SignerSync + Sync>(
     Ok(signer.sign_hash_sync(&digest)?)
 }
 #[cfg(test)]
-
 mod tests {
     use super::*;
     use alloy::{
