@@ -397,6 +397,10 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         returns (address prevRecoveryAgent, uint256 invalidAfter)
     {
         PreviousRecoveryAgentUpdate memory prev = _prevRecoveryAgentUpdates[leafIndex];
+        // if update passed, there is no updated in flight, so we return (0,0)
+        if (prev.invalidAfter == 0 || block.timestamp >= prev.invalidAfter) {
+            return (address(0), 0);
+        }
         return (prev.prevRecoveryAgent, prev.invalidAfter);
     }
 

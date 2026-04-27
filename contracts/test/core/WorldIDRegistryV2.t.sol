@@ -792,6 +792,22 @@ contract WorldIDRegistryV2WIP102Test is WorldIDRegistryV2TestBase {
         assertEq(pendingAgent, address(0));
         assertEq(validAfter, 0);
     }
+
+    function test_GetPreviousRecoveryAgentUpdate_AfterWindow_ReturnsZero() public {
+        // The mapping entry isn't auto-cleaned when `invalidAfter` elapses; the view must apply
+        // the timestamp guard so callers see `(0, 0)` consistently with the interface contract
+        // and don't offer doomed `revertRecoveryAgentUpdate` calls (would revert WindowExpired).
+        uint64 leafIndex = _createAccount(auth1, recoveryOld);
+        uint256 cooldown = registry.getRecoveryAgentUpdateCooldown();
+
+        bytes memory sig = _updateRecoveryAgentSig(leafIndex, recoveryNew, 0, AUTH1_PRIVATE_KEY);
+        registry.updateRecoveryAgent(leafIndex, recoveryNew, sig, 0);
+        skip(cooldown + 1);
+
+        (address prev, uint256 invalidAfter) = registry.getPreviousRecoveryAgentUpdate(leafIndex);
+        assertEq(prev, address(0));
+        assertEq(invalidAfter, 0);
+    }
 }
 
 /// @title Cross-version sanity: a V1 pending update is orphaned (but harmless) after upgrade to V2.
