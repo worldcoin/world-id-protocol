@@ -2,6 +2,7 @@
 
 pub const METRICS_CHAIN_HEAD_BLOCK: &str = "chain.head_block";
 pub const METRICS_CHAIN_PROCESSED_BLOCK: &str = "chain.processed_block";
+pub const METRICS_CHAIN_LAST_REGISTRY_EVENT_BLOCK: &str = "chain.last_registry_event_block";
 
 pub const METRICS_EVENTS_COMMIT_BATCH_SIZE: &str = "events.commit_batch_size";
 pub const METRICS_EVENTS_COMMIT_LATENCY_MS: &str = "events.commit_latency_ms";
@@ -9,6 +10,7 @@ pub const METRICS_EVENTS_COMMIT_LATENCY_MS: &str = "events.commit_latency_ms";
 pub const METRICS_TREE_SYNC_LATENCY_MS: &str = "tree.sync_latency_ms";
 pub const METRICS_TREE_SYNC_EVENTS: &str = "tree.sync_events";
 pub const METRICS_TREE_LAST_SYNCED_BLOCK: &str = "tree.last_synced_block";
+pub const METRICS_TREE_LAST_EVENT_BLOCK: &str = "tree.last_event_block";
 
 pub const METRICS_HTTP_LATENCY_MS: &str = "http.latency_ms";
 
@@ -21,7 +23,12 @@ pub fn describe_metrics() {
     ::metrics::describe_gauge!(
         METRICS_CHAIN_PROCESSED_BLOCK,
         ::metrics::Unit::Count,
-        "Latest processed block number by the indexer."
+        "Highest block number the indexer has successfully scanned through."
+    );
+    ::metrics::describe_gauge!(
+        METRICS_CHAIN_LAST_REGISTRY_EVENT_BLOCK,
+        ::metrics::Unit::Count,
+        "Block number of the last successfully handled registry event."
     );
     ::metrics::describe_histogram!(
         METRICS_EVENTS_COMMIT_BATCH_SIZE,
@@ -47,7 +54,12 @@ pub fn describe_metrics() {
     ::metrics::describe_gauge!(
         METRICS_TREE_LAST_SYNCED_BLOCK,
         ::metrics::Unit::Count,
-        "Block number of the last DB event synced into the tree."
+        "Highest DB event block number the tree sync has successfully caught up through."
+    );
+    ::metrics::describe_gauge!(
+        METRICS_TREE_LAST_EVENT_BLOCK,
+        ::metrics::Unit::Count,
+        "Block number of the last DB event that was actually applied to the tree."
     );
 
     ::metrics::describe_histogram!(
@@ -65,6 +77,10 @@ pub fn set_chain_processed_block(block_number: u64) {
     ::metrics::gauge!(METRICS_CHAIN_PROCESSED_BLOCK).set(block_number as f64);
 }
 
+pub fn set_chain_last_registry_event_block(block_number: u64) {
+    ::metrics::gauge!(METRICS_CHAIN_LAST_REGISTRY_EVENT_BLOCK).set(block_number as f64);
+}
+
 pub fn record_commit(batch_size: usize, latency_ms: f64) {
     ::metrics::histogram!(METRICS_EVENTS_COMMIT_BATCH_SIZE).record(batch_size as f64);
     ::metrics::histogram!(METRICS_EVENTS_COMMIT_LATENCY_MS).record(latency_ms);
@@ -79,6 +95,10 @@ pub fn record_tree_sync(events: usize, latency_ms: f64, last_synced_block: u64) 
 
 pub fn set_tree_last_synced_block(block_number: u64) {
     ::metrics::gauge!(METRICS_TREE_LAST_SYNCED_BLOCK).set(block_number as f64);
+}
+
+pub fn set_tree_last_event_block(block_number: u64) {
+    ::metrics::gauge!(METRICS_TREE_LAST_EVENT_BLOCK).set(block_number as f64);
 }
 
 pub fn record_http_latency_ms(route: &str, status: u16, latency_ms: f64) {

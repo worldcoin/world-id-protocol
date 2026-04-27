@@ -52,6 +52,7 @@ pub async unsafe fn init_tree(
 
     let tree_state = TreeState::new(tree, tree_depth, last_event_id);
     crate::metrics::set_tree_last_synced_block(last_event_id.block_number);
+    crate::metrics::set_tree_last_event_block(last_event_id.block_number);
     crate::metrics::set_chain_processed_block(last_event_id.block_number);
 
     Ok(tree_state)
@@ -139,6 +140,7 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
 
     let latency_ms = started.elapsed().as_millis() as f64;
     crate::metrics::record_tree_sync(total, latency_ms, cursor.block_number);
+    crate::metrics::set_tree_last_event_block(cursor.block_number);
 
     Ok(total)
 }

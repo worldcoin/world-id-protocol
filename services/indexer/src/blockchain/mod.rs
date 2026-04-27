@@ -359,6 +359,7 @@ impl Blockchain {
                     .to_block(current_to);
 
                 let logs = self.get_logs(&batch_filter).await?;
+                crate::metrics::set_chain_processed_block(current_to);
 
                 tracing::debug!("Fetched {} logs in batch", logs.len());
 

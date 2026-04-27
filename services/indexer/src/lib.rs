@@ -390,6 +390,7 @@ pub async fn process_registry_events(
                     match handle_registry_event(&mut events_committer, event).await {
                         Ok(()) => {
                             crate::metrics::set_chain_processed_block(block_number);
+                            crate::metrics::set_chain_last_registry_event_block(block_number);
                         }
                         Err(IndexerError::ReorgDetected {
                             block_number,
