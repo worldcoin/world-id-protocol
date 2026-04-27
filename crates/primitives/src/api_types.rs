@@ -577,6 +577,10 @@ pub enum GatewayErrorCode {
     RateLimitExceeded,
     /// The request timed out.
     RequestTimeout,
+    /// Endpoint exists but is not available against the currently-deployed
+    /// registry version (e.g. a WIP-102 V2-only route hit while the registry
+    /// is still on V1). Mirrors the contract-level `MethodUnsupported()` revert.
+    MethodNotAvailable,
 }
 
 /// Error object returned by the services APIs (indexer, gateway).

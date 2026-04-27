@@ -760,3 +760,64 @@ async fn e2e_update_and_revert_via_v2_urls() {
         "after revert the original agent is restored"
     );
 }
+
+/// Hitting the V2-only WIP-102 routes against a V1 registry should return
+/// 501 Not Implemented — never V2 calldata that would revert on-chain.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_v2_only_routes_against_v1_return_not_implemented() {
+    let gw = spawn_test_gateway(None).await;
+    let (signer, _wallet_addr) = create_account(&gw).await;
+
+    let provider = alloy::providers::ProviderBuilder::new()
+        .wallet(alloy::network::EthereumWallet::from(signer.clone()))
+        .connect_http(gw.rpc_url.parse().expect("invalid anvil endpoint url"));
+    let chain_id = provider.get_chain_id().await.unwrap();
+    let domain = ag_domain(chain_id, gw.registry_addr);
+
+    let leaf_index: u64 = 1;
+    let nonce = U256::from(0);
+    let new_recovery_agent: Address = "0x00000000000000000000000000000000000000bb"
+        .parse()
+        .unwrap();
+
+    // /update-recovery-agent against V1.
+    let sig_update = sign_initiate_recovery_agent_update(
+        &signer,
+        leaf_index,
+        new_recovery_agent,
+        nonce,
+        &domain,
+    )
+    .unwrap();
+    let body_update = UpdateRecoveryAgentRequest {
+        leaf_index,
+        new_recovery_agent,
+        signature: sig_update,
+        nonce,
+    };
+    let resp = gw
+        .client
+        .post(format!("{}/update-recovery-agent", gw.base_url))
+        .json(&body_update)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
+
+    // /revert-recovery-agent-update against V1.
+    let sig_revert =
+        sign_cancel_recovery_agent_update(&signer, leaf_index, nonce, &domain).unwrap();
+    let body_revert = CancelRecoveryAgentUpdateRequest {
+        leaf_index,
+        signature: sig_revert,
+        nonce,
+    };
+    let resp = gw
+        .client
+        .post(format!("{}/revert-recovery-agent-update", gw.base_url))
+        .json(&body_revert)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
+}
