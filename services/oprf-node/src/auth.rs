@@ -7,7 +7,8 @@
 //!
 //! - [`credential_blinding_factor`] – implements authentication for OPRF credential blinding factor generation.
 //! - [`merkle_watcher`] – validates and caches merkle roots from the `WorldIDRegistry`.
-//! - [`nonce_history`] – keeps track of nonces used for nonce + `time_stamp` signatures to detect replays
+//! - [`nonce_history`] – keeps track of RP nonces in a node-local cache to
+//!   detect replays already seen by this process
 //! - [`rp_registry_watcher`] – validates and caches registered RPs from the `RpRegistry`.
 //! - [`schema_issuer_registry_watcher`] – validates and caches registered Credential Schema Issuers.
 //! - [`rp_module`] – unified implementation for session and uniqueness OPRF authentication.

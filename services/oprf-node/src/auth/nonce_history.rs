@@ -1,10 +1,23 @@
 //! Nonce History Tracking
 //!
-//! This module provides [`NonceHistory`], which tracks nonces used for signatures
-//! to detect replay attacks. It uses a time-based cache that automatically
+//! This module provides [`NonceHistory`], an in-memory replay filter for
+//! RP-signed request nonces. It uses a time-based cache that automatically
 //! evicts old entries after the configured maximum age.
 //!
-//! The history is thread-safe and can be cloned to share across tasks.
+//! The history is thread-safe and can be cloned to share across tasks, but only
+//! within the same process and module instance. It does not coordinate with
+//! other OPRF nodes or with other replicas that keep their own in-memory state.
+//! In a 2-of-4 deployment, for example, a client can query nodes A/B and then
+//! C/D with the same RP-signed nonce, and both subsets can accept it because
+//! each subset sees a fresh local history. The same caveat applies to separate
+//! EU/US/SEA replicas, or any other horizontally scaled deployment.
+//!
+//! This is acceptable at the protocol level: any additional nullifier produced
+//! by a replayed nonce cannot be redeemed, and the extra computation on the
+//! OPRF node is negligible. In practice, the deployed system is expected to use
+//! a threshold greater than half of the total nodes, making this scenario
+//! impossible in the first place — though it may still arise within a single
+//! provider's replica set in a multi-provider deployment.
 
 use std::time::Duration;
 
@@ -16,10 +29,12 @@ use world_id_primitives::FieldElement;
 #[error("duplicate nonce - already used")]
 pub(crate) struct DuplicateNonce;
 
-/// Tracks nonces used for signatures to prevent replay attacks.
+/// Tracks nonces seen by one node-local module instance.
 ///
-/// Uses a [`moka::future::Cache`] with time-to-live expiration. Nonces
-/// are automatically evicted after the configured maximum age.
+/// Uses a [`moka::future::Cache`] with time-to-live expiration. Nonces are
+/// automatically evicted after the configured maximum age. Clones of
+/// [`NonceHistory`] share this same in-process cache, but other nodes and other
+/// processes keep independent histories.
 #[derive(Clone)]
 pub(crate) struct NonceHistory {
     nonces: Cache<FieldElement, ()>,
@@ -28,7 +43,9 @@ pub(crate) struct NonceHistory {
 impl NonceHistory {
     /// Initializes a new nonce history with automatic expiration.
     ///
-    /// Nonces are automatically evicted after `max_nonce_age`.
+    /// Nonces are automatically evicted after `max_nonce_age`. This only bounds
+    /// how long the current node-local cache remembers a nonce; it does not
+    /// create a threshold-wide "consumed nonce" record.
     ///
     /// # Arguments
     /// * `max_nonce_age` - Maximum age for nonces before they expire
@@ -42,14 +59,17 @@ impl NonceHistory {
 
     /// Adds a nonce to the history.
     ///
-    /// Returns an error if the nonce already exists in the history,
-    /// indicating a potential replay attack.
+    /// Returns an error if the nonce already exists in this local history,
+    /// indicating a replay against this node/module instance.
     ///
     /// # Arguments
     /// * `nonce` - The nonce to track
     ///
     /// # Errors
-    /// Returns [`DuplicateNonce`] if the nonce already exists.
+    /// Returns [`DuplicateNonce`] if the nonce already exists in this local
+    /// cache. That means the nonce was already seen by this node/module
+    /// instance within `max_nonce_age`; it does not imply threshold-wide nonce
+    /// consumption across other nodes or isolated replicas.
     pub(crate) async fn add_nonce(&self, nonce: FieldElement) -> Result<(), DuplicateNonce> {
         let entry = self.nonces.entry(nonce).or_insert_with(async {}).await;
         if !entry.is_fresh() {
