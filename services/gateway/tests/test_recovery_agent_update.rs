@@ -647,11 +647,14 @@ async fn e2e_initiate_then_window_elapse_and_execute_noop_v2() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     let body: GatewayStatusResponse = resp.json().await.unwrap();
-    assert!(
-        matches!(body.status, GatewayRequestState::Queued),
-        "execute should return synthetic Queued, got {:?}",
-        body.status
-    );
+    // V2 returns a terminal `Finalized` (with empty `tx_hash`)
+    match &body.status {
+        GatewayRequestState::Finalized { tx_hash } => assert!(
+            tx_hash.is_empty(),
+            "execute on V2 should return Finalized with empty tx_hash, got {tx_hash:?}"
+        ),
+        other => panic!("execute on V2 should return synthetic Finalized, got {other:?}"),
+    }
 
     // On-chain state hasn't moved (no extra tx).
     let still_effective = contract.getRecoveryAgent(leaf_index).call().await.unwrap();

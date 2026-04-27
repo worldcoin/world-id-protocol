@@ -33,11 +33,15 @@ pub(crate) async fn execute_recovery_agent_update(
             .await
             .map(|r| Json(r.into_response())),
         RegistryVersion::V2 => {
+            // WIP-102 removes the explicit execute step
+            // Return a terminal `Finalized`
             let _ = payload;
             Ok(Json(GatewayStatusResponse {
                 request_id: GatewayRequestId::new(id.to_string()),
                 kind: GatewayRequestKind::ExecuteRecoveryAgentUpdate,
-                status: GatewayRequestState::Queued,
+                status: GatewayRequestState::Finalized {
+                    tx_hash: String::new(),
+                },
             }))
         }
     }
