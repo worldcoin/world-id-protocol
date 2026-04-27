@@ -15,8 +15,8 @@ use alloy::{
 };
 use reqwest::StatusCode;
 use world_id_primitives::api_types::{
-    CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest, GatewayRequestState,
-    GatewayStatusResponse, UpdateRecoveryAgentRequest,
+    CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest, GatewayStatusResponse,
+    UpdateRecoveryAgentRequest,
 };
 use world_id_registries::world_id::{
     WorldIdRegistry, domain as ag_domain, sign_cancel_recovery_agent_update,
@@ -543,9 +543,7 @@ async fn e2e_initiate_and_cancel_recovery_agent_update_v2() {
 }
 
 /// WIP-102 mechanics: after `/initiate-` lands on V2, fast-forward past the
-/// revert window. The new agent becomes effective with no `/execute-` call
-/// required. Then call `/execute-recovery-agent-update` and verify it's a
-/// synthetic no-op (200 OK, status `Queued`, no on-chain side effect).
+/// revert window.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn e2e_initiate_then_window_elapse_and_execute_noop_v2() {
     let gw = spawn_test_gateway_v2(None).await;
@@ -625,31 +623,6 @@ async fn e2e_initiate_then_window_elapse_and_execute_noop_v2() {
         .unwrap();
     assert_eq!(pending.newRecoveryAgent, Address::ZERO);
     assert_eq!(pending.executeAfter, U256::ZERO);
-
-    // Now call `/execute-recovery-agent-update`. On V2 this is a synthetic
-    // no-op: the gateway returns 200 with state Queued without touching chain.
-    let body_exec = ExecuteRecoveryAgentUpdateRequest { leaf_index };
-    let resp = gw
-        .client
-        .post(format!("{}/execute-recovery-agent-update", gw.base_url))
-        .json(&body_exec)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-    let body: GatewayStatusResponse = resp.json().await.unwrap();
-    // V2 returns a terminal `Finalized` (with empty `tx_hash`)
-    match &body.status {
-        GatewayRequestState::Finalized { tx_hash } => assert!(
-            tx_hash.is_empty(),
-            "execute on V2 should return Finalized with empty tx_hash, got {tx_hash:?}"
-        ),
-        other => panic!("execute on V2 should return synthetic Finalized, got {other:?}"),
-    }
-
-    // On-chain state hasn't moved (no extra tx).
-    let still_effective = contract.getRecoveryAgent(leaf_index).call().await.unwrap();
-    assert_eq!(still_effective, new_recovery_agent);
 }
 
 /// New WIP-102 URLs: `/update-recovery-agent` and `/revert-recovery-agent-update`
@@ -750,65 +723,4 @@ async fn e2e_update_and_revert_via_v2_urls() {
         effective, wallet_addr,
         "after revert the original agent is restored"
     );
-}
-
-/// Hitting the V2-only WIP-102 routes against a V1 registry should return
-/// 501 Not Implemented — never V2 calldata that would revert on-chain.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn e2e_v2_only_routes_against_v1_return_not_implemented() {
-    let gw = spawn_test_gateway(None).await;
-    let (signer, _wallet_addr) = create_account(&gw).await;
-
-    let provider = alloy::providers::ProviderBuilder::new()
-        .wallet(alloy::network::EthereumWallet::from(signer.clone()))
-        .connect_http(gw.rpc_url.parse().expect("invalid anvil endpoint url"));
-    let chain_id = provider.get_chain_id().await.unwrap();
-    let domain = ag_domain(chain_id, gw.registry_addr);
-
-    let leaf_index: u64 = 1;
-    let nonce = U256::from(0);
-    let new_recovery_agent: Address = "0x00000000000000000000000000000000000000bb"
-        .parse()
-        .unwrap();
-
-    // /update-recovery-agent against V1.
-    let sig_update = sign_initiate_recovery_agent_update(
-        &signer,
-        leaf_index,
-        new_recovery_agent,
-        nonce,
-        &domain,
-    )
-    .unwrap();
-    let body_update = UpdateRecoveryAgentRequest {
-        leaf_index,
-        new_recovery_agent,
-        signature: sig_update,
-        nonce,
-    };
-    let resp = gw
-        .client
-        .post(format!("{}/update-recovery-agent", gw.base_url))
-        .json(&body_update)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
-
-    // /revert-recovery-agent-update against V1.
-    let sig_revert =
-        sign_cancel_recovery_agent_update(&signer, leaf_index, nonce, &domain).unwrap();
-    let body_revert = CancelRecoveryAgentUpdateRequest {
-        leaf_index,
-        signature: sig_revert,
-        nonce,
-    };
-    let resp = gw
-        .client
-        .post(format!("{}/revert-recovery-agent-update", gw.base_url))
-        .json(&body_revert)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
 }

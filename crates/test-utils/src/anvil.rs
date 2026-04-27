@@ -527,10 +527,6 @@ impl TestAnvil {
             .await
     }
 
-    /// Encodes the `initialize(...)` calldata used when deploying the
-    /// `WorldIDRegistry` proxy. Both V1 and V2 deploy paths use the same
-    /// initializer (V2 is upgraded into post-deploy without re-init), so this
-    /// is shared between them.
     fn world_id_registry_init_data(tree_depth: u64) -> Bytes {
         Bytes::from(
             WorldIDRegistry::initializeCall {
