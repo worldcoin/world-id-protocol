@@ -150,6 +150,11 @@ jobs:
           rustup component add rust-std --target aarch64-apple-ios-sim
           rustup target list --installed | grep -E "ios|apple"
 
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+        with:
+          # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
+          toolchain: v1.0.0-beta.11
+
       - name: Cache cargo registry/git
         uses: actions/cache@v4
         with:
@@ -413,6 +418,11 @@ jobs:
 
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
+
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+        with:
+          # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
+          toolchain: v1.0.0-beta.11
 
       - name: Install mobench
         shell: bash
