@@ -471,17 +471,16 @@ impl From<mobench_sdk::SemanticPhase> for SemanticPhase {
     }
 }
 
-impl From<mobench_sdk::BenchResourceUsage> for BenchResourceUsage {
-    fn from(resource_usage: mobench_sdk::BenchResourceUsage) -> Self {
-        Self {
-            cpu_median_ms: resource_usage.cpu_median_ms,
-            peak_memory_kb: resource_usage.peak_memory_kb,
-        }
-    }
-}
-
 impl From<mobench_sdk::RunnerReport> for BenchReport {
     fn from(report: mobench_sdk::RunnerReport) -> Self {
+        let cpu_median_ms = report.cpu_median_ms();
+        let peak_memory_kb = report.peak_memory_kb();
+        let resource_usage =
+            (cpu_median_ms.is_some() || peak_memory_kb.is_some()).then_some(BenchResourceUsage {
+                cpu_median_ms,
+                peak_memory_kb,
+            });
+
         Self {
             spec: BenchSpec {
                 name: report.spec.name,
@@ -496,7 +495,7 @@ impl From<mobench_sdk::RunnerReport> for BenchReport {
                 })
                 .collect(),
             phases: report.phases.into_iter().map(Into::into).collect(),
-            resource_usage: report.resource_usage.map(Into::into),
+            resource_usage,
         }
     }
 }
