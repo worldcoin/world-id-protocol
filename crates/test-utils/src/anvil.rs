@@ -435,15 +435,7 @@ impl TestAnvil {
         .await
         .context("failed to deploy WorldIDRegistry implementation")?;
 
-        let init_data = Bytes::from(
-            WorldIDRegistry::initializeCall {
-                initialTreeDepth: U256::from(tree_depth),
-                feeRecipient: address!("0x2cFc85d8E48F8EAB294be644d9E25C3030863003"),
-                feeToken: address!("0x2cFc85d8E48F8EAB294be644d9E25C3030863003"),
-                registrationFee: U256::from(0),
-            }
-            .abi_encode(),
-        );
+        let init_data = Self::world_id_registry_init_data(tree_depth);
 
         let proxy = ERC1967Proxy::deploy(provider, implementation_address, init_data)
             .await
@@ -494,15 +486,7 @@ impl TestAnvil {
         .await
         .context("failed to deploy WorldIDRegistry V1 implementation")?;
 
-        let init_data = Bytes::from(
-            WorldIDRegistry::initializeCall {
-                initialTreeDepth: U256::from(tree_depth),
-                feeRecipient: address!("0x2cFc85d8E48F8EAB294be644d9E25C3030863003"),
-                feeToken: address!("0x2cFc85d8E48F8EAB294be644d9E25C3030863003"),
-                registrationFee: U256::from(0),
-            }
-            .abi_encode(),
-        );
+        let init_data = Self::world_id_registry_init_data(tree_depth);
         let proxy = ERC1967Proxy::deploy(provider.clone(), v1_impl, init_data)
             .await
             .context("failed to deploy WorldIDRegistry proxy")?;
@@ -541,6 +525,22 @@ impl TestAnvil {
     pub async fn deploy_world_id_registry_v2(&self, signer: PrivateKeySigner) -> Result<Address> {
         self.deploy_world_id_registry_v2_with_depth(signer, TREE_DEPTH as u64)
             .await
+    }
+
+    /// Encodes the `initialize(...)` calldata used when deploying the
+    /// `WorldIDRegistry` proxy. Both V1 and V2 deploy paths use the same
+    /// initializer (V2 is upgraded into post-deploy without re-init), so this
+    /// is shared between them.
+    fn world_id_registry_init_data(tree_depth: u64) -> Bytes {
+        Bytes::from(
+            WorldIDRegistry::initializeCall {
+                initialTreeDepth: U256::from(tree_depth),
+                feeRecipient: address!("0x2cFc85d8E48F8EAB294be644d9E25C3030863003"),
+                feeToken: address!("0x2cFc85d8E48F8EAB294be644d9E25C3030863003"),
+                registrationFee: U256::from(0),
+            }
+            .abi_encode(),
+        )
     }
 
     /// Links Poseidon2T2 + PackedAccountData into a registry implementation

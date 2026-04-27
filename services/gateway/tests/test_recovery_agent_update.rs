@@ -4,16 +4,7 @@
 //! and `execute-recovery-agent-update` against both a V1 registry and a
 //! V2-upgraded one (which translates legacy URLs into WIP-102 selectors), plus
 //! the new V2-native `update-recovery-agent` / `revert-recovery-agent-update`
-//! URLs. Helpers are shared across V1 and V2 tests since the V2 contract
-//! preserves the V1 ABI shape for `getPendingRecoveryAgentUpdate`.
-//!
-//! TODO(WIP-102): once all clients have migrated to the V2 URLs, delete the V1
-//! legacy handlers and the corresponding tests in this file
-//! (`e2e_initiate_and_cancel_recovery_agent_update`,
-//! `e2e_initiate_and_execute_recovery_agent_update`,
-//! `e2e_initiate_and_cancel_recovery_agent_update_v2`,
-//! `e2e_initiate_then_window_elapse_and_execute_noop_v2`). Only the V2-native
-//! `e2e_update_and_revert_via_v2_urls` test needs to survive.
+//! URLs.
 
 use std::{future::Future, time::Duration};
 

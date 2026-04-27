@@ -487,8 +487,8 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
             PackedAccountData.pack(leafIndex, uint32(_leafIndexToRecoveryCounter[leafIndex]), uint32(0));
         _setPubkeyBitmap(leafIndex, 1); // Reset to only pubkeyId 0
 
-        // When recovery succeeds during an active revert window, 
-        // the attacker's `newRecoveryAgent` is currently in the recovery slot. 
+        // When recovery succeeds during an active revert window,
+        // the attacker's `newRecoveryAgent` is currently in the recovery slot.
         // Restoring `prev.prevRecoveryAgent` prevents the attacker's address
         // from becoming the effective recovery agent the moment the mask is removed.
         PreviousRecoveryAgentUpdate memory prev = _prevRecoveryAgentUpdates[leafIndex];
