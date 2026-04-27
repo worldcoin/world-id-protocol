@@ -57,10 +57,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
         cfg.registry_addr,
         provider.clone(),
     ));
-    let registry_version = probe(provider.clone(), cfg.registry_addr)
-        .await
-        .map_err(GatewayError::Config)?;
-    tracing::info!(version = ?registry_version, "registry version detected");
+    let registry_version = probe(provider.clone(), cfg.registry_addr).await;
     let app = build_app(
         registry,
         registry_version,
@@ -116,17 +113,7 @@ pub async fn run() -> GatewayResult<()> {
         cfg.registry_addr,
         provider.clone(),
     ));
-    let registry_version = match probe(provider.clone(), cfg.registry_addr).await {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::warn!(
-                error = %e,
-                "registry version probe failed at startup; defaulting to V1. Version-switching handlers will use V1 selectors until the next gateway restart."
-            );
-            RegistryVersion::V1
-        }
-    };
-    tracing::info!(version = ?registry_version, "registry version detected");
+    let registry_version = probe(provider.clone(), cfg.registry_addr).await;
 
     tracing::info!("Config is ready. Building app...");
     let app = build_app(

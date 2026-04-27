@@ -29,9 +29,6 @@ pub type Registry = WorldIdRegistryInstance<Arc<DynProvider>>;
 #[derive(Clone)]
 pub struct GatewayContext {
     pub registry: Arc<Registry>,
-    /// Detected registry implementation version at gateway startup. Does not
-    /// change at runtime — the gateway is rolling-restarted after a contract
-    /// upgrade so the new fleet re-probes.
     pub registry_version: RegistryVersion,
     pub tracker: RequestTracker,
     pub batcher: BatcherHandle,
