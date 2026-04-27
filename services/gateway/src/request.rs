@@ -352,7 +352,7 @@ impl Request<ExecuteRecoveryAgentUpdateRequest> {
 // =============================================================================
 // V2 Recovery Agent flow (WIP-102)
 // =============================================================================
-// Same wire shape as the V1 request types; calldata targets the V2 selector.
+// Same shape as the V1 request types; calldata targets the V2 selector.
 
 /// Marks the gateway flow as WIP-102 `updateRecoveryAgent`.
 pub struct UpdateRecoveryAgentV2Request(pub UpdateRecoveryAgentRequest);
