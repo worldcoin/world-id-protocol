@@ -41,9 +41,12 @@ use world_id_registries::world_id::WorldIdRegistry::{
     self, RootRecorded, RootValidityWindowUpdated, WorldIdRegistryInstance,
 };
 
-use crate::metrics::{
-    METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS, METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES,
-    METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE,
+use crate::{
+    auth::WatcherBackgroundTasks,
+    metrics::{
+        METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS, METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES,
+        METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE,
+    },
 };
 
 /// Error returned by the [`MerkleWatcher`] implementation.
@@ -108,7 +111,7 @@ impl MerkleWatcher {
         cache_maintenance_interval: Duration,
         started: Arc<AtomicBool>,
         cancellation_token: CancellationToken,
-    ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
+    ) -> eyre::Result<(Self, WatcherBackgroundTasks)> {
         ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(0.0);
 
         eyre::ensure!(
@@ -184,27 +187,19 @@ impl MerkleWatcher {
         started.store(true, Ordering::Relaxed);
 
         tracing::info!("listening for events...");
-        let subscribe_task = tokio::spawn(subscribe_task(
+        let subscribe = tokio::spawn(subscribe_task(
             subscription,
             Arc::clone(&latest_root),
             merkle_root_cache.clone(),
             root_validity_window,
-            cancellation_token,
+            cancellation_token.clone(),
         ));
 
-        // periodically run maintenance tasks on the cache and update metrics
-        tokio::spawn({
-            let merkle_root_cache = merkle_root_cache.clone();
-            let mut interval = tokio::time::interval(cache_maintenance_interval);
-            async move {
-                loop {
-                    interval.tick().await;
-                    merkle_root_cache.run_pending_tasks().await;
-                    let size = merkle_root_cache.entry_count() as f64;
-                    ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(size);
-                }
-            }
-        });
+        let maintenance = tokio::spawn(maintenance_task(
+            merkle_root_cache.clone(),
+            cache_maintenance_interval,
+            cancellation_token,
+        ));
 
         let merkle_watcher = Self {
             latest_root,
@@ -212,7 +207,13 @@ impl MerkleWatcher {
             contract,
         };
 
-        Ok((merkle_watcher, subscribe_task))
+        Ok((
+            merkle_watcher,
+            WatcherBackgroundTasks {
+                subscribe,
+                maintenance,
+            },
+        ))
     }
 
     #[instrument(level = "debug", skip_all, fields(root=%root))]
@@ -330,6 +331,32 @@ async fn subscribe_task(
         }
     }
     tracing::info!("Successfully shutdown MerkleWatcher");
+    eyre::Ok(())
+}
+
+/// Periodically runs cache maintenance tasks and updates the cache size metric
+/// until cancellation is requested.
+async fn maintenance_task(
+    merkle_root_cache: Cache<FieldElement, Duration>,
+    cache_maintenance_interval: Duration,
+    cancellation_token: CancellationToken,
+) -> eyre::Result<()> {
+    // shutdown service if the maintenance task panics or exits unexpectedly
+    let _drop_guard = cancellation_token.clone().drop_guard();
+    let mut interval = tokio::time::interval(cache_maintenance_interval);
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                merkle_root_cache.run_pending_tasks().await;
+                let size = merkle_root_cache.entry_count() as f64;
+                ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(size);
+            }
+            () = cancellation_token.cancelled() => {
+                break;
+            }
+        }
+    }
+    tracing::info!("Successfully shutdown MerkleWatcher cache maintenance task");
     eyre::Ok(())
 }
 

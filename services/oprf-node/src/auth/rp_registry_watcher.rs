@@ -8,6 +8,7 @@ use std::{
 
 use crate::{
     auth::{
+        WatcherBackgroundTasks,
         rp_module::{RelyingParty, wip101},
         rp_registry_watcher::RpRegistry::{RpRegistryInstance, RpUpdated},
     },
@@ -100,7 +101,7 @@ impl RpRegistryWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) async fn init(
         args: RpRegistryWatcherArgs<'_>,
-    ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
+    ) -> eyre::Result<(Self, WatcherBackgroundTasks)> {
         let RpRegistryWatcherArgs {
             contract_address,
             http_rpc_provider,
@@ -145,20 +146,17 @@ impl RpRegistryWatcher {
             })
             .build();
         tracing::info!("starting subscribe task");
-        let subscribe_task =
-            tokio::task::spawn(subscribe_task(stream, rp_store.clone(), cancellation_token));
+        let subscribe = tokio::task::spawn(subscribe_task(
+            stream,
+            rp_store.clone(),
+            cancellation_token.clone(),
+        ));
 
-        // periodically run maintenance tasks on the cache and update metrics
-        tokio::spawn({
-            let rp_store = rp_store.clone();
-            let mut interval = tokio::time::interval(maintenance_interval);
-            async move {
-                loop {
-                    interval.tick().await;
-                    rp_store.run_pending_tasks().await;
-                }
-            }
-        });
+        let maintenance = tokio::spawn(maintenance_task(
+            rp_store.clone(),
+            maintenance_interval,
+            cancellation_token,
+        ));
 
         let rp_registry = Self {
             rp_store,
@@ -167,7 +165,13 @@ impl RpRegistryWatcher {
             http_rpc_provider,
         };
 
-        Ok((rp_registry, subscribe_task))
+        Ok((
+            rp_registry,
+            WatcherBackgroundTasks {
+                subscribe,
+                maintenance,
+            },
+        ))
     }
 
     #[instrument(level = "debug", skip_all, fields(rp_id=%rp_id))]
@@ -285,5 +289,28 @@ async fn subscribe_task(
         }
     }
     tracing::info!("Successfully shutdown RpRegistry");
+    eyre::Ok(())
+}
+
+/// Periodically runs cache maintenance tasks until cancellation is requested.
+async fn maintenance_task(
+    rp_store: Cache<RpId, RelyingParty>,
+    maintenance_interval: Duration,
+    cancellation_token: CancellationToken,
+) -> eyre::Result<()> {
+    // shutdown service if the maintenance task panics or exits unexpectedly
+    let _drop_guard = cancellation_token.clone().drop_guard();
+    let mut interval = tokio::time::interval(maintenance_interval);
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                rp_store.run_pending_tasks().await;
+            }
+            () = cancellation_token.cancelled() => {
+                break;
+            }
+        }
+    }
+    tracing::info!("Successfully shutdown RpRegistry cache maintenance task");
     eyre::Ok(())
 }

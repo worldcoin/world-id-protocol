@@ -24,6 +24,20 @@ pub(crate) mod rp_module;
 pub(crate) mod rp_registry_watcher;
 pub(crate) mod schema_issuer_registry_watcher;
 
+/// A handle to a background task that returns `eyre::Result<()>`.
+pub(crate) type BackgroundTask = tokio::task::JoinHandle<eyre::Result<()>>;
+
+/// Handles to the long-running background tasks spawned by a watcher's `init`
+/// method: a subscribe task that processes contract events and a cache
+/// maintenance task that runs periodic upkeep on the watcher's cache. Both
+/// tasks observe the watcher's [`tokio_util::sync::CancellationToken`] and
+/// should be awaited during graceful shutdown so that panics or unexpected
+/// errors are surfaced rather than silently dropped.
+pub(crate) struct WatcherBackgroundTasks {
+    pub(crate) subscribe: BackgroundTask,
+    pub(crate) maintenance: BackgroundTask,
+}
+
 pub(crate) fn verify_query_proof(
     vk: &PreparedVerifyingKey<Bn254>,
     proof: &ark_groth16::Proof<Bn254>,
@@ -275,9 +289,10 @@ mod tests {
             )
             .await?;
 
-            let nonce_history = NonceHistory::init(
+            let (nonce_history, _) = NonceHistory::init(
                 current_time_stamp_max_difference * 2,
                 cache_maintenance_interval,
+                cancellation_token.clone(),
             );
 
             Ok(Self {

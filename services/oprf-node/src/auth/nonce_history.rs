@@ -8,8 +8,9 @@
 
 use std::time::Duration;
 
-use crate::metrics::METRICS_ID_NODE_NONCE_HISTORY_SIZE;
+use crate::{auth::BackgroundTask, metrics::METRICS_ID_NODE_NONCE_HISTORY_SIZE};
 use moka::future::Cache;
+use tokio_util::sync::CancellationToken;
 use world_id_primitives::FieldElement;
 
 #[derive(Debug, thiserror::Error)]
@@ -28,31 +29,31 @@ pub(crate) struct NonceHistory {
 impl NonceHistory {
     /// Initializes a new nonce history with automatic expiration.
     ///
-    /// Nonces are automatically evicted after `max_nonce_age`.
+    /// Nonces are automatically evicted after `max_nonce_age`. Spawns a
+    /// background cache maintenance task that respects the supplied
+    /// cancellation token; the returned [`tokio::task::JoinHandle`] should
+    /// be awaited during graceful shutdown.
     ///
     /// # Arguments
     /// * `max_nonce_age` - Maximum age for nonces before they expire
     /// * `cache_maintenance_interval` - Interval for running cache maintenance tasks
-    pub(crate) fn init(max_nonce_age: Duration, cache_maintenance_interval: Duration) -> Self {
+    /// * `cancellation_token` - Token used to signal the maintenance task to shut down
+    pub(crate) fn init(
+        max_nonce_age: Duration,
+        cache_maintenance_interval: Duration,
+        cancellation_token: CancellationToken,
+    ) -> (Self, BackgroundTask) {
         ::metrics::gauge!(METRICS_ID_NODE_NONCE_HISTORY_SIZE).set(0.0);
 
         let nonces = Cache::builder().time_to_live(max_nonce_age).build();
 
-        // periodically run maintenance tasks on the cache and update metrics
-        tokio::spawn({
-            let nonces = nonces.clone();
-            let mut interval = tokio::time::interval(cache_maintenance_interval);
-            async move {
-                loop {
-                    interval.tick().await;
-                    nonces.run_pending_tasks().await;
-                    let size = nonces.entry_count() as f64;
-                    ::metrics::gauge!(METRICS_ID_NODE_NONCE_HISTORY_SIZE).set(size);
-                }
-            }
-        });
+        let maintenance_task = tokio::spawn(maintenance_task(
+            nonces.clone(),
+            cache_maintenance_interval,
+            cancellation_token,
+        ));
 
-        NonceHistory { nonces }
+        (NonceHistory { nonces }, maintenance_task)
     }
 
     /// Adds a nonce to the history.
@@ -74,6 +75,32 @@ impl NonceHistory {
     }
 }
 
+/// Periodically runs cache maintenance tasks and updates the nonce history
+/// size metric until cancellation is requested.
+async fn maintenance_task(
+    nonces: Cache<FieldElement, ()>,
+    cache_maintenance_interval: Duration,
+    cancellation_token: CancellationToken,
+) -> eyre::Result<()> {
+    // shutdown service if the maintenance task panics or exits unexpectedly
+    let _drop_guard = cancellation_token.clone().drop_guard();
+    let mut interval = tokio::time::interval(cache_maintenance_interval);
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                nonces.run_pending_tasks().await;
+                let size = nonces.entry_count() as f64;
+                ::metrics::gauge!(METRICS_ID_NODE_NONCE_HISTORY_SIZE).set(size);
+            }
+            () = cancellation_token.cancelled() => {
+                break;
+            }
+        }
+    }
+    tracing::info!("Successfully shutdown NonceHistory cache maintenance task");
+    eyre::Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,7 +110,12 @@ mod tests {
         let mut rng = rand::thread_rng();
         let max_nonce_age = Duration::from_secs(60);
         let cache_maintenance_interval = Duration::from_secs(60);
-        let nonce_history = NonceHistory::init(max_nonce_age, cache_maintenance_interval);
+        let cancellation_token = CancellationToken::new();
+        let (nonce_history, _maintenance_task) = NonceHistory::init(
+            max_nonce_age,
+            cache_maintenance_interval,
+            cancellation_token,
+        );
 
         let foo = FieldElement::random(&mut rng);
         let bar = FieldElement::random(&mut rng);
@@ -120,7 +152,12 @@ mod tests {
     async fn test_nonce_history_is_clone() {
         let max_nonce_age = Duration::from_secs(60);
         let cache_maintenance_interval = Duration::from_secs(60);
-        let history1 = NonceHistory::init(max_nonce_age, cache_maintenance_interval);
+        let cancellation_token = CancellationToken::new();
+        let (history1, _maintenance_task) = NonceHistory::init(
+            max_nonce_age,
+            cache_maintenance_interval,
+            cancellation_token,
+        );
         let history2 = history1.clone();
 
         let shared = FieldElement::random(&mut rand::thread_rng());
@@ -140,7 +177,12 @@ mod tests {
         let nonce = FieldElement::random(&mut rand::thread_rng());
         let max_nonce_age = Duration::from_secs(1);
         let cache_maintenance_interval = Duration::from_millis(100);
-        let nonce_history = NonceHistory::init(max_nonce_age, cache_maintenance_interval);
+        let cancellation_token = CancellationToken::new();
+        let (nonce_history, _maintenance_task) = NonceHistory::init(
+            max_nonce_age,
+            cache_maintenance_interval,
+            cancellation_token,
+        );
 
         // Add nonce — should succeed
         nonce_history.add_nonce(nonce).await.expect("can add nonce");
