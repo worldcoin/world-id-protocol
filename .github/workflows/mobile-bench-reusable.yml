@@ -111,7 +111,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  MOBENCH_PATCH_PATH: caller/.github/patches/mobile-bench-rs-browserstack-devices.patch
 
 jobs:
   ios:
@@ -195,11 +194,6 @@ jobs:
             mkdir -p mobench-src/crates
             cp -R "${REG_SRC}" mobench-src/crates/mobench
             git -C mobench-src init -q
-          fi
-          if git -C mobench-src apply --check "${GITHUB_WORKSPACE}/${MOBENCH_PATCH_PATH}" >/dev/null 2>&1; then
-            git -C mobench-src apply "${GITHUB_WORKSPACE}/${MOBENCH_PATCH_PATH}"
-          else
-            echo "Skipping local mobench patch; already included or not applicable to ${MOBENCH_REF:-mobench@${MOBENCH_VERSION}}"
           fi
           cargo install --path mobench-src/crates/mobench --locked
 
@@ -447,11 +441,6 @@ jobs:
             cp -R "${REG_SRC}" mobench-src/crates/mobench
             git -C mobench-src init -q
           fi
-          if git -C mobench-src apply --check "${GITHUB_WORKSPACE}/${MOBENCH_PATCH_PATH}" >/dev/null 2>&1; then
-            git -C mobench-src apply "${GITHUB_WORKSPACE}/${MOBENCH_PATCH_PATH}"
-          else
-            echo "Skipping local mobench patch; already included or not applicable to ${MOBENCH_REF:-mobench@${MOBENCH_VERSION}}"
-          fi
           cargo install --path mobench-src/crates/mobench --locked
 
       - name: Resolve Android device
@@ -595,11 +584,6 @@ jobs:
             mkdir -p mobench-src/crates
             cp -R "${REG_SRC}" mobench-src/crates/mobench
             git -C mobench-src init -q
-          fi
-          if git -C mobench-src apply --check "${GITHUB_WORKSPACE}/${MOBENCH_PATCH_PATH}" >/dev/null 2>&1; then
-            git -C mobench-src apply "${GITHUB_WORKSPACE}/${MOBENCH_PATCH_PATH}"
-          else
-            echo "Skipping local mobench patch; already included or not applicable to ${MOBENCH_REF:-mobench@${MOBENCH_VERSION}}"
           fi
           cargo install --path mobench-src/crates/mobench --locked
 
