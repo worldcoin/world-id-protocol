@@ -18,9 +18,7 @@ sol!(
 );
 
 sol!(
-    /// V2 of the World ID registry: bundles the root-validity race-condition fix, WIP-104
-    /// Proving Authenticators, and WIP-102 simplified optimistic Recovery Agent update
-    /// (`updateRecoveryAgent` / `revertRecoveryAgentUpdate`). ABI is a superset of V1.
+    /// V2 of the World ID registry
     #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
     WorldIdRegistryV2,
@@ -95,9 +93,6 @@ mod sol_types {
         /// EIP-712 typed-data payload for `cancelRecoveryAgentUpdate`.
         ///
         /// Matches `CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH` on the contract:
-        /// `CancelRecoveryAgentUpdate(uint64 leafIndex,uint256 nonce)`.
-        /// WIP-102 reuses this same typehash on `revertRecoveryAgentUpdate`
-        /// entry point so pre-upgrade signatures remain valid post-upgrade.
         struct CancelRecoveryAgentUpdate {
             uint64 leafIndex;
             uint256 nonce;
