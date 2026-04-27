@@ -255,7 +255,7 @@ fn compile_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
 
     if !nargo_output.status.success() {
         let stderr = String::from_utf8_lossy(&nargo_output.stderr);
-        eyre::bail!("nargo compile failed:\n{stderr}");
+        eyre::bail!("nargo compile failed:\n{stderr}\n\nCheck your Noir version - must be run with v1.0.0-beta.11\ninstall with noirup --version v1.0.0-beta.11");
     }
 
     let compiled_json = circuit_dir.join("target/ownership_proof.json");
