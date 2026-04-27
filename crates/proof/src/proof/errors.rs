@@ -176,8 +176,8 @@ pub fn check_query_input_validity<const TREE_DEPTH: usize>(
     let _rp_id_u64 = u64::try_from(FieldElement::from(inputs.rp_id)).map_err(|_| {
         ProofInputError::ValueOutOfBounds {
             name: "RP Id",
-            is: inputs.pk_index,
-            limit: BaseField::new((MAX_AUTHENTICATOR_KEYS as u64).into()),
+            is: inputs.rp_id,
+            limit: BaseField::new(u64::MAX.into()),
         }
     })?;
     let query = world_id_primitives::authenticator::oprf_query_digest(
