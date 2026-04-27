@@ -101,10 +101,6 @@ impl Authenticator {
     /// back. During that window the previous agent remains the valid signer for
     /// `recoverAccount`.
     ///
-    /// Internally signs with the same EIP-712 typehash as the legacy
-    /// `initiate_recovery_agent_update`, so existing keys and signing helpers
-    /// transfer over unchanged.
-    ///
     /// # Errors
     /// Returns an error if the gateway rejects the request or a network error occurs.
     pub async fn update_recovery_agent(
@@ -200,11 +196,6 @@ impl Authenticator {
     }
 
     /// Reverts an in-flight recovery agent update during the revert window.
-    ///
-    /// Only succeeds while `getPreviousRecoveryAgentUpdate` reports an active
-    /// window for this leaf. Once the window has elapsed, the new agent is
-    /// permanent and this call reverts on-chain. Internally signs with the same
-    /// EIP-712 typehash as the legacy `cancel_recovery_agent_update`.
     ///
     /// # Errors
     /// Returns an error if the gateway rejects the request or a network error occurs.
