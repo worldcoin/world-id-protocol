@@ -17,6 +17,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+        with:
+          # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required.
+          toolchain: v1.0.0-beta.11
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
       - name: Build contracts
