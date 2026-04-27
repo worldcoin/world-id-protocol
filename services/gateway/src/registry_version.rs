@@ -15,10 +15,7 @@ pub enum RegistryVersion {
 }
 
 /// Probes `MAX_AUTHENTICATORS_V2_HARD_LIMIT()` — a V2-only public constant (WIP-104).
-/// Success → V2. Any error (unknown selector, revert, transport failure) → V1.
-///
-/// Owns its own outcome logging so callers don't double-log: info on V2 detection,
-/// warn on V1 fallback (which surfaces a misconfigured RPC in production).
+/// Success → V2.
 pub async fn probe(provider: Arc<DynProvider>, proxy_addr: Address) -> RegistryVersion {
     let v2 = WorldIdRegistryV2Instance::new(proxy_addr, provider);
     match v2.MAX_AUTHENTICATORS_V2_HARD_LIMIT().call().await {

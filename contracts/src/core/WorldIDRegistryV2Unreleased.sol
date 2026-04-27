@@ -313,7 +313,6 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
             revert RecoveryAgentUpdateStillActive(leafIndex, prev.invalidAfter);
         }
 
-        // Reuse `INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH` to work with existing clients
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(abi.encode(INITIATE_RECOVERY_AGENT_UPDATE_TYPEHASH, leafIndex, newRecoveryAgent, nonce))
         );
@@ -363,7 +362,6 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
             revert RecoveryAgentUpdateWindowExpired(leafIndex, prev.invalidAfter);
         }
 
-        // Reuse `CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH` to keep working with existing clients
         bytes32 messageHash =
             _hashTypedDataV4(keccak256(abi.encode(CANCEL_RECOVERY_AGENT_UPDATE_TYPEHASH, leafIndex, nonce)));
 
@@ -489,14 +487,10 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
             PackedAccountData.pack(leafIndex, uint32(_leafIndexToRecoveryCounter[leafIndex]), uint32(0));
         _setPubkeyBitmap(leafIndex, 1); // Reset to only pubkeyId 0
 
-        // WIP-102 attack mitigation. When recovery succeeds during an active revert
-        // window, the attacker's `newRecoveryAgent` is currently in the recovery slot
-        // but masked by `_getEffectiveRecoveryAgent`. Restoring `prev.prevRecoveryAgent`
-        // here — before clearing the window mapping prevents the attacker's address
+        // When recovery succeeds during an active revert window, 
+        // the attacker's `newRecoveryAgent` is currently in the recovery slot. 
+        // Restoring `prev.prevRecoveryAgent` prevents the attacker's address
         // from becoming the effective recovery agent the moment the mask is removed.
-        // The condition mirrors `_getEffectiveRecoveryAgent`'s window-active check so we
-        // only restore when the recovery actually used the prev agent's authority
-        // (post-window recoveries leave the legitimate new agent in place).
         PreviousRecoveryAgentUpdate memory prev = _prevRecoveryAgentUpdates[leafIndex];
         if (prev.invalidAfter != 0 && block.timestamp < prev.invalidAfter) {
             _setRecoveryAddressAndBitmap(leafIndex, prev.prevRecoveryAgent, _getPubkeyBitmap(leafIndex));
@@ -552,15 +546,7 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
 
     /// @inheritdoc IWorldIDRegistry
     /// @custom:override Overrides V1 (WIP-102) to translate V2 active-update state into the
-    ///     legacy V1 shape. `newRecoveryAgent` is the scheduled agent sitting in the packed
-    ///     slot awaiting window elapse; the second return value is the timestamp at which
-    ///     that agent becomes the effective recovery signer (equal to V2's `invalidAfter`).
-    ///     Renamed from V1's `executeAfter` because WIP-102 removes the explicit execute
-    ///     step — the new agent becomes valid automatically once the timestamp elapses.
-    ///     Returns `(address(0), 0)` when no active update exists or when the window has
-    ///     already elapsed — matching V1's "no pending update" contract. Orphaned V1
-    ///     `_pendingRecoveryAgentUpdates` entries are correctly invisible (we read the V2
-    ///     mapping, not the V1 one); the indexer notifies affected users off-chain.
+    /// legacy V1 shape.
     function getPendingRecoveryAgentUpdate(uint64 leafIndex)
         external
         view
