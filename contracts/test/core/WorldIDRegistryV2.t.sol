@@ -689,7 +689,7 @@ contract WorldIDRegistryV2WIP102Test is WorldIDRegistryV2TestBase {
             victimNonce
         );
 
-        // Attacker still controls `recoveryAttacker`'s ECDSA key. 
+        // Attacker still controls `recoveryAttacker`'s ECDSA key.
         // Effective recovery agent is `recoveryOld` again, so the attacker's signature no longer
         // matches the expected signer and the call reverts.
         address attackerNewAuth = address(0xBAD2);
