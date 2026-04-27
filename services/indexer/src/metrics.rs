@@ -74,7 +74,6 @@ pub fn record_tree_sync(events: usize, latency_ms: f64, last_synced_block: u64) 
     ::metrics::histogram!(METRICS_TREE_SYNC_EVENTS).record(events as f64);
     ::metrics::histogram!(METRICS_TREE_SYNC_LATENCY_MS).record(latency_ms);
     set_tree_last_synced_block(last_synced_block);
-    // chain.processed_block is owned by the blockchain scanner path only
 }
 
 pub fn set_tree_last_synced_block(block_number: u64) {
