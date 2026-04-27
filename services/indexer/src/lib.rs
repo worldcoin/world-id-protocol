@@ -385,50 +385,44 @@ pub async fn process_registry_events(
 
         while let Some(event) = stream.next().await {
             match event {
-                Ok(event) => {
-                    let block_number = event.block_number;
-                    match handle_registry_event(&mut events_committer, event).await {
-                        Ok(()) => {
-                            crate::metrics::set_chain_processed_block(block_number);
-                            crate::metrics::set_chain_last_registry_event_block(block_number);
-                        }
-                        Err(IndexerError::ReorgDetected {
+                Ok(event) => match handle_registry_event(&mut events_committer, event).await {
+                    Ok(()) => {}
+                    Err(IndexerError::ReorgDetected {
+                        block_number,
+                        reason,
+                    }) => {
+                        tracing::warn!(
                             block_number,
                             reason,
-                        }) => {
-                            tracing::warn!(
-                                block_number,
-                                reason,
-                                "Reorg detected during event commit, rolling back"
-                            );
-                            match rollback_to_last_valid_root(
-                                db,
-                                &http_provider,
-                                registry_address,
-                                &versioned_tree,
-                            )
-                            .await
-                            {
-                                Ok(Some(target)) => {
-                                    tracing::info!(?target, "rolled back successfully");
-                                    return Err(IndexerError::ReorgDetected {
-                                        block_number: target.block_number,
-                                        reason: "rolled back to last valid root, restart required"
-                                            .to_string(),
-                                    });
-                                }
-                                Ok(None) => {
-                                    return Err(IndexerError::ReorgDetected {
-                                        block_number,
-                                        reason: "no valid root found during rollback".to_string(),
-                                    });
-                                }
-                                Err(e) => return Err(e),
+                            "Reorg detected during event commit, rolling back"
+                        );
+                        match rollback_to_last_valid_root(
+                            db,
+                            &http_provider,
+                            registry_address,
+                            &versioned_tree,
+                        )
+                        .await
+                        {
+                            Ok(Some(target)) => {
+                                tracing::info!(?target, "rolled back successfully");
+                                return Err(IndexerError::ReorgDetected {
+                                    block_number: target.block_number,
+                                    reason: "rolled back to last valid root, restart required"
+                                        .to_string(),
+                                });
                             }
+                            Ok(None) => {
+                                return Err(IndexerError::ReorgDetected {
+                                    block_number,
+                                    reason: "no valid root found during rollback".to_string(),
+                                });
+                            }
+                            Err(e) => return Err(e),
                         }
-                        Err(e) => return Err(e),
                     }
-                }
+                    Err(e) => return Err(e),
+                },
                 Err(e) => {
                     tracing::error!(?e, "blockchain event stream error");
                     break;
