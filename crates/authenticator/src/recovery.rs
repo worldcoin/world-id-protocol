@@ -23,7 +23,7 @@ impl Authenticator {
     /// # Errors
     /// Returns an error if the gateway rejects the request or a network error occurs.
     #[deprecated(
-        note = "WIP-102: use `update_recovery_agent`. The legacy URL still works against a V2-upgraded gateway, but the V2 contract changes the agent immediately with a revert window instead of starting a cooldown."
+        note = "WIP-102: use `update_recovery_agent`. The legacy URL still works against a V2-upgraded gateway, but the V2 contract changes the agent immediately (with a revert window) instead of starting a cooldown."
     )]
     pub async fn initiate_recovery_agent_update(
         &self,
@@ -93,13 +93,14 @@ impl Authenticator {
         Ok((signature, nonce))
     }
 
-    /// Updates the holder's recovery agent.
+    /// Updates the holder's recovery agent (WIP-102).
     ///
     /// On a V2 registry the new agent becomes effective immediately, but for a
     /// revert window (`getRecoveryAgentUpdateCooldown` seconds) any
     /// authenticator can call [`Self::revert_recovery_agent_update`] to roll
-    /// back. During that window the previous agent remains the valid signer for
-    /// `recoverAccount`.
+    /// back. During that window the *previous* agent remains the only valid
+    /// signer for `recoverAccount`, which mitigates a compromised authenticator
+    /// silently swapping in an attacker-controlled recovery address.
     ///
     /// # Errors
     /// Returns an error if the gateway rejects the request or a network error occurs.
@@ -134,7 +135,7 @@ impl Authenticator {
     /// # Errors
     /// Returns an error if the gateway rejects the request or a network error occurs.
     #[deprecated(
-        note = "WIP-102: this operation no longer exists. On a V2-upgraded gateway the call is a no-op and returns Queued without touching chain. Remove the call from your flow."
+        note = "WIP-102: this operation no longer exists. On a V2-upgraded gateway the call is a no-op (returns Queued without touching chain). Remove the call from your flow."
     )]
     pub async fn execute_recovery_agent_update(
         &self,
@@ -159,7 +160,7 @@ impl Authenticator {
     /// # Errors
     /// Returns an error if the gateway rejects the request or a network error occurs.
     #[deprecated(
-        note = "WIP-102: use `revert_recovery_agent_update`. The legacy URL still works against a V2-upgraded gateway, but the new method name reflects WIP-102 revert-window semantics."
+        note = "WIP-102: use `revert_recovery_agent_update`. The legacy URL still works against a V2-upgraded gateway, but the new method name reflects WIP-102 semantics: the operation can only succeed within the revert window after `update_recovery_agent`."
     )]
     pub async fn cancel_recovery_agent_update(
         &self,
@@ -195,7 +196,7 @@ impl Authenticator {
         Ok(gateway_resp.request_id)
     }
 
-    /// Reverts an in-flight recovery agent update during the revert window.
+    /// Reverts an in-flight recovery agent update during the revert window (WIP-102).
     ///
     /// # Errors
     /// Returns an error if the gateway rejects the request or a network error occurs.
