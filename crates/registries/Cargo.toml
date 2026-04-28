@@ -1,0 +1,29 @@
+[package]
+name = "world-id-registries"
+description = "World ID Registries contract bindings and signing utilities."
+publish = true
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+include = ["src/**/*", "abi/*", "Cargo.toml", "README.md"]
+
+[lints]
+workspace = true
+
+[dependencies]
+alloy = { workspace = true, features = [
+  "sol-types",
+  "signers",
+  "contract",
+  "json",
+  "network",
+] }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+alloy = { workspace = true, features = ["signer-local"] }
+tokio = { workspace = true, features = ["macros"] }

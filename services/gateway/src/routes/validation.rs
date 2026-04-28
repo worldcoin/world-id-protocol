@@ -7,17 +7,15 @@ use alloy::{
     rpc::types::{BlockId, TransactionRequest},
     sol_types::{Eip712Domain, SolStruct, eip712_domain},
 };
-use world_id_core::{
-    api_types::{
-        CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
-        InsertAuthenticatorRequest, RecoverAccountRequest, RemoveAuthenticatorRequest,
-        UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
-    },
-    world_id_registry::{
-        CancelRecoveryAgentUpdateTypedData, InitiateRecoveryAgentUpdateTypedData,
-        InsertAuthenticatorTypedData, RecoverAccountTypedData, RemoveAuthenticatorTypedData,
-        UpdateAuthenticatorTypedData,
-    },
+use world_id_primitives::api_types::{
+    CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
+    InsertAuthenticatorRequest, RecoverAccountRequest, RemoveAuthenticatorRequest,
+    UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
+};
+use world_id_registries::world_id::{
+    CancelRecoveryAgentUpdateTypedData, InitiateRecoveryAgentUpdateTypedData,
+    InsertAuthenticatorTypedData, RecoverAccountTypedData, RemoveAuthenticatorTypedData,
+    UpdateAuthenticatorTypedData,
 };
 
 use crate::{request::Registry, types::MAX_AUTHENTICATORS};
@@ -392,11 +390,6 @@ impl RequestValidation for UpdateRecoveryAgentRequest {
                 "leaf_index cannot be zero".to_string(),
             ));
         }
-        if self.new_recovery_agent.is_zero() {
-            return Err(GatewayErrorResponse::bad_request_message(
-                "new_recovery_agent cannot be the zero address".to_string(),
-            ));
-        }
 
         // Verify EIP-712 signature format and recoverability.
         //
@@ -572,15 +565,13 @@ mod tests {
         primitives::{Address, U256, address},
         signers::local::PrivateKeySigner,
     };
-    use world_id_core::{
-        api_types::{
-            CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest,
-            UpdateRecoveryAgentRequest,
-        },
-        world_id_registry::{
-            domain as registry_domain, sign_cancel_recovery_agent_update,
-            sign_initiate_recovery_agent_update,
-        },
+    use world_id_primitives::api_types::{
+        CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest,
+        UpdateRecoveryAgentRequest,
+    };
+    use world_id_registries::world_id::{
+        domain as registry_domain, sign_cancel_recovery_agent_update,
+        sign_initiate_recovery_agent_update,
     };
 
     const CHAIN_ID: u64 = 1;
@@ -613,7 +604,7 @@ mod tests {
     }
 
     #[test]
-    fn initiate_preflight_rejects_zero_recovery_agent() {
+    fn initiate_preflight_allows_zero_recovery_agent() {
         let signer = PrivateKeySigner::random();
         let domain = make_domain();
         let sig =
@@ -626,7 +617,7 @@ mod tests {
             signature: sig,
             nonce: U256::ZERO,
         };
-        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_ok());
     }
 
     #[test]

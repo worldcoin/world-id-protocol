@@ -14,7 +14,7 @@ use rand::{Rng, thread_rng};
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 use taceo_oprf_test_utils::PEER_ADDRESSES;
 use world_id_primitives::{
-    FieldElement, TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, credential::Credential,
+    AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, credential::Credential,
     merkle::MerkleInclusionProof, rp::RpId as WorldRpId,
 };
 

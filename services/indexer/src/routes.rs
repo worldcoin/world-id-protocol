@@ -1,7 +1,7 @@
 use crate::error::{IndexerErrorBody, IndexerErrorResponse};
 use axum::{Json, Router, middleware::from_fn, response::IntoResponse};
 use utoipa::OpenApi;
-use world_id_core::api_types::{
+use world_id_primitives::api_types::{
     AccountInclusionProofSchema, IndexerAuthenticatorPubkeysResponse, IndexerPackedAccountRequest,
     IndexerPackedAccountResponse, IndexerPendingRecoveryAgentResponse, IndexerQueryRequest,
     IndexerRecoveryAgentResponse, IndexerSignatureNonceResponse,

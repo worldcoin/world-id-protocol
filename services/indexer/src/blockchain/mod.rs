@@ -100,9 +100,8 @@ impl Blockchain {
     /// Returns a [`WorldIdRegistryInstance`] bound to the HTTP provider.
     pub fn world_id_registry(
         &self,
-    ) -> world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance<DynProvider>
-    {
-        world_id_core::world_id_registry::WorldIdRegistry::new(
+    ) -> world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance<DynProvider> {
+        world_id_registries::world_id::WorldIdRegistry::new(
             self.world_id_registry,
             self.http_provider.clone(),
         )

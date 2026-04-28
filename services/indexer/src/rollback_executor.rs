@@ -4,7 +4,7 @@ use alloy::{
     rpc::types::Filter,
     sol_types::SolEvent,
 };
-use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_registries::world_id::WorldIdRegistry;
 
 use crate::{
     blockchain::RegistryEvent,

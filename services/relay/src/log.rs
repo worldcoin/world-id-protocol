@@ -363,10 +363,10 @@ fn insert_if_newer<K: Eq + Hash, V>(
         return;
     }
     let mut map = map.lock();
-    if let Some(existing) = map.get(&key) {
-        if get_ts(existing) >= ts {
-            return;
-        }
+    if let Some(existing) = map.get(&key)
+        && get_ts(existing) >= ts
+    {
+        return;
     }
     map.insert(key, value);
 }

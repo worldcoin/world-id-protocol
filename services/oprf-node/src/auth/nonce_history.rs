@@ -1,25 +1,40 @@
 //! Nonce History Tracking
 //!
-//! This module provides [`NonceHistory`], which tracks nonces used for signatures
-//! to detect replay attacks. It uses a time-based cache that automatically
+//! This module provides [`NonceHistory`], an in-memory replay filter for
+//! RP-signed request nonces. It uses a time-based cache that automatically
 //! evicts old entries after the configured maximum age.
 //!
-//! The history is thread-safe and can be cloned to share across tasks.
+//! The history is thread-safe and can be cloned to share across tasks, but only
+//! within the same process and module instance. It does not coordinate with
+//! other OPRF nodes or with other replicas that keep their own in-memory state.
+//! In a 2-of-4 deployment, for example, a client can query nodes A/B and then
+//! C/D with the same RP-signed nonce, and both subsets can accept it because
+//! each subset sees a fresh local history. The same caveat applies to separate
+//! EU/US/SEA replicas, or any other horizontally scaled deployment.
+//!
+//! This is acceptable at the protocol level: any additional nullifier produced
+//! by a replayed nonce cannot be redeemed, and the extra computation on the
+//! OPRF node is negligible. In practice, the deployed system is expected to use
+//! a threshold greater than half of the total nodes, making this scenario
+//! impossible in the first place — though it may still arise within a single
+//! provider's replica set in a multi-provider deployment.
 
 use std::time::Duration;
 
 use crate::metrics::METRICS_ID_NODE_NONCE_HISTORY_SIZE;
 use moka::future::Cache;
-use world_id_core::FieldElement;
+use world_id_primitives::FieldElement;
 
 #[derive(Debug, thiserror::Error)]
 #[error("duplicate nonce - already used")]
 pub(crate) struct DuplicateNonce;
 
-/// Tracks nonces used for signatures to prevent replay attacks.
+/// Tracks nonces seen by one node-local module instance.
 ///
-/// Uses a [`moka::future::Cache`] with time-to-live expiration. Nonces
-/// are automatically evicted after the configured maximum age.
+/// Uses a [`moka::future::Cache`] with time-to-live expiration. Nonces are
+/// automatically evicted after the configured maximum age. Clones of
+/// [`NonceHistory`] share this same in-process cache, but other nodes and other
+/// processes keep independent histories.
 #[derive(Clone)]
 pub(crate) struct NonceHistory {
     nonces: Cache<FieldElement, ()>,
@@ -28,45 +43,35 @@ pub(crate) struct NonceHistory {
 impl NonceHistory {
     /// Initializes a new nonce history with automatic expiration.
     ///
-    /// Nonces are automatically evicted after `max_nonce_age`.
+    /// Nonces are automatically evicted after `max_nonce_age`. This only bounds
+    /// how long the current node-local cache remembers a nonce; it does not
+    /// create a threshold-wide "consumed nonce" record.
     ///
     /// # Arguments
     /// * `max_nonce_age` - Maximum age for nonces before they expire
-    /// * `cache_maintenance_interval` - Interval for running cache maintenance tasks
-    pub(crate) fn init(max_nonce_age: Duration, cache_maintenance_interval: Duration) -> Self {
+    pub(crate) fn init(max_nonce_age: Duration) -> Self {
         ::metrics::gauge!(METRICS_ID_NODE_NONCE_HISTORY_SIZE).set(0.0);
 
-        let nonces = Cache::builder().time_to_live(max_nonce_age).build();
-
-        // periodically run maintenance tasks on the cache and update metrics
-        tokio::spawn({
-            let nonces = nonces.clone();
-            let mut interval = tokio::time::interval(cache_maintenance_interval);
-            async move {
-                loop {
-                    interval.tick().await;
-                    nonces.run_pending_tasks().await;
-                    let size = nonces.entry_count() as f64;
-                    ::metrics::gauge!(METRICS_ID_NODE_NONCE_HISTORY_SIZE).set(size);
-                }
-            }
-        });
-
-        NonceHistory { nonces }
+        NonceHistory {
+            nonces: Cache::builder().time_to_live(max_nonce_age).build(),
+        }
     }
 
     /// Adds a nonce to the history.
     ///
-    /// Returns an error if the nonce already exists in the history,
-    /// indicating a potential replay attack.
+    /// Returns an error if the nonce already exists in this local history,
+    /// indicating a replay against this node/module instance.
     ///
     /// # Arguments
     /// * `nonce` - The nonce to track
     ///
     /// # Errors
-    /// Returns [`DuplicateNonce`] if the nonce already exists.
+    /// Returns [`DuplicateNonce`] if the nonce already exists in this local
+    /// cache. That means the nonce was already seen by this node/module
+    /// instance within `max_nonce_age`; it does not imply threshold-wide nonce
+    /// consumption across other nodes or isolated replicas.
     pub(crate) async fn add_nonce(&self, nonce: FieldElement) -> Result<(), DuplicateNonce> {
-        let entry = self.nonces.entry(nonce).or_insert(()).await;
+        let entry = self.nonces.entry(nonce).or_insert_with(async {}).await;
         if !entry.is_fresh() {
             return Err(DuplicateNonce);
         }
@@ -77,13 +82,14 @@ impl NonceHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use tokio::sync::Barrier;
 
     #[tokio::test]
     async fn test_nonce_history_duplicate_detection() {
         let mut rng = rand::thread_rng();
         let max_nonce_age = Duration::from_secs(60);
-        let cache_maintenance_interval = Duration::from_secs(60);
-        let nonce_history = NonceHistory::init(max_nonce_age, cache_maintenance_interval);
+        let nonce_history = NonceHistory::init(max_nonce_age);
 
         let foo = FieldElement::random(&mut rng);
         let bar = FieldElement::random(&mut rng);
@@ -119,8 +125,7 @@ mod tests {
     #[tokio::test]
     async fn test_nonce_history_is_clone() {
         let max_nonce_age = Duration::from_secs(60);
-        let cache_maintenance_interval = Duration::from_secs(60);
-        let history1 = NonceHistory::init(max_nonce_age, cache_maintenance_interval);
+        let history1 = NonceHistory::init(max_nonce_age);
         let history2 = history1.clone();
 
         let shared = FieldElement::random(&mut rand::thread_rng());
@@ -139,8 +144,7 @@ mod tests {
     async fn test_nonce_history_ttl_expiration() {
         let nonce = FieldElement::random(&mut rand::thread_rng());
         let max_nonce_age = Duration::from_secs(1);
-        let cache_maintenance_interval = Duration::from_millis(100);
-        let nonce_history = NonceHistory::init(max_nonce_age, cache_maintenance_interval);
+        let nonce_history = NonceHistory::init(max_nonce_age);
 
         // Add nonce — should succeed
         nonce_history.add_nonce(nonce).await.expect("can add nonce");
@@ -159,5 +163,42 @@ mod tests {
             .add_nonce(nonce)
             .await
             .expect("nonce should be accepted after TTL expiration");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_concurrent_nonce_insertion() {
+        const TASKS: usize = 1000;
+
+        let nonce = FieldElement::random(&mut rand::thread_rng());
+        let history = NonceHistory::init(Duration::from_secs(60));
+
+        // Barrier ensures all tasks attempt add_nonce as simultaneously as possible.
+        let barrier = Arc::new(Barrier::new(TASKS));
+        let mut join_set = tokio::task::JoinSet::new();
+
+        for _ in 0..TASKS {
+            let history = history.clone();
+            let barrier = Arc::clone(&barrier);
+            join_set.spawn(async move {
+                barrier.wait().await;
+                history.add_nonce(nonce).await
+            });
+        }
+
+        let mut ok_count = 0usize;
+        let mut err_count = 0usize;
+        while let Some(result) = join_set.join_next().await {
+            match result.expect("task did not panic") {
+                Ok(()) => ok_count += 1,
+                Err(DuplicateNonce) => err_count += 1,
+            }
+        }
+
+        assert_eq!(ok_count, 1, "exactly one task should succeed");
+        assert_eq!(
+            err_count,
+            TASKS - 1,
+            "all other tasks should get DuplicateNonce"
+        );
     }
 }

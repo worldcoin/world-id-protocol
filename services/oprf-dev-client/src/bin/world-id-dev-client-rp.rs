@@ -12,19 +12,17 @@ use rand::{CryptoRng, Rng, SeedableRng as _};
 use taceo_oprf::{
     client::Connector,
     core::oprf::BlindingFactor,
-    dev_client::{DevClient, DevClientConfig, StressTestItem},
-    types::{OprfKeyId, ShareEpoch, api::OprfRequest, crypto::OprfPublicKey},
+    dev_client::{DevClient, DevClientConfig, StressTestItem, health_checks},
+    types::{OprfKeyId, ShareEpoch, api::OprfRequest, async_trait, crypto::OprfPublicKey},
 };
-use taceo_oprf_test_utils::{async_trait, health_checks};
 use uuid::Uuid;
 use world_id_core::{
     EdDSASignature, FieldElement, api_types::AccountInclusionProof, proof::CircomGroth16Material,
 };
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
-    ProofRequest, RequestItem, RequestVersion, SessionFeType, SessionFieldElement as _, SessionId,
-    TREE_DEPTH,
-    authenticator::AuthenticatorPublicKeySet,
+    AuthenticatorPublicKeySet, ProofRequest, RequestItem, RequestVersion, SessionFeType,
+    SessionFieldElement as _, SessionId, TREE_DEPTH,
     merkle::MerkleInclusionProof,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
     rp::RpId,

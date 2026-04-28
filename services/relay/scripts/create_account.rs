@@ -31,7 +31,7 @@ use alloy::{
 use ark_ff::{BigInteger as _, PrimeField as _};
 use ark_serialize::CanonicalSerialize as _;
 use eyre::Result;
-use world_id_primitives::{Signer, authenticator::AuthenticatorPublicKeySet};
+use world_id_primitives::{AuthenticatorPublicKeySet, Signer};
 
 sol! {
     #[sol(rpc)]

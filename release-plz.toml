@@ -21,7 +21,7 @@ release = true
 publish = true
 changelog_update = true
 changelog_path = "CHANGELOG.md"
-changelog_include = ["world-id-core", "world-id-authenticator", "world-id-issuer", "world-id-proof"]
+changelog_include = ["world-id-core", "world-id-authenticator", "world-id-issuer", "world-id-proof", "world-id-registries"]
 
 
 [[package]]
@@ -47,6 +47,13 @@ changelog_update = false
 
 [[package]]
 name = "world-id-proof"
+release = true
+publish = true
+changelog_update = false
+
+
+[[package]]
+name = "world-id-registries"
 release = true
 publish = true
 changelog_update = false

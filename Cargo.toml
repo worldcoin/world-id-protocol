@@ -5,6 +5,7 @@ members = [
   "crates/issuer",
   "crates/proof",
   "crates/primitives",
+  "crates/registries",
   "crates/test-utils",
   "services/indexer",
   "services/gateway",
@@ -20,7 +21,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.8.2"
+version = "0.10.0"
 license = "MIT"
 authors = [
   "World Foundation",
@@ -29,18 +30,28 @@ authors = [
 ]
 homepage = "https://docs.world.org/world-id"
 repository = "https://github.com/worldcoin/world-id-protocol"
-rust-version = "1.87"
+rust-version = "1.91"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+
+[workspace.lints.rust]
+missing_docs = "deny"
+dead_code = "deny"
+unused_crate_dependencies = "deny"
 
 [workspace.dependencies]
 # alloy
-alloy = { version = "1.7.3", default-features = false }
-alloy-primitives = { version = "1.5.6", default-features = false }
-alloy-node-bindings = "1.0.42"
+alloy = { version = "2.0.1", default-features = false }
+alloy-primitives = { version = "1.5.7", default-features = false }
+alloy-node-bindings = "2.0.1"
 
 anyhow = "1"
 ark-ec = "0.5"
 ark-babyjubjub = { package = "taceo-ark-babyjubjub", version = "0.5" }
-ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.4.1", default-features = false, features = [
+ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.5", default-features = false, features = [
   "babyjubjub",
 ] }
 ark-bn254 = "0.5"
@@ -48,17 +59,21 @@ ark-ff = "0.5"
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
 backon = "1"
+base64 = "0.22"
 circom-types = { package = "taceo-circom-types", version = "0.2", default-features = false }
-eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5.4" }
+eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5.5" }
 eyre = "0.6"
 futures = "0.3"
-groth16-material = { package = "taceo-groth16-material", version = "0.2.3", default-features = false }
+groth16-material = { package = "taceo-groth16-material", version = "0.3", default-features = false }
 hex = { version = "0.4" }
+ohttp = { version = "0.7", default-features = false }
+bhttp = "0.7"
+itertools = "0.14"
 k256 = { version = "0.13" }
-taceo-groth16-sol = { version = "0.2.2" }
-taceo-oprf = { version = "0.11", default-features = false }
-taceo-oprf-test-utils = { version = "0.9", default-features = false }
-taceo-oprf-key-gen = { version = "0.8" }
+sha2 = { version = "0.11", default-features = false }
+taceo-groth16-sol = { version = "0.3.1" }
+taceo-oprf = { version = "0.13.0", default-features = false }
+taceo-oprf-test-utils = { version = "0.11", default-features = false }
 telemetry-batteries = "0.2"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }
@@ -108,6 +123,10 @@ http = "1"
 humantime = "2"
 humantime-serde = "1"
 once_cell = "1"
+provekit-common = { version = "0.1.4" }
+provekit-prover = { version = "0.1.4" }
+provekit-verifier = { version = "0.1.4" }
+provekit-r1cs-compiler = { version = "0.1.4" }
 rayon = "1.11"
 redis = "1"
 regex = "1"
@@ -115,26 +134,27 @@ semaphore-rs-hasher = "0.5.0"
 semaphore-rs-trees = "0.5.0"
 semaphore-rs-storage = "0.5.0"
 serial_test = "3"
-testcontainers = "0.27"
+testcontainers = { version = "0.27", features = ["http_wait_plain", "host-port-exposure"] }
 testcontainers-modules = { version = "0.15", features = ["redis"] }
 sqlx = "0.8"
 take_mut = "0.2.2"
 tar = "0.4"
-taceo-nodes-common = { version = "0.4.4", default-features=false }
+taceo-nodes-common = { version = "0.5.1", default-features=false }
 taceo-nodes-observability = "0.1"
 tempfile = "3"
 tokio-util = "0.7"
-tempo-alloy = "1.4"
+tempo-alloy = "1.6"
 tower = "0.5.3"
 
 # Internal
-world-id-core = { version = "0.8.2", default-features = false, path = "crates/core" }
-world-id-issuer = { version = "0.8.2", path = "crates/issuer" }
-world-id-proof = { version = "0.8.2", path = "crates/proof" }
-world-id-authenticator = { version = "0.8.2", path = "crates/authenticator" }
-world-id-primitives = { version = "0.8.2", path = "crates/primitives", default-features = false }
+world-id-core = { version = "0.10.0", default-features = false, path = "crates/core" }
+world-id-issuer = { version = "0.10.0", path = "crates/issuer" }
+world-id-proof = { version = "0.10.0", path = "crates/proof" }
+world-id-registries = { version = "0.10.0", path = "crates/registries" }
+world-id-authenticator = { version = "0.10.0", path = "crates/authenticator" }
+world-id-primitives = { version = "0.10.0", path = "crates/primitives", default-features = false }
 world-id-oprf-node = { version = "0.1.0", path = "services/oprf-node" }
-world-id-test-utils = { version = "0.1.0", path = "crates/test-utils" }
+world-id-test-utils = { path = "crates/test-utils" }
 world-id-services-common = { path = "services/common" }
 world-id-relay = { path = "services/relay" }
 
@@ -145,3 +165,4 @@ world-id-relay = { path = "services/relay" }
 # With opt-level 2 the same deserialization completes in seconds.
 [profile.dev.package."*"]
 opt-level = 2
+

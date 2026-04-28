@@ -400,7 +400,7 @@ impl ProofRequest {
     /// performed in test fixtures and the OPRF stub.
     pub fn digest_hash(&self) -> Result<[u8; 32], PrimitiveError> {
         use crate::rp::compute_rp_signature_msg;
-        use k256::sha2::{Digest, Sha256};
+        use sha2::{Digest, Sha256};
 
         let msg = compute_rp_signature_msg(
             *self.nonce,

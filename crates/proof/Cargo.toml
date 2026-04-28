@@ -12,6 +12,7 @@ repository.workspace = true
 include = [
     "src/**/*",
     "tests/**/*",
+    "noir/**/*",
     "build.rs",
     "Cargo.toml",
     "README.md",
@@ -26,6 +27,12 @@ compress-zkeys = ["embed-zkeys", "dep:ark-serialize", "dep:circom-types"]
 # Compress the tar archive with zstd
 zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
 
+# Experimental: Feature Flags for Specific Circuits
+# RATIONALE: We feature flag each circuit and based on the proving/verifying action because each require
+# a proving and verifying key that generally is above >1Mb. So selecting circuits optimizes bundle size.
+zk-ownership-prove = ["dep:provekit-prover"]
+zk-ownership-verify = ["dep:provekit-verifier"]
+
 [dependencies]
 ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
@@ -39,10 +46,15 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 zstd = { workspace = true, optional = true }
 eddsa-babyjubjub = { workspace = true }
+provekit-common = { workspace = true }
+provekit-prover = { workspace = true, optional = true }
+provekit-verifier = { workspace = true, optional = true }
 rand = { workspace = true }
 serde = { workspace = true }
-groth16-material = { workspace = true }
+groth16-material = { workspace = true, features = ["circom"] }
+ruint = { workspace = true, features = ["ark-ff-05"] }
 poseidon2 = { workspace = true }
+taceo-groth16-sol = { workspace = true }
 taceo-oprf = { workspace = true, features = ["client", "core"] }
 eyre = { workspace = true }
 zeroize = { workspace = true }
@@ -58,3 +70,8 @@ circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"] }
 rayon = { workspace = true }
 tar = { workspace = true }
 zstd = { workspace = true }
+provekit-r1cs-compiler = { workspace = true }
+provekit-common = { workspace = true }
+
+[dev-dependencies]
+world-id-test-utils = { workspace = true }

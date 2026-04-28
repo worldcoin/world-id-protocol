@@ -1,7 +1,6 @@
 use crate::serde_utils;
 use alloy_primitives::U256;
 use ark_bn254::Bn254;
-use ark_serde_compat::babyjubjub;
 use circom_types::groth16::Proof;
 use serde::{Deserialize, Serialize};
 use taceo_oprf::types::api::{CloseFrameMessage, OprfRequestAuthenticatorError};
@@ -38,16 +37,13 @@ pub struct NullifierOprfRequestAuthV1 {
     /// Zero-knowledge proof provided by the user.
     pub proof: Proof<Bn254>,
     /// The action
-    #[serde(serialize_with = "babyjubjub::serialize_fq")]
-    #[serde(deserialize_with = "babyjubjub::deserialize_fq")]
+    #[serde(with = "ark_serde_compat::field")]
     pub action: ark_babyjubjub::Fq,
     /// The nonce
-    #[serde(serialize_with = "babyjubjub::serialize_fq")]
-    #[serde(deserialize_with = "babyjubjub::deserialize_fq")]
+    #[serde(with = "ark_serde_compat::field")]
     pub nonce: ark_babyjubjub::Fq,
     /// The Merkle root associated with this request.
-    #[serde(serialize_with = "babyjubjub::serialize_fq")]
-    #[serde(deserialize_with = "babyjubjub::deserialize_fq")]
+    #[serde(with = "ark_serde_compat::field")]
     pub merkle_root: ark_babyjubjub::Fq,
     /// The current time stamp (unix secs)
     pub current_time_stamp: u64,
@@ -79,16 +75,13 @@ pub struct CredentialBlindingFactorOprfRequestAuthV1 {
     /// Zero-knowledge proof provided by the user.
     pub proof: Proof<Bn254>,
     /// The action
-    #[serde(serialize_with = "babyjubjub::serialize_fq")]
-    #[serde(deserialize_with = "babyjubjub::deserialize_fq")]
+    #[serde(with = "ark_serde_compat::field")]
     pub action: ark_babyjubjub::Fq,
     /// The nonce
-    #[serde(serialize_with = "babyjubjub::serialize_fq")]
-    #[serde(deserialize_with = "babyjubjub::deserialize_fq")]
+    #[serde(with = "ark_serde_compat::field")]
     pub nonce: ark_babyjubjub::Fq,
     /// The Merkle root associated with this request.
-    #[serde(serialize_with = "babyjubjub::serialize_fq")]
-    #[serde(deserialize_with = "babyjubjub::deserialize_fq")]
+    #[serde(with = "ark_serde_compat::field")]
     pub merkle_root: ark_babyjubjub::Fq,
     /// The `issuer_schema_id` in the `CredentialSchemaIssuerRegistry` contract
     pub issuer_schema_id: u64,

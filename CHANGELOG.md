@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.9.0...world-id-primitives-v0.10.0) - 2026-04-23
+
+### Added
+
+- ownership proof verification ([#669](https://github.com/worldcoin/world-id-protocol/pull/669))
+- ownership proof generation ([#657](https://github.com/worldcoin/world-id-protocol/pull/657))
+- ownership proof generation ([#648](https://github.com/worldcoin/world-id-protocol/pull/648))
+- expose compression in authenticator crate ([#670](https://github.com/worldcoin/world-id-protocol/pull/670))
+
+### Other
+
+- Update docs & clarify around Authenticator management ([#673](https://github.com/worldcoin/world-id-protocol/pull/673))
+- *(primitives)* move circuit_inputs to world-id-proof ([#667](https://github.com/worldcoin/world-id-protocol/pull/667))
+- *(primitives)* move k256 to dev-dependencies ([#666](https://github.com/worldcoin/world-id-protocol/pull/666))
+- *(primitives)* move proof compression to world-id-proof ([#668](https://github.com/worldcoin/world-id-protocol/pull/668))
+- introduce registries crate ([#671](https://github.com/worldcoin/world-id-protocol/pull/671))
+- fix registries crate ([#678](https://github.com/worldcoin/world-id-protocol/pull/678))
+
+## [0.9.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.8.2...world-id-primitives-v0.9.0) - 2026-04-14
+
+### Breaking Changes
+
+- refactor authenticator: `get_packed_account_data` is now `pub(crate)`, `generate_single_proof` removed, `generate_session_id` signature changed, `load_nullifier_material_from_paths` now returns `Result` ([#641](https://github.com/worldcoin/world-id-protocol/pull/641))
+
+### Added
+
+- Add indexer endpoint for pending recovery agent ([#644](https://github.com/worldcoin/world-id-protocol/pull/644))
+- *(oprf-nodes)* added WIP101 support at the nodes ([#634](https://github.com/worldcoin/world-id-protocol/pull/634))
+- ohttp client ([#545](https://github.com/worldcoin/world-id-protocol/pull/545))
+- proof orchestration ([#640](https://github.com/worldcoin/world-id-protocol/pull/640))
+- add AuthenticatorConfig::from_json ([#650](https://github.com/worldcoin/world-id-protocol/pull/650))
+
+### Fixed
+
+- minor nomenclature improvements to sessions ([#637](https://github.com/worldcoin/world-id-protocol/pull/637))
+- add public refresh_packed_account_data method ([#652](https://github.com/worldcoin/world-id-protocol/pull/652))
+
+### Other
+
+- *(oprf-node)* bump taceo crates ([#651](https://github.com/worldcoin/world-id-protocol/pull/651))
+- remove examples ([#638](https://github.com/worldcoin/world-id-protocol/pull/638))
+- refactor authenticator ([#641](https://github.com/worldcoin/world-id-protocol/pull/641))
+- update Cargo.toml dependencies
+
 ## [0.8.2](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.8.1...world-id-primitives-v0.8.2) - 2026-04-02
 
 ### Added

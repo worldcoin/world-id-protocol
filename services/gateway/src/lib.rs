@@ -9,7 +9,7 @@ pub use crate::{
 use crate::{routes::build_app, types::AppState};
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};
 use tokio::sync::oneshot;
-use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 mod batch_policy;
 mod batcher;

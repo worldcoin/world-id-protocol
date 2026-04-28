@@ -4,10 +4,13 @@
 
 use std::collections::HashMap;
 
+use eddsa_babyjubjub::EdDSASignature;
 use groth16_material::circom::ProofInput;
 use ruint::aliases::U256;
 
-use crate::authenticator::MAX_AUTHENTICATOR_KEYS;
+use world_id_primitives::{
+    AuthenticatorPublicKeySet, FieldElement, MAX_AUTHENTICATOR_KEYS, merkle::MerkleInclusionProof,
+};
 
 type BaseField = ark_babyjubjub::Fq;
 type ScalarField = ark_babyjubjub::Fr;
@@ -219,4 +222,21 @@ impl<const MAX_DEPTH: usize> ProofInput for NullifierProofCircuitInput<MAX_DEPTH
 
         map
     }
+}
+
+/// Inputs for the "Proof of Ownership" (WIP-103) circuit.
+#[derive(Debug, Clone)]
+pub struct OwnershipProofCircuitInput<const MAX_DEPTH: usize> {
+    /// Private input. The index of the authenticator key used to sign the proof request
+    pub key_index: u64,
+    /// Private input. The full authenticator key set for the user's World ID
+    pub key_set: AuthenticatorPublicKeySet,
+    /// Private input (**except** the `root` and `depth`). The inclusion proof in the `WorldIDRegistry`
+    pub inclusion_proof: MerkleInclusionProof<MAX_DEPTH>,
+    /// **Public input**. The nonce of the proof request as provided by the verifier.
+    pub nonce: FieldElement,
+    /// Private input. Signature from the authenticator on the query.
+    pub signature: EdDSASignature,
+    /// Private input. The commitment's `r` blinder
+    pub commitment_blinder: FieldElement,
 }
