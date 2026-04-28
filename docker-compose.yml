@@ -81,7 +81,7 @@ services:  # world-id-indexer
       TACEO_OPRF_KEY_GEN__POSTGRES__CONNECTION_STRING: postgres://postgres:postgres@localhost:5432/postgres
       TACEO_OPRF_KEY_GEN__POSTGRES__SCHEMA: oprf2
   ohttp-gateway:
-    image: ghcr.io/worldcoin/world-id-protocol/ohttp-gateway:latest
+    image: ghcr.io/worldcoin/ohttp-tools/ohttp-gateway:latest
     platform: linux/amd64
     ports:
       - "9090:8080"
