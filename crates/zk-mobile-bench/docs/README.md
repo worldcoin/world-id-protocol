@@ -55,10 +55,12 @@ cargo mobench report summarize \
   --plots auto
 ```
 
-`summary.md` uses `cpu_median_ms` and `peak_memory_kb` for canonical resource fields.
+`summary.md` uses per-sample `cpu_time_ms` plus `cpu_total_ms`, `cpu_median_ms`,
+`peak_memory_kb`, `peak_memory_growth_kb`, and `process_peak_memory_kb` for
+canonical resource fields.
 CI summaries and PR comments can include inline `plots/*.svg` when plot rendering succeeds.
 Benchmark reports also preserve optional semantic `phases` emitted by
-`mobench_sdk::timing::profile_phase(...)`.
+`mobench_sdk::timing::profile_phase(...)` and harness `timeline` spans.
 
 ## CI Triggers
 

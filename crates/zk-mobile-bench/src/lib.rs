@@ -423,6 +423,12 @@ pub struct BenchSpec {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, uniffi::Record)]
 pub struct BenchSample {
     pub duration_ns: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_time_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peak_memory_kb: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_peak_memory_kb: Option<u64>,
 }
 
 /// A semantic timing phase captured during a benchmark iteration.
@@ -435,8 +441,26 @@ pub struct SemanticPhase {
 /// Resource usage scoped to measured iterations.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, uniffi::Record)]
 pub struct BenchResourceUsage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_total_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_median_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peak_memory_kb: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peak_memory_growth_kb: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_peak_memory_kb: Option<u64>,
+}
+
+/// A benchmark harness timeline span.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, uniffi::Record)]
+pub struct HarnessTimelineSpan {
+    pub phase: String,
+    pub start_offset_ns: u64,
+    pub end_offset_ns: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iteration: Option<u32>,
 }
 
 /// Benchmark report with timing results
@@ -446,6 +470,8 @@ pub struct BenchReport {
     pub samples: Vec<BenchSample>,
     #[serde(default)]
     pub phases: Vec<SemanticPhase>,
+    #[serde(default)]
+    pub timeline: Vec<HarnessTimelineSpan>,
     #[serde(default)]
     pub resource_usage: Option<BenchResourceUsage>,
 }
@@ -472,15 +498,47 @@ impl From<mobench_sdk::SemanticPhase> for SemanticPhase {
     }
 }
 
+impl From<mobench_sdk::BenchSample> for BenchSample {
+    fn from(sample: mobench_sdk::BenchSample) -> Self {
+        Self {
+            duration_ns: sample.duration_ns,
+            cpu_time_ms: sample.cpu_time_ms,
+            peak_memory_kb: sample.peak_memory_kb,
+            process_peak_memory_kb: sample.process_peak_memory_kb,
+        }
+    }
+}
+
+impl From<mobench_sdk::HarnessTimelineSpan> for HarnessTimelineSpan {
+    fn from(span: mobench_sdk::HarnessTimelineSpan) -> Self {
+        Self {
+            phase: span.phase,
+            start_offset_ns: span.start_offset_ns,
+            end_offset_ns: span.end_offset_ns,
+            iteration: span.iteration,
+        }
+    }
+}
+
 impl From<mobench_sdk::RunnerReport> for BenchReport {
     fn from(report: mobench_sdk::RunnerReport) -> Self {
+        let cpu_total_ms = report.cpu_total_ms();
         let cpu_median_ms = report.cpu_median_ms();
         let peak_memory_kb = report.peak_memory_kb();
-        let resource_usage =
-            (cpu_median_ms.is_some() || peak_memory_kb.is_some()).then_some(BenchResourceUsage {
-                cpu_median_ms,
-                peak_memory_kb,
-            });
+        let peak_memory_growth_kb = report.peak_memory_growth_kb();
+        let process_peak_memory_kb = report.process_peak_memory_kb();
+        let has_resource_usage = cpu_total_ms.is_some()
+            || cpu_median_ms.is_some()
+            || peak_memory_kb.is_some()
+            || peak_memory_growth_kb.is_some()
+            || process_peak_memory_kb.is_some();
+        let resource_usage = has_resource_usage.then_some(BenchResourceUsage {
+            cpu_total_ms,
+            cpu_median_ms,
+            peak_memory_kb,
+            peak_memory_growth_kb,
+            process_peak_memory_kb,
+        });
 
         Self {
             spec: BenchSpec {
@@ -488,14 +546,9 @@ impl From<mobench_sdk::RunnerReport> for BenchReport {
                 iterations: report.spec.iterations,
                 warmup: report.spec.warmup,
             },
-            samples: report
-                .samples
-                .into_iter()
-                .map(|sample| BenchSample {
-                    duration_ns: sample.duration_ns,
-                })
-                .collect(),
+            samples: report.samples.into_iter().map(Into::into).collect(),
             phases: report.phases.into_iter().map(Into::into).collect(),
+            timeline: report.timeline.into_iter().map(Into::into).collect(),
             resource_usage,
         }
     }
@@ -645,16 +698,32 @@ mod tests {
         let expected = json!({
             "spec": {
                 "name": "zk_mobile_bench::bench_query_proof_generation",
-                "iterations": 1,
+                "iterations": 2,
                 "warmup": 0
             },
             "samples": [
-                { "duration_ns": 123 }
+                {
+                    "duration_ns": 123,
+                    "cpu_time_ms": 17,
+                    "peak_memory_kb": 4096,
+                    "process_peak_memory_kb": 8192
+                }
             ],
             "phases": [],
+            "timeline": [
+                {
+                    "phase": "measured-benchmark",
+                    "start_offset_ns": 10,
+                    "end_offset_ns": 133,
+                    "iteration": 0
+                }
+            ],
             "resource_usage": {
+                "cpu_total_ms": 34,
                 "cpu_median_ms": 17,
-                "peak_memory_kb": 4096
+                "peak_memory_kb": 4096,
+                "peak_memory_growth_kb": 4096,
+                "process_peak_memory_kb": 8192
             }
         });
 
@@ -662,6 +731,57 @@ mod tests {
             serde_json::from_value(expected.clone()).expect("deserialize benchmark report");
         let actual = serde_json::to_value(report).expect("serialize benchmark report");
 
+        assert_eq!(actual["samples"], expected["samples"]);
+        assert_eq!(actual["timeline"], expected["timeline"]);
         assert_eq!(actual["resource_usage"], expected["resource_usage"]);
+    }
+
+    #[test]
+    fn sdk_report_conversion_preserves_cpu_total_inputs() {
+        let report = mobench_sdk::RunnerReport {
+            spec: mobench_sdk::BenchSpec {
+                name: "zk_mobile_bench::bench_query_proof_generation".to_string(),
+                iterations: 2,
+                warmup: 1,
+            },
+            samples: vec![
+                mobench_sdk::BenchSample {
+                    duration_ns: 100,
+                    cpu_time_ms: Some(11),
+                    peak_memory_kb: Some(1024),
+                    process_peak_memory_kb: Some(4096),
+                },
+                mobench_sdk::BenchSample {
+                    duration_ns: 200,
+                    cpu_time_ms: Some(23),
+                    peak_memory_kb: Some(2048),
+                    process_peak_memory_kb: Some(8192),
+                },
+            ],
+            phases: vec![mobench_sdk::SemanticPhase {
+                name: "prove".to_string(),
+                duration_ns: 250,
+            }],
+            timeline: vec![mobench_sdk::HarnessTimelineSpan {
+                phase: "measured-benchmark".to_string(),
+                start_offset_ns: 50,
+                end_offset_ns: 250,
+                iteration: Some(1),
+            }],
+        };
+
+        let report = BenchReport::from(report);
+        let resource_usage = report
+            .resource_usage
+            .expect("resource usage should be present when CPU samples are present");
+
+        assert_eq!(report.samples[0].cpu_time_ms, Some(11));
+        assert_eq!(report.samples[1].cpu_time_ms, Some(23));
+        assert_eq!(resource_usage.cpu_total_ms, Some(34));
+        assert_eq!(resource_usage.cpu_median_ms, Some(17));
+        assert_eq!(resource_usage.peak_memory_kb, Some(2048));
+        assert_eq!(resource_usage.peak_memory_growth_kb, Some(2048));
+        assert_eq!(resource_usage.process_peak_memory_kb, Some(8192));
+        assert_eq!(report.timeline[0].phase, "measured-benchmark");
     }
 }
