@@ -45,5 +45,7 @@ ignore = [
     "RUSTSEC-2025-0057", # Unmaintained `fxhash` (2026-04-10), requires bumps on `provekit`
     "RUSTSEC-2025-0141", # Unmaintained `bincode` (2026-04-10), requires bumps on `provekit`
     "RUSTSEC-2026-0074", # `libcrux-sha3` via testcontainers->russh; dev-only, does not affect our usage (2026-03-26)
-    "RUSTSEC-2026-0097"  # Unsoundness in `rand@0.8.5` (2026-04-11), multiple upstream deps on `rand`. Not directly using custom logger
+    "RUSTSEC-2026-0097", # Unsoundness in `rand@0.8.5` (2026-04-11), multiple upstream deps on `rand`. Not directly using custom logger
+    "RUSTSEC-2026-0112", # `astral-tokio-tar` PAX header desync; via testcontainers, dev-only, does not affect our usage (2026-04-27)
+    "RUSTSEC-2026-0113"  # `astral-tokio-tar` chmod-via-symlink in `unpack_in`; via testcontainers, dev-only, does not affect our usage (2026-04-27)
 ]
