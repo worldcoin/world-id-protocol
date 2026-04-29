@@ -8,11 +8,7 @@ use std::{fs::File, io};
 
 const GITHUB_REPO: &str = "worldcoin/world-id-protocol";
 
-#[cfg(feature = "embed-zkeys")]
-const CIRCUIT_COMMIT: &str = "aaf8f2650b003a8bb06feb26bed6277629d4c0bf"; // TODO: Figure out a better way for static commits
-
-#[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
-const NOIR_ARTIFACT_RELEASE_TAG: &str = "circuit-artifacts-v0.1.0";
+const CIRCUIT_ARTIFACT_RELEASE_TAG: &str = "circuit-artifacts-v0.1.0";
 
 const CIRCUIT_FILES: &[&str] = &[
     "circom/OPRFQueryGraph.bin",
@@ -103,6 +99,12 @@ fn main() -> eyre::Result<()> {
     Ok(())
 }
 
+fn circuit_artifact_url(file_name: &str) -> String {
+    format!(
+        "https://github.com/{GITHUB_REPO}/releases/download/{CIRCUIT_ARTIFACT_RELEASE_TAG}/{file_name}"
+    )
+}
+
 fn download_file(url: &str, output_path: &Path) -> eyre::Result<()> {
     let response = reqwest::blocking::get(url)?;
 
@@ -143,16 +145,15 @@ fn fetch_circuit_file(path: &Path, out_dir: &Path) -> eyre::Result<()> {
         }
     }
 
-    // Download from GitHub: we need to do this because crates.io enforce a hard limit on the
-    // size of a crate upload of ~10MB and the circuit files are heavier than that.
+    // Download from GitHub releases: we need to do this because crates.io enforce a hard limit on
+    // the size of a crate upload of ~10MB and the circuit files are heavier than that.
     #[cfg(feature = "embed-zkeys")]
     {
-        let url = format!(
-            "https://raw.githubusercontent.com/{}/{}/{}",
-            GITHUB_REPO,
-            CIRCUIT_COMMIT,
-            path.to_str().ok_or_eyre("invalid path")?
-        );
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_eyre("invalid path")?;
+        let url = circuit_artifact_url(file_name);
 
         download_file(&url, &output_path)?;
         Ok(())
@@ -253,9 +254,7 @@ fn fetch_noir_artifact(artifact_dir: &Path, file_name: &str, out_dir: &Path) -> 
         return Ok(());
     }
 
-    let url = format!(
-        "https://github.com/{GITHUB_REPO}/releases/download/{NOIR_ARTIFACT_RELEASE_TAG}/{file_name}"
-    );
+    let url = circuit_artifact_url(file_name);
     download_file(&url, &output_path).map_err(|e| {
         eyre::eyre!(
             "failed to fetch Noir artifact {file_name}. Run `just build-noir-artifacts` to generate it locally, or publish it at {url}: {e}"
