@@ -6,7 +6,7 @@
   },
   "deployer": "0x96d55BD9c8C4706FED243c1e15825FF7854920fA",
   "rpRegistry": {
-    "implementation": "0x9e4984bdE7F17aB422Cc4254C08074b3c42160d1",
+    "implementation": "0xdD387350Cf0b161a4BF6034fABf3634F4153cB3e",
     "proxy": "0x37d2462fE7B4a07987263AAd062C6593C4f567b9"
   },
   "timestamp": 1770925941,
