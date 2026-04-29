@@ -63,5 +63,9 @@ _cast-send *args:
 _xc-rpc *args:
     @just contracts::_xc-rpc {{ args }}
 
+[group('circuits')]
+build-noir-artifacts:
+    cargo run -p generate-noir-artifacts
+
 [group('ci')]
 ci: cargo-lint fmt-check all
