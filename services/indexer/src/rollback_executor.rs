@@ -78,10 +78,27 @@ async fn find_last_valid_root(
                 .from_block(event.block_number)
                 .to_block(event.block_number);
 
-            let logs = provider
-                .get_logs(&filter)
-                .await
-                .map_err(|e| IndexerError::ContractCall(e.to_string()))?;
+            let logs = match provider.get_logs(&filter).await {
+                Ok(logs) => logs,
+                Err(e) => {
+                    let msg = e.to_string();
+                    // A block-out-of-range error (RPC -32602) means the
+                    // requested block does not exist on this chain.  Treat it
+                    // the same as receiving no logs: this root is not confirmed
+                    // on-chain, so continue searching older events.
+                    if msg.contains("BlockOutOfRangeError") || msg.contains("-32602") {
+                        tracing::info!(
+                            block_number = event.block_number,
+                            log_index = event.log_index,
+                            root = %format!("0x{:x}", event.details.root),
+                            "Block out of range when querying logs; \
+                             treating root as absent on-chain"
+                        );
+                        continue;
+                    }
+                    return Err(IndexerError::ContractCall(msg));
+                }
+            };
 
             let exists = logs.iter().any(|log| {
                 if log.log_index != Some(event.log_index) {
