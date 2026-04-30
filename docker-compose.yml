@@ -3,7 +3,7 @@
 name: world-id-protocol-services
 services:  # world-id-indexer
   postgres:
-    image: ${POSTGRES_IMAGE:-postgres:latest}
+    image: public.ecr.aws/docker/library/postgres:latest
     ports:
       - "5432:5432"
     environment:
@@ -12,7 +12,7 @@ services:  # world-id-indexer
       - POSTGRES_DB=indexer_tests
   # world-id-gateway
   redis:
-    image: ${REDIS_IMAGE:-redis:latest}
+    image: public.ecr.aws/docker/library/redis:latest
     ports:
       - "6379:6379"
     healthcheck:
