@@ -1,6 +1,7 @@
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
+#[cfg(feature = "provekit")]
 use crate::FieldElement;
 
 /// Encoded World ID Proof.
@@ -102,6 +103,7 @@ impl From<ZeroKnowledgeProof> for [U256; 5] {
 ///
 /// Contains the ZKP and the Merkle root public input that the verifier
 /// doesn't initially provide.
+#[cfg(feature = "provekit")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OwnershipProof {
     /// The WHIR R1CS proof from ProveKit.
@@ -180,6 +182,7 @@ mod tests {
         assert!(result.unwrap_err().contains("Invalid length"));
     }
 
+    #[cfg(feature = "provekit")]
     #[test]
     fn test_ownership_proof_json_roundtrip() {
         let whir_proof = provekit_common::WhirR1CSProof {
@@ -204,6 +207,7 @@ mod tests {
     /// This test simulates the data-level check that a verifier would perform:
     /// if the merkle root stored inside an [`OwnershipProof`] has been tampered
     /// with, the proof object is distinguishable from the original.
+    #[cfg(feature = "provekit")]
     #[test]
     fn test_ownership_proof_wrong_merkle_root_is_detected() {
         let whir_proof = provekit_common::WhirR1CSProof {
@@ -235,6 +239,7 @@ mod tests {
     /// This test simulates the data-level check that a verifier would perform:
     /// if the proof bytes inside an [`OwnershipProof`] have been tampered with,
     /// the proof object is distinguishable from the original.
+    #[cfg(feature = "provekit")]
     #[test]
     fn test_ownership_proof_tampered_bytes_is_detected() {
         let original_bytes = vec![0xde, 0xad, 0xbe, 0xef];

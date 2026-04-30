@@ -19,6 +19,8 @@ include = [
 [features]
 default = ["embed-zkeys"]
 embed-zkeys = ["world-id-proof/embed-zkeys"]
+# Enable ProveKit-backed ownership proof generation.
+provekit = ["world-id-proof/zk-ownership-prove", "world-id-primitives/provekit"]
 # Compress the embedded zkeys to reduce binary size (ARK point compression)
 compress-zkeys = ["embed-zkeys", "world-id-proof/compress-zkeys"]
 # Compress the tar archive with zstd
@@ -63,7 +65,7 @@ hex = { workspace = true }
 base64 = { workspace = true }
 
 # Internal
-world-id-proof = { workspace = true, features = ["zk-ownership-prove"] }
+world-id-proof = { workspace = true }
 world-id-registries = { workspace = true }
 
 # Native-only dependencies (not available on wasm32)
