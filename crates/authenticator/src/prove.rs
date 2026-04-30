@@ -1,7 +1,9 @@
 use secrecy::ExposeSecret;
+#[cfg(feature = "provekit")]
+use world_id_primitives::OwnershipProof;
 use world_id_primitives::{
-    Credential, FieldElement, OwnershipProof, ProofRequest, ProofResponse, RequestItem,
-    ResponseItem, SessionId, SessionNullifier, ZeroKnowledgeProof,
+    Credential, FieldElement, ProofRequest, ProofResponse, RequestItem, ResponseItem, SessionId,
+    SessionNullifier, ZeroKnowledgeProof,
 };
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofCompression,
@@ -14,6 +16,7 @@ use crate::{
     error::AuthenticatorError,
 };
 use world_id_primitives::TREE_DEPTH;
+#[cfg(feature = "provekit")]
 use world_id_proof::{
     circuit_inputs::OwnershipProofCircuitInput, ownership_proof::generate_ownership_proof,
 };
@@ -437,6 +440,7 @@ impl Authenticator {
     ///
     /// # Returns
     /// The [`OwnershipProof`] containing the ZKP and Merkle root.
+    #[cfg(feature = "provekit")]
     pub async fn prove_credential_sub(
         &self,
         nonce: FieldElement,
@@ -473,7 +477,7 @@ impl Authenticator {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "provekit"))]
 mod tests {
     use crate::{
         authenticator::Authenticator,

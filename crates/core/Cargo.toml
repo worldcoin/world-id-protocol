@@ -25,6 +25,13 @@ embed-zkeys = ["authenticator", "world-id-proof/embed-zkeys"]
 compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/compress-zkeys"]
 # Compress the tar archive with zstd
 zstd-compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/zstd-compress-zkeys"]
+# Enable ProveKit-backed ownership proofs.
+provekit = [
+    "authenticator",
+    "world-id-proof/zk-ownership-prove",
+    "world-id-authenticator/provekit",
+    "world-id-primitives/provekit",
+]
 
 issuer = [
     "dep:world-id-issuer",
