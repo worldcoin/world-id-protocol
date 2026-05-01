@@ -19,7 +19,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use world_id_core::{
     Authenticator, AuthenticatorError, CredentialInput, EdDSAPrivateKey,
-    requests::{ProofRequest, RequestItem, RequestVersion},
+    requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
 };
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
@@ -299,6 +299,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let proof_request = ProofRequest {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
+        proof_type: ProofType::Uniqueness,
         created_at: rp_fixture.current_timestamp,
         expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,

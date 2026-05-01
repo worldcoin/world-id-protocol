@@ -21,7 +21,7 @@ use world_id_core::{
 };
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, ProofRequest, RequestItem, RequestVersion, SessionFeType,
+    AuthenticatorPublicKeySet, ProofRequest, ProofType, RequestItem, RequestVersion, SessionFeType,
     SessionFieldElement as _, SessionId, TREE_DEPTH,
     merkle::MerkleInclusionProof,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
@@ -267,14 +267,14 @@ fn create_proof_request<R: Rng + CryptoRng>(
     auth: OprfModule,
     rng: &mut R,
 ) -> eyre::Result<ProofRequest> {
-    let (action, session_id) = match auth {
+    let (proof_type, action, session_id) = match auth {
         OprfModule::Nullifier => {
             // Explicitly set first byte to 0x00 — reserved for nullifier actions
             let mut bytes = [0u8; 32];
             rng.fill(&mut bytes[1..]);
             bytes[0] = 0x00;
             let a = FieldElement::from_be_bytes(&bytes).expect("Works");
-            (Some(*a), None)
+            (ProofType::Uniqueness, Some(*a), None)
         }
         OprfModule::Session => {
             // Session RP signature does NOT include action
@@ -284,7 +284,7 @@ fn create_proof_request<R: Rng + CryptoRng>(
                 FieldElement::random_for_session(rng, SessionFeType::OprfSeed),
             )
             .context("while building SessionId")?;
-            (None, Some(session_id))
+            (ProofType::ProveSession, None, Some(session_id))
         }
         _ => unreachable!("only have session and nullifier modules here"),
     };
@@ -307,6 +307,7 @@ fn create_proof_request<R: Rng + CryptoRng>(
     Ok(ProofRequest {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
+        proof_type,
         created_at: current_timestamp,
         expires_at: expiration_timestamp,
         rp_id: setup.rp_id,

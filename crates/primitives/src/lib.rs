@@ -72,7 +72,7 @@ pub use signer::Signer;
 pub mod request;
 pub use request::{
     ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES, ProofRequest,
-    ProofResponse, RequestItem, RequestVersion, ResponseItem, ValidationError,
+    ProofResponse, ProofType, RequestItem, RequestVersion, ResponseItem, ValidationError,
 };
 
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
