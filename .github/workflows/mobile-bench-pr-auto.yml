@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [labeled]
   workflow_run:
-    workflows: ["Compile Gate"]
+    workflows: ["Rust CI"]
     types: [completed]
 
 permissions:
@@ -18,6 +18,6 @@ jobs:
     uses: worldcoin/mobile-bench-rs/.github/workflows/reusable-pr-auto.yml@3a97e4c0fd5ef0683112c0385455aef5f239398f
     with:
       benchmark_workflow: .github/workflows/mobile-bench.yml
-      compile_gate_workflow_name: "Compile Gate"
+      compile_gate_workflow_name: "Tests (stable)"
       crate_path: ./crates/zk-mobile-bench
       functions: '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_proof_only","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only"]'

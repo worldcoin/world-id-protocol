@@ -46,4 +46,4 @@ rand_chacha = { workspace = true }
 thiserror = { workspace = true }
 
 # UniFFI for mobile bindings
-uniffi = { version = "0.28", features = ["cli"] }
+uniffi = { version = "0.31", features = ["cli"] }
