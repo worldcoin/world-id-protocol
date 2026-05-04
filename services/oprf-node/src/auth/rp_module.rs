@@ -410,8 +410,13 @@ impl RpModuleAuth {
                 let action = FieldElement::from(action);
                 if action.is_valid_for_session(SessionFeType::OprfSeed) {
                     NonceScope::SessionOprfSeed
-                } else {
+                } else if action.is_valid_for_session(SessionFeType::Action) {
                     NonceScope::SessionAction
+                } else {
+                    return Err(RpModuleError::InvalidAction {
+                        kind: self.kind,
+                        action,
+                    });
                 }
             }
         };
