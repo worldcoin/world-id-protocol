@@ -2,8 +2,12 @@ use alloy::primitives::Address;
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
 use testcontainers_modules::{
-    redis::{REDIS_PORT, Redis},
-    testcontainers::{ContainerAsync, ImageExt as _, runners::AsyncRunner as _},
+    redis::REDIS_PORT,
+    testcontainers::{
+        ContainerAsync, GenericImage, ImageExt as _,
+        core::{IntoContainerPort, WaitFor},
+        runners::AsyncRunner as _,
+    },
 };
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, GatewayHandle, SignerArgs, defaults, spawn_gateway_for_tests,
@@ -34,7 +38,7 @@ pub(crate) struct TestGateway {
     pub(crate) _handle: GatewayHandle,
     pub(crate) _anvil: TestAnvil,
     // Keep the Redis container alive for the duration of the test.
-    pub(crate) _redis: ContainerAsync<Redis>,
+    pub(crate) _redis: ContainerAsync<GenericImage>,
 }
 
 /// Spawn a test gateway backed by a forked anvil chain and a Redis container.
@@ -132,14 +136,14 @@ pub(crate) async fn spawn_test_gateway(batch_ms: Option<u64>) -> TestGateway {
 /// Start a fresh Redis container and return its URL plus the container handle.
 ///
 /// The container is automatically stopped and removed when the returned
-/// `ContainerAsync<Redis>` is dropped — keep it alive for the duration of the
+/// `ContainerAsync<GenericImage>` is dropped — keep it alive for the duration of the
 /// test that needs the Redis instance.
 #[allow(dead_code)]
-pub(crate) async fn start_redis() -> (String, ContainerAsync<Redis>) {
-    // Use redis:latest so CI (which already pulls this tag via docker-compose)
-    // can start the container from the local image cache with no network pull.
-    let container = Redis::default()
-        .with_tag("latest")
+pub(crate) async fn start_redis() -> (String, ContainerAsync<GenericImage>) {
+    // Use the ECR Public mirror to avoid Docker Hub rate limits.
+    let container = GenericImage::new("public.ecr.aws/docker/library/redis", "latest")
+        .with_exposed_port(REDIS_PORT.tcp())
+        .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
         .start()
         .await
         .expect("failed to start Redis container");
