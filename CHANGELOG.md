@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.10.1...world-id-primitives-v0.10.2) - 2026-05-04
+
+### Added
+
+- Make world-id-authenticator compile for wasm32 ([#714](https://github.com/worldcoin/world-id-protocol/pull/714))
+
 ## [0.10.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.10.0...world-id-primitives-v0.10.1) - 2026-04-29
 
 ### Added
