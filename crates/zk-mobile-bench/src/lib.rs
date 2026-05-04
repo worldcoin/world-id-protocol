@@ -23,7 +23,7 @@ use taceo_oprf::core::{
     oprf::{BlindedOprfResponse, BlindingFactor},
 };
 use world_id_primitives::{
-    authenticator::oprf_query_digest, AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH,
+    AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, authenticator::oprf_query_digest,
 };
 use world_id_proof::{
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
@@ -256,13 +256,13 @@ thread_local! {
         const { RefCell::new(None) };
 }
 
-/// Benchmark: Query Proof (π1) generation only
+/// Benchmark: Query Proof (π1) generation from cached input
 ///
-/// This benchmarks only the ZK proof generation step, with input and
-/// proving material cached after the first call. Use warmup iterations
-/// to keep setup cost out of measured samples.
+/// This benchmarks `generate_proof` with input and proving material cached after
+/// the first call. It still includes witness generation plus Groth16 proving;
+/// use `bench_query_proving_only` to measure Groth16 proving from a cached witness.
 #[benchmark]
-pub fn bench_query_proof_only() {
+pub fn bench_query_cached_proof_generation() {
     let iter = PROOF_ONLY_COUNTER.fetch_add(1, Ordering::Relaxed);
     let mut rng = ChaCha20Rng::seed_from_u64(PROOF_ONLY_BASE_SEED ^ iter);
 
@@ -591,9 +591,9 @@ mod tests {
 
     #[test]
     #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
-    fn test_query_proof_only_benchmark() {
+    fn test_query_cached_proof_generation_benchmark() {
         // Just verify the benchmark runs without panicking
-        bench_query_proof_only();
+        bench_query_cached_proof_generation();
     }
 
     #[test]
@@ -635,24 +635,20 @@ mod tests {
             .map(|bench| bench.name.to_string())
             .collect::<Vec<_>>();
 
-        assert!(
-            names
-                .iter()
-                .any(|name| name == "zk_mobile_bench::bench_query_proof_generation"),
-            "query proof benchmark should be registered"
-        );
-        assert!(
-            names
-                .iter()
-                .any(|name| name == "zk_mobile_bench::bench_nullifier_proof_generation"),
-            "nullifier proof benchmark should be registered"
-        );
-        assert!(
-            names
-                .iter()
-                .any(|name| name == "zk_mobile_bench::bench_query_proving_only"),
-            "query proving-only benchmark should be registered"
-        );
+        for expected_name in [
+            "zk_mobile_bench::bench_query_proof_generation",
+            "zk_mobile_bench::bench_query_cached_proof_generation",
+            "zk_mobile_bench::bench_query_witness_generation_only",
+            "zk_mobile_bench::bench_query_proving_only",
+            "zk_mobile_bench::bench_nullifier_proof_generation",
+            "zk_mobile_bench::bench_nullifier_witness_generation_only",
+            "zk_mobile_bench::bench_nullifier_proving_only",
+        ] {
+            assert!(
+                names.iter().any(|name| name == expected_name),
+                "{expected_name} should be registered"
+            );
+        }
     }
 
     #[test]

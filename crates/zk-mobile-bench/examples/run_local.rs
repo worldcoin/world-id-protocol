@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo run -p zk-mobile-bench --example run_local --release
 
-use zk_mobile_bench::{run_benchmark, BenchSpec};
+use zk_mobile_bench::{BenchSpec, run_benchmark};
 
 fn main() {
     println!("World ID Mobile Benchmarks - Local Runner");

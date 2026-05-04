@@ -7,7 +7,7 @@ use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{AdditiveGroup, UniformRand};
 use rand::{CryptoRng, Rng};
-use world_id_primitives::{rp::RpId, FieldElement, TREE_DEPTH};
+use world_id_primitives::{FieldElement, TREE_DEPTH, rp::RpId};
 
 /// RP fixture data for benchmarks
 pub struct RpFixture {
@@ -21,7 +21,7 @@ pub struct RpFixture {
 
 /// Generate RP fixture with deterministic randomness
 pub fn generate_rp_fixture<R: Rng + CryptoRng>(rng: &mut R) -> RpFixture {
-    let rp_id_value: u64 = rng.gen();
+    let rp_id_value: u64 = rng.r#gen();
     let world_rp_id = RpId::new(rp_id_value);
 
     let action = Fq::rand(rng);

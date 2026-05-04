@@ -1,8 +1,7 @@
 [package]
 name = "zk-mobile-bench"
 version = "0.1.0"
-# Edition 2021 required: `rand`'s `.gen()` conflicts with `gen` keyword reserved in edition 2024.
-edition = "2021"
+edition.workspace = true
 publish = false
 description = "Mobile benchmarks for World ID ZK proof generation"
 license = "MIT"

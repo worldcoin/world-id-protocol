@@ -70,12 +70,16 @@ Benchmark reports also preserve optional semantic `phases` emitted by
 
 ## Benchmark Functions
 
-| Function | What it measures |
-|---|---|
-| `bench_query_proof_generation` | Full π1 (witness + proving) |
-| `bench_query_witness_generation_only` | π1 witness generation only |
-| `bench_query_proving_only` | π1 Groth16 proving only |
-| `bench_query_proof_only` | π1 proving with cached inputs |
-| `bench_nullifier_proof_generation` | Full π2 (witness + proving) |
-| `bench_nullifier_witness_generation_only` | π2 witness generation only |
-| `bench_nullifier_proving_only` | π2 Groth16 proving only |
+| Function | Proof | What it measures |
+|---|---|---|
+| `bench_query_proof_generation` | π1 query | Full measured path: fixture/input generation, witness generation, and Groth16 proving |
+| `bench_query_cached_proof_generation` | π1 query | `generate_proof` with cached input/material; includes witness generation and Groth16 proving, but excludes fixture setup |
+| `bench_query_witness_generation_only` | π1 query | Circom witness generation only, with cached input/material |
+| `bench_query_proving_only` | π1 query | Groth16 proving only, from a cached witness |
+| `bench_nullifier_proof_generation` | π2 nullifier | Full measured path: fixture/input generation, witness generation, and Groth16 proving |
+| `bench_nullifier_witness_generation_only` | π2 nullifier | Circom witness generation only, with cached input/material |
+| `bench_nullifier_proving_only` | π2 nullifier | Groth16 proving only, from a cached witness |
+
+CI runs all seven functions by default. The function list is specified directly
+in the caller workflow (`mobile-bench.yml`) via the `functions` input to the
+reusable workflow.
