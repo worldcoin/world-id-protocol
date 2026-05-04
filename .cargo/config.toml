@@ -4,3 +4,10 @@ target-dir = "target"
 [env]
 RUST_LOG = "info"
 
+# getrandom 0.3 requires an explicit backend for wasm32-unknown-unknown.
+# world-id-authenticator's OHTTP client runs in JavaScript hosts, so use the wasm_js backend.
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "--cfg",
+  'getrandom_backend="wasm_js"',
+]

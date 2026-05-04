@@ -433,6 +433,11 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: stable
 
+      - name: Check authenticator compiles for WASM
+        run: cargo check -p world-id-authenticator --target wasm32-unknown-unknown
+        env:
+          RUSTUP_TOOLCHAIN: stable
+
   docs:
     name: Check docs
     runs-on: ubuntu-latest
