@@ -284,7 +284,7 @@ fn create_proof_request<R: Rng + CryptoRng>(
                 FieldElement::random_for_session(rng, SessionFeType::OprfSeed),
             )
             .context("while building SessionId")?;
-            (ProofType::ProveSession, None, Some(session_id))
+            (ProofType::Session, None, Some(session_id))
         }
         _ => unreachable!("only have session and nullifier modules here"),
     };

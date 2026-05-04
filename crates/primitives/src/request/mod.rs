@@ -47,16 +47,20 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
 }
 
 /// The high-level proof flow requested by an RP.
+///
+/// Explicit discriminants reserve a stable one-byte protocol encoding for future
+/// signed request payloads. JSON serialization remains the snake_case variant name.
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProofType {
     /// A uniqueness proof scoped by the RP-provided action.
     #[default]
-    Uniqueness,
+    Uniqueness = 0x00,
     /// Create a new RP-scoped session identifier and prove it in the same response.
-    CreateSession,
+    CreateSession = 0x01,
     /// Prove ownership of an existing RP-scoped session identifier.
-    ProveSession,
+    Session = 0x02,
 }
 
 impl ProofType {
@@ -69,7 +73,7 @@ impl ProofType {
     /// Returns true for proof flows that produce a session proof response item.
     #[must_use]
     pub const fn is_session(&self) -> bool {
-        matches!(self, Self::CreateSession | Self::ProveSession)
+        matches!(self, Self::CreateSession | Self::Session)
     }
 }
 
@@ -97,7 +101,7 @@ pub struct ProofRequest {
     pub oprf_key_id: OprfKeyId,
     /// Session identifier that links proofs for the same user/RP pair across requests.
     ///
-    /// Required for [`ProofType::ProveSession`], absent for all other proof types.
+    /// Required for [`ProofType::Session`], absent for all other proof types.
     /// The proof will only be valid if the session ID is meant for this context and
     /// this particular World ID holder.
     pub session_id: Option<SessionId>,
@@ -449,8 +453,7 @@ impl ProofRequest {
     /// Validates that the request fields match the explicit proof type.
     ///
     /// If `proof_type` was omitted during deserialization, it defaults to
-    /// [`ProofType::Uniqueness`]. A legacy request with no `proof_type` and a
-    /// `session_id` is therefore invalid rather than treated as a session proof.
+    /// [`ProofType::Uniqueness`]. Session flows must opt in explicitly.
     ///
     /// # Errors
     /// Returns [`PrimitiveError::InvalidInput`] when the request has an invalid
@@ -479,7 +482,7 @@ impl ProofRequest {
                     });
                 }
             }
-            ProofType::ProveSession => {
+            ProofType::Session => {
                 if self.session_id.is_none() {
                     return Err(PrimitiveError::InvalidInput {
                         attribute: "session_id".to_string(),
@@ -542,7 +545,7 @@ impl ProofRequest {
                     return Err(ValidationError::MissingSessionId);
                 }
             }
-            ProofType::ProveSession => {
+            ProofType::Session => {
                 if self.session_id != response.session_id {
                     return Err(ValidationError::SessionIdMismatch);
                 }
@@ -1475,7 +1478,7 @@ mod tests {
         let req = ProofRequest {
             id: "req_18c0f7f03e7d".into(),
             version: RequestVersion::V1,
-            proof_type: ProofType::ProveSession,
+            proof_type: ProofType::Session,
             session_id: Some(SessionId::default()),
             action: None,
             created_at: 1_725_381_192,
@@ -2384,16 +2387,23 @@ mod tests {
             Err(PrimitiveError::InvalidInput { attribute, .. }) if attribute == "session_id"
         ));
 
-        let prove_without_session = ProofRequest {
-            proof_type: ProofType::ProveSession,
+        let session_without_session = ProofRequest {
+            proof_type: ProofType::Session,
             session_id: None,
             ..uniqueness_with_session
         };
 
         assert!(matches!(
-            prove_without_session.validate_proof_type(),
+            session_without_session.validate_proof_type(),
             Err(PrimitiveError::InvalidInput { attribute, .. }) if attribute == "session_id"
         ));
+    }
+
+    #[test]
+    fn proof_type_protocol_encoding_is_stable() {
+        assert_eq!(ProofType::Uniqueness as u8, 0x00);
+        assert_eq!(ProofType::CreateSession as u8, 0x01);
+        assert_eq!(ProofType::Session as u8, 0x02);
     }
 
     #[test]
@@ -2451,7 +2461,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_session".into(),
             version: RequestVersion::V1,
-            proof_type: ProofType::ProveSession,
+            proof_type: ProofType::Session,
             session_id: Some(SessionId::default()),
             action: None,
             created_at: 1_735_689_600,
@@ -2497,7 +2507,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_session".into(),
             version: RequestVersion::V1,
-            proof_type: ProofType::ProveSession,
+            proof_type: ProofType::Session,
             session_id: Some(SessionId::default()),
             action: None,
             created_at: 1_735_689_600,
