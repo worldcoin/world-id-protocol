@@ -74,7 +74,7 @@ world-id-proof = { workspace = true, features = ["zk-ownership-prove"] }
 
 # Enable getrandom's JS backend for OHTTP/HPKE on wasm32-unknown-unknown.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
 axum = { workspace = true }
