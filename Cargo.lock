@@ -12186,6 +12186,7 @@ dependencies = [
  "base64 0.22.1",
  "bhttp",
  "eyre",
+ "getrandom 0.3.4",
  "hex",
  "mockito",
  "ohttp",
