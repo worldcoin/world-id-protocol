@@ -1,7 +1,7 @@
 use secrecy::ExposeSecret;
 use world_id_primitives::{
-    Credential, FieldElement, ProofRequest, ProofResponse, RequestItem, ResponseItem, SessionId,
-    SessionNullifier, ZeroKnowledgeProof,
+    Credential, FieldElement, ProofRequest, ProofResponse, ProofType, RequestItem, ResponseItem,
+    SessionId, SessionNullifier, ZeroKnowledgeProof,
 };
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofCompression,
@@ -134,6 +134,7 @@ impl Authenticator {
         proof_request: &ProofRequest,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<FullOprfOutput, AuthenticatorError> {
+        proof_request.validate_proof_type()?;
         let mut rng = rand::rngs::OsRng;
 
         let oprf_entrypoint = self.get_oprf_entrypoint(account_inclusion_proof).await?;
@@ -169,21 +170,22 @@ impl Authenticator {
         Ok(blinding_factor)
     }
 
-    /// Builds a [`SessionId`] object which can be used for Session Proofs. This has two uses:
-    /// 1. Creating a new Sesssion, i.e. generating a [`SessionId`] for the first time.
+    /// Builds or resolves a [`SessionId`] object which can be used for Session Proofs. This has two uses:
+    /// 1. Creating a new Session, i.e. generating a [`SessionId`] for the first time.
     /// 2. Reconstructing a session for a Session Proof, particularly if the `session_id_r_seed` is not cached.
     ///
-    /// Internally, this generates the session's random seed (`r`) using OPRF Nodes. This seed is used to
-    /// compute the [`SessionId::commitment`] for Session Proofs.
+    /// Internally, this derives the session randomness (`r`) using OPRF Nodes. For existing
+    /// sessions this re-derives the same `r` from [`SessionId::oprf_seed`]; it does not mint a
+    /// new session. The seed is used to compute the [`SessionId::commitment`] for Session Proofs.
     ///
     /// # Arguments
-    /// - `proof_request`: the request received from the RP to initialize a session id.
+    /// - `proof_request`: the request received from the RP to create or prove a session id.
     /// - `session_id_r_seed`: the seed (see below) if it was already generated previously and it's cached.
     /// - `account_inclusion_proof`: an optionally cached object can be passed to
     ///   avoid an additional network call. If not passed, it'll be fetched from the indexer.
     ///
     /// # Returns
-    /// - `session_id`: The generated [`SessionId`] to be shared with the requesting RP.
+    /// - `session_id`: The generated or resolved [`SessionId`].
     /// - `session_id_r_seed`: The `r` value used for this session so the Authenticator can cache it.
     ///
     /// # Seed (`session_id_r_seed`)
@@ -198,6 +200,16 @@ impl Authenticator {
         session_id_r_seed: Option<FieldElement>,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
+        proof_request.validate_proof_type()?;
+        if !proof_request.is_session_proof() {
+            return Err(AuthenticatorError::PrimitiveError(
+                world_id_primitives::PrimitiveError::InvalidInput {
+                    attribute: "proof_type".to_string(),
+                    reason: "must be create_session or session".to_string(),
+                },
+            ));
+        }
+
         let mut rng = rand::rngs::OsRng;
 
         let oprf_seed = match proof_request.session_id {
@@ -205,18 +217,19 @@ impl Authenticator {
             None => SessionId::generate_oprf_seed(&mut rng),
         };
 
-        let session_id_r_seed = match session_id_r_seed {
+        let resolved_session_id_r_seed = match session_id_r_seed {
             Some(seed) => seed,
             None => {
                 let entrypoint = self.get_oprf_entrypoint(account_inclusion_proof).await?;
                 let oprf_output = entrypoint
-                    .gen_session_id_r_seed(&mut rng, proof_request, oprf_seed)
+                    .derive_session_id_r_seed(&mut rng, proof_request, oprf_seed)
                     .await?;
                 oprf_output.verifiable_oprf_output.output.into()
             }
         };
 
-        let session_id = SessionId::from_r_seed(self.leaf_index(), session_id_r_seed, oprf_seed)?;
+        let session_id =
+            SessionId::from_r_seed(self.leaf_index(), resolved_session_id_r_seed, oprf_seed)?;
 
         if let Some(request_session_id) = proof_request.session_id
             && request_session_id != session_id
@@ -224,7 +237,7 @@ impl Authenticator {
             return Err(AuthenticatorError::SessionIdMismatch);
         }
 
-        Ok((session_id, session_id_r_seed))
+        Ok((session_id, resolved_session_id_r_seed))
     }
 
     /// Generates a complete [`ProofResponse`] for
@@ -270,6 +283,8 @@ impl Authenticator {
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
         session_id_r_seed: Option<FieldElement>,
     ) -> Result<ProofResult, AuthenticatorError> {
+        proof_request.validate_proof_type()?;
+
         // 1. Determine request items to prove
         let available: std::collections::HashSet<u64> = credentials
             .iter()
@@ -280,28 +295,36 @@ impl Authenticator {
             .ok_or(AuthenticatorError::UnfullfilableRequest)?;
 
         // 2. Resolve session seed
-        let resolved_session_seed = if proof_request.is_session_proof() {
-            if let Some(seed) = session_id_r_seed {
-                // Validate the cached seed produces the expected session ID
+        let (resolved_session_id, resolved_session_seed) = match proof_request.proof_type {
+            ProofType::Uniqueness => (None, None),
+            ProofType::CreateSession => {
+                let (session_id, seed) = self
+                    .build_session_id(proof_request, None, account_inclusion_proof)
+                    .await?;
+                (Some(session_id), Some(seed))
+            }
+            ProofType::Session => {
                 let session_id = proof_request
                     .session_id
                     .expect("session proof must have session_id");
+                if let Some(seed) = session_id_r_seed {
+                    // Validate the cached seed produces the expected session ID
+                    let computed =
+                        SessionId::from_r_seed(self.leaf_index(), seed, session_id.oprf_seed)?;
 
-                let computed =
-                    SessionId::from_r_seed(self.leaf_index(), seed, session_id.oprf_seed)?;
-
-                if computed != session_id {
-                    return Err(AuthenticatorError::SessionIdMismatch);
+                    if computed != session_id {
+                        return Err(AuthenticatorError::SessionIdMismatch);
+                    }
+                    (Some(session_id), Some(seed))
+                } else {
+                    // Re-derive the same `r` from the existing session's `oprf_seed` when the
+                    // caller did not provide a cached seed.
+                    let (_session_id, seed) = self
+                        .build_session_id(proof_request, None, account_inclusion_proof)
+                        .await?;
+                    (Some(session_id), Some(seed))
                 }
-                Some(seed)
-            } else {
-                let (_session_id, seed) = self
-                    .build_session_id(proof_request, None, account_inclusion_proof)
-                    .await?;
-                Some(seed)
             }
-        } else {
-            None
         };
 
         // 3. Generate per-credential proofs for the selected items
@@ -320,7 +343,7 @@ impl Authenticator {
                 &cred_input.credential,
                 cred_input.blinding_factor,
                 resolved_session_seed,
-                proof_request.session_id,
+                resolved_session_id,
                 proof_request.created_at,
             )?;
             responses.push(response_item);
@@ -330,7 +353,7 @@ impl Authenticator {
         let proof_response = ProofResponse {
             id: proof_request.id.clone(),
             version: proof_request.version,
-            session_id: proof_request.session_id,
+            session_id: resolved_session_id,
             responses,
             error: None,
         };
