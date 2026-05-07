@@ -4211,7 +4211,7 @@ dependencies = [
 
 [[package]]
 name = "generate-noir-artifacts"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "eyre",
  "provekit-common",
@@ -4220,7 +4220,7 @@ dependencies = [
 
 [[package]]
 name = "generate-solidity-fixtures"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "alloy",
  "eyre",
@@ -12176,7 +12176,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-authenticator"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "alloy",
  "anyhow",
@@ -12186,6 +12186,7 @@ dependencies = [
  "base64 0.22.1",
  "bhttp",
  "eyre",
+ "getrandom 0.3.4",
  "hex",
  "mockito",
  "ohttp",
@@ -12213,7 +12214,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-core"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "alloy",
  "backon",
@@ -12347,7 +12348,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-issuer"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -12431,7 +12432,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-primitives"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -12442,7 +12443,7 @@ dependencies = [
  "ciborium",
  "embed-doc-image",
  "eyre",
- "getrandom 0.2.17",
+ "getrandom 0.3.4",
  "hex",
  "k256",
  "provekit-common",
@@ -12468,7 +12469,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-proof"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -12502,7 +12503,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-registries"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "alloy",
  "anyhow",
@@ -12511,7 +12512,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-relay"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "alloy",
  "alloy-primitives",

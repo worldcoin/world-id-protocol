@@ -29,7 +29,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use world_id_core::{
     Authenticator, CredentialInput, EdDSAPrivateKey,
-    requests::{ProofRequest, RequestItem, RequestVersion},
+    requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
 };
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
@@ -267,6 +267,7 @@ async fn main() -> Result<()> {
     let uniqueness_request = ProofRequest {
         id: "fixture_uniqueness".to_string(),
         version: RequestVersion::V1,
+        proof_type: ProofType::Uniqueness,
         created_at: rp_fixture.current_timestamp,
         expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,
@@ -349,6 +350,7 @@ async fn main() -> Result<()> {
 
     // ── SESSION PROOF (reuse cloned OPRF data with a session_id on the request) ──
     let session_request = ProofRequest {
+        proof_type: ProofType::Session,
         session_id: Some(session_id),
         action: None, // session proofs use an internal random action
         ..uniqueness_request.clone()

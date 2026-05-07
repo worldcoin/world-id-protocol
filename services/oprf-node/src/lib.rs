@@ -151,14 +151,16 @@ pub async fn start(
         .expect("can deserialize embedded vk");
     let query_vk = Arc::new(ark_groth16::prepare_verifying_key(&query_vk.into()));
 
+    let nonce_history = NonceHistory::init(
+        // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
+        config.current_time_stamp_max_difference * 2,
+    );
+
     tracing::info!("init nullifier oprf request auth service..");
     let nullifier_oprf_req_auth_service = Arc::new(RpModuleAuth::new_uniqueness(
         merkle_watcher.clone(),
         rp_registry_watcher.clone(),
-        NonceHistory::init(
-            // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
-            config.current_time_stamp_max_difference * 2,
-        ),
+        nonce_history.clone(),
         config.current_time_stamp_max_difference,
         config.timeout_external_eth_call,
         http_rpc_provider.clone(),
@@ -166,15 +168,10 @@ pub async fn start(
     ));
 
     tracing::info!("init session oprf request auth service..");
-    // Session and uniqueness use separate nonce histories intentionally.
-    // We use the same nonce for both signatures
     let session_oprf_req_auth_service = Arc::new(RpModuleAuth::new_session(
         merkle_watcher.clone(),
         rp_registry_watcher.clone(),
-        NonceHistory::init(
-            // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
-            config.current_time_stamp_max_difference * 2,
-        ),
+        nonce_history,
         config.current_time_stamp_max_difference,
         config.timeout_external_eth_call,
         http_rpc_provider.clone(),
