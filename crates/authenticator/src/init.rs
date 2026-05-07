@@ -1,7 +1,7 @@
 use alloy::primitives::Address;
 use ark_serialize::CanonicalSerialize;
 use ruint::aliases::U256;
-use world_id_primitives::{PrimitiveError, Signer, authenticator::AuthenticatorPublicKeySet};
+use world_id_primitives::{AuthenticatorPublicKeySet, PrimitiveError, Signer};
 
 use crate::{
     api_types::{

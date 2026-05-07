@@ -25,11 +25,8 @@ aws-sdk-kms = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros", "json"] }
 clap = { workspace = true, features = ["derive", "env"] }
-world-id-core = { workspace = true, features = [
-  "authenticator",
-  "embed-zkeys",
-] }
 world-id-primitives = { workspace = true, features = ["openapi"] }
+world-id-registries = { workspace = true }
 dotenvy = { workspace = true }
 hex = { workspace = true }
 moka = { workspace = true }
@@ -50,6 +47,8 @@ uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
 world-id-test-utils = { workspace = true }
+eddsa-babyjubjub = { workspace = true }
+world-id-authenticator = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true }

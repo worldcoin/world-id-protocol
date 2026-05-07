@@ -6,8 +6,8 @@ use serial_test::serial;
 use std::time::Duration;
 
 use alloy::primitives::{U256, address};
+use eddsa_babyjubjub::EdDSAPrivateKey;
 use http::StatusCode;
-use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
 };

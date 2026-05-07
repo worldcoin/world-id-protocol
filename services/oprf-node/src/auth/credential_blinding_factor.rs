@@ -21,9 +21,9 @@ use taceo_oprf::types::{
     api::{OprfRequest, OprfRequestAuthenticator, OprfRequestAuthenticatorError},
 };
 use tracing::instrument;
-use world_id_core::FieldElement;
-use world_id_primitives::oprf::{
-    CredentialBlindingFactorOprfRequestAuthV1, WorldIdRequestAuthError,
+use world_id_primitives::{
+    FieldElement,
+    oprf::{CredentialBlindingFactorOprfRequestAuthV1, WorldIdRequestAuthError},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -42,22 +42,24 @@ pub(crate) enum CredentialBlindingFactorModuleError {
     Internal(#[from] eyre::Report),
 }
 
-impl From<SchemaIssuerRegistryWatcherError> for CredentialBlindingFactorModuleError {
-    fn from(value: SchemaIssuerRegistryWatcherError) -> Self {
-        match value {
+impl From<Arc<SchemaIssuerRegistryWatcherError>> for CredentialBlindingFactorModuleError {
+    fn from(value: Arc<SchemaIssuerRegistryWatcherError>) -> Self {
+        match value.as_ref() {
             SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(id) => {
-                Self::UnknownSchemaIssuer(id)
+                Self::UnknownSchemaIssuer(*id)
             }
-            SchemaIssuerRegistryWatcherError::Internal(report) => Self::Internal(report),
+            SchemaIssuerRegistryWatcherError::Internal(_) => {
+                Self::Internal(eyre::Report::from(value))
+            }
         }
     }
 }
 
-impl From<MerkleWatcherError> for CredentialBlindingFactorModuleError {
-    fn from(value: MerkleWatcherError) -> Self {
-        match value {
+impl From<Arc<MerkleWatcherError>> for CredentialBlindingFactorModuleError {
+    fn from(value: Arc<MerkleWatcherError>) -> Self {
+        match value.as_ref() {
             MerkleWatcherError::InvalidMerkleRoot => Self::InvalidMerkleRoot,
-            MerkleWatcherError::Internal(report) => Self::Internal(report),
+            MerkleWatcherError::Internal(_) => Self::Internal(eyre::Report::from(value)),
         }
     }
 }
@@ -181,8 +183,9 @@ mod tests {
     use circom_types::groth16::VerificationKey;
     use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
     use uuid::Uuid;
-    use world_id_core::{FieldElement, primitives};
-    use world_id_primitives::oprf::CredentialBlindingFactorOprfRequestAuthV1;
+    use world_id_primitives::{
+        self as primitives, FieldElement, oprf::CredentialBlindingFactorOprfRequestAuthV1,
+    };
 
     use crate::{
         QUERY_VERIFICATION_KEY,

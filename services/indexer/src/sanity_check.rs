@@ -4,7 +4,7 @@ use alloy::{
     primitives::{Address, U256},
     providers::DynProvider,
 };
-use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_registries::world_id::WorldIdRegistry;
 
 use tracing::instrument;
 

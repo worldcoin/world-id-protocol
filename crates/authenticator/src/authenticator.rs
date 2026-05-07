@@ -20,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use world_id_primitives::{Credential, FieldElement, ProofResponse, Signer};
 
 pub use crate::ohttp::OhttpClientConfig;
-use crate::registry::WorldIdRegistry::WorldIdRegistryInstance;
 use alloy::{
     primitives::Address,
     providers::DynProvider,
@@ -31,14 +30,11 @@ use eddsa_babyjubjub::EdDSAPublicKey;
 use groth16_material::circom::CircomGroth16Material;
 use ruint::{aliases::U256, uint};
 use taceo_oprf::client::Connector;
-pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
-    PrimitiveError,
-    authenticator::{
-        AuthenticatorPublicKeySet, SparseAuthenticatorPubkeysError,
-        decode_sparse_authenticator_pubkeys,
-    },
+    AuthenticatorPublicKeySet, PrimitiveError, SparseAuthenticatorPubkeysError,
 };
+pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::{Nullifier, SessionId};
@@ -153,13 +149,26 @@ impl std::fmt::Debug for Authenticator {
 impl Authenticator {
     /// Initialize an Authenticator from a seed and config.
     ///
-    /// This method will error if the World ID account does not exist on the registry.
+    /// This method requires the authenticator address derived from `seed` to already be present
+    /// on-chain in the `WorldIDRegistry`.
+    ///
+    /// If no account exists for that authenticator, it returns
+    /// [`AuthenticatorError::AccountDoesNotExist`]. The same error can also occur transiently
+    /// while a create-account or authenticator-management operation is still pending on-chain and
+    /// the authenticator address has not been registered yet. Consumers that are coordinating such
+    /// operations should poll the gateway request and retry initialization after finalization.
+    ///
+    /// Indexer DB catch-up is separate and does not block initialization, since packed account data
+    /// is read from the registry (directly or via the indexer's chain-backed packed-account
+    /// endpoint).
     ///
     /// # Errors
     /// - Will error if the provided seed is invalid (not 32 bytes).
     /// - Will error if the RPC URL is invalid.
     /// - Will error if there are contract call failures.
-    /// - Will error if the account does not exist (`AccountDoesNotExist`).
+    /// - Will return [`AuthenticatorError::AccountDoesNotExist`] if the authenticator address
+    ///   derived from `seed` is not currently registered on-chain, whether permanently or because a
+    ///   relevant on-chain operation has not finalized yet.
     pub async fn init(
         seed: &[u8],
         config: AuthenticatorConfig,
@@ -177,7 +186,7 @@ impl Authenticator {
                 let provider = alloy::providers::ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
                     .connect_http(rpc_url.clone());
-                Arc::new(crate::registry::WorldIdRegistry::new(
+                Arc::new(world_id_registries::world_id::WorldIdRegistry::new(
                     *config.registry_address(),
                     alloy::providers::Provider::erased(provider),
                 ))
@@ -199,7 +208,7 @@ impl Authenticator {
             ohttp_gateway,
         )?;
 
-        let packed_account_data = Self::get_packed_account_data(
+        let packed_account_data = Self::fetch_packed_account_data_for(
             signer.onchain_signer_address(),
             registry.as_deref(),
             &config,
@@ -364,18 +373,29 @@ impl Authenticator {
         }
     }
 
-    /// Re-fetches the packed account data for this authenticator from the indexer or registry.
+    /// Fetches the packed account data for this authenticator from the indexer or registry
+    /// without mutating local state.
     ///
     /// # Errors
     /// Will error if the network call fails or if the account does not exist.
-    pub async fn refresh_packed_account_data(&self) -> Result<U256, AuthenticatorError> {
-        Self::get_packed_account_data(
+    pub async fn fetch_packed_account_data(&self) -> Result<U256, AuthenticatorError> {
+        Self::fetch_packed_account_data_for(
             self.onchain_address(),
             self.registry().as_deref(),
             &self.config,
             &self.indexer_client,
         )
         .await
+    }
+
+    /// Re-fetches the packed account data for this authenticator and updates local state.
+    ///
+    /// # Errors
+    /// Will error if the network call fails or if the account does not exist.
+    pub async fn refresh_packed_account_data(&mut self) -> Result<U256, AuthenticatorError> {
+        let packed_account_data = self.fetch_packed_account_data().await?;
+        self.packed_account_data = packed_account_data;
+        Ok(packed_account_data)
     }
 
     /// Returns the packed account data for the holder's World ID.
@@ -385,7 +405,7 @@ impl Authenticator {
     ///
     /// # Errors
     /// Will error if the network call fails or if the account does not exist.
-    async fn get_packed_account_data(
+    async fn fetch_packed_account_data_for(
         onchain_signer_address: Address,
         registry: Option<&WorldIdRegistryInstance<DynProvider>>,
         config: &Config,
@@ -591,7 +611,7 @@ impl Authenticator {
     pub(crate) fn decode_indexer_pubkeys(
         pubkeys: Vec<Option<U256>>,
     ) -> Result<AuthenticatorPublicKeySet, AuthenticatorError> {
-        decode_sparse_authenticator_pubkeys(pubkeys).map_err(|e| match e {
+        AuthenticatorPublicKeySet::from_sparse_encoded_pubkeys(pubkeys).map_err(|e| match e {
             SparseAuthenticatorPubkeysError::SlotOutOfBounds {
                 slot_index,
                 max_supported_slot,
@@ -607,19 +627,6 @@ impl Authenticator {
             }
         })
     }
-
-    pub(crate) fn insert_or_reuse_authenticator_key(
-        key_set: &mut AuthenticatorPublicKeySet,
-        new_authenticator_pubkey: EdDSAPublicKey,
-    ) -> Result<usize, AuthenticatorError> {
-        if let Some(index) = key_set.iter().position(Option::is_none) {
-            key_set.try_set_at_index(index, new_authenticator_pubkey)?;
-            Ok(index)
-        } else {
-            key_set.try_push(new_authenticator_pubkey)?;
-            Ok(key_set.len() - 1)
-        }
-    }
 }
 
 #[cfg(test)]
@@ -627,7 +634,7 @@ mod tests {
     use super::*;
     use crate::{error::AuthenticatorError, traits::OnchainKeyRepresentable};
     use alloy::primitives::{U256, address};
-    use world_id_primitives::authenticator::MAX_AUTHENTICATOR_KEYS;
+    use world_id_primitives::MAX_AUTHENTICATOR_KEYS;
 
     fn test_pubkey(seed_byte: u8) -> EdDSAPublicKey {
         Signer::from_seed_bytes(&[seed_byte; 32])
@@ -647,8 +654,7 @@ mod tests {
         key_set[1] = None;
         let new_key = test_pubkey(3);
 
-        let index =
-            Authenticator::insert_or_reuse_authenticator_key(&mut key_set, new_key).unwrap();
+        let index = key_set.insert_or_reuse(new_key).unwrap();
 
         assert_eq!(index, 1);
         assert_eq!(key_set.len(), 3);
@@ -660,8 +666,7 @@ mod tests {
         let mut key_set = AuthenticatorPublicKeySet::new(vec![test_pubkey(1)]).unwrap();
         let new_key = test_pubkey(2);
 
-        let index =
-            Authenticator::insert_or_reuse_authenticator_key(&mut key_set, new_key).unwrap();
+        let index = key_set.insert_or_reuse(new_key).unwrap();
 
         assert_eq!(index, 1);
         assert_eq!(key_set.len(), 2);
@@ -733,7 +738,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = Authenticator::get_packed_account_data(
+        let result = Authenticator::fetch_packed_account_data_for(
             test_address,
             None, // No registry, force indexer usage
             &config,
@@ -778,9 +783,13 @@ mod tests {
         )
         .unwrap();
 
-        let result =
-            Authenticator::get_packed_account_data(test_address, None, &config, &indexer_client)
-                .await;
+        let result = Authenticator::fetch_packed_account_data_for(
+            test_address,
+            None,
+            &config,
+            &indexer_client,
+        )
+        .await;
 
         assert!(matches!(
             result,

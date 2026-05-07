@@ -19,6 +19,7 @@ alloy = { workspace = true, features = [
     "providers",
     "provider-ws",
     "reqwest",
+    "reqwest-rustls-tls",
     "rpc-client",
     "rpc-types-debug",
     "rpc-types-trace",

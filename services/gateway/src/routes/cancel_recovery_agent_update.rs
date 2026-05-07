@@ -6,7 +6,7 @@ use crate::{
 };
 use axum::{Extension, Json, extract::State};
 use tracing::instrument;
-use world_id_core::api_types::{CancelRecoveryAgentUpdateRequest, GatewayStatusResponse};
+use world_id_primitives::api_types::{CancelRecoveryAgentUpdateRequest, GatewayStatusResponse};
 
 /// POST /cancel-recovery-agent-update
 ///

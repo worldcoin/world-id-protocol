@@ -29,7 +29,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use world_id_core::{
     Authenticator, CredentialInput, EdDSAPrivateKey,
-    requests::{ProofRequest, RequestItem, RequestVersion},
+    requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
 };
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
@@ -154,16 +154,13 @@ async fn main() -> Result<()> {
 
     let (_postgres, connection_string) = taceo_oprf_test_utils::postgres_testcontainer().await?;
 
-    let (key_gen_secret_managers, node_secret_managers) =
-        world_id_test_utils::stubs::init_test_secret_managers(connection_string.into()).await?;
+    let node_secret_managers =
+        world_id_test_utils::stubs::init_test_secret_managers(connection_string.clone().into())
+            .await?;
 
-    let oprf_key_gens = world_id_test_utils::stubs::spawn_key_gens(
-        anvil.endpoint(),
-        anvil.ws_endpoint(),
-        key_gen_secret_managers,
-        oprf_key_registry,
-    )
-    .await;
+    let oprf_key_gens =
+        world_id_test_utils::stubs::spawn_key_gens(&anvil, &connection_string, oprf_key_registry)
+            .await?;
 
     let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
         &anvil,
@@ -176,7 +173,7 @@ async fn main() -> Result<()> {
     .await;
 
     health_checks::services_health_check(&nodes, Duration::from_secs(60)).await?;
-    health_checks::services_health_check(&oprf_key_gens, Duration::from_secs(60)).await?;
+    health_checks::services_health_check(&oprf_key_gens.urls, Duration::from_secs(60)).await?;
 
     // Register issuer.
     let issuer_schema_id = 1u64;
@@ -270,6 +267,7 @@ async fn main() -> Result<()> {
     let uniqueness_request = ProofRequest {
         id: "fixture_uniqueness".to_string(),
         version: RequestVersion::V1,
+        proof_type: ProofType::Uniqueness,
         created_at: rp_fixture.current_timestamp,
         expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,
@@ -352,6 +350,7 @@ async fn main() -> Result<()> {
 
     // ── SESSION PROOF (reuse cloned OPRF data with a session_id on the request) ──
     let session_request = ProofRequest {
+        proof_type: ProofType::Session,
         session_id: Some(session_id),
         action: None, // session proofs use an internal random action
         ..uniqueness_request.clone()

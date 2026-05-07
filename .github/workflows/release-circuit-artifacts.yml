@@ -1,0 +1,44 @@
+name: Release circuit artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag for the circuit artifacts
+        required: true
+        default: circuit-artifacts-v0.1.0
+
+permissions:
+  contents: write
+
+jobs:
+  release-circuit-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Create release with circuit artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          files=(
+            circom/OPRFQueryGraph.bin
+            circom/OPRFNullifierGraph.bin
+            circom/OPRFQuery.arks.zkey
+            circom/OPRFNullifier.arks.zkey
+            crates/proof/noir/ownership-proof/artifacts/ownership_proof.pkp
+            crates/proof/noir/ownership-proof/artifacts/ownership_proof.pkv
+          )
+
+          for file in "${files[@]}"; do
+            test -f "$file"
+          done
+
+          gh release create "$TAG" "${files[@]}" \
+            --title "$TAG" \
+            --notes "Circuit artifacts for $TAG" \
+            --target "$GITHUB_SHA"

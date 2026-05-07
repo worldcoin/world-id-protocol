@@ -26,7 +26,7 @@ use world_id_authenticator::{
 };
 use world_id_primitives::Config;
 
-const OHTTP_GATEWAY_IMAGE: &str = "ghcr.io/worldcoin/world-id-protocol/ohttp-gateway";
+const OHTTP_GATEWAY_IMAGE: &str = "ghcr.io/worldcoin/ohttp-tools/ohttp-gateway";
 const OHTTP_GATEWAY_TAG: &str = "latest";
 
 // ---------------------------------------------------------------------------
@@ -298,8 +298,7 @@ fn build_test_inclusion_proof(
     leaf_index: u64,
 ) -> world_id_primitives::merkle::AccountInclusionProof<{ world_id_primitives::TREE_DEPTH }> {
     use world_id_primitives::{
-        FieldElement, TREE_DEPTH,
-        authenticator::AuthenticatorPublicKeySet,
+        AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH,
         merkle::{AccountInclusionProof, MerkleInclusionProof},
     };
 

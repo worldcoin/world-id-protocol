@@ -7,17 +7,15 @@ use alloy::{
     rpc::types::{BlockId, TransactionRequest},
     sol_types::{Eip712Domain, SolStruct, eip712_domain},
 };
-use world_id_core::{
-    api_types::{
-        CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
-        InsertAuthenticatorRequest, RecoverAccountRequest, RemoveAuthenticatorRequest,
-        UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
-    },
-    world_id_registry::{
-        CancelRecoveryAgentUpdateTypedData, InitiateRecoveryAgentUpdateTypedData,
-        InsertAuthenticatorTypedData, RecoverAccountTypedData, RemoveAuthenticatorTypedData,
-        UpdateAuthenticatorTypedData,
-    },
+use world_id_primitives::api_types::{
+    CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
+    InsertAuthenticatorRequest, RecoverAccountRequest, RemoveAuthenticatorRequest,
+    UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
+};
+use world_id_registries::world_id::{
+    CancelRecoveryAgentUpdateTypedData, InitiateRecoveryAgentUpdateTypedData,
+    InsertAuthenticatorTypedData, RecoverAccountTypedData, RemoveAuthenticatorTypedData,
+    UpdateAuthenticatorTypedData,
 };
 
 use crate::{request::Registry, types::MAX_AUTHENTICATORS};
@@ -567,15 +565,13 @@ mod tests {
         primitives::{Address, U256, address},
         signers::local::PrivateKeySigner,
     };
-    use world_id_core::{
-        api_types::{
-            CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest,
-            UpdateRecoveryAgentRequest,
-        },
-        world_id_registry::{
-            domain as registry_domain, sign_cancel_recovery_agent_update,
-            sign_initiate_recovery_agent_update,
-        },
+    use world_id_primitives::api_types::{
+        CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest,
+        UpdateRecoveryAgentRequest,
+    };
+    use world_id_registries::world_id::{
+        domain as registry_domain, sign_cancel_recovery_agent_update,
+        sign_initiate_recovery_agent_update,
     };
 
     const CHAIN_ID: u64 = 1;

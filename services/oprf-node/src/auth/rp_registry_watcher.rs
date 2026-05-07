@@ -1,36 +1,22 @@
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     auth::{
         rp_module::{RelyingParty, wip101},
-        rp_registry_watcher::RpRegistry::{RpRegistryInstance, RpUpdated},
+        rp_registry_watcher::RpRegistry::RpRegistryInstance,
     },
     config::WatcherCacheConfig,
     metrics::{
-        METRICS_ATTRID_RP_TYPE, METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES,
+        METRICS_ATTRID_RP_TYPE, METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS,
+        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES,
         METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
     },
 };
-use alloy::{
-    eips::BlockNumberOrTag,
-    primitives::Address,
-    providers::{DynProvider, Provider as _},
-    pubsub::SubscriptionStream,
-    rpc::types::{Filter, Log},
-    sol_types::SolEvent,
-};
+use alloy::{primitives::Address, providers::DynProvider};
 use eyre::Context;
-use futures::StreamExt as _;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
 use taceo_oprf::types::OprfKeyId;
-use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 use world_id_primitives::rp::RpId;
 
@@ -58,69 +44,41 @@ pub(crate) enum RpRegistryWatcherError {
     Internal(#[from] eyre::Report),
 }
 
-impl From<Arc<RpRegistryWatcherError>> for RpRegistryWatcherError {
-    fn from(value: Arc<RpRegistryWatcherError>) -> Self {
-        match value.as_ref() {
-            RpRegistryWatcherError::UnknownRp(rp_id) => Self::UnknownRp(*rp_id),
-            RpRegistryWatcherError::Timeout(rp_id) => Self::Timeout(*rp_id),
-            RpRegistryWatcherError::InactiveRp(rp_id) => Self::InactiveRp(*rp_id),
-            RpRegistryWatcherError::Internal(report) => Self::Internal(eyre::eyre!("{report:#?}")),
-        }
-    }
-}
-
-/// Monitors the RPs from the `RpRegistry` contract.
+/// Validates and caches RPs from the `RpRegistry` contract.
 ///
-/// RPs are lazily loaded, meaning in the beginning the store will be empty.
+/// RPs are lazily loaded: the cache starts empty and entries are fetched from
+/// chain on first request, then cached for the configured TTL.
 ///
-/// When valid requests are coming in from users, this service will go to chain
-/// and try fetching the ecdsa keys and store them up to a configurable maximum.
-///
-/// Additionally, will subscribe to chain events to handle `RpUpdate` events.
+/// Per WIP-101 §8, on-chain RP signer updates may take up to the configured
+/// cache TTL to propagate. Operators should use a reasonably small TTL.
 #[derive(Clone)]
 pub(crate) struct RpRegistryWatcher {
     rp_store: Cache<RpId, RelyingParty>,
     contract: RpRegistryInstance<DynProvider>,
     timeout_external_eth_call: Duration,
-    rpc_provider: web3::RpcProvider,
+    http_rpc_provider: web3::HttpRpcProvider,
 }
 
 impl RpRegistryWatcher {
     #[instrument(level = "info", skip_all)]
-    pub(crate) async fn init(
+    pub(crate) fn init(
         contract_address: Address,
-        rpc_provider: web3::RpcProvider,
-        cache_config: WatcherCacheConfig,
-        maintenance_interval: Duration,
+        http_rpc_provider: web3::HttpRpcProvider,
         timeout_external_eth_call: Duration,
-        started: Arc<AtomicBool>,
-        cancellation_token: CancellationToken,
-    ) -> eyre::Result<(Self, tokio::task::JoinHandle<eyre::Result<()>>)> {
+        cache_config: WatcherCacheConfig,
+    ) -> Self {
         ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).set(0.0);
-
-        tracing::info!("listening for events...");
-        let filter = Filter::new()
-            .address(contract_address)
-            .from_block(BlockNumberOrTag::Latest)
-            .event_signature(RpUpdated::SIGNATURE_HASH);
-        let sub = rpc_provider.subscriptions().subscribe_logs(&filter).await?;
-        let stream = sub.into_stream();
-
-        // indicate that the RpRegistry watcher has started
-        started.store(true, Ordering::Relaxed);
 
         let WatcherCacheConfig {
             max_cache_size,
             time_to_live,
-            time_to_idle,
         } = cache_config;
 
-        let rp_store: Cache<RpId, RelyingParty> = Cache::builder()
-            .max_capacity(max_cache_size)
+        let rp_store = Cache::builder()
+            .max_capacity(max_cache_size.get())
             .time_to_live(time_to_live)
-            .time_to_idle(time_to_idle)
             .eviction_listener(move |k, v: RelyingParty, cause| {
-                tracing::debug!("removing {k}/{} because: {cause:?}", v.account_type);
+                tracing::debug!("removing rp {k}/{} because: {cause:?}", v.account_type);
 
                 metrics::gauge!(
                     METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
@@ -129,214 +87,262 @@ impl RpRegistryWatcher {
                 .decrement(1);
             })
             .build();
-        tracing::info!("starting subscribe task");
-        let subscribe_task =
-            tokio::task::spawn(subscribe_task(stream, rp_store.clone(), cancellation_token));
 
-        // periodically run maintenance tasks on the cache and update metrics
-        tokio::spawn({
-            let rp_store = rp_store.clone();
-            let mut interval = tokio::time::interval(maintenance_interval);
-            async move {
-                loop {
-                    interval.tick().await;
-                    rp_store.run_pending_tasks().await;
-                }
-            }
-        });
-
-        let rp_registry = Self {
+        Self {
             rp_store,
-            contract: RpRegistry::new(contract_address, rpc_provider.http()),
+            contract: RpRegistry::new(contract_address, http_rpc_provider.inner()),
             timeout_external_eth_call,
-            rpc_provider,
-        };
-
-        Ok((rp_registry, subscribe_task))
+            http_rpc_provider,
+        }
     }
 
     #[instrument(level = "debug", skip_all, fields(rp_id=%rp_id))]
     pub(crate) async fn get_rp(
         &self,
         rp_id: &RpId,
-    ) -> Result<RelyingParty, RpRegistryWatcherError> {
-        let rp = self
+    ) -> Result<RelyingParty, Arc<RpRegistryWatcherError>> {
+        let entry = self
             .rp_store
-            .try_get_with(*rp_id, {
-                let contract = self.contract.clone();
-                let rpc_provider = self.rpc_provider.clone();
-                async {
-                    try_load_rp_from_chain(
-                        *rp_id,
-                        contract,
-                        self.timeout_external_eth_call,
-                        rpc_provider,
-                    )
-                    .await
-                }
-            })
+            .entry(*rp_id)
+            .or_try_insert_with(self.fetch_rp_from_chain(*rp_id))
             .await?;
+        let rp = if entry.is_fresh() {
+            let rp = entry.value().to_owned();
+            metrics::gauge!(
+                METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
+                METRICS_ATTRID_RP_TYPE => rp.account_type.metrics_label(),
+            )
+            .increment(1);
+            ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
+            tracing::debug!("rp {rp_id}/{} loaded from chain", rp.account_type);
+            rp
+        } else {
+            ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS).increment(1);
+            entry.value().to_owned()
+        };
+
         tracing::trace!("returning {rp_id}/{}", rp.account_type);
         Ok(rp)
     }
-}
 
-async fn try_load_rp_from_chain(
-    rp_id: RpId,
-    contract: RpRegistryInstance<DynProvider>,
-    timeout_external_eth_call: Duration,
-    rpc_provider: web3::RpcProvider,
-) -> Result<RelyingParty, RpRegistryWatcherError> {
-    tracing::trace!("rp {rp_id} not found in store, querying RpRegistry...");
-    let rp = match contract.getRp(rp_id.into_inner()).call().await {
-        Ok(rp) => rp,
-        Err(err) => {
-            if let Some(RpRegistry::RpIdDoesNotExist) =
-                err.as_decoded_error::<RpRegistry::RpIdDoesNotExist>()
-            {
-                return Err(RpRegistryWatcherError::UnknownRp(rp_id));
-            } else if let Some(RpRegistry::RpIdInactive) =
-                err.as_decoded_error::<RpRegistry::RpIdInactive>()
-            {
-                return Err(RpRegistryWatcherError::InactiveRp(rp_id));
-            }
-            return Err(RpRegistryWatcherError::Internal(eyre::eyre!(
-                "failed to fetch RP info from chain: {err:?}"
-            )));
-        }
-    };
-
-    tracing::trace!("checking if RP is EOA or smart contract..");
-    metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
-
-    let account_type = tokio::time::timeout(
-        timeout_external_eth_call,
-        wip101::account_check(rp.signer, &rpc_provider),
-    )
-    .await
-    .map_err(|_| RpRegistryWatcherError::Timeout(rp_id))?
-    .context("while performing WIP101 check")?;
-
-    metrics::gauge!(
-        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
-        METRICS_ATTRID_RP_TYPE => account_type.metrics_label(),
-    )
-    .increment(1);
-
-    let relying_party = RelyingParty {
-        signer: rp.signer,
-        oprf_key_id: OprfKeyId::new(rp.oprfKeyId),
-        account_type,
-    };
-
-    tracing::debug!("rp {rp_id}/{account_type} loaded from chain");
-    Ok(relying_party)
-}
-
-async fn subscribe_task(
-    mut subscription: SubscriptionStream<Log>,
-    rp_store: Cache<RpId, RelyingParty>,
-    cancellation_token: CancellationToken,
-) -> eyre::Result<()> {
-    // shutdown service if RP registry watcher encounters an error and drops this guard
-    let _drop_guard = cancellation_token.clone().drop_guard();
-    loop {
-        let log = tokio::select! {
-            log = subscription.next() => {
-                log.ok_or_else(||{
-                    tracing::warn!("RpRegistry subscribe stream was closed");
-                    eyre::eyre!("RpRegistry subscribe stream was closed")
-                })?
-            }
-            () = cancellation_token.cancelled() => {
-                break;
+    #[instrument(level = "debug", skip_all, fields(rp_id=%rp_id))]
+    async fn fetch_rp_from_chain(
+        &self,
+        rp_id: RpId,
+    ) -> Result<RelyingParty, RpRegistryWatcherError> {
+        tracing::trace!("rp {rp_id} not found in store, querying RpRegistry...");
+        let rp = match self.contract.getRp(rp_id.into_inner()).call().await {
+            Ok(rp) => rp,
+            Err(err) => {
+                if let Some(RpRegistry::RpIdDoesNotExist) =
+                    err.as_decoded_error::<RpRegistry::RpIdDoesNotExist>()
+                {
+                    return Err(RpRegistryWatcherError::UnknownRp(rp_id));
+                } else if let Some(RpRegistry::RpIdInactive) =
+                    err.as_decoded_error::<RpRegistry::RpIdInactive>()
+                {
+                    return Err(RpRegistryWatcherError::InactiveRp(rp_id));
+                }
+                return Err(RpRegistryWatcherError::Internal(eyre::Report::from(err)));
             }
         };
 
-        match RpUpdated::decode_log(log.as_ref()) {
-            Ok(event) => {
-                let rp_id = RpId::new(event.rpId);
-                tracing::debug!("update event for {rp_id} - invalidate cache-entry");
-                // according to WIP101/8 OPRF nodes MUST invalidate the RP cache in case they receive an RpUpdate event
-                rp_store.invalidate(&rp_id).await;
-            }
-            Err(err) => {
-                tracing::warn!("failed to decode RpUpdated contract event: {err:?}");
-            }
-        }
+        tracing::trace!("checking if RP is EOA or smart contract..");
+
+        let account_type = tokio::time::timeout(
+            self.timeout_external_eth_call,
+            wip101::account_check(rp.signer, &self.http_rpc_provider),
+        )
+        .await
+        .map_err(|_| RpRegistryWatcherError::Timeout(rp_id))?
+        .context("while performing WIP101 check")?;
+
+        let relying_party = RelyingParty {
+            signer: rp.signer,
+            oprf_key_id: OprfKeyId::new(rp.oprfKeyId),
+            account_type,
+        };
+
+        Ok(relying_party)
     }
-    tracing::info!("Successfully shutdown RpRegistry");
-    eyre::Ok(())
+
+    #[allow(dead_code, reason = "is only used in tests")]
+    #[cfg(test)]
+    pub(crate) fn set_timeout_external_eth_call(&mut self, duration: Duration) {
+        self.timeout_external_eth_call = duration;
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        sync::{Arc, atomic::AtomicBool},
-        time::Duration,
-    };
-
+    use super::*;
     use alloy::signers::local::LocalSigner;
-    use tokio_util::sync::CancellationToken;
-    use world_id_test_utils::fixtures::{self, RegistryTestContext};
-
-    use crate::{
-        auth::{
-            rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
-            tests::build_rpc_provider,
-        },
-        config::WatcherCacheConfig,
+    use rand::Rng;
+    use world_id_primitives::rp::RpId;
+    use world_id_test_utils::{
+        anvil::TestAnvil,
+        fixtures::{self, RegistryTestContext},
     };
 
-    impl RpRegistryWatcher {
-        #[allow(dead_code, reason = "is only used in tests")]
-        pub(crate) fn set_timeout_external_eth_call(&mut self, duration: Duration) {
-            self.timeout_external_eth_call = duration;
-        }
+    use crate::{auth::tests::build_http_provider, config::WatcherCacheConfig};
+
+    async fn setup_with_rp()
+    -> eyre::Result<(RpRegistryWatcher, TestAnvil, fixtures::RpFixture, Address)> {
+        setup_with_rp_with_ttl(Duration::from_secs(10)).await
     }
 
-    #[tokio::test]
-    async fn test_timeout_wip101_account_check() -> eyre::Result<()> {
+    async fn setup_with_rp_with_ttl(
+        ttl: Duration,
+    ) -> eyre::Result<(RpRegistryWatcher, TestAnvil, fixtures::RpFixture, Address)> {
         let RegistryTestContext {
             anvil, rp_registry, ..
-        } = RegistryTestContext::new_with_mock_oprf_key_registry()
-            .await
-            .expect("Should be able to create test-fixture");
-        let rpc_provider = build_rpc_provider(&anvil.instance).await;
+        } = RegistryTestContext::new_with_mock_oprf_key_registry().await?;
 
-        let (watcher, _) = RpRegistryWatcher::init(
-            rp_registry,
-            rpc_provider,
-            WatcherCacheConfig::default(),
-            Duration::from_secs(60),
-            Duration::from_secs(0), // timeout set to zero
-            Arc::new(AtomicBool::default()),
-            CancellationToken::new(),
-        )
-        .await
-        .expect("Should be able to start registry watcher");
-
+        let deployer = anvil.signer(0)?;
         let rp_fixture = fixtures::generate_rp_fixture();
-
-        // Register the RP which also triggers a OPRF key-gen.
         let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
+
         anvil
             .register_rp(
                 rp_registry,
-                anvil.signer(0)?,
+                deployer,
                 rp_fixture.world_rp_id,
                 rp_signer.address(),
                 rp_signer.address(),
-                "taceo.oprf".to_string(),
+                "test.domain".to_string(),
             )
             .await?;
 
-        let should_err = watcher
+        let http_rpc_provider = build_http_provider(&anvil.instance);
+        let watcher = RpRegistryWatcher::init(
+            rp_registry,
+            http_rpc_provider,
+            ttl,
+            WatcherCacheConfig::default(),
+        );
+
+        Ok((watcher, anvil, rp_fixture, rp_registry))
+    }
+
+    #[tokio::test]
+    async fn test_known_rp_returned() -> eyre::Result<()> {
+        let (watcher, _anvil, rp_fixture, _) = setup_with_rp().await?;
+
+        let rp = watcher
             .get_rp(&rp_fixture.world_rp_id)
             .await
-            .expect_err("Should be an error");
+            .expect("known RP should be returned");
+
+        let expected_signer =
+            LocalSigner::from_signing_key(rp_fixture.signing_key.clone()).address();
+        assert_eq!(rp.signer, expected_signer);
+
         assert!(
-            matches!(should_err, RpRegistryWatcherError::Timeout(id) if id == rp_fixture.world_rp_id)
+            watcher.rp_store.contains_key(&rp_fixture.world_rp_id),
+            "Cache should have stored RP"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_unknown_rp_rejected() -> eyre::Result<()> {
+        let (watcher, _anvil, _, _) = setup_with_rp().await?;
+
+        let unknown_id = RpId::new(rand::thread_rng().r#gen::<u64>());
+        let err = watcher
+            .get_rp(&unknown_id)
+            .await
+            .expect_err("unknown RP should be rejected");
+        assert!(
+            matches!(err.as_ref(), RpRegistryWatcherError::UnknownRp(is_id) if *is_id == unknown_id),
+            "expected UnknownRp, got: {err:?}"
+        );
+        assert!(
+            !watcher.rp_store.contains_key(&unknown_id),
+            "Cache should have not stored RP"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_inactive_rp_rejected() -> eyre::Result<()> {
+        let (watcher, anvil, rp_fixture, rp_registry) = setup_with_rp().await?;
+
+        let deployer = anvil.signer(0)?;
+        let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
+
+        // Deactivate the RP before the first get_rp call so the cache is empty.
+        anvil
+            .update_rp(
+                rp_registry,
+                deployer,
+                rp_signer.clone(),
+                rp_fixture.world_rp_id,
+                true, // toggle_active deactivates the RP
+                rp_signer.address(),
+                rp_signer.address(),
+                "test.domain".to_string(),
+            )
+            .await?;
+
+        let err = watcher
+            .get_rp(&rp_fixture.world_rp_id)
+            .await
+            .expect_err("inactive RP should be rejected");
+        assert!(
+            matches!(err.as_ref(), RpRegistryWatcherError::InactiveRp(inactive) if *inactive == rp_fixture.world_rp_id),
+            "expected InactiveRp, got: {err:?}"
+        );
+
+        assert!(
+            !watcher.rp_store.contains_key(&rp_fixture.world_rp_id),
+            "Inactive RP should not be in cache"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cache_ttl_expiry() -> eyre::Result<()> {
+        let (watcher, _anvil, rp_fixture, _) =
+            setup_with_rp_with_ttl(Duration::from_secs(1)).await?;
+
+        let rp1 = watcher.get_rp(&rp_fixture.world_rp_id).await?;
+        assert!(
+            watcher.rp_store.contains_key(&rp_fixture.world_rp_id),
+            "RP should be in cache"
+        );
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(
+            watcher.rp_store.contains_key(&rp_fixture.world_rp_id),
+            "RP should NOT be in cache anymore"
+        );
+        let rp2 = watcher.get_rp(&rp_fixture.world_rp_id).await?;
+        assert_eq!(rp1.signer, rp2.signer);
+        assert_eq!(rp1.oprf_key_id, rp2.oprf_key_id);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_contract_call_failure_returns_internal() -> eyre::Result<()> {
+        let RegistryTestContext { anvil, .. } =
+            RegistryTestContext::new_with_mock_oprf_key_registry().await?;
+        let http_rpc_provider = build_http_provider(&anvil.instance);
+        // Address with no contract bytecode — getRp() response cannot be ABI-decoded
+        let watcher = RpRegistryWatcher::init(
+            Address::with_last_byte(42),
+            http_rpc_provider,
+            Duration::from_secs(10),
+            WatcherCacheConfig::default(),
+        );
+
+        let rp_id = RpId::new(rand::thread_rng().r#gen::<u64>());
+        let err = watcher
+            .get_rp(&rp_id)
+            .await
+            .expect_err("call to non-existent contract should fail");
+        assert!(
+            matches!(err.as_ref(), RpRegistryWatcherError::Internal(_)),
+            "expected Internal, got: {err:?}"
         );
         Ok(())
     }

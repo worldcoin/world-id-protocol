@@ -4,7 +4,7 @@ use alloy::{
     rpc::types::Filter,
     sol_types::SolEvent,
 };
-use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_registries::world_id::WorldIdRegistry;
 
 use crate::{
     blockchain::RegistryEvent,
@@ -52,6 +52,10 @@ async fn find_last_valid_root(
     registry_address: Address,
 ) -> IndexerResult<Option<WorldIdRegistryEventId>> {
     const BATCH_SIZE: u64 = 100;
+    let chain_head = provider
+        .get_block_number()
+        .await
+        .map_err(|e| IndexerError::ContractCall(e.to_string()))?;
 
     // Sentinel: starts "after everything" so the first batch includes the latest events.
     // Use i64::MAX (not u64::MAX) because block numbers are stored as i64 in PostgreSQL;
@@ -72,6 +76,17 @@ async fn find_last_valid_root(
         }
 
         for event in &batch {
+            if event.block_number > chain_head {
+                tracing::info!(
+                    block_number = event.block_number,
+                    chain_head,
+                    log_index = event.log_index,
+                    root = %format!("0x{:x}", event.details.root),
+                    "RootRecorded log is above the current chain head, skipping"
+                );
+                continue;
+            }
+
             let filter = Filter::new()
                 .address(registry_address)
                 .event_signature(WorldIdRegistry::RootRecorded::SIGNATURE_HASH)

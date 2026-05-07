@@ -5,10 +5,10 @@ use testcontainers_modules::{
     redis::{REDIS_PORT, Redis},
     testcontainers::{ContainerAsync, ImageExt as _, runners::AsyncRunner as _},
 };
-use world_id_core::api_types::{GatewayRequestState, GatewayStatusResponse};
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, GatewayHandle, SignerArgs, defaults, spawn_gateway_for_tests,
 };
+use world_id_primitives::api_types::{GatewayRequestState, GatewayStatusResponse};
 use world_id_services_common::ProviderArgs;
 use world_id_test_utils::anvil::TestAnvil;
 

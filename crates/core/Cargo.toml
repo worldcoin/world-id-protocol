@@ -40,6 +40,7 @@ world-id-issuer = { workspace = true, optional = true }
 world-id-proof = { workspace = true, optional = true }
 world-id-authenticator = { workspace = true, optional = true }
 world-id-primitives = { workspace = true }
+world-id-registries = { workspace = true }
 
 [dev-dependencies]
 alloy = { workspace = true }

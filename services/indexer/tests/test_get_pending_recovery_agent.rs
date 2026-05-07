@@ -10,16 +10,14 @@ use alloy::{
     primitives::{Address, Bytes, U256, address},
     providers::{Provider, ProviderBuilder},
 };
+use eddsa_babyjubjub::EdDSAPrivateKey;
 use http::StatusCode;
-use world_id_core::{
-    EdDSAPrivateKey,
-    api_types::UpdateRecoveryAgentRequest,
-    world_id_registry::{
-        WorldIdRegistry, domain as ag_domain, sign_initiate_recovery_agent_update,
-    },
-};
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
+};
+use world_id_primitives::api_types::UpdateRecoveryAgentRequest;
+use world_id_registries::world_id::{
+    WorldIdRegistry, domain as ag_domain, sign_initiate_recovery_agent_update,
 };
 use world_id_services_common::ProviderArgs;
 

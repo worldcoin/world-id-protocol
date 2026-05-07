@@ -12,7 +12,7 @@
 use crate::{
     auth::{
         merkle_watcher::{MerkleWatcher, MerkleWatcherError},
-        nonce_history::{DuplicateNonce, NonceHistory},
+        nonce_history::{DuplicateNonce, NonceHistory, NonceScope},
         rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
     },
     metrics::{
@@ -32,9 +32,8 @@ use taceo_oprf::types::{
     api::{OprfRequest, OprfRequestAuthenticator, OprfRequestAuthenticatorError},
 };
 use tracing::instrument;
-use world_id_core::FieldElement;
 use world_id_primitives::{
-    SessionFeType, SessionFieldElement as _,
+    FieldElement, SessionFeType, SessionFieldElement as _,
     oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
     rp::RpId,
 };
@@ -119,22 +118,22 @@ pub(crate) enum RpModuleError {
     Internal(#[from] eyre::Report),
 }
 
-impl From<MerkleWatcherError> for RpModuleError {
-    fn from(value: MerkleWatcherError) -> Self {
-        match value {
+impl From<Arc<MerkleWatcherError>> for RpModuleError {
+    fn from(value: Arc<MerkleWatcherError>) -> Self {
+        match value.as_ref() {
             MerkleWatcherError::InvalidMerkleRoot => Self::InvalidMerkleRoot,
-            MerkleWatcherError::Internal(report) => Self::Internal(report),
+            MerkleWatcherError::Internal(_) => Self::Internal(eyre::Report::from(value)),
         }
     }
 }
 
-impl From<RpRegistryWatcherError> for RpModuleError {
-    fn from(value: RpRegistryWatcherError) -> Self {
-        match value {
-            RpRegistryWatcherError::UnknownRp(rp_id) => Self::UnknownRp(rp_id),
-            RpRegistryWatcherError::InactiveRp(rp_id) => Self::InactiveRp(rp_id),
-            RpRegistryWatcherError::Timeout(rp_id) => Self::Wip101AccountCheckTimeout(rp_id),
-            RpRegistryWatcherError::Internal(report) => Self::Internal(report),
+impl From<Arc<RpRegistryWatcherError>> for RpModuleError {
+    fn from(value: Arc<RpRegistryWatcherError>) -> Self {
+        match value.as_ref() {
+            RpRegistryWatcherError::UnknownRp(rp_id) => Self::UnknownRp(*rp_id),
+            RpRegistryWatcherError::InactiveRp(rp_id) => Self::InactiveRp(*rp_id),
+            RpRegistryWatcherError::Timeout(rp_id) => Self::Wip101AccountCheckTimeout(*rp_id),
+            RpRegistryWatcherError::Internal(_) => Self::Internal(eyre::Report::from(value)),
         }
     }
 }
@@ -241,7 +240,7 @@ pub(crate) struct RpModuleAuth {
     current_time_stamp_max_difference: Duration,
     timeout_external_eth_call: Duration,
     merkle_watcher: MerkleWatcher,
-    rpc_provider: web3::RpcProvider,
+    rpc_provider: web3::HttpRpcProvider,
     query_vk: Arc<PreparedVerifyingKey<Bn254>>,
 }
 
@@ -280,7 +279,7 @@ impl RelyingParty {
         action: ark_babyjubjub::Fq,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
         wip101_timeout: Duration,
-        rpc_provider: &web3::RpcProvider,
+        rpc_provider: &web3::HttpRpcProvider,
     ) -> Result<(), RpModuleError> {
         match self.account_type {
             RpAccountType::Eoa => {
@@ -293,6 +292,7 @@ impl RelyingParty {
             }
             RpAccountType::Contract => {
                 tracing::trace!("RP signer is WIP101");
+                // TODO(session-proofs): WIP-101 does not currently support session proofs.
                 self.verify_wip101(action, &request.auth, rpc_provider, wip101_timeout)
                     .await
             }
@@ -312,7 +312,7 @@ impl RpModuleAuth {
         nonce_history: NonceHistory,
         current_time_stamp_max_difference: Duration,
         timeout_external_eth_call: Duration,
-        rpc_provider: web3::RpcProvider,
+        rpc_provider: web3::HttpRpcProvider,
         query_vk: Arc<PreparedVerifyingKey<Bn254>>,
     ) -> Self {
         Self {
@@ -334,7 +334,7 @@ impl RpModuleAuth {
         nonce_history: NonceHistory,
         current_time_stamp_max_difference: Duration,
         timeout_external_eth_call: Duration,
-        rpc_provider: web3::RpcProvider,
+        rpc_provider: web3::HttpRpcProvider,
         query_vk: Arc<PreparedVerifyingKey<Bn254>>,
     ) -> Self {
         Self {
@@ -403,9 +403,25 @@ impl RpModuleAuth {
         .await?;
 
         tracing::trace!("add nonce to store...");
-        // add nonce to history to check if the nonces where only used once
+        // Add nonce to history to check if the nonce was only used once in this scope.
+        let nonce_scope = match self.kind {
+            RpModuleKind::Uniqueness => NonceScope::Uniqueness,
+            RpModuleKind::Session => {
+                let action = FieldElement::from(action);
+                if action.is_valid_for_session(SessionFeType::OprfSeed) {
+                    NonceScope::SessionOprfSeed
+                } else if action.is_valid_for_session(SessionFeType::Action) {
+                    NonceScope::SessionAction
+                } else {
+                    return Err(RpModuleError::InvalidAction {
+                        kind: self.kind,
+                        action,
+                    });
+                }
+            }
+        };
         self.nonce_history
-            .add_nonce(FieldElement::from(request.auth.nonce))
+            .add_nonce(FieldElement::from(request.auth.nonce), nonce_scope)
             .await?;
 
         tracing::trace!("RP signature authentication successful!");
@@ -440,14 +456,13 @@ impl RpModuleAuth {
             }
         }
 
-        let (rp_check, merkle_check) = tokio::join!(
-            self.verify_rp_signature(request.auth.action, request),
-            self.merkle_watcher
-                .ensure_root_valid(FieldElement::from(request.auth.merkle_root))
-        );
+        let oprf_key_id = self
+            .verify_rp_signature(request.auth.action, request)
+            .await?;
 
-        let oprf_key_id = rp_check?;
-        merkle_check?;
+        self.merkle_watcher
+            .ensure_root_valid(FieldElement::from(request.auth.merkle_root))
+            .await?;
 
         let valid = super::verify_query_proof(
             &self.query_vk,

@@ -16,9 +16,10 @@ use taceo_oprf::{
 
 use world_id_primitives::{
     FieldElement, ProofRequest, SessionFeType, SessionFieldElement, TREE_DEPTH,
-    circuit_inputs::QueryProofCircuitInput,
     oprf::{CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule},
 };
+
+use crate::circuit_inputs::QueryProofCircuitInput;
 
 use crate::{
     AuthenticatorProofInput, ProofError,
@@ -155,6 +156,10 @@ impl<'a> OprfEntrypoint<'a> {
         rng: &mut R,
         proof_request: &ProofRequest,
     ) -> Result<FullOprfOutput, ProofError> {
+        proof_request
+            .validate_proof_type()
+            .map_err(|err| ProofError::GenerationError(err.to_string()))?;
+
         let (action, module) = if proof_request.is_session_proof() {
             // For session proofs a random action is used internally. This is opaque to RPs who receive
             // it within the encoded `SessionNullifier`
@@ -204,12 +209,21 @@ impl<'a> OprfEntrypoint<'a> {
         })
     }
 
-    pub async fn gen_session_id_r_seed<R: rand::CryptoRng + rand::RngCore>(
+    pub async fn derive_session_id_r_seed<R: rand::CryptoRng + rand::RngCore>(
         &self,
         rng: &mut R,
         proof_request: &ProofRequest,
         oprf_seed: FieldElement,
     ) -> Result<FullOprfOutput, ProofError> {
+        proof_request
+            .validate_proof_type()
+            .map_err(|err| ProofError::GenerationError(err.to_string()))?;
+        if !proof_request.is_session_proof() {
+            return Err(ProofError::GenerationError(
+                "proof_type must be create_session or prove_session".to_string(),
+            ));
+        }
+
         let result = Self::generate_query_proof(
             self.query_material,
             &self.authenticator_input,

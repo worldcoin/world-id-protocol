@@ -14,10 +14,9 @@ pub use world_id_authenticator::{
     InitializingAuthenticator, OhttpClientConfig, OnchainKeyRepresentable, ProofResult,
 };
 
-/// Re-export registry from authenticator for convenience
-#[cfg(feature = "authenticator")]
+/// Re-export registry contract bindings for convenience
 pub mod world_id_registry {
-    pub use world_id_authenticator::registry::*;
+    pub use world_id_registries::world_id::*;
 }
 
 pub use world_id_primitives::{Credential, CredentialVersion};

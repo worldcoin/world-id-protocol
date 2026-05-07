@@ -6,10 +6,11 @@
 //! It defines the following sub-modules:
 //!
 //! - [`credential_blinding_factor`] – implements authentication for OPRF credential blinding factor generation.
-//! - [`merkle_watcher`] – watches the blockchain for merkle-root update events.
-//! - [`nonce_history`] – keeps track of nonces used for nonce + `time_stamp` signatures to detect replays
-//! - [`rp_registry_watcher`] – keeps track of registered RPs
-//! - [`schema_issuer_registry_watcher`] – keeps track of registered Credential Schema Issuers
+//! - [`merkle_watcher`] – validates and caches merkle roots from the `WorldIDRegistry`.
+//! - [`nonce_history`] – keeps track of RP nonces in a node-local cache to
+//!   detect replays already seen by this process
+//! - [`rp_registry_watcher`] – validates and caches registered RPs from the `RpRegistry`.
+//! - [`schema_issuer_registry_watcher`] – validates and caches registered Credential Schema Issuers.
 //! - [`rp_module`] – unified implementation for session and uniqueness OPRF authentication.
 
 use ark_bn254::Bn254;
@@ -57,16 +58,15 @@ mod tests {
         signers::local::LocalSigner,
     };
     use ark_serialize::CanonicalSerialize;
+    use eddsa_babyjubjub::EdDSAPrivateKey;
     use rand::Rng;
     use secrecy::ExposeSecret as _;
-    use taceo_nodes_common::web3::{self, RpcProviderBuilder};
-    use taceo_oprf::{core::oprf::BlindingFactor, service::StartedServices};
-    use tokio_util::sync::CancellationToken;
-    use world_id_core::{EdDSAPrivateKey, FieldElement, Signer, proof::errors};
+    use taceo_nodes_common::web3::{self, HttpRpcProviderBuilder};
+    use taceo_oprf::core::oprf::BlindingFactor;
     use world_id_primitives::{
-        TREE_DEPTH, authenticator::AuthenticatorPublicKeySet,
-        circuit_inputs::QueryProofCircuitInput, merkle::MerkleInclusionProof,
+        AuthenticatorPublicKeySet, FieldElement, Signer, TREE_DEPTH, merkle::MerkleInclusionProof,
     };
+    use world_id_proof::{circuit_inputs::QueryProofCircuitInput, errors};
     use world_id_test_utils::{
         anvil::TestAnvil,
         fixtures::{self, RegistryTestContext, RpFixture},
@@ -95,21 +95,12 @@ mod tests {
         pub(crate) signer: Signer,
     }
 
-    pub(crate) async fn build_rpc_provider(anvil: &AnvilInstance) -> web3::RpcProvider {
-        let http_url = anvil
-            .endpoint()
-            .parse()
-            .expect("anvil should have valid http url");
-        let ws_url = anvil
-            .ws_endpoint()
-            .parse()
-            .expect("anvil should have valid ws url");
-        RpcProviderBuilder::with_default_values(vec![http_url], ws_url)
+    pub(crate) fn build_http_provider(anvil: &AnvilInstance) -> web3::HttpRpcProvider {
+        HttpRpcProviderBuilder::with_default_values(vec![anvil.endpoint_url()])
             .environment(taceo_nodes_common::Environment::Dev)
             .chain_id(31_337)
             .wallet(anvil.wallet().expect("Should have signer wallet"))
             .build()
-            .await
             .expect("can build RPC providers")
     }
 
@@ -221,57 +212,38 @@ mod tests {
         pub(crate) nonce_history: NonceHistory,
         pub(crate) current_time_stamp_max_difference: Duration,
         pub(crate) timeout_external_eth_call: Duration,
-        pub(crate) rpc_provider: web3::RpcProvider,
+        pub(crate) http_rpc_provider: web3::HttpRpcProvider,
     }
 
     impl AuthModulesTestSetup {
         pub(crate) async fn new() -> eyre::Result<Self> {
             let setup = OprfRequestAuthTestSetup::new().await?;
 
-            let max_cache_size = 100;
-            let cache_maintenance_interval = Duration::from_secs(60);
             let current_time_stamp_max_difference = Duration::from_secs(1800);
             let timeout_external_eth_call = Duration::from_secs(10);
-            let started_services = StartedServices::default();
-            let cancellation_token = CancellationToken::new();
 
-            let rpc_provider = build_rpc_provider(&setup.anvil.instance).await;
+            let http_rpc_provider = build_http_provider(&setup.anvil.instance);
 
-            let (merkle_watcher, _) = MerkleWatcher::init(
+            let merkle_watcher = MerkleWatcher::init(
                 setup.world_id_registry,
-                &rpc_provider,
-                max_cache_size,
-                cache_maintenance_interval,
-                started_services.new_service(),
-                cancellation_token.clone(),
-            )
-            .await?;
-
-            let (rp_registry_watcher, _) = RpRegistryWatcher::init(
-                setup.rp_registry,
-                rpc_provider.clone(),
+                &http_rpc_provider,
                 WatcherCacheConfig::default(),
-                cache_maintenance_interval,
-                timeout_external_eth_call,
-                started_services.new_service(),
-                cancellation_token.clone(),
-            )
-            .await?;
-
-            let (schema_issuer_registry_watcher, _) = SchemaIssuerRegistryWatcher::init(
-                setup.credential_schema_issuer_registry,
-                &rpc_provider,
-                WatcherCacheConfig::default(),
-                cache_maintenance_interval,
-                started_services.new_service(),
-                cancellation_token.clone(),
-            )
-            .await?;
-
-            let nonce_history = NonceHistory::init(
-                current_time_stamp_max_difference * 2,
-                cache_maintenance_interval,
             );
+
+            let rp_registry_watcher = RpRegistryWatcher::init(
+                setup.rp_registry,
+                http_rpc_provider.clone(),
+                timeout_external_eth_call,
+                WatcherCacheConfig::default(),
+            );
+
+            let schema_issuer_registry_watcher = SchemaIssuerRegistryWatcher::init(
+                setup.credential_schema_issuer_registry,
+                &http_rpc_provider,
+                WatcherCacheConfig::default(),
+            );
+
+            let nonce_history = NonceHistory::init(current_time_stamp_max_difference * 2);
 
             Ok(Self {
                 setup,
@@ -281,7 +253,7 @@ mod tests {
                 nonce_history,
                 current_time_stamp_max_difference,
                 timeout_external_eth_call,
-                rpc_provider,
+                http_rpc_provider,
             })
         }
 
@@ -298,8 +270,8 @@ mod tests {
         ) -> eyre::Result<QueryProofBundle> {
             let mut rng = rand::thread_rng();
 
-            let query_material = world_id_core::proof::load_embedded_query_material()
-                .expect("Can load query material");
+            let query_material =
+                world_id_proof::load_embedded_query_material().expect("Can load query material");
 
             let query_blinding_factor = BlindingFactor::rand(&mut rng);
 

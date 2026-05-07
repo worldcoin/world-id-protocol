@@ -1,7 +1,7 @@
 #![cfg_attr(all(),
 doc = ::embed_doc_image::embed_image!("world-id-protocol-parties", "assets/world-id-protocol-parties.png"))]
 #![doc = include_str!("../README.md")]
-#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+#![cfg_attr(not(test), deny(unused_crate_dependencies))]
 #![deny(clippy::all, clippy::nursery, missing_docs, dead_code)]
 #![allow(clippy::option_if_let_else)]
 
@@ -16,17 +16,20 @@ use std::{
     str::FromStr,
 };
 
+#[cfg(target_arch = "wasm32")]
+use getrandom as _;
+
 /// Contains types related to the Authenticator.
 pub mod authenticator;
+
+mod key_set;
+pub use key_set::{
+    AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS, SparseAuthenticatorPubkeysError,
+};
 
 /// Contains the global configuration for interacting with the World ID Protocol.
 mod config;
 pub use config::Config;
-
-/// Contains the raw circuit input types for the World ID Protocol.
-///
-/// These types are used to prepare the inputs for the Groth16 circuits.
-pub mod circuit_inputs;
 
 /// SAFE-style sponge utilities and helpers.
 pub mod sponge;
@@ -54,7 +57,7 @@ pub use session::{SessionFeType, SessionFieldElement, SessionId, SessionNullifie
 
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;
-pub use proof::ZeroKnowledgeProof;
+pub use proof::{OwnershipProof, ZeroKnowledgeProof};
 
 /// Contains types specifically related to relying parties.
 pub mod rp;
@@ -69,7 +72,7 @@ pub use signer::Signer;
 pub mod request;
 pub use request::{
     ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES, ProofRequest,
-    ProofResponse, RequestItem, RequestVersion, ResponseItem, ValidationError,
+    ProofResponse, ProofType, RequestItem, RequestVersion, ResponseItem, ValidationError,
 };
 
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};

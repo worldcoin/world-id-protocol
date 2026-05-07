@@ -2,15 +2,17 @@ use alloy::{
     primitives::{Address, U256},
     signers::local::PrivateKeySigner,
 };
+use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use reqwest::StatusCode;
-use world_id_core::{
-    Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSAPublicKey, OnchainKeyRepresentable,
+use world_id_authenticator::{Authenticator, AuthenticatorError, OnchainKeyRepresentable};
+use world_id_primitives::{
+    Config, TREE_DEPTH,
     api_types::{
         GatewayRequestId, GatewayRequestKind, GatewayStatusResponse, RecoverAccountRequest,
     },
-    primitives::{Config, TREE_DEPTH, merkle::AccountInclusionProof},
-    world_id_registry::{domain as ag_domain, sign_recover_account},
+    merkle::AccountInclusionProof,
 };
+use world_id_registries::world_id::{domain as ag_domain, sign_recover_account};
 
 use world_id_test_utils::{
     fixtures::{MerkleFixture, single_leaf_merkle_fixture},

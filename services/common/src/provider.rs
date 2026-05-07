@@ -25,7 +25,10 @@ use thiserror::Error;
 use tower::ServiceBuilder;
 use url::Url;
 
-use crate::provider_layers::{RetryConfig, RetryLayer, ThrottleConfig, ThrottleLayer};
+use crate::{
+    provider_layers::{RetryConfig, RetryLayer, ThrottleConfig, ThrottleLayer},
+    tx_fillers::GasEstimateWithFallbackFiller,
+};
 
 pub type ProviderResult<T> = Result<T, ProviderError>;
 
@@ -369,14 +372,18 @@ impl ProviderArgs {
         };
 
         let provider = if let Some(signer) = maybe_signer {
-            let provider = ProviderBuilder::new()
+            let provider = ProviderBuilder::default()
+                .filler(GasEstimateWithFallbackFiller)
+                .with_gas_estimation()
+                .with_blob_gas_estimation()
                 .with_nonce_management(nonce_manager)
+                .fetch_chain_id()
                 .wallet(signer)
                 .connect_client(client);
 
             provider.erased()
         } else {
-            let provider = ProviderBuilder::new().connect_client(client);
+            let provider = ProviderBuilder::default().connect_client(client);
             provider.erased()
         };
 

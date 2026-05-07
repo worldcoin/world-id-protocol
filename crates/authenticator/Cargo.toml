@@ -12,7 +12,6 @@ repository.workspace = true
 include = [
     "src/**/*",
     "tests/**/*",
-    "abi/*",
     "Cargo.toml",
     "README.md",
 ]
@@ -20,6 +19,10 @@ include = [
 [features]
 default = ["embed-zkeys"]
 embed-zkeys = ["world-id-proof/embed-zkeys"]
+# Compress the embedded zkeys to reduce binary size (ARK point compression)
+compress-zkeys = ["embed-zkeys", "world-id-proof/compress-zkeys"]
+# Compress the tar archive with zstd
+zstd-compress-zkeys = ["embed-zkeys", "world-id-proof/zstd-compress-zkeys"]
 
 [dependencies]
 # Use WASM-safe base features only
@@ -50,9 +53,6 @@ ruint = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
-rustls = { workspace = true }
-webpki-roots = { workspace = true }
-
 # OHTTP
 ohttp = { workspace = true, features = ["client", "rust-hpke"] }
 bhttp = { workspace = true }
@@ -61,6 +61,7 @@ base64 = { workspace = true }
 
 # Internal
 world-id-proof = { workspace = true }
+world-id-registries = { workspace = true }
 
 # Native-only dependencies (not available on wasm32)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -69,6 +70,11 @@ reqwest = { workspace = true, features = ["rustls-tls"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
 rustls = { workspace = true }
 webpki-roots = { workspace = true }
+world-id-proof = { workspace = true, features = ["zk-ownership-prove"] }
+
+# Enable getrandom's JS backend for OHTTP/HPKE on wasm32-unknown-unknown.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
 axum = { workspace = true }
@@ -80,3 +86,9 @@ ruint = { workspace = true }
 rand = { workspace = true }
 mockito = { workspace = true }
 testcontainers = { workspace = true }
+world-id-test-utils = { workspace = true }
+
+
+[package.metadata.docs.rs]
+no-default-features = true
+features = ["embed-zkeys"]

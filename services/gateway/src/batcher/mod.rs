@@ -12,10 +12,8 @@ use std::{collections::VecDeque, sync::Arc, time::Duration};
 use alloy::{network::Ethereum, primitives::Bytes, providers::DynProvider};
 use tokio::{sync::mpsc, time::Instant};
 use uuid::Uuid;
-use world_id_core::{
-    api_types::{CreateAccountRequest, GatewayRequestState},
-    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
-};
+use world_id_primitives::api_types::{CreateAccountRequest, GatewayRequestState};
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::{
     RequestTracker,
@@ -27,17 +25,6 @@ use crate::{
     metrics,
     request_tracker::BacklogScope,
 };
-/// Default gas estimates for operation types.
-pub(super) mod defaults {
-    pub const DEFAULT_CREATE_ACCOUNT_GAS: u64 = 600_000;
-    pub const DEFAULT_INSERT_AUTHENTICATOR_GAS: u64 = 252_784;
-    pub const DEFAULT_UPDATE_AUTHENTICATOR_GAS: u64 = 385_775;
-    pub const DEFAULT_REMOVE_AUTHENTICATOR_GAS: u64 = 721_044;
-    pub const DEFAULT_RECOVER_ACCOUNT_GAS: u64 = 516_400;
-    pub const DEFAULT_INITIATE_RECOVERY_AGENT_UPDATE_GAS: u64 = 100_000;
-    pub const DEFAULT_CANCEL_RECOVERY_AGENT_UPDATE_GAS: u64 = 43_000;
-    pub const DEFAULT_EXECUTE_RECOVERY_AGENT_UPDATE_GAS: u64 = 25_000;
-}
 
 /// Unified batcher handle that routes to the appropriate batcher.
 #[derive(Clone)]
@@ -50,14 +37,14 @@ impl BatcherHandle {
     /// Submit a command to the appropriate batcher.
     pub async fn submit(&self, cmd: Command) -> bool {
         match cmd {
-            Command::CreateAccount { id, req, .. } => {
+            Command::CreateAccount { id, req } => {
                 let envelope = CreateReqEnvelope {
                     id: id.to_string(),
                     req,
                 };
                 self.create.tx.send(envelope).await.is_ok()
             }
-            Command::Operation { id, calldata, .. } => {
+            Command::Operation { id, calldata } => {
                 let envelope = OpsEnvelope {
                     id: id.to_string(),
                     calldata,
@@ -70,29 +57,19 @@ impl BatcherHandle {
 
 /// Unified command type for all batcher operations.
 pub enum Command {
-    CreateAccount {
-        id: Uuid,
-        req: CreateAccountRequest,
-        #[allow(dead_code)]
-        gas: u64,
-    },
-    Operation {
-        id: Uuid,
-        calldata: Bytes,
-        #[allow(dead_code)]
-        gas: u64,
-    },
+    CreateAccount { id: Uuid, req: CreateAccountRequest },
+    Operation { id: Uuid, calldata: Bytes },
 }
 
 impl Command {
     /// Create a new account creation command.
-    pub fn create_account(id: Uuid, req: CreateAccountRequest, gas: u64) -> Self {
-        Self::CreateAccount { id, req, gas }
+    pub fn create_account(id: Uuid, req: CreateAccountRequest) -> Self {
+        Self::CreateAccount { id, req }
     }
 
     /// Create a new operation command (insert/update/remove/recover).
-    pub fn operation(id: Uuid, calldata: Bytes, gas: u64) -> Self {
-        Self::Operation { id, calldata, gas }
+    pub fn operation(id: Uuid, calldata: Bytes) -> Self {
+        Self::Operation { id, calldata }
     }
 }
 
@@ -208,8 +185,19 @@ where
         let start = Instant::now();
         match self.strategy.send_batch(&self.registry, batch).await {
             Ok(sent) => {
-                let latency_ms = start.elapsed().as_millis() as f64;
-                metrics::record_batch_result(batch_type, true, latency_ms);
+                // Record only the RPC send latency here.  The on-chain outcome
+                // (success / failure / confirmation latency) is recorded later
+                // in `spawn_receipt_tracker` once the receipt is obtained.
+                let send_latency_ms = start.elapsed().as_millis() as f64;
+                metrics::record_batch_send_latency(batch_type, send_latency_ms);
+
+                tracing::info!(
+                    tx_hash = %sent.formatted_tx_hash,
+                    batch_type,
+                    batch_size = ids.len(),
+                    send_latency_ms,
+                    "batch transaction submitted to RPC node"
+                );
 
                 self.tracker
                     .set_status_batch(
@@ -220,15 +208,25 @@ where
                     )
                     .await;
 
-                self.tracker
-                    .spawn_receipt_tracker(ids, sent.builder, sent.formatted_tx_hash);
+                self.tracker.spawn_receipt_tracker(
+                    ids,
+                    sent.builder,
+                    sent.formatted_tx_hash,
+                    batch_type,
+                    start,
+                );
             }
             Err(err) => {
-                let latency_ms = start.elapsed().as_millis() as f64;
-                metrics::record_batch_result(batch_type, false, latency_ms);
+                let send_latency_ms = start.elapsed().as_millis() as f64;
+                metrics::record_batch_send_failed(batch_type, send_latency_ms);
 
                 let error_str = err.to_string();
-                tracing::error!(error = %error_str, "{batch_type} batch send failed");
+                tracing::error!(
+                    error = %error_str,
+                    batch_type,
+                    send_latency_ms,
+                    "{batch_type} batch failed to submit to RPC node"
+                );
                 let code = parse_contract_error(&error_str);
                 self.tracker
                     .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))

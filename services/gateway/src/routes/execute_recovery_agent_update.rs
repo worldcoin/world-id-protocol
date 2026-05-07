@@ -6,7 +6,7 @@ use crate::{
 };
 use axum::{Extension, Json, extract::State};
 use tracing::instrument;
-use world_id_core::api_types::{ExecuteRecoveryAgentUpdateRequest, GatewayStatusResponse};
+use world_id_primitives::api_types::{ExecuteRecoveryAgentUpdateRequest, GatewayStatusResponse};
 
 /// POST /execute-recovery-agent-update
 ///
