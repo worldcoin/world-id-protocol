@@ -65,7 +65,6 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         virtual
         override(IWorldIDRegistry, WorldIDRegistry)
         onlyProxy
-        onlyInitialized
         returns (bool)
     {
         // The latest root is always valid.
@@ -79,7 +78,7 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
 
     /// @dev Gets the expiration timestamp of a root. Returns 0 for the current latest unreplaced root.
     /// Reverts with `UnknownRoot` if the root was never recorded.
-    function getRootExpiration(uint256 root) external view virtual onlyProxy onlyInitialized returns (uint256) {
+    function getRootExpiration(uint256 root) external view virtual onlyProxy returns (uint256) {
         if (root == _latestRoot) return 0;
         uint256 ts = _rootToValidityTimestamp[root];
         if (ts == 0) revert UnknownRoot(root);
@@ -104,7 +103,7 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
         uint256 nonce
-    ) external virtual override(IWorldIDRegistry, WorldIDRegistry) onlyProxy onlyInitialized {
+    ) external virtual override(IWorldIDRegistry, WorldIDRegistry) onlyProxy {
         if (newAuthenticatorAddress != address(0)) {
             _validateNewAuthenticatorAddress(newAuthenticatorAddress);
         }
@@ -186,7 +185,7 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         uint256 newOffchainSignerCommitment,
         bytes memory signature,
         uint256 nonce
-    ) external virtual override(IWorldIDRegistry, WorldIDRegistry) onlyProxy onlyInitialized {
+    ) external virtual override(IWorldIDRegistry, WorldIDRegistry) onlyProxy {
         bytes32 messageHash = _hashTypedDataV4(
             keccak256(
                 abi.encode(
@@ -283,7 +282,6 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         virtual
         override(WorldIDRegistry, IWorldIDRegistry)
         onlyProxy
-        onlyInitialized
     {
         revert MethodUnsupported();
     }
@@ -301,7 +299,6 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         override(IWorldIDRegistry, WorldIDRegistry)
         onlyOwner
         onlyProxy
-        onlyInitialized
     {
         if (newMaxAuthenticators > MAX_AUTHENTICATORS_V2_HARD_LIMIT) {
             revert OwnerMaxAuthenticatorsOutOfBounds();
