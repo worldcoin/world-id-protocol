@@ -86,10 +86,10 @@ pub type ScalarField = ark_babyjubjub::Fr;
 /// The depth of the Merkle tree used in the World ID Protocol for the `WorldIDRegistry` contract.
 pub const TREE_DEPTH: usize = 30;
 
-/// Represents a field element of the base field (`Fq`) in the World ID Protocol.
+/// Represents an element of the field used in the World ID Protocol (`Fq`), which
+/// is the **`BabyJubJub` base field**.
 ///
-/// The World ID Protocol uses the `BabyJubJub` curve throughout. Note the
-/// base field of `BabyJubJub` is the scalar field of the BN254 curve.
+/// Note the base field of `BabyJubJub` is the scalar field of the BN254 curve.
 ///
 /// This wrapper ensures consistent serialization and deserialization of field elements, where
 /// string-based serialization is done with hex encoding and binary serialization is done with byte vectors.
