@@ -229,7 +229,7 @@ pub fn check_nullifier_input_validity<const TREE_DEPTH: usize>(
     let credential_expires_at_u64 = u64::try_from(FieldElement::from(inputs.cred_expires_at))
         .map_err(|_| ProofInputError::ValueOutOfBounds {
             name: "credential expiry timestamp",
-            is: inputs.current_timestamp,
+            is: inputs.cred_expires_at,
             limit: BaseField::new(u64::MAX.into()),
         })?;
     // Check that the credential has not expired.
