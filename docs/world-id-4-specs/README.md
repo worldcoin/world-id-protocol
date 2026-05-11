@@ -264,7 +264,7 @@ end
 rp->>a: session proof request (incl. sessionId)
 
 alt [Recover r from sessionId.oprf_seed]
-a->>o: $$r=\texttt{OPRF}(pk_{rpId}, DS_C || \texttt{leafIndex} || \texttt{sessionId.oprf_seed})$$
+a->>o: $$r=\texttt{OPRF}(pk_{rpId}, DS_C || \texttt{leafIndex} || \texttt{sessionId.oprf\_seed})$$
 end
 a->>a: C'=H($$DS_C$$ || leafIndex || r) as public output of proof
 a->>a: check if sessionId == C' (in ZK-circuit)
