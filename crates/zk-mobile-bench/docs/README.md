@@ -1,0 +1,85 @@
+# zk-mobile-bench
+
+Mobile benchmarks for World ID ZK proof generation using [mobench](https://github.com/worldcoin/mobile-bench-rs).
+
+## Quick Start
+
+Install mobench:
+
+```bash
+cargo install mobench --version 0.1.40 --locked
+```
+
+Build and run locally:
+
+```bash
+cargo-mobench build --target ios --release --crate-path crates/zk-mobile-bench
+cargo-mobench package-ipa --method adhoc --crate-path crates/zk-mobile-bench
+cargo-mobench package-xcuitest --crate-path crates/zk-mobile-bench
+```
+
+Run a benchmark on BrowserStack:
+
+```bash
+cargo-mobench run \
+  --target ios \
+  --function zk_mobile_bench::bench_nullifier_proving_only \
+  --iterations 30 \
+  --warmup 5 \
+  --devices "iPhone 11-13" \
+  --crate-path crates/zk-mobile-bench \
+  --release \
+  --fetch
+```
+
+BrowserStack runs remain the right path for timing and memory benchmarks.
+BrowserStack native profiling is unsupported in `mobench` `0.1.40`; use the
+local provider for native capture.
+
+Capture a local native profile:
+
+```bash
+cargo mobench profile run \
+  --target ios \
+  --provider local \
+  --backend ios-instruments \
+  --crate-path crates/zk-mobile-bench \
+  --function zk_mobile_bench::bench_nullifier_proving_only
+```
+
+Render a local markdown summary with per-function device comparison plots:
+
+```bash
+cargo mobench report summarize \
+  --summary target/mobench/ci/ios/summary.json \
+  --plots auto
+```
+
+`summary.md` uses per-sample `cpu_time_ms` plus `cpu_total_ms`, `cpu_median_ms`,
+`peak_memory_kb`, `peak_memory_growth_kb`, and `process_peak_memory_kb` for
+canonical resource fields.
+CI summaries and PR comments can include inline `plots/*.svg` when plot rendering succeeds.
+Benchmark reports also preserve optional semantic `phases` emitted by
+`mobench_sdk::timing::profile_phase(...)` and harness `timeline` spans.
+
+## CI Triggers
+
+- **PR comment**: `/mobench platform=both iterations=30 warmup=5`
+- **PR label**: Add the `bench` label (dispatches after compile gate passes)
+- **Manual**: Actions > "Mobile Benchmarks" > Run workflow
+
+## Benchmark Functions
+
+| Function | Proof | What it measures |
+|---|---|---|
+| `bench_query_proof_generation` | π1 query | Full measured path: fixture/input generation, witness generation, and Groth16 proving |
+| `bench_query_cached_proof_generation` | π1 query | `generate_proof` with cached input/material; includes witness generation and Groth16 proving, but excludes fixture setup |
+| `bench_query_witness_generation_only` | π1 query | Circom witness generation only, with cached input/material |
+| `bench_query_proving_only` | π1 query | Groth16 proving only, from a cached witness |
+| `bench_nullifier_proof_generation` | π2 nullifier | Full measured path: fixture/input generation, witness generation, and Groth16 proving |
+| `bench_nullifier_witness_generation_only` | π2 nullifier | Circom witness generation only, with cached input/material |
+| `bench_nullifier_proving_only` | π2 nullifier | Groth16 proving only, from a cached witness |
+
+CI runs all seven functions by default. The function list is specified directly
+in the caller workflow (`mobile-bench.yml`) via the `functions` input to the
+reusable workflow.
