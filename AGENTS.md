@@ -46,3 +46,4 @@
 - `crates/primitives/`: Foundational raw types with minimal dependencies.
 - `crates/proof/`: Proof generation/verification; optional `embed-zkeys`/`compress-zkeys` features.
 - `crates/test-utils/`: Shared test helpers for integration/e2e tests across crates and services.
+- `crates/zk-mobile-bench/`: Mobile benchmarks for World ID ZK proof generation, used by CI via mobench.

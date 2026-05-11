@@ -7,6 +7,7 @@ members = [
   "crates/primitives",
   "crates/registries",
   "crates/test-utils",
+  "crates/zk-mobile-bench",
   "services/indexer",
   "services/gateway",
   "services/oprf-node",
@@ -166,4 +167,3 @@ world-id-relay = { path = "services/relay" }
 # With opt-level 2 the same deserialization completes in seconds.
 [profile.dev.package."*"]
 opt-level = 2
-
