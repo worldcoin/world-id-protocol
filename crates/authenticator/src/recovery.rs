@@ -135,7 +135,7 @@ impl Authenticator {
     /// # Errors
     /// Returns an error if the gateway rejects the request or a network error occurs.
     #[deprecated(
-        note = "WIP-102: this operation no longer exists. On a V2-upgraded gateway the call is a no-op (returns Queued without touching chain). Remove the call from your flow."
+        note = "WIP-102: this operation no longer exists. On a V2-upgraded gateway the call is a no-op (returns Finalized without touching chain). Remove the call from your flow."
     )]
     pub async fn execute_recovery_agent_update(
         &self,
