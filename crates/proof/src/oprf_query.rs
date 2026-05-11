@@ -1,6 +1,8 @@
 //! Shared helpers for generating query proofs and executing
 //! distributed generic OPRF computations.
 
+use std::time::{self, SystemTime, UNIX_EPOCH};
+
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
 use ark_groth16::Proof;
@@ -170,6 +172,28 @@ impl<'a> OprfEntrypoint<'a> {
             let action = proof_request.action.unwrap_or(FieldElement::ZERO);
             (action, OprfModule::Nullifier)
         };
+
+        // quick validation before performing the compute heavy `generate_query_proof` fn
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time cannot go backward")
+            .as_nanos() as u64;
+        if proof_request.is_expired(now) {
+            return Err(ProofError::ProofInputError(
+                errors::ProofInputError::CredentialExpired {
+                    current_timestamp: now,
+                    expires_at: proof_request.expires_at,
+                },
+            ));
+        }
+        if proof_request.created_at > proof_request.expires_at {
+            return Err(ProofError::ProofInputError(
+                errors::ProofInputError::InvalidExpiresAt {
+                    created_at: proof_request.created_at,
+                    expires_at: proof_request.expires_at,
+                },
+            ));
+        }
 
         let result = Self::generate_query_proof(
             self.query_material,
