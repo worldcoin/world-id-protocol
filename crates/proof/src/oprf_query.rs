@@ -174,6 +174,14 @@ impl<'a> OprfEntrypoint<'a> {
         };
 
         // quick validation before performing the compute heavy `generate_query_proof` fn
+        if proof_request.created_at > proof_request.expires_at {
+            return Err(ProofError::ProofInputError(
+                errors::ProofInputError::InvalidExpiresAt {
+                    created_at: proof_request.created_at,
+                    expires_at: proof_request.expires_at,
+                },
+            ));
+        }
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("time cannot go backward")
@@ -182,14 +190,6 @@ impl<'a> OprfEntrypoint<'a> {
             return Err(ProofError::ProofInputError(
                 errors::ProofInputError::CredentialExpired {
                     current_timestamp: now,
-                    expires_at: proof_request.expires_at,
-                },
-            ));
-        }
-        if proof_request.created_at > proof_request.expires_at {
-            return Err(ProofError::ProofInputError(
-                errors::ProofInputError::InvalidExpiresAt {
-                    created_at: proof_request.created_at,
                     expires_at: proof_request.expires_at,
                 },
             ));
