@@ -1,7 +1,7 @@
 //! Shared helpers for generating query proofs and executing
 //! distributed generic OPRF computations.
 
-use std::time::{self, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
