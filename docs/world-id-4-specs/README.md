@@ -255,8 +255,8 @@ participant rp as RP
 critical initial/enrollment
 rp ->> a: Initial session request
 a->>a: Generate oprf_seed locally (CSPRNG)
-a->>o: $$r=\texttt{OPRF}(pk_{rpId}, DS_C || \texttt{leafIndex} || \texttt{oprf\_seed})$$
-a->>a: Compute C = H($$DS_C$$ || leafIndex || r)
+a->>o: r=OPRF(rpPublicKey, DS_C || leafIndex || oprf_seed)
+a->>a: Compute C = H(DS_C || leafIndex || r)
 a->>a: sessionId = encode(C, oprf_seed)
 a ->> rp: sessionId
 end
@@ -264,9 +264,9 @@ end
 rp->>a: session proof request (incl. sessionId)
 
 alt [Recover r from sessionId.oprf_seed]
-a->>o: $$r=\texttt{OPRF}(pk_{rpId}, DS_C || \texttt{leafIndex} || \texttt{sessionId.oprf\_seed})$$
+a->>o: r=OPRF(rpPublicKey, DS_C || leafIndex || sessionId.oprf_seed)
 end
-a->>a: C'=H($$DS_C$$ || leafIndex || r) as public output of proof
+a->>a: C'=H(DS_C || leafIndex || r) as public output of proof
 a->>a: check if sessionId == C' (in ZK-circuit)
 a->>rp: proof + sessionNullifier
 rp->>rp: verify proof (checking sessionId == C' in verifier contract)
