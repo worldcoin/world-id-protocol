@@ -177,7 +177,7 @@ impl<'a> OprfEntrypoint<'a> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("time cannot go backward")
-            .as_nanos() as u64;
+            .as_secs();
         if proof_request.is_expired(now) {
             return Err(ProofError::ProofInputError(
                 errors::ProofInputError::CredentialExpired {
