@@ -188,7 +188,7 @@ impl<'a> OprfEntrypoint<'a> {
             .as_secs();
         if proof_request.is_expired(now) {
             return Err(ProofError::ProofInputError(
-                errors::ProofInputError::CredentialExpired {
+                errors::ProofInputError::ProofRequestExpired {
                     current_timestamp: now,
                     expires_at: proof_request.expires_at,
                 },

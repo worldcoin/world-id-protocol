@@ -91,6 +91,17 @@ pub enum ProofInputError {
         "The provided session ID commitment is invalid for the given id and session id randomness."
     )]
     InvalidSessionId,
+    /// The proof request is expired.
+    #[error(
+        "The provided proof request has expired (expires_at: {expires_at}, check_timestamp: {current_timestamp})."
+    )]
+    ProofRequestExpired {
+        /// Current timestamp.
+        current_timestamp: u64,
+        /// Expiration timestamp.
+        expires_at: u64,
+    },
+    /// The proof's expires_at is greater than the created_at.
     #[error("The proof's expires_at {expires_at} happens before the created_at {created_at}.")]
     InvalidExpiresAt { created_at: u64, expires_at: u64 },
 }
