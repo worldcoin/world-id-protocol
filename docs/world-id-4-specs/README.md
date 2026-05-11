@@ -255,7 +255,7 @@ participant rp as RP
 critical initial/enrollment
 rp ->> a: Initial session request
 a->>a: Generate oprf_seed locally (CSPRNG)
-a->>o: $$r=\texttt{OPRF}(pk_{rpId}, DS_C || \texttt{leafIndex} || \texttt{oprf_seed})$$
+a->>o: $$r=\texttt{OPRF}(pk_{rpId}, DS_C || \texttt{leafIndex} || \texttt{oprf\_seed})$$
 a->>a: Compute C = H($$DS_C$$ || leafIndex || r)
 a->>a: sessionId = encode(C, oprf_seed)
 a ->> rp: sessionId
