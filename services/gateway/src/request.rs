@@ -369,7 +369,7 @@ impl IntoRequest for UpdateRecoveryAgentV2Request {
 
 impl IntoCommand for UpdateRecoveryAgentV2Request {
     fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::operation(id, calldata, DEFAULT_INITIATE_RECOVERY_AGENT_UPDATE_GAS)
+        Command::operation(id, calldata)
     }
 }
 
@@ -399,7 +399,7 @@ impl IntoRequest for RevertRecoveryAgentUpdateRequest {
 
 impl IntoCommand for RevertRecoveryAgentUpdateRequest {
     fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::operation(id, calldata, DEFAULT_CANCEL_RECOVERY_AGENT_UPDATE_GAS)
+        Command::operation(id, calldata)
     }
 }
 
