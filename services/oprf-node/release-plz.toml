@@ -2,7 +2,7 @@
 git_release_enable = true
 git_release_latest = false
 git_release_type = "auto"
-pr_branch_prefix = "release-oprf-node-"
+pr_branch_prefix = "release-plz-oprf-node-"
 pr_labels = ["release"]
 release = false
 release_always = false
