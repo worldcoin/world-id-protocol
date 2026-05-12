@@ -877,13 +877,8 @@ mod tests {
 
         let direct = credential.hash().unwrap();
 
-        let packed_cred_id: ark_babyjubjub::Fq = BigInt([
-            credential.id,
-            u64::from(credential.issuer_version),
-            0,
-            0,
-        ])
-        .into();
+        let packed_cred_id: ark_babyjubjub::Fq =
+            BigInt([credential.id, u64::from(credential.issuer_version), 0, 0]).into();
 
         let via_validation = hash_credential(
             FieldElement::from(credential.issuer_schema_id),
