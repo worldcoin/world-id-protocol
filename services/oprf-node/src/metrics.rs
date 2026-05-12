@@ -13,6 +13,8 @@ pub fn describe_metrics() {
     merkle_cache::describe_metrics();
     rp_registry_cache::describe_metrics();
     schema_issuer_cache::describe_metrics();
+
+    taceo_oprf::service::metrics::describe_metrics();
 }
 
 pub(crate) mod auth_module {

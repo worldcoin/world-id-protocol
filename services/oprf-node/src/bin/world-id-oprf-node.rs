@@ -147,7 +147,6 @@ fn main() -> ExitCode {
         .expect("Can build Tokio runtime");
     runtime.block_on(async {
         let _guard = telemetry_batteries::init();
-        taceo_oprf::service::metrics::describe_metrics();
         world_id_oprf_node::metrics::describe_metrics();
         // load the config
         let config = match maybe_config {
