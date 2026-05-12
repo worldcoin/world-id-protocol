@@ -141,7 +141,6 @@ sqlx = "0.8"
 take_mut = "0.2.2"
 tar = "0.4"
 taceo-nodes-common = { version = "0.5.1", default-features=false }
-taceo-nodes-observability = "0.1"
 tempfile = "3"
 tokio-util = "0.7"
 tempo-alloy = "1.6"

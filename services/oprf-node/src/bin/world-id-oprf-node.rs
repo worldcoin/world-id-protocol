@@ -69,10 +69,7 @@ const fn default_max_wait_shutdown() -> Duration {
 }
 
 async fn run(config: FullWorldOprfNodeConfig) -> eyre::Result<()> {
-    taceo_oprf::service::metrics::describe_metrics();
-    world_id_oprf_node::metrics::describe_metrics();
     tracing::info!("{}", taceo_nodes_common::version_info!());
-
     tracing::info!("starting oprf-node with config: {config:#?}");
 
     // Load the postgres secret manager.
@@ -149,10 +146,9 @@ fn main() -> ExitCode {
         .build()
         .expect("Can build Tokio runtime");
     runtime.block_on(async {
-        let tracing_config = taceo_nodes_observability::TracingConfig::try_from_env()
-            .expect("Can create TryingConfig");
-        let _tracing_handle = taceo_nodes_observability::initialize_tracing(&tracing_config)
-            .expect("Can get tracing handle");
+        let _guard = telemetry_batteries::init();
+        taceo_oprf::service::metrics::describe_metrics();
+        world_id_oprf_node::metrics::describe_metrics();
         // load the config
         let config = match maybe_config {
             Ok(config) => config,

@@ -34,9 +34,9 @@ secrecy = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 taceo-nodes-common = { workspace = true, features = ["postgres"] }
-taceo-nodes-observability = { workspace = true }
 taceo-oprf = { workspace = true, features = ["core", "service", "types"] }
 thiserror = { workspace = true }
+telemetry-batteries = { workspace = true }
 tokio = { workspace = true, features = [
   "net",
   "rt-multi-thread",
