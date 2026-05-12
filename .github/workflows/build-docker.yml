@@ -19,7 +19,6 @@ jobs:
         service:
           - indexer
           - gateway
-          - oprf-node
     permissions:
       contents: read
       id-token: write
