@@ -30,6 +30,8 @@ struct FullWorldOprfNodeConfig {
     pub postgres_config: PostgresConfig,
 }
 
+// we are not allowed to build an eyre::Report yet because telemetry-batteries expects to install
+// the color-eyre hook
 fn load_world_id_config() -> Result<FullWorldOprfNodeConfig, config::ConfigError> {
     let cfg = Config::builder().add_source(
         Environment::with_prefix("TACEO_OPRF_NODE")
