@@ -4,6 +4,13 @@
 //! It initializes tracing, metrics, and starts the node with configuration
 //! from command-line arguments or environment variables.
 
+#[cfg(not(target_env = "msvc"))]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 use std::{net::SocketAddr, process::ExitCode, sync::Arc, time::Duration};
 
 use config::{Config, Environment};

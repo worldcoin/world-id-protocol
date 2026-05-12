@@ -77,6 +77,7 @@ taceo-groth16-sol = { version = "0.3.1" }
 taceo-oprf = { version = "0.14.0", default-features = false }
 taceo-oprf-test-utils = { version = "0.12", default-features = false }
 telemetry-batteries = "0.2"
+tikv-jemallocator = "0.6"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }
 rand = "0.8"

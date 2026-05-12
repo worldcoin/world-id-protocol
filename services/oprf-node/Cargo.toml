@@ -51,6 +51,9 @@ uuid = { workspace = true, features = ["serde", "v4"] }
 world-id-primitives = { workspace = true }
 world-id-registries = { workspace = true }
 
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = { workspace = true }
+
 [dev-dependencies]
 ark-serialize.workspace = true
 rand.workspace = true
