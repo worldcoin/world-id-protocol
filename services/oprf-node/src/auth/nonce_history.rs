@@ -21,7 +21,7 @@
 
 use std::time::Duration;
 
-use crate::metrics::METRICS_ID_NODE_NONCE_HISTORY_SIZE;
+use crate::metrics;
 use moka::future::Cache;
 use world_id_primitives::FieldElement;
 
@@ -67,10 +67,15 @@ impl NonceHistory {
     /// # Arguments
     /// * `max_nonce_age` - Maximum age for nonces before they expire
     pub(crate) fn init(max_nonce_age: Duration) -> Self {
-        ::metrics::gauge!(METRICS_ID_NODE_NONCE_HISTORY_SIZE).set(0.0);
-
+        metrics::nonce_history::reset();
         NonceHistory {
-            nonces: Cache::builder().time_to_live(max_nonce_age).build(),
+            nonces: Cache::builder()
+                .time_to_live(max_nonce_age)
+                .eviction_listener(move |k, (), cause| {
+                    tracing::trace!("removing nonce {k:?} because {cause:?}");
+                    metrics::nonce_history::dec();
+                })
+                .build(),
         }
     }
 
@@ -100,6 +105,7 @@ impl NonceHistory {
         if !entry.is_fresh() {
             return Err(DuplicateNonce);
         }
+        metrics::nonce_history::inc();
         Ok(())
     }
 }

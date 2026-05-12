@@ -5,11 +5,14 @@
 
 use std::sync::Arc;
 
-use crate::auth::{
-    merkle_watcher::{MerkleWatcher, MerkleWatcherError},
-    schema_issuer_registry_watcher::{
-        SchemaIssuerRegistryWatcher, SchemaIssuerRegistryWatcherError,
+use crate::{
+    auth::{
+        merkle_watcher::{MerkleWatcher, MerkleWatcherError},
+        schema_issuer_registry_watcher::{
+            SchemaIssuerRegistryWatcher, SchemaIssuerRegistryWatcherError,
+        },
     },
+    metrics,
 };
 use alloy::primitives::U160;
 use ark_bn254::Bn254;
@@ -117,6 +120,7 @@ impl CredentialBlindingFactorModuleAuth {
         &self,
         request: &OprfRequest<CredentialBlindingFactorOprfRequestAuthV1>,
     ) -> Result<OprfKeyId, CredentialBlindingFactorModuleError> {
+        metrics::auth_module::inc_issuer_blinding();
         tracing::trace!("checking that action is 0...");
         // check that the action is valid (must be 0 for now, might change in the future)
         if request.auth.action != ark_babyjubjub::Fq::ZERO {

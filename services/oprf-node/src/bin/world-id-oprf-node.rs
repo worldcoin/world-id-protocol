@@ -4,6 +4,13 @@
 //! It initializes tracing, metrics, and starts the node with configuration
 //! from command-line arguments or environment variables.
 
+#[cfg(not(target_env = "msvc"))]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 use std::{net::SocketAddr, process::ExitCode, sync::Arc, time::Duration};
 
 use config::{Config, Environment};
@@ -30,7 +37,9 @@ struct FullWorldOprfNodeConfig {
     pub postgres_config: PostgresConfig,
 }
 
-fn load_world_id_config() -> eyre::Result<FullWorldOprfNodeConfig> {
+// we are not allowed to build an eyre::Report yet because telemetry-batteries expects to install
+// the color-eyre hook
+fn load_world_id_config() -> Result<FullWorldOprfNodeConfig, config::ConfigError> {
     let cfg = Config::builder().add_source(
         Environment::with_prefix("TACEO_OPRF_NODE")
             .separator("__")
@@ -39,11 +48,7 @@ fn load_world_id_config() -> eyre::Result<FullWorldOprfNodeConfig> {
             .try_parsing(true),
     );
 
-    let oprf_config = cfg
-        .build()
-        .context("while building from config")?
-        .try_deserialize()
-        .context("while parsing config")?;
+    let oprf_config = cfg.build()?.try_deserialize()?;
 
     // Unset all env vars with our prefix to prevent leakage to subprocesses.
     // Safety: this is called before any threads are spawned.
@@ -69,10 +74,7 @@ const fn default_max_wait_shutdown() -> Duration {
 }
 
 async fn run(config: FullWorldOprfNodeConfig) -> eyre::Result<()> {
-    taceo_oprf::service::metrics::describe_metrics();
-    world_id_oprf_node::metrics::describe_metrics();
     tracing::info!("{}", taceo_nodes_common::version_info!());
-
     tracing::info!("starting oprf-node with config: {config:#?}");
 
     // Load the postgres secret manager.
@@ -149,15 +151,13 @@ fn main() -> ExitCode {
         .build()
         .expect("Can build Tokio runtime");
     runtime.block_on(async {
-        let tracing_config = taceo_nodes_observability::TracingConfig::try_from_env()
-            .expect("Can create TryingConfig");
-        let _tracing_handle = taceo_nodes_observability::initialize_tracing(&tracing_config)
-            .expect("Can get tracing handle");
+        let _guard = telemetry_batteries::init();
+        world_id_oprf_node::metrics::describe_metrics();
         // load the config
         let config = match maybe_config {
             Ok(config) => config,
             Err(err) => {
-                tracing::error!("failed to load config: {err:?}");
+                tracing::error!("failed to load config: {err}");
                 return ExitCode::FAILURE;
             }
         };
