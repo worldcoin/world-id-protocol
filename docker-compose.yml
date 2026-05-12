@@ -22,7 +22,7 @@ services:  # world-id-indexer
       retries: 5
   oprf-key-gen0:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.1.0-rc.8
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.2.0-rc.1
     network_mode: "host"
     environment:
       RUST_LOG: "taceo=trace,warn"
@@ -30,7 +30,8 @@ services:  # world-id-indexer
       TACEO_OPRF_KEY_GEN__BIND_ADDR: 0.0.0.0:20000
       TACEO_OPRF_KEY_GEN__SERVICE__OPRF_KEY_REGISTRY_CONTRACT:
       TACEO_OPRF_KEY_GEN__SERVICE__RPC__HTTP_URLS: http://127.0.0.1:8545
-      TACEO_OPRF_KEY_GEN__SERVICE__RPC__WS_URL: ws://127.0.0.1:8545
+      TACEO_OPRF_KEY_GEN__SERVICE__WS_RPC_URL: ws://127.0.0.1:8545
+      TACEO_OPRF_KEY_GEN__SERVICE__BACKFILL__CONFIRMATIONS_AFTER_SYNC_BLOCK: 2
       # anvil signer 7
       TACEO_OPRF_KEY_GEN__SERVICE__WALLET_PRIVATE_KEY: 0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356
       TACEO_OPRF_KEY_GEN__SERVICE__EXPECTED_NUM_PEERS: 3
@@ -42,7 +43,7 @@ services:  # world-id-indexer
       TACEO_OPRF_KEY_GEN__POSTGRES__SCHEMA: oprf0
   oprf-key-gen1:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.1.0-rc.8
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.2.0-rc.1
     network_mode: "host"
     environment:
       RUST_LOG: "taceo=trace,warn"
@@ -50,7 +51,8 @@ services:  # world-id-indexer
       TACEO_OPRF_KEY_GEN__BIND_ADDR: 0.0.0.0:20001
       TACEO_OPRF_KEY_GEN__SERVICE__OPRF_KEY_REGISTRY_CONTRACT:
       TACEO_OPRF_KEY_GEN__SERVICE__RPC__HTTP_URLS: http://127.0.0.1:8545
-      TACEO_OPRF_KEY_GEN__SERVICE__RPC__WS_URL: ws://127.0.0.1:8545
+      TACEO_OPRF_KEY_GEN__SERVICE__WS_RPC_URL: ws://127.0.0.1:8545
+      TACEO_OPRF_KEY_GEN__SERVICE__BACKFILL__CONFIRMATIONS_AFTER_SYNC_BLOCK: 2
       # anvil signer 8
       TACEO_OPRF_KEY_GEN__SERVICE__WALLET_PRIVATE_KEY: 0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97
       TACEO_OPRF_KEY_GEN__SERVICE__EXPECTED_NUM_PEERS: 3
@@ -62,7 +64,7 @@ services:  # world-id-indexer
       TACEO_OPRF_KEY_GEN__POSTGRES__SCHEMA: oprf1
   oprf-key-gen2:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.1.0-rc.8
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.2.0-rc.1
     network_mode: "host"
     environment:
       RUST_LOG: "taceo=trace,warn"
@@ -70,7 +72,8 @@ services:  # world-id-indexer
       TACEO_OPRF_KEY_GEN__BIND_ADDR: 0.0.0.0:20002
       TACEO_OPRF_KEY_GEN__SERVICE__OPRF_KEY_REGISTRY_CONTRACT:
       TACEO_OPRF_KEY_GEN__SERVICE__RPC__HTTP_URLS: http://127.0.0.1:8545
-      TACEO_OPRF_KEY_GEN__SERVICE__RPC__WS_URL: ws://127.0.0.1:8545
+      TACEO_OPRF_KEY_GEN__SERVICE__WS_RPC_URL: ws://127.0.0.1:8545
+      TACEO_OPRF_KEY_GEN__SERVICE__BACKFILL__CONFIRMATIONS_AFTER_SYNC_BLOCK: 2
       # anvil signer 9
       TACEO_OPRF_KEY_GEN__SERVICE__WALLET_PRIVATE_KEY: 0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6
       TACEO_OPRF_KEY_GEN__SERVICE__EXPECTED_NUM_PEERS: 3

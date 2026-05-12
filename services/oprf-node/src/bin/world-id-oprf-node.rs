@@ -30,7 +30,7 @@ struct FullWorldOprfNodeConfig {
     pub postgres_config: PostgresConfig,
 }
 
-fn load_world_id_config() -> eyre::Result<FullWorldOprfNodeConfig> {
+fn load_world_id_config() -> Result<FullWorldOprfNodeConfig, config::ConfigError> {
     let cfg = Config::builder().add_source(
         Environment::with_prefix("TACEO_OPRF_NODE")
             .separator("__")
@@ -39,11 +39,7 @@ fn load_world_id_config() -> eyre::Result<FullWorldOprfNodeConfig> {
             .try_parsing(true),
     );
 
-    let oprf_config = cfg
-        .build()
-        .context("while building from config")?
-        .try_deserialize()
-        .context("while parsing config")?;
+    let oprf_config = cfg.build()?.try_deserialize()?;
 
     // Unset all env vars with our prefix to prevent leakage to subprocesses.
     // Safety: this is called before any threads are spawned.
@@ -152,7 +148,7 @@ fn main() -> ExitCode {
         let config = match maybe_config {
             Ok(config) => config,
             Err(err) => {
-                tracing::error!("failed to load config: {err:?}");
+                tracing::error!("failed to load config: {err}");
                 return ExitCode::FAILURE;
             }
         };
