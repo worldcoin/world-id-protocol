@@ -6,11 +6,7 @@ use crate::{
         rp_registry_watcher::RpRegistry::RpRegistryInstance,
     },
     config::WatcherCacheConfig,
-    metrics::{
-        METRICS_ATTRID_RP_TYPE, METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS,
-        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES,
-        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
-    },
+    metrics,
 };
 use alloy::{primitives::Address, providers::DynProvider};
 use eyre::Context;
@@ -67,7 +63,7 @@ impl RpRegistryWatcher {
         timeout_external_eth_call: Duration,
         cache_config: WatcherCacheConfig,
     ) -> Self {
-        ::metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).set(0.0);
+        metrics::rp_registry_cache::reset();
 
         let WatcherCacheConfig {
             max_cache_size,
@@ -79,12 +75,7 @@ impl RpRegistryWatcher {
             .time_to_live(time_to_live)
             .eviction_listener(move |k, v: RelyingParty, cause| {
                 tracing::debug!("removing rp {k}/{} because: {cause:?}", v.account_type);
-
-                metrics::gauge!(
-                    METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
-                    METRICS_ATTRID_RP_TYPE => v.account_type.metrics_label(),
-                )
-                .decrement(1);
+                metrics::rp_registry_cache::dec(v.account_type);
             })
             .build();
 
@@ -108,16 +99,12 @@ impl RpRegistryWatcher {
             .await?;
         let rp = if entry.is_fresh() {
             let rp = entry.value().to_owned();
-            metrics::gauge!(
-                METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
-                METRICS_ATTRID_RP_TYPE => rp.account_type.metrics_label(),
-            )
-            .increment(1);
-            ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
+            metrics::rp_registry_cache::inc(rp.account_type);
+            metrics::rp_registry_cache::miss();
             tracing::debug!("rp {rp_id}/{} loaded from chain", rp.account_type);
             rp
         } else {
-            ::metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS).increment(1);
+            metrics::rp_registry_cache::hit();
             entry.value().to_owned()
         };
 

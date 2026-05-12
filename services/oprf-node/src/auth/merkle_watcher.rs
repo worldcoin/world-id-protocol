@@ -18,13 +18,7 @@ use tracing::instrument;
 use world_id_primitives::FieldElement;
 use world_id_registries::world_id::WorldIdRegistry::{self, WorldIdRegistryInstance};
 
-use crate::{
-    config::WatcherCacheConfig,
-    metrics::{
-        METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS, METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES,
-        METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE,
-    },
-};
+use crate::{config::WatcherCacheConfig, metrics};
 
 /// Error returned by the [`MerkleWatcher`] implementation.
 #[derive(Debug, thiserror::Error)]
@@ -58,7 +52,7 @@ impl MerkleWatcher {
         http_rpc_provider: &web3::HttpRpcProvider,
         cache_config: WatcherCacheConfig,
     ) -> Self {
-        ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(0.0);
+        metrics::merkle_cache::reset();
 
         let contract = WorldIdRegistry::new(contract_address, http_rpc_provider.inner());
 
@@ -72,7 +66,7 @@ impl MerkleWatcher {
             .time_to_live(time_to_live)
             .eviction_listener(move |root, (), cause| {
                 tracing::debug!("removing merkle-root {root} because: {cause:?}");
-                ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).decrement(1);
+                metrics::merkle_cache::dec();
             })
             .build();
 
@@ -107,10 +101,10 @@ impl MerkleWatcher {
             .or_try_insert_with(is_valid_root())
             .await?;
         if entry.is_fresh() {
-            ::metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).increment(1);
-            ::metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES).increment(1);
+            metrics::merkle_cache::inc();
+            metrics::merkle_cache::miss();
         } else {
-            ::metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS).increment(1);
+            metrics::merkle_cache::hit();
         }
         Ok(())
     }
