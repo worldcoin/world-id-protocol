@@ -16,7 +16,7 @@ use world_id_core::{
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
 };
-use world_id_primitives::{Config, TREE_DEPTH, merkle::AccountInclusionProof};
+use world_id_primitives::{Config, ServiceEndpoint, TREE_DEPTH, merkle::AccountInclusionProof};
 use world_id_test_utils::{
     anvil::{TestAnvil, WorldIDRegistry},
     fixtures::{MerkleFixture, single_leaf_merkle_fixture},
@@ -82,8 +82,8 @@ fn make_config(
         Some(rpc_url.to_string()),
         chain_id,
         registry,
-        indexer_url.to_string(),
-        gateway_url.to_string(),
+        ServiceEndpoint::direct(indexer_url.to_string()),
+        ServiceEndpoint::direct(gateway_url.to_string()),
         Vec::new(),
         2,
     )
@@ -148,14 +148,14 @@ async fn e2e_authenticator_insert_update_remove() {
         "http://127.0.0.1:0",
         &gateway_url,
     );
-    let result = Authenticator::init(&primary_seed, config.clone().into()).await;
+    let result = Authenticator::init(&primary_seed, config.clone()).await;
     assert!(matches!(
         result,
         Err(AuthenticatorError::AccountDoesNotExist)
     ));
 
     let primary =
-        Authenticator::init_or_register(&primary_seed, config.into(), Some(recovery_address))
+        Authenticator::init_or_register(&primary_seed, config, Some(recovery_address))
             .await
             .unwrap();
 
@@ -183,7 +183,7 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&primary_seed, config.into())
+    let auth = Authenticator::init(&primary_seed, config)
         .await
         .unwrap();
 
@@ -223,7 +223,7 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&primary_seed, config.into())
+    let auth = Authenticator::init(&primary_seed, config)
         .await
         .unwrap();
 
@@ -278,7 +278,7 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&secondary_seed, config.into())
+    let auth = Authenticator::init(&secondary_seed, config)
         .await
         .unwrap();
 

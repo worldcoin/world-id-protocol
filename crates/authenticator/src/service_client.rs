@@ -4,6 +4,7 @@ use crate::{
 };
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
+use world_id_primitives::ServiceEndpoint;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ServiceKind {
@@ -39,26 +40,30 @@ struct TransportResponse {
 }
 
 impl ServiceClient {
-    /// Creates a new [`ServiceClient`] that routes through OHTTP when `ohttp_config` is
-    /// `Some`, and falls back to direct HTTP otherwise.
+    /// Creates a new [`ServiceClient`] for the given endpoint.
     ///
-    /// `target_url` is the origin of the upstream service (e.g. the gateway or
-    /// indexer URL). It is forwarded into the encrypted BHTTP envelope when
-    /// OHTTP is enabled.
+    /// Routes through OHTTP for [`ServiceEndpoint::Ohttp`] and falls back to direct
+    /// HTTP for [`ServiceEndpoint::Direct`].
     pub(crate) fn new(
         client: reqwest::Client,
         service_kind: ServiceKind,
-        target_url: &str,
-        ohttp_config: Option<OhttpClientConfig>,
+        endpoint: &ServiceEndpoint,
     ) -> Result<Self, AuthenticatorError> {
-        let transport = match ohttp_config {
-            Some(config) => HttpTransport::Ohttp(OhttpClient::new(
+        let transport = match endpoint {
+            ServiceEndpoint::Direct { .. } => HttpTransport::Direct(client),
+            ServiceEndpoint::Ohttp {
+                url,
+                relay_url,
+                key_config_base64,
+            } => HttpTransport::Ohttp(OhttpClient::new(
                 client,
                 service_kind.ohttp_config_scope(),
-                target_url,
-                config,
+                url,
+                OhttpClientConfig {
+                    relay_url: relay_url.clone(),
+                    key_config_base64: key_config_base64.clone(),
+                },
             )?),
-            None => HttpTransport::Direct(client),
         };
 
         Ok(Self {

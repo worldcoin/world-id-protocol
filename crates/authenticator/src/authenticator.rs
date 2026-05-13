@@ -16,7 +16,6 @@ use crate::{
     },
     service_client::{ServiceClient, ServiceKind},
 };
-use serde::{Deserialize, Serialize};
 use world_id_primitives::{Credential, FieldElement, ProofResponse, Signer};
 
 pub use crate::ohttp::OhttpClientConfig;
@@ -33,7 +32,7 @@ use taceo_oprf::client::Connector;
 use world_id_primitives::{
     AuthenticatorPublicKeySet, PrimitiveError, SparseAuthenticatorPubkeysError,
 };
-pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
+pub use world_id_primitives::{Config, ServiceEndpoint, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 #[expect(unused_imports, reason = "used for docs")]
@@ -45,48 +44,6 @@ static MASK_PUBKEY_ID: U256 =
     uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
 static MASK_LEAF_INDEX: U256 =
     uint!(0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF_U256);
-
-/// Configuration for an [`Authenticator`], extends base protocol [`Config`] by
-/// optional OHTTP relay settings for the indexer and gateway services.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AuthenticatorConfig {
-    /// Base protocol configuration (indexer URL, gateway URL, RPC, etc.).
-    #[serde(flatten)]
-    pub config: Config,
-    /// Optional OHTTP relay configuration for indexer requests.
-    #[serde(default)]
-    pub ohttp_indexer: Option<OhttpClientConfig>,
-    /// Optional OHTTP relay configuration for gateway requests.
-    #[serde(default)]
-    pub ohttp_gateway: Option<OhttpClientConfig>,
-}
-
-impl AuthenticatorConfig {
-    /// Loads an authenticator configuration from JSON.
-    ///
-    /// Accepts both plain `Config` JSON (OHTTP fields default to `None`) and
-    /// extended JSON with `ohttp_indexer` / `ohttp_gateway` fields.
-    ///
-    /// # Errors
-    /// Will error if the JSON is not valid.
-    pub fn from_json(json_str: &str) -> Result<Self, AuthenticatorError> {
-        serde_json::from_str(json_str).map_err(|e| {
-            AuthenticatorError::from(PrimitiveError::Serialization(format!(
-                "failed to parse authenticator config: {e}"
-            )))
-        })
-    }
-}
-
-impl From<Config> for AuthenticatorConfig {
-    fn from(config: Config) -> Self {
-        Self {
-            config,
-            ohttp_indexer: None,
-            ohttp_gateway: None,
-        }
-    }
-}
 
 /// Input for a single credential proof within a proof request.
 pub struct CredentialInput {
@@ -169,16 +126,7 @@ impl Authenticator {
     /// - Will return [`AuthenticatorError::AccountDoesNotExist`] if the authenticator address
     ///   derived from `seed` is not currently registered on-chain, whether permanently or because a
     ///   relevant on-chain operation has not finalized yet.
-    pub async fn init(
-        seed: &[u8],
-        config: AuthenticatorConfig,
-    ) -> Result<Self, AuthenticatorError> {
-        let AuthenticatorConfig {
-            config,
-            ohttp_indexer,
-            ohttp_gateway,
-        } = config;
-
+    pub async fn init(seed: &[u8], config: Config) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
         let registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>> =
@@ -197,16 +145,11 @@ impl Authenticator {
         let indexer_client = ServiceClient::new(
             http_client.clone(),
             ServiceKind::Indexer,
-            config.indexer_url(),
-            ohttp_indexer,
+            config.indexer(),
         )?;
 
-        let gateway_client = ServiceClient::new(
-            http_client,
-            ServiceKind::Gateway,
-            config.gateway_url(),
-            ohttp_gateway,
-        )?;
+        let gateway_client =
+            ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())?;
 
         let packed_account_data = Self::fetch_packed_account_data_for(
             signer.onchain_signer_address(),
@@ -268,19 +211,13 @@ impl Authenticator {
     /// - See `init` for additional error details.
     pub async fn register(
         seed: &[u8],
-        config: AuthenticatorConfig,
+        config: Config,
         recovery_address: Option<Address>,
     ) -> Result<InitializingAuthenticator, AuthenticatorError> {
-        let AuthenticatorConfig {
-            config,
-            ohttp_gateway,
-            ..
-        } = config;
         let gateway_client = ServiceClient::new(
             reqwest::Client::new(),
             ServiceKind::Gateway,
-            config.gateway_url(),
-            ohttp_gateway,
+            config.gateway(),
         )?;
         InitializingAuthenticator::new(seed, config, recovery_address, gateway_client).await
     }
@@ -299,7 +236,7 @@ impl Authenticator {
     /// - See `init` for additional error details.
     pub async fn init_or_register(
         seed: &[u8],
-        config: AuthenticatorConfig,
+        config: Config,
         recovery_address: Option<Address>,
     ) -> Result<Self, AuthenticatorError> {
         match Self::init(seed, config.clone()).await {
@@ -308,12 +245,11 @@ impl Authenticator {
                 let gateway_client = ServiceClient::new(
                     reqwest::Client::new(),
                     ServiceKind::Gateway,
-                    config.config.gateway_url(),
-                    config.ohttp_gateway.clone(),
+                    config.gateway(),
                 )?;
                 let initializing_authenticator = InitializingAuthenticator::new(
                     seed,
-                    config.config.clone(),
+                    config.clone(),
                     recovery_address,
                     gateway_client,
                 )
@@ -723,8 +659,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            indexer_url,
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct(indexer_url),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -733,8 +669,7 @@ mod tests {
         let indexer_client = ServiceClient::new(
             reqwest::Client::new(),
             ServiceKind::Indexer,
-            config.indexer_url(),
-            None,
+            config.indexer(),
         )
         .unwrap();
 
@@ -768,8 +703,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            indexer_url,
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct(indexer_url),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -778,8 +713,7 @@ mod tests {
         let indexer_client = ServiceClient::new(
             reqwest::Client::new(),
             ServiceKind::Indexer,
-            config.indexer_url(),
-            None,
+            config.indexer(),
         )
         .unwrap();
 
@@ -824,8 +758,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            indexer_url,
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct(indexer_url),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -840,15 +774,13 @@ mod tests {
             indexer_client: ServiceClient::new(
                 http_client.clone(),
                 ServiceKind::Indexer,
-                config.indexer_url(),
-                None,
+                config.indexer(),
             )
             .unwrap(),
             gateway_client: ServiceClient::new(
                 http_client,
                 ServiceKind::Gateway,
-                config.gateway_url(),
-                None,
+                config.gateway(),
             )
             .unwrap(),
             ws_connector: Connector::Plain,
@@ -867,8 +799,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            "http://indexer.example.com".to_string(),
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct("http://indexer.example.com".to_string()),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -878,15 +810,13 @@ mod tests {
             indexer_client: ServiceClient::new(
                 http_client.clone(),
                 ServiceKind::Indexer,
-                config.indexer_url(),
-                None,
+                config.indexer(),
             )
             .unwrap(),
             gateway_client: ServiceClient::new(
                 http_client,
                 ServiceKind::Gateway,
-                config.gateway_url(),
-                None,
+                config.gateway(),
             )
             .unwrap(),
             config,
@@ -911,8 +841,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            "http://indexer.example.com".to_string(),
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct("http://indexer.example.com".to_string()),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -922,15 +852,13 @@ mod tests {
             indexer_client: ServiceClient::new(
                 http_client.clone(),
                 ServiceKind::Indexer,
-                config.indexer_url(),
-                None,
+                config.indexer(),
             )
             .unwrap(),
             gateway_client: ServiceClient::new(
                 http_client,
                 ServiceKind::Gateway,
-                config.gateway_url(),
-                None,
+                config.gateway(),
             )
             .unwrap(),
             config,
@@ -952,8 +880,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            "http://indexer.example.com".to_string(),
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct("http://indexer.example.com".to_string()),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -963,15 +891,13 @@ mod tests {
             indexer_client: ServiceClient::new(
                 http_client.clone(),
                 ServiceKind::Indexer,
-                config.indexer_url(),
-                None,
+                config.indexer(),
             )
             .unwrap(),
             gateway_client: ServiceClient::new(
                 http_client,
                 ServiceKind::Gateway,
-                config.gateway_url(),
-                None,
+                config.gateway(),
             )
             .unwrap(),
             config,
@@ -1004,8 +930,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            indexer_url,
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct(indexer_url),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -1020,15 +946,13 @@ mod tests {
             indexer_client: ServiceClient::new(
                 http_client.clone(),
                 ServiceKind::Indexer,
-                config.indexer_url(),
-                None,
+                config.indexer(),
             )
             .unwrap(),
             gateway_client: ServiceClient::new(
                 http_client,
                 ServiceKind::Gateway,
-                config.gateway_url(),
-                None,
+                config.gateway(),
             )
             .unwrap(),
             ws_connector: Connector::Plain,
@@ -1044,48 +968,4 @@ mod tests {
         drop(server);
     }
 
-    #[test]
-    fn test_authenticator_config_from_json_plain_config() {
-        let json = serde_json::json!({
-            "chain_id": 480,
-            "registry_address": "0x0000000000000000000000000000000000000001",
-            "indexer_url": "http://indexer.example.com",
-            "gateway_url": "http://gateway.example.com",
-            "nullifier_oracle_urls": [],
-            "nullifier_oracle_threshold": 2
-        });
-
-        let config = AuthenticatorConfig::from_json(&json.to_string()).unwrap();
-        assert!(config.ohttp_indexer.is_none());
-        assert!(config.ohttp_gateway.is_none());
-        assert_eq!(config.config.gateway_url(), "http://gateway.example.com");
-    }
-
-    #[test]
-    fn test_authenticator_config_from_json_with_ohttp() {
-        let json = serde_json::json!({
-            "chain_id": 480,
-            "registry_address": "0x0000000000000000000000000000000000000001",
-            "indexer_url": "http://indexer.example.com",
-            "gateway_url": "http://gateway.example.com",
-            "nullifier_oracle_urls": [],
-            "nullifier_oracle_threshold": 2,
-            "ohttp_indexer": {
-                "relay_url": "https://relay.example.com/gateway",
-                "key_config_base64": "dGVzdC1rZXk="
-            },
-            "ohttp_gateway": {
-                "relay_url": "https://relay.example.com/gateway",
-                "key_config_base64": "dGVzdC1rZXk="
-            }
-        });
-
-        let config = AuthenticatorConfig::from_json(&json.to_string()).unwrap();
-        let ohttp_indexer = config.ohttp_indexer.unwrap();
-        assert_eq!(ohttp_indexer.relay_url, "https://relay.example.com/gateway");
-        assert_eq!(ohttp_indexer.key_config_base64, "dGVzdC1rZXk=");
-        let ohttp_gateway = config.ohttp_gateway.unwrap();
-        assert_eq!(ohttp_gateway.relay_url, "https://relay.example.com/gateway");
-        assert_eq!(ohttp_gateway.key_config_base64, "dGVzdC1rZXk=");
-    }
 }
