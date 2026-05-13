@@ -10,6 +10,11 @@ use world_id_registries::world_id::WorldIdRegistryV2::WorldIdRegistryV2Instance;
 
 use crate::error::{GatewayError, GatewayResult};
 
+fn http_only_run_mode() -> bool {
+    std::env::var("RUN_MODE")
+        .is_ok_and(|value| matches!(value.to_ascii_lowercase().as_str(), "http" | "http-only"))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RegistryVersion {
     V1,
@@ -33,10 +38,18 @@ pub async fn probe(
             Ok(RegistryVersion::V1)
         }
         Err(err) => {
-            warn!(error = ?err, "registry version probe failed");
-            Err(GatewayError::Config(format!(
-                "failed to probe registry version: {err}"
-            )))
+            if http_only_run_mode() {
+                warn!(
+                    error = ?err,
+                    "registry version probe failed in http-only mode; defaulting to V1"
+                );
+                Ok(RegistryVersion::V1)
+            } else {
+                warn!(error = ?err, "registry version probe failed");
+                Err(GatewayError::Config(format!(
+                    "failed to probe registry version: {err}"
+                )))
+            }
         }
     }
 }
