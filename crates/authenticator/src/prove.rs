@@ -551,12 +551,8 @@ mod tests {
                 config.indexer(),
             )
             .expect("valid indexer client"),
-            gateway_client: ServiceClient::new(
-                http_client,
-                ServiceKind::Gateway,
-                config.gateway(),
-            )
-            .expect("valid gateway client"),
+            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
+                .expect("valid gateway client"),
             ws_connector: Connector::Plain,
             query_material: None,
             nullifier_material: None,

@@ -91,9 +91,7 @@ async fn test_authenticator_registration() {
         .await
         .unwrap();
 
-    let authenticator = Authenticator::init(&seed, config.clone())
-        .await
-        .unwrap();
+    let authenticator = Authenticator::init(&seed, config.clone()).await.unwrap();
     let elapsed = start.elapsed();
     tracing::info!("Account creation successful in {elapsed:?}");
     assert_eq!(authenticator.leaf_index(), 1);

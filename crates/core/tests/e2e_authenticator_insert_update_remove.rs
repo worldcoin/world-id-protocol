@@ -154,10 +154,9 @@ async fn e2e_authenticator_insert_update_remove() {
         Err(AuthenticatorError::AccountDoesNotExist)
     ));
 
-    let primary =
-        Authenticator::init_or_register(&primary_seed, config, Some(recovery_address))
-            .await
-            .unwrap();
+    let primary = Authenticator::init_or_register(&primary_seed, config, Some(recovery_address))
+        .await
+        .unwrap();
 
     assert_eq!(primary.leaf_index(), 1);
     assert_eq!(primary.signing_nonce().await.unwrap(), U256::from(0));
@@ -183,9 +182,7 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&primary_seed, config)
-        .await
-        .unwrap();
+    let auth = Authenticator::init(&primary_seed, config).await.unwrap();
 
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(0));
     let req_id = auth
@@ -223,9 +220,7 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&primary_seed, config)
-        .await
-        .unwrap();
+    let auth = Authenticator::init(&primary_seed, config).await.unwrap();
 
     let updated_pubkey = EdDSAPrivateKey::random(&mut rand::thread_rng()).public();
     let updated_address = anvil.signer(3).unwrap().address();
@@ -278,9 +273,7 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&secondary_seed, config)
-        .await
-        .unwrap();
+    let auth = Authenticator::init(&secondary_seed, config).await.unwrap();
 
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(2));
     let req_id = auth.remove_authenticator(updated_address, 0).await.unwrap();

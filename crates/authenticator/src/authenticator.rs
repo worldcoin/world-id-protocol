@@ -142,11 +142,8 @@ impl Authenticator {
 
         let http_client = reqwest::Client::new();
 
-        let indexer_client = ServiceClient::new(
-            http_client.clone(),
-            ServiceKind::Indexer,
-            config.indexer(),
-        )?;
+        let indexer_client =
+            ServiceClient::new(http_client.clone(), ServiceKind::Indexer, config.indexer())?;
 
         let gateway_client =
             ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())?;
@@ -777,12 +774,8 @@ mod tests {
                 config.indexer(),
             )
             .unwrap(),
-            gateway_client: ServiceClient::new(
-                http_client,
-                ServiceKind::Gateway,
-                config.gateway(),
-            )
-            .unwrap(),
+            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
+                .unwrap(),
             ws_connector: Connector::Plain,
             query_material: None,
             nullifier_material: None,
@@ -813,12 +806,8 @@ mod tests {
                 config.indexer(),
             )
             .unwrap(),
-            gateway_client: ServiceClient::new(
-                http_client,
-                ServiceKind::Gateway,
-                config.gateway(),
-            )
-            .unwrap(),
+            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
+                .unwrap(),
             config,
             packed_account_data: U256::from(1),
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
@@ -855,12 +844,8 @@ mod tests {
                 config.indexer(),
             )
             .unwrap(),
-            gateway_client: ServiceClient::new(
-                http_client,
-                ServiceKind::Gateway,
-                config.gateway(),
-            )
-            .unwrap(),
+            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
+                .unwrap(),
             config,
             packed_account_data: U256::from(1),
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
@@ -894,12 +879,8 @@ mod tests {
                 config.indexer(),
             )
             .unwrap(),
-            gateway_client: ServiceClient::new(
-                http_client,
-                ServiceKind::Gateway,
-                config.gateway(),
-            )
-            .unwrap(),
+            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
+                .unwrap(),
             config,
             packed_account_data: U256::from(1),
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
@@ -949,12 +930,8 @@ mod tests {
                 config.indexer(),
             )
             .unwrap(),
-            gateway_client: ServiceClient::new(
-                http_client,
-                ServiceKind::Gateway,
-                config.gateway(),
-            )
-            .unwrap(),
+            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
+                .unwrap(),
             ws_connector: Connector::Plain,
             query_material: None,
             nullifier_material: None,
@@ -967,5 +944,4 @@ mod tests {
         mock.assert_async().await;
         drop(server);
     }
-
 }
