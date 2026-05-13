@@ -33,15 +33,25 @@ pub(crate) async fn execute_recovery_agent_update(
             .await
             .map(|r| Json(r.into_response())),
         RegistryVersion::V2 => {
-            // WIP-102 removes the explicit execute step
-            // Return a terminal `Finalized`
+            // WIP-102 removes the explicit execute step. Record the terminal
+            // no-op result so clients polling `/status/{request_id}` do not get
+            // a 404 even though no transaction was needed.
             let _ = payload;
+            let kind = GatewayRequestKind::ExecuteRecoveryAgentUpdate;
+            let status = GatewayRequestState::Finalized {
+                tx_hash: String::new(),
+            };
+
+            state
+                .ctx
+                .tracker
+                .new_terminal_request_with_id(id.to_string(), kind, status.clone())
+                .await?;
+
             Ok(Json(GatewayStatusResponse {
                 request_id: GatewayRequestId::new(id.to_string()),
-                kind: GatewayRequestKind::ExecuteRecoveryAgentUpdate,
-                status: GatewayRequestState::Finalized {
-                    tx_hash: String::new(),
-                },
+                kind,
+                status,
             }))
         }
     }

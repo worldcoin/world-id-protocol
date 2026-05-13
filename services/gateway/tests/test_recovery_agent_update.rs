@@ -15,8 +15,8 @@ use alloy::{
 };
 use reqwest::StatusCode;
 use world_id_primitives::api_types::{
-    CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest, GatewayStatusResponse,
-    UpdateRecoveryAgentRequest,
+    CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest, GatewayRequestState,
+    GatewayStatusResponse, UpdateRecoveryAgentRequest,
 };
 use world_id_registries::world_id::{
     WorldIdRegistry, domain as ag_domain, sign_cancel_recovery_agent_update,
@@ -623,6 +623,36 @@ async fn e2e_initiate_then_window_elapse_and_execute_noop_v2() {
         .unwrap();
     assert_eq!(pending.newRecoveryAgent, Address::ZERO);
     assert_eq!(pending.executeAfter, U256::ZERO);
+
+    // The legacy execute endpoint is a no-op on V2, but it should still record
+    // a terminal tracker entry so clients that poll status do not receive 404.
+    let body_exec = ExecuteRecoveryAgentUpdateRequest { leaf_index };
+    let resp = gw
+        .client
+        .post(format!("{}/execute-recovery-agent-update", gw.base_url))
+        .json(&body_exec)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "execute failed: {:?}", resp);
+    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
+    assert!(matches!(
+        accepted.status,
+        GatewayRequestState::Finalized { .. }
+    ));
+
+    let resp = gw
+        .client
+        .get(format!("{}/status/{}", gw.base_url, accepted.request_id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "status failed: {:?}", resp);
+    let status: GatewayStatusResponse = resp.json().await.unwrap();
+    assert!(matches!(
+        status.status,
+        GatewayRequestState::Finalized { .. }
+    ));
 }
 
 /// New WIP-102 URLs: `/update-recovery-agent` and `/revert-recovery-agent-update`
