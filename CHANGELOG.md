@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.10.2...world-id-primitives-v0.11.0) - 2026-05-13
+
+### Added
+
+- WIP-102  ([#692](https://github.com/worldcoin/world-id-protocol/pull/692))
+- WIP-104 - Proving and Admin Authenticators with Different Permission Sets ([#643](https://github.com/worldcoin/world-id-protocol/pull/643))
+- add proof type to proof requests ([#711](https://github.com/worldcoin/world-id-protocol/pull/711))
+- support session proof generation ([#712](https://github.com/worldcoin/world-id-protocol/pull/712))
+- add proof inputs validation ([#721](https://github.com/worldcoin/world-id-protocol/pull/721))
+
+### Fixed
+
+- use correct field in error msg ([#720](https://github.com/worldcoin/world-id-protocol/pull/720))
+
 ## [0.10.2](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.10.1...world-id-primitives-v0.10.2) - 2026-05-04
 
 ### Added
