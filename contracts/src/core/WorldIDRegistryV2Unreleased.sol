@@ -493,7 +493,9 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         // from becoming the effective recovery agent the moment the mask is removed.
         PreviousRecoveryAgentUpdate memory prev = _prevRecoveryAgentUpdates[leafIndex];
         if (prev.invalidAfter != 0 && block.timestamp < prev.invalidAfter) {
+            address revertedAgent = _getRecoveryAgent(leafIndex);
             _setRecoveryAddressAndBitmap(leafIndex, prev.prevRecoveryAgent, _getPubkeyBitmap(leafIndex));
+            emit RecoveryAgentUpdateReverted(leafIndex, prev.prevRecoveryAgent, revertedAgent);
         }
         delete _prevRecoveryAgentUpdates[leafIndex];
 

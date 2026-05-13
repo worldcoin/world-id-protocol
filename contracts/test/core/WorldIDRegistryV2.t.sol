@@ -547,6 +547,9 @@ contract WorldIDRegistryV2WIP102Test is WorldIDRegistryV2TestBase {
         uint256 newCommitment = OFFCHAIN_SIGNER_COMMITMENT + 1;
         bytes memory recoverySig =
             _recoverAccountSig(leafIndex, newAuth, newCommitment, nonce, RECOVERY_OLD_PRIVATE_KEY);
+
+        vm.expectEmit(true, true, true, true);
+        emit IWorldIDRegistryV2.RecoveryAgentUpdateReverted(leafIndex, recoveryOld, recoveryNew);
         registry.recoverAccount(
             leafIndex, newAuth, newCommitment, OFFCHAIN_SIGNER_COMMITMENT, newCommitment, recoverySig, nonce
         );
