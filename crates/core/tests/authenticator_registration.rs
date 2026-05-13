@@ -6,7 +6,7 @@ use world_id_core::{Authenticator, AuthenticatorError, api_types::GatewayRequest
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
 };
-use world_id_primitives::Config;
+use world_id_primitives::{Config, ServiceEndpoint};
 use world_id_test_utils::anvil::TestAnvil;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -55,8 +55,8 @@ async fn test_authenticator_registration() {
         Some(anvil.endpoint().to_string()),
         anvil.instance.chain_id(),
         registry_address,
-        "http://127.0.0.1:0".to_string(), // not needed for this test
-        gateway_url.clone(),
+        ServiceEndpoint::direct("http://127.0.0.1:0".to_string()), // not needed for this test
+        ServiceEndpoint::direct(gateway_url.clone()),
         Vec::new(),
         2,
     )
@@ -65,7 +65,7 @@ async fn test_authenticator_registration() {
     let seed = [1u8; 32];
     let recovery_address = anvil.signer(1).unwrap().address();
     // Account doesn't exist, so init will error
-    let result = Authenticator::init(&seed, config.clone().into()).await;
+    let result = Authenticator::init(&seed, config.clone()).await;
     assert!(matches!(
         result,
         Err(AuthenticatorError::AccountDoesNotExist)
@@ -75,7 +75,7 @@ async fn test_authenticator_registration() {
     // NOTE how we use `register()` instead of `init_or_register()` to test this specific flow.
     let start = std::time::Instant::now();
     let initializing_account =
-        Authenticator::register(&seed, config.clone().into(), Some(recovery_address))
+        Authenticator::register(&seed, config.clone(), Some(recovery_address))
             .await
             .unwrap();
 
@@ -91,15 +91,13 @@ async fn test_authenticator_registration() {
         .await
         .unwrap();
 
-    let authenticator = Authenticator::init(&seed, config.clone().into())
-        .await
-        .unwrap();
+    let authenticator = Authenticator::init(&seed, config.clone()).await.unwrap();
     let elapsed = start.elapsed();
     tracing::info!("Account creation successful in {elapsed:?}");
     assert_eq!(authenticator.leaf_index(), 1);
     assert_eq!(authenticator.recovery_counter(), U256::from(0));
 
     // If we initialize again, it will work
-    let authenticator = Authenticator::init(&seed, config.into()).await.unwrap();
+    let authenticator = Authenticator::init(&seed, config).await.unwrap();
     assert_eq!(authenticator.leaf_index(), 1);
 }

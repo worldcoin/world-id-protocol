@@ -16,15 +16,14 @@ use testcontainers::{
 };
 use tokio::{net::TcpListener, sync::Mutex};
 use world_id_authenticator::{
-    Authenticator, AuthenticatorConfig, AuthenticatorError,
+    Authenticator, AuthenticatorError,
     api_types::{
         CreateAccountRequest, GatewayRequestState, IndexerAuthenticatorPubkeysResponse,
         IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
         InsertAuthenticatorRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
-    ohttp::OhttpClientConfig,
 };
-use world_id_primitives::Config;
+use world_id_primitives::{Config, ServiceEndpoint};
 
 const OHTTP_GATEWAY_IMAGE: &str = "ghcr.io/worldcoin/ohttp-tools/ohttp-gateway";
 const OHTTP_GATEWAY_TAG: &str = "latest";
@@ -112,8 +111,8 @@ async fn start_stub_server(state: SharedState) -> u16 {
 struct OhttpFixture {
     gateway_state: SharedState,
     indexer_state: SharedState,
-    ohttp_gateway_config: OhttpClientConfig,
-    ohttp_indexer_config: OhttpClientConfig,
+    relay_url: String,
+    key_config_base64: String,
     gateway_target_url: String,
     indexer_target_url: String,
     _container: testcontainers::ContainerAsync<GenericImage>,
@@ -164,41 +163,38 @@ impl OhttpFixture {
         let gateway_target_url = format!("http://{gw_authority}");
         let indexer_target_url = format!("http://{idx_authority}");
 
-        let ohttp_gateway_config =
-            OhttpClientConfig::new(format!("{relay_base}/gateway"), key_b64.clone());
-
-        let ohttp_indexer_config = OhttpClientConfig::new(format!("{relay_base}/gateway"), key_b64);
-
         Ok(Self {
             gateway_state,
             indexer_state,
-            ohttp_gateway_config,
-            ohttp_indexer_config,
+            relay_url: format!("{relay_base}/gateway"),
+            key_config_base64: key_b64,
             gateway_target_url,
             indexer_target_url,
             _container: container,
         })
     }
 
-    fn authenticator_config(&self) -> AuthenticatorConfig {
-        let config = Config::new(
+    fn authenticator_config(&self) -> Config {
+        Config::new(
             None,
             31337,
             "0x0000000000000000000000000000000000000001"
                 .parse()
                 .unwrap(),
-            self.indexer_target_url.clone(),
-            self.gateway_target_url.clone(),
+            ServiceEndpoint::ohttp(
+                self.indexer_target_url.clone(),
+                self.relay_url.clone(),
+                self.key_config_base64.clone(),
+            ),
+            ServiceEndpoint::ohttp(
+                self.gateway_target_url.clone(),
+                self.relay_url.clone(),
+                self.key_config_base64.clone(),
+            ),
             vec![],
             2,
         )
-        .expect("test config should be valid");
-
-        AuthenticatorConfig {
-            config,
-            ohttp_indexer: Some(self.ohttp_indexer_config.clone()),
-            ohttp_gateway: Some(self.ohttp_gateway_config.clone()),
-        }
+        .expect("test config should be valid")
     }
 
     #[allow(dead_code)]
