@@ -297,7 +297,8 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
 
     /// @inheritdoc IWorldIDRegistryV2
     /// @dev WIP-102. Authorization model matches V1's removed `initiateRecoveryAgentUpdate`:
-    ///     any valid authenticator signs the EIP-712 payload.
+    ///     any valid authenticator signs the EIP-712 payload. Reuses the V1 typehash so migrated
+    ///     clients can keep producing the same typed-data signature while the selector changes.
     function updateRecoveryAgent(uint64 leafIndex, address newRecoveryAgent, bytes memory signature, uint256 nonce)
         external
         virtual
@@ -343,7 +344,8 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
 
     /// @inheritdoc IWorldIDRegistryV2
     /// @dev WIP-102. Authorization model matches V1's removed `cancelRecoveryAgentUpdate`:
-    ///     any valid authenticator signs the EIP-712 payload.
+    ///     any valid authenticator signs the EIP-712 payload. Reuses the V1 typehash so migrated
+    ///     clients can keep producing the same typed-data signature while the selector changes.
     function revertRecoveryAgentUpdate(uint64 leafIndex, bytes memory signature, uint256 nonce)
         external
         virtual
