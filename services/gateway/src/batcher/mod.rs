@@ -87,6 +87,12 @@ pub(crate) struct PendingBatchTx {
     pub formatted_tx_hash: String,
     // Handle for pending transaction tracking
     pub builder: alloy::providers::PendingTransactionBuilder<Ethereum>,
+    /// `true` when a pre-flight `eth_estimateGas` call already indicated that
+    /// the transaction would revert on-chain.  The transaction is submitted
+    /// anyway to avoid nonce gaps, but its eventual on-chain revert is treated
+    /// as anticipated: logged at `warn` and counted in `batch.expected_revert`
+    /// rather than `batch.failure`.
+    pub expected_revert: bool,
 }
 
 impl PendingBatchTx {
@@ -94,6 +100,17 @@ impl PendingBatchTx {
         Self {
             formatted_tx_hash: format!("0x{:x}", builder.tx_hash()),
             builder,
+            expected_revert: false,
+        }
+    }
+
+    pub fn new_expected_revert(
+        builder: alloy::providers::PendingTransactionBuilder<Ethereum>,
+    ) -> Self {
+        Self {
+            formatted_tx_hash: format!("0x{:x}", builder.tx_hash()),
+            builder,
+            expected_revert: true,
         }
     }
 }
@@ -214,6 +231,7 @@ where
                     sent.formatted_tx_hash,
                     batch_type,
                     start,
+                    sent.expected_revert,
                 );
             }
             Err(err) => {

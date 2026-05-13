@@ -20,6 +20,9 @@ pub const METRICS_BATCH_SUCCESS: &str = "batch.success";
 pub const METRICS_BATCH_FAILURE: &str = "batch.failure";
 /// Incremented when a batch transaction fails to submit to the RPC node.
 pub const METRICS_BATCH_SEND_FAILED: &str = "batch.send_failed";
+/// Incremented when a batch transaction reverts on-chain but was anticipated
+/// (i.e. `eth_estimateGas` already signalled revert before submission).
+pub const METRICS_BATCH_EXPECTED_REVERT: &str = "batch.expected_revert";
 pub const METRICS_BATCH_POLICY_COST_SCORE: &str = "batch.policy.cost_score";
 pub const METRICS_BATCH_POLICY_URGENCY_SCORE: &str = "batch.policy.urgency_score";
 pub const METRICS_BATCH_POLICY_DEFER: &str = "batch.policy.defer";
@@ -81,6 +84,11 @@ pub fn describe_metrics() {
         METRICS_BATCH_SEND_FAILED,
         ::metrics::Unit::Count,
         "Number of batches that failed to submit to the RPC node."
+    );
+    ::metrics::describe_counter!(
+        METRICS_BATCH_EXPECTED_REVERT,
+        ::metrics::Unit::Count,
+        "Number of batches that reverted on-chain as anticipated (pre-flight estimate already indicated revert)."
     );
 
     ::metrics::describe_histogram!(
@@ -200,6 +208,17 @@ pub fn increment_policy_force_send(batch_type: &'static str) {
 pub fn increment_policy_defer(batch_type: &'static str, reason: &'static str) {
     ::metrics::counter!(METRICS_BATCH_POLICY_DEFER, "type" => batch_type, "reason" => reason)
         .increment(1);
+}
+
+/// Records an anticipated on-chain revert — one where `eth_estimateGas` had
+/// already indicated the transaction would revert before it was submitted.
+///
+/// The end-to-end latency is still recorded to `batch.latency_ms`; a separate
+/// counter `batch.expected_revert` tracks the count so it is not conflated
+/// with genuine unexpected failures in `batch.failure`.
+pub fn record_batch_expected_revert(batch_type: &'static str, latency_ms: f64) {
+    ::metrics::histogram!(METRICS_BATCH_LATENCY_MS, "type" => batch_type).record(latency_ms);
+    ::metrics::counter!(METRICS_BATCH_EXPECTED_REVERT, "type" => batch_type).increment(1);
 }
 
 pub fn increment_request_rejected(reason: &'static str) {

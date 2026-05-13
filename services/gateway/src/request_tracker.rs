@@ -252,6 +252,7 @@ impl RequestTracker {
         tx_hash: String,
         batch_type: &'static str,
         submitted_at: Instant,
+        expected_revert: bool,
     ) {
         let tracker = self.clone();
         let timeout = Duration::from_secs(self.receipt_timeout_secs);
@@ -261,16 +262,28 @@ impl RequestTracker {
                 Ok(Ok(receipt)) => {
                     let confirmed = receipt.status();
                     let latency_ms = submitted_at.elapsed().as_millis() as f64;
-                    metrics::record_batch_confirmed(batch_type, confirmed, latency_ms);
 
                     if confirmed {
+                        metrics::record_batch_confirmed(batch_type, confirmed, latency_ms);
                         tracing::info!(
                             tx_hash = %tx_hash,
                             batch_type,
                             latency_ms,
                             "batch transaction confirmed on-chain"
                         );
+                    } else if expected_revert {
+                        // The pre-flight estimate already indicated this transaction
+                        // would revert; it was submitted only to avoid a nonce gap.
+                        // Count it separately and log at warn rather than error.
+                        metrics::record_batch_expected_revert(batch_type, latency_ms);
+                        tracing::warn!(
+                            tx_hash = %tx_hash,
+                            batch_type,
+                            "batch transaction reverted on-chain \
+                             (expected nonce-fill revert)"
+                        );
                     } else {
+                        metrics::record_batch_confirmed(batch_type, false, latency_ms);
                         tracing::error!(
                             tx_hash = %tx_hash,
                             batch_type,

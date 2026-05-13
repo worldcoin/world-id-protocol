@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use alloy::{
     primitives::{Address, U256},
-    providers::DynProvider,
+    providers::{DynProvider, Provider},
+    rpc::json_rpc::RpcError,
 };
 use tokio::sync::mpsc;
 use world_id_primitives::api_types::CreateAccountRequest;
@@ -58,12 +59,40 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
             commits.push(env.req.offchain_signer_commitment);
         }
 
+        // Pre-flight: detect whether the batch will revert on-chain before
+        // committing.  On an execution error we still submit (to avoid a
+        // nonce gap) but flag the transaction as an expected revert so the
+        // receipt handler can log/metric it separately.
+        let call =
+            registry.createManyAccounts(recovery_addresses.clone(), auths.clone(), pubkeys.clone(), commits.clone());
+        let expected_revert = match registry
+            .provider()
+            .clone()
+            .estimate_gas(call.into_transaction_request())
+            .await
+        {
+            Ok(_) => false,
+            Err(RpcError::ErrorResp(ref error)) => {
+                tracing::warn!(
+                    %error,
+                    "pre-flight eth_estimateGas indicates createManyAccounts will revert; \
+                     submitting anyway to avoid nonce gap"
+                );
+                true
+            }
+            Err(_) => false,
+        };
+
         let builder = registry
             .createManyAccounts(recovery_addresses, auths, pubkeys, commits)
             .send()
             .await?;
 
-        Ok(PendingBatchTx::new(builder))
+        if expected_revert {
+            Ok(PendingBatchTx::new_expected_revert(builder))
+        } else {
+            Ok(PendingBatchTx::new(builder))
+        }
     }
 }
 
