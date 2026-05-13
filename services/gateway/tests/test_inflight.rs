@@ -2,11 +2,11 @@ use alloy::{
     primitives::{Address, U256},
     signers::local::PrivateKeySigner,
 };
-use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
+use eddsa_babyjubjub::EdDSAPublicKey;
 use reqwest::StatusCode;
 use world_id_authenticator::{Authenticator, AuthenticatorError, OnchainKeyRepresentable};
 use world_id_primitives::{
-    Config, TREE_DEPTH,
+    Config, Signer, TREE_DEPTH,
     api_types::{
         GatewayRequestId, GatewayRequestKind, GatewayStatusResponse, RecoverAccountRequest,
     },
@@ -65,10 +65,15 @@ fn make_inclusion_proof(
     AccountInclusionProof::<{ TREE_DEPTH }>::new(inclusion_proof, key_set)
 }
 
+// Derives keys from a master seed using the same domain-separated KDF as the
+// Authenticator's internal `Signer`, so the test-side pubkey/address match
+// what `Authenticator::init` derives from the same seed.
 fn derive_keys_from_seed(seed: [u8; 32]) -> (EdDSAPublicKey, Address) {
-    let onchain = PrivateKeySigner::from_bytes(&seed.into()).unwrap();
-    let offchain = EdDSAPrivateKey::from_bytes(seed);
-    (offchain.public(), onchain.address())
+    let signer = Signer::from_seed_bytes(&seed).unwrap();
+    (
+        signer.offchain_signer_pubkey(),
+        signer.onchain_signer_address(),
+    )
 }
 
 /// Register a new account and wait for on-chain finalization.

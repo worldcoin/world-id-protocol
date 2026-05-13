@@ -12616,6 +12616,7 @@ dependencies = [
  "url",
  "utoipa",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
