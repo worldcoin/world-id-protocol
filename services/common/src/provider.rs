@@ -1,9 +1,4 @@
-use std::{
-    num::NonZeroUsize,
-    path::Path,
-    sync::{Arc, atomic::AtomicBool},
-    time::Duration,
-};
+use std::{num::NonZeroUsize, path::Path, time::Duration};
 
 use alloy::{
     network::EthereumWallet,
@@ -32,7 +27,6 @@ use url::Url;
 
 use crate::{
     provider_layers::{RetryConfig, RetryLayer, ThrottleConfig, ThrottleLayer},
-    tx_fillers::GasEstimateWithFallbackFiller,
 };
 
 pub type ProviderResult<T> = Result<T, ProviderError>;
@@ -287,16 +281,11 @@ impl ProviderArgs {
     /// Build a dynamic provider from the configuration using the default
     /// process-local [`CachedNonceManager`].
     ///
-    /// Returns the provider together with a shared [`AtomicBool`] that is set
-    /// to `true` by [`GasEstimateWithFallbackFiller`] whenever the fallback
-    /// gas limit is used (i.e. `eth_estimateGas` returned a revert error).
-    /// When no signer is configured the flag is never written.
-    ///
     /// **Note:** This is safe only when a single process submits transactions
     /// for a given signer address. For multi-replica deployments sharing a
     /// signer, use [`http_with_nonce_manager`] with a distributed nonce
     /// manager (e.g. Redis-backed) instead.
-    pub async fn http(self) -> ProviderResult<(DynProvider, Arc<AtomicBool>)> {
+    pub async fn http(self) -> ProviderResult<DynProvider> {
         self.http_with_nonce_manager(CachedNonceManager::default())
             .await
     }
@@ -305,12 +294,10 @@ impl ProviderArgs {
     ///
     /// This allows injecting a distributed nonce manager (e.g. Redis-backed)
     /// for safe multi-replica transaction submission with a shared signer.
-    ///
-    /// See [`http`] for details on the returned [`Arc<AtomicBool>`].
     pub async fn http_with_nonce_manager<M: NonceManager + 'static>(
         self,
         nonce_manager: M,
-    ) -> ProviderResult<(DynProvider, Arc<AtomicBool>)> {
+    ) -> ProviderResult<DynProvider> {
         let Some(http) = self.http else {
             return Err(ProviderError::NoHttpUrls);
         };
@@ -383,12 +370,8 @@ impl ProviderArgs {
             None
         };
 
-        let filler = GasEstimateWithFallbackFiller::default();
-        let fallback_used = filler.fallback_used.clone();
-
         let provider = if let Some(signer) = maybe_signer {
             let provider = ProviderBuilder::default()
-                .filler(filler)
                 .with_gas_estimation()
                 .with_blob_gas_estimation()
                 .with_nonce_management(nonce_manager)
@@ -402,7 +385,7 @@ impl ProviderArgs {
             provider.erased()
         };
 
-        Ok((provider, fallback_used))
+        Ok(provider)
     }
 }
 

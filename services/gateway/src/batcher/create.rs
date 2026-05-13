@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use alloy::{
     primitives::{Address, U256},
-    providers::DynProvider,
+    providers::{DynProvider, Provider},
+    rpc::json_rpc::RpcError,
 };
 use tokio::sync::mpsc;
 use world_id_primitives::api_types::CreateAccountRequest;
@@ -10,7 +11,10 @@ use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::request_tracker::BacklogScope;
 
-use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx};
+use super::{
+    BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx,
+    GAS_ESTIMATION_FALLBACK, apply_gas_margin,
+};
 
 #[derive(Clone)]
 pub struct CreateBatcherHandle {
@@ -45,7 +49,6 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
         &self,
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
         batch: Vec<CreateReqEnvelope>,
-        gas_fallback_used: &Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<PendingBatchTx, alloy::contract::Error> {
         let mut recovery_addresses: Vec<Address> = Vec::new();
         let mut auths: Vec<Vec<Address>> = Vec::new();
@@ -59,21 +62,45 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
             commits.push(env.req.offchain_signer_commitment);
         }
 
-        // Reset the filler flag before the send so any stale value from a
-        // previous transaction doesn't leak.  The GasEstimateWithFallbackFiller
-        // will set it to `true` during the fill phase if eth_estimateGas
-        // returns an execution-revert error.
-        gas_fallback_used.store(false, std::sync::atomic::Ordering::Relaxed);
+        // Build the transaction request for gas estimation.
+        let tx_request = registry
+            .createManyAccounts(
+                recovery_addresses.clone(),
+                auths.clone(),
+                pubkeys.clone(),
+                commits.clone(),
+            )
+            .into_transaction_request();
 
+        // Estimate gas explicitly so the result is visible here.
+        // - Success: apply +20% margin and mark as not expected to revert.
+        // - Execution revert error: use the fallback limit and flag the
+        //   transaction as expected to revert so the receipt handler can
+        //   log/metric it separately from genuine unexpected failures.
+        // - Transport / infrastructure error: propagate to the caller.
+        let (gas_limit, expected_revert) =
+            match registry.provider().clone().estimate_gas(tx_request).await {
+                Ok(estimate) => (apply_gas_margin(estimate), false),
+                Err(RpcError::ErrorResp(error)) => {
+                    tracing::warn!(
+                        %error,
+                        gas_limit = GAS_ESTIMATION_FALLBACK,
+                        "eth_estimateGas returned an execution error — \
+                         transaction will likely revert; submitting with \
+                         fallback gas limit to avoid nonce gap"
+                    );
+                    (GAS_ESTIMATION_FALLBACK, true)
+                }
+                Err(e) => return Err(alloy::contract::Error::TransportError(e)),
+            };
+
+        // Gas is set explicitly; any gas filler in the provider stack will
+        // skip estimation because gas_limit is already present.
         let builder = registry
             .createManyAccounts(recovery_addresses, auths, pubkeys, commits)
+            .gas(gas_limit)
             .send()
             .await?;
-
-        // Read the flag immediately after .send() completes.  The filler
-        // ran synchronously as part of the fill pipeline before the
-        // transaction was broadcast.
-        let expected_revert = gas_fallback_used.load(std::sync::atomic::Ordering::Relaxed);
 
         if expected_revert {
             Ok(PendingBatchTx::new_expected_revert(builder))

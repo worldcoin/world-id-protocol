@@ -83,7 +83,6 @@ pub(crate) async fn build_app(
     request_timeout_secs: u64,
     orphan_sweeper_config: OrphanSweeperConfig,
     batch_policy_config: BatchPolicyConfig,
-    gas_fallback_used: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> GatewayResult<Router> {
     let tracker = RequestTracker::new(
         redis_url,
@@ -110,7 +109,6 @@ pub(crate) async fn build_app(
         tracker.clone(),
         batch_policy_config.clone(),
         base_fee_cache.clone(),
-        gas_fallback_used.clone(),
     );
     tokio::spawn(runner.run());
 
@@ -125,7 +123,6 @@ pub(crate) async fn build_app(
         tracker.clone(),
         batch_policy_config,
         base_fee_cache,
-        gas_fallback_used,
     );
     tokio::spawn(ops_runner.run());
 
