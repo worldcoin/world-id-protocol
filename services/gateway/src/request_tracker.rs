@@ -100,6 +100,57 @@ impl RequestTracker {
         format!("gateway:inflight:{tag}:{raw}")
     }
 
+    /// Records a terminal request with a specific ID without adding it to the
+    /// pending set or acquiring in-flight locks.
+    ///
+    /// This is intended for compatibility no-op endpoints that should be
+    /// visible through `/status/{request_id}` even though there is no batcher or
+    /// on-chain transaction to track.
+    pub async fn new_terminal_request_with_id(
+        &self,
+        id: String,
+        kind: GatewayRequestKind,
+        status: GatewayRequestState,
+    ) -> Result<(), GatewayErrorResponse> {
+        debug_assert!(
+            matches!(
+                &status,
+                GatewayRequestState::Finalized { .. } | GatewayRequestState::Failed { .. }
+            ),
+            "new_terminal_request_with_id should only be used with terminal states"
+        );
+
+        let record = RequestRecord {
+            kind,
+            status,
+            updated_at: now_unix_secs(),
+            inflight_keys: Vec::new(),
+        };
+
+        let mut manager = self.redis_manager.clone();
+        let key = Self::request_key(&id);
+        let json_str = serde_json::to_string(&record).map_err(|e| {
+            tracing::error!("FATAL: unable to serialize a RequestRecord: {e}");
+            GatewayErrorResponse::internal_server_error()
+        })?;
+
+        let result: Result<(), redis::RedisError> = redis::cmd("SET")
+            .arg(&key)
+            .arg(&json_str)
+            .arg("NX")
+            .arg("EX")
+            .arg(REQUESTS_TTL.as_secs())
+            .query_async(&mut manager)
+            .await;
+
+        if let Err(e) = result {
+            tracing::error!("Error creating terminal request {id}: {e}");
+            return Err(GatewayErrorResponse::internal_server_error());
+        }
+
+        Ok(())
+    }
+
     /// Creates a new request with a specific ID, atomically acquiring in-flight
     /// lock keys via `SET NX`.
     ///
