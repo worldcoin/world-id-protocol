@@ -7,7 +7,11 @@ pub use crate::{
     request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
 };
 use crate::{routes::build_app, types::AppState};
-use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};
+use std::{
+    backtrace::Backtrace,
+    net::SocketAddr,
+    sync::Arc,
+};
 use tokio::sync::oneshot;
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
@@ -50,7 +54,8 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
 
-    let provider = Arc::new(cfg.provider.http().await?);
+    let (provider, fallback_used) = cfg.provider.http().await?;
+    let provider = Arc::new(provider);
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
@@ -63,6 +68,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
         cfg.request_timeout_secs,
         sweeper_config,
         cfg.batch_policy.clone(),
+        fallback_used,
     )
     .await?;
 
@@ -104,8 +110,8 @@ pub async fn run() -> GatewayResult<()> {
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
 
-    let provider = Arc::new(cfg.provider.http().await?);
-    let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
+    let (provider, fallback_used) = cfg.provider.http().await?;
+    let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, Arc::new(provider)));
 
     tracing::info!("Config is ready. Building app...");
     let app = build_app(
@@ -116,6 +122,7 @@ pub async fn run() -> GatewayResult<()> {
         cfg.request_timeout_secs,
         sweeper_config,
         cfg.batch_policy.clone(),
+        fallback_used,
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)

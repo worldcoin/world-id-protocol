@@ -1,3 +1,8 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
 use alloy::{
     network::{Network, TransactionBuilder},
     providers::{
@@ -33,8 +38,23 @@ const GAS_ESTIMATION_MARGIN_DENOMINATOR: u64 = 100;
 ///
 /// This filler only sets `gas_limit`, leaving gas price / fee fields to the
 /// standard alloy [`GasFiller`](alloy::providers::fillers::GasFiller).
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct GasEstimateWithFallbackFiller;
+#[derive(Clone, Debug)]
+pub(crate) struct GasEstimateWithFallbackFiller {
+    /// Shared flag written by the filler: `true` iff the most-recently
+    /// prepared gas limit was the fallback value (i.e. `eth_estimateGas`
+    /// returned an execution-revert error).  Callers that hold a clone of
+    /// this [`Arc`] can read the flag after `.send()` completes to learn
+    /// whether the submitted transaction is expected to revert.
+    pub(crate) fallback_used: Arc<AtomicBool>,
+}
+
+impl Default for GasEstimateWithFallbackFiller {
+    fn default() -> Self {
+        Self {
+            fallback_used: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
 
 impl GasEstimateWithFallbackFiller {
     const fn apply_margin(estimate: u64) -> u64 {
@@ -68,10 +88,14 @@ where
         P: Provider<N>,
     {
         let gas_limit = match provider.estimate_gas(tx.clone()).await {
-            Ok(estimate) => Self::apply_margin(estimate),
+            Ok(estimate) => {
+                self.fallback_used.store(false, Ordering::Relaxed);
+                Self::apply_margin(estimate)
+            }
             // JSON-RPC error: the node ran the transaction and it reverted.
             // Use the fallback so we can still submit and record the failure.
             Err(RpcError::ErrorResp(error)) => {
+                self.fallback_used.store(true, Ordering::Relaxed);
                 tracing::warn!(
                     %error,
                     gas_limit = GAS_ESTIMATION_FALLBACK,
@@ -127,7 +151,7 @@ mod tests {
         let tx = TransactionRequest::default().with_gas_limit(123_456);
         assert_eq!(
             <GasEstimateWithFallbackFiller as TxFiller<Ethereum>>::status(
-                &GasEstimateWithFallbackFiller,
+                &GasEstimateWithFallbackFiller::default(),
                 &tx,
             ),
             FillerControlFlow::Finished

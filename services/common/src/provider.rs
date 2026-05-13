@@ -1,4 +1,9 @@
-use std::{num::NonZeroUsize, path::Path, time::Duration};
+use std::{
+    num::NonZeroUsize,
+    path::Path,
+    sync::{Arc, atomic::AtomicBool},
+    time::Duration,
+};
 
 use alloy::{
     network::EthereumWallet,
@@ -282,11 +287,16 @@ impl ProviderArgs {
     /// Build a dynamic provider from the configuration using the default
     /// process-local [`CachedNonceManager`].
     ///
+    /// Returns the provider together with a shared [`AtomicBool`] that is set
+    /// to `true` by [`GasEstimateWithFallbackFiller`] whenever the fallback
+    /// gas limit is used (i.e. `eth_estimateGas` returned a revert error).
+    /// When no signer is configured the flag is never written.
+    ///
     /// **Note:** This is safe only when a single process submits transactions
     /// for a given signer address. For multi-replica deployments sharing a
     /// signer, use [`http_with_nonce_manager`] with a distributed nonce
     /// manager (e.g. Redis-backed) instead.
-    pub async fn http(self) -> ProviderResult<DynProvider> {
+    pub async fn http(self) -> ProviderResult<(DynProvider, Arc<AtomicBool>)> {
         self.http_with_nonce_manager(CachedNonceManager::default())
             .await
     }
@@ -295,10 +305,12 @@ impl ProviderArgs {
     ///
     /// This allows injecting a distributed nonce manager (e.g. Redis-backed)
     /// for safe multi-replica transaction submission with a shared signer.
+    ///
+    /// See [`http`] for details on the returned [`Arc<AtomicBool>`].
     pub async fn http_with_nonce_manager<M: NonceManager + 'static>(
         self,
         nonce_manager: M,
-    ) -> ProviderResult<DynProvider> {
+    ) -> ProviderResult<(DynProvider, Arc<AtomicBool>)> {
         let Some(http) = self.http else {
             return Err(ProviderError::NoHttpUrls);
         };
@@ -371,9 +383,12 @@ impl ProviderArgs {
             None
         };
 
+        let filler = GasEstimateWithFallbackFiller::default();
+        let fallback_used = filler.fallback_used.clone();
+
         let provider = if let Some(signer) = maybe_signer {
             let provider = ProviderBuilder::default()
-                .filler(GasEstimateWithFallbackFiller)
+                .filler(filler)
                 .with_gas_estimation()
                 .with_blob_gas_estimation()
                 .with_nonce_management(nonce_manager)
@@ -387,7 +402,7 @@ impl ProviderArgs {
             provider.erased()
         };
 
-        Ok(provider)
+        Ok((provider, fallback_used))
     }
 }
 

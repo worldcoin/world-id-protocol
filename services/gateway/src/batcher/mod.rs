@@ -7,7 +7,11 @@ mod ops;
 pub(crate) use create::{CreateBatcherHandle, CreateBatcherRunner, CreateReqEnvelope};
 pub(crate) use ops::{OpsBatcherHandle, OpsBatcherRunner, OpsEnvelope};
 
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, atomic::AtomicBool},
+    time::Duration,
+};
 
 use alloy::{network::Ethereum, primitives::Bytes, providers::DynProvider};
 use tokio::{sync::mpsc, time::Instant};
@@ -122,10 +126,18 @@ pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>: Send + Default + 'stat
     fn batch_type(&self) -> &'static str;
     fn backlog_scope(&self) -> BacklogScope;
 
+    /// Submit a batch of envelopes to the chain.
+    ///
+    /// `gas_fallback_used` is the shared [`AtomicBool`] from
+    /// [`GasEstimateWithFallbackFiller`].  Implementations should:
+    /// 1. **reset** it to `false` before calling `.send()`
+    /// 2. **read** it immediately after `.send()` to detect whether the
+    ///    filler used the fallback gas limit (expected revert).
     fn send_batch(
         &self,
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
         batch: Vec<E>,
+        gas_fallback_used: &Arc<AtomicBool>,
     ) -> impl Future<Output = Result<PendingBatchTx, alloy::contract::Error>> + Send;
 }
 
@@ -152,6 +164,9 @@ where
     batch_policy: BatchPolicyConfig,
     base_fee_cache: BaseFeeCache,
     strategy: S,
+    /// Shared flag from [`GasEstimateWithFallbackFiller`]; `true` when the
+    /// filler used the fallback gas limit for the most recent transaction.
+    gas_fallback_used: Arc<AtomicBool>,
 }
 
 impl<E, S> GenericBatcherRunner<E, S>
@@ -168,6 +183,7 @@ where
         tracker: RequestTracker,
         batch_policy: BatchPolicyConfig,
         base_fee_cache: BaseFeeCache,
+        gas_fallback_used: Arc<AtomicBool>,
     ) -> Self {
         Self {
             rx,
@@ -178,6 +194,7 @@ where
             batch_policy,
             base_fee_cache,
             strategy: S::default(),
+            gas_fallback_used,
         }
     }
 
@@ -200,7 +217,7 @@ where
             .await;
 
         let start = Instant::now();
-        match self.strategy.send_batch(&self.registry, batch).await {
+        match self.strategy.send_batch(&self.registry, batch, &self.gas_fallback_used).await {
             Ok(sent) => {
                 // Record only the RPC send latency here.  The on-chain outcome
                 // (success / failure / confirmation latency) is recorded later

@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use alloy::{
     primitives::{Address, U256},
-    providers::{DynProvider, Provider},
-    rpc::json_rpc::RpcError,
+    providers::DynProvider,
 };
 use tokio::sync::mpsc;
 use world_id_primitives::api_types::CreateAccountRequest;
@@ -46,6 +45,7 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
         &self,
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
         batch: Vec<CreateReqEnvelope>,
+        gas_fallback_used: &Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<PendingBatchTx, alloy::contract::Error> {
         let mut recovery_addresses: Vec<Address> = Vec::new();
         let mut auths: Vec<Vec<Address>> = Vec::new();
@@ -59,34 +59,21 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
             commits.push(env.req.offchain_signer_commitment);
         }
 
-        // Pre-flight: detect whether the batch will revert on-chain before
-        // committing.  On an execution error we still submit (to avoid a
-        // nonce gap) but flag the transaction as an expected revert so the
-        // receipt handler can log/metric it separately.
-        let call =
-            registry.createManyAccounts(recovery_addresses.clone(), auths.clone(), pubkeys.clone(), commits.clone());
-        let expected_revert = match registry
-            .provider()
-            .clone()
-            .estimate_gas(call.into_transaction_request())
-            .await
-        {
-            Ok(_) => false,
-            Err(RpcError::ErrorResp(ref error)) => {
-                tracing::warn!(
-                    %error,
-                    "pre-flight eth_estimateGas indicates createManyAccounts will revert; \
-                     submitting anyway to avoid nonce gap"
-                );
-                true
-            }
-            Err(_) => false,
-        };
+        // Reset the filler flag before the send so any stale value from a
+        // previous transaction doesn't leak.  The GasEstimateWithFallbackFiller
+        // will set it to `true` during the fill phase if eth_estimateGas
+        // returns an execution-revert error.
+        gas_fallback_used.store(false, std::sync::atomic::Ordering::Relaxed);
 
         let builder = registry
             .createManyAccounts(recovery_addresses, auths, pubkeys, commits)
             .send()
             .await?;
+
+        // Read the flag immediately after .send() completes.  The filler
+        // ran synchronously as part of the fill pipeline before the
+        // transaction was broadcast.
+        let expected_revert = gas_fallback_used.load(std::sync::atomic::Ordering::Relaxed);
 
         if expected_revert {
             Ok(PendingBatchTx::new_expected_revert(builder))

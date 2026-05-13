@@ -85,7 +85,7 @@ async fn retry_succeeds_on_transient_http_error() {
     })
     .await;
 
-    let provider = build_provider_args(vec![url], fast_retry(3))
+    let (provider, _) = build_provider_args(vec![url], fast_retry(3))
         .http()
         .await
         .unwrap();
@@ -131,7 +131,7 @@ async fn fallback_succeeds_when_endpoint_times_out() {
         timeout_secs: 1,
         ..RetryConfig::default()
     };
-    let provider = build_provider_args(vec![slow_url, fast_url], retry)
+    let (provider, _) = build_provider_args(vec![slow_url, fast_url], retry)
         .http()
         .await
         .unwrap();
@@ -150,7 +150,7 @@ async fn fallback_succeeds_when_endpoint_times_out() {
 async fn max_retries_exhausted_returns_error() {
     let (url, counter) = spawn_mock_rpc(|_| StatusCode::BAD_GATEWAY.into_response()).await;
 
-    let provider = build_provider_args(vec![url], fast_retry(2))
+    let (provider, _) = build_provider_args(vec![url], fast_retry(2))
         .http()
         .await
         .unwrap();
@@ -178,7 +178,7 @@ async fn contract_revert_not_retried() {
     })
     .await;
 
-    let provider = build_provider_args(vec![url], fast_retry(3))
+    let (provider, _) = build_provider_args(vec![url], fast_retry(3))
         .http()
         .await
         .unwrap();
@@ -204,7 +204,7 @@ async fn fallback_succeeds_when_endpoint_is_dead() {
 
     let (live_url, live_counter) = spawn_mock_rpc(|_| success_response()).await;
 
-    let provider = build_provider_args(vec![dead_url, live_url], fast_retry(3))
+    let (provider, _) = build_provider_args(vec![dead_url, live_url], fast_retry(3))
         .http()
         .await
         .unwrap();
@@ -255,7 +255,7 @@ async fn retry_after_tcp_reset_on_same_endpoint() {
     });
 
     let url: Url = format!("http://{addr}").parse().unwrap();
-    let provider = build_provider_args(vec![url], fast_retry(3))
+    let (provider, _) = build_provider_args(vec![url], fast_retry(3))
         .http()
         .await
         .unwrap();
@@ -273,7 +273,7 @@ async fn retry_after_tcp_reset_on_same_endpoint() {
 async fn retries_disabled_when_max_retries_zero() {
     let (url, counter) = spawn_mock_rpc(|_| StatusCode::BAD_GATEWAY.into_response()).await;
 
-    let provider = build_provider_args(vec![url], fast_retry(0))
+    let (provider, _) = build_provider_args(vec![url], fast_retry(0))
         .http()
         .await
         .unwrap();
