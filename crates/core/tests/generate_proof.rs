@@ -24,7 +24,9 @@ use world_id_core::{
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
 };
-use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
+use world_id_primitives::{
+    Config, FieldElement, ServiceEndpoint, TREE_DEPTH, merkle::AccountInclusionProof,
+};
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
     fixtures::{
@@ -121,14 +123,14 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         Some(anvil.endpoint().to_string()),
         anvil.instance.chain_id(),
         world_id_registry,
-        "http://127.0.0.1:0".to_string(), // placeholder for future indexer stub
-        gateway_url.clone(),
+        ServiceEndpoint::direct("http://127.0.0.1:0".to_string()), // placeholder for future indexer stub
+        ServiceEndpoint::direct(gateway_url.clone()),
         Vec::new(),
         3,
     )
     .unwrap();
     // World ID should not yet exist.
-    let init_result = Authenticator::init(&seed, creation_config.clone().into()).await;
+    let init_result = Authenticator::init(&seed, creation_config.clone()).await;
     assert!(
         matches!(init_result, Err(AuthenticatorError::AccountDoesNotExist)),
         "expected missing account error before creation"
@@ -136,13 +138,10 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // Create the account via the gateway, blocking until confirmed.
     let start = SystemTime::now();
-    let authenticator = Authenticator::init_or_register(
-        &seed,
-        creation_config.clone().into(),
-        Some(recovery_address),
-    )
-    .await
-    .unwrap();
+    let authenticator =
+        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
+            .await
+            .unwrap();
     info!(
         elapsed_ms = SystemTime::now().duration_since(start).unwrap().as_millis(),
         "authenticator account creation finished"
@@ -152,7 +151,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);
 
     // Re-initialize to ensure account metadata is persisted.
-    let authenticator = Authenticator::init(&seed, creation_config.into())
+    let authenticator = Authenticator::init(&seed, creation_config)
         .await
         .wrap_err("expected authenticator to initialize after account creation")?;
     assert_eq!(authenticator.leaf_index(), 1);
@@ -258,15 +257,15 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         Some(anvil.endpoint().to_string()),
         anvil.instance.chain_id(),
         world_id_registry,
-        indexer_url.clone(),
-        gateway_url.clone(),
+        ServiceEndpoint::direct(indexer_url.clone()),
+        ServiceEndpoint::direct(gateway_url.clone()),
         nodes.to_vec(),
         3,
     )
     .unwrap();
 
     let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator = Authenticator::init(&seed, proof_config.into())
+    let authenticator = Authenticator::init(&seed, proof_config)
         .await
         .wrap_err("failed to reinitialize authenticator with proof config")?
         .with_proof_materials(query_material, nullifier_material);
