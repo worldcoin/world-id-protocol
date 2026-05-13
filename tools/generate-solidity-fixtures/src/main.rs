@@ -35,7 +35,8 @@ use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
 };
 use world_id_primitives::{
-    Config, FieldElement, SessionFieldElement, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
+    Config, FieldElement, ServiceEndpoint, SessionFieldElement, SessionId, TREE_DEPTH,
+    merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
@@ -117,21 +118,18 @@ async fn main() -> Result<()> {
         Some(anvil.endpoint().to_string()),
         anvil.instance.chain_id(),
         world_id_registry,
-        "http://127.0.0.1:0".to_string(),
-        format!("http://127.0.0.1:{gw_port}"),
+        ServiceEndpoint::direct("http://127.0.0.1:0".to_string()),
+        ServiceEndpoint::direct(format!("http://127.0.0.1:{gw_port}")),
         Vec::new(),
         3,
     )
     .unwrap();
-    let _authenticator = Authenticator::init_or_register(
-        &seed,
-        creation_config.clone().into(),
-        Some(recovery_address),
-    )
-    .await
-    .unwrap();
+    let _authenticator =
+        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
+            .await
+            .unwrap();
 
-    let authenticator = Authenticator::init(&seed, creation_config.into())
+    let authenticator = Authenticator::init(&seed, creation_config)
         .await
         .wrap_err("expected authenticator to initialize after account creation")?;
 
@@ -226,15 +224,15 @@ async fn main() -> Result<()> {
         Some(anvil.endpoint().to_string()),
         anvil.instance.chain_id(),
         world_id_registry,
-        indexer_url.clone(),
-        format!("http://127.0.0.1:{gw_port}"),
+        ServiceEndpoint::direct(indexer_url.clone()),
+        ServiceEndpoint::direct(format!("http://127.0.0.1:{gw_port}")),
         nodes.to_vec(),
         3,
     )
     .unwrap();
 
     let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator = Authenticator::init(&seed, proof_config.into())
+    let authenticator = Authenticator::init(&seed, proof_config)
         .await
         .wrap_err("failed to reinitialize authenticator with proof config")?
         .with_proof_materials(query_material, nullifier_material);
