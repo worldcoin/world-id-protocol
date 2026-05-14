@@ -373,8 +373,8 @@ impl ProviderArgs {
 
         let provider = if let Some(signer) = maybe_signer {
             let provider = ProviderBuilder::default()
-                .filler(GasEstimateWithFallbackFiller)
-                .with_gas_estimation()
+                .with_gas_estimation() // It is important to have default run first
+                .filler(GasEstimateWithFallbackFiller) // And then our custom filler
                 .with_blob_gas_estimation()
                 .with_nonce_management(nonce_manager)
                 .fetch_chain_id()
