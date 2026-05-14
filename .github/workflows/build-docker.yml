@@ -23,23 +23,21 @@ jobs:
     steps:
       - name: Determine services to build
         id: filter
-  - name: Determine services to build
-    id: filter
-    env:
-      REF_TYPE: ${{ github.ref_type }}
-      REF_NAME: ${{ github.ref_name }}
-    run: |
-      if [[ "$REF_TYPE" == "branch" ]]; then
-        echo 'services=["indexer","gateway","oprf-node"]' >> "$GITHUB_OUTPUT"
-      elif [[ "$REF_NAME" == world-id-indexer-v* ]]; then
-        echo 'services=["indexer"]' >> "$GITHUB_OUTPUT"
-      elif [[ "$REF_NAME" == world-id-gateway-v* ]]; then
-        echo 'services=["gateway"]' >> "$GITHUB_OUTPUT"
-      elif [[ "$REF_NAME" == world-id-oprf-node-v* ]]; then
-        echo 'services=["oprf-node"]' >> "$GITHUB_OUTPUT"
-      else
-        echo 'services=[]' >> "$GITHUB_OUTPUT"
-      fi
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ "$REF_TYPE" == "branch" ]]; then
+            echo 'services=["indexer","gateway","oprf-node"]' >> "$GITHUB_OUTPUT"
+          elif [[ "$REF_NAME" == world-id-indexer-v* ]]; then
+            echo 'services=["indexer"]' >> "$GITHUB_OUTPUT"
+          elif [[ "$REF_NAME" == world-id-gateway-v* ]]; then
+            echo 'services=["gateway"]' >> "$GITHUB_OUTPUT"
+          elif [[ "$REF_NAME" == world-id-oprf-node-v* ]]; then
+            echo 'services=["oprf-node"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'services=[]' >> "$GITHUB_OUTPUT"
+          fi
   docker-build:
     name: Docker Build
     needs: compute-matrix
