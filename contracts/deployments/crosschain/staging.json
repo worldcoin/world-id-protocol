@@ -22,5 +22,19 @@
       "implementation": "0xc8270816a943d68369133FeEe500C54BC44C2BeE",
       "proxy": "0xcC72Ca7BfB5E55613505EceBB6C97dA5E1131E21"
     }
+  },
+  "arcTestnet": {
+    "chainId": 5042002,
+    "deployer": "0x0393cdfC3957dba7Cb143DDaA564D6cE9Ed0BB19",
+    "gateways": {
+      "permissionedGateway": "0x2940Ce2f0f852230Cde632e203D327513b090206"
+    },
+    "tag": "world-id-core-v0.10.2-11-g4fa80cb",
+    "timestamp": 1778715705,
+    "verifier": "0x0fdB202F2228C732e0662fa48F6c5C382489216f",
+    "worldIDSatellite": {
+      "implementation": "0x2dDeF03a67f1DbD7de4151F5f8be5b278A879F37",
+      "proxy": "0x304E14e4dC0508C0927e3b307a2C18422C07E394"
+    }
   }
 }

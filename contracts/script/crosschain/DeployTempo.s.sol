@@ -23,6 +23,7 @@ contract DeployTempo is Script {
         uint64 minExpThreshold = 18000;
 
         uint256 pk = vm.envUint("PRIVATE_KEY");
+        address broadcaster = vm.addr(pk);
 
         vm.startBroadcast(pk);
 
@@ -55,6 +56,11 @@ contract DeployTempo is Script {
         // 5. Authorize gateway
         console2.log("  Authorizing gateway...");
         WorldIDSatellite(address(proxy)).addGateway(address(gateway));
+
+        if (owner != broadcaster) {
+            console2.log("  Transferring ownership...");
+            WorldIDSatellite(address(proxy)).transferOwnership(owner);
+        }
 
         vm.stopBroadcast();
 
