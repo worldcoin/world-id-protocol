@@ -15,20 +15,35 @@ permissions:
   contents: read
 
 jobs:
+  compute-matrix:
+    name: Compute build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.filter.outputs.services }}
+    steps:
+      - name: Determine services to build
+        id: filter
+        run: |
+          if [[ "${{ github.ref_type }}" == "branch" ]]; then
+            echo 'services=["indexer","gateway","oprf-node"]' >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref_name }}" == world-id-indexer-v* ]]; then
+            echo 'services=["indexer"]' >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref_name }}" == world-id-gateway-v* ]]; then
+            echo 'services=["gateway"]' >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref_name }}" == world-id-oprf-node-v* ]]; then
+            echo 'services=["oprf-node"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'services=[]' >> "$GITHUB_OUTPUT"
+          fi
+
   docker-build:
     name: Docker Build
+    needs: compute-matrix
+    if: needs.compute-matrix.outputs.services != '[]'
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service:
-          - indexer
-          - gateway
-          - oprf-node
-    # On a branch push (or workflow_dispatch): build all services.
-    # On a tag push: only build the service the tag belongs to.
-    if: |
-      github.ref_type == 'branch' ||
-      startsWith(github.ref_name, format('world-id-{0}-v', matrix.service))
+        service: ${{ fromJSON(needs.compute-matrix.outputs.services) }}
     permissions:
       contents: read
       id-token: write
