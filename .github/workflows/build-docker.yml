@@ -5,21 +5,47 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'world-id-indexer-v*'
+      - 'world-id-gateway-v*'
+      - 'world-id-oprf-node-v*'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  compute-matrix:
+    name: Compute build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.filter.outputs.services }}
+    steps:
+      - name: Determine services to build
+        id: filter
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ "$REF_TYPE" == "branch" ]]; then
+            echo 'services=["indexer","gateway","oprf-node"]' >> "$GITHUB_OUTPUT"
+          elif [[ "$REF_NAME" == world-id-indexer-v* ]]; then
+            echo 'services=["indexer"]' >> "$GITHUB_OUTPUT"
+          elif [[ "$REF_NAME" == world-id-gateway-v* ]]; then
+            echo 'services=["gateway"]' >> "$GITHUB_OUTPUT"
+          elif [[ "$REF_NAME" == world-id-oprf-node-v* ]]; then
+            echo 'services=["oprf-node"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'services=[]' >> "$GITHUB_OUTPUT"
+          fi
   docker-build:
     name: Docker Build
+    needs: compute-matrix
+    if: needs.compute-matrix.outputs.services != '[]'
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service:
-          - indexer
-          - gateway
-          - oprf-node
+        service: ${{ fromJSON(needs.compute-matrix.outputs.services) }}
     permissions:
       contents: read
       id-token: write
@@ -30,14 +56,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      - name: Parse version from tag
+        id: tag
+        if: github.ref_type == 'tag'
+        run: |
+          VERSION="${GITHUB_REF_NAME#world-id-${{ matrix.service }}-}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # latest only for stable releases (no pre-release suffix like -alpha, -rc.1)
+          if [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "is_stable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_stable=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v4
         with:
           images: ghcr.io/${{ github.repository }}/world-id-${{ matrix.service }}
           tags: |
-            type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || steps.tag.outputs.is_stable == 'true' }}
             type=sha
+            type=raw,value=${{ steps.tag.outputs.version }},enable=${{ github.ref_type == 'tag' }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
