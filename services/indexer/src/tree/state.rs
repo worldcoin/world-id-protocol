@@ -64,7 +64,7 @@ impl TreeState {
         1usize << self.inner.tree_depth
     }
 
-    /// Returns the tree capacity (2^depth).
+    /// Returns the number of inserted leaves in the tree.
     pub async fn num_leaves(&self) -> usize {
         1usize << self.inner.tree.read().await.num_leaves()
     }
