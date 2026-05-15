@@ -16,15 +16,28 @@ pub enum RegistryVersion {
     V2,
 }
 
-/// Probes `MAX_AUTHENTICATORS_V2_HARD_LIMIT()` — a V2-only public constant (WIP-104).
-/// Success means V2.
+impl std::str::FromStr for RegistryVersion {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "v1" | "1" => Ok(Self::V1),
+            "v2" | "2" => Ok(Self::V2),
+            _ => Err(format!(
+                "invalid registry version: {value}; expected v1 or v2"
+            )),
+        }
+    }
+}
+
+/// Probes a common V1/V2 selector first, then a V2-only selector.
+/// Common selector failure means the registry/RPC path is broken; V2 selector failure means V1.
 pub async fn probe(
     provider: Arc<DynProvider>,
     proxy_addr: Address,
 ) -> GatewayResult<RegistryVersion> {
     let v2 = WorldIdRegistryV2Instance::new(proxy_addr, provider);
 
-    //  Call constant available on v1 and v2 to check connection
     if let Err(err) = v2.MAX_AUTHENTICATORS_HARD_LIMIT().call().await {
         warn!(error = ?err, "registry baseline probe failed");
         return Err(GatewayError::Config(format!(
@@ -32,7 +45,6 @@ pub async fn probe(
         )));
     }
 
-    // Call v2 function to assess if upgrade happened
     match v2.MAX_AUTHENTICATORS_V2_HARD_LIMIT().call().await {
         Ok(_) => {
             info!("registry version detected: V2");

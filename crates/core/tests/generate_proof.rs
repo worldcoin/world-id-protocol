@@ -87,6 +87,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: world_id_registry,
+        registry_version: None,
         provider: world_id_gateway::ProviderArgs {
             http: Some(vec![anvil.endpoint().parse().unwrap()]),
             signer: Some(signer_args),
