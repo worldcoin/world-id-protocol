@@ -90,6 +90,7 @@ async fn spawn_test_gateway_for_registry(
     let cfg = match batch_ms {
         None => GatewayConfig {
             registry_addr,
+            registry_version: None,
             provider: ProviderArgs {
                 http: Some(vec![rpc_url.parse().unwrap()]),
                 signer: Some(signer_args),
@@ -112,6 +113,7 @@ async fn spawn_test_gateway_for_registry(
             let reeval_ms = ms.min(200);
             GatewayConfig {
                 registry_addr,
+                registry_version: None,
                 provider: ProviderArgs {
                     http: Some(vec![rpc_url.parse().unwrap()]),
                     signer: Some(signer_args),

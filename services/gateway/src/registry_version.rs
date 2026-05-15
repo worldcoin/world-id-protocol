@@ -4,16 +4,11 @@
 
 use std::sync::Arc;
 
-use alloy::{contract::Error as ContractError, primitives::Address, providers::DynProvider};
+use alloy::{primitives::Address, providers::DynProvider};
 use tracing::{info, warn};
 use world_id_registries::world_id::WorldIdRegistryV2::WorldIdRegistryV2Instance;
 
 use crate::error::{GatewayError, GatewayResult};
-
-fn http_only_run_mode() -> bool {
-    std::env::var("RUN_MODE")
-        .is_ok_and(|value| matches!(value.to_ascii_lowercase().as_str(), "http" | "http-only"))
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RegistryVersion {
@@ -21,39 +16,84 @@ pub enum RegistryVersion {
     V2,
 }
 
-/// Probes `MAX_AUTHENTICATORS_V2_HARD_LIMIT()` — a V2-only public constant (WIP-104).
-/// Success means V2.
+impl std::str::FromStr for RegistryVersion {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "v1" | "1" => Ok(Self::V1),
+            "v2" | "2" => Ok(Self::V2),
+            _ => Err(format!(
+                "invalid registry version: {value}; expected v1 or v2"
+            )),
+        }
+    }
+}
+
+/// Probes a common V1/V2 selector first, then a V2-only selector.
+/// Common selector failure means the registry/RPC path is broken; V2 selector failure means V1.
 pub async fn probe(
     provider: Arc<DynProvider>,
     proxy_addr: Address,
 ) -> GatewayResult<RegistryVersion> {
     let v2 = WorldIdRegistryV2Instance::new(proxy_addr, provider);
+
+    if let Err(err) = v2.MAX_AUTHENTICATORS_HARD_LIMIT().call().await {
+        warn!(error = ?err, "registry baseline probe failed");
+        return Err(GatewayError::Config(format!(
+            "failed to probe registry version: baseline selector failed: {err}"
+        )));
+    }
+
+    info!("registry baseline probe succeeded");
+
     match v2.MAX_AUTHENTICATORS_V2_HARD_LIMIT().call().await {
         Ok(_) => {
             info!("registry version detected: V2");
             Ok(RegistryVersion::V2)
         }
-        Err(err) if is_v2_selector_unavailable(&err) => {
+        Err(err) => {
             warn!(error = ?err, "V2 selector unavailable; defaulting to V1");
             Ok(RegistryVersion::V1)
-        }
-        Err(err) => {
-            if http_only_run_mode() {
-                warn!(
-                    error = ?err,
-                    "registry version probe failed in http-only mode; defaulting to V1"
-                );
-                Ok(RegistryVersion::V1)
-            } else {
-                warn!(error = ?err, "registry version probe failed");
-                Err(GatewayError::Config(format!(
-                    "failed to probe registry version: {err}"
-                )))
-            }
         }
     }
 }
 
-fn is_v2_selector_unavailable(err: &ContractError) -> bool {
-    matches!(err, ContractError::ZeroData(_, _)) || err.as_revert_data().is_some()
+#[cfg(test)]
+mod tests {
+    use world_id_test_utils::anvil::TestAnvil;
+
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn probe_detects_v1_on_anvil_registry_proxy() {
+        let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
+        let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
+        let registry_addr = anvil
+            .deploy_world_id_registry(deployer)
+            .await
+            .expect("failed to deploy WorldIDRegistry");
+        let provider = Arc::new(anvil.provider().expect("failed to build anvil provider"));
+
+        assert_eq!(
+            probe(provider, registry_addr).await.unwrap(),
+            RegistryVersion::V1
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn probe_detects_v2_on_anvil_registry_proxy() {
+        let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
+        let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
+        let registry_addr = anvil
+            .deploy_world_id_registry_v2(deployer)
+            .await
+            .expect("failed to deploy WorldIDRegistry V2");
+        let provider = Arc::new(anvil.provider().expect("failed to build anvil provider"));
+
+        assert_eq!(
+            probe(provider, registry_addr).await.unwrap(),
+            RegistryVersion::V2
+        );
+    }
 }
