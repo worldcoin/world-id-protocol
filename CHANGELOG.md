@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.10.1...world-id-primitives-v0.10.2) - 2026-05-04
+
+### Added
+
+- Make world-id-authenticator compile for wasm32 ([#714](https://github.com/worldcoin/world-id-protocol/pull/714))
+
+## [0.10.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.10.0...world-id-primitives-v0.10.1) - 2026-04-29
+
+### Added
+
+- Persist circuit artifacts for proof builds ([#706](https://github.com/worldcoin/world-id-protocol/pull/706))
+
+### Other
+
+- update Cargo.toml dependencies
+- remove oprf-key-gen dep and use testcontainers ([#691](https://github.com/worldcoin/world-id-protocol/pull/691))
+- migrate ohttp-gateway image build to ohttp-tools repo ([#699](https://github.com/worldcoin/world-id-protocol/pull/699))
+- bump alloy to 2.0.1 ([#687](https://github.com/worldcoin/world-id-protocol/pull/687))
+- fix check_query_input_validity errors ([#698](https://github.com/worldcoin/world-id-protocol/pull/698))
+- highlight noir version in build.rs ([#697](https://github.com/worldcoin/world-id-protocol/pull/697))
+
 ## [0.10.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.9.0...world-id-primitives-v0.10.0) - 2026-04-23
 
 ### Added

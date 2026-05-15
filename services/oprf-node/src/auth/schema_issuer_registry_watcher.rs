@@ -2,12 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     auth::schema_issuer_registry_watcher::CredentialSchemaIssuerRegistry::CredentialSchemaIssuerRegistryInstance,
-    config::WatcherCacheConfig,
-    metrics::{
-        METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS,
-        METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES,
-        METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE,
-    },
+    config::WatcherCacheConfig, metrics,
 };
 use alloy::{primitives::Address, providers::DynProvider};
 use eyre::Context;
@@ -53,7 +48,7 @@ impl SchemaIssuerRegistryWatcher {
         http_rpc_provider: &web3::HttpRpcProvider,
         cache_config: WatcherCacheConfig,
     ) -> Self {
-        ::metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE).set(0.0);
+        metrics::schema_issuer_cache::reset();
 
         let WatcherCacheConfig {
             max_cache_size,
@@ -65,8 +60,7 @@ impl SchemaIssuerRegistryWatcher {
             .time_to_live(time_to_live)
             .eviction_listener(move |k, (), cause| {
                 tracing::debug!("removing issuer {k} because: {cause:?}");
-                ::metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE)
-                    .decrement(1);
+                metrics::schema_issuer_cache::dec();
             })
             .build();
 
@@ -91,13 +85,11 @@ impl SchemaIssuerRegistryWatcher {
             .await?;
 
         if entry.is_fresh() {
-            metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE).increment(1);
-            ::metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES)
-                .increment(1);
+            metrics::schema_issuer_cache::inc();
+            metrics::schema_issuer_cache::miss();
             tracing::debug!("issuer {issuer_schema_id} loaded from chain");
         } else {
-            ::metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS)
-                .increment(1);
+            metrics::schema_issuer_cache::hit();
         }
         Ok(())
     }

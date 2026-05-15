@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -394,8 +395,7 @@ jobs:
 
       - name: Run Docker container
         run: |
-          # We run the http-only mode to avoid having to set up the RPC provider
-          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --env LISTEN_ADDR=0.0.0.0:8080 --env RUN_MODE=http-only --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
+          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --env LISTEN_ADDR=0.0.0.0:8080 ${{ matrix.service == 'gateway' && '--env REGISTRY_VERSION=v1' || '--env RUN_MODE=http-only' }} --env RPC_MAX_RETRIES=0 --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
 
           # Wait for the application to start
           sleep 10
@@ -429,6 +429,11 @@ jobs:
 
       - name: Check primitives compiles for WASM
         run: cargo check -p world-id-primitives --target wasm32-unknown-unknown
+        env:
+          RUSTUP_TOOLCHAIN: stable
+
+      - name: Check authenticator compiles for WASM
+        run: cargo check -p world-id-authenticator --target wasm32-unknown-unknown
         env:
           RUSTUP_TOOLCHAIN: stable
 

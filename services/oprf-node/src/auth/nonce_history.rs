@@ -21,13 +21,30 @@
 
 use std::time::Duration;
 
-use crate::metrics::METRICS_ID_NODE_NONCE_HISTORY_SIZE;
+use crate::metrics;
 use moka::future::Cache;
 use world_id_primitives::FieldElement;
 
 #[derive(Debug, thiserror::Error)]
 #[error("duplicate nonce - already used")]
 pub(crate) struct DuplicateNonce;
+
+/// Scope in which an RP nonce is consumed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum NonceScope {
+    /// Uniqueness/nullifier action scope.
+    Uniqueness,
+    /// Session OPRF seed generation scope.
+    SessionOprfSeed,
+    /// Session internal nullifier action scope.
+    SessionAction,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct NonceHistoryKey {
+    nonce: FieldElement,
+    scope: NonceScope,
+}
 
 /// Tracks nonces seen by one node-local module instance.
 ///
@@ -37,7 +54,7 @@ pub(crate) struct DuplicateNonce;
 /// processes keep independent histories.
 #[derive(Clone)]
 pub(crate) struct NonceHistory {
-    nonces: Cache<FieldElement, ()>,
+    nonces: Cache<NonceHistoryKey, ()>,
 }
 
 impl NonceHistory {
@@ -50,10 +67,15 @@ impl NonceHistory {
     /// # Arguments
     /// * `max_nonce_age` - Maximum age for nonces before they expire
     pub(crate) fn init(max_nonce_age: Duration) -> Self {
-        ::metrics::gauge!(METRICS_ID_NODE_NONCE_HISTORY_SIZE).set(0.0);
-
+        metrics::nonce_history::reset();
         NonceHistory {
-            nonces: Cache::builder().time_to_live(max_nonce_age).build(),
+            nonces: Cache::builder()
+                .time_to_live(max_nonce_age)
+                .eviction_listener(move |k, (), cause| {
+                    tracing::trace!("removing nonce {k:?} because {cause:?}");
+                    metrics::nonce_history::dec();
+                })
+                .build(),
         }
     }
 
@@ -70,11 +92,20 @@ impl NonceHistory {
     /// cache. That means the nonce was already seen by this node/module
     /// instance within `max_nonce_age`; it does not imply threshold-wide nonce
     /// consumption across other nodes or isolated replicas.
-    pub(crate) async fn add_nonce(&self, nonce: FieldElement) -> Result<(), DuplicateNonce> {
-        let entry = self.nonces.entry(nonce).or_insert_with(async {}).await;
+    pub(crate) async fn add_nonce(
+        &self,
+        nonce: FieldElement,
+        scope: NonceScope,
+    ) -> Result<(), DuplicateNonce> {
+        let entry = self
+            .nonces
+            .entry(NonceHistoryKey { nonce, scope })
+            .or_insert_with(async {})
+            .await;
         if !entry.is_fresh() {
             return Err(DuplicateNonce);
         }
+        metrics::nonce_history::inc();
         Ok(())
     }
 }
@@ -95,31 +126,62 @@ mod tests {
         let bar = FieldElement::random(&mut rng);
 
         // First insertion should succeed
-        nonce_history.add_nonce(foo).await.expect("can add nonce");
+        nonce_history
+            .add_nonce(foo, NonceScope::Uniqueness)
+            .await
+            .expect("can add nonce");
 
         // Second insertion of the same nonce should fail
         assert!(
-            nonce_history.add_nonce(foo).await.is_err(),
+            nonce_history
+                .add_nonce(foo, NonceScope::Uniqueness)
+                .await
+                .is_err(),
             "duplicate nonce should be rejected"
         );
 
         // Different nonce should succeed
         nonce_history
-            .add_nonce(bar)
+            .add_nonce(bar, NonceScope::Uniqueness)
             .await
             .expect("can add different nonce");
 
         // Multiple different nonces should all succeed
         for _ in 0..10 {
             nonce_history
-                .add_nonce(FieldElement::random(&mut rng))
+                .add_nonce(FieldElement::random(&mut rng), NonceScope::Uniqueness)
                 .await
                 .expect("can add unique nonce");
         }
 
         // All previously added nonces should still be rejected
-        nonce_history.add_nonce(foo).await.expect_err("Should fail");
-        nonce_history.add_nonce(bar).await.expect_err("Should fail");
+        nonce_history
+            .add_nonce(foo, NonceScope::Uniqueness)
+            .await
+            .expect_err("Should fail");
+        nonce_history
+            .add_nonce(bar, NonceScope::Uniqueness)
+            .await
+            .expect_err("Should fail");
+    }
+
+    #[tokio::test]
+    async fn test_nonce_history_allows_distinct_scopes() {
+        let nonce = FieldElement::random(&mut rand::thread_rng());
+        let nonce_history = NonceHistory::init(Duration::from_secs(60));
+
+        nonce_history
+            .add_nonce(nonce, NonceScope::SessionOprfSeed)
+            .await
+            .expect("can add session seed scope");
+        nonce_history
+            .add_nonce(nonce, NonceScope::SessionAction)
+            .await
+            .expect("can add session action scope");
+        nonce_history
+            .add_nonce(nonce, NonceScope::SessionOprfSeed)
+            .await
+            .expect_err("duplicate scoped nonce should fail");
     }
 
     #[tokio::test]
@@ -131,11 +193,17 @@ mod tests {
         let shared = FieldElement::random(&mut rand::thread_rng());
 
         // Add nonce via first handle
-        history1.add_nonce(shared).await.expect("can add nonce");
+        history1
+            .add_nonce(shared, NonceScope::Uniqueness)
+            .await
+            .expect("can add nonce");
 
         // Should be rejected via second handle (shared state)
         assert!(
-            history2.add_nonce(shared).await.is_err(),
+            history2
+                .add_nonce(shared, NonceScope::Uniqueness)
+                .await
+                .is_err(),
             "cloned history should share state"
         );
     }
@@ -147,11 +215,14 @@ mod tests {
         let nonce_history = NonceHistory::init(max_nonce_age);
 
         // Add nonce — should succeed
-        nonce_history.add_nonce(nonce).await.expect("can add nonce");
+        nonce_history
+            .add_nonce(nonce, NonceScope::Uniqueness)
+            .await
+            .expect("can add nonce");
 
         // Immediately - should be rejected
         nonce_history
-            .add_nonce(nonce)
+            .add_nonce(nonce, NonceScope::Uniqueness)
             .await
             .expect_err("duplicate should fail");
 
@@ -160,7 +231,7 @@ mod tests {
 
         // After TTL expiration - should succeed again
         nonce_history
-            .add_nonce(nonce)
+            .add_nonce(nonce, NonceScope::Uniqueness)
             .await
             .expect("nonce should be accepted after TTL expiration");
     }
@@ -181,7 +252,7 @@ mod tests {
             let barrier = Arc::clone(&barrier);
             join_set.spawn(async move {
                 barrier.wait().await;
-                history.add_nonce(nonce).await
+                history.add_nonce(nonce, NonceScope::Uniqueness).await
             });
         }
 

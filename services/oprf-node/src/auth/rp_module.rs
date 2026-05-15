@@ -12,13 +12,10 @@
 use crate::{
     auth::{
         merkle_watcher::{MerkleWatcher, MerkleWatcherError},
-        nonce_history::{DuplicateNonce, NonceHistory},
+        nonce_history::{DuplicateNonce, NonceHistory, NonceScope},
         rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
     },
-    metrics::{
-        METRICS_ATTRVAL_RP_TYPE_CONTRACT, METRICS_ATTRVAL_RP_TYPE_EOA,
-        METRICS_ATTRVAL_RP_TYPE_INCOMPATIBLE_WIP101_CONTRACT,
-    },
+    metrics,
 };
 use alloy::primitives::{Address, U256};
 use ark_bn254::Bn254;
@@ -204,18 +201,6 @@ pub(crate) enum RpAccountType {
     IncompatibleWip101,
 }
 
-impl RpAccountType {
-    pub(crate) fn metrics_label(self) -> &'static str {
-        match self {
-            RpAccountType::Eoa => METRICS_ATTRVAL_RP_TYPE_EOA,
-            RpAccountType::Contract => METRICS_ATTRVAL_RP_TYPE_CONTRACT,
-            RpAccountType::IncompatibleWip101 => {
-                METRICS_ATTRVAL_RP_TYPE_INCOMPATIBLE_WIP101_CONTRACT
-            }
-        }
-    }
-}
-
 impl fmt::Display for RpAccountType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -292,6 +277,7 @@ impl RelyingParty {
             }
             RpAccountType::Contract => {
                 tracing::trace!("RP signer is WIP101");
+                // TODO(session-proofs): WIP-101 does not currently support session proofs.
                 self.verify_wip101(action, &request.auth, rpc_provider, wip101_timeout)
                     .await
             }
@@ -402,9 +388,25 @@ impl RpModuleAuth {
         .await?;
 
         tracing::trace!("add nonce to store...");
-        // add nonce to history to check if the nonces where only used once
+        // Add nonce to history to check if the nonce was only used once in this scope.
+        let nonce_scope = match self.kind {
+            RpModuleKind::Uniqueness => NonceScope::Uniqueness,
+            RpModuleKind::Session => {
+                let action = FieldElement::from(action);
+                if action.is_valid_for_session(SessionFeType::OprfSeed) {
+                    NonceScope::SessionOprfSeed
+                } else if action.is_valid_for_session(SessionFeType::Action) {
+                    NonceScope::SessionAction
+                } else {
+                    return Err(RpModuleError::InvalidAction {
+                        kind: self.kind,
+                        action,
+                    });
+                }
+            }
+        };
         self.nonce_history
-            .add_nonce(FieldElement::from(request.auth.nonce))
+            .add_nonce(FieldElement::from(request.auth.nonce), nonce_scope)
             .await?;
 
         tracing::trace!("RP signature authentication successful!");
@@ -420,6 +422,7 @@ impl RpModuleAuth {
 
         match self.kind {
             RpModuleKind::Session => {
+                metrics::auth_module::inc_session();
                 if !action.is_valid_for_session(SessionFeType::OprfSeed)
                     && !action.is_valid_for_session(SessionFeType::Action)
                 {
@@ -430,6 +433,7 @@ impl RpModuleAuth {
                 }
             }
             RpModuleKind::Uniqueness => {
+                metrics::auth_module::inc_nullifier();
                 if action.to_be_bytes()[0] != 0 {
                     return Err(RpModuleError::InvalidAction {
                         kind: self.kind,

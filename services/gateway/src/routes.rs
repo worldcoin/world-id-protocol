@@ -9,6 +9,7 @@ use crate::{
     config::{BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig},
     error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
     orphan_sweeper::run_orphan_sweeper,
+    registry_version::RegistryVersion,
     request::GatewayContext,
     request_tracker::RequestTracker,
     routes::{
@@ -22,7 +23,9 @@ use crate::{
         recover_account::recover_account,
         remove_authenticator::remove_authenticator,
         request_status::request_status,
+        revert_recovery_agent_update::revert_recovery_agent_update,
         update_authenticator::update_authenticator,
+        update_recovery_agent::update_recovery_agent,
     },
     types::RootExpiry,
 };
@@ -63,6 +66,8 @@ mod update_authenticator;
 mod cancel_recovery_agent_update;
 mod execute_recovery_agent_update;
 mod initiate_recovery_agent_update;
+mod revert_recovery_agent_update;
+mod update_recovery_agent;
 
 // Admin / utility routes
 mod is_valid_root;
@@ -75,8 +80,10 @@ const ROOT_CACHE_SIZE: u64 = 1024;
 const CREATE_BATCHER_CHANNEL_CAPACITY: usize = 1024;
 const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
 
+#[expect(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
+    registry_version: RegistryVersion,
     batcher_config: BatcherConfig,
     redis_url: String,
     rate_limit: Option<RateLimitConfig>,
@@ -148,6 +155,7 @@ pub(crate) async fn build_app(
     };
     let ctx = GatewayContext {
         registry: registry.clone(),
+        registry_version,
         tracker,
         batcher: batcher_handle,
         root_cache,
@@ -176,6 +184,12 @@ pub(crate) async fn build_app(
         .route(
             "/execute-recovery-agent-update",
             post(execute_recovery_agent_update),
+        )
+        // WIP-102 optimistic recovery agent update (gated on V2 contract)
+        .route("/update-recovery-agent", post(update_recovery_agent))
+        .route(
+            "/revert-recovery-agent-update",
+            post(revert_recovery_agent_update),
         )
         // admin / utility
         .route("/is-valid-root", get(is_valid_root))

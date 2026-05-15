@@ -57,3 +57,38 @@ name = "world-id-registries"
 release = true
 publish = true
 changelog_update = false
+
+
+# Services – tagged and released on GitHub, but never published to crates.io.
+# Tags follow the pattern: world-id-indexer-vX.Y.Z etc.
+
+[[package]]
+name = "world-id-indexer"
+release = true
+publish = false
+changelog_update = false
+git_release_enable = true
+
+
+[[package]]
+name = "world-id-gateway"
+release = true
+publish = false
+changelog_update = false
+git_release_enable = true
+
+
+[[package]]
+name = "world-id-oprf-node"
+release = true
+publish = false
+changelog_update = false
+git_release_enable = true
+
+
+[[package]]
+name = "world-id-relay"
+release = true
+publish = false
+changelog_update = false
+git_release_enable = true

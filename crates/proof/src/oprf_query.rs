@@ -1,6 +1,8 @@
 //! Shared helpers for generating query proofs and executing
 //! distributed generic OPRF computations.
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
 use ark_groth16::Proof;
@@ -156,6 +158,10 @@ impl<'a> OprfEntrypoint<'a> {
         rng: &mut R,
         proof_request: &ProofRequest,
     ) -> Result<FullOprfOutput, ProofError> {
+        proof_request
+            .validate_proof_type()
+            .map_err(|err| ProofError::GenerationError(err.to_string()))?;
+
         let (action, module) = if proof_request.is_session_proof() {
             // For session proofs a random action is used internally. This is opaque to RPs who receive
             // it within the encoded `SessionNullifier`
@@ -166,6 +172,28 @@ impl<'a> OprfEntrypoint<'a> {
             let action = proof_request.action.unwrap_or(FieldElement::ZERO);
             (action, OprfModule::Nullifier)
         };
+
+        // quick validation before performing the compute heavy `generate_query_proof` fn
+        if proof_request.created_at > proof_request.expires_at {
+            return Err(ProofError::ProofInputError(
+                errors::ProofInputError::InvalidExpiresAt {
+                    created_at: proof_request.created_at,
+                    expires_at: proof_request.expires_at,
+                },
+            ));
+        }
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time cannot go backward")
+            .as_secs();
+        if proof_request.is_expired(now) {
+            return Err(ProofError::ProofInputError(
+                errors::ProofInputError::ProofRequestExpired {
+                    current_timestamp: now,
+                    expires_at: proof_request.expires_at,
+                },
+            ));
+        }
 
         let result = Self::generate_query_proof(
             self.query_material,
@@ -205,12 +233,21 @@ impl<'a> OprfEntrypoint<'a> {
         })
     }
 
-    pub async fn gen_session_id_r_seed<R: rand::CryptoRng + rand::RngCore>(
+    pub async fn derive_session_id_r_seed<R: rand::CryptoRng + rand::RngCore>(
         &self,
         rng: &mut R,
         proof_request: &ProofRequest,
         oprf_seed: FieldElement,
     ) -> Result<FullOprfOutput, ProofError> {
+        proof_request
+            .validate_proof_type()
+            .map_err(|err| ProofError::GenerationError(err.to_string()))?;
+        if !proof_request.is_session_proof() {
+            return Err(ProofError::GenerationError(
+                "proof_type must be create_session or prove_session".to_string(),
+            ));
+        }
+
         let result = Self::generate_query_proof(
             self.query_material,
             &self.authenticator_input,

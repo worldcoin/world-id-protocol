@@ -91,6 +91,19 @@ pub enum ProofInputError {
         "The provided session ID commitment is invalid for the given id and session id randomness."
     )]
     InvalidSessionId,
+    /// The proof request is expired.
+    #[error(
+        "The provided proof request has expired (expires_at: {expires_at}, check_timestamp: {current_timestamp})."
+    )]
+    ProofRequestExpired {
+        /// Current timestamp.
+        current_timestamp: u64,
+        /// Expiration timestamp.
+        expires_at: u64,
+    },
+    /// The proof's expires_at is greater than the created_at.
+    #[error("The proof's expires_at {expires_at} happens before the created_at {created_at}.")]
+    InvalidExpiresAt { created_at: u64, expires_at: u64 },
 }
 
 /// This method checks the validity of the input parameters by emulating the operations that are proved in ZK and raising Errors that would result in an invalid proof.
@@ -229,7 +242,7 @@ pub fn check_nullifier_input_validity<const TREE_DEPTH: usize>(
     let credential_expires_at_u64 = u64::try_from(FieldElement::from(inputs.cred_expires_at))
         .map_err(|_| ProofInputError::ValueOutOfBounds {
             name: "credential expiry timestamp",
-            is: inputs.current_timestamp,
+            is: inputs.cred_expires_at,
             limit: BaseField::new(u64::MAX.into()),
         })?;
     // Check that the credential has not expired.

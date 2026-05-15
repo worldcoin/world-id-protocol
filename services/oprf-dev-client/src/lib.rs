@@ -186,8 +186,8 @@ pub async fn init_authenticator(
         Some(config.chain_rpc_url.expose_secret().to_string()),
         if anvil { 31_337 } else { 480 },
         world_id_registry_contract,
-        indexer_url.clone(),
-        gateway_url.clone(),
+        world_id_primitives::ServiceEndpoint::direct(indexer_url.clone()),
+        world_id_primitives::ServiceEndpoint::direct(gateway_url.clone()),
         config.nodes.clone(),
         config.threshold,
     )
@@ -198,7 +198,7 @@ pub async fn init_authenticator(
 
     tracing::info!("creating account..");
     let seed = [7u8; 32];
-    let authenticator = Authenticator::init_or_register(&seed, world_config.into(), None)
+    let authenticator = Authenticator::init_or_register(&seed, world_config, None)
         .await?
         .with_proof_materials(query_material, Arc::new(nullifier_material));
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);

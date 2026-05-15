@@ -261,9 +261,7 @@ fn generate_oprf_auth_request(
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    taceo_nodes_observability::install_tracing(
-        "world_id_oprf_dev_client_issuer_blinding=trace,taceo_oprf_dev_client=trace,warn",
-    );
+    let _guard = telemetry_batteries::init();
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("can install");

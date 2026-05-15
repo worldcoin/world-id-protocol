@@ -46,6 +46,37 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
     }
 }
 
+/// The high-level proof flow requested by an RP.
+///
+/// Explicit discriminants reserve a stable one-byte protocol encoding for future
+/// signed request payloads. JSON serialization remains the snake_case variant name.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProofType {
+    /// A uniqueness proof scoped by the RP-provided action.
+    #[default]
+    Uniqueness = 0x00,
+    /// Create a new RP-scoped session identifier and prove it in the same response.
+    CreateSession = 0x01,
+    /// Prove ownership of an existing RP-scoped session identifier.
+    Session = 0x02,
+}
+
+impl ProofType {
+    /// Returns true for the default uniqueness proof flow.
+    #[must_use]
+    pub const fn is_uniqueness(&self) -> bool {
+        matches!(self, Self::Uniqueness)
+    }
+
+    /// Returns true for proof flows that produce a session proof response item.
+    #[must_use]
+    pub const fn is_session(&self) -> bool {
+        matches!(self, Self::CreateSession | Self::Session)
+    }
+}
+
 /// A proof request from a Relying Party (RP) for an Authenticator.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -54,6 +85,12 @@ pub struct ProofRequest {
     pub id: String,
     /// Version of the request.
     pub version: RequestVersion,
+    /// Requested high-level proof flow.
+    ///
+    /// If omitted, the request is strictly treated as a [`ProofType::Uniqueness`] request.
+    /// Session creation and session proving must opt in explicitly.
+    #[serde(default)]
+    pub proof_type: ProofType,
     /// Unix timestamp (seconds) when the request was created.
     pub created_at: u64,
     /// Unix timestamp (seconds) when the request expires.
@@ -64,9 +101,9 @@ pub struct ProofRequest {
     pub oprf_key_id: OprfKeyId,
     /// Session identifier that links proofs for the same user/RP pair across requests.
     ///
-    /// If provided, a Session Proof will be generated instead of a Uniqueness Proof.
-    /// The proof will only be valid if the session ID is meant for this context and this
-    /// particular World ID holder.
+    /// Required for [`ProofType::Session`], absent for all other proof types.
+    /// The proof will only be valid if the session ID is meant for this context and
+    /// this particular World ID holder.
     pub session_id: Option<SessionId>,
     /// An RP-defined context that scopes what the user is proving uniqueness on.
     ///
@@ -413,10 +450,90 @@ impl ProofRequest {
         Ok(hasher.finalize().into())
     }
 
-    /// Returns true if this request is for a Session proof (i.e., has a session ID).
+    /// Validates that the request fields match the explicit proof type.
+    ///
+    /// If `proof_type` was omitted during deserialization, it defaults to
+    /// [`ProofType::Uniqueness`]. Session flows must opt in explicitly.
+    ///
+    /// # Errors
+    /// Returns [`PrimitiveError::InvalidInput`] when the request has an invalid
+    /// combination of `proof_type`, `session_id`, and `action`.
+    pub fn validate_proof_type(&self) -> Result<(), PrimitiveError> {
+        match self.proof_type {
+            ProofType::Uniqueness => {
+                if self.session_id.is_some() {
+                    return Err(PrimitiveError::InvalidInput {
+                        attribute: "session_id".to_string(),
+                        reason: "must be omitted for uniqueness proofs".to_string(),
+                    });
+                }
+            }
+            ProofType::CreateSession => {
+                if self.session_id.is_some() {
+                    return Err(PrimitiveError::InvalidInput {
+                        attribute: "session_id".to_string(),
+                        reason: "must be omitted when creating a session".to_string(),
+                    });
+                }
+                if self.action.is_some() {
+                    return Err(PrimitiveError::InvalidInput {
+                        attribute: "action".to_string(),
+                        reason: "must be omitted for session proofs".to_string(),
+                    });
+                }
+            }
+            ProofType::Session => {
+                if self.session_id.is_none() {
+                    return Err(PrimitiveError::InvalidInput {
+                        attribute: "session_id".to_string(),
+                        reason: "must be provided when proving a session".to_string(),
+                    });
+                }
+                if self.action.is_some() {
+                    return Err(PrimitiveError::InvalidInput {
+                        attribute: "action".to_string(),
+                        reason: "must be omitted for session proofs".to_string(),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Returns true if this request produces a Session proof.
     #[must_use]
     pub const fn is_session_proof(&self) -> bool {
-        self.session_id.is_some()
+        self.proof_type.is_session()
+    }
+
+    /// Returns true if this request creates a new session.
+    #[must_use]
+    pub const fn is_create_session(&self) -> bool {
+        matches!(self.proof_type, ProofType::CreateSession)
+    }
+
+    /// Validates the structural integrity of the constraint expression.
+    ///
+    /// Checks that the constraint tree (when present) does not exceed the maximum
+    /// nesting depth of 2 or the maximum node count. This is the same check
+    /// performed inside [`validate_response`]; exposing it separately allows
+    /// callers to pre-flight a request before attempting proof generation.
+    ///
+    /// # Errors
+    /// Returns [`ValidationError::ConstraintTooDeep`] or [`ValidationError::ConstraintTooLarge`]
+    /// if the expression exceeds protocol limits.
+    ///
+    /// [`validate_response`]: Self::validate_response
+    pub fn validate_constraints(&self) -> Result<(), ValidationError> {
+        if let Some(expr) = &self.constraints {
+            if !expr.validate_max_depth(2) {
+                return Err(ValidationError::ConstraintTooDeep);
+            }
+            if !expr.validate_max_nodes(MAX_CONSTRAINT_NODES) {
+                return Err(ValidationError::ConstraintTooLarge);
+            }
+        }
+        Ok(())
     }
 
     /// Validate that a response satisfies this request: id match and constraints semantics.
@@ -425,6 +542,9 @@ impl ProofRequest {
     /// Returns a `ValidationError` if the response does not correspond to this request or
     /// does not satisfy the declared constraints.
     pub fn validate_response(&self, response: &ProofResponse) -> Result<(), ValidationError> {
+        self.validate_proof_type()
+            .map_err(|err| ValidationError::InvalidProofRequest(err.to_string()))?;
+
         // Validate id and version match
         if self.id != response.id {
             return Err(ValidationError::RequestIdMismatch);
@@ -438,9 +558,22 @@ impl ProofRequest {
             return Err(ValidationError::ProofGenerationFailed(error.clone()));
         }
 
-        // Session ID of the response doesn't match the request's session ID (if present)
-        if self.session_id.is_some() && self.session_id != response.session_id {
-            return Err(ValidationError::SessionIdMismatch);
+        match self.proof_type {
+            ProofType::Uniqueness => {
+                if response.session_id.is_some() {
+                    return Err(ValidationError::UnexpectedSessionId);
+                }
+            }
+            ProofType::CreateSession => {
+                if response.session_id.is_none() {
+                    return Err(ValidationError::MissingSessionId);
+                }
+            }
+            ProofType::Session => {
+                if self.session_id != response.session_id {
+                    return Err(ValidationError::SessionIdMismatch);
+                }
+            }
         }
 
         // Validate response items correspond to request items and are unique.
@@ -460,7 +593,7 @@ impl ProofRequest {
                     ValidationError::UnexpectedCredential(response_item.identifier.clone())
                 })?;
 
-            if self.session_id.is_some() {
+            if self.is_session_proof() {
                 // Session proof: must have session_nullifier
                 if response_item.session_nullifier.is_none() {
                     return Err(ValidationError::MissingSessionNullifier(
@@ -497,12 +630,7 @@ impl ProofRequest {
                 Ok(())
             }
             Some(expr) => {
-                if !expr.validate_max_depth(2) {
-                    return Err(ValidationError::ConstraintTooDeep);
-                }
-                if !expr.validate_max_nodes(MAX_CONSTRAINT_NODES) {
-                    return Err(ValidationError::ConstraintTooLarge);
-                }
+                self.validate_constraints()?;
                 if expr.evaluate(&|t| provided.contains(t)) {
                     Ok(())
                 } else {
@@ -518,6 +646,7 @@ impl ProofRequest {
     /// Returns an error if the JSON is invalid or contains duplicate issuer schema ids.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         let v: Self = serde_json::from_str(json)?;
+        v.validate_proof_type().map_err(serde_json::Error::custom)?;
         // Enforce unique issuer schema ids within a single request
         let mut seen: HashSet<String> = HashSet::new();
         for r in &v.requests {
@@ -579,6 +708,9 @@ impl ProofResponse {
 /// Validation errors when checking a response against a request
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ValidationError {
+    /// The request's proof type does not match its fields.
+    #[error("Invalid proof request: {0}")]
+    InvalidProofRequest(String),
     /// The response `id` does not match the request `id`
     #[error("Request ID mismatch")]
     RequestIdMismatch,
@@ -612,6 +744,12 @@ pub enum ValidationError {
     /// Session ID doesn't match between request and response
     #[error("Session ID doesn't match between request and response")]
     SessionIdMismatch,
+    /// Session ID missing from a create-session response.
+    #[error("Session ID missing from session response")]
+    MissingSessionId,
+    /// Session ID present in a uniqueness response.
+    #[error("Session ID present in uniqueness response")]
+    UnexpectedSessionId,
     /// Session nullifier missing for credential in session proof
     #[error("Session nullifier missing for credential: {0}")]
     MissingSessionNullifier(String),
@@ -811,12 +949,13 @@ mod tests {
         let request = ProofRequest {
             id: "test_request".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(FieldElement::ZERO),
             created_at: 1_700_000_000,
             expires_at: 1_700_100_000,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(FieldElement::ZERO),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![RequestItem {
@@ -851,12 +990,13 @@ mod tests {
         let request = ProofRequest {
             id: "test".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(FieldElement::ZERO),
             created_at: 1_700_000_000,
             expires_at: 1_700_100_000,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: None,
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![RequestItem {
@@ -871,6 +1011,12 @@ mod tests {
 
         let json = request.to_json().unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["proof_type"], "uniqueness");
+        assert_eq!(
+            value["action"],
+            serde_json::to_value(FieldElement::ZERO).unwrap()
+        );
+        assert!(value.get("kind").is_none());
         let sig = value["signature"]
             .as_str()
             .expect("signature should be a string");
@@ -886,12 +1032,13 @@ mod tests {
         let request = ProofRequest {
             id: "req_1".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(FieldElement::ZERO),
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600, // 2025-01-01
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(FieldElement::ZERO),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1031,12 +1178,13 @@ mod tests {
         let request = ProofRequest {
             id: "req_2".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(test_field_element(1)),
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(test_field_element(1)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![RequestItem {
@@ -1098,12 +1246,13 @@ mod tests {
         let request = ProofRequest {
             id: "req_nodes_ok".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(test_field_element(5)),
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(test_field_element(5)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1240,12 +1389,13 @@ mod tests {
         let request = ProofRequest {
             id: "req_nodes_too_many".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(test_field_element(1)),
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(test_field_element(1)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1347,12 +1497,13 @@ mod tests {
         let req = ProofRequest {
             id: "req_18c0f7f03e7d".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Session,
+            session_id: Some(SessionId::default()),
+            action: None,
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: Some(SessionId::default()),
-            action: Some(test_field_element(1)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![RequestItem {
@@ -1390,12 +1541,13 @@ mod tests {
         let req = ProofRequest {
             id: "req_18c0f7f03e7d".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(test_field_element(1)),
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(test_field_element(1)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1446,12 +1598,13 @@ mod tests {
         let req = ProofRequest {
             id: "req_18c0f7f03e7d".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(test_field_element(1)),
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(test_field_element(1)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1522,12 +1675,13 @@ mod tests {
         let req = ProofRequest {
             id: "req_enum".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(test_field_element(1)),
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(test_field_element(1)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1695,12 +1849,13 @@ mod tests {
         let req = ProofRequest {
             id: "req_dup".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(test_field_element(5)),
             created_at: 1_725_381_192,
             expires_at: 1_725_381_492,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(test_field_element(5)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1737,12 +1892,13 @@ mod tests {
         let request = ProofRequest {
             id: "req_error".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(FieldElement::ZERO),
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(FieldElement::ZERO),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![RequestItem {
@@ -1802,12 +1958,13 @@ mod tests {
         let req = ProofRequest {
             id: "req".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(test_field_element(5)),
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(test_field_element(5)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1849,12 +2006,13 @@ mod tests {
         let req = ProofRequest {
             id: "req".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(test_field_element(1)),
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600, // 2025-01-01 00:00:00 UTC
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(test_field_element(1)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1921,12 +2079,13 @@ mod tests {
         let req = ProofRequest {
             id: "req".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(test_field_element(1)),
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(test_field_element(1)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -1987,12 +2146,13 @@ mod tests {
         let req = ProofRequest {
             id: "req".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(test_field_element(1)),
             created_at: 1_735_689_600,
             expires_at: 1_735_689_600,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(test_field_element(1)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -2095,12 +2255,13 @@ mod tests {
         let request = ProofRequest {
             id: "req_expires_test".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(test_field_element(1)),
             created_at: request_created_at,
             expires_at: request_created_at + 300,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None,
-            action: Some(test_field_element(1)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![
@@ -2217,17 +2378,115 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_proof_type_is_strict() {
+        let uniqueness_with_session = ProofRequest {
+            id: "req_legacy_session".into(),
+            version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: Some(SessionId::default()),
+            action: None,
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_900,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                identifier: "orb".into(),
+                issuer_schema_id: 1,
+                signal: None,
+                genesis_issued_at_min: None,
+                expires_at_min: None,
+            }],
+            constraints: None,
+        };
+
+        assert!(matches!(
+            uniqueness_with_session.validate_proof_type(),
+            Err(PrimitiveError::InvalidInput { attribute, .. }) if attribute == "session_id"
+        ));
+
+        let session_without_session = ProofRequest {
+            proof_type: ProofType::Session,
+            session_id: None,
+            ..uniqueness_with_session
+        };
+
+        assert!(matches!(
+            session_without_session.validate_proof_type(),
+            Err(PrimitiveError::InvalidInput { attribute, .. }) if attribute == "session_id"
+        ));
+    }
+
+    #[test]
+    fn proof_type_protocol_encoding_is_stable() {
+        assert_eq!(ProofType::Uniqueness as u8, 0x00);
+        assert_eq!(ProofType::CreateSession as u8, 0x01);
+        assert_eq!(ProofType::Session as u8, 0x02);
+    }
+
+    #[test]
+    fn test_validate_response_accepts_create_session_response() {
+        let request = ProofRequest {
+            id: "req_create_session".into(),
+            version: RequestVersion::V1,
+            proof_type: ProofType::CreateSession,
+            session_id: None,
+            action: None,
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_900,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                identifier: "orb".into(),
+                issuer_schema_id: 1,
+                signal: None,
+                genesis_issued_at_min: None,
+                expires_at_min: None,
+            }],
+            constraints: None,
+        };
+
+        let missing_session = ProofResponse {
+            id: request.id.clone(),
+            version: RequestVersion::V1,
+            session_id: None,
+            error: None,
+            responses: vec![ResponseItem::new_session(
+                "orb".into(),
+                1,
+                ZeroKnowledgeProof::default(),
+                SessionNullifier::new(test_field_element(1001), test_action(42)).unwrap(),
+                1_735_689_600,
+            )],
+        };
+        assert!(matches!(
+            request.validate_response(&missing_session),
+            Err(ValidationError::MissingSessionId)
+        ));
+
+        let valid_response = ProofResponse {
+            session_id: Some(SessionId::default()),
+            ..missing_session
+        };
+        assert!(request.validate_response(&valid_response).is_ok());
+    }
+
+    #[test]
     fn test_validate_response_requires_session_id_in_response() {
         // Request with session_id should require response to also have session_id
         let request = ProofRequest {
             id: "req_session".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Session,
+            session_id: Some(SessionId::default()),
+            action: None,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_900,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: Some(SessionId::default()), // Session proof
-            action: Some(test_field_element(42)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![RequestItem {
@@ -2267,12 +2526,13 @@ mod tests {
         let request = ProofRequest {
             id: "req_session".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Session,
+            session_id: Some(SessionId::default()),
+            action: None,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_900,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: Some(SessionId::default()), // Session proof
-            action: Some(test_field_element(42)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![RequestItem {
@@ -2315,12 +2575,13 @@ mod tests {
         let request = ProofRequest {
             id: "req_uniqueness".into(),
             version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: None,
+            action: Some(test_field_element(42)),
             created_at: 1_735_689_600,
             expires_at: 1_735_689_900,
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            session_id: None, // Uniqueness proof
-            action: Some(test_field_element(42)),
             signature: test_signature(),
             nonce: test_nonce(),
             requests: vec![RequestItem {
