@@ -59,3 +59,7 @@ rand = { workspace = true }
 world-id-primitives = { workspace = true }
 world-id-relay = { workspace = true }
 world-id-test-utils = { workspace = true }
+
+[[bin]]
+name = "world-id-relay"
+path = "src/bin/main.rs"
