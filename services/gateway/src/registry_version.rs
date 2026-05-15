@@ -45,6 +45,8 @@ pub async fn probe(
         )));
     }
 
+    info!("registry baseline probe succeeded");
+
     match v2.MAX_AUTHENTICATORS_V2_HARD_LIMIT().call().await {
         Ok(_) => {
             info!("registry version detected: V2");

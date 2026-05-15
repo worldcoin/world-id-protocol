@@ -36,7 +36,7 @@ async fn registry_version_from_config(
 ) -> GatewayResult<RegistryVersion> {
     match registry_version {
         Some(registry_version) => {
-            tracing::warn!(
+            tracing::info!(
                 ?registry_version,
                 "registry version override set; skipping startup probe"
             );
