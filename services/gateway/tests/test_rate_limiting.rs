@@ -62,6 +62,7 @@ async fn test_rate_limit_basic() {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
+        registry_version: None,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),
@@ -269,6 +270,7 @@ async fn test_rate_limit_different_leaf_indexes() {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
+        registry_version: None,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),
@@ -425,6 +427,7 @@ async fn test_rate_limit_sliding_window() {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
+        registry_version: None,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),
@@ -578,6 +581,7 @@ async fn test_rate_limit_multiple_endpoints() {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
+        registry_version: None,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),

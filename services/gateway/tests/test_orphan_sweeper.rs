@@ -684,6 +684,7 @@ async fn sweep_submitted_with_real_receipt() {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
+        registry_version: None,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),

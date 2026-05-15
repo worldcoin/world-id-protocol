@@ -27,6 +27,7 @@ async fn test_authenticator_registration() {
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
+        registry_version: None,
         provider: world_id_gateway::ProviderArgs {
             http: Some(vec![anvil.endpoint().parse().unwrap()]),
             signer: Some(signer_args),
