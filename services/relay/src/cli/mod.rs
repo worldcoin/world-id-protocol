@@ -322,17 +322,7 @@ impl From<&SourceConfig> for WorldChainConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Startup wallet snapshot
-// ---------------------------------------------------------------------------
-
-/// Logs the relay wallet's address, balance, and nonce on the given chain,
-/// and publishes the balance gauge. Errors are demoted to `warn!` —
-/// a wallet snapshot must never fail process startup.
-///
-/// Nonce is reported as a structured log field only; we do not expose it as a
-/// metric because a healthy `propagate_state.attempts{outcome="success"}` rate
-/// already implies the wallet is signing and broadcasting correctly.
+/// Best-effort wallet snapshot: failures are warned, never fatal.
 async fn log_wallet_status<P: Provider>(
     provider: &P,
     address: Address,
@@ -377,10 +367,7 @@ async fn log_wallet_status<P: Provider>(
     }
 }
 
-/// Spawns a fire-and-forget background task that periodically refreshes the
-/// per-chain wallet `balance_wei` gauge. Intentionally NOT added to
-/// `tokio::select!` / `JoinSet`: this is observability, not business logic,
-/// and a panicking metrics task must never bring down the engine.
+/// Fire-and-forget so a panicking metrics task can't bring down the engine.
 fn spawn_wallet_metrics_task(provider: Arc<DynProvider>, chain_id: u64, wallet_address: Address) {
     tokio::spawn(async move {
         relay_metrics::run_wallet_metrics_task(
@@ -393,24 +380,12 @@ fn spawn_wallet_metrics_task(provider: Arc<DynProvider>, chain_id: u64, wallet_a
     });
 }
 
-// ---------------------------------------------------------------------------
-// Health / readiness handlers
-// ---------------------------------------------------------------------------
-
-/// Liveness probe — always returns 200.
-///
-/// Indicates only that the process is up and the async runtime is healthy.
-/// k8s should NEVER restart the relay mid-backfill (it would just discard
-/// progress and retry), so this endpoint deliberately ignores backfill state.
 async fn livez() -> StatusCode {
     StatusCode::OK
 }
 
-/// Readiness probe — 200 once backfill has completed, 503 before that.
-///
-/// During a rolling update this keeps the new pod out of service until its
-/// in-memory commitment log has caught up, so the old pod continues to
-/// serve satellite traffic until the replacement is genuinely ready.
+/// 503 until backfill completes, so a fresh pod stays out of service during
+/// rolling updates until its commitment log has caught up.
 async fn readyz(State(log): State<Arc<CommitmentLog>>) -> StatusCode {
     if log.is_ready() {
         StatusCode::OK
@@ -440,16 +415,8 @@ impl Cli {
         let wallet = EthereumWallet::from(signer);
 
         // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
-        //
-        // NOTE: this await is the one slow operation that happens BEFORE the
-        // health/readiness server is up. We accept this tradeoff so that
-        // `/readyz` can read directly from `Engine`'s own `Arc<CommitmentLog>`
-        // — i.e. there is exactly one log instance in the process, shared
-        // between the engine and the readiness handler. The alternative
-        // (construct the log outside `Engine` and pass it in) would let us
-        // spawn axum first, but at the cost of an extra public seam on
-        // `Engine` purely for probe wiring. The WC provider build is
-        // typically <1s on a healthy RPC, well inside k8s probe grace.
+        // NOTE: blocks the health server briefly so `Engine` can own the single
+        // `Arc<CommitmentLog>` shared with `/readyz`.
         let wc_rpc_url = rpc_url_from_env(SOURCE_RPC_ENV)?;
         let wc_provider = Arc::new(build_provider(&wc_rpc_url, &wallet).await?);
 
