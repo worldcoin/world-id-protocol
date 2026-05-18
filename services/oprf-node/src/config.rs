@@ -71,13 +71,16 @@ pub struct WatcherCacheConfig {
     /// TTL of the cache.
     ///
     /// Will drop entries that are older than this time.
-    #[serde(default = "WatcherCacheConfig::default_time_to_live")]
+    #[serde(
+        default = "WatcherCacheConfig::default_time_to_live",
+        with = "humantime_serde"
+    )]
     pub time_to_live: Duration,
 
     /// TTI of the cache.
     ///
     /// Will drop entries that are not accessed (read/write) for this time.
-    #[serde(default)]
+    #[serde(default, with = "humantime_serde")]
     pub time_to_idle: Option<Duration>,
 }
 
