@@ -6,13 +6,8 @@ use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    bindings::NothingChanged,
-    cli::WorldChain,
-    log::CommitmentLog,
-    metrics as relay_metrics,
-    primitives::StateCommitment,
-    satellite::Satellite,
-    stream,
+    bindings::NothingChanged, cli::WorldChain, log::CommitmentLog, metrics as relay_metrics,
+    primitives::StateCommitment, satellite::Satellite, stream,
 };
 
 /// Returns the static label value for a [`StateCommitment`] variant, used as
