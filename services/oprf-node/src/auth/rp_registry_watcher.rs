@@ -68,16 +68,21 @@ impl RpRegistryWatcher {
         let WatcherCacheConfig {
             max_cache_size,
             time_to_live,
+            time_to_idle,
         } = cache_config;
 
-        let rp_store = Cache::builder()
+        let rp_store_builder = Cache::builder()
             .max_capacity(max_cache_size.get())
             .time_to_live(time_to_live)
             .eviction_listener(move |k, v: RelyingParty, cause| {
                 tracing::debug!("removing rp {k}/{} because: {cause:?}", v.account_type);
                 metrics::rp_registry_cache::dec(v.account_type);
-            })
-            .build();
+            });
+        let rp_store = if let Some(time_to_idle) = time_to_idle {
+            rp_store_builder.time_to_idle(time_to_idle).build()
+        } else {
+            rp_store_builder.build()
+        };
 
         Self {
             rp_store,

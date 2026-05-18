@@ -53,16 +53,21 @@ impl SchemaIssuerRegistryWatcher {
         let WatcherCacheConfig {
             max_cache_size,
             time_to_live,
+            time_to_idle,
         } = cache_config;
 
-        let issuer_schema_store = Cache::builder()
+        let store_builder = Cache::builder()
             .max_capacity(max_cache_size.get())
             .time_to_live(time_to_live)
             .eviction_listener(move |k, (), cause| {
                 tracing::debug!("removing issuer {k} because: {cause:?}");
                 metrics::schema_issuer_cache::dec();
-            })
-            .build();
+            });
+        let issuer_schema_store = if let Some(time_to_idle) = time_to_idle {
+            store_builder.time_to_idle(time_to_idle).build()
+        } else {
+            store_builder.build()
+        };
 
         Self {
             issuer_schema_store,
