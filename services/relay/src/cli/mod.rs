@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use eyre::Result;
 use serde::Deserialize;
 
 use alloy::{
@@ -328,43 +329,26 @@ async fn log_wallet_status<P: Provider>(
     address: Address,
     chain_id: u64,
     chain_name: &str,
-) {
-    let balance = match provider.get_balance(address).await {
-        Ok(b) => Some(b),
-        Err(e) => {
-            tracing::warn!(error = %e, %chain_name, chain_id, "failed to read wallet balance");
-            None
-        }
-    };
+) -> Result<()> {
+    let (balance, nonce) = tokio::try_join!(
+        provider.get_balance(address),
+        provider.get_transaction_count(address)
+    )?;
 
-    let nonce = match provider.get_transaction_count(address).await {
-        Ok(n) => Some(n),
-        Err(e) => {
-            tracing::warn!(error = %e, %chain_name, chain_id, "failed to read wallet nonce");
-            None
-        }
-    };
+    relay_metrics::set_wallet_balance_wei(chain_id, f64::from(balance));
+    
+    let balance_eth = format_ether(balance);
 
-    if let Some(balance) = balance {
-        relay_metrics::set_wallet_balance_wei(chain_id, f64::from(balance));
-        let balance_eth = format_ether(balance);
-        tracing::info!(
-            %chain_name,
-            chain_id,
-            wallet = %address,
-            %balance_eth,
-            nonce = ?nonce,
-            "relay wallet status"
-        );
-    } else {
-        tracing::info!(
-            %chain_name,
-            chain_id,
-            wallet = %address,
-            nonce = ?nonce,
-            "relay wallet status (balance unavailable)"
-        );
-    }
+    tracing::info!(
+        %chain_name,
+        chain_id,
+        wallet = %address,
+        %balance_eth,
+        nonce = ?nonce,
+        "relay wallet status"
+    );
+
+    Ok(())
 }
 
 /// Fire-and-forget so a panicking metrics task can't bring down the engine.
