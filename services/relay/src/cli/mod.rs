@@ -29,6 +29,10 @@ pub struct Cli {
     /// Relay config as a JSON string.
     #[arg(long, env = "RELAY_CONFIG")]
     pub config: String,
+
+    /// Address the health-check HTTP server binds to.
+    #[arg(long, env = "HEALTH_BIND_ADDR", default_value = "0.0.0.0:8081")]
+    pub health_bind_addr: std::net::SocketAddr,
 }
 
 // ---------------------------------------------------------------------------
@@ -323,6 +327,14 @@ impl Cli {
     pub async fn run(self) -> eyre::Result<()> {
         let shutdown = tokio::signal::ctrl_c();
 
+        let health_app = axum::Router::new().route(
+            "/health",
+            axum::routing::get(|| async { axum::http::StatusCode::OK }),
+        );
+        let health_listener = tokio::net::TcpListener::bind(self.health_bind_addr).await?;
+        tracing::info!(addr = %self.health_bind_addr, "starting health check server");
+        let health_server = axum::serve(health_listener, health_app);
+
         let config = parse_config(&self.config)?;
 
         // Build a wallet for relay transactions.
@@ -423,6 +435,7 @@ impl Cli {
 
         tokio::select! {
             result = engine.run() => result,
+            result = health_server => result.map_err(eyre::Report::from),
             _ = shutdown => {
                 tracing::info!("received shutdown signal");
                 Ok(())
