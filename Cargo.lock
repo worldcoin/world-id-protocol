@@ -12669,6 +12669,7 @@ dependencies = [
  "alloy-primitives",
  "ark-ff 0.5.0",
  "ark-serialize 0.5.0",
+ "axum",
  "clap",
  "config",
  "dashmap",

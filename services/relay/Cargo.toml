@@ -9,6 +9,9 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+# http
+axum = { workspace = true }
+
 # alloy
 alloy = { workspace = true, features = [
     "full",
