@@ -39,6 +39,7 @@ serde_json = { workspace = true }
 # telemetry
 tracing = { workspace = true }
 telemetry-batteries = { workspace = true }
+metrics = { workspace = true }
 
 # misc
 clap = { workspace = true, features = ["derive", "env"] }

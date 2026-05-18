@@ -12678,6 +12678,7 @@ dependencies = [
  "futures",
  "futures-util",
  "hex",
+ "metrics",
  "parking_lot",
  "rand 0.8.5",
  "serde",

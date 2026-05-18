@@ -8,6 +8,7 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
     let _guard = telemetry_batteries::init();
+    world_id_relay::metrics::describe_metrics();
 
     tracing::info!("starting world-id-relay");
 

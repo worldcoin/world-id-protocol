@@ -5,13 +5,19 @@ pub use ethereum_mpt::EthereumMptSatellite;
 pub use permissioned::{PermissionedSatellite, TempoSatellite};
 use tracing::Instrument;
 
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use alloy::primitives::{B256, Bytes};
 use eyre::Result;
 
 use crate::{
     log::CommitmentLog,
+    metrics as relay_metrics,
     primitives::{ChainCommitment, reduce},
 };
 
@@ -80,6 +86,8 @@ pub fn spawn_satellite(
             }
         };
 
+        let satellite_name = satellite.name().to_owned();
+
         async {
             loop {
                 chain_head.changed().await?;
@@ -105,17 +113,46 @@ pub fn spawn_satellite(
                     "relaying delta"
                 );
 
-                match tokio::time::timeout(RELAY_TIMEOUT, satellite.relay(&merged)).await {
+                tracing::info!(
+                    commitments = count,
+                    target_head = %target_head,
+                    "submitting satellite relay"
+                );
+
+                let relay_start = Instant::now();
+                let outcome = tokio::time::timeout(RELAY_TIMEOUT, satellite.relay(&merged)).await;
+                let elapsed = relay_start.elapsed().as_secs_f64();
+                relay_metrics::record_satellite_relay_duration(&satellite_name, elapsed);
+
+                match outcome {
                     Ok(Ok(tx_hash)) => {
                         local_head = target_head;
-                        tracing::info!(%tx_hash, head = %local_head, "relay succeeded");
+                        tracing::info!(
+                            %tx_hash,
+                            head = %local_head,
+                            delta_count = count,
+                            target_head = %target_head,
+                            "relay succeeded"
+                        );
+                        relay_metrics::inc_satellite_relay_outcome(
+                            &satellite_name,
+                            relay_metrics::outcome::SUCCESS,
+                        );
                     }
                     Ok(Err(e)) => {
                         tracing::warn!(error = %e, "relay failed, will retry on next head");
+                        relay_metrics::inc_satellite_relay_outcome(
+                            &satellite_name,
+                            relay_metrics::outcome::RELAY_FAILED,
+                        );
                     }
                     Err(_) => {
                         tracing::warn!(
                             "relay timed out after {RELAY_TIMEOUT:?}, will retry on next head"
+                        );
+                        relay_metrics::inc_satellite_relay_outcome(
+                            &satellite_name,
+                            relay_metrics::outcome::TIMEOUT,
                         );
                     }
                 }

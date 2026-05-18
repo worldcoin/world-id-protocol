@@ -23,6 +23,24 @@ use crate::{
     },
 };
 
+// ── PendingCounts ───────────────────────────────────────────────────────────
+
+/// Snapshot of the pending-queue depths in the [`CommitmentLog`].
+///
+/// Roots are propagated automatically via `ChainCommitted` events and are not
+/// tracked in a pending map (see `CommitmentLog::insert`), so `roots` is
+/// always `0` today — the field is reported for consistency with the metrics
+/// label set and to make future bookkeeping cheap to wire up.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PendingCounts {
+    /// Number of pending credential-issuer key updates.
+    pub issuers: usize,
+    /// Number of pending OPRF key updates.
+    pub oprfs: usize,
+    /// Number of pending root commitments tracked separately from the chain log.
+    pub roots: usize,
+}
+
 // ── PendingSnapshot ─────────────────────────────────────────────────────────
 
 /// A snapshot of pending issuer/OPRF key updates drained from the log.
@@ -110,6 +128,14 @@ impl CommitmentLog {
         self.ready_notify.notify_waiters();
     }
 
+    /// Returns `true` once [`mark_ready`](Self::mark_ready) has fired
+    /// (i.e. backfill is complete and the log is ready for satellite use).
+    ///
+    /// Cheap, non-blocking — safe to call from request handlers.
+    pub fn is_ready(&self) -> bool {
+        self.ready_flag.load(Ordering::Acquire)
+    }
+
     /// Waits until the log is ready (backfill complete).
     ///
     /// # Race-free design
@@ -162,6 +188,20 @@ impl CommitmentLog {
                 // Roots are propagated automatically via ChainCommitted — no
                 // pending state needed. We just log the event.
             }
+        }
+    }
+
+    /// Returns the current pending-queue depths without draining them.
+    ///
+    /// Acquires the pending-map mutexes briefly; safe to call from any
+    /// thread but should not be invoked in tight loops.
+    pub fn pending_counts(&self) -> PendingCounts {
+        let issuers = self.pending_issuers.lock().len();
+        let oprfs = self.pending_oprfs.lock().len();
+        PendingCounts {
+            issuers,
+            oprfs,
+            roots: 0,
         }
     }
 

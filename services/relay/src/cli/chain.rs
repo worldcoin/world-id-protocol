@@ -36,6 +36,9 @@ pub struct WorldChain {
 
     /// Block number at which the WorldIDSource contract was deployed.
     deployment_block: u64,
+
+    /// Chain ID of the source chain (label value for per-chain metrics).
+    chain_id: u64,
 }
 
 impl WorldChain {
@@ -60,8 +63,14 @@ impl WorldChain {
             world_id_source: IWorldIDSourceInstance::new(config.world_id_source, provider.clone()),
             bridge_interval: Duration::from_secs(config.bridge_interval),
             deployment_block: config.deployment_block,
+            chain_id: config.chain_id,
             provider,
         }
+    }
+
+    /// Chain ID of the source chain.
+    pub fn chain_id(&self) -> u64 {
+        self.chain_id
     }
 
     pub fn provider(&self) -> &Arc<DynProvider> {
