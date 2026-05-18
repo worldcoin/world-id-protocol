@@ -10,9 +10,6 @@ use crate::{
     primitives::StateCommitment, satellite::Satellite, stream,
 };
 
-/// Returns the static label value for a [`StateCommitment`] variant, used as
-/// a `event_kind` structured-log field. Kept narrow on purpose: this is a
-/// tracing aid, not a metric label.
 fn event_kind(commitment: &StateCommitment) -> &'static str {
     match commitment {
         StateCommitment::ChainCommitted(_) => "chain_committed",

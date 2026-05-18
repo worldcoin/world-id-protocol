@@ -23,18 +23,11 @@ use crate::{
     },
 };
 
-// ── PendingCounts ───────────────────────────────────────────────────────────
-
-/// Snapshot of the pending-queue depths in the [`CommitmentLog`].
-///
-/// Roots are propagated automatically via `ChainCommitted` events and are not
-/// tracked in a pending map (see `CommitmentLog::insert`), so they are
-/// intentionally absent here.
+/// Pending-queue depths in the [`CommitmentLog`]. Roots aren't tracked here
+/// because they propagate via `ChainCommitted` rather than a pending map.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PendingCounts {
-    /// Number of pending credential-issuer key updates.
     pub issuers: usize,
-    /// Number of pending OPRF key updates.
     pub oprfs: usize,
 }
 
@@ -125,10 +118,7 @@ impl CommitmentLog {
         self.ready_notify.notify_waiters();
     }
 
-    /// Returns `true` once [`mark_ready`](Self::mark_ready) has fired
-    /// (i.e. backfill is complete and the log is ready for satellite use).
-    ///
-    /// Cheap, non-blocking — safe to call from request handlers.
+    /// Non-blocking check that backfill is complete.
     pub fn is_ready(&self) -> bool {
         self.ready_flag.load(Ordering::Acquire)
     }
@@ -188,10 +178,7 @@ impl CommitmentLog {
         }
     }
 
-    /// Returns the current pending-queue depths without draining them.
-    ///
-    /// Acquires the pending-map mutexes briefly; safe to call from any
-    /// thread but should not be invoked in tight loops.
+    /// Current pending-queue depths without draining them.
     pub fn pending_counts(&self) -> PendingCounts {
         let issuers = self.pending_issuers.lock().len();
         let oprfs = self.pending_oprfs.lock().len();

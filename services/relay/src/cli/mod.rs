@@ -422,8 +422,6 @@ impl Cli {
 
         let wc_config = WorldChainConfig::from(&config.source);
 
-        // Best-effort startup wallet snapshot — surfaces low-balance / stuck-tx
-        // problems before backfill even starts. Failures are non-fatal.
         log_wallet_status(
             wc_provider.as_ref(),
             wallet_address,
@@ -432,21 +430,14 @@ impl Cli {
         )
         .await;
 
-        // Spawn a fire-and-forget background task that periodically refreshes
-        // the World Chain wallet `balance_wei` gauge. This MUST live off the
-        // propagate hot path — observability code can never pay
-        // network-latency tax on the critical path.
         spawn_wallet_metrics_task(wc_provider.clone(), wc_config.chain_id, wallet_address);
 
         let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone());
 
         let mut engine = Engine::new(world_chain);
 
-        // Spawn the health/readiness server BEFORE registering satellites
-        // (which involves further `.await`s on per-satellite RPC builds).
-        // While the engine backfills, `/livez` reports 200 and `/readyz`
-        // reports 503, keeping the pod in service for liveness but
-        // NotReady for traffic until `CommitmentLog::mark_ready()` fires.
+        // Spawn the health server before per-satellite RPC builds so `/readyz`
+        // can return 503 while the engine backfills.
         let health_app = Router::new()
             .route("/livez", get(livez))
             .route("/readyz", get(readyz))
