@@ -427,14 +427,6 @@ impl Cli {
     pub async fn run(self) -> eyre::Result<()> {
         let shutdown = tokio::signal::ctrl_c();
 
-        let health_app = axum::Router::new().route(
-            "/health",
-            axum::routing::get(|| async { axum::http::StatusCode::OK }),
-        );
-        let health_listener = tokio::net::TcpListener::bind(self.health_bind_addr).await?;
-        tracing::info!(addr = %self.health_bind_addr, "starting health check server");
-        let health_server = axum::serve(health_listener, health_app);
-
         let config = parse_config(&self.config)?;
 
         // Build a wallet for relay transactions.
