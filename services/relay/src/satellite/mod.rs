@@ -5,12 +5,7 @@ pub use ethereum_mpt::EthereumMptSatellite;
 pub use permissioned::{PermissionedSatellite, TempoSatellite};
 use tracing::Instrument;
 
-use std::{
-    future::Future,
-    pin::Pin,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use alloy::primitives::{B256, Bytes};
 use eyre::Result;
@@ -119,10 +114,7 @@ pub fn spawn_satellite(
                     "submitting satellite relay"
                 );
 
-                let relay_start = Instant::now();
                 let outcome = tokio::time::timeout(RELAY_TIMEOUT, satellite.relay(&merged)).await;
-                let elapsed = relay_start.elapsed().as_secs_f64();
-                relay_metrics::record_satellite_relay_duration(&satellite_name, elapsed);
 
                 match outcome {
                     Ok(Ok(tx_hash)) => {

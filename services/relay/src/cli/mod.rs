@@ -327,8 +327,12 @@ impl From<&SourceConfig> for WorldChainConfig {
 // ---------------------------------------------------------------------------
 
 /// Logs the relay wallet's address, balance, and nonce on the given chain,
-/// and publishes the corresponding metrics. Errors are demoted to `warn!` —
+/// and publishes the balance gauge. Errors are demoted to `warn!` —
 /// a wallet snapshot must never fail process startup.
+///
+/// Nonce is reported as a structured log field only; we do not expose it as a
+/// metric because a healthy `propagate_state.attempts{outcome="success"}` rate
+/// already implies the wallet is signing and broadcasting correctly.
 async fn log_wallet_status<P: Provider>(
     provider: &P,
     address: Address,
@@ -370,10 +374,6 @@ async fn log_wallet_status<P: Provider>(
             nonce = ?nonce,
             "relay wallet status (balance unavailable)"
         );
-    }
-
-    if let Some(nonce) = nonce {
-        relay_metrics::set_wallet_nonce(chain_id, nonce);
     }
 }
 

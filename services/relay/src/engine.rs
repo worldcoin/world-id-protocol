@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 
 use eyre::Result;
 use futures_util::StreamExt;
@@ -6,9 +6,26 @@ use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    bindings::NothingChanged, cli::WorldChain, log::CommitmentLog, metrics as relay_metrics,
-    satellite::Satellite, stream,
+    bindings::NothingChanged,
+    cli::WorldChain,
+    log::CommitmentLog,
+    metrics as relay_metrics,
+    primitives::StateCommitment,
+    satellite::Satellite,
+    stream,
 };
+
+/// Returns the static label value for a [`StateCommitment`] variant, used as
+/// a `event_kind` structured-log field. Kept narrow on purpose: this is a
+/// tracing aid, not a metric label.
+fn event_kind(commitment: &StateCommitment) -> &'static str {
+    match commitment {
+        StateCommitment::ChainCommitted(_) => "chain_committed",
+        StateCommitment::RootCommitment(_) => "root_commitment",
+        StateCommitment::IssuerPubKey(_) => "issuer_pub_key",
+        StateCommitment::OprfPubKey(_) => "oprf_pub_key",
+    }
+}
 
 /// The core relay engine.
 ///
@@ -54,8 +71,6 @@ impl Engine {
     /// succeeds. Propagation failures are logged but never fatal -- the engine
     /// will retry on the next tick.
     async fn propagate(&self) -> Result<()> {
-        let start = Instant::now();
-
         let source_root = match self
             .world_chain
             .world_id_source()
@@ -67,7 +82,6 @@ impl Engine {
             Err(e) => {
                 warn!(error = %e, "failed to read source root");
                 relay_metrics::inc_propagate_outcome(relay_metrics::outcome::RPC_ERROR);
-                relay_metrics::record_propagate_duration(start.elapsed().as_secs_f64());
                 return Ok(());
             }
         };
@@ -82,7 +96,6 @@ impl Engine {
             Err(e) => {
                 warn!(error = %e, "failed to read registry root");
                 relay_metrics::inc_propagate_outcome(relay_metrics::outcome::RPC_ERROR);
-                relay_metrics::record_propagate_duration(start.elapsed().as_secs_f64());
                 return Ok(());
             }
         };
@@ -97,7 +110,6 @@ impl Engine {
         if !root_changed && snapshot.is_empty() {
             debug!("propagation tick: nothing to propagate");
             relay_metrics::inc_propagate_outcome(relay_metrics::outcome::NOOP);
-            relay_metrics::record_propagate_duration(start.elapsed().as_secs_f64());
             return Ok(());
         }
 
@@ -158,7 +170,6 @@ impl Engine {
                 relay_metrics::inc_propagate_outcome(relay_metrics::outcome::SIMULATION_REVERT);
             }
         }
-        relay_metrics::record_propagate_duration(start.elapsed().as_secs_f64());
         Ok(())
     }
 
@@ -174,9 +185,7 @@ impl Engine {
         // Satellites query the destination chain's head and use log.since()
         // to send any commits the destination hasn't received yet.
         info!("backfilling historical ChainCommitted events");
-        let backfill_start = Instant::now();
         stream::backfill_commitments(&self.world_chain, &self.log).await?;
-        relay_metrics::record_backfill_duration(backfill_start.elapsed().as_secs_f64());
 
         info!("backfill complete, starting satellite relay loop");
 
@@ -197,13 +206,11 @@ impl Engine {
                 Some(result) = events.next() => {
                     match result {
                         Ok(commitment) => {
-                            let event_kind = relay_metrics::event_kind(&commitment);
                             info!(
                                 event = %commitment,
-                                event_kind,
+                                event_kind = event_kind(&commitment),
                                 "received event from World Chain"
                             );
-                            relay_metrics::inc_event_received(&commitment);
                             self.log.insert(commitment);
                             relay_metrics::record_pending_counts(&self.log);
                         }
