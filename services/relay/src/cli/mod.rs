@@ -378,8 +378,8 @@ async fn log_wallet_status<P: Provider>(
 }
 
 /// Spawns a fire-and-forget background task that periodically refreshes the
-/// per-chain wallet `balance_wei` and `nonce` gauges. Intentionally NOT added
-/// to `tokio::select!` / `JoinSet`: this is observability, not business logic,
+/// per-chain wallet `balance_wei` gauge. Intentionally NOT added to
+/// `tokio::select!` / `JoinSet`: this is observability, not business logic,
 /// and a panicking metrics task must never bring down the engine.
 fn spawn_wallet_metrics_task(provider: Arc<DynProvider>, chain_id: u64, wallet_address: Address) {
     tokio::spawn(async move {
@@ -466,8 +466,8 @@ impl Cli {
         .await;
 
         // Spawn a fire-and-forget background task that periodically refreshes
-        // the World Chain wallet `balance_wei` / `nonce` gauges. This MUST
-        // live off the propagate hot path — observability code can never pay
+        // the World Chain wallet `balance_wei` gauge. This MUST live off the
+        // propagate hot path — observability code can never pay
         // network-latency tax on the critical path.
         spawn_wallet_metrics_task(wc_provider.clone(), wc_config.chain_id, wallet_address);
 

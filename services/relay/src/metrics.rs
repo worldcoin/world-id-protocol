@@ -60,7 +60,6 @@ pub mod outcome {
 pub mod pending_kind {
     pub const ISSUER: &str = "issuer";
     pub const OPRF: &str = "oprf";
-    pub const ROOT: &str = "root";
 }
 
 // ── Describe ────────────────────────────────────────────────────────────────
@@ -169,9 +168,4 @@ pub fn record_pending_counts(log: &CommitmentLog) {
         LABEL_KIND => pending_kind::OPRF,
     )
     .set(counts.oprfs as f64);
-    ::metrics::gauge!(
-        METRICS_LOG_PENDING_COUNT,
-        LABEL_KIND => pending_kind::ROOT,
-    )
-    .set(counts.roots as f64);
 }

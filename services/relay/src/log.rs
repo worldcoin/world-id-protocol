@@ -28,17 +28,14 @@ use crate::{
 /// Snapshot of the pending-queue depths in the [`CommitmentLog`].
 ///
 /// Roots are propagated automatically via `ChainCommitted` events and are not
-/// tracked in a pending map (see `CommitmentLog::insert`), so `roots` is
-/// always `0` today — the field is reported for consistency with the metrics
-/// label set and to make future bookkeeping cheap to wire up.
+/// tracked in a pending map (see `CommitmentLog::insert`), so they are
+/// intentionally absent here.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PendingCounts {
     /// Number of pending credential-issuer key updates.
     pub issuers: usize,
     /// Number of pending OPRF key updates.
     pub oprfs: usize,
-    /// Number of pending root commitments tracked separately from the chain log.
-    pub roots: usize,
 }
 
 // ── PendingSnapshot ─────────────────────────────────────────────────────────
@@ -198,11 +195,7 @@ impl CommitmentLog {
     pub fn pending_counts(&self) -> PendingCounts {
         let issuers = self.pending_issuers.lock().len();
         let oprfs = self.pending_oprfs.lock().len();
-        PendingCounts {
-            issuers,
-            oprfs,
-            roots: 0,
-        }
+        PendingCounts { issuers, oprfs }
     }
 
     /// Atomically drains all pending entries.
