@@ -59,16 +59,22 @@ impl MerkleWatcher {
         let WatcherCacheConfig {
             max_cache_size,
             time_to_live,
+            time_to_idle,
         } = cache_config;
 
-        let merkle_root_cache = Cache::builder()
+        let merkle_root_cache_builder = Cache::builder()
             .max_capacity(max_cache_size.get())
             .time_to_live(time_to_live)
             .eviction_listener(move |root, (), cause| {
                 tracing::debug!("removing merkle-root {root} because: {cause:?}");
                 metrics::merkle_cache::dec();
-            })
-            .build();
+            });
+
+        let merkle_root_cache = if let Some(time_to_idle) = time_to_idle {
+            merkle_root_cache_builder.time_to_idle(time_to_idle).build()
+        } else {
+            merkle_root_cache_builder.build()
+        };
 
         Self {
             merkle_root_cache,

@@ -73,6 +73,12 @@ pub struct WatcherCacheConfig {
     /// Will drop entries that are older than this time.
     #[serde(default = "WatcherCacheConfig::default_time_to_live")]
     pub time_to_live: Duration,
+
+    /// TTI of the cache.
+    ///
+    /// Will drop entries that are not accessed (read/write) for this time.
+    #[serde(default)]
+    pub time_to_idle: Option<Duration>,
 }
 
 impl WatcherCacheConfig {
@@ -90,6 +96,7 @@ impl WatcherCacheConfig {
         Self {
             max_cache_size: Self::default_max_cache_size(),
             time_to_live: Self::default_time_to_live(),
+            time_to_idle: None,
         }
     }
 }
