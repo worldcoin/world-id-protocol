@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use eyre::Result;
 use serde::Deserialize;
 
 use alloy::{
@@ -7,11 +8,14 @@ use alloy::{
     providers::{DynProvider, Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
 };
-use alloy_primitives::Address;
+use alloy_primitives::{Address, utils::format_ether};
+use axum::{Router, extract::State, http::StatusCode, routing::get};
 use tempo_alloy::{TempoNetwork, provider::TempoProviderBuilderExt};
 
 use crate::{
     engine::Engine,
+    log::CommitmentLog,
+    metrics as relay_metrics,
     satellite::{EthereumMptSatellite, PermissionedSatellite, TempoSatellite},
 };
 
@@ -319,6 +323,61 @@ impl From<&SourceConfig> for WorldChainConfig {
     }
 }
 
+/// Best-effort wallet snapshot: failures are warned, never fatal.
+async fn log_wallet_status<P: Provider>(
+    provider: &P,
+    address: Address,
+    chain_id: u64,
+    chain_name: &str,
+) -> Result<()> {
+    let (balance, nonce) = tokio::try_join!(
+        provider.get_balance(address),
+        provider.get_transaction_count(address)
+    )?;
+
+    relay_metrics::set_wallet_balance_wei(chain_id, f64::from(balance));
+    
+    let balance_eth = format_ether(balance);
+
+    tracing::info!(
+        %chain_name,
+        chain_id,
+        wallet = %address,
+        %balance_eth,
+        nonce = ?nonce,
+        "relay wallet status"
+    );
+
+    Ok(())
+}
+
+/// Fire-and-forget so a panicking metrics task can't bring down the engine.
+fn spawn_wallet_metrics_task(provider: Arc<DynProvider>, chain_id: u64, wallet_address: Address) {
+    tokio::spawn(async move {
+        relay_metrics::run_wallet_metrics_task(
+            provider,
+            chain_id,
+            wallet_address,
+            relay_metrics::WALLET_METRICS_INTERVAL,
+        )
+        .await
+    });
+}
+
+async fn livez() -> StatusCode {
+    StatusCode::OK
+}
+
+/// 503 until backfill completes, so a fresh pod stays out of service during
+/// rolling updates until its commitment log has caught up.
+async fn readyz(State(log): State<Arc<CommitmentLog>>) -> StatusCode {
+    if log.is_ready() {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    }
+}
+
 // ---------------------------------------------------------------------------
 // CLI run
 // ---------------------------------------------------------------------------
@@ -326,14 +385,6 @@ impl From<&SourceConfig> for WorldChainConfig {
 impl Cli {
     pub async fn run(self) -> eyre::Result<()> {
         let shutdown = tokio::signal::ctrl_c();
-
-        let health_app = axum::Router::new().route(
-            "/health",
-            axum::routing::get(|| async { axum::http::StatusCode::OK }),
-        );
-        let health_listener = tokio::net::TcpListener::bind(self.health_bind_addr).await?;
-        tracing::info!(addr = %self.health_bind_addr, "starting health check server");
-        let health_server = axum::serve(health_listener, health_app);
 
         let config = parse_config(&self.config)?;
 
@@ -344,16 +395,42 @@ impl Cli {
         let signer: PrivateKeySigner = wallet_key
             .parse()
             .map_err(|e| eyre::eyre!("failed to parse WALLET_PRIVATE_KEY: {e}"))?;
+        let wallet_address = signer.address();
         let wallet = EthereumWallet::from(signer);
 
         // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
+        // NOTE: blocks the health server briefly so `Engine` can own the single
+        // `Arc<CommitmentLog>` shared with `/readyz`.
         let wc_rpc_url = rpc_url_from_env(SOURCE_RPC_ENV)?;
         let wc_provider = Arc::new(build_provider(&wc_rpc_url, &wallet).await?);
 
         let wc_config = WorldChainConfig::from(&config.source);
+
+        log_wallet_status(
+            wc_provider.as_ref(),
+            wallet_address,
+            wc_config.chain_id,
+            "world_chain",
+        )
+        .await;
+
+        spawn_wallet_metrics_task(wc_provider.clone(), wc_config.chain_id, wallet_address);
+
         let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone());
 
         let mut engine = Engine::new(world_chain);
+
+        // Spawn the health server before per-satellite RPC builds so `/readyz`
+        // can return 503 while the engine backfills.
+        let health_app = Router::new()
+            .route("/livez", get(livez))
+            .route("/readyz", get(readyz))
+            .with_state(engine.log().clone());
+        let health_listener = tokio::net::TcpListener::bind(self.health_bind_addr).await?;
+        tracing::info!(addr = %self.health_bind_addr, "starting health check server");
+        let mut health_task =
+            tokio::spawn(async move { axum::serve(health_listener, health_app).await });
+
         let mut satellite_count = 0usize;
 
         // Spawn permissioned gateway satellites.
@@ -361,6 +438,20 @@ impl Cli {
             match sat_config.chain_type {
                 ChainType::Default => {
                     let provider = Arc::new(satellite_provider(&sat_config.name, &wallet).await?);
+
+                    log_wallet_status(
+                        provider.as_ref(),
+                        wallet_address,
+                        sat_config.destination_chain_id,
+                        &sat_config.name,
+                    )
+                    .await;
+
+                    spawn_wallet_metrics_task(
+                        provider.clone(),
+                        sat_config.destination_chain_id,
+                        wallet_address,
+                    );
 
                     let satellite = PermissionedSatellite::new(
                         &sat_config.name,
@@ -376,6 +467,20 @@ impl Cli {
                     // Standard Ethereum provider for contract reads (sol! bindings).
                     let read_provider =
                         Arc::new(satellite_provider(&sat_config.name, &wallet).await?);
+
+                    log_wallet_status(
+                        read_provider.as_ref(),
+                        wallet_address,
+                        sat_config.destination_chain_id,
+                        &sat_config.name,
+                    )
+                    .await;
+
+                    spawn_wallet_metrics_task(
+                        read_provider.clone(),
+                        sat_config.destination_chain_id,
+                        wallet_address,
+                    );
 
                     // Tempo-typed provider for sending transactions with 2D nonces.
                     let tempo_provider = ProviderBuilder::new_with_network::<TempoNetwork>()
@@ -410,6 +515,20 @@ impl Cli {
         for sat_config in config.ethereum_mpt_gateways.iter().flatten() {
             let provider = Arc::new(satellite_provider(&sat_config.name, &wallet).await?);
 
+            log_wallet_status(
+                provider.as_ref(),
+                wallet_address,
+                sat_config.destination_chain_id,
+                &sat_config.name,
+            )
+            .await;
+
+            spawn_wallet_metrics_task(
+                provider.clone(),
+                sat_config.destination_chain_id,
+                wallet_address,
+            );
+
             let satellite = EthereumMptSatellite::from_config(
                 &wc_config,
                 sat_config,
@@ -434,10 +553,19 @@ impl Cli {
         }
 
         tokio::select! {
-            result = engine.run() => result,
-            result = health_server => result.map_err(eyre::Report::from),
+            result = engine.run() => {
+                health_task.abort();
+                result
+            }
+            result = &mut health_task => match result {
+                Ok(Ok(())) => Err(eyre::eyre!("health server exited unexpectedly")),
+                Ok(Err(e)) => Err(eyre::Report::from(e)),
+                Err(e) if e.is_cancelled() => Ok(()),
+                Err(e) => Err(eyre::Report::from(e)),
+            },
             _ = shutdown => {
                 tracing::info!("received shutdown signal");
+                health_task.abort();
                 Ok(())
             }
         }

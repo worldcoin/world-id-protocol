@@ -23,6 +23,14 @@ use crate::{
     },
 };
 
+/// Pending-queue depths in the [`CommitmentLog`]. Roots aren't tracked here
+/// because they propagate via `ChainCommitted` rather than a pending map.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PendingCounts {
+    pub issuers: usize,
+    pub oprfs: usize,
+}
+
 // ── PendingSnapshot ─────────────────────────────────────────────────────────
 
 /// A snapshot of pending issuer/OPRF key updates drained from the log.
@@ -110,6 +118,11 @@ impl CommitmentLog {
         self.ready_notify.notify_waiters();
     }
 
+    /// Non-blocking check that backfill is complete.
+    pub fn is_ready(&self) -> bool {
+        self.ready_flag.load(Ordering::Acquire)
+    }
+
     /// Waits until the log is ready (backfill complete).
     ///
     /// # Race-free design
@@ -163,6 +176,13 @@ impl CommitmentLog {
                 // pending state needed. We just log the event.
             }
         }
+    }
+
+    /// Current pending-queue depths without draining them.
+    pub fn pending_counts(&self) -> PendingCounts {
+        let issuers = self.pending_issuers.lock().len();
+        let oprfs = self.pending_oprfs.lock().len();
+        PendingCounts { issuers, oprfs }
     }
 
     /// Atomically drains all pending entries.
