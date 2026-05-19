@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use eyre::Result;
 use serde::Deserialize;
 
 use alloy::{
@@ -329,14 +328,26 @@ async fn log_wallet_status<P: Provider>(
     address: Address,
     chain_id: u64,
     chain_name: &str,
-) -> Result<()> {
-    let (balance, nonce) = tokio::try_join!(
+) {
+    let (balance, nonce) = match tokio::try_join!(
         provider.get_balance(address),
         provider.get_transaction_count(address)
-    )?;
+    ) {
+        Ok(values) => values,
+        Err(err) => {
+            tracing::warn!(
+                %chain_name,
+                chain_id,
+                wallet = %address,
+                error = %err,
+                "failed to fetch relay wallet status"
+            );
+            return;
+        }
+    };
 
     relay_metrics::set_wallet_balance_wei(chain_id, f64::from(balance));
-    
+
     let balance_eth = format_ether(balance);
 
     tracing::info!(
@@ -347,8 +358,6 @@ async fn log_wallet_status<P: Provider>(
         nonce = ?nonce,
         "relay wallet status"
     );
-
-    Ok(())
 }
 
 /// Fire-and-forget so a panicking metrics task can't bring down the engine.

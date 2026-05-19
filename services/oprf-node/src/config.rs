@@ -113,7 +113,7 @@ impl Default for WatcherCacheConfig {
 impl WorldOprfNodeConfig {
     /// Default maximum allowed difference between received and node timestamp
     fn default_current_time_stamp_max_difference() -> Duration {
-        Duration::from_secs(300) // 5 minutes
+        Duration::from_mins(5) // 5 minutes
     }
 
     /// Default timeout for an `eth_call` to an unknown contract.
