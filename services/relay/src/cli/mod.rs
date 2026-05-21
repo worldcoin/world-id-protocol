@@ -336,7 +336,7 @@ async fn log_wallet_status<P: Provider>(
     )?;
 
     relay_metrics::set_wallet_balance_wei(chain_id, f64::from(balance));
-    
+
     let balance_eth = format_ether(balance);
 
     tracing::info!(
@@ -412,7 +412,7 @@ impl Cli {
             wc_config.chain_id,
             "world_chain",
         )
-        .await;
+        .await?;
 
         spawn_wallet_metrics_task(wc_provider.clone(), wc_config.chain_id, wallet_address);
 
@@ -445,7 +445,7 @@ impl Cli {
                         sat_config.destination_chain_id,
                         &sat_config.name,
                     )
-                    .await;
+                    .await?;
 
                     spawn_wallet_metrics_task(
                         provider.clone(),
@@ -474,7 +474,7 @@ impl Cli {
                         sat_config.destination_chain_id,
                         &sat_config.name,
                     )
-                    .await;
+                    .await?;
 
                     spawn_wallet_metrics_task(
                         read_provider.clone(),
@@ -521,7 +521,7 @@ impl Cli {
                 sat_config.destination_chain_id,
                 &sat_config.name,
             )
-            .await;
+            .await?;
 
             spawn_wallet_metrics_task(
                 provider.clone(),
