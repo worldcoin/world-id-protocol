@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use alloy::primitives::U256;
 use semaphore_rs_hasher::Hasher;
@@ -10,24 +10,22 @@ use crate::db::WorldIdRegistryEventId;
 /// Wraps [`TreeState`] with a copy-free root simulation capability for batch commits.
 #[derive(Clone, Debug)]
 pub struct VersionedTreeState {
-    inner: Arc<TreeState>,
+    tree: TreeState,
 }
 
 impl VersionedTreeState {
     pub fn new(tree: TreeState) -> Self {
-        Self {
-            inner: Arc::new(tree),
-        }
+        Self { tree }
     }
 
     /// Delegate: current Merkle root.
     pub async fn root(&self) -> U256 {
-        self.inner.root().await
+        self.tree.root().await
     }
 
     /// Delegate: tree depth.
     pub fn depth(&self) -> usize {
-        self.inner.depth()
+        self.tree.depth()
     }
 
     /// Delegate: atomically read leaf, proof, and root.
@@ -35,7 +33,7 @@ impl VersionedTreeState {
         &self,
         leaf_index: usize,
     ) -> (U256, InclusionProof<PoseidonHasher>, U256) {
-        self.inner.leaf_proof_and_root(leaf_index).await
+        self.tree.leaf_proof_and_root(leaf_index).await
     }
 
     /// Set a leaf value.
@@ -45,7 +43,7 @@ impl VersionedTreeState {
         value: U256,
         _event_id: WorldIdRegistryEventId,
     ) -> TreeResult<()> {
-        self.inner.set_leaf_at_index(leaf_index, value).await
+        self.tree.set_leaf_at_index(leaf_index, value).await
     }
 
     /// Compute a simulated Merkle root after applying `changes` without
@@ -62,7 +60,7 @@ impl VersionedTreeState {
             return Ok(self.root().await);
         }
 
-        let tree = self.inner.read().await;
+        let tree = self.tree.read().await;
         let depth = tree.depth();
 
         let capacity = 1usize << depth;
@@ -135,18 +133,18 @@ impl VersionedTreeState {
 
     /// Delegate: last synced event ID.
     pub async fn last_synced_event_id(&self) -> WorldIdRegistryEventId {
-        self.inner.last_synced_event_id().await
+        self.tree.last_synced_event_id().await
     }
 
     /// Delegate: set last synced event ID.
     pub async fn set_last_synced_event_id(&self, id: WorldIdRegistryEventId) {
-        self.inner.set_last_synced_event_id(id).await
+        self.tree.set_last_synced_event_id(id).await
     }
 
-    /// Expose the inner [`TreeState`] for operations not covered here
+    /// Expose the wrapped [`TreeState`] for operations not covered here
     /// (e.g. `replace`, `update_commitment`).
     pub fn tree_state(&self) -> &TreeState {
-        &self.inner
+        &self.tree
     }
 }
 
