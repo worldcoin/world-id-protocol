@@ -1,5 +1,5 @@
 use alloy::{
-    primitives::Address,
+    primitives::{Address, U256},
     providers::{DynProvider, Provider},
     rpc::types::Filter,
     sol_types::SolEvent,
@@ -9,9 +9,9 @@ use world_id_registries::world_id::WorldIdRegistry;
 use crate::{
     blockchain::RegistryEvent,
     db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId},
-    error::{IndexerError, IndexerResult},
+    error::IndexerResult,
     events_processor::EventsProcessor,
-    tree::{TreeError, VersionedTreeState},
+    tree::TreeState,
 };
 
 /// Walk backwards through all `RootRecorded` events in the DB and find the
@@ -24,7 +24,7 @@ pub async fn rollback_to_last_valid_root(
     db: &DB,
     provider: &DynProvider,
     registry_address: Address,
-    versioned_tree: &VersionedTreeState,
+    tree: &TreeState,
 ) -> IndexerResult<Option<WorldIdRegistryEventId>> {
     let Some(target_id) = find_last_valid_root(db, provider, registry_address).await? else {
         tracing::warn!("no valid root found on-chain, nothing to roll back to");
@@ -32,18 +32,33 @@ pub async fn rollback_to_last_valid_root(
     };
 
     let mut tx = db.transaction(IsolationLevel::Serializable).await?;
-    rollback_to_event(&mut tx, target_id).await?;
+    let affected_leaf_indices = rollback_to_event(&mut tx, target_id).await?;
     tx.commit().await?;
 
-    match versioned_tree.rollback_to(target_id).await {
-        Ok(()) => {}
-        Err(TreeError::RollbackHistoryPruned { target }) => {
-            return Err(IndexerError::RollbackTreeHistoryPruned { event_id: target });
-        }
-        Err(e) => return Err(e.into()),
-    }
+    reconcile_tree_from_db(db, tree, &affected_leaf_indices, target_id).await?;
 
     Ok(Some(target_id))
+}
+
+/// Set each affected in-memory leaf to the post-rollback `accounts` row, or zero
+/// when the account was removed.
+pub async fn reconcile_tree_from_db(
+    db: &DB,
+    tree: &TreeState,
+    affected_leaf_indices: &[u64],
+    target_event_id: WorldIdRegistryEventId,
+) -> IndexerResult<()> {
+    for &leaf_index in affected_leaf_indices {
+        let value = match db.accounts().get_account(leaf_index).await? {
+            Some(account) => account.offchain_signer_commitment,
+            None => U256::ZERO,
+        };
+        tree.set_leaf_at_index(leaf_index as usize, value).await?;
+    }
+
+    tree.set_last_synced_event_id(target_event_id).await;
+
+    Ok(())
 }
 
 async fn find_last_valid_root(
@@ -55,7 +70,7 @@ async fn find_last_valid_root(
     let chain_head = provider
         .get_block_number()
         .await
-        .map_err(|e| IndexerError::ContractCall(e.to_string()))?;
+        .map_err(|e| crate::error::IndexerError::ContractCall(e.to_string()))?;
 
     // Sentinel: starts "after everything" so the first batch includes the latest events.
     // Use i64::MAX (not u64::MAX) because block numbers are stored as i64 in PostgreSQL;
@@ -96,7 +111,7 @@ async fn find_last_valid_root(
             let logs = provider
                 .get_logs(&filter)
                 .await
-                .map_err(|e| IndexerError::ContractCall(e.to_string()))?;
+                .map_err(|e| crate::error::IndexerError::ContractCall(e.to_string()))?;
 
             let exists = logs.iter().any(|log| {
                 if log.log_index != Some(event.log_index) {
@@ -134,10 +149,12 @@ async fn find_last_valid_root(
     }
 }
 
+/// Roll back DB state to `event_id` (inclusive). Returns leaf indices whose
+/// in-memory tree values may differ from the post-rollback DB.
 pub async fn rollback_to_event(
     tx: &mut PostgresDBTransaction<'_>,
     event_id: WorldIdRegistryEventId,
-) -> DBResult<()> {
+) -> DBResult<Vec<u64>> {
     tracing::info!("rolling back up to event = {:?}", event_id);
 
     // Step 1: Get leaf indices where latest event is after rollback point
@@ -168,13 +185,13 @@ pub async fn rollback_to_event(
     tracing::info!("Removed {} registry events", removed_registry_events);
 
     // Step 4: Replay events for each affected leaf index
-    for leaf_index in affected_leaf_indices {
-        replay_events_for_leaf(tx, leaf_index, &event_id).await?;
+    for leaf_index in &affected_leaf_indices {
+        replay_events_for_leaf(tx, *leaf_index, &event_id).await?;
     }
 
     tracing::info!("Rollback completed successfully");
 
-    Ok(())
+    Ok(affected_leaf_indices)
 }
 
 async fn replay_events_for_leaf(

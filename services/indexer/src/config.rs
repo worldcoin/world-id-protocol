@@ -163,7 +163,6 @@ impl HttpConfig {
 pub struct IndexerConfig {
     pub start_block: u64,
     pub batch_size: u64,
-    pub tree_max_block_age: u64,
 }
 
 impl IndexerConfig {
@@ -191,10 +190,6 @@ impl IndexerConfig {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0),
             batch_size,
-            tree_max_block_age: std::env::var("TREE_MAX_BLOCK_AGE")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(1000),
         };
         tracing::info!("✔️ Indexer config loaded from env");
         config
@@ -509,7 +504,6 @@ mod tests {
 
         assert_eq!(config.start_block, 0);
         assert_eq!(config.batch_size, 64);
-        assert_eq!(config.tree_max_block_age, 1000);
     }
 
     #[test]
@@ -519,13 +513,11 @@ mod tests {
 
         set_env("START_BLOCK", "12345");
         set_env("BATCH_SIZE", "128");
-        set_env("TREE_MAX_BLOCK_AGE", "500");
 
         let config = IndexerConfig::from_env();
 
         assert_eq!(config.start_block, 12345);
         assert_eq!(config.batch_size, 128);
-        assert_eq!(config.tree_max_block_age, 500);
     }
 
     #[test]
@@ -535,14 +527,12 @@ mod tests {
 
         set_env("START_BLOCK", "invalid");
         set_env("BATCH_SIZE", "not_a_number");
-        set_env("TREE_MAX_BLOCK_AGE", "not_a_number");
 
         let config = IndexerConfig::from_env();
 
         // Invalid values should fall back to defaults
         assert_eq!(config.start_block, 0);
         assert_eq!(config.batch_size, 64);
-        assert_eq!(config.tree_max_block_age, 1000);
     }
 
     #[test]

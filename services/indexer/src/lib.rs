@@ -379,8 +379,7 @@ pub async fn process_registry_events(
 
         let mut stream = blockchain.backfill_and_stream_events(from, indexer_cfg.batch_size);
 
-        let versioned_tree =
-            tree::VersionedTreeState::new(tree_state.clone(), indexer_cfg.tree_max_block_age);
+        let versioned_tree = tree::VersionedTreeState::new(tree_state.clone());
         let mut events_committer = EventsCommitter::new(db, versioned_tree.clone());
 
         while let Some(event) = stream.next().await {
@@ -404,7 +403,7 @@ pub async fn process_registry_events(
                                 db,
                                 &http_provider,
                                 registry_address,
-                                &versioned_tree,
+                                versioned_tree.tree_state(),
                             )
                             .await
                             {

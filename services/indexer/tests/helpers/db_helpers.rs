@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use alloy::primitives::{Address, U256};
+use futures_util::StreamExt as _;
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
 use world_id_indexer::{
@@ -279,7 +280,28 @@ pub fn make_versioned_tree() -> VersionedTreeState {
         p
     };
     let state = unsafe { TreeState::new_empty(10, path).expect("failed to create tree") };
-    VersionedTreeState::new(state, 1000)
+    VersionedTreeState::new(state)
+}
+
+/// Merkle root of a tree built only from the current `accounts` table.
+pub async fn tree_root_from_accounts(db: &DB, tree_depth: usize) -> U256 {
+    let path = {
+        let mut p = std::env::temp_dir();
+        p.push(format!("tree_from_db_test_{}.tmp", Uuid::new_v4()));
+        p
+    };
+    let tree_state = unsafe { TreeState::new_empty(tree_depth, path).expect("failed to create tree") };
+    let mut stream = db
+        .accounts()
+        .stream_leaf_index_and_offchain_signer_commitment();
+    while let Some(row) = stream.next().await {
+        let (index, commitment) = row.expect("stream account row");
+        tree_state
+            .set_leaf_at_index(index as usize, commitment)
+            .await
+            .expect("set leaf from db");
+    }
+    tree_state.root().await
 }
 
 /// Apply a slice of events to a fresh tree and return the resulting root.

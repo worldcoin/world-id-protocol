@@ -52,10 +52,6 @@ pub enum IndexerError {
     },
     #[error("blockchain reorg detected at block {block_number}: {reason}")]
     ReorgDetected { block_number: u64, reason: String },
-    #[error(
-        "cannot roll back in-memory tree to event {event_id:?}: history has been pruned past this point"
-    )]
-    RollbackTreeHistoryPruned { event_id: WorldIdRegistryEventId },
     #[error("contract call failed: {0}")]
     ContractCall(String),
 }

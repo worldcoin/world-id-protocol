@@ -32,7 +32,6 @@ async fn test_get_recovery_agent_endpoint() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
-                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8085".parse().unwrap(),

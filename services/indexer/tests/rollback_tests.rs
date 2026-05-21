@@ -21,7 +21,7 @@ use helpers::{common::init_test_tracing, db_helpers::*, mock_blockchain::*};
 use world_id_indexer::{
     db::{IsolationLevel, WorldIdRegistryEventId},
     events_committer::EventsCommitter,
-    rollback_executor::rollback_to_event,
+    rollback_executor::{reconcile_tree_from_db, rollback_to_event},
 };
 
 /// Test basic rollback: delete events after a specific point
@@ -450,4 +450,77 @@ async fn test_rollback_identifies_affected_leaves() {
     for i in 4..=5 {
         assert_account_not_exists(db.pool(), i).await;
     }
+}
+
+/// After DB rollback, reconciling affected leaves from `accounts` should restore
+/// the in-memory tree to the same root as a tree built entirely from the DB.
+#[tokio::test]
+async fn test_reconcile_tree_matches_db_state_after_rollback() {
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
+
+    let versioned = make_versioned_tree();
+    let mut committer = EventsCommitter::new(db, versioned.clone());
+
+    let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
+    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
+    let event3 = mock_account_created_event(102, 0, 3, Address::ZERO, U256::from(300));
+
+    let roots = compute_batch_roots(&[
+        std::slice::from_ref(&event1),
+        std::slice::from_ref(&event2),
+        std::slice::from_ref(&event3),
+    ])
+    .await;
+    let root1 = mock_root_recorded_event(100, 1, roots[0], U256::from(100));
+    let root2 = mock_root_recorded_event(101, 1, roots[1], U256::from(101));
+    let root3 = mock_root_recorded_event(102, 1, roots[2], U256::from(102));
+
+    committer.handle_event(event1).await.unwrap();
+    committer.handle_event(root1).await.unwrap();
+    committer.handle_event(event2).await.unwrap();
+    committer.handle_event(root2).await.unwrap();
+    committer.handle_event(event3).await.unwrap();
+    committer.handle_event(root3).await.unwrap();
+
+    // Simulate stale in-memory state after a reorg: wrong values on affected leaves.
+    versioned
+        .set_leaf_at_index(
+            2,
+            U256::from(9999u64),
+            WorldIdRegistryEventId {
+                block_number: 999,
+                log_index: 0,
+            },
+        )
+        .await
+        .unwrap();
+    versioned
+        .set_leaf_at_index(
+            3,
+            U256::from(8888u64),
+            WorldIdRegistryEventId {
+                block_number: 999,
+                log_index: 1,
+            },
+        )
+        .await
+        .unwrap();
+
+    let rollback_point = WorldIdRegistryEventId {
+        block_number: 101,
+        log_index: 1,
+    };
+    let mut tx = db.transaction(IsolationLevel::Serializable).await.unwrap();
+    let affected = rollback_to_event(&mut tx, rollback_point).await.unwrap();
+    tx.commit().await.unwrap();
+
+    reconcile_tree_from_db(db, versioned.tree_state(), &affected, rollback_point)
+        .await
+        .unwrap();
+
+    let expected_root = tree_root_from_accounts(db, 10).await;
+    assert_eq!(versioned.root().await, expected_root);
+    assert_eq!(versioned.tree_state().get_leaf(2).await, U256::from(200u64));
+    assert_eq!(versioned.tree_state().get_leaf(3).await, U256::ZERO);
 }

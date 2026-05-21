@@ -48,7 +48,6 @@ async fn test_backfill_and_live_sync() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
-                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8080".parse().unwrap(),
@@ -178,7 +177,6 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
-                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8082".parse().unwrap(),

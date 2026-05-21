@@ -31,7 +31,7 @@ On startup:
 - If the mmap file exists, the tree is restored from it. The restored root is validated against the DB: if no matching `RootRecorded` event is found in the DB the cache is considered stale and deleted, and the process exits. If valid, DB events from genesis are replayed on top of the restored tree to bring it up to date.
 - If no mmap file exists, the tree is built from scratch from the accounts table and all DB events are replayed.
 
-During normal indexing, the tree is wrapped in a `VersionedTreeState` that records a per-leaf change history bounded by `TREE_MAX_BLOCK_AGE` blocks. This history is used for in-memory rollbacks on reorg.
+During normal indexing, the tree is wrapped in a `VersionedTreeState` that provides copy-free root simulation for batch commits.
 
 In `HttpOnly` mode the tree is not versioned; instead a background loop polls the DB at `DB_POLL_INTERVAL_SECS` and incrementally syncs new events into the tree.
 
@@ -50,7 +50,7 @@ When either condition is detected, `rollback_to_last_valid_root` is called. It w
 
 1. Deletes all DB events after the target event.
 2. Re-applies the remaining events for any affected leaves to restore the `accounts` table to a consistent state.
-3. Rolls back the in-memory `VersionedTreeState` by replaying per-leaf history in reverse.
+3. Reconciles the in-memory tree with the post-rollback `accounts` table (affected leaves are set from DB, or zero if removed).
 
 After a successful rollback, `process_registry_events` returns a `ReorgDetected` error, which propagates up and terminates the process. **A restart is required.** On restart the indexer follows the normal startup procedure:
 
@@ -72,7 +72,6 @@ This restart-on-reorg pattern — detect, rollback state, exit cleanly, re-initi
 | `START_BLOCK` | `0` | Block to start indexing from if DB is empty |
 | `BATCH_SIZE` | `64` | Blocks per RPC batch during backfill |
 | `TREE_DEPTH` | `30` | Merkle tree depth |
-| `TREE_MAX_BLOCK_AGE` | `1000` | Blocks of per-leaf history kept for rollback |
 | `HTTP_ADDR` | `0.0.0.0:8080` | Address for the HTTP server |
 | `DB_POLL_INTERVAL_SECS` | `1` | DB poll interval in `HttpOnly` mode |
 | `REQUEST_TIMEOUT_SECS` | `10` | HTTP request timeout |
@@ -87,7 +86,7 @@ This restart-on-reorg pattern — detect, rollback state, exit cleanly, re-initi
 cp .env.example .env
 ```
 
-2. Run Postgres (e.g. through Docker):
+1. Run Postgres (e.g. through Docker):
 
 ```
 docker compose -f services/docker-compose.yml up

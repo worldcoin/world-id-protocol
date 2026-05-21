@@ -39,18 +39,14 @@ pub enum TreeError {
     StaleCache { root: String },
     #[error("simulate_root computation did not produce a root — this is a bug")]
     SimulationMissingRoot,
-    #[error(
-        "cannot rollback versioned tree to event {target:?}: history has been pruned past this point"
-    )]
-    RollbackHistoryPruned { target: WorldIdRegistryEventId },
     #[error(transparent)]
     Db(#[from] crate::db::DBError),
 }
 
 /// A tree that can accept leaf updates tied to an event ID.
 ///
-/// Implemented by both [`TreeState`] (which ignores the event ID) and
-/// [`VersionedTreeState`] (which records the event ID for rollback/pruning).
+/// Implemented by both [`TreeState`] and [`VersionedTreeState`] (the event ID
+/// is accepted for a uniform API but not stored).
 #[allow(async_fn_in_trait)]
 pub trait TreeApplier {
     async fn apply_leaf(

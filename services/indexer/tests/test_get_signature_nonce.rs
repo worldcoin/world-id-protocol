@@ -34,7 +34,6 @@ async fn test_signature_nonce_endpoint() {
             indexer_config: IndexerConfig {
                 start_block: 0,
                 batch_size: 1000,
-                tree_max_block_age: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8084".parse().unwrap(),
