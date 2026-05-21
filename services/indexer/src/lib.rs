@@ -403,7 +403,7 @@ pub async fn process_registry_events(
                                 db,
                                 &http_provider,
                                 registry_address,
-                                versioned_tree.tree_state(),
+                                &versioned_tree,
                             )
                             .await
                             {

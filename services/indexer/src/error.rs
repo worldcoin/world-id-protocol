@@ -1,9 +1,4 @@
-use crate::{
-    blockchain::BlockchainError,
-    config::ConfigError,
-    db::{DBError, WorldIdRegistryEventId},
-    tree::TreeError,
-};
+use crate::{blockchain::BlockchainError, config::ConfigError, db::DBError, tree::TreeError};
 use axum::response::IntoResponse;
 use http::StatusCode;
 use std::backtrace::Backtrace;

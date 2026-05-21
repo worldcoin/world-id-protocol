@@ -65,7 +65,7 @@ async fn test_empty_db_returns_none() {
         db,
         registry.provider(),
         *registry.address(),
-        make_versioned_tree().tree_state(),
+        &make_versioned_tree(),
     )
     .await
     .expect("rollback_to_last_valid_root should not error on empty DB");
@@ -100,7 +100,7 @@ async fn test_all_invalid_roots_returns_none() {
         db,
         registry.provider(),
         *registry.address(),
-        make_versioned_tree().tree_state(),
+        &make_versioned_tree(),
     )
     .await
     .expect("should not error");
@@ -214,7 +214,7 @@ async fn test_rolls_back_to_last_valid_root() {
         db,
         registry.provider(),
         *registry.address(),
-        make_versioned_tree().tree_state(),
+        &make_versioned_tree(),
     )
     .await
     .expect("rollback_to_last_valid_root failed");
@@ -302,7 +302,7 @@ async fn test_no_rollback_needed_when_latest_root_is_valid() {
         db,
         registry.provider(),
         *registry.address(),
-        make_versioned_tree().tree_state(),
+        &make_versioned_tree(),
     )
     .await
     .expect("should not fail");

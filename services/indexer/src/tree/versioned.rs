@@ -183,9 +183,11 @@ mod tests {
     async fn simulate_single_leaf_matches_actual_set() {
         let v = make_versioned(4);
 
+        // Simulate setting leaf 0 to value 42.
         let new_val = U256::from(42u64);
         let simulated = v.simulate_root(&[(0, new_val)]).await.unwrap();
 
+        // Actually apply the change and check we get the same root.
         v.set_leaf_at_index(0, new_val, event_id(1)).await.unwrap();
         let actual_root = v.root().await;
 
@@ -199,6 +201,7 @@ mod tests {
         let val_a = U256::from(10u64);
         let val_b = U256::from(20u64);
 
+        // Leaves 0 and 1 share a parent; this exercises the dirty-path merge.
         let simulated = v.simulate_root(&[(0, val_a), (1, val_b)]).await.unwrap();
 
         v.set_leaf_at_index(0, val_a, event_id(1)).await.unwrap();
@@ -220,13 +223,14 @@ mod tests {
 
     #[tokio::test]
     async fn simulate_out_of_range_leaf_errors() {
-        let v = make_versioned(2);
+        let v = make_versioned(2); // capacity = 4 leaves (2^2)
         let result = v.simulate_root(&[(4, U256::from(1u64))]).await;
         assert!(matches!(result, Err(TreeError::LeafIndexOutOfRange { .. })));
     }
 
     #[tokio::test]
     async fn simulate_on_non_empty_tree() {
+        // Set up a tree with existing state, then simulate a change on top.
         let v = make_versioned(4);
         v.set_leaf_at_index(0, U256::from(10u64), event_id(1))
             .await
@@ -238,17 +242,22 @@ mod tests {
         let new_val = U256::from(99u64);
         let simulated = v.simulate_root(&[(0, new_val)]).await.unwrap();
 
+        // Apply for real and compare.
         v.set_leaf_at_index(0, new_val, event_id(3)).await.unwrap();
         assert_eq!(simulated, v.root().await);
     }
 
     #[tokio::test]
     async fn simulate_duplicate_leaf_in_changes_last_wins() {
+        // Duplicate indices are inserted in input order, so HashMap::insert
+        // makes the last value win.
         let v = make_versioned(4);
 
         let first_val = U256::from(11u64);
         let last_val = U256::from(22u64);
 
+        // Build changes with the same index twice; slice order determines
+        // which value survives in the cache.
         let changes = [(0, first_val), (0, last_val)];
         let simulated = v.simulate_root(&changes).await.unwrap();
 
@@ -258,8 +267,9 @@ mod tests {
 
     #[tokio::test]
     async fn simulate_last_leaf_in_tree() {
-        let v = make_versioned(3);
-        let last_index = (1usize << 3) - 1;
+        // Exercises the right boundary: last valid leaf index (capacity - 1).
+        let v = make_versioned(3); // capacity = 8
+        let last_index = (1usize << 3) - 1; // 7
 
         let val = U256::from(77u64);
         let simulated = v.simulate_root(&[(last_index, val)]).await.unwrap();
@@ -272,6 +282,9 @@ mod tests {
 
     #[tokio::test]
     async fn simulate_leaves_in_different_subtrees() {
+        // Leaves 0 and 7 in a depth-3 tree (capacity 8) are in opposite halves
+        // of the tree. Their paths share only the root node, so all intermediate
+        // nodes on each path are read from the real tree.
         let v = make_versioned(3);
 
         let val_a = U256::from(1u64);

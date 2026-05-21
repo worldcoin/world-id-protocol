@@ -9,9 +9,9 @@ use world_id_registries::world_id::WorldIdRegistry;
 use crate::{
     blockchain::RegistryEvent,
     db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId},
-    error::IndexerResult,
+    error::{IndexerError, IndexerResult},
     events_processor::EventsProcessor,
-    tree::TreeState,
+    tree::{TreeState, VersionedTreeState},
 };
 
 /// Walk backwards through all `RootRecorded` events in the DB and find the
@@ -24,7 +24,7 @@ pub async fn rollback_to_last_valid_root(
     db: &DB,
     provider: &DynProvider,
     registry_address: Address,
-    tree: &TreeState,
+    versioned_tree: &VersionedTreeState,
 ) -> IndexerResult<Option<WorldIdRegistryEventId>> {
     let Some(target_id) = find_last_valid_root(db, provider, registry_address).await? else {
         tracing::warn!("no valid root found on-chain, nothing to roll back to");
@@ -35,7 +35,13 @@ pub async fn rollback_to_last_valid_root(
     let affected_leaf_indices = rollback_to_event(&mut tx, target_id).await?;
     tx.commit().await?;
 
-    reconcile_tree_from_db(db, tree, &affected_leaf_indices, target_id).await?;
+    reconcile_tree_from_db(
+        db,
+        versioned_tree.tree_state(),
+        &affected_leaf_indices,
+        target_id,
+    )
+    .await?;
 
     Ok(Some(target_id))
 }
@@ -70,7 +76,7 @@ async fn find_last_valid_root(
     let chain_head = provider
         .get_block_number()
         .await
-        .map_err(|e| crate::error::IndexerError::ContractCall(e.to_string()))?;
+        .map_err(|e| IndexerError::ContractCall(e.to_string()))?;
 
     // Sentinel: starts "after everything" so the first batch includes the latest events.
     // Use i64::MAX (not u64::MAX) because block numbers are stored as i64 in PostgreSQL;
@@ -111,7 +117,7 @@ async fn find_last_valid_root(
             let logs = provider
                 .get_logs(&filter)
                 .await
-                .map_err(|e| crate::error::IndexerError::ContractCall(e.to_string()))?;
+                .map_err(|e| IndexerError::ContractCall(e.to_string()))?;
 
             let exists = logs.iter().any(|log| {
                 if log.log_index != Some(event.log_index) {
