@@ -462,19 +462,43 @@ async fn test_reconcile_tree_matches_db_state_after_rollback() {
     let versioned = make_versioned_tree();
     let mut committer = EventsCommitter::new(db, versioned.clone());
 
-    let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
-    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
-    let event3 = mock_account_created_event(102, 0, 3, Address::ZERO, U256::from(300));
+    let account1_initial_commitment = U256::from(100);
+    let account1_updated_commitment = U256::from(999);
+    let account2_commitment = U256::from(200);
+
+    let event1 = mock_account_created_event_with_authenticators(
+        100,
+        0,
+        1,
+        Address::ZERO,
+        vec![Address::from([1u8; 20])],
+        vec![U256::from(111)],
+        account1_initial_commitment,
+    );
+    let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, account2_commitment);
+    let event3 = mock_account_updated_event(
+        102,
+        0,
+        1,
+        0,
+        Address::from([2u8; 20]),
+        U256::from(222),
+        account1_initial_commitment,
+        account1_updated_commitment,
+    );
+    let event4 = mock_account_created_event(103, 0, 3, Address::ZERO, U256::from(300));
 
     let roots = compute_batch_roots(&[
         std::slice::from_ref(&event1),
         std::slice::from_ref(&event2),
         std::slice::from_ref(&event3),
+        std::slice::from_ref(&event4),
     ])
     .await;
     let root1 = mock_root_recorded_event(100, 1, roots[0], U256::from(100));
     let root2 = mock_root_recorded_event(101, 1, roots[1], U256::from(101));
     let root3 = mock_root_recorded_event(102, 1, roots[2], U256::from(102));
+    let root4 = mock_root_recorded_event(103, 1, roots[3], U256::from(103));
 
     committer.handle_event(event1).await.unwrap();
     committer.handle_event(root1).await.unwrap();
@@ -482,30 +506,8 @@ async fn test_reconcile_tree_matches_db_state_after_rollback() {
     committer.handle_event(root2).await.unwrap();
     committer.handle_event(event3).await.unwrap();
     committer.handle_event(root3).await.unwrap();
-
-    // Simulate stale in-memory state after a reorg: wrong values on affected leaves.
-    versioned
-        .set_leaf_at_index(
-            2,
-            U256::from(9999u64),
-            WorldIdRegistryEventId {
-                block_number: 999,
-                log_index: 0,
-            },
-        )
-        .await
-        .unwrap();
-    versioned
-        .set_leaf_at_index(
-            3,
-            U256::from(8888u64),
-            WorldIdRegistryEventId {
-                block_number: 999,
-                log_index: 1,
-            },
-        )
-        .await
-        .unwrap();
+    committer.handle_event(event4).await.unwrap();
+    committer.handle_event(root4).await.unwrap();
 
     let rollback_point = WorldIdRegistryEventId {
         block_number: 101,
@@ -521,6 +523,14 @@ async fn test_reconcile_tree_matches_db_state_after_rollback() {
 
     let expected_root = tree_root_from_accounts(db, 10).await;
     assert_eq!(versioned.root().await, expected_root);
-    assert_eq!(versioned.tree_state().get_leaf(2).await, U256::from(200u64));
+    assert_eq!(versioned.root().await, roots[1]);
+    assert_eq!(
+        versioned.tree_state().get_leaf(1).await,
+        account1_initial_commitment
+    );
+    assert_eq!(
+        versioned.tree_state().get_leaf(2).await,
+        account2_commitment
+    );
     assert_eq!(versioned.tree_state().get_leaf(3).await, U256::ZERO);
 }
