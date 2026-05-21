@@ -336,7 +336,7 @@ async fn log_wallet_status<P: Provider>(
     )?;
 
     relay_metrics::set_wallet_balance_wei(chain_id, f64::from(balance));
-    
+
     let balance_eth = format_ether(balance);
 
     tracing::info!(

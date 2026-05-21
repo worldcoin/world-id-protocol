@@ -35,6 +35,12 @@ pub async fn rollback_to_last_valid_root(
     let affected_leaf_indices = rollback_to_event(&mut tx, target_id).await?;
     tx.commit().await?;
 
+    // Reconciliation reads the post-rollback account rows after the rollback
+    // transaction commits. This relies on the current single-writer indexer
+    // model and restart-after-reorg flow: no other indexer should advance the
+    // DB between this commit and the tree update below. If either assumption
+    // changes, keep the DB snapshot and tree reconciliation within one
+    // serialized boundary.
     reconcile_tree_from_db(
         db,
         versioned_tree.tree_state(),

@@ -290,7 +290,8 @@ pub async fn tree_root_from_accounts(db: &DB, tree_depth: usize) -> U256 {
         p.push(format!("tree_from_db_test_{}.tmp", Uuid::new_v4()));
         p
     };
-    let tree_state = unsafe { TreeState::new_empty(tree_depth, path).expect("failed to create tree") };
+    let tree_state =
+        unsafe { TreeState::new_empty(tree_depth, path).expect("failed to create tree") };
     let mut stream = db
         .accounts()
         .stream_leaf_index_and_offchain_signer_commitment();
