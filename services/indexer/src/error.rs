@@ -58,6 +58,8 @@ pub enum IndexerError {
     RollbackTreeHistoryPruned { event_id: WorldIdRegistryEventId },
     #[error("contract call failed: {0}")]
     ContractCall(String),
+    #[error("no progress made for {highest_block_number} blocks, restarting")]
+    NoProgressAfterReorg { highest_block_number: u64 },
 }
 
 impl From<BlockchainError> for IndexerError {
