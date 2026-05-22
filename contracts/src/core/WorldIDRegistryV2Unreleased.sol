@@ -57,7 +57,10 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
      */
     function _recordCurrentRoot() internal virtual override {
         uint256 currentRoot = _latestRoot;
-        _rootToValidityTimestamp[currentRoot] = block.timestamp;
+        // Fresh V2 deployments call inherited `initialize` before `_latestRoot` has been set.
+        if (currentRoot != 0) {
+            _rootToValidityTimestamp[currentRoot] = block.timestamp;
+        }
         super._recordCurrentRoot();
     }
 
