@@ -11,7 +11,7 @@ use crate::{
     db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId},
     error::{IndexerError, IndexerResult},
     events_processor::EventsProcessor,
-    tree::{TreeState, VersionedTreeState},
+    tree::TreeState,
 };
 
 /// Walk backwards through all `RootRecorded` events in the DB and find the
@@ -24,7 +24,7 @@ pub async fn rollback_to_last_valid_root(
     db: &DB,
     provider: &DynProvider,
     registry_address: Address,
-    versioned_tree: &VersionedTreeState,
+    tree: &TreeState,
 ) -> IndexerResult<Option<WorldIdRegistryEventId>> {
     let Some(target_id) = find_last_valid_root(db, provider, registry_address).await? else {
         tracing::warn!("no valid root found on-chain, nothing to roll back to");
@@ -41,12 +41,7 @@ pub async fn rollback_to_last_valid_root(
     // DB between this commit and the tree update below. If either assumption
     // changes, keep the DB snapshot and tree reconciliation within one
     // serialized boundary.
-    reconcile_tree_from_db(
-        db,
-        versioned_tree.tree_state(),
-        &affected_leaf_indices,
-        target_id,
-    )
+    reconcile_tree_from_db(db, tree, &affected_leaf_indices, target_id)
     .await?;
 
     Ok(Some(target_id))

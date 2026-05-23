@@ -31,7 +31,7 @@ async fn test_basic_rollback_deletes_events_after_point() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db, make_versioned_tree());
+    let mut committer = EventsCommitter::new(db, make_tree_state());
 
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
     let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
@@ -80,7 +80,7 @@ async fn test_rollback_within_same_block() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db, make_versioned_tree());
+    let mut committer = EventsCommitter::new(db, make_tree_state());
 
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
     let event2 = mock_account_created_event(100, 1, 2, Address::ZERO, U256::from(200));
@@ -119,7 +119,7 @@ async fn test_rollback_to_genesis() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db, make_versioned_tree());
+    let mut committer = EventsCommitter::new(db, make_tree_state());
 
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
     let roots = compute_batch_roots(&[std::slice::from_ref(&event1)]).await;
@@ -151,7 +151,7 @@ async fn test_rollback_with_account_updates() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db, make_versioned_tree());
+    let mut committer = EventsCommitter::new(db, make_tree_state());
 
     let event1 = mock_account_created_event_with_authenticators(
         100,
@@ -225,7 +225,7 @@ async fn test_rollback_preserves_old_accounts() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db, make_versioned_tree());
+    let mut committer = EventsCommitter::new(db, make_tree_state());
 
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
     let event2 = mock_account_created_event(101, 0, 2, Address::ZERO, U256::from(200));
@@ -271,7 +271,7 @@ async fn test_rollback_with_mixed_event_types() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db, make_versioned_tree());
+    let mut committer = EventsCommitter::new(db, make_tree_state());
 
     let event1 = mock_account_created_event_with_authenticators(
         100,
@@ -362,7 +362,7 @@ async fn test_rollback_to_current_state_no_op() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db, make_versioned_tree());
+    let mut committer = EventsCommitter::new(db, make_tree_state());
 
     let event1 = mock_account_created_event(100, 0, 1, Address::ZERO, U256::from(100));
     let roots = compute_batch_roots(&[std::slice::from_ref(&event1)]).await;
@@ -417,7 +417,7 @@ async fn test_rollback_identifies_affected_leaves() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let mut committer = EventsCommitter::new(db, make_versioned_tree());
+    let mut committer = EventsCommitter::new(db, make_tree_state());
 
     let ev: Vec<_> = (1u64..=5)
         .map(|i| mock_account_created_event(99 + i, 0, i, Address::ZERO, U256::from(i * 100)))
@@ -459,8 +459,8 @@ async fn test_reconcile_tree_matches_db_state_after_rollback() {
     let test_db = create_unique_test_db().await;
     let db = &test_db.db;
 
-    let versioned = make_versioned_tree();
-    let mut committer = EventsCommitter::new(db, versioned.clone());
+    let tree = make_tree_state();
+    let mut committer = EventsCommitter::new(db, tree.clone());
 
     let account1_initial_commitment = U256::from(100);
     let account1_updated_commitment = U256::from(999);
@@ -517,20 +517,14 @@ async fn test_reconcile_tree_matches_db_state_after_rollback() {
     let affected = rollback_to_event(&mut tx, rollback_point).await.unwrap();
     tx.commit().await.unwrap();
 
-    reconcile_tree_from_db(db, versioned.tree_state(), &affected, rollback_point)
+    reconcile_tree_from_db(db, &tree, &affected, rollback_point)
         .await
         .unwrap();
 
     let expected_root = tree_root_from_accounts(db, 10).await;
-    assert_eq!(versioned.root().await, expected_root);
-    assert_eq!(versioned.root().await, roots[1]);
-    assert_eq!(
-        versioned.tree_state().get_leaf(1).await,
-        account1_initial_commitment
-    );
-    assert_eq!(
-        versioned.tree_state().get_leaf(2).await,
-        account2_commitment
-    );
-    assert_eq!(versioned.tree_state().get_leaf(3).await, U256::ZERO);
+    assert_eq!(tree.root().await, expected_root);
+    assert_eq!(tree.root().await, roots[1]);
+    assert_eq!(tree.get_leaf(1).await, account1_initial_commitment);
+    assert_eq!(tree.get_leaf(2).await, account2_commitment);
+    assert_eq!(tree.get_leaf(3).await, U256::ZERO);
 }

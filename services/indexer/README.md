@@ -31,9 +31,9 @@ On startup:
 - If the mmap file exists, the tree is restored from it. The restored root is validated against the DB: if no matching `RootRecorded` event is found in the DB the cache is considered stale and deleted, and the process exits. If valid, DB events from genesis are replayed on top of the restored tree to bring it up to date.
 - If no mmap file exists, the tree is built from scratch from the accounts table and all DB events are replayed.
 
-During normal indexing, the tree is wrapped in a `VersionedTreeState` that provides copy-free root simulation for batch commits.
+During normal indexing, `TreeState` provides copy-free root simulation via `simulate_root` for batch commits.
 
-In `HttpOnly` mode the tree is not versioned; instead a background loop polls the DB at `DB_POLL_INTERVAL_SECS` and incrementally syncs new events into the tree.
+In `HttpOnly` mode, a background loop polls the DB at `DB_POLL_INTERVAL_SECS` and incrementally syncs new events into the tree, rather than through the blockchain-driven batch commit path described above.
 
 ### HTTP API
 
@@ -86,7 +86,7 @@ This restart-on-reorg pattern — detect, rollback state, exit cleanly, re-initi
 cp .env.example .env
 ```
 
-2. Run Postgres (e.g. through Docker):
+1. Run Postgres (e.g. through Docker):
 
 ```
 docker compose -f services/docker-compose.yml up

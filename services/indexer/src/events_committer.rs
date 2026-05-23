@@ -5,7 +5,7 @@ use crate::{
     db::{DB, IsolationLevel},
     error::{IndexerError, IndexerResult},
     events_processor::EventsProcessor,
-    tree::{VersionedTreeState, apply_event_to_tree, extract_leaf_commitment},
+    tree::{TreeState, apply_event_to_tree, extract_leaf_commitment},
 };
 
 /// Buffers blockchain events and commits them to the database in batches,
@@ -31,15 +31,15 @@ use crate::{
 pub struct EventsCommitter<'a> {
     db: &'a DB,
     buffered_events: Vec<BlockchainEvent<RegistryEvent>>,
-    versioned_tree: VersionedTreeState,
+    tree: TreeState,
 }
 
 impl<'a> EventsCommitter<'a> {
-    pub fn new(db: &'a DB, tree: VersionedTreeState) -> Self {
+    pub fn new(db: &'a DB, tree: TreeState) -> Self {
         Self {
             db,
             buffered_events: vec![],
-            versioned_tree: tree,
+            tree,
         }
     }
 
@@ -201,7 +201,7 @@ impl<'a> EventsCommitter<'a> {
                 })
                 .collect();
 
-            let simulated_root = self.versioned_tree.simulate_root(&changes).await?;
+            let simulated_root = self.tree.simulate_root(&changes).await?;
             if simulated_root != expected_root {
                 return Err(IndexerError::ReorgDetected {
                     block_number,
@@ -215,7 +215,7 @@ impl<'a> EventsCommitter<'a> {
 
         tx.commit().await?;
 
-        let tree = &self.versioned_tree;
+        let tree = &self.tree;
         for event in self.buffered_events.iter() {
             apply_event_to_tree(tree, event).await?;
         }

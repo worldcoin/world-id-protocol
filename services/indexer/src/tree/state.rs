@@ -1,6 +1,11 @@
-use std::{path::Path, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    sync::Arc,
+};
 
 use alloy::primitives::U256;
+use semaphore_rs_hasher::Hasher;
 use semaphore_rs_storage::MmapVec;
 use semaphore_rs_trees::{cascading::CascadingMerkleTree, proof::InclusionProof};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -154,6 +159,91 @@ impl TreeState {
     pub async fn set_last_synced_event_id(&self, id: WorldIdRegistryEventId) {
         *self.inner.last_synced_event_id.write().await = id;
     }
+
+    /// Compute a simulated Merkle root after applying `changes` without
+    /// modifying the real tree.
+    ///
+    /// `changes` is a slice of `(leaf_index, new_value)` pairs.
+    ///
+    /// The algorithm reuses internal nodes from the real tree wherever the
+    /// subtree under that node contains no dirty leaf, so only O(dirty_leaves
+    /// × tree_depth) hash operations and `get_node` calls are needed — no
+    /// full tree clone.
+    pub async fn simulate_root(&self, changes: &[(usize, U256)]) -> TreeResult<U256> {
+        if changes.is_empty() {
+            return Ok(self.root().await);
+        }
+
+        let tree = self.read().await;
+        let depth = tree.depth();
+
+        let capacity = 1usize << depth;
+
+        // Validate leaf indices up-front.
+        for &(leaf_index, _) in changes {
+            if leaf_index >= capacity {
+                return Err(TreeError::LeafIndexOutOfRange {
+                    leaf_index,
+                    tree_depth: depth,
+                });
+            }
+        }
+
+        // We compute the root bottom-up using a node cache.
+        //
+        // Key: (level_from_leaves, offset)
+        //   level_from_leaves = 0  → leaf level
+        //   level_from_leaves = depth → root
+        //
+        // We only populate the cache for nodes that are on a dirty path; all
+        // other nodes are read directly from the real tree via get_node().
+        let mut cache: HashMap<(usize, usize), U256> = HashMap::new();
+
+        // Seed the cache with changed leaves (level 0). Duplicate indices are
+        // processed in order so the last entry wins, matching collect() behaviour.
+        for &(leaf_index, new_value) in changes {
+            cache.insert((0, leaf_index), new_value);
+        }
+
+        // Walk up from level 0 (leaves) to level `depth` (root).
+        // At each level, find which parent nodes need recomputation: those
+        // whose subtree contains at least one dirty leaf.
+        for level in 0..depth {
+            // Collect the set of parent offsets that need updating.
+            let dirty_parents: HashSet<usize> = cache
+                .keys()
+                .filter(|(l, _)| *l == level)
+                .map(|(_, offset)| offset >> 1)
+                .collect();
+
+            for parent_offset in dirty_parents {
+                let childs_left = parent_offset * 2;
+                let childs_right = childs_left + 1;
+
+                // `get_node` uses depth-from-root convention:
+                //   depth_from_root = depth - level_from_leaves
+                let node_depth_from_root = depth - level;
+
+                let left = cache
+                    .get(&(level, childs_left))
+                    .copied()
+                    .unwrap_or_else(|| tree.get_node(node_depth_from_root, childs_left));
+
+                let right = cache
+                    .get(&(level, childs_right))
+                    .copied()
+                    .unwrap_or_else(|| tree.get_node(node_depth_from_root, childs_right));
+
+                let parent = PoseidonHasher::hash_node(&left, &right);
+                cache.insert((level + 1, parent_offset), parent);
+            }
+        }
+
+        cache
+            .get(&(depth, 0))
+            .copied()
+            .ok_or(TreeError::SimulationMissingRoot)
+    }
 }
 
 #[cfg(test)]
@@ -232,5 +322,124 @@ mod tests {
         assert_eq!(root, state.root().await);
 
         Ok(())
+    }
+
+    fn make_tree(depth: usize) -> TreeState {
+        unsafe { TreeState::new_empty(depth, tmp_file()).unwrap() }
+    }
+
+    #[tokio::test]
+    async fn simulate_single_leaf_no_change() {
+        let state = make_tree(4);
+        let root_before = state.root().await;
+        let simulated = state.simulate_root(&[]).await.unwrap();
+        assert_eq!(root_before, simulated);
+    }
+
+    #[tokio::test]
+    async fn simulate_single_leaf_matches_actual_set() {
+        let state = make_tree(4);
+
+        let new_val = U256::from(42u64);
+        let simulated = state.simulate_root(&[(0, new_val)]).await.unwrap();
+
+        state.set_leaf_at_index(0, new_val).await.unwrap();
+        let actual_root = state.root().await;
+
+        assert_eq!(simulated, actual_root);
+    }
+
+    #[tokio::test]
+    async fn simulate_multiple_independent_leaves() {
+        let state = make_tree(4);
+
+        let val_a = U256::from(10u64);
+        let val_b = U256::from(20u64);
+
+        let simulated = state
+            .simulate_root(&[(0, val_a), (1, val_b)])
+            .await
+            .unwrap();
+
+        state.set_leaf_at_index(0, val_a).await.unwrap();
+        state.set_leaf_at_index(1, val_b).await.unwrap();
+        let actual_root = state.root().await;
+
+        assert_eq!(simulated, actual_root);
+    }
+
+    #[tokio::test]
+    async fn simulate_does_not_mutate_tree() {
+        let state = make_tree(4);
+        let root_before = state.root().await;
+
+        state
+            .simulate_root(&[(0, U256::from(99u64))])
+            .await
+            .unwrap();
+
+        assert_eq!(state.root().await, root_before);
+    }
+
+    #[tokio::test]
+    async fn simulate_out_of_range_leaf_errors() {
+        let state = make_tree(2);
+        let result = state.simulate_root(&[(4, U256::from(1u64))]).await;
+        assert!(matches!(result, Err(TreeError::LeafIndexOutOfRange { .. })));
+    }
+
+    #[tokio::test]
+    async fn simulate_on_non_empty_tree() {
+        let state = make_tree(4);
+        state.set_leaf_at_index(0, U256::from(10u64)).await.unwrap();
+        state.set_leaf_at_index(3, U256::from(30u64)).await.unwrap();
+
+        let new_val = U256::from(99u64);
+        let simulated = state.simulate_root(&[(0, new_val)]).await.unwrap();
+
+        state.set_leaf_at_index(0, new_val).await.unwrap();
+        assert_eq!(simulated, state.root().await);
+    }
+
+    #[tokio::test]
+    async fn simulate_duplicate_leaf_in_changes_last_wins() {
+        let state = make_tree(4);
+
+        let first_val = U256::from(11u64);
+        let last_val = U256::from(22u64);
+
+        let changes = [(0, first_val), (0, last_val)];
+        let simulated = state.simulate_root(&changes).await.unwrap();
+
+        state.set_leaf_at_index(0, last_val).await.unwrap();
+        assert_eq!(simulated, state.root().await);
+    }
+
+    #[tokio::test]
+    async fn simulate_last_leaf_in_tree() {
+        let state = make_tree(3);
+        let last_index = (1usize << 3) - 1;
+
+        let val = U256::from(77u64);
+        let simulated = state.simulate_root(&[(last_index, val)]).await.unwrap();
+
+        state.set_leaf_at_index(last_index, val).await.unwrap();
+        assert_eq!(simulated, state.root().await);
+    }
+
+    #[tokio::test]
+    async fn simulate_leaves_in_different_subtrees() {
+        let state = make_tree(3);
+
+        let val_a = U256::from(1u64);
+        let val_b = U256::from(2u64);
+        let simulated = state
+            .simulate_root(&[(0, val_a), (7, val_b)])
+            .await
+            .unwrap();
+
+        state.set_leaf_at_index(0, val_a).await.unwrap();
+        state.set_leaf_at_index(7, val_b).await.unwrap();
+        assert_eq!(simulated, state.root().await);
     }
 }

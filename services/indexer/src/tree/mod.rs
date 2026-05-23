@@ -7,10 +7,8 @@ use thiserror::Error;
 
 pub mod cached_tree;
 pub mod state;
-pub mod versioned;
 
 pub use state::TreeState;
-pub use versioned::VersionedTreeState;
 
 use crate::db::WorldIdRegistryEventId;
 
@@ -45,8 +43,8 @@ pub enum TreeError {
 
 /// A tree that can accept leaf updates tied to an event ID.
 ///
-/// Implemented by both [`TreeState`] and [`VersionedTreeState`] (the event ID
-/// is accepted for a uniform API but not stored).
+/// Implemented by [`TreeState`]; the event ID is accepted for a uniform API
+/// but not stored.
 #[allow(async_fn_in_trait)]
 pub trait TreeApplier {
     async fn apply_leaf(
@@ -65,17 +63,6 @@ impl TreeApplier for TreeState {
         _event_id: WorldIdRegistryEventId,
     ) -> TreeResult<()> {
         self.set_leaf_at_index(leaf_index, value).await
-    }
-}
-
-impl TreeApplier for VersionedTreeState {
-    async fn apply_leaf(
-        &self,
-        leaf_index: usize,
-        value: U256,
-        event_id: WorldIdRegistryEventId,
-    ) -> TreeResult<()> {
-        self.set_leaf_at_index(leaf_index, value, event_id).await
     }
 }
 
