@@ -16,7 +16,6 @@ serde_json = { workspace = true }
 poseidon2 = { workspace = true }
 alloy = { workspace = true, default-features = true, features = [
   "rpc-types",
-  "provider-ws",
 ] }
 clap = { workspace = true, features = ["derive", "env"] }
 eyre = { workspace = true }

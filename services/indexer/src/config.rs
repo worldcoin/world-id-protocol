@@ -97,7 +97,6 @@ pub struct GlobalConfig {
     pub run_mode: RunMode,
     pub db_url: String,
     pub provider: ProviderArgs,
-    pub ws_rpc_url: String,
     pub registry_address: Address,
     pub tree_cache: TreeCacheConfig,
 }
@@ -164,6 +163,7 @@ pub struct IndexerConfig {
     pub start_block: u64,
     pub batch_size: u64,
     pub tree_max_block_age: u64,
+    pub blockchain_poll_interval_secs: u64,
 }
 
 impl IndexerConfig {
@@ -195,6 +195,10 @@ impl IndexerConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(1000),
+            blockchain_poll_interval_secs: std::env::var("BLOCKCHAIN_POLL_INTERVAL_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1),
         };
         tracing::info!("✔️ Indexer config loaded from env");
         config
@@ -248,8 +252,6 @@ pub enum ConfigError {
     MissingDatabaseUrl,
     #[error("RPC_URL environment variable is required")]
     MissingRpcUrl,
-    #[error("WS_URL environment variable is required")]
-    MissingWsUrl,
     #[error("REGISTRY_ADDRESS environment variable is required")]
     MissingRegistryAddress,
     #[error(
@@ -289,8 +291,6 @@ impl GlobalConfig {
             return Err(ConfigError::MissingRpcUrl);
         }
 
-        let ws_rpc_url = std::env::var("WS_URL").map_err(|_| ConfigError::MissingWsUrl)?;
-
         let registry_address_str =
             std::env::var("REGISTRY_ADDRESS").map_err(|_| ConfigError::MissingRegistryAddress)?;
         let registry_address = registry_address_str.parse::<Address>().map_err(|e| {
@@ -304,7 +304,6 @@ impl GlobalConfig {
             run_mode,
             db_url,
             provider,
-            ws_rpc_url,
             registry_address,
             tree_cache,
         })
@@ -331,7 +330,6 @@ mod tests {
             env::remove_var("ENVIRONMENT");
             env::remove_var("DATABASE_URL");
             env::remove_var("RPC_URL");
-            env::remove_var("WS_URL");
             env::remove_var("REGISTRY_ADDRESS");
             env::remove_var("RUN_MODE");
 
@@ -354,6 +352,7 @@ mod tests {
             // Indexer config
             env::remove_var("START_BLOCK");
             env::remove_var("BATCH_SIZE");
+            env::remove_var("BLOCKCHAIN_POLL_INTERVAL_SECS");
             env::remove_var("TREE_MAX_BLOCK_AGE");
 
             // Tree cache config
@@ -510,6 +509,7 @@ mod tests {
         assert_eq!(config.start_block, 0);
         assert_eq!(config.batch_size, 64);
         assert_eq!(config.tree_max_block_age, 1000);
+        assert_eq!(config.blockchain_poll_interval_secs, 1);
     }
 
     #[test]
@@ -520,12 +520,14 @@ mod tests {
         set_env("START_BLOCK", "12345");
         set_env("BATCH_SIZE", "128");
         set_env("TREE_MAX_BLOCK_AGE", "500");
+        set_env("BLOCKCHAIN_POLL_INTERVAL_SECS", "5");
 
         let config = IndexerConfig::from_env();
 
         assert_eq!(config.start_block, 12345);
         assert_eq!(config.batch_size, 128);
         assert_eq!(config.tree_max_block_age, 500);
+        assert_eq!(config.blockchain_poll_interval_secs, 5);
     }
 
     #[test]
@@ -551,7 +553,6 @@ mod tests {
         clear_all_config_env();
         set_env("DATABASE_URL", "postgresql://localhost/test");
         set_env("RPC_URL", "http://localhost:8545");
-        set_env("WS_URL", "ws://localhost:8545");
         set_env(
             "REGISTRY_ADDRESS",
             "0x0000000000000000000000000000000000000001",
@@ -566,7 +567,6 @@ mod tests {
         assert_eq!(config.environment, Environment::Development);
         assert_eq!(config.db_url, "postgresql://localhost/test");
         assert!(config.provider.http.is_some());
-        assert_eq!(config.ws_rpc_url, "ws://localhost:8545");
         assert_eq!(
             config.registry_address.to_string(),
             "0x0000000000000000000000000000000000000001"
@@ -579,7 +579,6 @@ mod tests {
     fn test_global_config_missing_database_url() {
         clear_all_config_env();
         set_env("RPC_URL", "http://localhost:8545");
-        set_env("WS_URL", "ws://localhost:8545");
         set_env(
             "REGISTRY_ADDRESS",
             "0x0000000000000000000000000000000000000001",
@@ -596,7 +595,6 @@ mod tests {
     fn test_global_config_missing_rpc_url() {
         clear_all_config_env();
         set_env("DATABASE_URL", "postgresql://localhost/test");
-        set_env("WS_URL", "ws://localhost:8545");
         set_env(
             "REGISTRY_ADDRESS",
             "0x0000000000000000000000000000000000000001",
@@ -610,28 +608,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_global_config_missing_ws_url() {
-        clear_all_config_env();
-        set_env("DATABASE_URL", "postgresql://localhost/test");
-        set_env("RPC_URL", "http://localhost:8545");
-        set_env(
-            "REGISTRY_ADDRESS",
-            "0x0000000000000000000000000000000000000001",
-        );
-        set_env("TREE_CACHE_FILE", "/tmp/test_cache");
-
-        let result = GlobalConfig::from_env();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("WS_URL"));
-    }
-
-    #[test]
-    #[serial]
     fn test_global_config_missing_registry_address() {
         clear_all_config_env();
         set_env("DATABASE_URL", "postgresql://localhost/test");
         set_env("RPC_URL", "http://localhost:8545");
-        set_env("WS_URL", "ws://localhost:8545");
         set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 
         let result = GlobalConfig::from_env();
@@ -645,7 +625,6 @@ mod tests {
         clear_all_config_env();
         set_env("DATABASE_URL", "postgresql://localhost/test");
         set_env("RPC_URL", "http://localhost:8545");
-        set_env("WS_URL", "ws://localhost:8545");
         set_env("REGISTRY_ADDRESS", "invalid_address");
         set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 

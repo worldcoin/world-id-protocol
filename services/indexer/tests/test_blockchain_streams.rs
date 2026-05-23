@@ -58,170 +58,13 @@ async fn create_accounts(
     start_index + count
 }
 
-/// Tests the full `stream_world_tree_events` pipeline that combines backfill,
-/// gap-fill, and live WebSocket streaming into a single ordered stream.
-///
-/// Scenario:
-///   1. **Backfill**: 100 accounts are created before the stream starts. The
-///      stream is polled until all backfill events are consumed, which
-///      deterministically drives the backfill to completion and commits
-///      `last_block`.
-///   2. **Gap**: 30 accounts are created *after* the backfill finishes. They
-///      land on-chain in blocks after `last_block`, so the WS stage's gap-fill
-///      must fetch them via HTTP.
-///   3. **Live**: A spawned task creates 5 accounts after a delay so the WS
-///      subscription is already established. These arrive as live WS events.
-///   4. **Verification**: All collected events are compared against a ground
-///      truth `get_logs` query, decoded through `RegistryEvent::decode`.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_stream_world_tree_events() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .try_init();
-
-    // --- Setup ---
-    let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
-    let deployer = anvil.signer(0).expect("failed to get deployer");
-    let registry_address = anvil
-        .deploy_world_id_registry_with_depth(deployer, 8)
-        .await
-        .expect("failed to deploy registry");
-
-    let provider = ProviderArgs::new()
-        .with_http_urls([anvil.endpoint()])
-        .http()
-        .await
-        .expect("failed to build provider");
-
-    let blockchain = Blockchain::new(provider.clone(), anvil.ws_endpoint(), registry_address)
-        .await
-        .expect("failed to create Blockchain");
-
-    let http_provider =
-        ProviderBuilder::new().connect_http(anvil.endpoint().parse::<url::Url>().unwrap());
-
-    let from_block = http_provider
-        .get_block_number()
-        .await
-        .expect("failed to get block number");
-
-    // --- Phase 1: Create backfill accounts ---
-    let backfill_count: u64 = 100;
-    let gap_count: u64 = 30;
-    let live_count: u64 = 5;
-
-    let next_index = create_accounts(
-        anvil.endpoint(),
-        anvil.signer(0).unwrap(),
-        registry_address,
-        1,
-        backfill_count,
-    )
-    .await;
-
-    // Compute logs-per-account empirically from the backfill accounts.
-    let backfill_log_count = http_provider
-        .get_logs(
-            &Filter::new()
-                .address(registry_address)
-                .event_signature(RegistryEvent::signatures())
-                .from_block(from_block + 1),
-        )
-        .await
-        .expect("failed to count backfill logs")
-        .len();
-    assert!(backfill_log_count > 0, "expected some backfill logs");
-    let logs_per_account = backfill_log_count as u64 / backfill_count;
-
-    let mut stream = blockchain.backfill_and_stream_events(from_block + 1, 2);
-
-    // Consume all backfill events
-    let mut stream_events: Vec<BlockchainEvent<RegistryEvent>> = tokio::time::timeout(
-        Duration::from_secs(30),
-        stream.by_ref().take(backfill_log_count).try_collect(),
-    )
-    .await
-    .expect("timed out waiting for backfill events")
-    .expect("backfill stream error");
-
-    // Create gap accounts
-    let next_index = create_accounts(
-        anvil.endpoint(),
-        anvil.signer(0).unwrap(),
-        registry_address,
-        next_index,
-        gap_count,
-    )
-    .await;
-
-    // Spawn task for live accounts
-    let task_endpoint = anvil.endpoint().to_string();
-    let task_signer = anvil.signer(0).unwrap();
-
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(500)).await;
-
-        create_accounts(
-            &task_endpoint,
-            task_signer,
-            registry_address,
-            next_index,
-            live_count,
-        )
-        .await;
-    });
-
-    // Consume gap + live events
-    let remaining = (logs_per_account * (gap_count + live_count)) as usize;
-
-    let gap_live_events: Vec<BlockchainEvent<RegistryEvent>> = tokio::time::timeout(
-        Duration::from_secs(30),
-        stream.by_ref().take(remaining).try_collect(),
-    )
-    .await
-    .expect("timed out waiting for gap/live events")
-    .expect("gap/live stream error");
-
-    stream_events.extend(gap_live_events);
-
-    // Ground truth
-    let expected_logs = http_provider
-        .get_logs(
-            &Filter::new()
-                .address(registry_address)
-                .event_signature(RegistryEvent::signatures())
-                .from_block(from_block + 1),
-        )
-        .await
-        .expect("failed to fetch ground truth logs");
-
-    let expected_events: Vec<BlockchainEvent<RegistryEvent>> = expected_logs
-        .iter()
-        .map(|log| RegistryEvent::decode(log).expect("failed to decode ground truth log"))
-        .collect();
-
-    assert_eq!(
-        stream_events, expected_events,
-        "stream events do not match ground truth"
-    );
-}
-
-/// Tests `backfill_events` in isolation (no WebSocket phase).
-///
-/// Scenario:
-///   1. 10 accounts are created before the stream starts.
-///   2. `backfill_events` is called, returning a stream and a shared atomic
-///      tracking the last fetched block.
-///   3. The stream is fully consumed and compared against a ground truth
-///      `get_logs` query.
-///   4. The `last_block` atomic is verified to be at or past the chain head.
+/// Tests `backfill_events` in isolation.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_backfill_events() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .try_init();
 
-    // --- Setup ---
     let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
     let deployer = anvil.signer(0).expect("failed to get deployer");
     let registry_address = anvil
@@ -235,9 +78,7 @@ async fn test_backfill_events() {
         .await
         .expect("failed to build provider");
 
-    let blockchain = Blockchain::new(provider.clone(), anvil.ws_endpoint(), registry_address)
-        .await
-        .expect("failed to create Blockchain");
+    let blockchain = Blockchain::new(provider.clone(), registry_address);
 
     let http_provider =
         ProviderBuilder::new().connect_http(anvil.endpoint().parse::<url::Url>().unwrap());
@@ -247,7 +88,6 @@ async fn test_backfill_events() {
         .await
         .expect("failed to get block number");
 
-    // --- Create accounts ---
     let backfill_count: u64 = 10;
 
     create_accounts(
@@ -259,7 +99,6 @@ async fn test_backfill_events() {
     )
     .await;
 
-    // --- Backfill ---
     let (stream, last_block) = blockchain.backfill_events(from_block + 1, 2);
 
     let stream_events: Vec<BlockchainEvent<RegistryEvent>> =
@@ -268,7 +107,6 @@ async fn test_backfill_events() {
             .expect("timed out waiting for backfill events")
             .expect("backfill stream error");
 
-    // --- Ground truth ---
     let expected_logs = http_provider
         .get_logs(
             &Filter::new()
@@ -289,7 +127,6 @@ async fn test_backfill_events() {
         "backfill stream events do not match ground truth"
     );
 
-    // Verify last_block was updated to at least the chain head at creation time
     let last = last_block.load(Ordering::Relaxed);
     assert!(
         last >= from_block,
@@ -297,23 +134,90 @@ async fn test_backfill_events() {
     );
 }
 
-/// Tests that the stream produced by `backfill_and_stream_events` yields an
-/// `Err` and then terminates when an RPC error occurs during backfill.
-///
-/// Scenario:
-///   1. 10 accounts are created so there is backfill work to do.
-///   2. The stream is started with a small `batch_size` and RPC retries
-///      disabled so errors propagate immediately.
-///   3. A few events are consumed, then the Anvil process is killed.
-///   4. The next poll yields `Err(BlockchainError::Rpc(...))`.
-///   5. The stream terminates.
+/// Tests that `pull_events` emits events created after an empty poll round.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_stream_stops_on_error() {
+async fn test_pull_events_emits_after_poll() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .try_init();
 
-    // --- Setup ---
+    let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
+    let deployer = anvil.signer(0).expect("failed to get deployer");
+    let registry_address = anvil
+        .deploy_world_id_registry_with_depth(deployer, 8)
+        .await
+        .expect("failed to deploy registry");
+
+    let provider = ProviderArgs::new()
+        .with_http_urls([anvil.endpoint()])
+        .http()
+        .await
+        .expect("failed to build provider");
+
+    let blockchain = Blockchain::new(provider.clone(), registry_address);
+
+    let http_provider =
+        ProviderBuilder::new().connect_http(anvil.endpoint().parse::<url::Url>().unwrap());
+
+    let from_block = http_provider
+        .get_block_number()
+        .await
+        .expect("failed to get block number");
+
+    let poll_interval = Duration::from_millis(200);
+    let stream = blockchain.pull_events(from_block + 1, 2, poll_interval);
+
+    let endpoint = anvil.endpoint().to_string();
+    let signer = anvil.signer(0).unwrap();
+    let create_handle = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        create_accounts(&endpoint, signer, registry_address, 1, 3).await;
+    });
+
+    create_handle.await.expect("account creation task failed");
+
+    let expected_logs = http_provider
+        .get_logs(
+            &Filter::new()
+                .address(registry_address)
+                .event_signature(RegistryEvent::signatures())
+                .from_block(from_block + 1),
+        )
+        .await
+        .expect("failed to fetch ground truth logs");
+
+    let expected_count = expected_logs.len();
+    assert!(
+        expected_count > 0,
+        "expected some logs after account creation"
+    );
+
+    let stream_events: Vec<BlockchainEvent<RegistryEvent>> = tokio::time::timeout(
+        Duration::from_secs(30),
+        stream.take(expected_count).try_collect(),
+    )
+    .await
+    .expect("timed out waiting for pull events")
+    .expect("pull stream error");
+
+    let expected_events: Vec<BlockchainEvent<RegistryEvent>> = expected_logs
+        .iter()
+        .map(|log| RegistryEvent::decode(log).expect("failed to decode ground truth log"))
+        .collect();
+
+    assert_eq!(
+        stream_events, expected_events,
+        "pull stream events do not match ground truth"
+    );
+}
+
+/// Tests that the pull stream yields an error and terminates when RPC fails.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_pull_stream_stops_on_error() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
+
     let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
     let deployer = anvil.signer(0).expect("failed to get deployer");
     let registry_address = anvil
@@ -328,9 +232,7 @@ async fn test_stream_stops_on_error() {
         .await
         .expect("failed to build provider");
 
-    let blockchain = Blockchain::new(provider.clone(), anvil.ws_endpoint(), registry_address)
-        .await
-        .expect("failed to create Blockchain");
+    let blockchain = Blockchain::new(provider.clone(), registry_address);
 
     let http_provider =
         ProviderBuilder::new().connect_http(anvil.endpoint().parse::<url::Url>().unwrap());
@@ -340,34 +242,27 @@ async fn test_stream_stops_on_error() {
         .await
         .expect("failed to get block number");
 
-    // Create enough accounts so backfill has work to do.
-    let backfill_count: u64 = 10;
-
     create_accounts(
         anvil.endpoint(),
         anvil.signer(0).unwrap(),
         registry_address,
         1,
-        backfill_count,
+        5,
     )
     .await;
 
-    let mut stream = blockchain.backfill_and_stream_events(from_block + 1, 2);
+    let mut stream = blockchain.pull_events(from_block + 1, 2, Duration::from_millis(100));
 
-    // Consume a small number of events so the backfill is partway through.
     let _partial: Vec<BlockchainEvent<RegistryEvent>> = tokio::time::timeout(
         Duration::from_secs(30),
-        stream.by_ref().take(5).try_collect(),
+        stream.by_ref().take(3).try_collect(),
     )
     .await
-    .expect("timed out consuming partial backfill")
-    .expect("unexpected error in partial backfill");
+    .expect("timed out consuming partial pull stream")
+    .expect("unexpected error in partial pull stream");
 
-    // Kill Anvil — all subsequent RPC calls will fail.
     drop(anvil);
 
-    // There can still be buffered Ok events fetched before the anvil process
-    // was killed. Drain until the first non-Ok item appears.
     let error_event = tokio::time::timeout(Duration::from_secs(30), async {
         loop {
             match stream.next().await {
@@ -379,22 +274,11 @@ async fn test_stream_stops_on_error() {
     .await
     .expect("timed out waiting for error after anvil kill");
 
-    // After killing Anvil the stream must stop with a connectivity error.
-    // Which variant surfaces depends on whether the remaining backfill events
-    // were already buffered before the kill (→ WsSubscriptionClosed, because
-    // the stream transitioned to the WS phase before the HTTP client had a
-    // chance to fail) or whether the HTTP client sees the dead process first
-    // (→ Rpc).  Both are correct outcomes: the important invariant is that the
-    // stream yields exactly one Err and then terminates.
     assert!(
-        matches!(
-            error_event,
-            Some(Err(BlockchainError::Rpc(_))) | Some(Err(BlockchainError::WsSubscriptionClosed))
-        ),
-        "expected a connectivity error after killing anvil, got {error_event:?}"
+        matches!(error_event, Some(Err(BlockchainError::Rpc(_)))),
+        "expected Rpc error after killing anvil, got {error_event:?}"
     );
 
-    // Stream must terminate immediately after the first error.
     let terminated = tokio::time::timeout(Duration::from_secs(5), stream.next())
         .await
         .expect("timed out waiting for stream termination");
@@ -402,115 +286,5 @@ async fn test_stream_stops_on_error() {
     assert!(
         terminated.is_none(),
         "expected None immediately after first error, got {terminated:?}"
-    );
-}
-
-/// Tests that the stream terminates with a `WsSubscriptionClosed` error when
-/// the WebSocket connection is dropped.
-///
-/// Scenario:
-///   1. A small backfill (10 accounts) is created and fully consumed.
-///   2. The stream transitions to the WebSocket phase, subscribes, and waits
-///      for the first live event.
-///   3. A spawned task kills the Anvil process after a short delay (allowing
-///      the WS subscription to be established first).
-///   4. The WS subscription returns `None`, which surfaces as
-///      `BlockchainError::WsSubscriptionClosed`.
-///   5. A subsequent poll yields `None` (stream terminated).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_stream_stops_on_ws_drop() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .try_init();
-
-    // --- Setup ---
-    let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
-    let deployer = anvil.signer(0).expect("failed to get deployer");
-    let registry_address = anvil
-        .deploy_world_id_registry_with_depth(deployer, 8)
-        .await
-        .expect("failed to deploy registry");
-
-    let provider = ProviderArgs::new()
-        .with_http_urls([anvil.endpoint()])
-        .http()
-        .await
-        .expect("failed to build provider");
-
-    let blockchain = Blockchain::new(provider.clone(), anvil.ws_endpoint(), registry_address)
-        .await
-        .expect("failed to create Blockchain");
-
-    let http_provider =
-        ProviderBuilder::new().connect_http(anvil.endpoint().parse::<url::Url>().unwrap());
-
-    let from_block = http_provider
-        .get_block_number()
-        .await
-        .expect("failed to get block number");
-
-    // Small backfill so we quickly reach the WS phase.
-    let backfill_count: u64 = 10;
-
-    create_accounts(
-        anvil.endpoint(),
-        anvil.signer(0).unwrap(),
-        registry_address,
-        1,
-        backfill_count,
-    )
-    .await;
-
-    let backfill_log_count = http_provider
-        .get_logs(
-            &Filter::new()
-                .address(registry_address)
-                .event_signature(RegistryEvent::signatures())
-                .from_block(from_block + 1),
-        )
-        .await
-        .expect("failed to count backfill logs")
-        .len();
-    assert!(backfill_log_count > 0, "expected some backfill logs");
-
-    let mut stream = blockchain.backfill_and_stream_events(from_block + 1, 2);
-
-    // Consume all backfill events.
-    let _backfill_events: Vec<BlockchainEvent<RegistryEvent>> = tokio::time::timeout(
-        Duration::from_secs(30),
-        stream.by_ref().take(backfill_log_count).try_collect(),
-    )
-    .await
-    .expect("timed out waiting for backfill events")
-    .expect("backfill stream error");
-
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        drop(anvil);
-    });
-
-    // The stream should yield an error when the WS connection drops.
-    let next = tokio::time::timeout(Duration::from_secs(30), stream.next())
-        .await
-        .expect("timed out waiting for WS drop error");
-
-    assert!(
-        matches!(
-            next,
-            Some(Err(
-                BlockchainError::WsSubscriptionClosed | BlockchainError::Rpc(_)
-            ))
-        ),
-        "expected Some(Err(WsSubscriptionClosed | Rpc(...))) after WS drop, got {next:?}"
-    );
-
-    // After the error the stream should be terminated.
-    let after = tokio::time::timeout(Duration::from_secs(5), stream.next())
-        .await
-        .expect("timed out waiting for stream termination");
-
-    assert!(
-        after.is_none(),
-        "expected None (stream terminated) after WS error, got {after:?}"
     );
 }

@@ -90,6 +90,7 @@ async fn test_get_pending_recovery_agent_endpoint() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                blockchain_poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8086".parse().unwrap(),
@@ -100,7 +101,6 @@ async fn test_get_pending_recovery_agent_endpoint() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: TreeCacheConfig {
             cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
