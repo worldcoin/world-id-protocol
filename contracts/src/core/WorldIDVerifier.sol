@@ -176,8 +176,9 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         BabyJubJub.Affine memory oprfPublicKey = _oprfKeyRegistry.getOprfPublicKey(oprfKeyId);
 
         // The proof guarantees the credential's private `expires_at` is greater than
-        // the public `expiresAtMin` input. Reject if that public lower bound is more
-        // than `_minExpirationThreshold` older than the current block timestamp.
+        // the public `expiresAtMin` input. Reject if that lower bound is more than
+        // `_minExpirationThreshold` older than the current block timestamp, preventing
+        // proofs that only show the credential expires after a timestamp too far in the past.
         if (uint256(expiresAtMin + _minExpirationThreshold) < block.timestamp) {
             revert ExpirationTooOld();
         }
