@@ -23,13 +23,11 @@ changelog_update = true
 changelog_path = "CHANGELOG.md"
 changelog_include = ["world-id-core", "world-id-authenticator", "world-id-issuer", "world-id-proof", "world-id-registries"]
 
-
 [[package]]
 name = "world-id-core"
 release = true
 publish = true
 changelog_update = false
-
 
 [[package]]
 name = "world-id-authenticator"
@@ -37,13 +35,11 @@ release = true
 publish = true
 changelog_update = false
 
-
 [[package]]
 name = "world-id-issuer"
 release = true
 publish = true
 changelog_update = false
-
 
 [[package]]
 name = "world-id-proof"
@@ -51,13 +47,11 @@ release = true
 publish = true
 changelog_update = false
 
-
 [[package]]
 name = "world-id-registries"
 release = true
 publish = true
 changelog_update = false
-
 
 # Services – tagged and released on GitHub, but never published to crates.io.
 # Tags follow the pattern: world-id-indexer-vX.Y.Z etc.
@@ -69,22 +63,12 @@ publish = false
 changelog_update = false
 git_release_enable = true
 
-
 [[package]]
 name = "world-id-gateway"
 release = true
 publish = false
 changelog_update = false
 git_release_enable = true
-
-
-[[package]]
-name = "world-id-oprf-node"
-release = true
-publish = false
-changelog_update = false
-git_release_enable = true
-
 
 [[package]]
 name = "world-id-relay"
