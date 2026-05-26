@@ -4,7 +4,7 @@ use alloy::{
     network::EthereumWallet,
     providers::{
         DynProvider, Provider, ProviderBuilder,
-        fillers::{CachedNonceManager, NonceManager},
+        fillers::{NonceManager, SimpleNonceManager},
     },
     rpc::{client::RpcClient, json_rpc::RpcError},
     signers::{
@@ -183,7 +183,7 @@ impl SignerArgs {
     ///
     /// When `true`, each pod uses its own Ethereum address derived from its
     /// ordinal slot in the key list, so nonces are independent and a
-    /// process-local [`CachedNonceManager`] is safe to use.
+    /// nonce streams are independent across replicas.
     pub fn is_per_replica_signer(&self) -> bool {
         self.aws_kms_key_ids.is_some()
     }
@@ -280,14 +280,12 @@ impl ProviderArgs {
     }
 
     /// Build a dynamic provider from the configuration using the default
-    /// process-local [`CachedNonceManager`].
+    /// [`SimpleNonceManager`].
     ///
-    /// **Note:** This is safe only when a single process submits transactions
-    /// for a given signer address. For multi-replica deployments sharing a
-    /// signer, use [`http_with_nonce_manager`] with a distributed nonce
-    /// manager (e.g. Redis-backed) instead.
+    /// The simple manager fetches the pending transaction count for each
+    /// transaction instead of incrementing a process-local nonce cache.
     pub async fn http(self) -> ProviderResult<DynProvider> {
-        self.http_with_nonce_manager(CachedNonceManager::default())
+        self.http_with_nonce_manager(SimpleNonceManager::default())
             .await
     }
 
