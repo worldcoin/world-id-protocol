@@ -2,6 +2,7 @@
 name = "world-id-relay"
 edition.workspace = true
 version.workspace = true
+publish = false
 license.workspace = true
 authors.workspace = true
 homepage.workspace = true
