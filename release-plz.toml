@@ -62,6 +62,7 @@ release = true
 publish = false
 changelog_update = false
 git_release_enable = true
+git_only = true
 
 [[package]]
 name = "world-id-gateway"
@@ -69,6 +70,7 @@ release = true
 publish = false
 changelog_update = false
 git_release_enable = true
+git_only = true
 
 [[package]]
 name = "world-id-relay"
@@ -76,3 +78,4 @@ release = true
 publish = false
 changelog_update = false
 git_release_enable = true
+git_only = true
