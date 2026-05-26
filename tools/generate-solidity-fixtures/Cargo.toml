@@ -20,7 +20,7 @@ world-id-core = { path = "../../crates/core", version = "0.11.0", features = [
 ] }
 world-id-primitives = { workspace = true }
 world-id-test-utils = { path = "../../crates/test-utils", version = "0.1.0" }
-world-id-gateway = { path = "../../services/gateway", version = "0.1.1" }
+world-id-gateway = { path = "../../services/gateway", version = "0.1.3" }
 taceo-oprf-test-utils = { workspace = true }
 taceo-oprf = { workspace = true, features = ["types"] }
 hex = { workspace = true }
