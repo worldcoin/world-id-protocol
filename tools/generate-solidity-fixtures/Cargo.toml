@@ -19,7 +19,7 @@ world-id-core = { path = "../../crates/core", version = "0.11.0", features = [
   "embed-zkeys",
 ] }
 world-id-primitives = { workspace = true }
-world-id-test-utils = { path = "../../crates/test-utils", version = "0.11.0" }
+world-id-test-utils = { path = "../../crates/test-utils", version = "0.1.0" }
 world-id-gateway = { path = "../../services/gateway", version = "0.1.1" }
 taceo-oprf-test-utils = { workspace = true }
 taceo-oprf = { workspace = true, features = ["types"] }
