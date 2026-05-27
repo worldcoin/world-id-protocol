@@ -156,7 +156,11 @@ impl Engine {
                 relay_metrics::inc_propagate_outcome(relay_metrics::outcome::NOTHING_CHANGED);
             }
             Err(e) => {
-                warn!(error = %e, "propagateState simulation reverted");
+                warn!(
+                    error = %e,
+                    wallet = %self.world_chain.wallet_address(),
+                    "propagateState simulation reverted"
+                );
                 self.log.restore_pending(snapshot);
                 relay_metrics::record_pending_counts(&self.log);
                 relay_metrics::inc_propagate_outcome(relay_metrics::outcome::SIMULATION_REVERT);

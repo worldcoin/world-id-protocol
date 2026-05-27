@@ -416,7 +416,7 @@ impl Cli {
 
         spawn_wallet_metrics_task(wc_provider.clone(), wc_config.chain_id, wallet_address);
 
-        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone());
+        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone(), wallet_address);
 
         let mut engine = Engine::new(world_chain);
 

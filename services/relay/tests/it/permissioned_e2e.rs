@@ -415,6 +415,7 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
     // Share a single wallet-backed provider between the engine and satellite
     // so nonce management is sequential (both send txs via signer(0)).
     let shared_signer = anvil.signer(0)?;
+    let shared_wallet_address = alloy::signers::Signer::address(&shared_signer);
     let shared_provider = Arc::new(
         ProviderBuilder::new()
             .wallet(alloy::network::EthereumWallet::from(shared_signer))
@@ -432,7 +433,7 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
         deployment_block: 0,
     };
 
-    let world_chain = WorldChain::new(&wc_config, shared_provider.clone());
+    let world_chain = WorldChain::new(&wc_config, shared_provider.clone(), shared_wallet_address);
     let mut engine = Engine::new(world_chain);
     let log = engine.log().clone();
 
