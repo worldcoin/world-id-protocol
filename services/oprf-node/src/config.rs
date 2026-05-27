@@ -30,6 +30,21 @@ pub struct WorldOprfNodeConfig {
     #[serde(rename = "rpc")]
     pub rpc_provider_config: web3::HttpRpcProviderConfig,
 
+    /// Interval for retry logic for fetching data from chain.
+    ///
+    /// This will fire on every unexpected message we get from the RPCs and is NOT limited to actual errors. Nodes may lag behind, therefore we try to fetch multiple times if we get an unexpected message (root not valid). This interval therefore should be block time for most cases.
+    #[serde(
+        default = "WorldOprfNodeConfig::default_retry_rpc_request_interval",
+        with = "humantime_serde"
+    )]
+    pub retry_rpc_request_interval: Duration,
+
+    /// Max attempts for retry logic for fetching data from chain.
+    ///
+    /// This will fire on every unexpected message we get from the RPCs and is NOT limited to actual errors. Nodes may lag behind, therefore we try to fetch multiple times if we get an unexpected message (root not valid).
+    #[serde(default = "WorldOprfNodeConfig::default_retry_rpc_request_max_attempts")]
+    pub retry_rpc_request_max_attempts: usize,
+
     /// Cache configuration for the [`MerkleWatcher`](crate::auth::merkle_watcher::MerkleWatcher)
     #[serde(default)]
     pub merkle_cache_config: WatcherCacheConfig,
@@ -113,7 +128,17 @@ impl Default for WatcherCacheConfig {
 impl WorldOprfNodeConfig {
     /// Default maximum allowed difference between received and node timestamp
     fn default_current_time_stamp_max_difference() -> Duration {
-        Duration::from_mins(5) // 5 minutes
+        Duration::from_mins(5)
+    }
+
+    // Default interval for retrying RPC requests. Set to 2 seconds for world block time.
+    fn default_retry_rpc_request_interval() -> Duration {
+        Duration::from_secs(2)
+    }
+
+    // Default max attempts for retrying RPC requests. Set to 5.
+    fn default_retry_rpc_request_max_attempts() -> usize {
+        5
     }
 
     /// Default timeout for an `eth_call` to an unknown contract.
@@ -156,6 +181,8 @@ impl WorldOprfNodeConfig {
             rp_cache_config: WatcherCacheConfig::default(),
             issuer_cache_config: WatcherCacheConfig::default(),
             merkle_cache_config: WatcherCacheConfig::default(),
+            retry_rpc_request_interval: Self::default_retry_rpc_request_interval(),
+            retry_rpc_request_max_attempts: Self::default_retry_rpc_request_max_attempts(),
         }
     }
 }

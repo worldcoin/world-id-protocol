@@ -9,6 +9,7 @@ use crate::{
     metrics,
 };
 use alloy::{primitives::Address, providers::DynProvider};
+use backon::{BackoffBuilder, ConstantBackoff, ConstantBuilder, Retryable};
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
@@ -53,6 +54,8 @@ pub(crate) struct RpRegistryWatcher {
     contract: RpRegistryInstance<DynProvider>,
     timeout_external_eth_call: Duration,
     http_rpc_provider: web3::HttpRpcProvider,
+    retry_interval: Duration,
+    retry_max_times: usize,
 }
 
 impl RpRegistryWatcher {
@@ -62,6 +65,8 @@ impl RpRegistryWatcher {
         http_rpc_provider: web3::HttpRpcProvider,
         timeout_external_eth_call: Duration,
         cache_config: WatcherCacheConfig,
+        retry_interval: Duration,
+        retry_max_times: usize,
     ) -> Self {
         metrics::rp_registry_cache::reset();
 
@@ -89,6 +94,8 @@ impl RpRegistryWatcher {
             contract: RpRegistry::new(contract_address, http_rpc_provider.inner()),
             timeout_external_eth_call,
             http_rpc_provider,
+            retry_interval,
+            retry_max_times,
         }
     }
 
@@ -97,20 +104,27 @@ impl RpRegistryWatcher {
         &self,
         rp_id: &RpId,
     ) -> Result<RelyingParty, Arc<RpRegistryWatcherError>> {
+        let backon_fetch_rp = (|| async { self.fetch_rp_from_chain(*rp_id).await })
+            .retry(self.backoff_strategy())
+            .sleep(tokio::time::sleep)
+            .notify(|err, duration| {
+                tracing::warn!(%err, "fetch rp form chain will retry after {duration:?}");
+            });
+
         let entry = self
             .rp_store
             .entry(*rp_id)
-            .or_try_insert_with(self.fetch_rp_from_chain(*rp_id))
+            .or_try_insert_with(backon_fetch_rp)
             .await?;
         let rp = if entry.is_fresh() {
-            let rp = entry.value().to_owned();
+            let rp = entry.into_value();
             metrics::rp_registry_cache::inc(rp.account_type);
             metrics::rp_registry_cache::miss();
             tracing::debug!("rp {rp_id}/{} loaded from chain", rp.account_type);
             rp
         } else {
             metrics::rp_registry_cache::hit();
-            entry.value().to_owned()
+            entry.into_value()
         };
 
         tracing::trace!("returning {rp_id}/{}", rp.account_type);
@@ -163,6 +177,14 @@ impl RpRegistryWatcher {
     pub(crate) fn set_timeout_external_eth_call(&mut self, duration: Duration) {
         self.timeout_external_eth_call = duration;
     }
+
+    #[inline]
+    fn backoff_strategy(&self) -> ConstantBackoff {
+        ConstantBuilder::new()
+            .with_delay(self.retry_interval)
+            .with_max_times(self.retry_max_times)
+            .build()
+    }
 }
 
 #[cfg(test)]
@@ -211,6 +233,8 @@ mod tests {
             http_rpc_provider,
             ttl,
             WatcherCacheConfig::default(),
+            Duration::from_secs(0),
+            0,
         );
 
         Ok((watcher, anvil, rp_fixture, rp_registry))
@@ -325,6 +349,8 @@ mod tests {
             http_rpc_provider,
             Duration::from_secs(10),
             WatcherCacheConfig::default(),
+            Duration::from_secs(0),
+            0,
         );
 
         let rp_id = RpId::new(rand::thread_rng().r#gen::<u64>());

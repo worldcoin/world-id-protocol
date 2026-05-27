@@ -8,9 +8,10 @@
 //! may take up to the configured TTL to propagate. Operators should use a
 //! reasonably small TTL to balance freshness against RPC load.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use alloy::{primitives::Address, providers::DynProvider};
+use backon::{BackoffBuilder, ConstantBackoff, ConstantBuilder, Retryable};
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
@@ -37,6 +38,8 @@ pub(crate) enum MerkleWatcherError {
 pub(crate) struct MerkleWatcher {
     merkle_root_cache: Cache<FieldElement, ()>,
     contract: WorldIdRegistryInstance<DynProvider>,
+    retry_interval: Duration,
+    retry_max_times: usize,
 }
 
 impl MerkleWatcher {
@@ -51,6 +54,8 @@ impl MerkleWatcher {
         contract_address: Address,
         http_rpc_provider: &web3::HttpRpcProvider,
         cache_config: WatcherCacheConfig,
+        retry_interval: Duration,
+        retry_max_times: usize,
     ) -> Self {
         metrics::merkle_cache::reset();
 
@@ -79,6 +84,8 @@ impl MerkleWatcher {
         Self {
             merkle_root_cache,
             contract,
+            retry_interval,
+            retry_max_times,
         }
     }
 
@@ -87,7 +94,7 @@ impl MerkleWatcher {
         &self,
         root: FieldElement,
     ) -> Result<(), Arc<MerkleWatcherError>> {
-        let is_valid_root = || async {
+        let is_valid_root = (|| async {
             let valid = self
                 .contract
                 .isValidRoot(root.into())
@@ -99,12 +106,17 @@ impl MerkleWatcher {
             } else {
                 Err(MerkleWatcherError::InvalidMerkleRoot)
             }
-        };
+        })
+        .retry(self.backoff_strategy())
+        .sleep(tokio::time::sleep)
+        .notify(|err, duration| {
+            tracing::warn!(%err, "Ensure root valid will retry after {duration:?}");
+        });
 
         let entry = self
             .merkle_root_cache
             .entry(root)
-            .or_try_insert_with(is_valid_root())
+            .or_try_insert_with(is_valid_root)
             .await?;
         if entry.is_fresh() {
             metrics::merkle_cache::inc();
@@ -113,6 +125,14 @@ impl MerkleWatcher {
             metrics::merkle_cache::hit();
         }
         Ok(())
+    }
+
+    #[inline]
+    fn backoff_strategy(&self) -> ConstantBackoff {
+        ConstantBuilder::new()
+            .with_delay(self.retry_interval)
+            .with_max_times(self.retry_max_times)
+            .build()
     }
 }
 
@@ -146,6 +166,8 @@ mod tests {
             registry_address,
             &http_rpc_provider,
             WatcherCacheConfig::default(),
+            Duration::from_secs(0),
+            0,
         );
 
         watcher
@@ -166,6 +188,8 @@ mod tests {
             registry_address,
             &http_rpc_provider,
             WatcherCacheConfig::default(),
+            Duration::from_secs(0),
+            0,
         );
 
         let invalid_root = FieldElement::from(99999u64);
@@ -192,6 +216,8 @@ mod tests {
             registry_address,
             &http_rpc_provider,
             WatcherCacheConfig::default(),
+            Duration::from_secs(0),
+            0,
         );
 
         let invalid_root = FieldElement::from(99999u64);
@@ -242,6 +268,8 @@ mod tests {
             registry_address,
             &http_rpc_provider,
             WatcherCacheConfig::default(),
+            Duration::from_secs(0),
+            0,
         );
 
         assert!(
@@ -283,7 +311,13 @@ mod tests {
             time_to_live: Duration::from_secs(1),
             ..Default::default()
         };
-        let watcher = MerkleWatcher::init(registry_address, &http_rpc_provider, cache_config);
+        let watcher = MerkleWatcher::init(
+            registry_address,
+            &http_rpc_provider,
+            cache_config,
+            Duration::from_secs(0),
+            0,
+        );
 
         watcher
             .ensure_root_valid(root)
@@ -318,6 +352,8 @@ mod tests {
             Address::with_last_byte(42),
             &http_rpc_provider,
             WatcherCacheConfig::default(),
+            Duration::from_secs(0),
+            0,
         );
 
         let err = watcher

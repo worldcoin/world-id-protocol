@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     auth::schema_issuer_registry_watcher::CredentialSchemaIssuerRegistry::CredentialSchemaIssuerRegistryInstance,
     config::WatcherCacheConfig, metrics,
 };
 use alloy::{primitives::Address, providers::DynProvider};
+use backon::{BackoffBuilder as _, ConstantBackoff, ConstantBuilder, Retryable as _};
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
@@ -39,6 +40,8 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
 pub(crate) struct SchemaIssuerRegistryWatcher {
     issuer_schema_store: Cache<u64, ()>,
     contract: CredentialSchemaIssuerRegistryInstance<DynProvider>,
+    retry_interval: Duration,
+    retry_max_times: usize,
 }
 
 impl SchemaIssuerRegistryWatcher {
@@ -47,6 +50,8 @@ impl SchemaIssuerRegistryWatcher {
         contract_address: Address,
         http_rpc_provider: &web3::HttpRpcProvider,
         cache_config: WatcherCacheConfig,
+        retry_interval: Duration,
+        retry_max_times: usize,
     ) -> Self {
         metrics::schema_issuer_cache::reset();
 
@@ -75,6 +80,8 @@ impl SchemaIssuerRegistryWatcher {
                 contract_address,
                 http_rpc_provider.inner(),
             ),
+            retry_interval,
+            retry_max_times,
         }
     }
 
@@ -83,10 +90,17 @@ impl SchemaIssuerRegistryWatcher {
         &self,
         issuer_schema_id: u64,
     ) -> Result<(), Arc<SchemaIssuerRegistryWatcherError>> {
+        let backon_fetch_issuer = (|| async { self.fetch_issuer(issuer_schema_id).await })
+            .retry(self.backoff_strategy())
+            .sleep(tokio::time::sleep)
+            .notify(|err, duration| {
+                tracing::warn!(%err, "fetch issuer will retry after {duration:?}");
+            });
+
         let entry = self
             .issuer_schema_store
             .entry(issuer_schema_id)
-            .or_try_insert_with(self.fetch_issuer(issuer_schema_id))
+            .or_try_insert_with(backon_fetch_issuer)
             .await?;
 
         if entry.is_fresh() {
@@ -121,6 +135,14 @@ impl SchemaIssuerRegistryWatcher {
         } else {
             Ok(())
         }
+    }
+
+    #[inline]
+    fn backoff_strategy(&self) -> ConstantBackoff {
+        ConstantBuilder::new()
+            .with_delay(self.retry_interval)
+            .with_max_times(self.retry_max_times)
+            .build()
     }
 }
 
@@ -162,6 +184,8 @@ mod tests {
             credential_registry,
             &http_rpc_provider,
             WatcherCacheConfig::default(),
+            Duration::from_secs(0),
+            0,
         );
 
         Ok((watcher, anvil, issuer_schema_id, credential_registry))
@@ -232,6 +256,8 @@ mod tests {
             credential_registry,
             &http_rpc_provider,
             cache_config,
+            Duration::from_secs(2),
+            5,
         );
 
         watcher
@@ -302,6 +328,8 @@ mod tests {
             Address::with_last_byte(42),
             &http_rpc_provider,
             WatcherCacheConfig::default(),
+            Duration::from_secs(0),
+            0,
         );
 
         let err = watcher
