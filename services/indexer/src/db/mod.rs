@@ -2,9 +2,11 @@ use sqlx::{Acquire, PgConnection, PgPool, Postgres, Transaction, postgres::PgPoo
 use thiserror::Error;
 
 mod accounts;
+mod sync_log;
 mod world_id_registry_events;
 
 pub use accounts::Accounts;
+pub use sync_log::{RootVerification, SyncLog, SyncLogEntry, SyncLogKind};
 pub use world_id_registry_events::{
     BlockWithConflictingHashes, WorldIdRegistryEvent, WorldIdRegistryEventId,
     WorldIdRegistryEventType, WorldIdRegistryEvents,
@@ -93,6 +95,10 @@ impl PostgresDB {
         WorldIdRegistryEvents::with_executor(&self.pool)
     }
 
+    pub fn sync_log(&self) -> SyncLog<'_, &PgPool> {
+        SyncLog::with_executor(&self.pool)
+    }
+
     pub async fn ping(&self) -> DBResult<()> {
         sqlx::query("SELECT 1").fetch_one(&self.pool).await?;
         Ok(())
@@ -158,6 +164,12 @@ impl<'a> PostgresDBTransaction<'a> {
     ) -> DBResult<WorldIdRegistryEvents<'_, &mut PgConnection>> {
         let conn = self.tx.acquire().await?;
         Ok(WorldIdRegistryEvents::with_executor(conn))
+    }
+
+    /// Get a sync_log table accessor for executing a single query.
+    pub async fn sync_log(&mut self) -> DBResult<SyncLog<'_, &mut PgConnection>> {
+        let conn = self.tx.acquire().await?;
+        Ok(SyncLog::with_executor(conn))
     }
 
     pub async fn commit(self) -> DBResult<()> {

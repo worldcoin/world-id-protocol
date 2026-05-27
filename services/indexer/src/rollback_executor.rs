@@ -14,6 +14,12 @@ use crate::{
     tree::TreeState,
 };
 
+#[derive(Debug, Clone)]
+struct RollbackTarget {
+    id: WorldIdRegistryEventId,
+    root: U256,
+}
+
 /// Walk backwards through all `RootRecorded` events in the DB and find the
 /// most recent one that still exists on-chain (its log is still present at the
 /// same block/log_index).
@@ -26,13 +32,16 @@ pub async fn rollback_to_last_valid_root(
     registry_address: Address,
     tree: &TreeState,
 ) -> IndexerResult<Option<WorldIdRegistryEventId>> {
-    let Some(target_id) = find_last_valid_root(db, provider, registry_address).await? else {
+    let Some(target) = find_last_valid_root(db, provider, registry_address).await? else {
         tracing::warn!("no valid root found on-chain, nothing to roll back to");
         return Ok(None);
     };
+    let target_id = target.id;
 
     let mut tx = db.transaction(IsolationLevel::Serializable).await?;
     let affected_leaf_indices = rollback_to_event(&mut tx, target_id).await?;
+    let checkpoint_sync_id =
+        append_rollback_sync_log(&mut tx, &affected_leaf_indices, target.root).await?;
     tx.commit().await?;
 
     // Reconciliation reads the post-rollback account rows after the rollback
@@ -41,7 +50,13 @@ pub async fn rollback_to_last_valid_root(
     // DB between this commit and the tree update below. If either assumption
     // changes, keep the DB snapshot and tree reconciliation within one
     // serialized boundary.
-    reconcile_tree_from_db(db, tree, &affected_leaf_indices, target_id)
+    reconcile_tree_from_db(
+        db,
+        tree,
+        &affected_leaf_indices,
+        target_id,
+        Some(checkpoint_sync_id),
+    )
     .await?;
 
     Ok(Some(target_id))
@@ -54,6 +69,7 @@ pub async fn reconcile_tree_from_db(
     tree: &TreeState,
     affected_leaf_indices: &[u64],
     target_event_id: WorldIdRegistryEventId,
+    checkpoint_sync_id: Option<u64>,
 ) -> IndexerResult<()> {
     for &leaf_index in affected_leaf_indices {
         let value = match db.accounts().get_account(leaf_index).await? {
@@ -64,6 +80,9 @@ pub async fn reconcile_tree_from_db(
     }
 
     tree.set_last_synced_event_id(target_event_id).await;
+    if let Some(sync_id) = checkpoint_sync_id {
+        tree.set_last_sync_id(sync_id).await;
+    }
 
     Ok(())
 }
@@ -72,7 +91,7 @@ async fn find_last_valid_root(
     db: &DB,
     provider: &DynProvider,
     registry_address: Address,
-) -> IndexerResult<Option<WorldIdRegistryEventId>> {
+) -> IndexerResult<Option<RollbackTarget>> {
     const BATCH_SIZE: u64 = 100;
     let chain_head = provider
         .get_block_number()
@@ -134,9 +153,12 @@ async fn find_last_valid_root(
             });
 
             if exists {
-                return Ok(Some(WorldIdRegistryEventId {
-                    block_number: event.block_number,
-                    log_index: event.log_index,
+                return Ok(Some(RollbackTarget {
+                    id: WorldIdRegistryEventId {
+                        block_number: event.block_number,
+                        log_index: event.log_index,
+                    },
+                    root: event.details.root,
                 }));
             }
 
@@ -154,6 +176,32 @@ async fn find_last_valid_root(
             log_index: last.log_index,
         };
     }
+}
+
+async fn append_rollback_sync_log(
+    tx: &mut PostgresDBTransaction<'_>,
+    affected_leaf_indices: &[u64],
+    expected_root: U256,
+) -> DBResult<u64> {
+    for &leaf_index in affected_leaf_indices {
+        let commitment = tx
+            .accounts()
+            .await?
+            .get_account(leaf_index)
+            .await?
+            .map(|account| account.offchain_signer_commitment);
+
+        tx.sync_log()
+            .await?
+            .insert_rollback_leaf(leaf_index, commitment)
+            .await?;
+    }
+
+    let next_leaf_index = tx.accounts().await?.get_next_leaf_index().await?;
+    tx.sync_log()
+        .await?
+        .insert_root_verification(expected_root, next_leaf_index)
+        .await
 }
 
 /// Roll back DB state to `event_id` (inclusive). Returns leaf indices whose

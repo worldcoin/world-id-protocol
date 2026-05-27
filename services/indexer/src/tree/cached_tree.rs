@@ -1,13 +1,12 @@
 use std::{collections::HashMap, path::Path};
 
 use alloy::primitives::U256;
-use futures_util::TryStreamExt as _;
 use semaphore_rs_storage::MmapVec;
 use tracing::{info, instrument};
 
 use super::{TreeError, TreeResult, TreeState};
 use crate::{
-    db::{DB, WorldIdRegistryEventId},
+    db::{DB, IsolationLevel, RootVerification, SyncLogEntry, SyncLogKind, WorldIdRegistryEventId},
     tree::MerkleTree,
 };
 
@@ -17,11 +16,12 @@ use crate::{
 
 /// Unified tree initialization.
 ///
-/// 1. If mmap file exists → load it, validate root against DB, replay missed events
-/// 2. If mmap missing or validation fails → full rebuild from DB
+/// Builds a fresh mmap-backed tree from the reader-facing `sync_log` snapshot.
+/// Existing cache files are discarded so stale leaves from pre-rollback cache
+/// state cannot survive if they no longer appear in the latest sync projection.
 ///
-/// Returns a `TreeState` with the sync cursor set so `sync_from_db()` can pick
-/// up any future events incrementally.
+/// Returns a `TreeState` with the sync-log cursor set so `sync_from_db()` can
+/// pick up future entries incrementally.
 ///
 /// # Safety
 ///
@@ -34,319 +34,235 @@ pub async unsafe fn init_tree(
     cache_path: &Path,
     tree_depth: usize,
 ) -> eyre::Result<TreeState> {
-    let (tree, last_event_id) = if cache_path.exists() {
-        match try_restore(db, cache_path, tree_depth).await {
-            Ok(result) => result,
-            Err(e) => {
-                tracing::error!(?e, "restore failed, deleting cache file");
-                if let Err(remove_err) = std::fs::remove_file(cache_path) {
-                    tracing::error!(?remove_err, "failed to delete cache file");
-                }
-                return Err(e);
-            }
-        }
-    } else {
-        info!("no cache file, building from database");
-        build_from_db_with_cache(db, cache_path, tree_depth).await?
-    };
+    let (tree, last_event_id, last_sync_id) =
+        build_from_sync_log_with_cache(db, cache_path, tree_depth).await?;
 
-    let tree_state = TreeState::new(tree, tree_depth, last_event_id);
+    let tree_state = TreeState::new_with_sync_id(tree, tree_depth, last_event_id, last_sync_id);
     crate::metrics::set_tree_last_synced_block(last_event_id.block_number);
     crate::metrics::set_chain_processed_block(last_event_id.block_number);
 
     Ok(tree_state)
 }
 
-/// Incrementally sync the in-memory tree with events committed to DB
-/// since the last sync point.
+/// Incrementally sync the in-memory tree with sync_log entries committed to DB
+/// since the last sync point. Rows are applied only at root verification
+/// checkpoints, so the cursor advances after the resulting root is validated.
 ///
-/// Returns the number of raw events processed (before deduplication).
+/// Returns the number of sync_log rows processed through verified checkpoints.
 #[instrument(level = "info", skip_all)]
 pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> {
     const BATCH_SIZE: u64 = 10_000;
 
     let started = std::time::Instant::now();
-    let from = tree_state.last_synced_event_id().await;
-
-    // Collect all pending events
-    let mut all_events = Vec::new();
+    let from = tree_state.last_sync_id().await;
     let mut cursor = from;
+    let mut pending_leaves: HashMap<u64, (u64, Option<U256>)> = HashMap::new();
+    let mut pending_count = 0usize;
+    let mut processed_count = 0usize;
+    let mut last_verified_sync_id = from;
 
     loop {
-        let batch = db
-            .world_id_registry_events()
-            .get_after(cursor, BATCH_SIZE)
-            .await?;
+        let batch = db.sync_log().get_after(cursor, BATCH_SIZE).await?;
 
         if batch.is_empty() {
             break;
         }
 
-        let last = batch.last().expect("batch is non-empty");
-        cursor = WorldIdRegistryEventId {
-            block_number: last.block_number,
-            log_index: last.log_index,
-        };
-
         let at_end = (batch.len() as u64) < BATCH_SIZE;
-        all_events.extend(batch);
+        for entry in batch {
+            cursor = entry.sync_id;
+            match entry.kind {
+                SyncLogKind::LeafUpdate | SyncLogKind::RollbackLeaf => {
+                    let leaf_index = entry.leaf_index.ok_or_else(|| {
+                        TreeError::InvalidSyncLogRow(
+                            "leaf sync row is missing leaf_index".to_string(),
+                        )
+                    })?;
+                    pending_leaves.insert(leaf_index, (entry.sync_id, entry.commitment));
+                    pending_count += 1;
+                }
+                SyncLogKind::RootVerification => {
+                    apply_checkpoint(tree_state, &mut pending_leaves, &entry).await?;
+                    tree_state.set_last_sync_id(entry.sync_id).await;
+                    last_verified_sync_id = entry.sync_id;
+                    processed_count += pending_count + 1;
+                    pending_count = 0;
+                }
+            }
+        }
 
         if at_end {
             break;
         }
     }
 
-    if all_events.is_empty() {
-        let latency_ms = started.elapsed().as_millis() as f64;
-        crate::metrics::record_tree_sync(0, latency_ms, from.block_number);
+    let latency_ms = started.elapsed().as_millis() as f64;
+    if processed_count == 0 {
+        crate::metrics::record_tree_sync(0, latency_ms, 0);
         return Ok(0);
     }
 
-    let total = all_events.len();
-
-    // Deduplicate: keep only the final state per leaf
-    let mut leaf_final_states: HashMap<u64, U256> = HashMap::new();
-    for event in &all_events {
-        // Extract leaf_index and offchain_signer_commitment from event details
-        if let Some((leaf_index, commitment)) = super::extract_leaf_commitment(&event.details) {
-            leaf_final_states.insert(leaf_index, commitment);
-        }
-    }
-
     info!(
-        total_events = total,
-        unique_leaves = leaf_final_states.len(),
-        "applying updates"
+        processed_count,
+        last_verified_sync_id, "synced tree from sync_log"
     );
 
-    // Apply all under a single write lock
-    {
-        let mut tree = tree_state.write().await;
-        for (leaf_index, value) in &leaf_final_states {
-            set_arbitrary_leaf(&mut tree, *leaf_index as usize, *value);
-        }
-    }
+    crate::metrics::record_tree_sync(processed_count, latency_ms, 0);
 
-    // Advance cursor
-    tree_state.set_last_synced_event_id(cursor).await;
-
-    info!(
-        total_events = total,
-        unique_leaves = leaf_final_states.len(),
-        ?cursor,
-        "done"
-    );
-
-    let latency_ms = started.elapsed().as_millis() as f64;
-    crate::metrics::record_tree_sync(total, latency_ms, cursor.block_number);
-
-    Ok(total)
+    Ok(processed_count)
 }
 
 // =============================================================================
 // Private helpers
 // =============================================================================
 
-/// Try to restore from mmap cache + replay missed events.
-/// Returns the tree and last event ID on success.
+struct SyncLogSnapshot {
+    max_sync_id: u64,
+    checkpoint: Option<RootVerification>,
+    leaves: Vec<(u64, Option<U256>)>,
+    last_event_id: WorldIdRegistryEventId,
+}
+
+/// Build tree from the sync_log projection with mmap backing.
 #[instrument(level = "info", skip_all)]
-async fn try_restore(
+async fn build_from_sync_log_with_cache(
     db: &DB,
     cache_path: &Path,
     tree_depth: usize,
-) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId)> {
-    // 1. Load mmap
-    let tree = restore_from_cache(cache_path, tree_depth)?;
-    let restored_root = tree.root();
-
-    info!(
-        root = %format!("0x{:x}", restored_root),
-        "loaded mmap"
-    );
-
-    // 2. Validate that the restored root exists in world_id_registry_events
-    let root_exists = db
-        .world_id_registry_events()
-        .root_exists(&restored_root)
-        .await?;
-
-    if !root_exists {
-        return Err(TreeError::StaleCache {
-            root: format!("0x{:x}", restored_root),
-        }
-        .into());
-    }
-
-    info!("Root validated successfully in DB");
-
-    // 3. For now, replay all events from genesis since we don't track which event produced which root
-    // TODO: Store root->event_id mapping to optimize replay
-    let replay_cursor = WorldIdRegistryEventId {
-        block_number: 0,
-        log_index: 0,
-    };
-
-    // 4. Replay events after that root's position
-    let (tree, last_event_id) = replay_events(tree, db, replay_cursor).await?;
-
-    info!(
-        root = %format!("0x{:x}", tree.root()),
-        ?last_event_id,
-        "replay complete"
-    );
-
-    Ok((tree, last_event_id))
-}
-
-/// Restore tree from mmap file (no validation).
-fn restore_from_cache(cache_path: &Path, tree_depth: usize) -> eyre::Result<MerkleTree> {
-    let storage = unsafe { MmapVec::<U256>::restore_from_path(cache_path)? };
-    let tree = MerkleTree::restore(storage, tree_depth, &U256::ZERO)?;
-    info!(
-        cache_file = %cache_path.display(),
-        root = %format!("0x{:x}", tree.root()),
-        "Restored tree from cache"
-    );
-
-    Ok(tree)
-}
-
-/// Build tree from DB with mmap backing using chunk-based processing.
-#[instrument(level = "info", skip_all)]
-async fn build_from_db_with_cache(
-    db: &DB,
-    cache_path: &Path,
-    tree_depth: usize,
-) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId)> {
-    info!("Building tree from database with mmap cache (chunk-based processing)");
+) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId, u64)> {
+    info!("Building tree from sync_log with mmap cache");
 
     let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
+    if cache_path.exists() {
+        std::fs::remove_file(cache_path)?;
+    }
 
-    info!("Downloading leaves from database");
-    let leaves = db
-        .accounts()
-        .stream_leaf_index_and_offchain_signer_commitment()
-        .try_fold(Vec::new(), |mut acc, (index, value)| async move {
-            if index == acc.len() as u64 {
-                acc.push(value);
-            } else if index < acc.len() as u64 {
-                acc[index as usize] = value;
-            } else {
-                acc.resize((index) as usize, U256::ZERO);
-                acc.push(value);
-            }
-            Ok(acc)
-        })
-        .await?;
+    let snapshot = load_sync_log_snapshot(db).await?;
+    let next_leaf_index = snapshot
+        .checkpoint
+        .as_ref()
+        .map(|checkpoint| checkpoint.next_leaf_index)
+        .unwrap_or_else(|| {
+            snapshot
+                .leaves
+                .iter()
+                .map(|(leaf_index, _)| leaf_index + 1)
+                .max()
+                .unwrap_or(0)
+        });
 
-    info!(len = leaves.len(), "Building Tree");
+    ensure_leaf_index_in_range(next_leaf_index, tree_depth)?;
+    let mut leaves = vec![U256::ZERO; next_leaf_index as usize];
+    for (leaf_index, maybe_commitment) in &snapshot.leaves {
+        ensure_leaf_index_in_range(leaf_index + 1, tree_depth)?;
+        if (*leaf_index as usize) < leaves.len() {
+            leaves[*leaf_index as usize] = maybe_commitment.unwrap_or(U256::ZERO);
+        }
+    }
+
+    info!(
+        len = leaves.len(),
+        max_sync_id = snapshot.max_sync_id,
+        "Building Tree"
+    );
 
     let storage = unsafe { MmapVec::<U256>::create_from_path(cache_path_str)? };
-
     let tree = MerkleTree::new_with_leaves(storage, tree_depth, &U256::ZERO, &leaves);
+
+    if let Some(checkpoint) = &snapshot.checkpoint {
+        verify_root(tree.root(), checkpoint.expected_root)?;
+    }
 
     info!(
         root = %format!("0x{:x}", tree.root()),
-        "Tree built from database with mmap cache"
+        "Tree built from sync_log with mmap cache"
     );
 
-    let last_event_id = db
+    Ok((tree, snapshot.last_event_id, snapshot.max_sync_id))
+}
+
+async fn load_sync_log_snapshot(db: &DB) -> TreeResult<SyncLogSnapshot> {
+    let mut tx = db.transaction(IsolationLevel::RepeatableRead).await?;
+    let max_sync_id = tx.sync_log().await?.get_max_sync_id().await?;
+    let checkpoint = tx
+        .sync_log()
+        .await?
+        .get_latest_root_verification_at(max_sync_id)
+        .await?;
+    let leaves = tx
+        .sync_log()
+        .await?
+        .get_latest_leaf_values_at(max_sync_id)
+        .await?;
+    let last_event_id = tx
         .world_id_registry_events()
+        .await?
         .get_latest_id()
         .await?
         .unwrap_or_default();
+    tx.commit().await?;
 
-    Ok((tree, last_event_id))
+    Ok(SyncLogSnapshot {
+        max_sync_id,
+        checkpoint,
+        leaves,
+        last_event_id,
+    })
 }
 
-/// Replay events onto an existing tree with deduplication.
-/// Uses event ID-based pagination to efficiently handle large replays.
-#[instrument(level = "info", skip_all, fields(?from_event_id))]
-async fn replay_events(
-    mut tree: MerkleTree,
-    db: &DB,
-    from_event_id: WorldIdRegistryEventId,
-) -> TreeResult<(MerkleTree, WorldIdRegistryEventId)> {
-    const BATCH_SIZE: u64 = 10_000;
+async fn apply_checkpoint(
+    tree_state: &TreeState,
+    pending_leaves: &mut HashMap<u64, (u64, Option<U256>)>,
+    checkpoint: &SyncLogEntry,
+) -> TreeResult<()> {
+    let expected_root = checkpoint.expected_root.ok_or_else(|| {
+        TreeError::InvalidSyncLogRow("root verification row is missing expected_root".to_string())
+    })?;
+    let next_leaf_index = checkpoint.next_leaf_index.ok_or_else(|| {
+        TreeError::InvalidSyncLogRow("root verification row is missing next_leaf_index".to_string())
+    })?;
 
-    let mut last_event_id = from_event_id;
-    let mut total_events = 0;
+    ensure_leaf_index_in_range(next_leaf_index, tree_state.depth())?;
 
-    let mut leaf_final_states: HashMap<u64, U256> = HashMap::new();
-
-    info!(
-        from_event_id = ?from_event_id,
-        "Starting replay from event ID {:?} (events after this ID will be replayed)",
-        from_event_id
-    );
-
-    loop {
-        let events = db
-            .world_id_registry_events()
-            .get_after(last_event_id, BATCH_SIZE)
-            .await?;
-
-        if events.is_empty() {
-            break;
-        }
-
-        let batch_count = events.len();
-        total_events += batch_count;
-
-        for event in &events {
-            // Extract leaf_index and offchain_signer_commitment from event details
-            if let Some((leaf_index, commitment)) = super::extract_leaf_commitment(&event.details) {
-                leaf_final_states.insert(leaf_index, commitment);
-            }
-        }
-
-        let last = events.last().expect("last item to exist");
-        last_event_id = WorldIdRegistryEventId {
-            block_number: last.block_number,
-            log_index: last.log_index,
-        };
-
-        info!(
-            batch_events = batch_count,
-            total_events,
-            unique_leaves = leaf_final_states.len(),
-            ?last_event_id,
-            "Processed batch into memory"
+    let mut tree = tree_state.write().await;
+    for (&leaf_index, (_, maybe_commitment)) in pending_leaves.iter() {
+        ensure_leaf_index_in_range(leaf_index + 1, tree_state.depth())?;
+        set_arbitrary_leaf(
+            &mut tree,
+            leaf_index as usize,
+            maybe_commitment.unwrap_or(U256::ZERO),
         );
-
-        if batch_count < BATCH_SIZE as usize {
-            break;
-        }
     }
 
-    if total_events == 0 {
-        info!("No events to replay, cache is up-to-date");
-        return Ok((tree, last_event_id));
+    if next_leaf_index > 0 && tree.num_leaves() < next_leaf_index as usize {
+        set_arbitrary_leaf(&mut tree, next_leaf_index as usize - 1, U256::ZERO);
     }
 
-    info!(
-        unique_leaves = leaf_final_states.len(),
-        total_events,
-        "Applying {} deduplicated updates to tree (from {} total events)",
-        leaf_final_states.len(),
-        total_events
-    );
+    verify_root(tree.root(), expected_root)?;
+    pending_leaves.clear();
 
-    for (leaf_index, value) in &leaf_final_states {
-        set_arbitrary_leaf(&mut tree, *leaf_index as usize, *value);
+    Ok(())
+}
+
+fn ensure_leaf_index_in_range(next_leaf_index: u64, tree_depth: usize) -> TreeResult<()> {
+    let capacity = 1u64 << tree_depth;
+    if next_leaf_index > capacity {
+        return Err(TreeError::LeafIndexOutOfRange {
+            leaf_index: next_leaf_index as usize,
+            tree_depth,
+        });
     }
+    Ok(())
+}
 
-    info!(
-        total_events,
-        unique_updates = leaf_final_states.len(),
-        ?last_event_id,
-        new_root = %format!("0x{:x}", tree.root()),
-        "Replay complete: {} events deduplicated to {} unique leaf updates",
-        total_events,
-        leaf_final_states.len()
-    );
-
-    Ok((tree, last_event_id))
+fn verify_root(actual: U256, expected: U256) -> TreeResult<()> {
+    if actual != expected {
+        return Err(TreeError::RootMismatch {
+            actual: format!("0x{:x}", actual),
+            expected: format!("0x{:x}", expected),
+        });
+    }
+    Ok(())
 }
 
 /// Set a leaf value at the given index, extending the tree if necessary.
@@ -360,34 +276,5 @@ pub(crate) fn set_arbitrary_leaf(tree: &mut MerkleTree, leaf_index: usize, value
         tree.extend_from_slice(&new);
     } else {
         tree.set_leaf(leaf_index, value);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Test 15: Cache file with no read permissions fails with CacheRestore.
-    #[test]
-    fn test_restore_unreadable_cache_file() {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-
-            let cache_path =
-                std::env::temp_dir().join(format!("test_perms_{}.mmap", uuid::Uuid::new_v4()));
-            std::fs::write(&cache_path, b"some data").unwrap();
-            std::fs::set_permissions(&cache_path, std::fs::Permissions::from_mode(0o000)).unwrap();
-
-            let result = restore_from_cache(&cache_path, 6);
-            assert!(
-                result.is_err(),
-                "restore should fail on unreadable cache file"
-            );
-
-            // Restore permissions for cleanup
-            std::fs::set_permissions(&cache_path, std::fs::Permissions::from_mode(0o644)).unwrap();
-            std::fs::remove_file(&cache_path).unwrap();
-        }
     }
 }

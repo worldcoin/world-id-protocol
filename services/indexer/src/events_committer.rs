@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::{
     blockchain::{BlockchainEvent, RegistryEvent, RootRecordedEvent},
-    db::{DB, IsolationLevel},
+    db::{DB, IsolationLevel, PostgresDBTransaction},
     error::{IndexerError, IndexerResult},
     events_processor::EventsProcessor,
     tree::{TreeState, apply_event_to_tree, extract_leaf_commitment},
@@ -109,6 +109,8 @@ impl<'a> EventsCommitter<'a> {
         let started = std::time::Instant::now();
 
         let mut tx = self.db.transaction(IsolationLevel::Serializable).await?;
+        let mut newly_committed_events = Vec::new();
+        let mut checkpoint_sync_id = None;
 
         for event in self.buffered_events.iter() {
             let db_event = tx
@@ -155,6 +157,7 @@ impl<'a> EventsCommitter<'a> {
             }
 
             EventsProcessor::process_event(&mut tx, event).await?;
+            newly_committed_events.push(event);
         }
 
         let batch_block_numbers: Vec<i64> = self
@@ -211,9 +214,20 @@ impl<'a> EventsCommitter<'a> {
                     ),
                 });
             }
+
+            if !newly_committed_events.is_empty() {
+                checkpoint_sync_id = Some(
+                    append_sync_log_for_batch(&mut tx, &newly_committed_events, expected_root)
+                        .await?,
+                );
+            }
         }
 
         tx.commit().await?;
+
+        if let Some(sync_id) = checkpoint_sync_id {
+            self.tree.set_last_sync_id(sync_id).await;
+        }
 
         let tree = &self.tree;
         for event in self.buffered_events.iter() {
@@ -227,4 +241,28 @@ impl<'a> EventsCommitter<'a> {
 
         Ok(())
     }
+}
+
+async fn append_sync_log_for_batch(
+    tx: &mut PostgresDBTransaction<'_>,
+    events: &[&BlockchainEvent<RegistryEvent>],
+    expected_root: alloy::primitives::U256,
+) -> IndexerResult<u64> {
+    for event in events {
+        if let Some((leaf_index, commitment)) = extract_leaf_commitment(&event.details) {
+            tx.sync_log()
+                .await?
+                .insert_leaf_update(leaf_index, commitment)
+                .await?;
+        }
+    }
+
+    let next_leaf_index = tx.accounts().await?.get_next_leaf_index().await?;
+    let checkpoint_sync_id = tx
+        .sync_log()
+        .await?
+        .insert_root_verification(expected_root, next_leaf_index)
+        .await?;
+
+    Ok(checkpoint_sync_id)
 }

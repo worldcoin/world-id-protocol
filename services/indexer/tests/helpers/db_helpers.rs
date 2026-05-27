@@ -197,6 +197,25 @@ pub async fn count_world_tree_roots(pool: &PgPool) -> DBResult<i64> {
     Ok(count)
 }
 
+/// Count sync_log entries.
+pub async fn count_sync_log_entries(pool: &PgPool) -> DBResult<i64> {
+    let (count,): (i64,) =
+        sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM sync_log")
+            .fetch_one(pool)
+            .await?;
+    Ok(count)
+}
+
+/// Count sync_log entries by kind.
+pub async fn count_sync_log_kind(pool: &PgPool, kind: &str) -> DBResult<i64> {
+    let (count,): (i64,) =
+        sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM sync_log WHERE kind = $1")
+            .bind(kind)
+            .fetch_one(pool)
+            .await?;
+    Ok(count)
+}
+
 /// Check if account exists by leaf index
 pub async fn account_exists(pool: &PgPool, leaf_index: u64) -> DBResult<bool> {
     let count: (i64,) = sqlx::query_as::<sqlx::Postgres, (i64,)>(

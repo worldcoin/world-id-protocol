@@ -227,6 +227,20 @@ async fn test_rolls_back_to_last_valid_root() {
     assert_root_count(db.pool(), 1).await;
     assert_account_exists(db.pool(), 1).await;
     assert_account_not_exists(db.pool(), 2).await;
+    assert_eq!(
+        count_sync_log_kind(db.pool(), "rollback_leaf")
+            .await
+            .unwrap(),
+        1,
+        "rollback should append a repair row for the removed leaf"
+    );
+    assert_eq!(
+        count_sync_log_kind(db.pool(), "root_verification")
+            .await
+            .unwrap(),
+        1,
+        "rollback should append a checkpoint"
+    );
 }
 
 /// If the latest root is already valid (no reorg), rollback_to_last_valid_root

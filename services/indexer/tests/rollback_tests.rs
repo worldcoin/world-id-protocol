@@ -517,7 +517,7 @@ async fn test_reconcile_tree_matches_db_state_after_rollback() {
     let affected = rollback_to_event(&mut tx, rollback_point).await.unwrap();
     tx.commit().await.unwrap();
 
-    reconcile_tree_from_db(db, &tree, &affected, rollback_point)
+    reconcile_tree_from_db(db, &tree, &affected, rollback_point, None)
         .await
         .unwrap();
 

@@ -24,6 +24,7 @@ struct TreeStateInner {
     tree: RwLock<CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>>,
     tree_depth: usize,
     last_synced_event_id: RwLock<WorldIdRegistryEventId>,
+    last_sync_id: RwLock<u64>,
 }
 
 impl TreeState {
@@ -33,11 +34,22 @@ impl TreeState {
         tree_depth: usize,
         last_synced_event_id: WorldIdRegistryEventId,
     ) -> Self {
+        Self::new_with_sync_id(tree, tree_depth, last_synced_event_id, 0)
+    }
+
+    /// Create a new `TreeState` with an existing tree, depth, event cursor, and sync-log cursor.
+    pub fn new_with_sync_id(
+        tree: CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>,
+        tree_depth: usize,
+        last_synced_event_id: WorldIdRegistryEventId,
+        last_sync_id: u64,
+    ) -> Self {
         Self {
             inner: Arc::new(TreeStateInner {
                 tree: RwLock::new(tree),
                 tree_depth,
                 last_synced_event_id: RwLock::new(last_synced_event_id),
+                last_sync_id: RwLock::new(last_sync_id),
             }),
         }
     }
@@ -158,6 +170,16 @@ impl TreeState {
     /// Set the last synced event ID.
     pub async fn set_last_synced_event_id(&self, id: WorldIdRegistryEventId) {
         *self.inner.last_synced_event_id.write().await = id;
+    }
+
+    /// Get the last processed sync_log row ID.
+    pub async fn last_sync_id(&self) -> u64 {
+        *self.inner.last_sync_id.read().await
+    }
+
+    /// Set the last processed sync_log row ID.
+    pub async fn set_last_sync_id(&self, id: u64) {
+        *self.inner.last_sync_id.write().await = id;
     }
 
     /// Compute a simulated Merkle root after applying `changes` without

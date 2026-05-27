@@ -142,6 +142,20 @@ where
         Ok(result.is_some())
     }
 
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_next_leaf_index(self) -> DBResult<u64> {
+        let row = sqlx::query(
+            r#"
+                SELECT coalesce(max(leaf_index) + 1, 1) AS next_leaf_index
+                FROM accounts
+            "#,
+        )
+        .fetch_one(self.executor)
+        .await?;
+
+        Ok(row.get::<i64, _>("next_leaf_index") as u64)
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[instrument(level = "info", skip(self))]
     pub async fn insert(

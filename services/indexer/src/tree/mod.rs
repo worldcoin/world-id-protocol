@@ -37,6 +37,8 @@ pub enum TreeError {
     StaleCache { root: String },
     #[error("simulate_root computation did not produce a root — this is a bug")]
     SimulationMissingRoot,
+    #[error("invalid sync_log row: {0}")]
+    InvalidSyncLogRow(String),
     #[error(transparent)]
     Db(#[from] crate::db::DBError),
 }
