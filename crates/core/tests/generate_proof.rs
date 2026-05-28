@@ -191,9 +191,9 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
         &anvil,
         node_secret_managers,
-        oprf_key_registry,
         world_id_registry,
         rp_registry,
+        credential_registry,
     )
     .await;
 

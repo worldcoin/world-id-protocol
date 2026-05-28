@@ -26,7 +26,7 @@ use crate::{config::WatcherCacheConfig, metrics};
 pub(crate) enum MerkleWatcherError {
     #[error("invalid Merkle root")]
     InvalidMerkleRoot,
-    #[error(transparent)]
+    #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
 }
 

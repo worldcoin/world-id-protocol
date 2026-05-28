@@ -111,7 +111,7 @@ pub(crate) enum RpModuleError {
     Wip101VerificationFailed(Option<U256>),
     #[error("Auxiliary data for WIP101 contract too large")]
     Wip101AuxDataTooLarge,
-    #[error(transparent)]
+    #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
 }
 

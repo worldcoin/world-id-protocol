@@ -41,7 +41,7 @@ pub(crate) enum CredentialBlindingFactorModuleError {
     #[error("unknown schema issuer: {0}")]
     UnknownSchemaIssuer(u64),
     /// Internal Error
-    #[error(transparent)]
+    #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
 }
 

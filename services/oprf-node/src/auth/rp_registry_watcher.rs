@@ -37,7 +37,7 @@ pub(crate) enum RpRegistryWatcherError {
     #[error("inactive rp: {0}")]
     InactiveRp(RpId),
     /// Internal Error
-    #[error(transparent)]
+    #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
 }
 

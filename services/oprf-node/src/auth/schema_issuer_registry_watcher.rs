@@ -25,7 +25,7 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
     #[error("unknown schema issuer: {0}")]
     UnknownSchemaIssuerId(u64),
     /// Internal Error
-    #[error(transparent)]
+    #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
 }
 

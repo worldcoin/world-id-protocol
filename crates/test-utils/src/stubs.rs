@@ -365,8 +365,12 @@ async fn spawn_key_gen_container(
             host_internal_url(chain_http_rpc_url)?,
         )
         .with_env_var(
-            "TACEO_OPRF_KEY_GEN__SERVICE__RPC__WS_URL",
+            "TACEO_OPRF_KEY_GEN__SERVICE__WS_RPC_URL",
             host_internal_url(chain_ws_rpc_url)?,
+        )
+        .with_env_var(
+            "TACEO_OPRF_KEY_GEN__SERVICE__BACKFILL__CONFIRMATIONS_AFTER_SYNC_BLOCK",
+            "2",
         )
         .with_env_var(
             "TACEO_OPRF_KEY_GEN__SERVICE__WALLET_PRIVATE_KEY",
