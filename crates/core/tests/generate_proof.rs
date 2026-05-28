@@ -194,7 +194,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         oprf_key_registry,
         world_id_registry,
         rp_registry,
-        credential_registry,
     )
     .await;
 

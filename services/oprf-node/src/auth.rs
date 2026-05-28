@@ -228,6 +228,8 @@ mod tests {
                 setup.world_id_registry,
                 &http_rpc_provider,
                 WatcherCacheConfig::default(),
+                Duration::from_secs(0),
+                0,
             );
 
             let rp_registry_watcher = RpRegistryWatcher::init(
@@ -235,12 +237,16 @@ mod tests {
                 http_rpc_provider.clone(),
                 timeout_external_eth_call,
                 WatcherCacheConfig::default(),
+                Duration::from_secs(0),
+                0,
             );
 
             let schema_issuer_registry_watcher = SchemaIssuerRegistryWatcher::init(
                 setup.credential_schema_issuer_registry,
                 &http_rpc_provider,
                 WatcherCacheConfig::default(),
+                Duration::from_secs(0),
+                0,
             );
 
             let nonce_history = NonceHistory::init(current_time_stamp_max_difference * 2);

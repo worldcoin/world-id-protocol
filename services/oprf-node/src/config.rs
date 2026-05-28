@@ -2,7 +2,7 @@
 
 use std::{num::NonZeroU64, time::Duration};
 
-use alloy::{primitives::Address, transports::http::reqwest::Url};
+use alloy::primitives::Address;
 use serde::Deserialize;
 use taceo_nodes_common::web3::{self};
 use taceo_oprf::service::{VersionReq, config::OprfNodeServiceConfig};
@@ -154,16 +154,14 @@ impl WorldOprfNodeConfig {
     )]
     pub fn with_default_values(
         environment: taceo_oprf::service::Environment,
-        contracts: WorldIdNodeContracts,
         version_req: VersionReq,
+        contracts: WorldIdNodeContracts,
         rpc_provider_config: web3::HttpRpcProviderConfig,
-        ws_rpc_url: Url,
     ) -> Self {
         let WorldIdNodeContracts {
             world_id_registry_contract,
             rp_registry_contract,
             credential_schema_issuer_registry_contract,
-            oprf_key_registry_contract,
         } = contracts;
         Self {
             world_id_registry_contract,
@@ -172,12 +170,7 @@ impl WorldOprfNodeConfig {
             rpc_provider_config,
             current_time_stamp_max_difference: Self::default_current_time_stamp_max_difference(),
             timeout_external_eth_call: Self::default_timeout_external_eth_call(),
-            node_config: OprfNodeServiceConfig::with_default_values(
-                environment,
-                oprf_key_registry_contract,
-                ws_rpc_url.clone(),
-                version_req,
-            ),
+            node_config: OprfNodeServiceConfig::with_default_values(environment, version_req),
             rp_cache_config: WatcherCacheConfig::default(),
             issuer_cache_config: WatcherCacheConfig::default(),
             merkle_cache_config: WatcherCacheConfig::default(),
@@ -201,6 +194,4 @@ pub struct WorldIdNodeContracts {
     pub rp_registry_contract: Address,
     /// Address of the `CredentialSchemaIssuerRegistry` contract.
     pub credential_schema_issuer_registry_contract: Address,
-    /// Address of the OPRF Key Registry contract.
-    pub oprf_key_registry_contract: Address,
 }

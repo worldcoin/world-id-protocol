@@ -199,7 +199,6 @@ async fn spawn_orpf_node(
     id: usize,
     anvil: &TestAnvil,
     secret_manager: taceo_oprf::service::secret_manager::SecretManagerService,
-    oprf_key_registry_contract: Address,
     world_id_registry_contract: Address,
     rp_registry_contract: Address,
     credential_schema_issuer_registry_contract: Address,
@@ -210,30 +209,23 @@ async fn spawn_orpf_node(
         world_id_registry_contract,
         rp_registry_contract,
         credential_schema_issuer_registry_contract,
-        oprf_key_registry_contract,
     };
     let anvil_http = anvil
         .endpoint()
         .parse()
         .expect("anvil endpoint should be valid URL");
-    let anvil_ws = anvil
-        .ws_endpoint()
-        .parse()
-        .expect("anvil ws_endpoint should be valid URL");
     let config = WorldOprfNodeConfig::with_default_values(
         taceo_oprf::service::Environment::Dev,
-        contracts,
         VersionReq::STAR,
+        contracts,
         HttpRpcProviderConfig::with_default_values(vec![anvil_http]),
-        anvil_ws,
     );
 
     tokio::spawn(async move {
         let cancellation_token = CancellationToken::new();
-        let (router, _tasks) =
-            world_id_oprf_node::start(config, secret_manager, cancellation_token.clone())
-                .await
-                .expect("Can start");
+        let router = world_id_oprf_node::start(config, secret_manager, cancellation_token.clone())
+            .await
+            .expect("Can start");
         let listener = tokio::net::TcpListener::bind(bind_addr)
             .await
             .expect("Can bind listener");
@@ -265,7 +257,6 @@ pub async fn spawn_oprf_nodes(
         secret_manager3,
         secret_manager4,
     ]: [taceo_oprf::service::secret_manager::SecretManagerService; 5],
-    key_gen_contract: Address,
     world_id_registry_contract: Address,
     rp_registry_contract: Address,
     credential_schema_issuer_registry_contract: Address,
@@ -275,7 +266,6 @@ pub async fn spawn_oprf_nodes(
             0,
             anvil,
             secret_manager0,
-            key_gen_contract,
             world_id_registry_contract,
             rp_registry_contract,
             credential_schema_issuer_registry_contract,
@@ -284,7 +274,6 @@ pub async fn spawn_oprf_nodes(
             1,
             anvil,
             secret_manager1,
-            key_gen_contract,
             world_id_registry_contract,
             rp_registry_contract,
             credential_schema_issuer_registry_contract,
@@ -293,7 +282,6 @@ pub async fn spawn_oprf_nodes(
             2,
             anvil,
             secret_manager2,
-            key_gen_contract,
             world_id_registry_contract,
             rp_registry_contract,
             credential_schema_issuer_registry_contract,
@@ -302,7 +290,6 @@ pub async fn spawn_oprf_nodes(
             3,
             anvil,
             secret_manager3,
-            key_gen_contract,
             world_id_registry_contract,
             rp_registry_contract,
             credential_schema_issuer_registry_contract,
@@ -311,7 +298,6 @@ pub async fn spawn_oprf_nodes(
             4,
             anvil,
             secret_manager4,
-            key_gen_contract,
             world_id_registry_contract,
             rp_registry_contract,
             credential_schema_issuer_registry_contract,
@@ -321,7 +307,7 @@ pub async fn spawn_oprf_nodes(
 }
 
 const OPRF_KEY_GEN_IMAGE: &str = "ghcr.io/taceolabs/oprf-service/oprf-key-gen";
-const OPRF_KEY_GEN_TAG: &str = "v1.1.0-rc.8";
+const OPRF_KEY_GEN_TAG: &str = "v1.2.0-rc.5";
 const OPRF_KEY_GEN_INTERNAL_PORT: u16 = 8080;
 
 pub struct SpawnedKeyGens {
