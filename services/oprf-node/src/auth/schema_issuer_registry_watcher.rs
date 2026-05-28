@@ -256,8 +256,8 @@ mod tests {
             credential_registry,
             &http_rpc_provider,
             cache_config,
-            Duration::from_secs(2),
-            5,
+            Duration::from_secs(0),
+            0,
         );
 
         watcher
