@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::providers::DynProvider;
+use alloy::{providers::DynProvider, signers::local::PrivateKeySigner};
 use alloy_primitives::Address;
 
 use crate::{
@@ -51,7 +51,7 @@ impl WorldChain {
     pub fn new(
         config: &WorldChainConfig,
         provider: Arc<DynProvider>,
-        wallet_address: Address,
+        signer: &PrivateKeySigner,
     ) -> Self {
         Self {
             world_id_registry: IWorldIDRegistryInstance::new(
@@ -69,7 +69,7 @@ impl WorldChain {
             world_id_source: IWorldIDSourceInstance::new(config.world_id_source, provider.clone()),
             bridge_interval: Duration::from_secs(config.bridge_interval),
             deployment_block: config.deployment_block,
-            wallet_address,
+            wallet_address: signer.address(),
             provider,
         }
     }

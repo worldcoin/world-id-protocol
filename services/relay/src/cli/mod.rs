@@ -396,7 +396,7 @@ impl Cli {
             .parse()
             .map_err(|e| eyre::eyre!("failed to parse WALLET_PRIVATE_KEY: {e}"))?;
         let wallet_address = signer.address();
-        let wallet = EthereumWallet::from(signer);
+        let wallet = EthereumWallet::from(signer.clone());
 
         // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
         // NOTE: blocks the health server briefly so `Engine` can own the single
@@ -416,7 +416,7 @@ impl Cli {
 
         spawn_wallet_metrics_task(wc_provider.clone(), wc_config.chain_id, wallet_address);
 
-        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone(), wallet_address);
+        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone(), &signer);
 
         let mut engine = Engine::new(world_chain);
 
