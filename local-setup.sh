@@ -12,6 +12,14 @@ GREEN='\033[0;32m'
 
 PK=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
+if [[ -n "${DEBUG_OPRF:-}" ]]; then
+    OPRF_CARGO_BUILD_ARGS=()
+    OPRF_BUILD_TARGET_DIR="debug"
+else
+    OPRF_CARGO_BUILD_ARGS=(--release)
+    OPRF_BUILD_TARGET_DIR="release"
+fi
+
 wait_for_health() {
     local port=$1
     local name=$2
@@ -99,7 +107,7 @@ start_node() {
     TACEO_OPRF_NODE__SERVICE__RPC__CHAIN_ID=31337 \
     TACEO_OPRF_NODE__POSTGRES__CONNECTION_STRING=$db_conn \
     TACEO_OPRF_NODE__POSTGRES__SCHEMA=oprf$i \
-    ./target/release/world-id-oprf-node > logs/node$i.log 2>&1 &
+    ./target/${OPRF_BUILD_TARGET_DIR}/world-id-oprf-node > logs/node$i.log 2>&1 &
     pid=$!
     echo "started world-id-oprf-node $i with PID $pid"
 }
@@ -151,7 +159,7 @@ setup() {
     wait_for_health 20002 "oprf-key-gen2" 300
 
     echo -e "${GREEN}starting OPRF nodes..${NOCOLOR}"
-    cargo build -p world-id-oprf-node --release -q
+    cargo build -p world-id-oprf-node "${OPRF_CARGO_BUILD_ARGS[@]+"${OPRF_CARGO_BUILD_ARGS[@]}"}" -q
     start_node 0
     start_node 1
     start_node 2

@@ -47,7 +47,7 @@ tokio = { workspace = true, features = [
   "tokio-macros",
 ] }
 tokio-util = { workspace = true }
-tracing = { workspace = true }
+tracing = { workspace = true, features = ["release_max_level_debug"] }
 uuid = { workspace = true, features = ["serde", "v4"] }
 world-id-primitives = { workspace = true }
 world-id-registries = { workspace = true }
