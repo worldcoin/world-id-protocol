@@ -369,7 +369,13 @@ async fn log_tempo_wallet_status<P: Provider>(
 ) -> Result<()> {
     let erc20 = IERC20::new(TEMPO_FEE_TOKEN, provider);
     let (balance_call, nonce) = tokio::try_join!(
-        async { erc20.balanceOf(address).call().await.map_err(eyre::Error::from) },
+        async {
+            erc20
+                .balanceOf(address)
+                .call()
+                .await
+                .map_err(eyre::Error::from)
+        },
         async {
             provider
                 .get_transaction_count(address)
@@ -379,8 +385,7 @@ async fn log_tempo_wallet_status<P: Provider>(
     )?;
 
     let balance = balance_call;
-    let balance_usdc = format_units(balance, 6)
-        .unwrap_or_else(|_| balance.to_string());
+    let balance_usdc = format_units(balance, 6).unwrap_or_else(|_| balance.to_string());
 
     relay_metrics::set_wallet_balance_wei(chain_id, f64::from(balance));
 
