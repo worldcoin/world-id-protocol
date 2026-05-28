@@ -90,10 +90,6 @@ pub mod metrics;
     clippy::missing_panics_doc,
     reason = "Can realistically not panic as we embed the key at compile time"
 )]
-#[expect(
-    clippy::too_many_lines,
-    reason = "Still acceptable length for an init function"
-)]
 pub async fn start(
     config: WorldOprfNodeConfig,
     secret_manager: SecretManagerService,
