@@ -1,5 +1,4 @@
 use std::{
-    collections::VecDeque,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -86,36 +85,35 @@ impl Blockchain {
         batch_size: u64,
         poll_interval: Duration,
     ) -> impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin + '_ {
-        stream::unfold(
-            (from_block, VecDeque::new()),
-            move |(mut current_from, mut pending)| async move {
-                loop {
-                    if let Some(event) = pending.pop_front() {
-                        return Some((event, (current_from, pending)));
-                    }
-
-                    let latest_block = match self.get_block_number().await {
-                        Ok(block) => block,
-                        Err(err) => return Some((Err(err), (current_from, pending))),
-                    };
-                    crate::metrics::set_chain_head_block(latest_block);
-
-                    if current_from > latest_block {
+        stream::unfold(from_block, move |current_from| async move {
+            // Poll the chain head until there is a non-empty range to fetch.
+            let latest_block = loop {
+                match self.get_block_number().await {
+                    Ok(block) => {
+                        crate::metrics::set_chain_head_block(block);
+                        if current_from <= block {
+                            break block;
+                        }
                         tokio::time::sleep(poll_interval).await;
-                        continue;
                     }
-
-                    let events: Vec<BlockchainResult<BlockchainEvent<RegistryEvent>>> = self
-                        .fetch_logs_in_batches(current_from, latest_block, batch_size)
-                        .map(|result| result.and_then(|log| RegistryEvent::decode(&log)))
-                        .collect()
-                        .await;
-
-                    pending = events.into();
-                    current_from = latest_block.saturating_add(1);
+                    // Surface the head-poll error as a terminal stream item.
+                    Err(err) => {
+                        let errored = stream::once(async move { Err(err) }).left_stream();
+                        return Some((errored, current_from));
+                    }
                 }
-            },
-        )
+            };
+
+            // Lazily stream the range batch-by-batch; `flatten` emits one event
+            // at a time and only pulls the next batch once the current one drains.
+            let batch = self
+                .fetch_logs_in_batches(current_from, latest_block, batch_size)
+                .map(|result| result.and_then(|log| RegistryEvent::decode(&log)))
+                .right_stream();
+
+            Some((batch, latest_block.saturating_add(1)))
+        })
+        .flatten()
         .boxed()
         .stop_after_first_error()
     }
