@@ -1,6 +1,6 @@
 #![cfg(feature = "integration-tests")]
 
-use std::{sync::atomic::Ordering, time::Duration};
+use std::time::Duration;
 
 use alloy::{
     network::EthereumWallet,
@@ -56,82 +56,6 @@ async fn create_accounts(
     }
 
     start_index + count
-}
-
-/// Tests `backfill_events` in isolation.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_backfill_events() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .try_init();
-
-    let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
-    let deployer = anvil.signer(0).expect("failed to get deployer");
-    let registry_address = anvil
-        .deploy_world_id_registry_with_depth(deployer, 8)
-        .await
-        .expect("failed to deploy registry");
-
-    let provider = ProviderArgs::new()
-        .with_http_urls([anvil.endpoint()])
-        .http()
-        .await
-        .expect("failed to build provider");
-
-    let blockchain = Blockchain::new(provider.clone(), registry_address);
-
-    let http_provider =
-        ProviderBuilder::new().connect_http(anvil.endpoint().parse::<url::Url>().unwrap());
-
-    let from_block = http_provider
-        .get_block_number()
-        .await
-        .expect("failed to get block number");
-
-    let backfill_count: u64 = 10;
-
-    create_accounts(
-        anvil.endpoint(),
-        anvil.signer(0).unwrap(),
-        registry_address,
-        1,
-        backfill_count,
-    )
-    .await;
-
-    let (stream, last_block) = blockchain.backfill_events(from_block + 1, 2);
-
-    let stream_events: Vec<BlockchainEvent<RegistryEvent>> =
-        tokio::time::timeout(Duration::from_secs(30), stream.try_collect())
-            .await
-            .expect("timed out waiting for backfill events")
-            .expect("backfill stream error");
-
-    let expected_logs = http_provider
-        .get_logs(
-            &Filter::new()
-                .address(registry_address)
-                .event_signature(RegistryEvent::signatures())
-                .from_block(from_block + 1),
-        )
-        .await
-        .expect("failed to fetch ground truth logs");
-
-    let expected_events: Vec<BlockchainEvent<RegistryEvent>> = expected_logs
-        .iter()
-        .map(|log| RegistryEvent::decode(log).expect("failed to decode ground truth log"))
-        .collect();
-
-    assert_eq!(
-        stream_events, expected_events,
-        "backfill stream events do not match ground truth"
-    );
-
-    let last = last_block.load(Ordering::Relaxed);
-    assert!(
-        last >= from_block,
-        "last_block ({last}) should be >= from_block ({from_block})"
-    );
 }
 
 /// Tests that `pull_events` emits events created after an empty poll round.

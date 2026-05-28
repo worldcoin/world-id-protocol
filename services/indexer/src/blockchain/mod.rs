@@ -1,10 +1,4 @@
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::Duration,
-};
+use std::time::Duration;
 
 use alloy::{
     primitives::{Address, FixedBytes},
@@ -116,78 +110,6 @@ impl Blockchain {
         .flatten()
         .boxed()
         .stop_after_first_error()
-    }
-
-    /// Returns a decoded backfill event stream and a shared atomic holding the
-    /// last block number that was fetched. The atomic is updated during
-    /// streaming and should be read after the stream is fully consumed.
-    ///
-    /// Each raw log is decoded into a [`BlockchainEvent<RegistryEvent>`];
-    /// decode failures are surfaced as [`BlockchainError`] stream items.
-    ///
-    /// # Arguments
-    ///
-    /// * `from_block` - The block number to start backfilling from.
-    /// * `batch_size` - The batch size to use for the backfill stage.
-    ///
-    /// # Returns
-    ///
-    /// A tuple of (stream, last_block_atomic). The stream terminates after
-    /// the first error.
-    pub fn backfill_events(
-        &self,
-        from_block: u64,
-        batch_size: u64,
-    ) -> (
-        impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin,
-        Arc<AtomicU64>,
-    ) {
-        let last_block = Arc::new(AtomicU64::new(from_block.saturating_sub(1)));
-        let stream = self
-            .backfill_stream(from_block, batch_size, last_block.clone())
-            .stop_after_first_error();
-        (stream, last_block)
-    }
-
-    /// Iteratively backfills logs from the blockchain up to the current head.
-    ///
-    /// While fetching, the chain head may advance. The stream chases the head
-    /// until within `batch_size` blocks, then fetches one final range and stops.
-    fn backfill_stream(
-        &self,
-        from_block: u64,
-        batch_size: u64,
-        last_block: Arc<AtomicU64>,
-    ) -> impl Stream<Item = BlockchainResult<BlockchainEvent<RegistryEvent>>> + Unpin {
-        tracing::info!(?from_block, "backfilling from block");
-
-        stream::try_unfold((from_block, false), move |(current_from, done)| {
-            let last_block = last_block.clone();
-            async move {
-                if done {
-                    return Ok::<_, BlockchainError>(None);
-                }
-
-                let latest_block_number = self.get_block_number().await?;
-                crate::metrics::set_chain_head_block(latest_block_number);
-
-                let is_last = latest_block_number.saturating_sub(current_from) < batch_size;
-                if is_last {
-                    last_block.store(latest_block_number, Ordering::Relaxed);
-                }
-
-                Ok(Some((
-                    (current_from, latest_block_number),
-                    (latest_block_number + 1, is_last),
-                )))
-            }
-        })
-        .map_ok(move |(from, to)| {
-            self.fetch_logs_in_batches(from, to, batch_size)
-                .map(|r| r.and_then(|log| RegistryEvent::decode(&log)))
-        })
-        .try_flatten()
-        .boxed()
     }
 
     /// Fetches logs in batches to avoid exceeding RPC provider's max range limits.
