@@ -21,7 +21,7 @@ use crate::{
     log::CommitmentLog,
     metrics as relay_metrics,
     satellite::{
-        EthereumMptSatellite, PermissionedSatellite, TempoSatellite,
+        EthereumMptSatellite, OpStackSatellite, PermissionedSatellite, TempoSatellite,
         permissioned::tempo::FEE_TOKEN as TEMPO_FEE_TOKEN,
     },
 };
@@ -105,6 +105,18 @@ pub struct Cli {
 ///       "game_type": 0,
 ///       "require_finalized": false
 ///     }
+///   ],
+///   "op_stack_gateways": [
+///     {
+///       "name": "BASE",
+///       "l1_name": "ETHEREUM",
+///       "destination_chain_id": 8453,
+///       "l1_adapter": "0x...",
+///       "l1_messenger": "0x...",
+///       "l2_adapter": "0x...",
+///       "satellite": "0x...",
+///       "dispute_game_factory": "0x..."
+///     }
 ///   ]
 /// }
 /// ```
@@ -120,6 +132,11 @@ pub struct RelayConfig {
     /// Ethereum MPT gateway satellites (OP Stack dispute game + MPT proofs).
     #[serde(default)]
     pub ethereum_mpt_gateways: Option<Vec<EthereumMptGatewayConfig>>,
+
+    /// Native OP Stack gateway satellites (L1 dispute game + MPT proofs, pushed L1->L2
+    /// through the canonical `CrossDomainMessenger`).
+    #[serde(default)]
+    pub op_stack_gateways: Option<Vec<OpStackGatewayConfig>>,
 }
 
 /// World Chain source configuration.
@@ -239,6 +256,73 @@ pub struct EthereumMptGatewayConfig {
     /// Whether to require dispute games to be finalized (DEFENDER_WINS).
     #[serde(default)]
     pub require_finalized: bool,
+}
+
+/// Configuration for a native OP Stack gateway satellite.
+///
+/// Bridges World Chain state to an OP Stack L2 (Base, Optimism, …) by re-using the L1 MPT proof
+/// path and then pushing the proven chain head from L1 to the L2 through the canonical
+/// `CrossDomainMessenger`. The relay transaction (`forwardToL2`) is sent on **L1**.
+///
+/// Two RPC endpoints are read from the environment:
+/// - `{name}_RPC_URL` — the **L2** endpoint (for reading the destination chain head).
+/// - `{l1_name}_RPC_URL` — the **L1** endpoint (for dispute games and sending `forwardToL2`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct OpStackGatewayConfig {
+    /// Destination (L2) identifier, also used to derive the L2 RPC URL env var
+    /// `{name}_RPC_URL` (e.g. `BASE`). Use UPPER_CASE.
+    pub name: String,
+
+    /// Identifier for the L1 chain, used to derive the L1 RPC URL env var
+    /// `{l1_name}_RPC_URL` (e.g. `ETHEREUM`). Use UPPER_CASE.
+    pub l1_name: String,
+
+    /// The destination (L2) chain ID.
+    pub destination_chain_id: u64,
+
+    /// The `EthereumMPTGatewayAdapter` on L1 (the trusted cross-domain sender). `forwardToL2`
+    /// is called on this contract.
+    pub l1_adapter: Address,
+
+    /// The `L1CrossDomainMessenger` for the destination rollup (on L1).
+    pub l1_messenger: Address,
+
+    /// The `OpStackGatewayAdapter` on the destination L2.
+    pub l2_adapter: Address,
+
+    /// The `WorldIDSatellite` (bridge) proxy address on the destination L2.
+    pub satellite: Address,
+
+    /// The `DisputeGameFactory` contract on L1.
+    pub dispute_game_factory: Address,
+
+    /// The dispute game type (default: 0 = CANNON).
+    #[serde(default)]
+    pub game_type: u32,
+
+    /// Whether to require dispute games to be finalized (DEFENDER_WINS).
+    #[serde(default)]
+    pub require_finalized: bool,
+
+    /// Minimum L2 gas for the relayed `sendMessage` call (default: 500,000).
+    #[serde(default = "default_op_stack_min_gas_limit")]
+    pub min_gas_limit: u32,
+}
+
+fn default_op_stack_min_gas_limit() -> u32 {
+    500_000
+}
+
+impl OpStackGatewayConfig {
+    /// Returns the env var name that supplies the L2 (destination) RPC URL.
+    pub fn rpc_env_var(&self) -> String {
+        format!("{}_RPC_URL", self.name.to_uppercase())
+    }
+
+    /// Returns the env var name that supplies the L1 RPC URL.
+    pub fn l1_rpc_env_var(&self) -> String {
+        format!("{}_RPC_URL", self.l1_name.to_uppercase())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -627,6 +711,42 @@ impl Cli {
             );
         }
 
+        // Spawn native OP Stack gateway satellites (L1 proof + L1->L2 CrossDomainMessenger push).
+        for sat_config in config.op_stack_gateways.iter().flatten() {
+            // L1 provider: sends `forwardToL2` and queries dispute games.
+            let l1_rpc_url = rpc_url_from_env(&sat_config.l1_rpc_env_var())?;
+            let l1_provider = Arc::new(build_provider(&l1_rpc_url, &wallet).await?);
+
+            // L2 provider: reads the destination chain head.
+            let l2_provider = Arc::new(satellite_provider(&sat_config.name, &wallet).await?);
+
+            // The relay transaction is signed and sent on L1, so wallet metrics track L1.
+            log_wallet_status(
+                l1_provider.as_ref(),
+                wallet_address,
+                config.source.chain_id,
+                &sat_config.l1_name,
+            )
+            .await?;
+
+            let satellite = OpStackSatellite::from_config(
+                &wc_config,
+                sat_config,
+                wc_provider.clone(),
+                l1_provider,
+                l2_provider,
+            );
+            engine.spawn_satellite(satellite);
+            satellite_count += 1;
+
+            tracing::info!(
+                name = %sat_config.name,
+                adapter = "op_stack",
+                chain_id = sat_config.destination_chain_id,
+                "registered satellite"
+            );
+        }
+
         if satellite_count == 0 {
             tracing::warn!(
                 "no satellite chains configured — relay will only track World Chain state"
@@ -728,6 +848,41 @@ mod tests {
     }
 
     #[test]
+    fn parse_op_stack_config() {
+        let json = r#"{
+            "source": {
+                "world_id_source": "0x1111111111111111111111111111111111111111",
+                "world_id_registry": "0x2222222222222222222222222222222222222222",
+                "oprf_key_registry": "0x3333333333333333333333333333333333333333",
+                "issuer_schema_registry": "0x4444444444444444444444444444444444444444"
+            },
+            "op_stack_gateways": [
+                {
+                    "name": "BASE",
+                    "l1_name": "ETHEREUM",
+                    "destination_chain_id": 8453,
+                    "l1_adapter": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "l1_messenger": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "l2_adapter": "0xcccccccccccccccccccccccccccccccccccccccc",
+                    "satellite": "0xdddddddddddddddddddddddddddddddddddddddd",
+                    "dispute_game_factory": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                }
+            ]
+        }"#;
+
+        let config: RelayConfig = serde_json::from_str(json).unwrap();
+        let ops = config.op_stack_gateways.as_ref().unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].name, "BASE");
+        assert_eq!(ops[0].rpc_env_var(), "BASE_RPC_URL");
+        assert_eq!(ops[0].l1_rpc_env_var(), "ETHEREUM_RPC_URL");
+        assert_eq!(ops[0].destination_chain_id, 8453);
+        assert_eq!(ops[0].game_type, 0);
+        assert!(!ops[0].require_finalized);
+        assert_eq!(ops[0].min_gas_limit, 500_000);
+    }
+
+    #[test]
     fn defaults_applied() {
         let json = r#"{
             "source": {
@@ -743,5 +898,6 @@ mod tests {
         assert_eq!(config.source.bridge_interval_secs, 3600);
         assert!(config.permissioned_gateways.is_none());
         assert!(config.ethereum_mpt_gateways.is_none());
+        assert!(config.op_stack_gateways.is_none());
     }
 }
