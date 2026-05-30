@@ -9,7 +9,7 @@ use crate::{
     metrics,
 };
 use alloy::{primitives::Address, providers::DynProvider};
-use backon::{BackoffBuilder, ConstantBackoff, ConstantBuilder, Retryable};
+use backon::{BackoffBuilder, ExponentialBackoff, ExponentialBuilder, Retryable as _};
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
@@ -54,8 +54,9 @@ pub(crate) struct RpRegistryWatcher {
     contract: RpRegistryInstance<DynProvider>,
     timeout_external_eth_call: Duration,
     http_rpc_provider: web3::HttpRpcProvider,
-    retry_interval: Duration,
-    retry_max_times: usize,
+    retry_rpc_request_min_delay: Duration,
+    retry_rpc_request_max_delay: Duration,
+    retry_rpc_request_max_attempts: usize,
 }
 
 impl RpRegistryWatcher {
@@ -65,8 +66,6 @@ impl RpRegistryWatcher {
         http_rpc_provider: web3::HttpRpcProvider,
         timeout_external_eth_call: Duration,
         cache_config: WatcherCacheConfig,
-        retry_interval: Duration,
-        retry_max_times: usize,
     ) -> Self {
         metrics::rp_registry_cache::reset();
 
@@ -74,6 +73,9 @@ impl RpRegistryWatcher {
             max_cache_size,
             time_to_live,
             time_to_idle,
+            retry_rpc_request_min_delay,
+            retry_rpc_request_max_delay,
+            retry_rpc_request_max_attempts,
         } = cache_config;
 
         let rp_store_builder = Cache::builder()
@@ -94,8 +96,9 @@ impl RpRegistryWatcher {
             contract: RpRegistry::new(contract_address, http_rpc_provider.inner()),
             timeout_external_eth_call,
             http_rpc_provider,
-            retry_interval,
-            retry_max_times,
+            retry_rpc_request_min_delay,
+            retry_rpc_request_max_delay,
+            retry_rpc_request_max_attempts,
         }
     }
 
@@ -179,10 +182,11 @@ impl RpRegistryWatcher {
     }
 
     #[inline]
-    fn backoff_strategy(&self) -> ConstantBackoff {
-        ConstantBuilder::new()
-            .with_delay(self.retry_interval)
-            .with_max_times(self.retry_max_times)
+    fn backoff_strategy(&self) -> ExponentialBackoff {
+        ExponentialBuilder::new()
+            .with_max_times(self.retry_rpc_request_max_attempts)
+            .with_min_delay(self.retry_rpc_request_min_delay)
+            .with_max_delay(self.retry_rpc_request_max_delay)
             .build()
     }
 }
@@ -233,8 +237,6 @@ mod tests {
             http_rpc_provider,
             ttl,
             WatcherCacheConfig::default(),
-            Duration::from_secs(0),
-            0,
         );
 
         Ok((watcher, anvil, rp_fixture, rp_registry))
@@ -349,8 +351,6 @@ mod tests {
             http_rpc_provider,
             Duration::from_secs(10),
             WatcherCacheConfig::default(),
-            Duration::from_secs(0),
-            0,
         );
 
         let rp_id = RpId::new(rand::thread_rng().r#gen::<u64>());

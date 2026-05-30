@@ -11,7 +11,7 @@
 use std::{sync::Arc, time::Duration};
 
 use alloy::{primitives::Address, providers::DynProvider};
-use backon::{BackoffBuilder, ConstantBackoff, ConstantBuilder, Retryable};
+use backon::{BackoffBuilder, ExponentialBackoff, ExponentialBuilder, Retryable as _};
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
@@ -38,8 +38,9 @@ pub(crate) enum MerkleWatcherError {
 pub(crate) struct MerkleWatcher {
     merkle_root_cache: Cache<FieldElement, ()>,
     contract: WorldIdRegistryInstance<DynProvider>,
-    retry_interval: Duration,
-    retry_max_times: usize,
+    retry_rpc_request_min_delay: Duration,
+    retry_rpc_request_max_delay: Duration,
+    retry_rpc_request_max_attempts: usize,
 }
 
 impl MerkleWatcher {
@@ -54,8 +55,6 @@ impl MerkleWatcher {
         contract_address: Address,
         http_rpc_provider: &web3::HttpRpcProvider,
         cache_config: WatcherCacheConfig,
-        retry_interval: Duration,
-        retry_max_times: usize,
     ) -> Self {
         metrics::merkle_cache::reset();
 
@@ -65,6 +64,9 @@ impl MerkleWatcher {
             max_cache_size,
             time_to_live,
             time_to_idle,
+            retry_rpc_request_min_delay,
+            retry_rpc_request_max_delay,
+            retry_rpc_request_max_attempts,
         } = cache_config;
 
         let merkle_root_cache_builder = Cache::builder()
@@ -84,8 +86,9 @@ impl MerkleWatcher {
         Self {
             merkle_root_cache,
             contract,
-            retry_interval,
-            retry_max_times,
+            retry_rpc_request_min_delay,
+            retry_rpc_request_max_delay,
+            retry_rpc_request_max_attempts,
         }
     }
 
@@ -128,10 +131,11 @@ impl MerkleWatcher {
     }
 
     #[inline]
-    fn backoff_strategy(&self) -> ConstantBackoff {
-        ConstantBuilder::new()
-            .with_delay(self.retry_interval)
-            .with_max_times(self.retry_max_times)
+    fn backoff_strategy(&self) -> ExponentialBackoff {
+        ExponentialBuilder::new()
+            .with_max_times(self.retry_rpc_request_max_attempts)
+            .with_min_delay(self.retry_rpc_request_min_delay)
+            .with_max_delay(self.retry_rpc_request_max_delay)
             .build()
     }
 }
@@ -166,8 +170,6 @@ mod tests {
             registry_address,
             &http_rpc_provider,
             WatcherCacheConfig::default(),
-            Duration::from_secs(0),
-            0,
         );
 
         watcher
@@ -188,8 +190,6 @@ mod tests {
             registry_address,
             &http_rpc_provider,
             WatcherCacheConfig::default(),
-            Duration::from_secs(0),
-            0,
         );
 
         let invalid_root = FieldElement::from(99999u64);
@@ -216,8 +216,6 @@ mod tests {
             registry_address,
             &http_rpc_provider,
             WatcherCacheConfig::default(),
-            Duration::from_secs(0),
-            0,
         );
 
         let invalid_root = FieldElement::from(99999u64);
@@ -268,8 +266,6 @@ mod tests {
             registry_address,
             &http_rpc_provider,
             WatcherCacheConfig::default(),
-            Duration::from_secs(0),
-            0,
         );
 
         assert!(
@@ -311,13 +307,7 @@ mod tests {
             time_to_live: Duration::from_secs(1),
             ..Default::default()
         };
-        let watcher = MerkleWatcher::init(
-            registry_address,
-            &http_rpc_provider,
-            cache_config,
-            Duration::from_secs(0),
-            0,
-        );
+        let watcher = MerkleWatcher::init(registry_address, &http_rpc_provider, cache_config);
 
         watcher
             .ensure_root_valid(root)
@@ -352,8 +342,6 @@ mod tests {
             Address::with_last_byte(42),
             &http_rpc_provider,
             WatcherCacheConfig::default(),
-            Duration::from_secs(0),
-            0,
         );
 
         let err = watcher

@@ -30,21 +30,6 @@ pub struct WorldOprfNodeConfig {
     #[serde(rename = "rpc")]
     pub rpc_provider_config: web3::HttpRpcProviderConfig,
 
-    /// Interval for retry logic for fetching data from chain.
-    ///
-    /// This will fire on every unexpected message we get from the RPCs and is NOT limited to actual errors. Nodes may lag behind, therefore we try to fetch multiple times if we get an unexpected message (root not valid). This interval therefore should be block time for most cases.
-    #[serde(
-        default = "WorldOprfNodeConfig::default_retry_rpc_request_interval",
-        with = "humantime_serde"
-    )]
-    pub retry_rpc_request_interval: Duration,
-
-    /// Max attempts for retry logic for fetching data from chain.
-    ///
-    /// This will fire on every unexpected message we get from the RPCs and is NOT limited to actual errors. Nodes may lag behind, therefore we try to fetch multiple times if we get an unexpected message (root not valid).
-    #[serde(default = "WorldOprfNodeConfig::default_retry_rpc_request_max_attempts")]
-    pub retry_rpc_request_max_attempts: usize,
-
     /// Cache configuration for the [`MerkleWatcher`](crate::auth::merkle_watcher::MerkleWatcher)
     #[serde(default)]
     pub merkle_cache_config: WatcherCacheConfig,
@@ -97,6 +82,32 @@ pub struct WatcherCacheConfig {
     /// Will drop entries that are not accessed (read/write) for this time.
     #[serde(default, with = "humantime_serde")]
     pub time_to_idle: Option<Duration>,
+
+    /// Min interval for retry logic for fetching data from chain.
+    ///
+    /// This will fire on every unexpected message we get from the RPCs and is NOT for actual errors. Nodes may lag behind, therefore we try to fetch multiple times if we get an unexpected message (i.e. root not valid).
+    #[serde(
+        default = "WatcherCacheConfig::default_retry_rpc_request_min_delay",
+        with = "humantime_serde"
+    )]
+    pub retry_rpc_request_min_delay: Duration,
+
+    /// Max interval for retry logic for fetching data from chain.
+    ///
+    /// This will fire on every unexpected message we get from the RPCs and is NOT for actual errors. Nodes may lag behind, therefore we try to fetch multiple times if we get an unexpected message (i.e. root not valid).
+    #[serde(
+        default = "WatcherCacheConfig::default_retry_rpc_request_max_delay",
+        with = "humantime_serde"
+    )]
+    pub retry_rpc_request_max_delay: Duration,
+
+    /// Max attempts for retry logic for fetching data from chain.
+    ///
+    /// This will fire on every unexpected message we get from the RPCs and is NOT for actual errors. Nodes may lag behind, therefore we try to fetch multiple times if we get an unexpected message (i.e. root not valid).
+    ///
+    /// *Note*: this value defaults to 0, disabling this retry behaviour. If it is need, this value must be set explicitly.
+    #[serde(default = "WatcherCacheConfig::default_retry_rpc_request_max_attempts")]
+    pub retry_rpc_request_max_attempts: usize,
 }
 
 impl WatcherCacheConfig {
@@ -109,12 +120,30 @@ impl WatcherCacheConfig {
         Duration::from_mins(10)
     }
 
+    // Default min interval for RPC requests.
+    const fn default_retry_rpc_request_min_delay() -> Duration {
+        Duration::from_millis(250)
+    }
+
+    // Default max interval for RPC requests.
+    const fn default_retry_rpc_request_max_delay() -> Duration {
+        Duration::from_secs(2)
+    }
+
+    // Default max attempts for retrying RPC requests. Set to 0 (disabled on default).
+    const fn default_retry_rpc_request_max_attempts() -> usize {
+        0
+    }
+
     /// Initialize with default values for all fields
     const fn with_default_values() -> Self {
         Self {
             max_cache_size: Self::default_max_cache_size(),
             time_to_live: Self::default_time_to_live(),
             time_to_idle: None,
+            retry_rpc_request_min_delay: Self::default_retry_rpc_request_min_delay(),
+            retry_rpc_request_max_delay: Self::default_retry_rpc_request_max_delay(),
+            retry_rpc_request_max_attempts: Self::default_retry_rpc_request_max_attempts(),
         }
     }
 }
@@ -129,16 +158,6 @@ impl WorldOprfNodeConfig {
     /// Default maximum allowed difference between received and node timestamp
     fn default_current_time_stamp_max_difference() -> Duration {
         Duration::from_mins(5)
-    }
-
-    // Default interval for retrying RPC requests. Set to 2 seconds for world block time.
-    fn default_retry_rpc_request_interval() -> Duration {
-        Duration::from_secs(2)
-    }
-
-    // Default max attempts for retrying RPC requests. Set to 5.
-    fn default_retry_rpc_request_max_attempts() -> usize {
-        5
     }
 
     /// Default timeout for an `eth_call` to an unknown contract.
@@ -174,8 +193,6 @@ impl WorldOprfNodeConfig {
             rp_cache_config: WatcherCacheConfig::default(),
             issuer_cache_config: WatcherCacheConfig::default(),
             merkle_cache_config: WatcherCacheConfig::default(),
-            retry_rpc_request_interval: Self::default_retry_rpc_request_interval(),
-            retry_rpc_request_max_attempts: Self::default_retry_rpc_request_max_attempts(),
         }
     }
 }

@@ -110,8 +110,6 @@ pub async fn start(
         config.world_id_registry_contract,
         &http_rpc_provider,
         config.merkle_cache_config,
-        config.retry_rpc_request_interval,
-        config.retry_rpc_request_max_attempts,
     );
 
     tracing::info!("init RpRegistry watcher..");
@@ -120,8 +118,6 @@ pub async fn start(
         http_rpc_provider.clone(),
         config.timeout_external_eth_call,
         config.rp_cache_config,
-        config.retry_rpc_request_interval,
-        config.retry_rpc_request_max_attempts,
     );
 
     let query_vk = serde_json::from_str::<VerificationKey<Bn254>>(QUERY_VERIFICATION_KEY)
@@ -160,7 +156,7 @@ pub async fn start(
         config.credential_schema_issuer_registry_contract,
         &http_rpc_provider,
         config.issuer_cache_config,
-        config.retry_rpc_request_interval,
+        config.retry_rpc_request_max_delay,
         config.retry_rpc_request_max_attempts,
     );
 
