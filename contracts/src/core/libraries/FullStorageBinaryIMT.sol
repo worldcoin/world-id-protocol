@@ -135,7 +135,7 @@ library FullStorageBinaryIMT {
 
     /// @dev Inserts a leaf at the next available position.
     ///      Writes the leaf and every internal node on its path to the root.
-    function insert(FullBinaryIMTData storage self, uint256 leaf) internal returns (uint256) {
+    function insert(FullBinaryIMTData storage self, uint256 leaf) public returns (uint256) {
         uint256 depth = self.depth;
 
         if (leaf >= SNARK_SCALAR_FIELD) {
@@ -185,7 +185,7 @@ library FullStorageBinaryIMT {
     ///               [start >> (L+1),  (start+k-1) >> (L+1)], so the total work
     ///               is  k + k/2 + k/4 + … + 1 + (D − log₂k)  ≈  2k + D
     ///               hashes and the same number of SSTOREs.
-    function insertMany(FullBinaryIMTData storage self, uint256[] memory leaves) internal returns (uint256) {
+    function insertMany(FullBinaryIMTData storage self, uint256[] memory leaves) public returns (uint256) {
         uint256 k = leaves.length;
         if (k == 0) return self.root;
 
@@ -253,7 +253,7 @@ library FullStorageBinaryIMT {
     /// @dev Updates a leaf in the tree. No caller-supplied proof needed.
     ///      Reads siblings from storage, verifies the old leaf, writes the new
     ///      path, and updates the root.
-    function update(FullBinaryIMTData storage self, uint256 index, uint256 oldLeaf, uint256 newLeaf) internal {
+    function update(FullBinaryIMTData storage self, uint256 index, uint256 oldLeaf, uint256 newLeaf) public {
         if (newLeaf == oldLeaf) {
             revert NewLeafCannotEqualOldLeaf();
         }
