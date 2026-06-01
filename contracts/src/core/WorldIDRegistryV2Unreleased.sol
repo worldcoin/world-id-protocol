@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {WorldIDRegistry} from "./WorldIDRegistry.sol";
 import {IWorldIDRegistry} from "./interfaces/IWorldIDRegistry.sol";
 import {IWorldIDRegistryV2} from "./interfaces/IWorldIDRegistryV2.sol";
+import {FullStorageBinaryIMT} from "./libraries/FullStorageBinaryIMT.sol";
 import {PackedAccountData} from "./libraries/PackedAccountData.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 
@@ -91,6 +92,23 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         uint256 ts = _rootToValidityTimestamp[root];
         if (ts == 0) revert UnknownRoot(root);
         return ts + _rootValidityWindow;
+    }
+
+    function _updateLeafAndRecord(
+        uint64 leafIndex,
+        uint256 oldOffchainSignerCommitment,
+        uint256 newOffchainSignerCommitment
+    ) internal virtual override {
+        FullStorageBinaryIMT.update(_tree, uint256(leafIndex), oldOffchainSignerCommitment, newOffchainSignerCommitment);
+        _recordCurrentRoot();
+    }
+
+    function _insertLeaf(uint256 offchainSignerCommitment) internal virtual override {
+        FullStorageBinaryIMT.insert(_tree, offchainSignerCommitment);
+    }
+
+    function _insertManyLeaves(uint256[] memory offchainSignerCommitments) internal virtual override {
+        FullStorageBinaryIMT.insertMany(_tree, offchainSignerCommitments);
     }
 
     ////////////////////////////////////////////////////////////

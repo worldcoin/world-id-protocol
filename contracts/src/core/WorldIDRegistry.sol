@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {FullStorageBinaryIMT, FullBinaryIMTData} from "./libraries/FullStorageBinaryIMT.sol";
+import {WorldIDRegistryV1Tree} from "./libraries/WorldIDRegistryV1Tree.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {PackedAccountData} from "./libraries/PackedAccountData.sol";
@@ -121,7 +122,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
 
         // Insert a sentinel leaf to start leaf indexes at 1.
         // The 0-index of the tree is RESERVED.
-        _tree.insert(uint256(0));
+        _insertLeaf(uint256(0));
         _nextLeafIndex = 1;
         _recordCurrentRoot();
 
@@ -365,8 +366,18 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         uint256 oldOffchainSignerCommitment,
         uint256 newOffchainSignerCommitment
     ) internal virtual {
-        _tree.update(uint256(leafIndex), oldOffchainSignerCommitment, newOffchainSignerCommitment);
+        WorldIDRegistryV1Tree.update(
+            _tree, uint256(leafIndex), oldOffchainSignerCommitment, newOffchainSignerCommitment
+        );
         _recordCurrentRoot();
+    }
+
+    function _insertLeaf(uint256 offchainSignerCommitment) internal virtual {
+        WorldIDRegistryV1Tree.insert(_tree, offchainSignerCommitment);
+    }
+
+    function _insertManyLeaves(uint256[] memory offchainSignerCommitments) internal virtual {
+        WorldIDRegistryV1Tree.insertMany(_tree, offchainSignerCommitments);
     }
 
     /**
@@ -457,7 +468,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
             revert InsufficientFunds();
         }
         _registerAccount(recoveryAddress, authenticatorAddresses, authenticatorPubkeys, offchainSignerCommitment);
-        _tree.insert(offchainSignerCommitment);
+        _insertLeaf(offchainSignerCommitment);
         _recordCurrentRoot();
     }
 
@@ -493,7 +504,7 @@ contract WorldIDRegistry is WorldIDBase, IWorldIDRegistry {
         }
 
         // Update tree
-        _tree.insertMany(offchainSignerCommitments);
+        _insertManyLeaves(offchainSignerCommitments);
         _recordCurrentRoot();
     }
 
