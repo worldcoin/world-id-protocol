@@ -1,11 +1,11 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use crate::{
     auth::schema_issuer_registry_watcher::CredentialSchemaIssuerRegistry::CredentialSchemaIssuerRegistryInstance,
     config::WatcherCacheConfig, metrics,
 };
 use alloy::{primitives::Address, providers::DynProvider};
-use backon::{BackoffBuilder, ExponentialBackoff, ExponentialBuilder, Retryable as _};
+use backon::Retryable as _;
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
@@ -40,9 +40,7 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
 pub(crate) struct SchemaIssuerRegistryWatcher {
     issuer_schema_store: Cache<u64, ()>,
     contract: CredentialSchemaIssuerRegistryInstance<DynProvider>,
-    retry_rpc_request_min_delay: Duration,
-    retry_rpc_request_max_delay: Duration,
-    retry_rpc_request_max_attempts: usize,
+    cache_config: WatcherCacheConfig,
 }
 
 impl SchemaIssuerRegistryWatcher {
@@ -54,23 +52,14 @@ impl SchemaIssuerRegistryWatcher {
     ) -> Self {
         metrics::schema_issuer_cache::reset();
 
-        let WatcherCacheConfig {
-            max_cache_size,
-            time_to_live,
-            time_to_idle,
-            retry_rpc_request_min_delay,
-            retry_rpc_request_max_delay,
-            retry_rpc_request_max_attempts,
-        } = cache_config;
-
         let store_builder = Cache::builder()
-            .max_capacity(max_cache_size.get())
-            .time_to_live(time_to_live)
+            .max_capacity(cache_config.max_cache_size.get())
+            .time_to_live(cache_config.time_to_live)
             .eviction_listener(move |k, (), cause| {
                 tracing::debug!("removing issuer {k} because: {cause:?}");
                 metrics::schema_issuer_cache::dec();
             });
-        let issuer_schema_store = if let Some(time_to_idle) = time_to_idle {
+        let issuer_schema_store = if let Some(time_to_idle) = cache_config.time_to_idle {
             store_builder.time_to_idle(time_to_idle).build()
         } else {
             store_builder.build()
@@ -82,9 +71,7 @@ impl SchemaIssuerRegistryWatcher {
                 contract_address,
                 http_rpc_provider.inner(),
             ),
-            retry_rpc_request_min_delay,
-            retry_rpc_request_max_delay,
-            retry_rpc_request_max_attempts,
+            cache_config,
         }
     }
 
@@ -94,7 +81,7 @@ impl SchemaIssuerRegistryWatcher {
         issuer_schema_id: u64,
     ) -> Result<(), Arc<SchemaIssuerRegistryWatcherError>> {
         let backon_fetch_issuer = (|| async { self.fetch_issuer(issuer_schema_id).await })
-            .retry(self.backoff_strategy())
+            .retry(self.cache_config.backoff_strategy())
             .sleep(tokio::time::sleep)
             .when(|e| {
                 matches!(
@@ -144,15 +131,6 @@ impl SchemaIssuerRegistryWatcher {
         } else {
             Ok(())
         }
-    }
-
-    #[inline]
-    fn backoff_strategy(&self) -> ExponentialBackoff {
-        ExponentialBuilder::new()
-            .with_max_times(self.retry_rpc_request_max_attempts)
-            .with_min_delay(self.retry_rpc_request_min_delay)
-            .with_max_delay(self.retry_rpc_request_max_delay)
-            .build()
     }
 }
 

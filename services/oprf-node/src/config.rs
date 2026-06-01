@@ -3,6 +3,7 @@
 use std::{num::NonZeroU64, time::Duration};
 
 use alloy::primitives::Address;
+use backon::{BackoffBuilder, ExponentialBackoff, ExponentialBuilder};
 use serde::Deserialize;
 use taceo_nodes_common::web3::{self};
 use taceo_oprf::service::{VersionReq, config::OprfNodeServiceConfig};
@@ -115,6 +116,7 @@ impl WatcherCacheConfig {
     const fn default_max_cache_size() -> NonZeroU64 {
         NonZeroU64::new(1000).expect("1000 is non-zero")
     }
+
     /// Default time-to-live for cache entries
     const fn default_time_to_live() -> Duration {
         Duration::from_mins(10)
@@ -145,6 +147,15 @@ impl WatcherCacheConfig {
             retry_rpc_request_max_delay: Self::default_retry_rpc_request_max_delay(),
             retry_rpc_request_max_attempts: Self::default_retry_rpc_request_max_attempts(),
         }
+    }
+
+    #[inline]
+    pub(crate) fn backoff_strategy(&self) -> ExponentialBackoff {
+        ExponentialBuilder::new()
+            .with_max_times(self.retry_rpc_request_max_attempts)
+            .with_min_delay(self.retry_rpc_request_min_delay)
+            .with_max_delay(self.retry_rpc_request_max_delay)
+            .build()
     }
 }
 

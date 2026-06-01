@@ -8,10 +8,10 @@
 //! may take up to the configured TTL to propagate. Operators should use a
 //! reasonably small TTL to balance freshness against RPC load.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use alloy::{primitives::Address, providers::DynProvider};
-use backon::{BackoffBuilder, ExponentialBackoff, ExponentialBuilder, Retryable as _};
+use backon::Retryable as _;
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
@@ -38,9 +38,7 @@ pub(crate) enum MerkleWatcherError {
 pub(crate) struct MerkleWatcher {
     merkle_root_cache: Cache<FieldElement, ()>,
     contract: WorldIdRegistryInstance<DynProvider>,
-    retry_rpc_request_min_delay: Duration,
-    retry_rpc_request_max_delay: Duration,
-    retry_rpc_request_max_attempts: usize,
+    cache_config: WatcherCacheConfig,
 }
 
 impl MerkleWatcher {
@@ -60,24 +58,15 @@ impl MerkleWatcher {
 
         let contract = WorldIdRegistry::new(contract_address, http_rpc_provider.inner());
 
-        let WatcherCacheConfig {
-            max_cache_size,
-            time_to_live,
-            time_to_idle,
-            retry_rpc_request_min_delay,
-            retry_rpc_request_max_delay,
-            retry_rpc_request_max_attempts,
-        } = cache_config;
-
         let merkle_root_cache_builder = Cache::builder()
-            .max_capacity(max_cache_size.get())
-            .time_to_live(time_to_live)
+            .max_capacity(cache_config.max_cache_size.get())
+            .time_to_live(cache_config.time_to_live)
             .eviction_listener(move |root, (), cause| {
                 tracing::debug!("removing merkle-root {root} because: {cause:?}");
                 metrics::merkle_cache::dec();
             });
 
-        let merkle_root_cache = if let Some(time_to_idle) = time_to_idle {
+        let merkle_root_cache = if let Some(time_to_idle) = cache_config.time_to_idle {
             merkle_root_cache_builder.time_to_idle(time_to_idle).build()
         } else {
             merkle_root_cache_builder.build()
@@ -86,9 +75,7 @@ impl MerkleWatcher {
         Self {
             merkle_root_cache,
             contract,
-            retry_rpc_request_min_delay,
-            retry_rpc_request_max_delay,
-            retry_rpc_request_max_attempts,
+            cache_config,
         }
     }
 
@@ -110,7 +97,7 @@ impl MerkleWatcher {
                 Err(MerkleWatcherError::InvalidMerkleRoot)
             }
         })
-        .retry(self.backoff_strategy())
+        .retry(self.cache_config.backoff_strategy())
         .sleep(tokio::time::sleep)
         .when(|e| matches!(e, MerkleWatcherError::InvalidMerkleRoot))
         .notify(|err, duration| {
@@ -129,15 +116,6 @@ impl MerkleWatcher {
             metrics::merkle_cache::hit();
         }
         Ok(())
-    }
-
-    #[inline]
-    fn backoff_strategy(&self) -> ExponentialBackoff {
-        ExponentialBuilder::new()
-            .with_max_times(self.retry_rpc_request_max_attempts)
-            .with_min_delay(self.retry_rpc_request_min_delay)
-            .with_max_delay(self.retry_rpc_request_max_delay)
-            .build()
     }
 }
 

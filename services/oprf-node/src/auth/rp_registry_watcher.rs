@@ -9,7 +9,7 @@ use crate::{
     metrics,
 };
 use alloy::{primitives::Address, providers::DynProvider};
-use backon::{BackoffBuilder, ExponentialBackoff, ExponentialBuilder, Retryable as _};
+use backon::Retryable as _;
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
@@ -54,9 +54,7 @@ pub(crate) struct RpRegistryWatcher {
     contract: RpRegistryInstance<DynProvider>,
     timeout_external_eth_call: Duration,
     http_rpc_provider: web3::HttpRpcProvider,
-    retry_rpc_request_min_delay: Duration,
-    retry_rpc_request_max_delay: Duration,
-    retry_rpc_request_max_attempts: usize,
+    cache_config: WatcherCacheConfig,
 }
 
 impl RpRegistryWatcher {
@@ -69,23 +67,14 @@ impl RpRegistryWatcher {
     ) -> Self {
         metrics::rp_registry_cache::reset();
 
-        let WatcherCacheConfig {
-            max_cache_size,
-            time_to_live,
-            time_to_idle,
-            retry_rpc_request_min_delay,
-            retry_rpc_request_max_delay,
-            retry_rpc_request_max_attempts,
-        } = cache_config;
-
         let rp_store_builder = Cache::builder()
-            .max_capacity(max_cache_size.get())
-            .time_to_live(time_to_live)
+            .max_capacity(cache_config.max_cache_size.get())
+            .time_to_live(cache_config.time_to_live)
             .eviction_listener(move |k, v: RelyingParty, cause| {
                 tracing::debug!("removing rp {k}/{} because: {cause:?}", v.account_type);
                 metrics::rp_registry_cache::dec(v.account_type);
             });
-        let rp_store = if let Some(time_to_idle) = time_to_idle {
+        let rp_store = if let Some(time_to_idle) = cache_config.time_to_idle {
             rp_store_builder.time_to_idle(time_to_idle).build()
         } else {
             rp_store_builder.build()
@@ -96,9 +85,7 @@ impl RpRegistryWatcher {
             contract: RpRegistry::new(contract_address, http_rpc_provider.inner()),
             timeout_external_eth_call,
             http_rpc_provider,
-            retry_rpc_request_min_delay,
-            retry_rpc_request_max_delay,
-            retry_rpc_request_max_attempts,
+            cache_config,
         }
     }
 
@@ -108,11 +95,11 @@ impl RpRegistryWatcher {
         rp_id: &RpId,
     ) -> Result<RelyingParty, Arc<RpRegistryWatcherError>> {
         let backon_fetch_rp = (|| async { self.fetch_rp_from_chain(*rp_id).await })
-            .retry(self.backoff_strategy())
+            .retry(self.cache_config.backoff_strategy())
             .sleep(tokio::time::sleep)
             .when(|e| matches!(e, RpRegistryWatcherError::UnknownRp(_)))
             .notify(|err, duration| {
-                tracing::warn!(%err, "fetch rp form chain will retry after {duration:?}");
+                tracing::warn!(%err, "fetch rp from chain will retry after {duration:?}");
             });
 
         let entry = self
@@ -180,15 +167,6 @@ impl RpRegistryWatcher {
     #[cfg(test)]
     pub(crate) fn set_timeout_external_eth_call(&mut self, duration: Duration) {
         self.timeout_external_eth_call = duration;
-    }
-
-    #[inline]
-    fn backoff_strategy(&self) -> ExponentialBackoff {
-        ExponentialBuilder::new()
-            .with_max_times(self.retry_rpc_request_max_attempts)
-            .with_min_delay(self.retry_rpc_request_min_delay)
-            .with_max_delay(self.retry_rpc_request_max_delay)
-            .build()
     }
 }
 
