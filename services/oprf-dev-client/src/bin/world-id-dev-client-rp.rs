@@ -1,7 +1,7 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy::{
-    primitives::{Address, U160},
+    primitives::Address,
     providers::DynProvider,
     signers::{SignerSync as _, k256::ecdsa::SigningKey, local::LocalSigner},
 };
@@ -12,16 +12,17 @@ use rand::{CryptoRng, Rng, SeedableRng as _};
 use taceo_oprf::{
     client::Connector,
     core::oprf::BlindingFactor,
-    dev_client::{DevClient, DevClientConfig, StressTestItem},
-    types::{OprfKeyId, ShareEpoch, api::OprfRequest, crypto::OprfPublicKey},
+    dev_client::{DevClient, DevClientConfig, StressTestItem, health_checks},
+    types::{OprfKeyId, ShareEpoch, api::OprfRequest, async_trait, crypto::OprfPublicKey},
 };
-use taceo_oprf_test_utils::{async_trait, health_checks};
 use uuid::Uuid;
-use world_id_core::{EdDSASignature, FieldElement, proof::CircomGroth16Material};
+use world_id_core::{
+    EdDSASignature, FieldElement, api_types::AccountInclusionProof, proof::CircomGroth16Material,
+};
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
-    ProofRequest, RequestItem, RequestVersion, TREE_DEPTH,
-    authenticator::AuthenticatorPublicKeySet,
+    AuthenticatorPublicKeySet, ProofRequest, ProofType, RequestItem, RequestVersion, SessionFeType,
+    SessionFieldElement as _, SessionId, TREE_DEPTH,
     merkle::MerkleInclusionProof,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
     rp::RpId,
@@ -32,7 +33,11 @@ use world_id_test_utils::anvil::RpRegistry;
 struct RpConfig {
     /// rp id of already registered rp
     #[clap(long, env = "OPRF_DEV_CLIENT_RP_ID")]
-    pub rp_id: Option<u64>,
+    pub rp_id: u64,
+
+    /// If set to `true`, will try to create a new OPRF key
+    #[clap(long, env = "OPRF_DEV_CLIENT_RP_CREATE_KEY")]
+    pub create_key: bool,
 
     /// The Address of the RpRegistry contract.
     #[clap(long, env = "OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT")]
@@ -43,7 +48,8 @@ struct RpConfig {
 }
 
 struct WorldIdRpDevClient {
-    rp_id: Option<u64>,
+    rp_id: u64,
+    create_key: bool,
     rp_registry_contract: Address,
     components: SharedDevClientComponents,
 }
@@ -78,7 +84,7 @@ impl DevClient for WorldIdRpDevClient {
 
         tracing::info!("fetched data from authenticator");
 
-        let (rp_id, rp_oprf_public_key) = tokio::time::timeout(
+        let rp_oprf_public_key = tokio::time::timeout(
             config.max_wait_time,
             self.setup_rp(config, signer_address, &provider),
         )
@@ -87,7 +93,7 @@ impl DevClient for WorldIdRpDevClient {
         .context("while setup of RP")?;
 
         Ok(WorldIdRpDevClientSetup {
-            rp_id,
+            rp_id: RpId::from(self.rp_id),
             rp_oprf_public_key,
             inclusion_proof,
             key_set,
@@ -97,25 +103,53 @@ impl DevClient for WorldIdRpDevClient {
 
     async fn run_oprf(
         &self,
-        _config: &DevClientConfig,
+        _: &DevClientConfig,
         setup: Self::Setup,
-        _connector: Connector,
+        _: Connector,
     ) -> eyre::Result<ShareEpoch> {
         let mut rng = rand_chacha::ChaCha12Rng::from_rng(rand::thread_rng())?;
-        let proof_request = create_proof_request(&setup, &self.components.signer, &mut rng)
-            .context("while creating proof request")?;
-        let nullifier = self
-            .components
-            .authenticator
-            .generate_nullifier(
-                &proof_request,
-                setup.inclusion_proof.clone(),
-                setup.key_set.clone(),
-            )
-            .await
-            .context("while generating nullifier")?;
+        let proof_request_uniqueness = create_proof_request(
+            &setup,
+            &self.components.signer,
+            OprfModule::Nullifier,
+            &mut rng,
+        )
+        .context("while creating proof request")?;
+        let proof_request_session = create_proof_request(
+            &setup,
+            &self.components.signer,
+            OprfModule::Session,
+            &mut rng,
+        )
+        .context("while creating proof request")?;
 
-        Ok(nullifier.verifiable_oprf_output.epoch)
+        let account_inclusion_proof =
+            AccountInclusionProof::new(setup.inclusion_proof.clone(), setup.key_set.clone());
+
+        let (uniquness_nullifier, session_nullifier) = tokio::join!(
+            self.components.authenticator.generate_nullifier(
+                &proof_request_uniqueness,
+                Some(account_inclusion_proof.clone())
+            ),
+            self.components
+                .authenticator
+                .generate_nullifier(&proof_request_session, Some(account_inclusion_proof),)
+        );
+
+        let uniqueness_epoch = uniquness_nullifier
+            .context("while computing uniqueness")?
+            .verifiable_oprf_output
+            .epoch;
+        let session_epoch = session_nullifier
+            .context("while computing uniqueness")?
+            .verifiable_oprf_output
+            .epoch;
+
+        // this is used to check whether we successfully transitioned to the next epoch so taking the max here is fine
+        Ok(ShareEpoch::from(u32::max(
+            uniqueness_epoch.into_inner(),
+            session_epoch.into_inner(),
+        )))
     }
 
     async fn prepare_stress_test_item<R: Rng + CryptoRng + Send>(
@@ -124,11 +158,19 @@ impl DevClient for WorldIdRpDevClient {
         rng: &mut R,
     ) -> eyre::Result<StressTestItem<Self::RequestAuth>> {
         let leaf_index = self.components.authenticator.leaf_index();
-        let proof_request = create_proof_request(setup, &self.components.signer, rng)
+        let module = if rng.r#gen() {
+            OprfModule::Nullifier
+        } else {
+            OprfModule::Session
+        };
+
+        let proof_request = create_proof_request(setup, &self.components.signer, module, rng)
             .context("while creating proof request")?;
 
         let request_id = Uuid::new_v4();
-        let action = proof_request.computed_action(rng);
+        let action = proof_request
+            .action
+            .unwrap_or_else(|| FieldElement::random_for_session(rng, SessionFeType::Action));
         let query_hash = world_id_primitives::authenticator::oprf_query_digest(
             leaf_index,
             action,
@@ -141,13 +183,13 @@ impl DevClient for WorldIdRpDevClient {
             setup,
             &proof_request,
             action,
-            &oprf_blinding_factor,
+            oprf_blinding_factor,
             signature,
             &self.components.query_material,
         )?;
 
         let blinded_query =
-            taceo_oprf::core::oprf::client::blind_query(*query_hash, oprf_blinding_factor.clone());
+            taceo_oprf::core::oprf::client::blind_query(*query_hash, oprf_blinding_factor);
 
         let init_request = OprfRequest {
             request_id,
@@ -158,6 +200,7 @@ impl DevClient for WorldIdRpDevClient {
             request_id,
             blinded_query,
             init_request,
+            auth_module: module.to_string(),
         })
     }
 
@@ -167,16 +210,13 @@ impl DevClient for WorldIdRpDevClient {
     fn get_oprf_key_id(&self, setup: &Self::Setup) -> OprfKeyId {
         OprfKeyId::from(setup.rp_id.into_inner())
     }
-
-    fn auth_module(&self) -> String {
-        OprfModule::Nullifier.to_string()
-    }
 }
 
 impl WorldIdRpDevClient {
     async fn new(config: &RpConfig) -> eyre::Result<Self> {
         let components = world_id_oprf_dev_client::init_shared_components(&config.base).await?;
         Ok(Self {
+            create_key: config.create_key,
             rp_id: config.rp_id,
             rp_registry_contract: config.rp_registry_contract,
             components,
@@ -188,26 +228,13 @@ impl WorldIdRpDevClient {
         config: &DevClientConfig,
         signer: Address,
         provider: &DynProvider,
-    ) -> eyre::Result<(RpId, OprfPublicKey)> {
-        if let Some(rp_id) = self.rp_id {
-            let oprf_key_id = OprfKeyId::new(U160::from(rp_id));
-            let share_epoch = ShareEpoch::new(config.share_epoch);
-            let oprf_public_key = health_checks::oprf_public_key_from_services(
-                oprf_key_id,
-                share_epoch,
-                &config.nodes,
-                Duration::from_secs(10), // should already be there
-            )
-            .await?;
-            Ok((RpId::new(rp_id), oprf_public_key))
-        } else {
+    ) -> eyre::Result<OprfPublicKey> {
+        if self.create_key {
+            tracing::info!("trying to create new RP: {}", self.rp_id);
             let rp_registry = RpRegistry::new(self.rp_registry_contract, provider.clone());
-            let rp_id = RpId::new(rand::random());
-            let oprf_key_id = OprfKeyId::new(U160::from(rp_id.into_inner()));
-            tracing::info!("registering new RP");
             let receipt = rp_registry
                 .register(
-                    rp_id.into_inner(),
+                    self.rp_id,
                     signer,
                     signer,
                     "taceo.oprf.dev.client".to_string(),
@@ -220,26 +247,47 @@ impl WorldIdRpDevClient {
             if !receipt.status() {
                 eyre::bail!("failed to register RP");
             }
-            tracing::info!("registered RP with OPRF key: {oprf_key_id}");
-            tracing::info!("now waiting for key-gen to finish");
-            let oprf_public_key = health_checks::oprf_public_key_from_services(
-                oprf_key_id,
-                ShareEpoch::default(),
-                &config.nodes,
-                config.max_wait_time,
-            )
-            .await?;
-            Ok((rp_id, oprf_public_key))
+            tracing::info!("registered RP with id: {}", self.rp_id);
         }
+        tracing::info!("fetching key from nodes..");
+        health_checks::oprf_public_key_from_services(
+            OprfKeyId::from(self.rp_id),
+            ShareEpoch::default(),
+            &config.nodes,
+            config.max_wait_time,
+        )
+        .await
+        .context("while fetching public key from services")
     }
 }
 
 fn create_proof_request<R: Rng + CryptoRng>(
     setup: &WorldIdRpDevClientSetup,
     signer: &LocalSigner<SigningKey>,
+    auth: OprfModule,
     rng: &mut R,
 ) -> eyre::Result<ProofRequest> {
-    let action = ark_babyjubjub::Fq::rand(rng);
+    let (proof_type, action, session_id) = match auth {
+        OprfModule::Nullifier => {
+            // Explicitly set first byte to 0x00 — reserved for nullifier actions
+            let mut bytes = [0u8; 32];
+            rng.fill(&mut bytes[1..]);
+            bytes[0] = 0x00;
+            let a = FieldElement::from_be_bytes(&bytes).expect("Works");
+            (ProofType::Uniqueness, Some(*a), None)
+        }
+        OprfModule::Session => {
+            // Session RP signature does NOT include action
+            let session_id = SessionId::from_r_seed(
+                setup.key_index,
+                FieldElement::random(rng),
+                FieldElement::random_for_session(rng, SessionFeType::OprfSeed),
+            )
+            .context("while building SessionId")?;
+            (ProofType::Session, None, Some(session_id))
+        }
+        _ => unreachable!("only have session and nullifier modules here"),
+    };
     let nonce = ark_babyjubjub::Fq::rand(rng);
 
     let current_timestamp = SystemTime::now()
@@ -252,18 +300,20 @@ fn create_proof_request<R: Rng + CryptoRng>(
         nonce,
         current_timestamp,
         expiration_timestamp,
+        action,
     );
     let signature = signer.sign_message_sync(&msg)?;
 
     Ok(ProofRequest {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
+        proof_type,
         created_at: current_timestamp,
         expires_at: expiration_timestamp,
         rp_id: setup.rp_id,
         oprf_key_id: OprfKeyId::from(setup.rp_id.into_inner()),
-        session_id: None,
-        action: Some(FieldElement::from(action)),
+        session_id,
+        action: action.map(FieldElement::from),
         signature,
         nonce: FieldElement::from(nonce),
         requests: vec![RequestItem {
@@ -281,7 +331,7 @@ fn generate_oprf_auth_request(
     setup: &WorldIdRpDevClientSetup,
     proof_request: &ProofRequest,
     action: FieldElement,
-    blinding_factor: &BlindingFactor,
+    blinding_factor: BlindingFactor,
     authenticator_signature: EdDSASignature,
     query_material: &CircomGroth16Material,
 ) -> eyre::Result<NullifierOprfRequestAuthV1> {
@@ -289,7 +339,7 @@ fn generate_oprf_auth_request(
         world_id_oprf_dev_client::CreateQueryProofArgs {
             authenticator_signature,
             action,
-            blinding_factor: blinding_factor.clone(),
+            blinding_factor,
             inclusion_proof: setup.inclusion_proof.clone(),
             key_set: setup.key_set.clone(),
             key_index: setup.key_index,
@@ -306,8 +356,9 @@ fn generate_oprf_auth_request(
         merkle_root: *setup.inclusion_proof.root,
         current_time_stamp: proof_request.created_at,
         expiration_timestamp: proof_request.expires_at,
-        signature: proof_request.signature,
+        signature: Some(proof_request.signature),
         rp_id: proof_request.rp_id,
+        wip101_data: None,
     };
 
     Ok(auth)
@@ -315,9 +366,7 @@ fn generate_oprf_auth_request(
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    taceo_nodes_observability::install_tracing(
-        "world_id_oprf_dev_client_rp=trace,taceo_oprf_dev_client=trace,warn",
-    );
+    let _guard = telemetry_batteries::init();
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("can install");

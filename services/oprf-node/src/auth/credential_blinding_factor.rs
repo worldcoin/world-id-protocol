@@ -1,255 +1,242 @@
-use crate::auth::{
-    merkle_watcher::MerkleWatcher,
-    schema_issuer_registry_watcher::{
-        SchemaIssuerRegistryWatcher, SchemaIssuerRegistryWatcherError,
+//! Authentication for the credential blinding factor OPRF module.
+//!
+//! Validates that the action is zero, the issuer schema is registered, the
+//! Merkle root is valid, and the ZK query proof verifies.
+
+use std::sync::Arc;
+
+use crate::{
+    auth::{
+        merkle_watcher::{MerkleWatcher, MerkleWatcherError},
+        schema_issuer_registry_watcher::{
+            SchemaIssuerRegistryWatcher, SchemaIssuerRegistryWatcherError,
+        },
     },
+    metrics,
 };
 use alloy::primitives::U160;
+use ark_bn254::Bn254;
 use ark_ff::AdditiveGroup;
+use ark_groth16::PreparedVerifyingKey;
 use async_trait::async_trait;
-use axum::{http::StatusCode, response::IntoResponse};
 use taceo_oprf::types::{
     OprfKeyId,
-    api::{OprfRequest, OprfRequestAuthenticator},
+    api::{OprfRequest, OprfRequestAuthenticator, OprfRequestAuthenticatorError},
 };
 use tracing::instrument;
-use uuid::Uuid;
-use world_id_primitives::oprf::CredentialBlindingFactorOprfRequestAuthV1;
+use world_id_primitives::{
+    FieldElement,
+    oprf::{CredentialBlindingFactorOprfRequestAuthV1, WorldIdRequestAuthError},
+};
 
-/// Errors returned by the [`CredentialBlindingFactorOprfReqAuthenticator`].
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum CredentialBlindingFactorOprfRequestAuthError {
-    /// An error returned from the CredentialSchemaIssuerRegistry watcher service.
+pub(crate) enum CredentialBlindingFactorModuleError {
+    #[error("Invalid action - must be 0, was: {0}")]
+    InvalidAction(FieldElement),
+    #[error("Could not verify query proof")]
+    InvalidQueryProof,
+    #[error("invalid Merkle root")]
+    InvalidMerkleRoot,
+    /// Unknown schema issuer.
+    #[error("unknown schema issuer: {0}")]
+    UnknownSchemaIssuer(u64),
+    /// Internal Error
     #[error(transparent)]
-    SchemaIssuerRegistryWatcherError(#[from] SchemaIssuerRegistryWatcherError),
-    /// The provided action is not valid (must be 0 for now, might change in the future)
-    #[error("invalid action")]
-    InvalidAction,
-    /// Common OPRF request auth error
-    #[error(transparent)]
-    Common(#[from] crate::auth::OprfRequestAuthError),
-    /// Internal server error
-    #[error(transparent)]
-    InternalServerError(#[from] eyre::Report),
+    Internal(#[from] eyre::Report),
 }
 
-impl IntoResponse for CredentialBlindingFactorOprfRequestAuthError {
-    fn into_response(self) -> axum::response::Response {
-        match self {
-            CredentialBlindingFactorOprfRequestAuthError::SchemaIssuerRegistryWatcherError(err) => {
-                tracing::error!("CredentialSchemaIssuerRegistry watcher error: {err}");
-                (StatusCode::SERVICE_UNAVAILABLE.into_response()).into_response()
+impl From<Arc<SchemaIssuerRegistryWatcherError>> for CredentialBlindingFactorModuleError {
+    fn from(value: Arc<SchemaIssuerRegistryWatcherError>) -> Self {
+        match value.as_ref() {
+            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(id) => {
+                Self::UnknownSchemaIssuer(*id)
             }
-            CredentialBlindingFactorOprfRequestAuthError::InvalidAction => (
-                StatusCode::BAD_REQUEST,
-                "invalid action (must be 0 for now)",
-            )
-                .into_response(),
-            CredentialBlindingFactorOprfRequestAuthError::Common(err) => err.into_response(),
-            CredentialBlindingFactorOprfRequestAuthError::InternalServerError(err) => {
-                let error_id = Uuid::new_v4();
-                tracing::error!("{error_id} - {err:?}");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("An internal server error has occurred. Error ID={error_id}"),
-                )
-                    .into_response()
+            SchemaIssuerRegistryWatcherError::Internal(_) => {
+                Self::Internal(eyre::Report::from(value))
             }
         }
     }
 }
 
-pub(crate) struct CredentialBlindingFactorOprfRequestAuthenticator {
-    schema_issuer_registry_watcher: SchemaIssuerRegistryWatcher,
-    common: crate::auth::OprfRequestAuthenticator,
+impl From<Arc<MerkleWatcherError>> for CredentialBlindingFactorModuleError {
+    fn from(value: Arc<MerkleWatcherError>) -> Self {
+        match value.as_ref() {
+            MerkleWatcherError::InvalidMerkleRoot => Self::InvalidMerkleRoot,
+            MerkleWatcherError::Internal(_) => Self::Internal(eyre::Report::from(value)),
+        }
+    }
 }
 
-impl CredentialBlindingFactorOprfRequestAuthenticator {
+impl From<CredentialBlindingFactorModuleError> for WorldIdRequestAuthError {
+    fn from(value: CredentialBlindingFactorModuleError) -> Self {
+        match value {
+            CredentialBlindingFactorModuleError::InvalidAction(_) => {
+                WorldIdRequestAuthError::InvalidActionSchemaIssuer
+            }
+            CredentialBlindingFactorModuleError::InvalidQueryProof => {
+                WorldIdRequestAuthError::InvalidQueryProof
+            }
+            CredentialBlindingFactorModuleError::InvalidMerkleRoot => {
+                WorldIdRequestAuthError::InvalidMerkleRoot
+            }
+            CredentialBlindingFactorModuleError::UnknownSchemaIssuer(_) => {
+                WorldIdRequestAuthError::UnknownSchemaIssuerId
+            }
+            CredentialBlindingFactorModuleError::Internal(_) => WorldIdRequestAuthError::Internal,
+        }
+    }
+}
+
+impl CredentialBlindingFactorModuleError {
+    fn log(&self) {
+        if let CredentialBlindingFactorModuleError::Internal(report) = self {
+            tracing::error!(err = ?report, "Internal error");
+        } else {
+            tracing::warn!(auth_error=true, err = %self, "Error in credential issuer blinding module: {self}");
+        }
+    }
+}
+
+pub(crate) struct CredentialBlindingFactorModuleAuth {
+    schema_issuer_registry_watcher: SchemaIssuerRegistryWatcher,
+    merkle_watcher: MerkleWatcher,
+    query_vk: Arc<PreparedVerifyingKey<Bn254>>,
+}
+
+impl CredentialBlindingFactorModuleAuth {
     pub(crate) fn init(
         merkle_watcher: MerkleWatcher,
         schema_issuer_registry_watcher: SchemaIssuerRegistryWatcher,
+        query_vk: Arc<PreparedVerifyingKey<Bn254>>,
     ) -> Self {
         Self {
             schema_issuer_registry_watcher,
-            common: crate::auth::OprfRequestAuthenticator::init(merkle_watcher),
+            merkle_watcher,
+            query_vk,
+        }
+    }
+
+    async fn authenticate_inner(
+        &self,
+        request: &OprfRequest<CredentialBlindingFactorOprfRequestAuthV1>,
+    ) -> Result<OprfKeyId, CredentialBlindingFactorModuleError> {
+        metrics::auth_module::inc_issuer_blinding();
+        tracing::trace!("checking that action is 0...");
+        // check that the action is valid (must be 0 for now, might change in the future)
+        if request.auth.action != ark_babyjubjub::Fq::ZERO {
+            return Err(CredentialBlindingFactorModuleError::InvalidAction(
+                FieldElement::from(request.auth.action),
+            ));
+        }
+
+        let oprf_key_id = OprfKeyId::new(U160::from(request.auth.issuer_schema_id));
+
+        // check that the issuer schema id is valid
+        let (issuer_check, merkle_check) = tokio::join!(
+            self.schema_issuer_registry_watcher
+                .is_valid_issuer(request.auth.issuer_schema_id),
+            self.merkle_watcher
+                .ensure_root_valid(FieldElement::from(request.auth.merkle_root))
+        );
+        issuer_check?;
+        merkle_check?;
+
+        // common verification
+        let valid = super::verify_query_proof(
+            &self.query_vk,
+            &request.auth.proof.clone().into(),
+            request.blinded_query,
+            request.auth.merkle_root,
+            oprf_key_id,
+            request.auth.action,
+            request.auth.nonce,
+        );
+        if valid {
+            tracing::trace!("authentication successful!");
+            Ok(oprf_key_id)
+        } else {
+            Err(CredentialBlindingFactorModuleError::InvalidQueryProof)
         }
     }
 }
 
 #[async_trait]
-impl OprfRequestAuthenticator for CredentialBlindingFactorOprfRequestAuthenticator {
+impl OprfRequestAuthenticator for CredentialBlindingFactorModuleAuth {
     type RequestAuth = CredentialBlindingFactorOprfRequestAuthV1;
-    type RequestAuthError = CredentialBlindingFactorOprfRequestAuthError;
 
     #[instrument(level = "debug", skip_all)]
     async fn authenticate(
         &self,
         request: &OprfRequest<Self::RequestAuth>,
-    ) -> Result<OprfKeyId, Self::RequestAuthError> {
-        tracing::trace!("checking that action is not 0...");
-        // check that the action is valid (must be 0 for now, might change in the future)
-        if request.auth.action != ark_babyjubjub::Fq::ZERO {
-            return Err(CredentialBlindingFactorOprfRequestAuthError::InvalidAction);
-        }
-
-        let oprf_key_id = OprfKeyId::new(U160::from(request.auth.issuer_schema_id));
-
-        tracing::trace!("checking schema-issuer...");
-        // check that the issuer schema id is valid
-        self.schema_issuer_registry_watcher
-            .is_valid_issuer(request.auth.issuer_schema_id)
-            .await?;
-
-        // common verification
-        self.common
-            .verify(
-                &request.auth.proof.clone().into(),
-                request.blinded_query,
-                request.auth.merkle_root,
-                oprf_key_id,
-                request.auth.action,
-                request.auth.nonce,
-            )
-            .await?;
-
-        tracing::trace!("authentication successful!");
-        Ok(oprf_key_id)
+    ) -> Result<OprfKeyId, OprfRequestAuthenticatorError> {
+        Ok(self
+            .authenticate_inner(request)
+            .await
+            .inspect_err(CredentialBlindingFactorModuleError::log)
+            .map_err(WorldIdRequestAuthError::from)?)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    #![allow(clippy::large_futures, reason = "Is ok in tests")]
 
-    use secrecy::ExposeSecret as _;
-    use taceo_oprf::{
-        core::oprf::BlindingFactor,
-        service::StartedServices,
-        types::api::{OprfRequest, OprfRequestAuthenticator as _},
-    };
+    use std::sync::Arc;
+
+    use ark_bn254::Bn254;
+    use circom_types::groth16::VerificationKey;
+    use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
     use uuid::Uuid;
-    use world_id_core::{FieldElement, proof::errors};
     use world_id_primitives::{
-        TREE_DEPTH, circuit_inputs::QueryProofCircuitInput,
-        oprf::CredentialBlindingFactorOprfRequestAuthV1,
+        self as primitives, FieldElement, oprf::CredentialBlindingFactorOprfRequestAuthV1,
     };
 
-    use crate::auth::{
-        OprfRequestAuthError,
-        credential_blinding_factor::{
-            CredentialBlindingFactorOprfRequestAuthError,
-            CredentialBlindingFactorOprfRequestAuthenticator,
+    use crate::{
+        QUERY_VERIFICATION_KEY,
+        auth::{
+            credential_blinding_factor::CredentialBlindingFactorModuleAuth,
+            tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup},
         },
-        merkle_watcher::MerkleWatcher,
-        schema_issuer_registry_watcher::{
-            SchemaIssuerRegistryWatcher, SchemaIssuerRegistryWatcherError,
-        },
-        tests::OprfRequestAuthTestSetup,
     };
 
     pub(crate) struct CredentialBlindingFactorOprfRequestAuthTestSetup {
         setup: OprfRequestAuthTestSetup,
-        request_authenticator: CredentialBlindingFactorOprfRequestAuthenticator,
+        request_authenticator: CredentialBlindingFactorModuleAuth,
         request: OprfRequest<CredentialBlindingFactorOprfRequestAuthV1>,
     }
 
     impl CredentialBlindingFactorOprfRequestAuthTestSetup {
         pub(crate) async fn new() -> eyre::Result<Self> {
-            let mut rng = rand::thread_rng();
-            let setup = OprfRequestAuthTestSetup::new().await?;
+            let infra = AuthModulesTestSetup::new().await?;
+            let vk: VerificationKey<Bn254> =
+                serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
 
-            let max_cache_size = 100;
-            let cache_maintenance_interval = Duration::from_secs(60);
-            let started_services = StartedServices::default();
-            let cancellation_token = tokio_util::sync::CancellationToken::new();
-
-            let (merkle_watcher, _) = MerkleWatcher::init(
-                setup.world_id_registry,
-                setup.anvil.ws_endpoint(),
-                max_cache_size,
-                cache_maintenance_interval,
-                started_services.new_service(),
-                cancellation_token.clone(),
-            )
-            .await?;
-
-            let (schema_issuer_registry_watcher, _) = SchemaIssuerRegistryWatcher::init(
-                setup.credential_schema_issuer_registry,
-                setup.anvil.ws_endpoint(),
-                max_cache_size,
-                cache_maintenance_interval,
-                started_services.new_service(),
-                cancellation_token.clone(),
-            )
-            .await?;
-
-            let request_authenticator = CredentialBlindingFactorOprfRequestAuthenticator::init(
-                merkle_watcher.clone(),
-                schema_issuer_registry_watcher,
+            let request_authenticator = CredentialBlindingFactorModuleAuth::init(
+                infra.merkle_watcher.clone(),
+                infra.schema_issuer_registry_watcher.clone(),
+                Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
             );
 
-            let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
-
-            let query_blinding_factor = BlindingFactor::rand(&mut rng);
             let action = FieldElement::ZERO;
 
-            let query_hash = world_id_primitives::authenticator::oprf_query_digest(
-                setup.merkle_inclusion_proof.leaf_index,
-                action,
-                setup.issuer_schema_id.into(),
-            );
-            let signature = setup
-                .signer
-                .offchain_signer_private_key()
-                .expose_secret()
-                .sign(*query_hash);
-
-            let siblings: [ark_babyjubjub::Fq; TREE_DEPTH] =
-                setup.merkle_inclusion_proof.siblings.map(|s| *s);
-
-            let query_proof_input = QueryProofCircuitInput::<TREE_DEPTH> {
-                pk: setup.key_set.as_affine_array(),
-                pk_index: setup.key_index.into(),
-                s: signature.s,
-                r: signature.r,
-                merkle_root: *setup.merkle_inclusion_proof.root,
-                depth: ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-                mt_index: setup.merkle_inclusion_proof.leaf_index.into(),
-                siblings,
-                beta: query_blinding_factor.beta(),
-                rp_id: *FieldElement::from(setup.issuer_schema_id),
-                action: *action,
-                nonce: setup.rp_fixture.nonce,
-            };
-            let _ = errors::check_query_input_validity(&query_proof_input)?;
-
-            let (proof, public_inputs) =
-                query_material.generate_proof(&query_proof_input, &mut rng)?;
-            query_material.verify_proof(&proof, &public_inputs)?;
+            let bundle = infra.generate_query_proof(action, infra.setup.issuer_schema_id.into())?;
 
             let credential_blinding_factor_auth = CredentialBlindingFactorOprfRequestAuthV1 {
-                proof: proof.clone().into(),
+                proof: bundle.proof,
                 action: *action,
-                nonce: setup.rp_fixture.nonce,
-                merkle_root: *setup.merkle_inclusion_proof.root,
-                issuer_schema_id: setup.issuer_schema_id,
+                nonce: bundle.nonce,
+                merkle_root: *infra.setup.merkle_inclusion_proof.root,
+                issuer_schema_id: infra.setup.issuer_schema_id,
             };
 
-            let request_id = Uuid::new_v4();
-
-            let blinded_request = taceo_oprf::core::oprf::client::blind_query(
-                *query_hash,
-                query_blinding_factor.clone(),
-            );
-
             let request = OprfRequest {
-                request_id,
-                blinded_query: blinded_request.blinded_query(),
+                request_id: Uuid::new_v4(),
+                blinded_query: bundle.blinded_query,
                 auth: credential_blinding_factor_auth,
             };
 
             Ok(Self {
-                setup,
+                setup: infra.setup,
                 request_authenticator,
                 request,
             })
@@ -271,17 +258,16 @@ mod tests {
     {
         let mut setup = CredentialBlindingFactorOprfRequestAuthTestSetup::new().await?;
         setup.request.auth.merkle_root = rand::random();
-        let err = setup
+        let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            CredentialBlindingFactorOprfRequestAuthError::Common(
-                OprfRequestAuthError::InvalidMerkleRoot
-            )
-        ));
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_MERKLE_ROOT
+        );
+        assert_eq!(auth_error.message(), "invalid merkle root");
         Ok(())
     }
 
@@ -291,17 +277,16 @@ mod tests {
         let mut setup = CredentialBlindingFactorOprfRequestAuthTestSetup::new().await?;
         let unknown_issuer_schema_id = rand::random();
         setup.request.auth.issuer_schema_id = unknown_issuer_schema_id;
-        let err = setup
+        let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            CredentialBlindingFactorOprfRequestAuthError::SchemaIssuerRegistryWatcherError(
-                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(id)
-            ) if id == unknown_issuer_schema_id
-        ));
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::UNKNOWN_SCHEMA_ISSUER
+        );
+        assert_eq!(auth_error.message(), "unknown schema issuer id");
         Ok(())
     }
 
@@ -309,15 +294,19 @@ mod tests {
     async fn test_credential_blinding_factor_oprf_req_auth_invalid_action() -> eyre::Result<()> {
         let mut setup = CredentialBlindingFactorOprfRequestAuthTestSetup::new().await?;
         setup.request.auth.action = rand::random();
-        let err = setup
+        let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            CredentialBlindingFactorOprfRequestAuthError::InvalidAction
-        ));
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_ACTION_SCHEMA_ISSUER
+        );
+        assert_eq!(
+            auth_error.message(),
+            "invalid action for credential sub blinding factor"
+        );
         Ok(())
     }
 
@@ -325,17 +314,16 @@ mod tests {
     async fn test_credential_blinding_factor_oprf_req_auth_invalid_proof() -> eyre::Result<()> {
         let mut setup = CredentialBlindingFactorOprfRequestAuthTestSetup::new().await?;
         setup.request.auth.proof.pi_a = rand::random();
-        let err = setup
+        let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            CredentialBlindingFactorOprfRequestAuthError::Common(
-                OprfRequestAuthError::InvalidProof
-            )
-        ));
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_QUERY_PROOF
+        );
+        assert_eq!(auth_error.message(), "cannot verify query proof");
         Ok(())
     }
 
@@ -353,17 +341,51 @@ mod tests {
                 setup.setup.issuer_schema_id,
             )
             .await?;
-        let err = setup
+        let auth_error = setup
             .request_authenticator
             .authenticate(&setup.request)
             .await
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            CredentialBlindingFactorOprfRequestAuthError::SchemaIssuerRegistryWatcherError(
-                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuer(id)
-            ) if id == setup.setup.issuer_schema_id
-        ));
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::UNKNOWN_SCHEMA_ISSUER
+        );
+        assert_eq!(auth_error.message(), "unknown schema issuer id");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_credential_blinding_factor_oprf_req_auth_tampered_blinded_query()
+    -> eyre::Result<()> {
+        let mut setup = CredentialBlindingFactorOprfRequestAuthTestSetup::new().await?;
+        setup.request.blinded_query = rand::random();
+        let auth_error = setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_QUERY_PROOF
+        );
+        assert_eq!(auth_error.message(), "cannot verify query proof");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_credential_blinding_factor_oprf_req_auth_tampered_nonce() -> eyre::Result<()> {
+        let mut setup = CredentialBlindingFactorOprfRequestAuthTestSetup::new().await?;
+        setup.request.auth.nonce = rand::random();
+        let auth_error = setup
+            .request_authenticator
+            .authenticate(&setup.request)
+            .await
+            .expect_err("Should fail");
+        assert_eq!(
+            auth_error.code(),
+            primitives::oprf::error_codes::INVALID_QUERY_PROOF
+        );
+        assert_eq!(auth_error.message(), "cannot verify query proof");
         Ok(())
     }
 }

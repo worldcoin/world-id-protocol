@@ -61,28 +61,52 @@ deploy_contracts() {
     (cd contracts && TACEO_ADMIN_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry ADMIN_ADDRESS_REGISTER=$credential_schema_issuer_registry forge script lib/oprf-key-registry/script/RegisterKeyGenAdmin.s.sol --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
 }
 
+deploy_wip101_contracts() {
+    # deploy the WIP101 scripts for testing
+    (cd contracts && forge script script/core/Wip101Mock.s.sol:DeployWIP101 --broadcast --rpc-url http://localhost:8545 --private-key $PK)
+
+    wip101_correct=$(jq -r '.transactions[] | select(.contractName == "WIP101Correct") | .contractAddress' ./contracts/broadcast/Wip101Mock.s.sol/31337/run-latest.json)
+    wip101_aux=$(jq -r '.transactions[] | select(.contractName == "WIP101CorrectWhenAuxData") | .contractAddress' ./contracts/broadcast/Wip101Mock.s.sol/31337/run-latest.json)
+
+    # create two RPs with hardcoded ID to test WIP101
+    cast send $rp_registry \
+    "register(uint64,address,address,string)" \
+    101 $wip101_correct $wip101_correct "wip correct" \
+    --private-key $PK \
+    --rpc-url http://127.0.0.1:8545
+
+    cast send $rp_registry \
+    "register(uint64,address,address,string)" \
+    102 $wip101_aux $wip101_aux "wip with aux" \
+    --private-key $PK \
+    --rpc-url http://127.0.0.1:8545
+}
+
 start_node() {
     local i="$1"
     local port=$((10000 + i))
-    local db_port=$((5440 + i))
-    local db_conn="postgres://postgres:postgres@localhost:$db_port/postgres"
-    RUST_LOG="taceo_oprf_service=trace,world_id_oprf_node=trace,warn" \
-    ./target/release/world-id-oprf-node \
-        --bind-addr 127.0.0.1:$port \
-        --environment dev \
-        --version-req ">=0.0.0" \
-        --oprf-key-registry-contract $oprf_key_registry \
-        --world-id-registry-contract $world_id_registry \
-        --rp-registry-contract $rp_registry \
-        --credential-schema-issuer-registry-contract $credential_schema_issuer_registry \
-        --db-connection-string $db_conn \
-        --db-schema oprf \
-        > logs/node$i.log 2>&1 &
+    local db_conn="postgres://postgres:postgres@localhost:5432/postgres"
+    RUST_LOG="taceo=trace,world_id_oprf_node=trace,alloy_provider=debug,warn" \
+    TACEO_OPRF_NODE__BIND_ADDR=127.0.0.1:$port \
+    TACEO_OPRF_NODE__SERVICE__WORLD_ID_REGISTRY_CONTRACT=$world_id_registry \
+    TACEO_OPRF_NODE__SERVICE__RP_REGISTRY_CONTRACT=$rp_registry \
+    TACEO_OPRF_NODE__SERVICE__CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT=$credential_schema_issuer_registry \
+    TACEO_OPRF_NODE__SERVICE__OPRF__ENVIRONMENT=dev \
+    TACEO_OPRF_NODE__SERVICE__OPRF__OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry \
+    TACEO_OPRF_NODE__SERVICE__OPRF__WS_RPC_URL=ws://127.0.0.1:8545 \
+    TACEO_OPRF_NODE__SERVICE__OPRF__VERSION_REQ=">=0.0.0" \
+    TACEO_OPRF_NODE__SERVICE__RPC__HTTP_URLS=http://127.0.0.1:8545 \
+    TACEO_OPRF_NODE__SERVICE__RPC__CHAIN_ID=31337 \
+    TACEO_OPRF_NODE__POSTGRES__CONNECTION_STRING=$db_conn \
+    TACEO_OPRF_NODE__POSTGRES__SCHEMA=oprf$i \
+    ./target/release/world-id-oprf-node > logs/node$i.log 2>&1 &
     pid=$!
     echo "started world-id-oprf-node $i with PID $pid"
 }
 
 run_indexer_and_gateway() {
+    # remove the tree_cache_file as we have a new DB everytime we run local_setup
+    rm -f /tmp/tree.mmap
     REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WS_URL=ws://localhost:8545 DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres TREE_CACHE_FILE=/tmp/tree.mmap cargo run --release -p world-id-indexer -- --http --indexer > logs/world-id-indexer.log 2>&1 &
     indexer_pid=$!
     echo "started indexer with PID $indexer_pid"
@@ -95,7 +119,6 @@ run_indexer_and_gateway() {
 }
 
 teardown() {
-    docker compose down || true
     killall -9 world-id-oprf-node 2>/dev/null || true
     killall -9 world-id-indexer 2>/dev/null || true
     killall -9 world-id-gateway 2>/dev/null || true
@@ -108,9 +131,9 @@ setup() {
     teardown
     trap teardown EXIT SIGINT SIGTERM
 
-    anvil &
+    anvil > logs/anvil.log 2>&1 &
 
-    docker compose up -d localstack postgres redis oprf-node-db0 oprf-node-db1 oprf-node-db2
+    docker compose up -d postgres redis
 
     echo -e "${GREEN}deploying contracts..${NOCOLOR}"
     deploy_contracts
@@ -119,16 +142,16 @@ setup() {
     run_indexer_and_gateway
 
     echo -e "${GREEN}starting OPRF key-gen nodes..${NOCOLOR}"
-    docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n0 --secret-string 0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356"
-    docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n1 --secret-string 0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97"
-    docker compose exec localstack sh -c "AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=http://localhost:4566 --region us-east-1 secretsmanager create-secret --name oprf/eth/n2 --secret-string 0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6"
-    OPRF_KEY_GEN_OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry docker compose up -d oprf-key-gen0 oprf-key-gen1 oprf-key-gen2
+    TACEO_OPRF_KEY_GEN__SERVICE__OPRF_KEY_REGISTRY_CONTRACT=$oprf_key_registry docker compose up -d oprf-key-gen0 oprf-key-gen1 oprf-key-gen2
+    docker compose logs -f oprf-key-gen0 > logs/key-gen0.log 2>&1 &
+    docker compose logs -f oprf-key-gen1 > logs/key-gen1.log 2>&1 &
+    docker compose logs -f oprf-key-gen2 > logs/key-gen2.log 2>&1 &
     wait_for_health 20000 "oprf-key-gen0" 300
     wait_for_health 20001 "oprf-key-gen1" 300
     wait_for_health 20002 "oprf-key-gen2" 300
 
     echo -e "${GREEN}starting OPRF nodes..${NOCOLOR}"
-    cargo build -p world-id-oprf-node --release
+    cargo build -p world-id-oprf-node --release -q
     start_node 0
     start_node 1
     start_node 2
@@ -155,8 +178,18 @@ client() {
         export RUST_LOG="world_id_dev_client_rp=trace,world_id_dev_client_issuer_blinding=trace,world_id_oprf_dev_client=trace,taceo_oprf_dev_client=trace,taceo_oprf_client=trace,warn"
     fi
 
-    RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- "$@"
-    RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-issuer-blinding -- "$@"
+    if [[ $1 == "setup-test" ]]; then
+        export TACEO_ADMIN_PRIVATE_KEY=$PK
+        deploy_wip101_contracts
+        RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- --rp-id 123 --create-key test
+        RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-issuer-blinding -- --issuer-schema-id 124 --create-key test
+        RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- --rp-id 101 test 
+        # so far it is not possible to call WIP101 with custom interface
+        # RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- --rp-id 102 test 
+    else
+        RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-rp -- "$@"
+        RUST_LOG=$RUST_LOG cargo run --release --bin world-id-dev-client-issuer-blinding -- "$@"
+    fi
 }
 
 main() {
@@ -176,7 +209,7 @@ main() {
     elif [[ $1 = "test" ]]; then
         echo -e "${GREEN}running test..${NOCOLOR}"
         setup
-        client test
+        client setup-test
     else
         echo "unknown command: '$1'"
         exit 1

@@ -11,16 +11,6 @@ rust-version.workspace = true
 repository.workspace = true
 include = ["src/**/*", "bin/**/*", "tests/**/*", "Cargo.toml", "README.md"]
 
-[[example]]
-name = "authenticator"
-path = "examples/authenticator.rs"
-required-features = ["authenticator", "embed-zkeys"]
-
-[[example]]
-name = "issuer"
-path = "examples/issuer.rs"
-required-features = ["issuer"]
-
 [features]
 default = ["authenticator", "embed-zkeys"]
 
@@ -50,6 +40,7 @@ world-id-issuer = { workspace = true, optional = true }
 world-id-proof = { workspace = true, optional = true }
 world-id-authenticator = { workspace = true, optional = true }
 world-id-primitives = { workspace = true }
+world-id-registries = { workspace = true }
 
 [dev-dependencies]
 alloy = { workspace = true }
@@ -59,7 +50,7 @@ reqwest = { workspace = true }
 world-id-test-utils = { path = "../test-utils" }
 world-id-gateway = { path = "../../services/gateway" }
 taceo-oprf-test-utils = { workspace = true }
-taceo-oprf = { workspace = true, features = ["types"] }
+taceo-oprf = { workspace = true, features = ["types", "dev-client"] }
 backon = { workspace = true }
 chrono = { workspace = true }
 hex = { workspace = true }

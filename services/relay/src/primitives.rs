@@ -72,6 +72,23 @@ pub enum StateCommitment {
     OprfPubKey(OprfKeyUpdate),
 }
 
+impl std::fmt::Display for StateCommitment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ChainCommitted(c) => {
+                write!(
+                    f,
+                    "ChainCommitted(block={}, head={})",
+                    c.block_number, c.chain_head
+                )
+            }
+            Self::RootCommitment(r) => write!(f, "RootRecorded(root={})", r.root),
+            Self::IssuerPubKey(p) => write!(f, "IssuerPubKey(id={})", p.id.0),
+            Self::OprfPubKey(p) => write!(f, "OprfPubKey(id={})", p.id.0),
+        }
+    }
+}
+
 impl StateCommitment {
     /// Returns a deterministic key that uniquely identifies this commitment.
     pub fn key(&self) -> CommitmentKey {

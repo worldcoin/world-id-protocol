@@ -1,14 +1,11 @@
-//! This crate contains the raw base types (without implementation) for the World ID Protocol.
-//!
-//! It implements basic primitives such as field elements, proofs, the format of requests and responses, etc.
-//!
-//! Importantly, this crate keeps dependencies to a minimum and does not implement any logic beyond serialization and deserialization.
-#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+#![cfg_attr(all(),
+doc = ::embed_doc_image::embed_image!("world-id-protocol-parties", "assets/world-id-protocol-parties.png"))]
+#![doc = include_str!("../README.md")]
+#![cfg_attr(not(test), deny(unused_crate_dependencies))]
 #![deny(clippy::all, clippy::nursery, missing_docs, dead_code)]
 #![allow(clippy::option_if_let_else)]
 
 use alloy_primitives::Keccak256;
-
 use ark_babyjubjub::Fq;
 use ark_ff::{AdditiveGroup, Field, PrimeField, UniformRand};
 use ruint::aliases::{U160, U256};
@@ -19,17 +16,20 @@ use std::{
     str::FromStr,
 };
 
+#[cfg(target_arch = "wasm32")]
+use getrandom as _;
+
 /// Contains types related to the Authenticator.
 pub mod authenticator;
 
+mod key_set;
+pub use key_set::{
+    AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS, SparseAuthenticatorPubkeysError,
+};
+
 /// Contains the global configuration for interacting with the World ID Protocol.
 mod config;
-pub use config::Config;
-
-/// Contains the raw circuit input types for the World ID Protocol.
-///
-/// These types are used to prepare the inputs for the Groth16 circuits.
-pub mod circuit_inputs;
+pub use config::{Config, ServiceEndpoint};
 
 /// SAFE-style sponge utilities and helpers.
 pub mod sponge;
@@ -47,13 +47,17 @@ pub mod api_types;
 /// Contains types specifically related to the OPRF services.
 pub mod oprf;
 
-/// Contains the session nullifier type for session proof responses.
-pub mod nullifier;
-pub use nullifier::{Nullifier, SessionNullifier};
+/// A nullifier is a unique, one-time identifier. See [`Nullifier`] for more details.
+mod nullifier;
+pub use nullifier::Nullifier;
+
+/// Contains types relevant for Session Proofs.
+mod session;
+pub use session::{SessionFeType, SessionFieldElement, SessionId, SessionNullifier};
 
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;
-pub use proof::ZeroKnowledgeProof;
+pub use proof::{OwnershipProof, ZeroKnowledgeProof};
 
 /// Contains types specifically related to relying parties.
 pub mod rp;
@@ -68,10 +72,11 @@ pub use signer::Signer;
 pub mod request;
 pub use request::{
     ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES, ProofRequest,
-    ProofResponse, RequestItem, RequestVersion, ResponseItem, ValidationError,
+    ProofResponse, ProofType, RequestItem, RequestVersion, ResponseItem, ValidationError,
 };
 
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
+pub use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 
 /// The scalar field used in the World ID Protocol.
 ///
@@ -81,10 +86,10 @@ pub type ScalarField = ark_babyjubjub::Fr;
 /// The depth of the Merkle tree used in the World ID Protocol for the `WorldIDRegistry` contract.
 pub const TREE_DEPTH: usize = 30;
 
-/// Represents a field element of the base field (`Fq`) in the World ID Protocol.
+/// Represents an element of the field used in the World ID Protocol (`Fq`), which
+/// is the **`BabyJubJub` base field**.
 ///
-/// The World ID Protocol uses the `BabyJubJub` curve throughout. Note the
-/// base field of `BabyJubJub` is the scalar field of the BN254 curve.
+/// Note the base field of `BabyJubJub` is the scalar field of the BN254 curve.
 ///
 /// This wrapper ensures consistent serialization and deserialization of field elements, where
 /// string-based serialization is done with hex encoding and binary serialization is done with byte vectors.
@@ -100,7 +105,7 @@ impl FieldElement {
     /// Returns the 32-byte big-endian representation of this field element.
     #[must_use]
     pub fn to_be_bytes(&self) -> [u8; 32] {
-        let as_num: U256 = self.0.into();
+        let as_num: U256 = self.to_u256();
         as_num.to_be_bytes()
     }
 
@@ -114,19 +119,25 @@ impl FieldElement {
         U256::from_be_bytes(*be_bytes).try_into()
     }
 
-    /// Deserializes a field element from a big-endian byte slice.
+    /// Deserializes a field element from a big-endian byte slice performing modulo
+    /// reduction if the value is larger than the field modulus.
+    ///
+    /// This can be used for instance to convert the output of a byte-based hash function into
+    /// a field element. It is **critical** to always use the same mechanism to bring elements into
+    /// the field. For example, [`Self::from_arbitrary_raw_bytes`] performs a different operation.
     ///
     /// # Warning
     /// Use this function carefully. This function will perform modulo reduction on the input, which may
-    /// lead to unexpected results if the input should not be reduced.
+    /// lead to unexpected results if the input should not be reduced. For example, this is **not** appropriate
+    /// when parsing a canonical field-element encoding.
     #[must_use]
-    pub(crate) fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
+    pub fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
         let field_element = Fq::from_be_bytes_mod_order(bytes);
         Self(field_element)
     }
 
     /// Takes arbitrary raw bytes, hashes them with a byte-friendly gas-efficient hash function
-    /// and reduces it to a field element.
+    /// and reduces it to a field element. Particularly useful for EVM on-chain use.
     #[must_use]
     pub fn from_arbitrary_raw_bytes(bytes: &[u8]) -> Self {
         let mut hasher = Keccak256::new();
@@ -154,6 +165,11 @@ impl FieldElement {
     pub fn random<R: rand::CryptoRng + rand::RngCore>(rng: &mut R) -> Self {
         let field_element = Fq::rand(rng);
         Self(field_element)
+    }
+
+    /// Converts the field element to a `U256`.
+    pub fn to_u256(&self) -> U256 {
+        self.0.into()
     }
 }
 

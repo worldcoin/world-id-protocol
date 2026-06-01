@@ -6,9 +6,9 @@ use crate::{
 };
 use axum::{Extension, Json, extract::State};
 use tracing::instrument;
-use world_id_core::api_types::{GatewayStatusResponse, InsertAuthenticatorRequest};
+use world_id_primitives::api_types::{GatewayStatusResponse, InsertAuthenticatorRequest};
 
-/// POST /v1/authenticators/insert
+/// POST /insert-authenticator
 ///
 /// Insert a new authenticator to an existing account.
 #[instrument(name = "insert_authenticator", skip(state, payload), fields(request_id = %id))]

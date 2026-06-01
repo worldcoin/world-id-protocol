@@ -9,18 +9,18 @@ use alloy::{
 };
 use redis::{AsyncCommands, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
-use world_id_core::api_types::{GatewayRequestKind, GatewayRequestState, GatewayStatusResponse};
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, OrphanSweeperConfig, RequestRecord, RequestTracker, defaults,
     now_unix_secs, request_tracker::BacklogScope, spawn_gateway_for_tests, sweep_once,
+};
+use world_id_primitives::api_types::{
+    GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
 };
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
 mod common;
-use crate::common::{wait_for_finalized, wait_http_ready};
-
-const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+use crate::common::{GW_PRIVATE_KEY, wait_for_finalized, wait_http_ready};
 
 async fn setup_redis(redis_url: &str) -> ConnectionManager {
     let client = redis::Client::open(redis_url).expect("Failed to create Redis client");
@@ -684,6 +684,7 @@ async fn sweep_submitted_with_real_receipt() {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
+        registry_version: None,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),
@@ -707,7 +708,7 @@ async fn sweep_submitted_with_real_receipt() {
     wait_http_ready(&client, 4200).await;
     let base = "http://127.0.0.1:4200";
 
-    let body = world_id_core::api_types::CreateAccountRequest {
+    let body = world_id_primitives::api_types::CreateAccountRequest {
         recovery_address: Some(wallet_addr),
         authenticator_addresses: vec![address!("0x2222222222222222222222222222222222222222")],
         authenticator_pubkeys: vec![U256::from(100)],

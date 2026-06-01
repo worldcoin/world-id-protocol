@@ -1,13 +1,29 @@
 use std::sync::Arc;
 
+use eyre::Result;
 use serde::Deserialize;
 
-use alloy_primitives::Address;
-use world_id_services_common::{ProviderArgs, SignerArgs};
+use alloy::{
+    network::EthereumWallet,
+    providers::{DynProvider, Provider, ProviderBuilder},
+    signers::local::PrivateKeySigner,
+};
+use alloy_primitives::{
+    Address,
+    utils::{format_ether, format_units},
+};
+use axum::{Router, extract::State, http::StatusCode, routing::get};
+use tempo_alloy::{TempoNetwork, provider::TempoProviderBuilderExt};
 
 use crate::{
+    bindings::IERC20,
     engine::Engine,
-    satellite::{EthereumMptSatellite, PermissionedSatellite},
+    log::CommitmentLog,
+    metrics as relay_metrics,
+    satellite::{
+        EthereumMptSatellite, PermissionedSatellite, TempoSatellite,
+        permissioned::tempo::FEE_TOKEN as TEMPO_FEE_TOKEN,
+    },
 };
 
 pub mod chain;
@@ -24,6 +40,10 @@ pub struct Cli {
     /// Relay config as a JSON string.
     #[arg(long, env = "RELAY_CONFIG")]
     pub config: String,
+
+    /// Address the health-check HTTP server binds to.
+    #[arg(long, env = "HEALTH_BIND_ADDR", default_value = "0.0.0.0:8081")]
+    pub health_bind_addr: std::net::SocketAddr,
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +86,13 @@ pub struct Cli {
 ///       "destination_chain_id": 84532,
 ///       "gateway": "0x...",
 ///       "satellite": "0x..."
+///     },
+///     {
+///       "name": "TEMPO",
+///       "destination_chain_id": 12345,
+///       "gateway": "0x...",
+///       "satellite": "0x...",
+///       "chain_type": "tempo"
 ///     }
 ///   ],
 ///   "ethereum_mpt_gateways": [
@@ -120,6 +147,11 @@ pub struct SourceConfig {
     /// Interval in seconds between periodic `propagateState` calls.
     #[serde(default = "default_bridge_interval")]
     pub bridge_interval_secs: u64,
+
+    /// Block number at which the WorldIDSource contract was deployed.
+    /// Backfill starts from this block instead of scanning from genesis.
+    #[serde(default)]
+    pub deployment_block: u64,
 }
 
 fn default_source_chain_id() -> u64 {
@@ -130,6 +162,19 @@ fn default_bridge_interval() -> u64 {
     3600
 }
 
+/// The blockchain type for a permissioned gateway, controlling provider and
+/// transaction construction.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChainType {
+    /// Standard EVM chain (default). Uses a regular Ethereum provider.
+    #[default]
+    Default,
+    /// Tempo blockchain. Uses `TempoNetwork` provider with 2D random nonces
+    /// and TIP-20 fee token for gas payment.
+    Tempo,
+}
+
 /// Configuration for a permissioned gateway satellite.
 ///
 /// Uses owner-attested chain head relayed from World Chain (no proofs required).
@@ -137,6 +182,8 @@ fn default_bridge_interval() -> u64 {
 ///
 /// The RPC endpoint is derived from the `name` field: the env var
 /// `{NAME}_RPC_URL` is read at startup (e.g. `BASE_SEPOLIA_RPC_URL`).
+///
+/// Set `"chain_type": "tempo"` for Tempo blockchain destinations.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PermissionedGatewayConfig {
     /// Satellite identifier, also used to derive the RPC URL env var.
@@ -153,6 +200,10 @@ pub struct PermissionedGatewayConfig {
 
     /// The WorldIDSatellite (bridge) proxy address on the destination chain.
     pub satellite: Address,
+
+    /// The blockchain type (default: standard EVM).
+    #[serde(default)]
+    pub chain_type: ChainType,
 }
 
 /// Configuration for an Ethereum MPT gateway satellite.
@@ -229,14 +280,25 @@ impl EthereumMptGatewayConfig {
     }
 }
 
-/// Builds a [`ProviderArgs`] from a chain name and shared signer, reading the
-/// RPC URL from the `{NAME}_RPC_URL` environment variable.
-fn satellite_provider_args(name: &str, signer: &SignerArgs) -> eyre::Result<ProviderArgs> {
+/// Builds a signed [`DynProvider`] for the given RPC URL and wallet.
+///
+/// Uses `Http::with_client` with a default `reqwest::Client` which supports
+/// HTTPS via the TLS backend configured in the workspace `reqwest` features.
+/// This bypasses the `ProviderArgs` tower layer stack which has known
+/// compatibility issues with certain environments.
+async fn build_provider(rpc_url: &str, wallet: &EthereumWallet) -> eyre::Result<DynProvider> {
+    Ok(ProviderBuilder::new()
+        .wallet(wallet.clone())
+        .connect(rpc_url)
+        .await?
+        .erased())
+}
+
+/// Reads the `{NAME}_RPC_URL` env var and builds a signed provider.
+async fn satellite_provider(name: &str, wallet: &EthereumWallet) -> eyre::Result<DynProvider> {
     let env_var = format!("{}_RPC_URL", name.to_uppercase());
     let rpc_url = rpc_url_from_env(&env_var)?;
-    Ok(ProviderArgs::new()
-        .with_http_urls([rpc_url.as_str()])
-        .with_signer(signer.clone()))
+    build_provider(&rpc_url, wallet).await
 }
 
 // ---------------------------------------------------------------------------
@@ -251,6 +313,7 @@ pub struct WorldChainConfig {
     pub credential_issuer_schema_registry: Address,
     pub world_id_registry: Address,
     pub bridge_interval: u64,
+    pub deployment_block: u64,
 }
 
 impl From<&SourceConfig> for WorldChainConfig {
@@ -262,7 +325,137 @@ impl From<&SourceConfig> for WorldChainConfig {
             credential_issuer_schema_registry: src.issuer_schema_registry,
             world_id_registry: src.world_id_registry,
             bridge_interval: src.bridge_interval_secs,
+            deployment_block: src.deployment_block,
         }
+    }
+}
+
+/// Best-effort wallet snapshot: failures are warned, never fatal.
+async fn log_wallet_status<P: Provider>(
+    provider: &P,
+    address: Address,
+    chain_id: u64,
+    chain_name: &str,
+) -> Result<()> {
+    let (balance, nonce) = tokio::try_join!(
+        provider.get_balance(address),
+        provider.get_transaction_count(address)
+    )?;
+
+    relay_metrics::set_wallet_balance_wei(chain_id, f64::from(balance));
+
+    let balance_eth = format_ether(balance);
+
+    tracing::info!(
+        %chain_name,
+        chain_id,
+        wallet = %address,
+        %balance_eth,
+        nonce = ?nonce,
+        "relay wallet status"
+    );
+
+    Ok(())
+}
+
+/// Tempo-specific wallet status: native `eth_getBalance` returns a placeholder
+/// (~4.24e75) on Tempo, so balance is read from the TIP-20 fee token contract
+/// directly via `balanceOf`. Logs in USDC.e units (6 decimals).
+async fn log_tempo_wallet_status<P: Provider>(
+    provider: &P,
+    address: Address,
+    chain_id: u64,
+    chain_name: &str,
+) -> Result<()> {
+    let erc20 = IERC20::new(TEMPO_FEE_TOKEN, provider);
+    let (balance_call, nonce) = tokio::try_join!(
+        async {
+            erc20
+                .balanceOf(address)
+                .call()
+                .await
+                .map_err(eyre::Error::from)
+        },
+        async {
+            provider
+                .get_transaction_count(address)
+                .await
+                .map_err(eyre::Error::from)
+        }
+    )?;
+
+    let balance = balance_call;
+    let balance_usdc = format_units(balance, 6).unwrap_or_else(|_| balance.to_string());
+
+    relay_metrics::set_wallet_balance_wei(chain_id, f64::from(balance));
+
+    tracing::info!(
+        %chain_name,
+        chain_id,
+        wallet = %address,
+        fee_token = %TEMPO_FEE_TOKEN,
+        %balance_usdc,
+        nonce = ?nonce,
+        "relay wallet status (tempo TIP-20 fee token)"
+    );
+
+    Ok(())
+}
+
+/// Fire-and-forget so a panicking metrics task can't bring down the engine.
+fn spawn_wallet_metrics_task(provider: Arc<DynProvider>, chain_id: u64, wallet_address: Address) {
+    tokio::spawn(async move {
+        relay_metrics::run_wallet_metrics_task(
+            provider,
+            chain_id,
+            wallet_address,
+            relay_metrics::WALLET_METRICS_INTERVAL,
+        )
+        .await
+    });
+}
+
+/// Tempo variant: polls the TIP-20 fee token's `balanceOf` instead of
+/// native `eth_getBalance` (which returns a placeholder on Tempo).
+/// The value written to `relay.wallet.balance_wei{chain_id:4217}` is in
+/// USDC.e base units (6 decimals) — i.e. `106041276` = $106.04.
+fn spawn_tempo_wallet_metrics_task(
+    provider: Arc<DynProvider>,
+    chain_id: u64,
+    wallet_address: Address,
+) {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(relay_metrics::WALLET_METRICS_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let erc20 = IERC20::new(TEMPO_FEE_TOKEN, provider);
+        loop {
+            ticker.tick().await;
+            match erc20.balanceOf(wallet_address).call().await {
+                Ok(balance) => {
+                    relay_metrics::set_wallet_balance_wei(chain_id, f64::from(balance));
+                }
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    chain_id,
+                    fee_token = %TEMPO_FEE_TOKEN,
+                    "failed to read tempo fee token balance"
+                ),
+            }
+        }
+    });
+}
+
+async fn livez() -> StatusCode {
+    StatusCode::OK
+}
+
+/// 503 until backfill completes, so a fresh pod stays out of service during
+/// rolling updates until its commitment log has caught up.
+async fn readyz(State(log): State<Arc<CommitmentLog>>) -> StatusCode {
+    if log.is_ready() {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
     }
 }
 
@@ -276,52 +469,146 @@ impl Cli {
 
         let config = parse_config(&self.config)?;
 
-        // Build a signer for relay transactions.
-        // The signer key is loaded from WALLET_PRIVATE_KEY env var (via secrets manager).
+        // Build a wallet for relay transactions.
         let wallet_key = std::env::var("WALLET_PRIVATE_KEY").map_err(|_| {
             eyre::eyre!("WALLET_PRIVATE_KEY env var is required for signing relay transactions")
         })?;
-        let shared_signer = SignerArgs::from_wallet(wallet_key);
+        let signer: PrivateKeySigner = wallet_key
+            .parse()
+            .map_err(|e| eyre::eyre!("failed to parse WALLET_PRIVATE_KEY: {e}"))?;
+        let wallet_address = signer.address();
+        let wallet = EthereumWallet::from(signer.clone());
 
         // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
+        // NOTE: blocks the health server briefly so `Engine` can own the single
+        // `Arc<CommitmentLog>` shared with `/readyz`.
         let wc_rpc_url = rpc_url_from_env(SOURCE_RPC_ENV)?;
-        let wc_provider_args = ProviderArgs::new()
-            .with_http_urls([wc_rpc_url.as_str()])
-            .with_signer(shared_signer.clone());
-        let wc_provider = Arc::new(wc_provider_args.http().await?);
+        let wc_provider = Arc::new(build_provider(&wc_rpc_url, &wallet).await?);
 
         let wc_config = WorldChainConfig::from(&config.source);
-        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone());
+
+        log_wallet_status(
+            wc_provider.as_ref(),
+            wallet_address,
+            wc_config.chain_id,
+            "world_chain",
+        )
+        .await?;
+
+        spawn_wallet_metrics_task(wc_provider.clone(), wc_config.chain_id, wallet_address);
+
+        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone(), &signer);
 
         let mut engine = Engine::new(world_chain);
+
+        // Spawn the health server before per-satellite RPC builds so `/readyz`
+        // can return 503 while the engine backfills.
+        let health_app = Router::new()
+            .route("/livez", get(livez))
+            .route("/readyz", get(readyz))
+            .with_state(engine.log().clone());
+        let health_listener = tokio::net::TcpListener::bind(self.health_bind_addr).await?;
+        tracing::info!(addr = %self.health_bind_addr, "starting health check server");
+        let mut health_task =
+            tokio::spawn(async move { axum::serve(health_listener, health_app).await });
+
         let mut satellite_count = 0usize;
 
         // Spawn permissioned gateway satellites.
         for sat_config in config.permissioned_gateways.iter().flatten() {
-            let provider_args = satellite_provider_args(&sat_config.name, &shared_signer)?;
-            let provider = Arc::new(provider_args.http().await?);
+            match sat_config.chain_type {
+                ChainType::Default => {
+                    let provider = Arc::new(satellite_provider(&sat_config.name, &wallet).await?);
 
-            let satellite = PermissionedSatellite::new(
-                &sat_config.name,
-                config.source.chain_id,
-                sat_config,
-                provider,
-            );
-            engine.spawn_satellite(satellite);
+                    log_wallet_status(
+                        provider.as_ref(),
+                        wallet_address,
+                        sat_config.destination_chain_id,
+                        &sat_config.name,
+                    )
+                    .await?;
+
+                    spawn_wallet_metrics_task(
+                        provider.clone(),
+                        sat_config.destination_chain_id,
+                        wallet_address,
+                    );
+
+                    let satellite = PermissionedSatellite::new(
+                        &sat_config.name,
+                        config.source.chain_id,
+                        sat_config,
+                        provider,
+                    );
+                    engine.spawn_satellite(satellite);
+                }
+                ChainType::Tempo => {
+                    let rpc_url = rpc_url_from_env(&sat_config.rpc_env_var())?;
+
+                    // Standard Ethereum provider for contract reads (sol! bindings).
+                    let read_provider =
+                        Arc::new(satellite_provider(&sat_config.name, &wallet).await?);
+
+                    log_tempo_wallet_status(
+                        read_provider.as_ref(),
+                        wallet_address,
+                        sat_config.destination_chain_id,
+                        &sat_config.name,
+                    )
+                    .await?;
+
+                    spawn_tempo_wallet_metrics_task(
+                        read_provider.clone(),
+                        sat_config.destination_chain_id,
+                        wallet_address,
+                    );
+
+                    // Tempo-typed provider for sending transactions with 2D nonces.
+                    let tempo_provider = ProviderBuilder::new_with_network::<TempoNetwork>()
+                        .with_random_2d_nonces()
+                        .wallet(wallet.clone())
+                        .connect(&rpc_url)
+                        .await?;
+
+                    let satellite = TempoSatellite::new(
+                        &sat_config.name,
+                        config.source.chain_id,
+                        sat_config.gateway,
+                        sat_config.satellite,
+                        sat_config.destination_chain_id,
+                        read_provider,
+                        tempo_provider,
+                    );
+                    engine.spawn_satellite(satellite);
+                }
+            }
             satellite_count += 1;
 
             tracing::info!(
                 name = %sat_config.name,
-                adapter = "permissioned_worldchain",
+                adapter = ?sat_config.chain_type,
                 chain_id = sat_config.destination_chain_id,
-                "registered satellite"
+                "registered permissioned satellite"
             );
         }
 
         // Spawn Ethereum MPT gateway satellites.
         for sat_config in config.ethereum_mpt_gateways.iter().flatten() {
-            let provider_args = satellite_provider_args(&sat_config.name, &shared_signer)?;
-            let provider = Arc::new(provider_args.http().await?);
+            let provider = Arc::new(satellite_provider(&sat_config.name, &wallet).await?);
+
+            log_wallet_status(
+                provider.as_ref(),
+                wallet_address,
+                sat_config.destination_chain_id,
+                &sat_config.name,
+            )
+            .await?;
+
+            spawn_wallet_metrics_task(
+                provider.clone(),
+                sat_config.destination_chain_id,
+                wallet_address,
+            );
 
             let satellite = EthereumMptSatellite::from_config(
                 &wc_config,
@@ -347,9 +634,19 @@ impl Cli {
         }
 
         tokio::select! {
-            result = engine.run() => result,
+            result = engine.run() => {
+                health_task.abort();
+                result
+            }
+            result = &mut health_task => match result {
+                Ok(Ok(())) => Err(eyre::eyre!("health server exited unexpectedly")),
+                Ok(Err(e)) => Err(eyre::Report::from(e)),
+                Err(e) if e.is_cancelled() => Ok(()),
+                Err(e) => Err(eyre::Report::from(e)),
+            },
             _ = shutdown => {
                 tracing::info!("received shutdown signal");
+                health_task.abort();
                 Ok(())
             }
         }
@@ -388,6 +685,13 @@ mod tests {
                     "destination_chain_id": 84532,
                     "gateway": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                     "satellite": "0xffffffffffffffffffffffffffffffffffffffff"
+                },
+                {
+                    "name": "TEMPO",
+                    "destination_chain_id": 12345,
+                    "gateway": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "satellite": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "chain_type": "tempo"
                 }
             ]
         }"#;
@@ -409,9 +713,18 @@ mod tests {
         );
 
         let perm = config.permissioned_gateways.as_ref().unwrap();
-        assert_eq!(perm.len(), 1);
+        assert_eq!(perm.len(), 2);
+
+        // Standard EVM satellite
         assert_eq!(perm[0].name, "BASE_SEPOLIA");
         assert_eq!(perm[0].rpc_env_var(), "BASE_SEPOLIA_RPC_URL");
+        assert_eq!(perm[0].chain_type, ChainType::Default);
+
+        // Tempo satellite
+        assert_eq!(perm[1].name, "TEMPO");
+        assert_eq!(perm[1].rpc_env_var(), "TEMPO_RPC_URL");
+        assert_eq!(perm[1].destination_chain_id, 12345);
+        assert_eq!(perm[1].chain_type, ChainType::Tempo);
     }
 
     #[test]

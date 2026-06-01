@@ -1,35 +1,20 @@
 #![cfg(feature = "integration-tests")]
 
 use alloy::{
-    primitives::{Address, Bytes, U256, address},
+    primitives::{Address, Signature, U256, address},
     signers::{Signer, local::PrivateKeySigner},
     sol_types::SolStruct,
 };
-use redis::aio::ConnectionManager;
 use reqwest::{Client, StatusCode};
-use world_id_core::{
-    api_types::{InsertAuthenticatorRequest, UpdateAuthenticatorRequest},
-    world_id_registry::{InsertAuthenticatorTypedData, UpdateAuthenticatorTypedData},
-};
 use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway_for_tests};
+use world_id_primitives::api_types::{InsertAuthenticatorRequest, UpdateAuthenticatorRequest};
+use world_id_registries::world_id::{InsertAuthenticatorTypedData, UpdateAuthenticatorTypedData};
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::wait_http_ready;
+use crate::common::{GW_PRIVATE_KEY, start_redis, wait_http_ready};
 
 mod common;
-
-const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-
-async fn set_up_redis(redis_url: &str) -> ConnectionManager {
-    let client = redis::Client::open(redis_url).expect("Failed to create Redis client");
-    client.get_connection_manager().await.unwrap()
-}
-
-async fn flush_redis(redis: &mut ConnectionManager) {
-    use redis::AsyncTypedCommands;
-    redis.flushdb().await.unwrap();
-}
 
 /// Helper to sign an InsertAuthenticator request
 #[allow(clippy::too_many_arguments)]
@@ -43,7 +28,7 @@ async fn sign_insert_authenticator(
     signer: &PrivateKeySigner,
     chain_id: u64,
     verifying_contract: Address,
-) -> Bytes {
+) -> Signature {
     let typed_data = InsertAuthenticatorTypedData {
         leafIndex: leaf_index,
         newAuthenticatorAddress: new_authenticator_address,
@@ -61,17 +46,12 @@ async fn sign_insert_authenticator(
     };
 
     let hash = typed_data.eip712_signing_hash(&domain);
-    let signature = signer.sign_hash(&hash).await.unwrap();
-
-    Bytes::from(signature.as_bytes())
+    signer.sign_hash(&hash).await.unwrap()
 }
 
 #[tokio::test]
 async fn test_rate_limit_basic() {
-    let redis_url =
-        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
-    let mut redis = set_up_redis(&redis_url).await;
-    flush_redis(&mut redis).await;
+    let (redis_url, _redis_container) = start_redis().await;
 
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
@@ -82,6 +62,7 @@ async fn test_rate_limit_basic() {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
+        registry_version: None,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),
@@ -89,7 +70,7 @@ async fn test_rate_limit_basic() {
         },
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4105).into(),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
@@ -101,9 +82,10 @@ async fn test_rate_limit_basic() {
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
+    let gw_addr = _gw.listen_addr;
     let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, 4105).await;
-    let base = "http://127.0.0.1:4105";
+    wait_http_ready(&client, gw_addr.port()).await;
+    let base = format!("http://{}:{}", gw_addr.ip(), gw_addr.port());
 
     let signer = PrivateKeySigner::random();
     let chain_id = 31337; // Anvil default chain ID
@@ -132,7 +114,7 @@ async fn test_rate_limit_basic() {
         new_authenticator_pubkey: U256::from(100),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(2),
-        signature: signature1.to_vec(),
+        signature: signature1,
         nonce: U256::from(0),
     };
 
@@ -172,7 +154,7 @@ async fn test_rate_limit_basic() {
         new_authenticator_pubkey: U256::from(200),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(3),
-        signature: signature2.to_vec(),
+        signature: signature2,
         nonce: U256::from(0),
     };
 
@@ -210,7 +192,7 @@ async fn test_rate_limit_basic() {
         new_authenticator_pubkey: U256::from(300),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(4),
-        signature: signature3.to_vec(),
+        signature: signature3,
         nonce: U256::from(0),
     };
 
@@ -248,7 +230,7 @@ async fn test_rate_limit_basic() {
         new_authenticator_pubkey: U256::from(400),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(5),
-        signature: signature4.to_vec(),
+        signature: signature4,
         nonce: U256::from(0),
     };
 
@@ -277,10 +259,7 @@ async fn test_rate_limit_basic() {
 
 #[tokio::test]
 async fn test_rate_limit_different_leaf_indexes() {
-    let redis_url =
-        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
-    let mut redis = set_up_redis(&redis_url).await;
-    flush_redis(&mut redis).await;
+    let (redis_url, _redis_container) = start_redis().await;
 
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
@@ -291,6 +270,7 @@ async fn test_rate_limit_different_leaf_indexes() {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
+        registry_version: None,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),
@@ -298,7 +278,7 @@ async fn test_rate_limit_different_leaf_indexes() {
         },
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4106).into(),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
@@ -310,9 +290,10 @@ async fn test_rate_limit_different_leaf_indexes() {
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
+    let gw_addr = _gw.listen_addr;
     let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, 4106).await;
-    let base = "http://127.0.0.1:4106";
+    wait_http_ready(&client, gw_addr.port()).await;
+    let base = format!("http://{}:{}", gw_addr.ip(), gw_addr.port());
 
     let signer = PrivateKeySigner::random();
     let chain_id = 31337;
@@ -339,7 +320,7 @@ async fn test_rate_limit_different_leaf_indexes() {
             new_authenticator_pubkey: U256::from(100 + i),
             old_offchain_signer_commitment: U256::from(1),
             new_offchain_signer_commitment: U256::from(2 + i as u64),
-            signature: signature.to_vec(),
+            signature,
             nonce: U256::from(0),
         };
 
@@ -375,7 +356,7 @@ async fn test_rate_limit_different_leaf_indexes() {
             new_authenticator_pubkey: U256::from(200 + i),
             old_offchain_signer_commitment: U256::from(1),
             new_offchain_signer_commitment: U256::from(3 + i as u64),
-            signature: signature.to_vec(),
+            signature,
             nonce: U256::from(0),
         };
 
@@ -415,7 +396,7 @@ async fn test_rate_limit_different_leaf_indexes() {
         new_authenticator_pubkey: U256::from(500),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(10),
-        signature: signature_extra.to_vec(),
+        signature: signature_extra,
         nonce: U256::from(0),
     };
 
@@ -435,10 +416,7 @@ async fn test_rate_limit_different_leaf_indexes() {
 
 #[tokio::test]
 async fn test_rate_limit_sliding_window() {
-    let redis_url =
-        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
-    let mut redis = set_up_redis(&redis_url).await;
-    flush_redis(&mut redis).await;
+    let (redis_url, _redis_container) = start_redis().await;
 
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
@@ -449,6 +427,7 @@ async fn test_rate_limit_sliding_window() {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
+        registry_version: None,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),
@@ -456,7 +435,7 @@ async fn test_rate_limit_sliding_window() {
         },
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4107).into(),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(3),
@@ -468,9 +447,10 @@ async fn test_rate_limit_sliding_window() {
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
+    let gw_addr = _gw.listen_addr;
     let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, 4107).await;
-    let base = "http://127.0.0.1:4107";
+    wait_http_ready(&client, gw_addr.port()).await;
+    let base = format!("http://{}:{}", gw_addr.ip(), gw_addr.port());
 
     let signer = PrivateKeySigner::random();
     let chain_id = 31337;
@@ -498,7 +478,7 @@ async fn test_rate_limit_sliding_window() {
             new_authenticator_pubkey: U256::from(100 + i),
             old_offchain_signer_commitment: U256::from(1),
             new_offchain_signer_commitment: U256::from(2 + i as u64),
-            signature: signature.to_vec(),
+            signature,
             nonce: U256::from(0),
         };
 
@@ -533,7 +513,7 @@ async fn test_rate_limit_sliding_window() {
         new_authenticator_pubkey: U256::from(300),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(5),
-        signature: signature3.to_vec(),
+        signature: signature3,
         nonce: U256::from(0),
     };
 
@@ -570,7 +550,7 @@ async fn test_rate_limit_sliding_window() {
         new_authenticator_pubkey: U256::from(400),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(6),
-        signature: signature4.to_vec(),
+        signature: signature4,
         nonce: U256::from(0),
     };
 
@@ -590,10 +570,7 @@ async fn test_rate_limit_sliding_window() {
 
 #[tokio::test]
 async fn test_rate_limit_multiple_endpoints() {
-    let redis_url =
-        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
-    let mut redis = set_up_redis(&redis_url).await;
-    flush_redis(&mut redis).await;
+    let (redis_url, _redis_container) = start_redis().await;
 
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
@@ -604,6 +581,7 @@ async fn test_rate_limit_multiple_endpoints() {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
+        registry_version: None,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),
@@ -611,7 +589,7 @@ async fn test_rate_limit_multiple_endpoints() {
         },
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4108).into(),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
         rate_limit_window_secs: Some(10),
@@ -623,9 +601,10 @@ async fn test_rate_limit_multiple_endpoints() {
     };
 
     let _gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
+    let gw_addr = _gw.listen_addr;
     let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, 4108).await;
-    let base = "http://127.0.0.1:4108";
+    wait_http_ready(&client, gw_addr.port()).await;
+    let base = format!("http://{}:{}", gw_addr.ip(), gw_addr.port());
 
     let signer = PrivateKeySigner::random();
     let chain_id = 31337;
@@ -652,7 +631,7 @@ async fn test_rate_limit_multiple_endpoints() {
         new_authenticator_pubkey: U256::from(100),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(2),
-        signature: insert_signature.to_vec(),
+        signature: insert_signature,
         nonce: U256::from(0),
     };
 
@@ -690,8 +669,8 @@ async fn test_rate_limit_multiple_endpoints() {
                 verifying_contract: registry_addr,
             };
             let hash = typed_data.eip712_signing_hash(&domain);
-            let sig = signer.sign_hash(&hash).await.unwrap();
-            Bytes::from(sig.as_bytes()).to_vec()
+
+            signer.sign_hash(&hash).await.unwrap()
         },
         nonce: U256::from(0),
     };
@@ -725,7 +704,7 @@ async fn test_rate_limit_multiple_endpoints() {
         new_authenticator_pubkey: U256::from(300),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(4),
-        signature: insert_signature2.to_vec(),
+        signature: insert_signature2,
         nonce: U256::from(0),
     };
 
@@ -758,7 +737,7 @@ async fn test_rate_limit_multiple_endpoints() {
         new_authenticator_pubkey: U256::from(400),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(5),
-        signature: insert_signature3.to_vec(),
+        signature: insert_signature3,
         nonce: U256::from(0),
     };
 

@@ -29,6 +29,7 @@ fmt:
 	$(MAKE) sol-fmt
 
 lint:
+	$(MAKE) check-rust-fmt
 	$(MAKE) rust-clippy
 
 rust-build:
@@ -39,6 +40,9 @@ rust-test:
 
 rust-fmt:
 	cargo +nightly fmt --all
+
+check-rust-fmt:
+	cargo +nightly fmt --all -- --check
 
 rust-clippy:
 	cargo clippy --workspace --all-targets -- -D warnings
@@ -52,8 +56,9 @@ run-gateway:
 # forge install requires git; skip in Docker where .git is excluded but lib/ contents are copied
 sol-build:
 	cd contracts && if git rev-parse --git-dir > /dev/null 2>&1; then forge install; fi && forge build && \
-	mkdir -p ../crates/authenticator/abi ../crates/issuer/abi ../services/oprf-node/abi && \
-	forge inspect WorldIDRegistry abi --json > ../crates/authenticator/abi/WorldIDRegistryAbi.json && \
+	mkdir -p ../crates/registries/abi ../crates/issuer/abi ../services/oprf-node/abi && \
+	forge inspect WorldIDRegistry abi --json > ../crates/registries/abi/WorldIDRegistryAbi.json && \
+	forge inspect WorldIDRegistryV2 abi --json > ../crates/registries/abi/WorldIDRegistryV2Abi.json && \
 	forge inspect CredentialSchemaIssuerRegistry abi --json > ../crates/issuer/abi/CredentialSchemaIssuerRegistryAbi.json && \
 	forge inspect CredentialSchemaIssuerRegistry abi --json > ../services/oprf-node/abi/CredentialSchemaIssuerRegistryAbi.json && \
 	forge inspect RpRegistry abi --json > ../services/oprf-node/abi/RpRegistryAbi.json

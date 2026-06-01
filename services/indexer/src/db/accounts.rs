@@ -80,8 +80,8 @@ where
         let result = sqlx::query(
             r#"
                 SELECT
-                    authenticator_pubkeys,
-                    offchain_signer_commitment
+                    offchain_signer_commitment,
+                    authenticator_pubkeys
                 FROM accounts
                 WHERE
                     leaf_index = $1

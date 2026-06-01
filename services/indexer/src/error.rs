@@ -8,7 +8,7 @@ use axum::response::IntoResponse;
 use http::StatusCode;
 use std::backtrace::Backtrace;
 use thiserror::Error;
-use world_id_core::api_types::{IndexerErrorCode, ServiceApiError};
+use world_id_primitives::api_types::{IndexerErrorCode, ServiceApiError};
 
 pub type IndexerResult<T> = Result<T, IndexerError>;
 

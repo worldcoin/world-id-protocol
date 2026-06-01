@@ -135,7 +135,7 @@ contract WorldIDSatellite is IWorldID, ERC7786Recipient, StateBridge {
             issuerPubKeyInfo.pubKey.y,
             uint256(expiresAtMin),
             credentialGenesisIssuedAtMin,
-            LATEST_ROOT(),
+            root,
             TREE_DEPTH,
             uint256(rpId),
             action,

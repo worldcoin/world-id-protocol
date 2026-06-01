@@ -1,4 +1,5 @@
 use ark_babyjubjub::EdwardsAffine;
+use ark_ff::BigInt;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use rand::Rng;
 use ruint::aliases::U256;
@@ -7,7 +8,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use crate::{FieldElement, PrimitiveError, sponge::hash_bytes_to_field_element};
 
 /// Domain separation tag to avoid collisions with other Poseidon2 usages.
-const ASSOCIATED_DATA_HASH_DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
+const ASSOCIATED_DATA_COMMITMENT_DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
 const CLAIMS_HASH_DS_TAG: &[u8] = b"CLAIMS_HASH_V1";
 const SUB_DS_TAG: &[u8] = b"H_CS(id, r)";
 
@@ -32,34 +33,50 @@ pub enum CredentialVersion {
 /// In the case of World ID these statements are about humans, with the most common
 /// credentials being Orb verification or document verification.
 ///
+/// # Credential Lifecycle
+///
+/// The following official terminology is defined for the lifecycle of a Credential.
+/// - **Issuance** (can also be called **Enrollment**): Process by which a credential is initially issued to a user.
+/// - **Renewal**: Process by which a user requests a new Credential from a previously existing active or
+///   expired Credential. This usually happens close to Credential expiration. _It is analogous to
+///   when you request a renewal of your passport, you get a new passport with a new expiration date._
+/// - **Re-Issuance**: Process by which a user obtains a copy of their existing Credential. The copy does not
+///   need to be exact, but the original expiration date MUST be preserved. This usually occurs when a user
+///   accidentally lost their Credential (e.g. disk failure, authenticator loss) and needs to recover for an existing period.
+///
 /// # Associated Data
 ///
-/// Credentials have a pre-defined strict structure, which is determined by their version. Extending this,
-/// issuers may opt to include additional arbitrary data with the Credential. This data is called
-/// **Associated Data**.
+/// Credentials have a pre-defined strict structure, which is determined by their version. Issuers
+/// may opt to include additional arbitrary data with the Credential (**Associated Data**). This arbitrary data
+/// can be used to support the issuer in the operation of their Credential (for example it may contain an identifier
+/// to allow credential refresh).
+///
 /// - Associated data is stored by Authenticators with the Credential.
-/// - Including associated data is a decision by the issuer. Its structure and content is solely
+/// - Introducing associated data is a decision by the issuer. Its structure and content is solely
 ///   determined by the issuer and the data will not be exposed to RPs or others.
 /// - An example of associated data use is supporting data to re-issue a credential (e.g. a sign up number).
-/// - Associated data is never exposed to RPs or others. It only lives in the Authenticator.
-/// - Associated data is authenticated in the Credential through the `associated_data_hash` field. The issuer
-///   can determine how this data is hashed. However providing the raw data to `associated_data` can ensure a
-///   consistent hashing into the field.
+/// - Associated data is never exposed to RPs or others. It only lives in the Authenticator and may be provided
+///   to issuers.
+/// - Associated data is authenticated in the Credential through the `associated_data_commitment` field. The issuer
+///   MUST determine how this commitment is computed. Issuers may opt to use the [`Credential::associated_data_commitment_from_raw_bytes`]
+///   helper to ensure their raw data is committed, but other commitment mechanisms may make sense depending on the
+///   structure of the associated data.
+///
 /// ```text
-/// +------------------------------+
-/// |          Credential          |
-/// |                              |
-/// |  - associated_data_hash <----+
-/// |  - signature                 |
-/// +------------------------------+
-///           ^
-///           |
-///     Hash(associated_data)
-///           |
+/// +------------------------------------+
+/// |          Credential                |
+/// |                                    |
+/// |  - associated_data_commitment <----+
+/// |  - signature                       |
+/// +------------------------------------+
+///               ^
+///               |
+///     Commitment(associated_data)
+///               |
 /// Associated Data
-/// +------------------------------+
-/// | Optional arbitrary data      |
-/// +------------------------------+
+/// +------------------------------------+
+/// | Optional arbitrary data            |
+/// +------------------------------------+
 /// ```
 ///
 /// # Design Principles:
@@ -95,6 +112,16 @@ pub struct Credential {
     pub id: u64,
     /// The version of the Credential determines its structure.
     pub version: CredentialVersion,
+    /// A reference version field for issuer use. Different versions can determine how
+    /// the issuer-defined fields are constructed for a Credential.
+    ///
+    /// # Usage Examples
+    /// - Different claims values and their meaning could be determined from
+    ///   distinct issuer versions.
+    /// - Different construction of associated data or its commitment can be
+    ///   determined from distinct issuer versions.
+    #[serde(default)]
+    pub issuer_version: u8,
     /// Unique issuer schema id represents the unique combination of the credential's
     /// schema and the issuer.
     ///
@@ -106,7 +133,8 @@ pub struct Credential {
     /// The underlying identifier comes from the `WorldIDRegistry` and is
     /// the `leaf_index` of the World ID on the Merkle tree. However, this is blinded
     /// for each `issuer_schema_id` with a blinding factor to prevent correlation of credentials
-    /// by malicious issuers.
+    /// by malicious issuers. See [`Self::compute_sub`] for details on how the credential blinding factor
+    /// is computed.
     pub sub: FieldElement,
     /// Timestamp of **first issuance** of this credential (unix seconds), i.e. this represents when the holder
     /// first obtained the credential. Even if the credential has been issued multiple times (e.g. because of a renewal),
@@ -123,13 +151,17 @@ pub struct Credential {
     ///
     /// Currently these statements are not in use in the Proofs yet.
     pub claims: Vec<FieldElement>,
-    /// The commitment to the associated data issued with the Credential.
+    /// The commitment to the Associated Data issued with the Credential.
     ///
-    /// By default this uses the internal `hash_bytes_to_field_element` function,
-    /// but each issuer may determine their own hashing algorithm.
+    /// This may use a common hashing algorithm from the raw bytes of the
+    /// asscociated data and one function is exposed for this convenience,
+    /// [`hash_bytes_to_field_element`]. Each issuer however determines how
+    /// best to construct this value to establish the integrity of their Associated Data.
     ///
-    /// This hash is generally only used by the issuer.
-    pub associated_data_hash: FieldElement,
+    /// This commitment is only for issuer use.
+    #[serde(alias = "associated_data_hash")]
+    // this was previously named `associated_data_hash`; fallback will be removed in the next version
+    pub associated_data_commitment: FieldElement,
     /// The signature of the credential (signed by the issuer's key)
     #[serde(serialize_with = "serialize_signature")]
     #[serde(deserialize_with = "deserialize_signature")]
@@ -154,12 +186,13 @@ impl Credential {
         Self {
             id: rng.r#gen(),
             version: CredentialVersion::V1,
+            issuer_version: 0,
             issuer_schema_id: 0,
             sub: FieldElement::ZERO,
             genesis_issued_at: 0,
             expires_at: 0,
             claims: vec![FieldElement::ZERO; Self::MAX_CLAIMS],
-            associated_data_hash: FieldElement::ZERO,
+            associated_data_commitment: FieldElement::ZERO,
             signature: None,
             issuer: EdDSAPublicKey {
                 pk: EdwardsAffine::default(),
@@ -178,6 +211,13 @@ impl Credential {
     #[must_use]
     pub const fn version(mut self, version: CredentialVersion) -> Self {
         self.version = version;
+        self
+    }
+
+    /// Set the `issuer_version` of the credential.
+    #[must_use]
+    pub const fn issuer_version(mut self, issuer_version: u8) -> Self {
+        self.issuer_version = issuer_version;
         self
     }
 
@@ -238,32 +278,38 @@ impl Credential {
         self.claims[index] = hash_bytes_to_field_element(CLAIMS_HASH_DS_TAG, claim)?;
         Ok(self)
     }
-    /// Set the associated data hash of the credential from a pre-computed hash.
+
+    /// Set the associated data commitment of the credential.
     ///
     /// # Errors
     /// Will error if the provided hash cannot be lowered into the field.
-    pub fn associated_data_hash(
+    pub fn associated_data_commitment(
         mut self,
-        associated_data_hash: U256,
+        associated_data_commitment: U256,
     ) -> Result<Self, PrimitiveError> {
-        self.associated_data_hash = associated_data_hash
+        self.associated_data_commitment = associated_data_commitment
             .try_into()
             .map_err(|_| PrimitiveError::NotInField)?;
         Ok(self)
     }
 
-    /// Set the associated data hash by hashing arbitrary bytes using Poseidon2.
+    /// Set the associated data commitment from arbitrary bytes. This can be
+    /// used to construct the associated data commitment in a canonical way.
     ///
-    /// This method accepts arbitrary bytes, converts them to field elements,
-    /// applies a Poseidon2 hash, and stores the result as the associated data hash.
+    /// This method takes arbitrary bytes, converts them to field elements,
+    /// applies a Poseidon2 hash, and stores the result as the associated data commitment.
     ///
     /// # Arguments
-    /// * `data` - Arbitrary bytes to hash (any length).
+    /// * `data` - Arbitrary bytes to be committed (any length).
     ///
     /// # Errors
     /// Will error if the data is empty.
-    pub fn associated_data(mut self, data: &[u8]) -> Result<Self, PrimitiveError> {
-        self.associated_data_hash = hash_bytes_to_field_element(ASSOCIATED_DATA_HASH_DS_TAG, data)?;
+    pub fn associated_data_commitment_from_raw_bytes(
+        mut self,
+        data: &[u8],
+    ) -> Result<Self, PrimitiveError> {
+        self.associated_data_commitment =
+            hash_bytes_to_field_element(ASSOCIATED_DATA_COMMITMENT_DS_TAG, data)?;
         Ok(self)
     }
 
@@ -292,7 +338,7 @@ impl Credential {
         Ok(input[1].into())
     }
 
-    // Computes the specifically designed hash of the credential for the given version.
+    /// Computes the canonical hash of the Credential.
     ///
     /// The hash is signed by the issuer to provide authenticity for the credential.
     ///
@@ -302,6 +348,8 @@ impl Credential {
     pub fn hash(&self) -> Result<FieldElement, eyre::Error> {
         match self.version {
             CredentialVersion::V1 => {
+                let id_issuer_version = BigInt([self.id, self.issuer_version as u64, 0, 0]);
+
                 let mut input = [
                     *self.get_cred_ds(),
                     self.issuer_schema_id.into(),
@@ -309,8 +357,8 @@ impl Credential {
                     self.genesis_issued_at.into(),
                     self.expires_at.into(),
                     *self.claims_hash()?,
-                    *self.associated_data_hash,
-                    self.id.into(),
+                    *self.associated_data_commitment,
+                    id_issuer_version.into(),
                 ];
                 poseidon2::bn254::t8::permutation_in_place(&mut input);
                 Ok(input[1].into())
@@ -455,28 +503,48 @@ where
 mod tests {
     use super::*;
 
+    /// Tests the hash is deterministically computed for a default credential, this
+    /// helps detect issues where hashing inadvertently changed.
+    ///
+    /// Particularly relevant to ensure the introduction of other attributes into the last
+    /// item of the permutation does not bring in breaking changes.
+    #[test]
+    fn test_deterministic_credential_hash() {
+        let mut credential = Credential::new();
+        credential.id = 1;
+        assert_eq!(
+            hex::encode(credential.hash().unwrap().to_be_bytes()),
+            "2bc705762cbe8f31e0c3045ca347109ba3630b4b7ea955dc71515f182a079ae9"
+        );
+    }
+
     #[test]
     fn test_associated_data_matches_direct_hash() {
         let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-        // Using the associated_data method
-        let credential = Credential::new().associated_data(&data).unwrap();
+        // Using the associated_data_commitment_from_raw_bytes method
+        let credential = Credential::new()
+            .associated_data_commitment_from_raw_bytes(&data)
+            .unwrap();
 
         // Using the hash function directly
-        let direct_hash = hash_bytes_to_field_element(ASSOCIATED_DATA_HASH_DS_TAG, &data).unwrap();
+        let direct_hash =
+            hash_bytes_to_field_element(ASSOCIATED_DATA_COMMITMENT_DS_TAG, &data).unwrap();
 
         // Both should produce the same hash
-        assert_eq!(credential.associated_data_hash, direct_hash);
+        assert_eq!(credential.associated_data_commitment, direct_hash);
     }
 
     #[test]
     fn test_associated_data_method() {
         let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8];
 
-        let credential = Credential::new().associated_data(&data).unwrap();
+        let credential = Credential::new()
+            .associated_data_commitment_from_raw_bytes(&data)
+            .unwrap();
 
-        // Should have a non-zero associated data hash
-        assert_ne!(credential.associated_data_hash, FieldElement::ZERO);
+        // Should have a non-zero associated data commitment
+        assert_ne!(credential.associated_data_commitment, FieldElement::ZERO);
     }
 
     #[test]
@@ -501,5 +569,34 @@ mod tests {
 
         // Should have a non-zero claim hash
         assert_ne!(credential.claims[1], FieldElement::ZERO);
+    }
+
+    /// Tests that `issuer_version` is bound into the credential hash so that it
+    /// cannot be tampered with after issuance without invalidating the signature.
+    #[test]
+    fn test_issuer_version_is_bound_to_credential_hash() {
+        let mut credential = Credential::new();
+        credential.id = 1;
+        credential.issuer_version = 1;
+
+        let mut tampered = credential.clone();
+        tampered.issuer_version = 2;
+
+        let original_hash = credential.hash().unwrap();
+        let tampered_hash = tampered.hash().unwrap();
+        assert_ne!(original_hash, tampered_hash);
+
+        let signer = EdDSAPrivateKey::random(&mut rand::thread_rng());
+        let signed = credential.sign(&signer).unwrap();
+        let issuer_pubkey = signer.public();
+
+        assert!(signed.verify_signature(&issuer_pubkey).unwrap());
+
+        let mut tampered_signed = signed.clone();
+        tampered_signed.issuer_version = signed.issuer_version.wrapping_add(1);
+        assert!(
+            !tampered_signed.verify_signature(&issuer_pubkey).unwrap(),
+            "tampering with issuer_version must invalidate the signature"
+        );
     }
 }

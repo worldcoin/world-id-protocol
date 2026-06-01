@@ -9,9 +9,10 @@ use alloy::{
     rpc::types::Filter,
     signers::local::PrivateKeySigner,
 };
+use eddsa_babyjubjub::EdDSAPrivateKey;
 use futures_util::{StreamExt, TryStreamExt};
-use world_id_core::{EdDSAPrivateKey, world_id_registry::WorldIdRegistry};
 use world_id_indexer::blockchain::{Blockchain, BlockchainError, BlockchainEvent, RegistryEvent};
+use world_id_registries::world_id::WorldIdRegistry;
 use world_id_services_common::ProviderArgs;
 use world_id_test_utils::anvil::TestAnvil;
 
@@ -378,9 +379,19 @@ async fn test_stream_stops_on_error() {
     .await
     .expect("timed out waiting for error after anvil kill");
 
+    // After killing Anvil the stream must stop with a connectivity error.
+    // Which variant surfaces depends on whether the remaining backfill events
+    // were already buffered before the kill (→ WsSubscriptionClosed, because
+    // the stream transitioned to the WS phase before the HTTP client had a
+    // chance to fail) or whether the HTTP client sees the dead process first
+    // (→ Rpc).  Both are correct outcomes: the important invariant is that the
+    // stream yields exactly one Err and then terminates.
     assert!(
-        matches!(error_event, Some(Err(BlockchainError::Rpc(_)))),
-        "expected Some(Err(BlockchainError::Rpc(...))) after killing anvil, got {error_event:?}"
+        matches!(
+            error_event,
+            Some(Err(BlockchainError::Rpc(_))) | Some(Err(BlockchainError::WsSubscriptionClosed))
+        ),
+        "expected a connectivity error after killing anvil, got {error_event:?}"
     );
 
     // Stream must terminate immediately after the first error.

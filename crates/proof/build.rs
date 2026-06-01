@@ -4,14 +4,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[cfg(feature = "embed-zkeys")]
 use std::{fs::File, io};
 
-#[cfg(feature = "embed-zkeys")]
 const GITHUB_REPO: &str = "worldcoin/world-id-protocol";
 
-#[cfg(feature = "embed-zkeys")]
-const CIRCUIT_COMMIT: &str = "aaf8f2650b003a8bb06feb26bed6277629d4c0bf"; // TODO: Figure out a better way for static commits
+const CIRCUIT_ARTIFACT_RELEASE_TAG: &str = "circuit-artifacts-v0.1.0";
 
 const CIRCUIT_FILES: &[&str] = &[
     "circom/OPRFQueryGraph.bin",
@@ -29,17 +26,21 @@ fn main() -> eyre::Result<()> {
         println!("cargo:rustc-check-cfg=cfg(docsrs)");
     }
 
-    // Skip for docs.rs as it doesn't have network access
+    // Skip for docs.rs as it doesn't have network access.
     if env::var("DOCS_RS").is_ok() {
-        println!("cargo:warning=Building for docs.rs, skipping circuit file downloads");
+        println!("cargo:warning=Building for docs.rs, skipping circuit compilation");
         return Ok(());
     }
+
+    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+
+    // Copy prebuilt Noir ownership proof artifacts into OUT_DIR.
+    #[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
+    setup_noir_ownership_proof(&out_dir)?;
 
     if env::var("CARGO_FEATURE_EMBED_ZKEYS").is_err() {
         return Ok(());
     };
-
-    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
     for path_str in CIRCUIT_FILES {
         let path = Path::new(path_str);
@@ -80,7 +81,7 @@ fn main() -> eyre::Result<()> {
     if needs_rebuild {
         let file = fs::File::create(&archive_path)?;
         if use_zstd {
-            let encoder = zstd::Encoder::new(file, 0)?;
+            let encoder = zstd::Encoder::new(file, 9)?;
             let mut tar = tar::Builder::new(encoder);
             for (name, path) in &files_to_bundle {
                 tar.append_path_with_name(path, name)?;
@@ -98,7 +99,12 @@ fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "embed-zkeys")]
+fn circuit_artifact_url(file_name: &str) -> String {
+    format!(
+        "https://github.com/{GITHUB_REPO}/releases/download/{CIRCUIT_ARTIFACT_RELEASE_TAG}/{file_name}"
+    )
+}
+
 fn download_file(url: &str, output_path: &Path) -> eyre::Result<()> {
     let response = reqwest::blocking::get(url)?;
 
@@ -123,29 +129,31 @@ fn fetch_circuit_file(path: &Path, out_dir: &Path) -> eyre::Result<()> {
             .and_then(|p| p.parent())
             .map(|p| p.join(path));
 
-        if let Some(path) = local_path {
-            if path.exists() {
-                // Hard links fail across filesystem boundaries (e.g. in cross Docker containers),
-                // so fall back to copying the file.
-                if std::fs::hard_link(&path, &output_path).is_err() {
-                    std::fs::copy(&path, &output_path)?;
-                }
-                println!("cargo:rerun-if-changed={}", path.display());
-                return Ok(());
+        if let Some(path) = local_path
+            && path.exists()
+        {
+            if output_path.exists() {
+                fs::remove_file(&output_path)?;
             }
+            // Hard links fail across filesystem boundaries (e.g. in cross Docker containers),
+            // so fall back to copying the file.
+            if std::fs::hard_link(&path, &output_path).is_err() {
+                fs::copy(&path, &output_path)?;
+            }
+            println!("cargo:rerun-if-changed={}", path.display());
+            return Ok(());
         }
     }
 
-    // Download from GitHub: we need to do this because crates.io enforce a hard limit on the
-    // size of a crate upload of ~10MB and the circuit files are heavier than that.
+    // Download from GitHub releases: we need to do this because crates.io enforce a hard limit on
+    // the size of a crate upload of ~10MB and the circuit files are heavier than that.
     #[cfg(feature = "embed-zkeys")]
     {
-        let url = format!(
-            "https://raw.githubusercontent.com/{}/{}/{}",
-            GITHUB_REPO,
-            CIRCUIT_COMMIT,
-            path.to_str().ok_or_eyre("invalid path")?
-        );
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_eyre("invalid path")?;
+        let url = circuit_artifact_url(file_name);
 
         download_file(&url, &output_path)?;
         Ok(())
@@ -217,6 +225,41 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
 
             Ok(())
         })?;
+
+    Ok(())
+}
+
+#[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
+fn setup_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    let artifact_dir = manifest_dir.join("noir/ownership-proof/artifacts");
+
+    fetch_noir_artifact(&artifact_dir, "ownership_proof.pkp", out_dir)?;
+    fetch_noir_artifact(&artifact_dir, "ownership_proof.pkv", out_dir)?;
+
+    Ok(())
+}
+
+#[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
+fn fetch_noir_artifact(artifact_dir: &Path, file_name: &str, out_dir: &Path) -> eyre::Result<()> {
+    let output_path = out_dir.join(file_name);
+    let local_path = artifact_dir.join(file_name);
+
+    if local_path.exists() {
+        if output_path.exists() {
+            fs::remove_file(&output_path)?;
+        }
+        fs::copy(&local_path, &output_path)?;
+        println!("cargo:rerun-if-changed={}", local_path.display());
+        return Ok(());
+    }
+
+    let url = circuit_artifact_url(file_name);
+    download_file(&url, &output_path).map_err(|e| {
+        eyre::eyre!(
+            "failed to fetch Noir artifact {file_name}. Run `just build-noir-artifacts` to generate it locally, or publish it at {url}: {e}"
+        )
+    })?;
 
     Ok(())
 }

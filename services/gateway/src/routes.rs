@@ -9,17 +9,23 @@ use crate::{
     config::{BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig},
     error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
     orphan_sweeper::run_orphan_sweeper,
+    registry_version::RegistryVersion,
     request::GatewayContext,
     request_tracker::RequestTracker,
     routes::{
+        cancel_recovery_agent_update::cancel_recovery_agent_update,
         create_account::create_account,
+        execute_recovery_agent_update::execute_recovery_agent_update,
         health::{__path_health, health},
+        initiate_recovery_agent_update::initiate_recovery_agent_update,
         insert_authenticator::insert_authenticator,
         is_valid_root::is_valid_root,
         recover_account::recover_account,
         remove_authenticator::remove_authenticator,
         request_status::request_status,
+        revert_recovery_agent_update::revert_recovery_agent_update,
         update_authenticator::update_authenticator,
+        update_recovery_agent::update_recovery_agent,
     },
     types::RootExpiry,
 };
@@ -32,35 +38,52 @@ use axum::{
     routing::{get, post},
 };
 use moka::future::Cache;
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 use utoipa::OpenApi;
-use world_id_core::{
-    api_types::{
-        CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
-        GatewayStatusResponse, HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery,
-        IsValidRootResponse, RecoverAccountRequest, RemoveAuthenticatorRequest,
-        UpdateAuthenticatorRequest,
-    },
-    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
+use world_id_primitives::api_types::{
+    CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
+    GatewayErrorCode, GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
+    HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery, IsValidRootResponse,
+    RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+    UpdateRecoveryAgentRequest,
 };
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
-mod create_account;
+// Health and status routes
 mod health;
-mod insert_authenticator;
-mod is_valid_root;
-pub(crate) mod middleware;
-mod recover_account;
-mod remove_authenticator;
 mod request_status;
+
+// Account routes
+mod create_account;
+mod recover_account;
+
+// Authenticator routes
+mod insert_authenticator;
+mod remove_authenticator;
 mod update_authenticator;
+
+// Recovery agent routes
+mod cancel_recovery_agent_update;
+mod execute_recovery_agent_update;
+mod initiate_recovery_agent_update;
+mod revert_recovery_agent_update;
+mod update_recovery_agent;
+
+// Admin / utility routes
+mod is_valid_root;
+
+// Shared route internals
+pub(crate) mod middleware;
 pub(crate) mod validation;
 
 const ROOT_CACHE_SIZE: u64 = 1024;
 const CREATE_BATCHER_CHANNEL_CAPACITY: usize = 1024;
 const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
 
+#[expect(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
+    registry_version: RegistryVersion,
     batcher_config: BatcherConfig,
     redis_url: String,
     rate_limit: Option<RateLimitConfig>,
@@ -76,6 +99,7 @@ pub(crate) async fn build_app(
     )
     .await;
     let base_fee_cache = BaseFeeCache::default();
+    let tx_send_lock = Arc::new(Mutex::new(()));
 
     spawn_base_fee_sampler(
         registry.provider().clone(),
@@ -93,6 +117,7 @@ pub(crate) async fn build_app(
         tracker.clone(),
         batch_policy_config.clone(),
         base_fee_cache.clone(),
+        tx_send_lock.clone(),
     );
     tokio::spawn(runner.run());
 
@@ -107,6 +132,7 @@ pub(crate) async fn build_app(
         tracker.clone(),
         batch_policy_config,
         base_fee_cache,
+        tx_send_lock,
     );
     tokio::spawn(ops_runner.run());
 
@@ -132,6 +158,7 @@ pub(crate) async fn build_app(
     };
     let ctx = GatewayContext {
         registry: registry.clone(),
+        registry_version,
         tracker,
         batcher: batcher_handle,
         root_cache,
@@ -148,6 +175,25 @@ pub(crate) async fn build_app(
         .route("/insert-authenticator", post(insert_authenticator))
         .route("/remove-authenticator", post(remove_authenticator))
         .route("/recover-account", post(recover_account))
+        // recovery agent management
+        .route(
+            "/initiate-recovery-agent-update",
+            post(initiate_recovery_agent_update),
+        )
+        .route(
+            "/cancel-recovery-agent-update",
+            post(cancel_recovery_agent_update),
+        )
+        .route(
+            "/execute-recovery-agent-update",
+            post(execute_recovery_agent_update),
+        )
+        // WIP-102 optimistic recovery agent update (gated on V2 contract)
+        .route("/update-recovery-agent", post(update_recovery_agent))
+        .route(
+            "/revert-recovery-agent-update",
+            post(revert_recovery_agent_update),
+        )
         // admin / utility
         .route("/is-valid-root", get(is_valid_root))
         .route("/openapi.json", get(openapi))
@@ -235,6 +281,60 @@ async fn _doc_remove_authenticator(_: State<AppState>, _: Json<RemoveAuthenticat
 async fn _doc_recover_account(_: State<AppState>, _: Json<RecoverAccountRequest>) {}
 
 #[utoipa::path(
+    post,
+    path = "/initiate-recovery-agent-update",
+    request_body = UpdateRecoveryAgentRequest,
+    responses(
+        (status = 200, description = "Request accepted", body = GatewayStatusResponse),
+        (status = 400, description = "Bad request", body = GatewayErrorBody),
+        (status = 429, description = "Rate limit exceeded", body = GatewayErrorBody),
+        (status = 500, description = "Internal server error", body = GatewayErrorBody)
+    ),
+    tag = "Gateway"
+)]
+async fn _doc_initiate_recovery_agent_update(
+    _: State<AppState>,
+    _: Json<UpdateRecoveryAgentRequest>,
+) {
+}
+
+#[utoipa::path(
+    post,
+    path = "/cancel-recovery-agent-update",
+    request_body = CancelRecoveryAgentUpdateRequest,
+    responses(
+        (status = 200, description = "Request accepted", body = GatewayStatusResponse),
+        (status = 400, description = "Bad request", body = GatewayErrorBody),
+        (status = 429, description = "Rate limit exceeded", body = GatewayErrorBody),
+        (status = 500, description = "Internal server error", body = GatewayErrorBody)
+    ),
+    tag = "Gateway"
+)]
+async fn _doc_cancel_recovery_agent_update(
+    _: State<AppState>,
+    _: Json<CancelRecoveryAgentUpdateRequest>,
+) {
+}
+
+#[utoipa::path(
+    post,
+    path = "/execute-recovery-agent-update",
+    request_body = ExecuteRecoveryAgentUpdateRequest,
+    responses(
+        (status = 200, description = "Request accepted", body = GatewayStatusResponse),
+        (status = 400, description = "Bad request (leaf_index zero or no pending update)", body = GatewayErrorBody),
+        (status = 429, description = "Rate limit exceeded", body = GatewayErrorBody),
+        (status = 500, description = "Internal server error", body = GatewayErrorBody)
+    ),
+    tag = "Gateway"
+)]
+async fn _doc_execute_recovery_agent_update(
+    _: State<AppState>,
+    _: Json<ExecuteRecoveryAgentUpdateRequest>,
+) {
+}
+
+#[utoipa::path(
     get,
     path = "/is-valid-root",
     params(IsValidRootQuery),
@@ -256,6 +356,9 @@ async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidR
         _doc_insert_authenticator,
         _doc_remove_authenticator,
         _doc_recover_account,
+        _doc_initiate_recovery_agent_update,
+        _doc_cancel_recovery_agent_update,
+        _doc_execute_recovery_agent_update,
         _doc_is_valid_root
     ),
     components(schemas(
@@ -271,6 +374,9 @@ async fn _doc_is_valid_root(_: State<AppState>, _: axum::extract::Query<IsValidR
         UpdateAuthenticatorRequest,
         InsertAuthenticatorRequest,
         RemoveAuthenticatorRequest,
+        UpdateRecoveryAgentRequest,
+        CancelRecoveryAgentUpdateRequest,
+        ExecuteRecoveryAgentUpdateRequest,
         RecoverAccountRequest
     )),
     tags((name = "Gateway", description = "TODO"))

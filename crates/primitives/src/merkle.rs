@@ -1,4 +1,4 @@
-use crate::{FieldElement, authenticator::AuthenticatorPublicKeySet, serde_utils::hex_u64};
+use crate::{AuthenticatorPublicKeySet, FieldElement, serde_utils::hex_u64};
 use ark_bn254::Fr;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 

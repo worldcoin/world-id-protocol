@@ -270,14 +270,17 @@ async fn e2e_satellite_task_relays_on_new_commitment() -> Result<()> {
         anchor_chain_id: 480,
     };
 
-    // 5. Spawn the satellite task.
+    // 5. Mark the log as ready (no backfill in this test).
+    log.mark_ready();
+
+    // 6. Spawn the satellite task.
     let log_clone = log.clone();
     let task = tokio::spawn(async move { spawn_satellite(satellite, log_clone).await });
 
-    // 6. Give the task a moment to start and subscribe.
+    // 7. Give the task a moment to start and subscribe.
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    // 7. Insert a chain commitment into the log.
+    // 8. Insert a chain commitment into the log.
     let mut chain = KeccakChain::new(B256::ZERO, 0);
     let c1 = make_chain_commitment(&mut chain, 1, U256::from(42u64));
     log.commit_chained(Arc::new(c1))?;
@@ -345,6 +348,12 @@ impl Satellite for TestSatellite {
 
     fn chain_id(&self) -> u64 {
         1
+    }
+
+    fn remote_chain_head<'a>(
+        &'a self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<B256>> + Send + 'a>> {
+        Box::pin(async { Ok(B256::ZERO) })
     }
 
     fn build_proof<'a>(

@@ -1,14 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    batcher::{
-        BatcherHandle, Command,
-        defaults::{
-            DEFAULT_CREATE_ACCOUNT_GAS, DEFAULT_INSERT_AUTHENTICATOR_GAS,
-            DEFAULT_RECOVER_ACCOUNT_GAS, DEFAULT_REMOVE_AUTHENTICATOR_GAS,
-            DEFAULT_UPDATE_AUTHENTICATOR_GAS,
-        },
-    },
+    batcher::{BatcherHandle, Command},
     error::GatewayErrorResponse,
     request_tracker::RequestTracker,
     routes::validation::RequestValidation,
@@ -19,14 +12,15 @@ use alloy::{
 };
 use moka::future::Cache;
 use uuid::Uuid;
-use world_id_core::{
-    api_types::{
-        CreateAccountRequest, GatewayErrorCode, GatewayRequestKind, GatewayRequestState,
-        GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
-        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
-    },
-    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
+use world_id_primitives::api_types::{
+    CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
+    GatewayErrorCode, GatewayRequestId, GatewayRequestKind, GatewayRequestState,
+    GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
 };
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
+
+use crate::registry_version::RegistryVersion;
 
 /// Type alias for the registry instance.
 pub type Registry = WorldIdRegistryInstance<Arc<DynProvider>>;
@@ -35,6 +29,7 @@ pub type Registry = WorldIdRegistryInstance<Arc<DynProvider>>;
 #[derive(Clone)]
 pub struct GatewayContext {
     pub registry: Arc<Registry>,
+    pub registry_version: RegistryVersion,
     pub tracker: RequestTracker,
     pub batcher: BatcherHandle,
     pub root_cache: Cache<U256, U256>,
@@ -59,7 +54,7 @@ impl SubmittedRequest {
     /// Convert to the gateway status response.
     pub fn into_response(self) -> GatewayStatusResponse {
         GatewayStatusResponse {
-            request_id: self.id.to_string(),
+            request_id: GatewayRequestId::new(self.id.to_string()),
             kind: self.kind,
             status: GatewayRequestState::Queued,
         }
@@ -154,7 +149,7 @@ impl IntoRequest for CreateAccountRequest {
 
 impl IntoCommand for CreateAccountRequest {
     fn into_command(id: Uuid, payload: Self, _calldata: Bytes) -> Command {
-        Command::create_account(id, payload, DEFAULT_CREATE_ACCOUNT_GAS)
+        Command::create_account(id, payload)
     }
 }
 
@@ -184,7 +179,7 @@ impl IntoRequest for InsertAuthenticatorRequest {
 
 impl IntoCommand for InsertAuthenticatorRequest {
     fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::operation(id, calldata, DEFAULT_INSERT_AUTHENTICATOR_GAS)
+        Command::operation(id, calldata)
     }
 }
 
@@ -215,7 +210,7 @@ impl IntoRequest for UpdateAuthenticatorRequest {
 
 impl IntoCommand for UpdateAuthenticatorRequest {
     fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::operation(id, calldata, DEFAULT_UPDATE_AUTHENTICATOR_GAS)
+        Command::operation(id, calldata)
     }
 }
 
@@ -246,13 +241,171 @@ impl IntoRequest for RemoveAuthenticatorRequest {
 
 impl IntoCommand for RemoveAuthenticatorRequest {
     fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::operation(id, calldata, DEFAULT_REMOVE_AUTHENTICATOR_GAS)
+        Command::operation(id, calldata)
     }
 }
 
 impl IntoRequestWithRateLimit for RemoveAuthenticatorRequest {}
 
 impl Request<RemoveAuthenticatorRequest> {
+    pub async fn submit(
+        self,
+        ctx: &GatewayContext,
+    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+        submit_request(self, ctx).await
+    }
+}
+
+// =============================================================================
+// UpdateRecoveryAgentRequest
+// =============================================================================
+
+impl HasLeafIndex for UpdateRecoveryAgentRequest {
+    fn leaf_index(&self) -> u64 {
+        self.leaf_index
+    }
+}
+
+impl IntoRequest for UpdateRecoveryAgentRequest {
+    const KIND: GatewayRequestKind = GatewayRequestKind::UpdateRecoveryAgent;
+}
+
+impl IntoCommand for UpdateRecoveryAgentRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata)
+    }
+}
+
+impl IntoRequestWithRateLimit for UpdateRecoveryAgentRequest {}
+
+impl Request<UpdateRecoveryAgentRequest> {
+    pub async fn submit(
+        self,
+        ctx: &GatewayContext,
+    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+        submit_request(self, ctx).await
+    }
+}
+
+// =============================================================================
+// CancelRecoveryAgentUpdateRequest
+// =============================================================================
+
+impl HasLeafIndex for CancelRecoveryAgentUpdateRequest {
+    fn leaf_index(&self) -> u64 {
+        self.leaf_index
+    }
+}
+
+impl IntoRequest for CancelRecoveryAgentUpdateRequest {
+    const KIND: GatewayRequestKind = GatewayRequestKind::CancelRecoveryAgentUpdate;
+}
+
+impl IntoCommand for CancelRecoveryAgentUpdateRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata)
+    }
+}
+
+impl IntoRequestWithRateLimit for CancelRecoveryAgentUpdateRequest {}
+
+impl Request<CancelRecoveryAgentUpdateRequest> {
+    pub async fn submit(
+        self,
+        ctx: &GatewayContext,
+    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+        submit_request(self, ctx).await
+    }
+}
+
+// =============================================================================
+// ExecuteRecoveryAgentUpdateRequest
+// =============================================================================
+
+impl HasLeafIndex for ExecuteRecoveryAgentUpdateRequest {
+    fn leaf_index(&self) -> u64 {
+        self.leaf_index
+    }
+}
+
+impl IntoRequest for ExecuteRecoveryAgentUpdateRequest {
+    const KIND: GatewayRequestKind = GatewayRequestKind::ExecuteRecoveryAgentUpdate;
+}
+
+impl IntoCommand for ExecuteRecoveryAgentUpdateRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata)
+    }
+}
+
+impl IntoRequestWithRateLimit for ExecuteRecoveryAgentUpdateRequest {}
+
+impl Request<ExecuteRecoveryAgentUpdateRequest> {
+    pub async fn submit(
+        self,
+        ctx: &GatewayContext,
+    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+        submit_request(self, ctx).await
+    }
+}
+
+// =============================================================================
+// V2 Recovery Agent flow (WIP-102)
+// =============================================================================
+// Same shape as the V1 request types; calldata targets the V2 selector.
+
+/// Marks the gateway flow as WIP-102 `updateRecoveryAgent`.
+pub struct UpdateRecoveryAgentV2Request(pub UpdateRecoveryAgentRequest);
+
+impl HasLeafIndex for UpdateRecoveryAgentV2Request {
+    fn leaf_index(&self) -> u64 {
+        self.0.leaf_index
+    }
+}
+
+impl IntoRequest for UpdateRecoveryAgentV2Request {
+    const KIND: GatewayRequestKind = GatewayRequestKind::UpdateRecoveryAgent;
+}
+
+impl IntoCommand for UpdateRecoveryAgentV2Request {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata)
+    }
+}
+
+impl IntoRequestWithRateLimit for UpdateRecoveryAgentV2Request {}
+
+impl Request<UpdateRecoveryAgentV2Request> {
+    pub async fn submit(
+        self,
+        ctx: &GatewayContext,
+    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+        submit_request(self, ctx).await
+    }
+}
+
+/// Marks the gateway flow as WIP-102 `revertRecoveryAgentUpdate`.
+pub struct RevertRecoveryAgentUpdateRequest(pub CancelRecoveryAgentUpdateRequest);
+
+impl HasLeafIndex for RevertRecoveryAgentUpdateRequest {
+    fn leaf_index(&self) -> u64 {
+        self.0.leaf_index
+    }
+}
+
+impl IntoRequest for RevertRecoveryAgentUpdateRequest {
+    const KIND: GatewayRequestKind = GatewayRequestKind::CancelRecoveryAgentUpdate;
+}
+
+impl IntoCommand for RevertRecoveryAgentUpdateRequest {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::operation(id, calldata)
+    }
+}
+
+impl IntoRequestWithRateLimit for RevertRecoveryAgentUpdateRequest {}
+
+impl Request<RevertRecoveryAgentUpdateRequest> {
     pub async fn submit(
         self,
         ctx: &GatewayContext,
@@ -277,7 +430,7 @@ impl IntoRequest for RecoverAccountRequest {
 
 impl IntoCommand for RecoverAccountRequest {
     fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::operation(id, calldata, DEFAULT_RECOVER_ACCOUNT_GAS)
+        Command::operation(id, calldata)
     }
 }
 

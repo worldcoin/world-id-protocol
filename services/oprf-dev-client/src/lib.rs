@@ -14,10 +14,8 @@ use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSASignature, FieldElement,
     proof::{CircomGroth16Material, errors},
 };
-use world_id_primitives::{
-    TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, circuit_inputs::QueryProofCircuitInput,
-    merkle::MerkleInclusionProof,
-};
+use world_id_primitives::{AuthenticatorPublicKeySet, TREE_DEPTH, merkle::MerkleInclusionProof};
+use world_id_proof::circuit_inputs::QueryProofCircuitInput;
 
 const HARDCODED_RP_SIGNER: &str =
     "1111111111111111111111111111111111111111111111111111111111111111";
@@ -124,16 +122,21 @@ impl SharedDevClientComponents {
         AuthenticatorPublicKeySet,
         u64,
     )> {
-        let (inclusion_proof, key_set) = self.authenticator.fetch_inclusion_proof().await?;
+        let account_inclusion_proof = self.authenticator.fetch_inclusion_proof().await?;
 
-        let key_index = key_set
+        let key_index = account_inclusion_proof
+            .authenticator_pubkeys
             .iter()
             .position(|pk| {
                 pk.as_ref()
                     .is_some_and(|pk| pk.pk == self.authenticator.offchain_pubkey().pk)
             })
             .ok_or(AuthenticatorError::PublicKeyNotFound)? as u64;
-        Ok((inclusion_proof, key_set, key_index))
+        Ok((
+            account_inclusion_proof.inclusion_proof,
+            account_inclusion_proof.authenticator_pubkeys,
+            key_index,
+        ))
     }
 }
 
@@ -183,8 +186,8 @@ pub async fn init_authenticator(
         Some(config.chain_rpc_url.expose_secret().to_string()),
         if anvil { 31_337 } else { 480 },
         world_id_registry_contract,
-        indexer_url.clone(),
-        gateway_url.clone(),
+        world_id_primitives::ServiceEndpoint::direct(indexer_url.clone()),
+        world_id_primitives::ServiceEndpoint::direct(gateway_url.clone()),
         config.nodes.clone(),
         config.threshold,
     )
@@ -195,14 +198,9 @@ pub async fn init_authenticator(
 
     tracing::info!("creating account..");
     let seed = [7u8; 32];
-    let authenticator = Authenticator::init_or_register(
-        &seed,
-        world_config.clone(),
-        query_material,
-        Arc::new(nullifier_material),
-        None,
-    )
-    .await?;
+    let authenticator = Authenticator::init_or_register(&seed, world_config, None)
+        .await?
+        .with_proof_materials(query_material, Arc::new(nullifier_material));
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);
     Ok((authenticator, authenticator_private_key))
 }

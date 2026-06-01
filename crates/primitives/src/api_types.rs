@@ -7,9 +7,10 @@
 
 pub use crate::merkle::AccountInclusionProof;
 use crate::serde_utils::{
-    hex_u32, hex_u32_opt, hex_u64, hex_u256, hex_u256_opt, hex_u256_opt_vec, hex_u256_vec,
+    hex_signature, hex_u32, hex_u32_opt, hex_u64, hex_u256, hex_u256_opt, hex_u256_opt_vec,
+    hex_u256_vec,
 };
-use alloy_primitives::Address;
+use alloy_primitives::{Address, Signature};
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
@@ -64,8 +65,9 @@ pub struct UpdateAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
-    pub signature: Vec<u8>,
+    #[serde(with = "hex_signature")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub signature: Signature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -102,8 +104,9 @@ pub struct InsertAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
-    pub signature: Vec<u8>,
+    #[serde(with = "hex_signature")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub signature: Signature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -140,8 +143,9 @@ pub struct RemoveAuthenticatorRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
-    pub signature: Vec<u8>,
+    #[serde(with = "hex_signature")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub signature: Signature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -154,6 +158,71 @@ pub struct RemoveAuthenticatorRequest {
     #[serde(default, with = "hex_u256_opt")]
     #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "hex"))]
     pub authenticator_pubkey: Option<U256>,
+}
+
+/// The request to update a recovery agent.
+///
+/// Numeric string fields in this request accept decimal or `0x`/`0X`-prefixed hex.
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateRecoveryAgentRequest {
+    /// The account index.
+    #[serde(with = "hex_u64")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub leaf_index: u64,
+    /// The new recovery agent address.
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub new_recovery_agent: Address,
+    /// The signature.
+    #[serde(with = "hex_signature")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub signature: Signature,
+    /// The nonce.
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub nonce: U256,
+}
+
+/// The request to execute a pending recovery agent update.
+///
+/// No signature is required — `executeRecoveryAgentUpdate` is permissionless.
+/// The contract enforces the 14-day cooldown and will revert with
+/// `RecoveryAgentUpdateStillInCooldown` if called too early.
+///
+/// Numeric string fields in this request accept decimal or `0x`/`0X`-prefixed hex.
+// TODO(WIP-102): delete this type once V1 callers have migrated. WIP-102
+// removes the explicit execute step — the new agent activates automatically
+// when the revert window elapses.
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExecuteRecoveryAgentUpdateRequest {
+    /// The account index.
+    #[serde(with = "hex_u64")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub leaf_index: u64,
+}
+
+/// The request to cancel a pending recovery agent update.
+///
+/// Numeric string fields in this request accept decimal or `0x`/`0X`-prefixed hex.
+// TODO(WIP-102): rename to `RevertRecoveryAgentUpdateRequest` once V1 callers
+// have migrated. The struct shape is identical; only the name needs to change
+// to reflect WIP-102's revert-window semantics.
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CancelRecoveryAgentUpdateRequest {
+    /// The account index.
+    #[serde(with = "hex_u64")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub leaf_index: u64,
+    /// The signature.
+    #[serde(with = "hex_signature")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub signature: Signature,
+    /// The nonce.
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub nonce: U256,
 }
 
 /// The request to recover an account.
@@ -178,8 +247,9 @@ pub struct RecoverAccountRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub new_offchain_signer_commitment: U256,
     /// The signature.
-    #[cfg_attr(feature = "openapi", schema(value_type = Vec<u8>))]
-    pub signature: Vec<u8>,
+    #[serde(with = "hex_signature")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub signature: Signature,
     /// The nonce.
     #[serde(with = "hex_u256")]
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
@@ -190,12 +260,54 @@ pub struct RecoverAccountRequest {
     pub new_authenticator_pubkey: Option<U256>,
 }
 
+/// Strongly-typed identifier for a gateway request.
+///
+/// Returned by gateway mutation endpoints (create-account, insert/update/remove
+/// authenticator, etc.) and used to poll the status of the request.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[serde(transparent)]
+pub struct GatewayRequestId(String);
+
+impl GatewayRequestId {
+    /// Creates a new `GatewayRequestId` from a raw string by prepending the
+    /// `gw_` prefix.
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(format!("gw_{}", id.into()))
+    }
+
+    /// Returns the underlying string representation.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Returns the underlying string representation without the `gw_` prefix,
+    /// if present.
+    #[must_use]
+    pub fn as_str_without_prefix(&self) -> &str {
+        self.0.strip_prefix("gw_").unwrap_or(&self.0)
+    }
+}
+
+impl std::fmt::Display for GatewayRequestId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl AsRef<str> for GatewayRequestId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Response returned by the registry gateway for state-changing requests.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct GatewayStatusResponse {
     /// Identifier assigned by the gateway to the submitted request.
-    pub request_id: String,
+    pub request_id: GatewayRequestId,
     /// The kind of operation that was submitted.
     pub kind: GatewayRequestKind,
     /// The current state of the request.
@@ -215,6 +327,16 @@ pub enum GatewayRequestKind {
     InsertAuthenticator,
     /// Authenticator removal request.
     RemoveAuthenticator,
+    /// Recovery agent update initiation request.
+    UpdateRecoveryAgent,
+    /// Recovery agent update cancellation request.
+    // TODO(WIP-102): rename to `RevertRecoveryAgentUpdate` once V1 callers
+    // have migrated.
+    CancelRecoveryAgentUpdate,
+    /// Recovery agent update execution request.
+    // TODO(WIP-102): delete this variant once V1 callers have migrated — the
+    // execute step no longer exists in WIP-102.
+    ExecuteRecoveryAgentUpdate,
     /// Account recovery request.
     RecoverAccount,
 }
@@ -327,6 +449,35 @@ pub struct IndexerRecoveryAgentResponse {
     pub recovery_agent: Address,
 }
 
+/// Response containing the pending recovery agent from the indexer.
+// TODO(WIP-102): post-V1-sunset, rename this type and its `execute_after`
+// field to reflect WIP-102 semantics — the timestamp is no longer when the
+// update may be *executed* but when the new agent becomes the only valid
+// recovery signer (`validAfter` / `invalidAfter` for the previous agent).
+// The wire shape is preserved on V2 via a contract-side override of
+// `getPendingRecoveryAgentUpdate`, so no breaking change is required until
+// callers migrate to a new indexer route.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct IndexerPendingRecoveryAgentResponse {
+    /// The pending recovery agent for the World ID.
+    ///
+    /// Please note this may be the zero address if no recovery agent update is pending.
+    ///
+    /// Serialized as a canonical `0x`-prefixed hex string.
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x0"))]
+    pub pending_recovery_agent: Address,
+
+    /// The earliest timestamp at which the pending recovery agent update may be executed.
+    ///
+    /// Please note this may be zero if no recovery agent update is pending.
+    ///
+    /// Serialized as a canonical `0x`-prefixed hex string.
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex", example = "0x0"))]
+    pub execute_after: U256,
+}
+
 /// Response containing authenticator public keys for an account from the indexer.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -337,6 +488,12 @@ pub struct IndexerAuthenticatorPubkeysResponse {
     #[serde(with = "hex_u256_opt_vec")]
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<Option<String>>, format = "hex"))]
     pub authenticator_pubkeys: Vec<Option<U256>>,
+
+    /// The commitment to all the authenticator pubkeys. This commitment is
+    /// stored in the `WorldIDRegistry`.
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub offchain_signer_commitment: U256,
 }
 
 /// Health response for an API service (gateway or indexer).
@@ -420,6 +577,10 @@ pub enum GatewayErrorCode {
     RateLimitExceeded,
     /// The request timed out.
     RequestTimeout,
+    /// Endpoint exists but is not available against the currently-deployed
+    /// registry version (e.g. a WIP-102 V2-only route hit while the registry
+    /// is still on V1). Mirrors the contract-level `MethodUnsupported()` revert.
+    MethodNotAvailable,
 }
 
 /// Error object returned by the services APIs (indexer, gateway).
@@ -467,4 +628,83 @@ pub struct AccountInclusionProofSchema {
     /// The compressed authenticator public keys for the account (array of hex strings)
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>, format = "hex"))]
     pub authenticator_pubkeys: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn insert_authenticator_request_signature_serializes_as_hex_string() {
+        let request = InsertAuthenticatorRequest {
+            leaf_index: 42,
+            new_authenticator_address: Address::from([0x11; 20]),
+            old_offchain_signer_commitment: U256::from(0x1234_u64),
+            new_offchain_signer_commitment: U256::from(0x5678_u64),
+            signature: Signature::new(U256::from(0xdead_u64), U256::from(0xbeef_u64), false),
+            nonce: U256::from(0x9abc_u64),
+            pubkey_id: 7,
+            new_authenticator_pubkey: U256::from(0xdef0_u64),
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(
+            value["new_authenticator_address"]
+                .as_str()
+                .expect("new_authenticator_address should be a string"),
+            "0x1111111111111111111111111111111111111111"
+        );
+        assert_eq!(
+            value["old_offchain_signer_commitment"]
+                .as_str()
+                .expect("old_offchain_signer_commitment should be a string"),
+            "0x1234"
+        );
+        assert_eq!(
+            value["new_offchain_signer_commitment"]
+                .as_str()
+                .expect("new_offchain_signer_commitment should be a string"),
+            "0x5678"
+        );
+        assert_eq!(
+            value["signature"]
+                .as_str()
+                .expect("signature should be a string"),
+            "0x000000000000000000000000000000000000000000000000000000000000dead000000000000000000000000000000000000000000000000000000000000beef1b"
+        );
+        assert_eq!(
+            value["nonce"].as_str().expect("nonce should be a string"),
+            "0x9abc"
+        );
+        assert_eq!(
+            value["new_authenticator_pubkey"]
+                .as_str()
+                .expect("new_authenticator_pubkey should be a string"),
+            "0xdef0"
+        );
+
+        let roundtripped: InsertAuthenticatorRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtripped.leaf_index, request.leaf_index);
+        assert_eq!(
+            roundtripped.new_authenticator_address,
+            request.new_authenticator_address
+        );
+        assert_eq!(
+            roundtripped.old_offchain_signer_commitment,
+            request.old_offchain_signer_commitment
+        );
+        assert_eq!(
+            roundtripped.new_offchain_signer_commitment,
+            request.new_offchain_signer_commitment
+        );
+        assert_eq!(roundtripped.signature, request.signature);
+        assert_eq!(roundtripped.nonce, request.nonce);
+        assert_eq!(roundtripped.pubkey_id, request.pubkey_id);
+        assert_eq!(
+            roundtripped.new_authenticator_pubkey,
+            request.new_authenticator_pubkey
+        );
+    }
 }

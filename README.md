@@ -1,13 +1,18 @@
-# world-id-protocol
+![](docs/header.jpg)
 
-> [!WARNING]
-> This project is unaudited. Releases may contain breaking changes at any time.
+# World ID
 
-## Prerequisites
+World ID is a protocol built to enable anonymous proof of human (PoH) at global scale and to complement existing identity systems. World ID allows individuals to prove things about themselves — like they are a real and unique human, not a bot — without revealing any personal information. [Read more about World ID][website].
 
-- Rust toolchain (`rustup`, `cargo`) – pinned via `rust-toolchain.toml`
-- Foundry (forge/cast/anvil): `curl -L https://foundry.paradigm.xyz | bash` then `foundryup`
-- For running the Rust services look at the specific READMEs of each service.
+This repository contains the **core components of the World ID Protocol**, including the smart contracts, Rust libraries, and services that power the protocol.
+
+## 📝 Documentation
+
+- **Learn more about World ID**: To learn more about World ID in general, see the [World ID Website][website].
+- **Integrating World ID**: The best place to start for integrating World ID is the [Developer Docs](https://docs.world.org/world-id/overview).
+- **Protocol Specs**: For an a high level overview of the latest major version of the Protocol (World ID 4.0), see the [World ID 4.0 Product & Technical Specs](docs/README.md).
+- **In-depth technical documentation**: The primary source of technical documentation for the Protocol is directly in the codebase, particularly the foundational crates. See the [`world-id-primitives`](https://docs.rs/world-id-primitives) and [`world-id-core`](https://docs.rs/world-id-core) documentation for more details.
+- **Contributing**: If you're interested in contributing to the Protocol, see the [Contributing Guide](CONTRIBUTING.md) for more information on how to get involved.
 
 ## 🗃️ Deployments
 
@@ -27,18 +32,9 @@ Deployments are tracked in [`contracts/deployments/`](contracts/deployments/)
 | Production  | World Chain (`480`) | [`contracts/deployments/oprf-key-registry/production.json`](contracts/deployments/oprf-key-registry/production.json) |
 | Staging     | World Chain (`480`) | [`contracts/deployments/oprf-key-registry/staging.json`](contracts/deployments/oprf-key-registry/staging.json) |
 
-### Reserved Credential Issuer IDs
-
-The following issuer schema IDs are reserved in the `CredentialSchemaIssuerRegistry` on production (World Chain, chain ID 480).
-
-| ID   | Name        |
-| ---- | ----------- |
-| 1    | PoH Issuer  |
-| 11   | Face Issuer |
-| 9303 | NFC Issuer  |
-| 9310 | MNC Issuer  |
-
 ### Services
+
+The [World Foundation](https://foundation.world.org/) maintains a set of reference services (indexer & gateway) for interacting with the World ID Protocol. Use of these services is not required to work with World ID. You may choose to do direct on-chain interactions, host your own services or use third-party services as you see fit.
 
 | Service            | Environment | URL                                                   |
 | ------------------ | ----------- | ----------------------------------------------------- |
@@ -55,39 +51,8 @@ This repo is organized into the following top-level components:
 - **`services/`**: Deployable services (gateway, indexer, oprf-node)
 - **`docs/`**: Protocol documentation (see [docs/README.md](docs/README.md))
 
-### 📦 Crates Organization
 
-The Rust crates are logically separated to ensure proper integration without feature flag conflicts:
+## 🛡️Audits
+The Protocol undergoes continuous audits and security reviews to the different components, especially the core infrastructure which includes smart contracts and zero-knowledge circuits. Information about audits can be found in the [audits](./audits) folder.
 
-```
-world-id-primitives
-└── functionality-specific crates
-    └── world-id-core
-```
-
-- `world-id-primitives`: Foundation layer containing only raw types with **minimal implementation logic** except for hashing mechanisms. Has an optional `openapi` feature for OpenAPI schema derives.
-- Functionality-specific crates: Providing focused use cases for authenticator, issuer, and RP operations.
-- `world-id-core`: Top-level integration layer which exposes all functionality.
-
-
-## 🚀 Releasing
-
-Versioning and releases are managed separately for crates and services.
-
-### Crates
-
-Crate releases are automated using `release-plz`.
-
-**How it works:**
-
-1. Commits to `main` follow [conventional commits](https://www.conventionalcommits.org/). To override the version, simply update the PR.
-2. release-plz creates/updates a release PR with:
-   - Version bumps in `Cargo.toml` files
-   - Updated `CHANGELOG.md` for each crate
-3. When the release PR is merged:
-   - Crates are published to [crates.io](https://crates.io) using trusted publishing
-   - GitHub releases are created for each updated crate (e.g., `world-id-core-v0.2.0`)
-
-### Services
-
-Information coming soon.
+[website]: https://world.org/world-id

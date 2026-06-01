@@ -5,92 +5,23 @@ use alloy::{
     providers::Provider,
     signers::local::PrivateKeySigner,
 };
-use reqwest::{Client, StatusCode};
-use world_id_core::{
-    api_types::{
-        GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
-        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
-    },
-    world_id_registry::{
-        WorldIdRegistry, domain as ag_domain, sign_insert_authenticator, sign_recover_account,
-        sign_remove_authenticator, sign_update_authenticator,
-    },
+use reqwest::StatusCode;
+use world_id_primitives::api_types::{
+    GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
-use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
+use world_id_registries::world_id::{
+    WorldIdRegistry, domain as ag_domain, sign_insert_authenticator, sign_recover_account,
+    sign_remove_authenticator, sign_update_authenticator,
 };
-use world_id_services_common::ProviderArgs;
-use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::{wait_for_finalized, wait_http_ready};
+use crate::common::{spawn_test_gateway, wait_for_finalized};
 
 mod common;
 
-const GW_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-const GW_PORT: u16 = 4101;
-const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
-
-struct TestGateway {
-    client: Client,
-    base_url: String,
-    registry_addr: Address,
-    rpc_url: String,
-    _handle: world_id_gateway::GatewayHandle,
-    _anvil: TestAnvil,
-}
-
-async fn spawn_test_gateway(port: u16) -> TestGateway {
-    let mut fork_url = std::env::var("TESTS_RPC_FORK_URL").unwrap_or_default();
-    if fork_url.is_empty() {
-        fork_url = RPC_FORK_URL.to_string();
-    }
-    let anvil = TestAnvil::spawn_fork(&fork_url).expect("failed to spawn forked anvil");
-    let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
-    let registry_addr = anvil
-        .deploy_world_id_registry(deployer)
-        .await
-        .expect("failed to deploy WorldIDRegistry");
-    let rpc_url = anvil.endpoint().to_string();
-
-    let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
-    let cfg = GatewayConfig {
-        registry_addr,
-        provider: ProviderArgs {
-            http: Some(vec![rpc_url.parse().unwrap()]),
-            signer: Some(signer_args),
-            ..Default::default()
-        },
-        max_create_batch_size: 10,
-        max_ops_batch_size: 10,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, port).into(),
-        redis_url: std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
-        request_timeout_secs: 10,
-        rate_limit_window_secs: None,
-        rate_limit_max_requests: None,
-        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
-        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
-        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
-        batch_policy: BatchPolicyConfig::default(),
-    };
-    let handle = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
-
-    let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, port).await;
-
-    TestGateway {
-        client,
-        base_url: format!("http://127.0.0.1:{port}"),
-        registry_addr,
-        rpc_url,
-        _handle: handle,
-        _anvil: anvil,
-    }
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn e2e_gateway_full_flow() {
-    let gw = spawn_test_gateway(GW_PORT).await;
+    let gw = spawn_test_gateway(None).await;
 
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
@@ -187,7 +118,7 @@ async fn e2e_gateway_full_flow() {
         new_authenticator_address: new_auth2,
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(2),
-        signature: sig_ins.as_bytes().to_vec(),
+        signature: sig_ins,
         nonce,
         pubkey_id: 1,
         new_authenticator_pubkey: U256::from(200),
@@ -251,7 +182,7 @@ async fn e2e_gateway_full_flow() {
         authenticator_address: new_auth2,
         old_offchain_signer_commitment: U256::from(2),
         new_offchain_signer_commitment: U256::from(3),
-        signature: sig_rem.as_bytes().to_vec(),
+        signature: sig_rem,
         nonce,
         pubkey_id: Some(1),
         authenticator_pubkey: Some(U256::from(200)),
@@ -306,13 +237,15 @@ async fn e2e_gateway_full_flow() {
         nonce,
         &domain,
     )
+    .await
     .unwrap();
+
     let body_rec = RecoverAccountRequest {
         leaf_index: 1,
         new_authenticator_address: wallet_addr_new,
         old_offchain_signer_commitment: U256::from(3),
         new_offchain_signer_commitment: U256::from(4),
-        signature: sig_rec.as_bytes().to_vec(),
+        signature: sig_rec,
         nonce,
         new_authenticator_pubkey: Some(U256::from(300)),
     };
@@ -377,7 +310,7 @@ async fn e2e_gateway_full_flow() {
         new_authenticator_address: new_auth4,
         old_offchain_signer_commitment: U256::from(4),
         new_offchain_signer_commitment: U256::from(5),
-        signature: sig_upd.as_bytes().to_vec(),
+        signature: sig_upd,
         nonce,
         pubkey_id: 0,
         new_authenticator_pubkey: U256::from(400),
@@ -429,7 +362,7 @@ async fn e2e_gateway_full_flow() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_authenticator_already_exists_error_code() {
-    let gw = spawn_test_gateway(4102).await;
+    let gw = spawn_test_gateway(None).await;
 
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();
@@ -495,7 +428,7 @@ async fn test_authenticator_already_exists_error_code() {
         new_authenticator_address: wallet_addr,
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(2),
-        signature: sig_ins.as_bytes().to_vec(),
+        signature: sig_ins,
         nonce,
         pubkey_id: 0,
         new_authenticator_pubkey: U256::from(100),
@@ -530,7 +463,7 @@ async fn test_authenticator_already_exists_error_code() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_same_authenticator_different_accounts() {
-    let gw = spawn_test_gateway(4103).await;
+    let gw = spawn_test_gateway(None).await;
 
     let signer = PrivateKeySigner::random();
     let wallet_addr: Address = signer.address();

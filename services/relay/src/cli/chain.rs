@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::providers::DynProvider;
+use alloy::{providers::DynProvider, signers::local::PrivateKeySigner};
+use alloy_primitives::Address;
 
 use crate::{
     bindings::{
@@ -33,6 +34,13 @@ pub struct WorldChain {
 
     /// The bridging interval for periodic `propagateState` calls.
     bridge_interval: Duration,
+
+    /// Block number at which the WorldIDSource contract was deployed.
+    deployment_block: u64,
+
+    /// Address of the relay signer wallet (used in diagnostic logs so
+    /// operators can identify the funded account on insufficient-funds errors).
+    wallet_address: Address,
 }
 
 impl WorldChain {
@@ -40,7 +48,11 @@ impl WorldChain {
     ///
     /// This is intentionally synchronous -- provider construction is the caller's
     /// responsibility, keeping I/O at the edges.
-    pub fn new(config: &WorldChainConfig, provider: Arc<DynProvider>) -> Self {
+    pub fn new(
+        config: &WorldChainConfig,
+        provider: Arc<DynProvider>,
+        signer: &PrivateKeySigner,
+    ) -> Self {
         Self {
             world_id_registry: IWorldIDRegistryInstance::new(
                 config.world_id_registry,
@@ -56,8 +68,14 @@ impl WorldChain {
             ),
             world_id_source: IWorldIDSourceInstance::new(config.world_id_source, provider.clone()),
             bridge_interval: Duration::from_secs(config.bridge_interval),
+            deployment_block: config.deployment_block,
+            wallet_address: signer.address(),
             provider,
         }
+    }
+
+    pub fn wallet_address(&self) -> Address {
+        self.wallet_address
     }
 
     pub fn provider(&self) -> &Arc<DynProvider> {
@@ -84,5 +102,9 @@ impl WorldChain {
 
     pub fn bridge_interval(&self) -> Duration {
         self.bridge_interval
+    }
+
+    pub fn deployment_block(&self) -> u64 {
+        self.deployment_block
     }
 }

@@ -4,7 +4,10 @@ use alloy::primitives::Address;
 use clap::Parser;
 use world_id_services_common::ProviderArgs;
 
-use crate::error::{GatewayError, GatewayResult};
+use crate::{
+    error::{GatewayError, GatewayResult},
+    registry_version::RegistryVersion,
+};
 
 pub mod defaults {
     pub const MAX_CREATE_BATCH_SIZE: usize = 100;
@@ -103,6 +106,10 @@ pub struct GatewayConfig {
     #[arg(long, env = "REGISTRY_ADDRESS")]
     pub registry_addr: Address,
 
+    /// Override registry version detection. If omitted, the gateway probes the registry on startup.
+    #[arg(long, env = "REGISTRY_VERSION")]
+    pub registry_version: Option<RegistryVersion>,
+
     /// The HTTP RPC endpoint to submit transactions
     #[command(flatten)]
     pub provider: ProviderArgs,
@@ -169,7 +176,8 @@ impl GatewayConfig {
     pub fn validate(&self) -> GatewayResult<()> {
         if self.provider.signer.is_none() {
             return Err(GatewayError::Config(
-                "exactly one of --wallet-private-key or --aws-kms-key-id must be provided"
+                "exactly one of --wallet-private-key, --aws-kms-key-id, or \
+                 --aws-kms-key-ids must be provided"
                     .to_string(),
             ));
         }
@@ -263,6 +271,8 @@ impl GatewayConfig {
 mod tests {
     use super::*;
     use clap::error::ErrorKind;
+    /// Default Anvil test private key (account 0). This is a well-known
+    /// development key, not a real secret.
     const TEST_PRIVATE_KEY: &str =
         "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
@@ -291,6 +301,18 @@ mod tests {
     }
 
     #[test]
+    fn registry_version_override_parses() {
+        let config = parse_with_signer_args(&[
+            "--wallet-private-key",
+            TEST_PRIVATE_KEY,
+            "--registry-version",
+            "v2",
+        ])
+        .expect("valid config should parse");
+        assert_eq!(config.registry_version, Some(RegistryVersion::V2));
+    }
+
+    #[test]
     fn test_both_options_fails() {
         let result = parse_with_signer_args(&[
             "--wallet-private-key",
@@ -310,7 +332,10 @@ mod tests {
         let result = config.validate();
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("wallet-private-key"));
+        assert!(
+            err.contains("wallet-private-key") || err.contains("aws-kms-key-id"),
+            "error should mention signer options: {err}"
+        );
     }
 
     #[test]

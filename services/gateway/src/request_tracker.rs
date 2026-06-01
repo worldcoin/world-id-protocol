@@ -3,8 +3,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use alloy::{network::Ethereum, providers::PendingTransactionBuilder};
 use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
+use tokio::time::Instant;
 use utoipa::ToSchema;
-use world_id_core::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
+use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
 
 use crate::{
     batch_policy::BacklogUrgencyStats,
@@ -97,6 +98,57 @@ impl RequestTracker {
             _ => "leaf",
         };
         format!("gateway:inflight:{tag}:{raw}")
+    }
+
+    /// Records a terminal request with a specific ID without adding it to the
+    /// pending set or acquiring in-flight locks.
+    ///
+    /// This is intended for compatibility no-op endpoints that should be
+    /// visible through `/status/{request_id}` even though there is no batcher or
+    /// on-chain transaction to track.
+    pub async fn new_terminal_request_with_id(
+        &self,
+        id: String,
+        kind: GatewayRequestKind,
+        status: GatewayRequestState,
+    ) -> Result<(), GatewayErrorResponse> {
+        debug_assert!(
+            matches!(
+                &status,
+                GatewayRequestState::Finalized { .. } | GatewayRequestState::Failed { .. }
+            ),
+            "new_terminal_request_with_id should only be used with terminal states"
+        );
+
+        let record = RequestRecord {
+            kind,
+            status,
+            updated_at: now_unix_secs(),
+            inflight_keys: Vec::new(),
+        };
+
+        let mut manager = self.redis_manager.clone();
+        let key = Self::request_key(&id);
+        let json_str = serde_json::to_string(&record).map_err(|e| {
+            tracing::error!("FATAL: unable to serialize a RequestRecord: {e}");
+            GatewayErrorResponse::internal_server_error()
+        })?;
+
+        let result: Result<(), redis::RedisError> = redis::cmd("SET")
+            .arg(&key)
+            .arg(&json_str)
+            .arg("NX")
+            .arg("EX")
+            .arg(REQUESTS_TTL.as_secs())
+            .query_async(&mut manager)
+            .await;
+
+        if let Err(e) = result {
+            tracing::error!("Error creating terminal request {id}: {e}");
+            return Err(GatewayErrorResponse::internal_server_error());
+        }
+
+        Ok(())
     }
 
     /// Creates a new request with a specific ID, atomically acquiring in-flight
@@ -238,11 +290,19 @@ impl RequestTracker {
 
     /// Spawns a background task that awaits a pending transaction receipt and
     /// finalizes the associated requests based on the outcome.
+    ///
+    /// `batch_type` and `submitted_at` are used to record on-chain confirmation
+    /// metrics (`batch.success`, `batch.failure`, `batch.latency_ms`) once the
+    /// receipt is obtained.  Success and failure metrics are intentionally
+    /// deferred to this point so they reflect the actual on-chain outcome
+    /// rather than the RPC submission result.
     pub fn spawn_receipt_tracker(
         &self,
         ids: Vec<String>,
         builder: PendingTransactionBuilder<Ethereum>,
         tx_hash: String,
+        batch_type: &'static str,
+        submitted_at: Instant,
     ) {
         let tracker = self.clone();
         let timeout = Duration::from_secs(self.receipt_timeout_secs);
@@ -250,11 +310,40 @@ impl RequestTracker {
             let result = tokio::time::timeout(timeout, builder.get_receipt()).await;
             match result {
                 Ok(Ok(receipt)) => {
+                    let confirmed = receipt.status();
+                    let latency_ms = submitted_at.elapsed().as_millis() as f64;
+                    metrics::record_batch_confirmed(batch_type, confirmed, latency_ms);
+
+                    if confirmed {
+                        tracing::info!(
+                            tx_hash = %tx_hash,
+                            batch_type,
+                            latency_ms,
+                            "batch transaction confirmed on-chain"
+                        );
+                    } else {
+                        tracing::error!(
+                            tx_hash = %tx_hash,
+                            batch_type,
+                            "batch transaction reverted on-chain"
+                        );
+                    }
+
                     tracker
-                        .finalize_from_receipt(&ids, receipt.status(), &tx_hash)
+                        .finalize_from_receipt(&ids, confirmed, &tx_hash)
                         .await;
                 }
                 Ok(Err(err)) => {
+                    let latency_ms = submitted_at.elapsed().as_millis() as f64;
+                    metrics::record_batch_confirmed(batch_type, false, latency_ms);
+
+                    tracing::error!(
+                        tx_hash = %tx_hash,
+                        batch_type,
+                        error = %err,
+                        "batch transaction confirmation error"
+                    );
+
                     tracker
                         .set_status_batch(
                             &ids,
@@ -268,6 +357,7 @@ impl RequestTracker {
                 Err(_) => {
                     tracing::warn!(
                         tx_hash = %tx_hash,
+                        batch_type,
                         "receipt polling timed out, orphan sweeper will handle cleanup",
                     );
                 }
@@ -566,6 +656,9 @@ fn matches_scope(kind: GatewayRequestKind, scope: BacklogScope) -> bool {
             GatewayRequestKind::InsertAuthenticator
                 | GatewayRequestKind::UpdateAuthenticator
                 | GatewayRequestKind::RemoveAuthenticator
+                | GatewayRequestKind::UpdateRecoveryAgent
+                | GatewayRequestKind::CancelRecoveryAgentUpdate
+                | GatewayRequestKind::ExecuteRecoveryAgentUpdate
                 | GatewayRequestKind::RecoverAccount
         ),
     }

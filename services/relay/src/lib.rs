@@ -96,6 +96,8 @@ mod engine;
 /// Append-only, hash-chain-verified commitment log with watch-based fan-out.
 mod log;
 
+pub mod metrics;
+
 /// Core domain types: commitments, keccak chain, key identifiers.
 pub mod primitives;
 
@@ -128,11 +130,11 @@ pub use bindings::{
 
 // -- Engine & satellite --
 pub use engine::Engine;
-pub use satellite::{PermissionedSatellite, Satellite, spawn_satellite};
+pub use satellite::{PermissionedSatellite, Satellite, TempoSatellite, spawn_satellite};
 
 // -- CLI --
 pub use cli::{
-    Cli, EthereumMptGatewayConfig, PermissionedGatewayConfig, RelayConfig, SourceConfig,
+    ChainType, Cli, EthereumMptGatewayConfig, PermissionedGatewayConfig, RelayConfig, SourceConfig,
     WorldChainConfig,
 };
 

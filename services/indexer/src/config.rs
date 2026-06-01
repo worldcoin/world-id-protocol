@@ -3,7 +3,7 @@ use std::{net::SocketAddr, str::FromStr, sync::Arc};
 use alloy::{primitives::Address, providers::DynProvider};
 use clap::Parser;
 use thiserror::Error;
-use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 use world_id_services_common::ProviderArgs;
 
 use crate::{db::DB, tree::state::TreeState};

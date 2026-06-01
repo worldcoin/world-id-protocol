@@ -60,7 +60,7 @@ pub async fn send_relay_tx(
 /// Encodes an address as an ERC-7930 EVM v1 interoperable address.
 ///
 /// Format: `version(2) | chainType(2) | chainRefLen(1) | chainRef(var) | addrLen(1) | addr(20)`
-fn encode_evm_v1_address(chain_id: u64, address: Address) -> Vec<u8> {
+pub(crate) fn encode_evm_v1_address(chain_id: u64, address: Address) -> Vec<u8> {
     // Trim leading zeros from chain ID big-endian representation.
     let chain_id_bytes = chain_id.to_be_bytes();
     let first_nonzero = chain_id_bytes.iter().position(|&b| b != 0).unwrap_or(7);

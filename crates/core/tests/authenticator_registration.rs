@@ -1,26 +1,13 @@
 #![cfg(feature = "authenticator")]
 
-use std::sync::Arc;
-
 use alloy::primitives::U256;
 use backon::{ExponentialBuilder, Retryable};
 use world_id_core::{Authenticator, AuthenticatorError, api_types::GatewayRequestState};
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
 };
-use world_id_primitives::Config;
+use world_id_primitives::{Config, ServiceEndpoint};
 use world_id_test_utils::anvil::TestAnvil;
-
-const GW_PORT: u16 = 4102;
-
-fn load_embedded_materials() -> (
-    Arc<world_id_core::proof::CircomGroth16Material>,
-    Arc<world_id_core::proof::CircomGroth16Material>,
-) {
-    let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
-    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material().unwrap();
-    (Arc::new(query_material), Arc::new(nullifier_material))
-}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_authenticator_registration() {
@@ -40,12 +27,13 @@ async fn test_authenticator_registration() {
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
+        registry_version: None,
         provider: world_id_gateway::ProviderArgs {
             http: Some(vec![anvil.endpoint().parse().unwrap()]),
             signer: Some(signer_args),
             ..Default::default()
         },
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, GW_PORT).into(),
+        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
         redis_url: std::env::var("REDIS_URL")
@@ -58,16 +46,18 @@ async fn test_authenticator_registration() {
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
         batch_policy: BatchPolicyConfig::default(),
     };
-    let _gateway = spawn_gateway_for_tests(gateway_config)
+    let gateway = spawn_gateway_for_tests(gateway_config)
         .await
         .expect("failed to spawn gateway");
+    let gw_addr = gateway.listen_addr;
+    let gateway_url = format!("http://{}:{}", gw_addr.ip(), gw_addr.port());
 
     let config = Config::new(
         Some(anvil.endpoint().to_string()),
         anvil.instance.chain_id(),
         registry_address,
-        "http://127.0.0.1:0".to_string(), // not needed for this test
-        format!("http://127.0.0.1:{GW_PORT}"),
+        ServiceEndpoint::direct("http://127.0.0.1:0".to_string()), // not needed for this test
+        ServiceEndpoint::direct(gateway_url.clone()),
         Vec::new(),
         2,
     )
@@ -75,11 +65,8 @@ async fn test_authenticator_registration() {
 
     let seed = [1u8; 32];
     let recovery_address = anvil.signer(1).unwrap().address();
-    let (query_material, nullifier_material) = load_embedded_materials();
-
     // Account doesn't exist, so init will error
-    let result =
-        Authenticator::init(&seed, config.clone(), query_material, nullifier_material).await;
+    let result = Authenticator::init(&seed, config.clone()).await;
     assert!(matches!(
         result,
         Err(AuthenticatorError::AccountDoesNotExist)
@@ -105,20 +92,13 @@ async fn test_authenticator_registration() {
         .await
         .unwrap();
 
-    let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator =
-        Authenticator::init(&seed, config.clone(), query_material, nullifier_material)
-            .await
-            .unwrap();
+    let authenticator = Authenticator::init(&seed, config.clone()).await.unwrap();
     let elapsed = start.elapsed();
     tracing::info!("Account creation successful in {elapsed:?}");
     assert_eq!(authenticator.leaf_index(), 1);
     assert_eq!(authenticator.recovery_counter(), U256::from(0));
 
     // If we initialize again, it will work
-    let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator = Authenticator::init(&seed, config, query_material, nullifier_material)
-        .await
-        .unwrap();
+    let authenticator = Authenticator::init(&seed, config).await.unwrap();
     assert_eq!(authenticator.leaf_index(), 1);
 }

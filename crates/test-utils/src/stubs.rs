@@ -1,15 +1,25 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use alloy::primitives::{Address, U256};
 use ark_serialize::CanonicalSerialize;
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
-use eyre::{Context as _, Result};
+use eyre::{Context as _, ContextCompat as _, Result};
+use secrecy::SecretString;
 use semver::VersionReq;
-use taceo_oprf_key_gen::StartedServices;
-use taceo_oprf_test_utils::{PEER_PRIVATE_KEYS, test_secret_manager::TestSecretManager};
+use taceo_nodes_common::postgres::PostgresConfig;
+use taceo_oprf::service::web3::HttpRpcProviderConfig;
+use taceo_oprf_test_utils::{
+    OPRF_PEER_PRIVATE_KEY_0, OPRF_PEER_PRIVATE_KEY_1, OPRF_PEER_PRIVATE_KEY_2,
+    OPRF_PEER_PRIVATE_KEY_3, OPRF_PEER_PRIVATE_KEY_4,
+};
+use testcontainers::{
+    ContainerAsync, GenericImage, ImageExt,
+    core::{IntoContainerPort, WaitFor, wait::HttpWaitStrategy},
+    runners::AsyncRunner,
+};
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-use world_id_oprf_node::config::WorldOprfNodeConfig;
+use world_id_oprf_node::config::{WorldIdNodeContracts, WorldOprfNodeConfig};
 use world_id_primitives::{
     TREE_DEPTH,
     api_types::{IndexerAuthenticatorPubkeysResponse, IndexerQueryRequest},
@@ -17,6 +27,8 @@ use world_id_primitives::{
 };
 
 use std::sync::RwLock;
+
+use crate::anvil::TestAnvil;
 
 #[derive(Clone)]
 struct IndexerState {
@@ -44,6 +56,7 @@ fn proof_pubkeys_response(
 
     IndexerAuthenticatorPubkeysResponse {
         authenticator_pubkeys,
+        offchain_signer_commitment: U256::ZERO,
     }
 }
 
@@ -184,50 +197,41 @@ impl MutableIndexerStub {
 
 async fn spawn_orpf_node(
     id: usize,
-    chain_ws_rpc_url: &str,
-    secret_manager: OprfNodeTestSecretManager,
+    anvil: &TestAnvil,
+    secret_manager: taceo_oprf::service::secret_manager::SecretManagerService,
     oprf_key_registry_contract: Address,
     world_id_registry_contract: Address,
     rp_registry_contract: Address,
     credential_schema_issuer_registry_contract: Address,
 ) -> String {
     let url = format!("http://localhost:1{id:04}"); // set port based on id, e.g. 10001 for id 1
-    let config = WorldOprfNodeConfig {
-        bind_addr: format!("0.0.0.0:1{id:04}").parse().unwrap(),
-        max_wait_time_shutdown: Duration::from_secs(10),
-        max_merkle_cache_size: 10,
-        max_rp_registry_store_size: 1000,
-        max_credential_schema_issuer_registry_store_size: 1000,
-        current_time_stamp_max_difference: Duration::from_secs(3 * 60),
+    let bind_addr = format!("0.0.0.0:1{id:04}");
+    let contracts = WorldIdNodeContracts {
         world_id_registry_contract,
         rp_registry_contract,
         credential_schema_issuer_registry_contract,
-        cache_maintenance_interval: Duration::from_secs(60),
-        node_config: taceo_oprf::service::config::OprfNodeConfig {
-            environment: taceo_oprf::service::config::Environment::Dev,
-            oprf_key_registry_contract,
-            chain_ws_rpc_url: chain_ws_rpc_url.into(),
-            ws_max_message_size: 512 * 1024,
-            session_lifetime: Duration::from_secs(5 * 60),
-            get_oprf_key_material_timeout: Duration::from_secs(60),
-            start_block: Some(0),
-            version_req: VersionReq::STAR,
-            db_connection_string: "not-used".into(),
-            db_max_connections: 1.try_into().unwrap(), // not used
-            db_schema: "not-used".into(),
-            i_am_alive_interval: Duration::from_secs(60),
-            reload_key_material_interval: Duration::from_secs(3600),
-            db_acquire_timeout: Duration::from_secs(0), // not used
-            db_retry_delay: Duration::from_secs(0),     // not used
-            db_max_retries: 1.try_into().unwrap(),      // not used
-        },
+        oprf_key_registry_contract,
     };
+    let anvil_http = anvil
+        .endpoint()
+        .parse()
+        .expect("anvil endpoint should be valid URL");
+    let anvil_ws = anvil
+        .ws_endpoint()
+        .parse()
+        .expect("anvil ws_endpoint should be valid URL");
+    let config = WorldOprfNodeConfig::with_default_values(
+        taceo_oprf::service::Environment::Dev,
+        contracts,
+        VersionReq::STAR,
+        HttpRpcProviderConfig::with_default_values(vec![anvil_http]),
+        anvil_ws,
+    );
 
     tokio::spawn(async move {
-        let bind_addr = config.bind_addr;
         let cancellation_token = CancellationToken::new();
-        let (router, _) =
-            world_id_oprf_node::start(config, Arc::new(secret_manager), cancellation_token.clone())
+        let (router, _tasks) =
+            world_id_oprf_node::start(config, secret_manager, cancellation_token.clone())
                 .await
                 .expect("Can start");
         let listener = tokio::net::TcpListener::bind(bind_addr)
@@ -253,14 +257,14 @@ async fn spawn_orpf_node(
 }
 
 pub async fn spawn_oprf_nodes(
-    chain_ws_rpc_url: &str,
+    anvil: &TestAnvil,
     [
         secret_manager0,
         secret_manager1,
         secret_manager2,
         secret_manager3,
         secret_manager4,
-    ]: [OprfNodeTestSecretManager; 5],
+    ]: [taceo_oprf::service::secret_manager::SecretManagerService; 5],
     key_gen_contract: Address,
     world_id_registry_contract: Address,
     rp_registry_contract: Address,
@@ -269,7 +273,7 @@ pub async fn spawn_oprf_nodes(
     tokio::join!(
         spawn_orpf_node(
             0,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager0,
             key_gen_contract,
             world_id_registry_contract,
@@ -278,7 +282,7 @@ pub async fn spawn_oprf_nodes(
         ),
         spawn_orpf_node(
             1,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager1,
             key_gen_contract,
             world_id_registry_contract,
@@ -287,7 +291,7 @@ pub async fn spawn_oprf_nodes(
         ),
         spawn_orpf_node(
             2,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager2,
             key_gen_contract,
             world_id_registry_contract,
@@ -296,7 +300,7 @@ pub async fn spawn_oprf_nodes(
         ),
         spawn_orpf_node(
             3,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager3,
             key_gen_contract,
             world_id_registry_contract,
@@ -305,7 +309,7 @@ pub async fn spawn_oprf_nodes(
         ),
         spawn_orpf_node(
             4,
-            chain_ws_rpc_url,
+            anvil,
             secret_manager4,
             key_gen_contract,
             world_id_registry_contract,
@@ -316,124 +320,192 @@ pub async fn spawn_oprf_nodes(
     .into()
 }
 
-async fn spawn_key_gen(
+const OPRF_KEY_GEN_IMAGE: &str = "ghcr.io/taceolabs/oprf-service/oprf-key-gen";
+const OPRF_KEY_GEN_TAG: &str = "v1.1.0-rc.8";
+const OPRF_KEY_GEN_INTERNAL_PORT: u16 = 8080;
+
+pub struct SpawnedKeyGens {
+    pub urls: [String; 5],
+    _containers: [ContainerAsync<GenericImage>; 5],
+}
+
+fn host_internal_url(raw_url: &str) -> Result<String> {
+    let mut url =
+        reqwest::Url::parse(raw_url).wrap_err_with(|| format!("failed to parse URL: {raw_url}"))?;
+    url.set_host(Some("host.testcontainers.internal"))
+        .wrap_err_with(|| format!("failed to rewrite host for URL: {raw_url}"))?;
+    Ok(url.to_string())
+}
+
+fn host_exposed_port(raw_url: &str) -> Result<u16> {
+    let url =
+        reqwest::Url::parse(raw_url).wrap_err_with(|| format!("failed to parse URL: {raw_url}"))?;
+    url.port_or_known_default()
+        .wrap_err_with(|| format!("URL missing port: {raw_url}"))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn spawn_key_gen_container(
     id: usize,
+    chain_http_rpc_url: &str,
     chain_ws_rpc_url: &str,
-    secret_manager: OprfKeyGenTestSecretManager,
-    rp_registry_contract: Address,
-) -> String {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let url = format!("http://localhost:2{id:04}"); // set port based on id, e.g. 20001 for id 1
-    let config = taceo_oprf_key_gen::config::OprfKeyGenConfig {
-        environment: taceo_oprf_key_gen::config::Environment::Dev,
-        bind_addr: format!("0.0.0.0:2{id:04}").parse().unwrap(),
-        oprf_key_registry_contract: rp_registry_contract,
-        chain_ws_rpc_url: chain_ws_rpc_url.into(),
-        wallet_private_key_secret_id: "not-used".into(),
-        zkey_path: dir.join("../../circom/OPRFKeyGen.25.arks.zkey"),
-        witness_graph_path: dir.join("../../circom/OPRFKeyGenGraph.25.bin"),
-        max_wait_time_shutdown: Duration::from_secs(10),
-        i_am_alive_interval: Duration::from_secs(60),
-        start_block: Some(0),
-        max_transaction_attempts: 3,
-        max_wait_time_transaction_confirmation: Duration::from_secs(60),
-        max_gas_per_transaction: 8000000,
-        confirmations_for_transaction: 1, // must be 1 for anvil
-        db_connection_string: "not-used".into(),
-        db_schema: "not-used".into(),
-        db_max_connections: 1.try_into().unwrap(), // not used
-        db_acquire_timeout: Duration::from_secs(60), // not used
-        db_retry_delay: Duration::from_secs(60),   // not used
-        db_max_retries: 1.try_into().unwrap(),     // not used
-    };
-    tokio::spawn(async move {
-        let bind_addr = config.bind_addr;
-        let cancellation_token = CancellationToken::new();
-        let (router, _) = taceo_oprf_key_gen::start(
-            config,
-            Arc::new(secret_manager),
-            StartedServices::new(),
-            cancellation_token.clone(),
+    postgres_connection_string: &str,
+    wallet_private_key: &str,
+    schema: &str,
+    oprf_key_registry_contract: Address,
+) -> Result<(String, ContainerAsync<GenericImage>)> {
+    let http_port = host_exposed_port(chain_http_rpc_url)?;
+    let ws_port = host_exposed_port(chain_ws_rpc_url)?;
+    let postgres_port = host_exposed_port(postgres_connection_string)?;
+
+    let container = GenericImage::new(OPRF_KEY_GEN_IMAGE, OPRF_KEY_GEN_TAG)
+        .with_exposed_port(OPRF_KEY_GEN_INTERNAL_PORT.tcp())
+        .with_wait_for(WaitFor::Http(Box::new(
+            HttpWaitStrategy::new("/health").with_expected_status_code(200_u16),
+        )))
+        .with_exposed_host_ports([http_port, ws_port, postgres_port])
+        .with_env_var("RUST_LOG", "taceo=trace,warn")
+        .with_env_var("TACEO_OPRF_KEY_GEN__SERVICE__ENVIRONMENT", "dev")
+        .with_env_var(
+            "TACEO_OPRF_KEY_GEN__BIND_ADDR",
+            format!("0.0.0.0:{OPRF_KEY_GEN_INTERNAL_PORT}"),
         )
+        .with_env_var(
+            "TACEO_OPRF_KEY_GEN__SERVICE__OPRF_KEY_REGISTRY_CONTRACT",
+            oprf_key_registry_contract.to_string(),
+        )
+        .with_env_var(
+            "TACEO_OPRF_KEY_GEN__SERVICE__RPC__HTTP_URLS",
+            host_internal_url(chain_http_rpc_url)?,
+        )
+        .with_env_var(
+            "TACEO_OPRF_KEY_GEN__SERVICE__RPC__WS_URL",
+            host_internal_url(chain_ws_rpc_url)?,
+        )
+        .with_env_var(
+            "TACEO_OPRF_KEY_GEN__SERVICE__WALLET_PRIVATE_KEY",
+            wallet_private_key,
+        )
+        .with_env_var("TACEO_OPRF_KEY_GEN__SERVICE__EXPECTED_NUM_PEERS", "5")
+        .with_env_var("TACEO_OPRF_KEY_GEN__SERVICE__EXPECTED_THRESHOLD", "3")
+        .with_env_var(
+            "TACEO_OPRF_KEY_GEN__SERVICE__ZKEY_PATH",
+            "/app/OPRFKeyGen.25.arks.zkey",
+        )
+        .with_env_var(
+            "TACEO_OPRF_KEY_GEN__SERVICE__WITNESS_GRAPH_PATH",
+            "/app/OPRFKeyGenGraph.25.bin",
+        )
+        .with_env_var(
+            "TACEO_OPRF_KEY_GEN__SERVICE__CONFIRMATIONS_FOR_TRANSACTION",
+            "1",
+        )
+        .with_env_var(
+            "TACEO_OPRF_KEY_GEN__POSTGRES__CONNECTION_STRING",
+            host_internal_url(postgres_connection_string)?,
+        )
+        .with_env_var("TACEO_OPRF_KEY_GEN__POSTGRES__SCHEMA", schema)
+        .start()
         .await
-        .expect("Can start");
-        let listener = tokio::net::TcpListener::bind(bind_addr)
-            .await
-            .expect("Can bind listener");
-        let res = axum::serve(listener, router)
-            .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
-            .await;
-        tracing::error!("service failed to start: {res:?}");
-    });
-    // very graceful timeout for CI
-    tokio::time::timeout(Duration::from_secs(60), async {
-        loop {
-            if reqwest::get(url.clone() + "/health").await.is_ok() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }
-    })
-    .await
-    .expect("can start");
-    url
+        .wrap_err_with(|| format!("failed to start key-gen container {id}"))?;
+    let host_port = container
+        .get_host_port_ipv4(OPRF_KEY_GEN_INTERNAL_PORT)
+        .await
+        .wrap_err_with(|| format!("failed to read mapped host port for key-gen container {id}"))?;
+
+    Ok((format!("http://127.0.0.1:{host_port}"), container))
 }
 
 pub async fn spawn_key_gens(
-    chain_ws_rpc_url: &str,
-    [
-        secret_manager0,
-        secret_manager1,
-        secret_manager2,
-        secret_manager3,
-        secret_manager4,
-    ]: [OprfKeyGenTestSecretManager; 5],
+    anvil: &TestAnvil,
+    postgres_connection_string: &str,
     key_gen_contract: Address,
-) -> [String; 5] {
-    tokio::join!(
-        spawn_key_gen(0, chain_ws_rpc_url, secret_manager0, key_gen_contract),
-        spawn_key_gen(1, chain_ws_rpc_url, secret_manager1, key_gen_contract),
-        spawn_key_gen(2, chain_ws_rpc_url, secret_manager2, key_gen_contract),
-        spawn_key_gen(3, chain_ws_rpc_url, secret_manager3, key_gen_contract),
-        spawn_key_gen(4, chain_ws_rpc_url, secret_manager4, key_gen_contract),
-    )
-    .into()
+) -> Result<SpawnedKeyGens> {
+    let (res0, res1, res2, res3, res4) = tokio::join!(
+        spawn_key_gen_container(
+            0,
+            anvil.endpoint(),
+            anvil.ws_endpoint(),
+            postgres_connection_string,
+            OPRF_PEER_PRIVATE_KEY_0,
+            "node0",
+            key_gen_contract,
+        ),
+        spawn_key_gen_container(
+            1,
+            anvil.endpoint(),
+            anvil.ws_endpoint(),
+            postgres_connection_string,
+            OPRF_PEER_PRIVATE_KEY_1,
+            "node1",
+            key_gen_contract,
+        ),
+        spawn_key_gen_container(
+            2,
+            anvil.endpoint(),
+            anvil.ws_endpoint(),
+            postgres_connection_string,
+            OPRF_PEER_PRIVATE_KEY_2,
+            "node2",
+            key_gen_contract,
+        ),
+        spawn_key_gen_container(
+            3,
+            anvil.endpoint(),
+            anvil.ws_endpoint(),
+            postgres_connection_string,
+            OPRF_PEER_PRIVATE_KEY_3,
+            "node3",
+            key_gen_contract,
+        ),
+        spawn_key_gen_container(
+            4,
+            anvil.endpoint(),
+            anvil.ws_endpoint(),
+            postgres_connection_string,
+            OPRF_PEER_PRIVATE_KEY_4,
+            "node4",
+            key_gen_contract,
+        ),
+    );
+
+    let (url0, container0) = res0?;
+    let (url1, container1) = res1?;
+    let (url2, container2) = res2?;
+    let (url3, container3) = res3?;
+    let (url4, container4) = res4?;
+
+    Ok(SpawnedKeyGens {
+        urls: [url0, url1, url2, url3, url4],
+        _containers: [container0, container1, container2, container3, container4],
+    })
 }
 
-pub fn init_test_secret_managers() -> (
-    [OprfKeyGenTestSecretManager; 5],
-    [OprfNodeTestSecretManager; 5],
-) {
-    let test_secret_manager0 = Arc::new(TestSecretManager::new(PEER_PRIVATE_KEYS[0]));
-    let test_secret_manager1 = Arc::new(TestSecretManager::new(PEER_PRIVATE_KEYS[1]));
-    let test_secret_manager2 = Arc::new(TestSecretManager::new(PEER_PRIVATE_KEYS[2]));
-    let test_secret_manager3 = Arc::new(TestSecretManager::new(PEER_PRIVATE_KEYS[3]));
-    let test_secret_manager4 = Arc::new(TestSecretManager::new(PEER_PRIVATE_KEYS[4]));
-
-    (
-        [
-            OprfKeyGenTestSecretManager(test_secret_manager0.clone()),
-            OprfKeyGenTestSecretManager(test_secret_manager1.clone()),
-            OprfKeyGenTestSecretManager(test_secret_manager2.clone()),
-            OprfKeyGenTestSecretManager(test_secret_manager3.clone()),
-            OprfKeyGenTestSecretManager(test_secret_manager4.clone()),
-        ],
-        [
-            OprfNodeTestSecretManager(test_secret_manager0),
-            OprfNodeTestSecretManager(test_secret_manager1),
-            OprfNodeTestSecretManager(test_secret_manager2),
-            OprfNodeTestSecretManager(test_secret_manager3),
-            OprfNodeTestSecretManager(test_secret_manager4),
-        ],
-    )
+pub async fn init_oprf_secret_manager(
+    connection_string: &SecretString,
+    schema: &'static str,
+) -> eyre::Result<taceo_oprf::service::secret_manager::SecretManagerService> {
+    let db_config = PostgresConfig::with_default_values(
+        connection_string.clone(),
+        schema.parse().expect("should be valid config"),
+    );
+    let node = Arc::new(
+        taceo_oprf::service::secret_manager::postgres::PostgresSecretManager::init(&db_config)
+            .await?,
+    );
+    Ok(node)
 }
 
-taceo_oprf_test_utils::key_gen_test_secret_manager!(
-    taceo_oprf_key_gen::secret_manager::SecretManager,
-    OprfKeyGenTestSecretManager
-);
+pub async fn init_test_secret_managers(
+    connection_string: SecretString,
+) -> eyre::Result<[taceo_oprf::service::secret_manager::SecretManagerService; 5]> {
+    let (node0, node1, node2, node3, node4) = tokio::join!(
+        init_oprf_secret_manager(&connection_string, "node0"),
+        init_oprf_secret_manager(&connection_string, "node1"),
+        init_oprf_secret_manager(&connection_string, "node2"),
+        init_oprf_secret_manager(&connection_string, "node3"),
+        init_oprf_secret_manager(&connection_string, "node4"),
+    );
 
-taceo_oprf_test_utils::oprf_node_test_secret_manager!(
-    taceo_oprf::service::secret_manager,
-    OprfNodeTestSecretManager
-);
+    Ok([node0?, node1?, node2?, node3?, node4?])
+}

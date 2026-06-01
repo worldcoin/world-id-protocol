@@ -1,6 +1,6 @@
 use crate::{config::AppState, error::IndexerErrorResponse};
 use axum::{Json, extract::State};
-use world_id_core::api_types::{
+use world_id_primitives::api_types::{
     IndexerAuthenticatorPubkeysResponse, IndexerErrorCode, IndexerQueryRequest,
 };
 
@@ -28,7 +28,7 @@ pub(crate) async fn handler(
         ));
     }
 
-    let (_offchain_signer_commitment, authenticator_pubkeys) = state
+    let (offchain_signer_commitment, authenticator_pubkeys) = state
         .db
         .accounts()
         .get_offchain_signer_commitment_and_authenticator_pubkeys_by_leaf_index(
@@ -43,5 +43,6 @@ pub(crate) async fn handler(
 
     Ok(Json(IndexerAuthenticatorPubkeysResponse {
         authenticator_pubkeys,
+        offchain_signer_commitment,
     }))
 }
