@@ -156,8 +156,6 @@ pub async fn start(
         config.credential_schema_issuer_registry_contract,
         &http_rpc_provider,
         config.issuer_cache_config,
-        config.retry_rpc_request_max_delay,
-        config.retry_rpc_request_max_attempts,
     );
 
     tracing::info!("init credential blinding factor oprf request auth service..");

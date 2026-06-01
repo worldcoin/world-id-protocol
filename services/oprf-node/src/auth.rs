@@ -96,7 +96,8 @@ mod tests {
     }
 
     pub(crate) fn build_http_provider(anvil: &AnvilInstance) -> web3::HttpRpcProvider {
-        HttpRpcProviderBuilder::with_default_values(vec![anvil.endpoint_url()])
+        HttpRpcProviderBuilder::with_default_values([anvil.endpoint_url()])
+            .expect("Can build http provider")
             .environment(taceo_nodes_common::Environment::Dev)
             .chain_id(31_337)
             .wallet(anvil.wallet().expect("Should have signer wallet"))
@@ -228,8 +229,6 @@ mod tests {
                 setup.world_id_registry,
                 &http_rpc_provider,
                 WatcherCacheConfig::default(),
-                Duration::from_secs(0),
-                0,
             );
 
             let rp_registry_watcher = RpRegistryWatcher::init(
@@ -237,16 +236,12 @@ mod tests {
                 http_rpc_provider.clone(),
                 timeout_external_eth_call,
                 WatcherCacheConfig::default(),
-                Duration::from_secs(0),
-                0,
             );
 
             let schema_issuer_registry_watcher = SchemaIssuerRegistryWatcher::init(
                 setup.credential_schema_issuer_registry,
                 &http_rpc_provider,
                 WatcherCacheConfig::default(),
-                Duration::from_secs(0),
-                0,
             );
 
             let nonce_history = NonceHistory::init(current_time_stamp_max_difference * 2);

@@ -10127,6 +10127,24 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "158a4265e0eb2f65ef786ddccf870bb63829bc1e00b6d4e4a97666bdc68209ee"
 dependencies = [
+ "backon",
+ "git-version",
+ "humantime-serde",
+ "secrecy",
+ "serde",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "taceo-nodes-common"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cb26c280819a49d38da5e896faad160b7341ae1614654d0dd0859395cfae24c"
+dependencies = [
  "alloy",
  "axum",
  "backon",
@@ -10146,9 +10164,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf"
-version = "0.15.0"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fd6e0e5868776967242ea855aefe6a7cac7a2a7b1448646ebb50d7c8891adb1"
+checksum = "363805cdb094ef0d45895c616310523457e550267db0dcb3c195b3ee3ca54b71"
 dependencies = [
  "taceo-oprf-client",
  "taceo-oprf-core",
@@ -10232,9 +10250,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-service"
-version = "0.16.0"
+version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0957e941e2a265c4f9451d27a9d483032ad6bc8790ce5b253761e092f14c594"
+checksum = "7544ff62e852bf4885b7a6cdef86578d4472704918250d1ee137888978a11559"
 dependencies = [
  "alloy",
  "ark-serialize 0.5.0",
@@ -10258,7 +10276,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "taceo-ark-babyjubjub",
- "taceo-nodes-common",
+ "taceo-nodes-common 0.7.0",
  "taceo-oprf-core",
  "taceo-oprf-types",
  "thiserror 2.0.18",
@@ -10291,7 +10309,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "taceo-ark-babyjubjub",
- "taceo-nodes-common",
+ "taceo-nodes-common 0.5.2",
  "taceo-oprf-core",
  "taceo-oprf-types",
  "testcontainers-modules",
@@ -12567,7 +12585,7 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
- "taceo-nodes-common",
+ "taceo-nodes-common 0.7.0",
  "taceo-oprf",
  "telemetry-batteries",
  "thiserror 2.0.18",
@@ -12736,7 +12754,7 @@ dependencies = [
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
- "taceo-nodes-common",
+ "taceo-nodes-common 0.7.0",
  "taceo-oprf",
  "taceo-oprf-test-utils",
  "taceo-poseidon2",

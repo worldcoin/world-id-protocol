@@ -210,15 +210,12 @@ async fn spawn_orpf_node(
         rp_registry_contract,
         credential_schema_issuer_registry_contract,
     };
-    let anvil_http = anvil
-        .endpoint()
-        .parse()
-        .expect("anvil endpoint should be valid URL");
     let config = WorldOprfNodeConfig::with_default_values(
         taceo_oprf::service::Environment::Dev,
         VersionReq::STAR,
         contracts,
-        HttpRpcProviderConfig::with_default_values(vec![anvil_http]),
+        HttpRpcProviderConfig::with_default_values([anvil.endpoint()])
+            .expect("Can build http provider"),
     );
 
     tokio::spawn(async move {
