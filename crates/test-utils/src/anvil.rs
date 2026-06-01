@@ -49,10 +49,10 @@ sol!(
 
 sol!(
     #[sol(rpc)]
-    Poseidon2T2,
+    Poseidon2T2V1,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/Poseidon2.sol/Poseidon2T2.json"
+        "/../../contracts/out/Poseidon2V1.sol/Poseidon2T2V1.json"
     )
 );
 
@@ -415,9 +415,9 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        let poseidon = Poseidon2T2::deploy(provider.clone())
+        let poseidon_v1 = Poseidon2T2V1::deploy(provider.clone())
             .await
-            .context("failed to deploy Poseidon2T2 library")?;
+            .context("failed to deploy Poseidon2T2V1 library")?;
         let packed_account_data = PackedAccountData::deploy(provider.clone())
             .await
             .context("failed to deploy PackedAccountData library")?;
@@ -429,7 +429,7 @@ impl TestAnvil {
         let implementation_address = Self::deploy_linked_registry_impl(
             provider.clone(),
             v1_json,
-            *poseidon.address(),
+            Some(*poseidon_v1.address()),
             *packed_account_data.address(),
         )
         .await
@@ -464,10 +464,10 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        // 1. Deploy the libraries shared by both V1 and V2 bytecode.
-        let poseidon = Poseidon2T2::deploy(provider.clone())
+        // 1. Deploy the libraries used by the registry bytecode.
+        let poseidon_v1 = Poseidon2T2V1::deploy(provider.clone())
             .await
-            .context("failed to deploy Poseidon2T2 library")?;
+            .context("failed to deploy Poseidon2T2V1 library")?;
         let packed_account_data = PackedAccountData::deploy(provider.clone())
             .await
             .context("failed to deploy PackedAccountData library")?;
@@ -480,7 +480,7 @@ impl TestAnvil {
         let v1_impl = Self::deploy_linked_registry_impl(
             provider.clone(),
             v1_json,
-            *poseidon.address(),
+            Some(*poseidon_v1.address()),
             *packed_account_data.address(),
         )
         .await
@@ -500,7 +500,7 @@ impl TestAnvil {
         let v2_impl = Self::deploy_linked_registry_impl(
             provider.clone(),
             v2_json,
-            *poseidon.address(),
+            None,
             *packed_account_data.address(),
         )
         .await
@@ -539,12 +539,11 @@ impl TestAnvil {
         )
     }
 
-    /// Links Poseidon2T2 + PackedAccountData into a registry implementation
-    /// bytecode (`WorldIDRegistry` or `WorldIDRegistryV2`) and deploys it.
+    /// Links the registry implementation bytecode and deploys it.
     async fn deploy_linked_registry_impl<P: Provider>(
         provider: P,
         impl_json: &str,
-        poseidon_addr: Address,
+        poseidon_v1_addr: Option<Address>,
         packed_account_data_addr: Address,
     ) -> Result<Address> {
         let json_value: serde_json::Value = serde_json::from_str(impl_json)?;
@@ -559,12 +558,14 @@ impl TestAnvil {
             })
             .to_string();
 
-        bytecode_str = Self::link_bytecode_hex(
-            impl_json,
-            &bytecode_str,
-            "src/core/hash/Poseidon2.sol:Poseidon2T2",
-            poseidon_addr,
-        )?;
+        if let Some(poseidon_v1_addr) = poseidon_v1_addr {
+            bytecode_str = Self::link_bytecode_hex(
+                impl_json,
+                &bytecode_str,
+                "src/core/hash/Poseidon2V1.sol:Poseidon2T2V1",
+                poseidon_v1_addr,
+            )?;
+        }
         bytecode_str = Self::link_bytecode_hex(
             impl_json,
             &bytecode_str,
