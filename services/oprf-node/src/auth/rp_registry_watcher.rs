@@ -110,6 +110,7 @@ impl RpRegistryWatcher {
         let backon_fetch_rp = (|| async { self.fetch_rp_from_chain(*rp_id).await })
             .retry(self.backoff_strategy())
             .sleep(tokio::time::sleep)
+            .when(|e| matches!(e, RpRegistryWatcherError::UnknownRp(_)))
             .notify(|err, duration| {
                 tracing::warn!(%err, "fetch rp form chain will retry after {duration:?}");
             });

@@ -112,6 +112,7 @@ impl MerkleWatcher {
         })
         .retry(self.backoff_strategy())
         .sleep(tokio::time::sleep)
+        .when(|e| matches!(e, MerkleWatcherError::InvalidMerkleRoot))
         .notify(|err, duration| {
             tracing::warn!(%err, "Ensure root valid will retry after {duration:?}");
         });

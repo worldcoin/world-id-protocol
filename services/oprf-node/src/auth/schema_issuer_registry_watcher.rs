@@ -96,6 +96,12 @@ impl SchemaIssuerRegistryWatcher {
         let backon_fetch_issuer = (|| async { self.fetch_issuer(issuer_schema_id).await })
             .retry(self.backoff_strategy())
             .sleep(tokio::time::sleep)
+            .when(|e| {
+                matches!(
+                    e,
+                    SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(_)
+                )
+            })
             .notify(|err, duration| {
                 tracing::warn!(%err, "fetch issuer will retry after {duration:?}");
             });
