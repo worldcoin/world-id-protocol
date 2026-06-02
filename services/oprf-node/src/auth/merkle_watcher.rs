@@ -10,7 +10,10 @@
 
 use std::sync::Arc;
 
-use alloy::{primitives::Address, providers::DynProvider};
+use alloy::{
+    primitives::Address,
+    providers::{DynProvider, Provider},
+};
 use backon::Retryable as _;
 use eyre::Context;
 use moka::future::Cache;
@@ -26,6 +29,8 @@ use crate::{config::WatcherCacheConfig, metrics};
 pub(crate) enum MerkleWatcherError {
     #[error("invalid Merkle root")]
     InvalidMerkleRoot,
+    #[error("merkle root unknown")]
+    UnknownMerkleRoot,
     #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
 }
@@ -85,21 +90,26 @@ impl MerkleWatcher {
         root: FieldElement,
     ) -> Result<(), Arc<MerkleWatcherError>> {
         let is_valid_root = (|| async {
-            let valid = self
+            let (valid, root_time_stamp) = self
                 .contract
-                .isValidRoot(root.into())
-                .call()
+                .provider()
+                .multicall()
+                .add(self.contract.isValidRoot(root.into()))
+                .add(self.contract.getRootTimestamp(root.into()))
+                .aggregate()
                 .await
-                .context("while calling isValidRoot")?;
+                .context("while doing isValidRoot multi-call")?;
             if valid {
                 Ok(())
+            } else if root_time_stamp == 0 {
+                Err(MerkleWatcherError::UnknownMerkleRoot)
             } else {
                 Err(MerkleWatcherError::InvalidMerkleRoot)
             }
         })
         .retry(self.cache_config.backoff_strategy())
         .sleep(tokio::time::sleep)
-        .when(|e| matches!(e, MerkleWatcherError::InvalidMerkleRoot))
+        .when(|e| matches!(e, MerkleWatcherError::UnknownMerkleRoot))
         .notify(|err, duration| {
             tracing::warn!(%err, "Ensure root valid will retry after {duration:?}");
         });
@@ -131,7 +141,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_valid_root_accepted() -> eyre::Result<()> {
-        let anvil = TestAnvil::spawn()?;
+        let anvil = TestAnvil::spawn_with_multicall3().await?;
         let signer = anvil.signer(0)?;
         let registry_address = anvil.deploy_world_id_registry(signer.clone()).await?;
         let root = anvil
@@ -159,8 +169,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_invalid_root_rejected() -> eyre::Result<()> {
-        let anvil = TestAnvil::spawn()?;
+    async fn test_unknown_root_rejected() -> eyre::Result<()> {
+        let anvil = TestAnvil::spawn_with_multicall3().await?;
         let signer = anvil.signer(0)?;
         let registry_address = anvil.deploy_world_id_registry(signer.clone()).await?;
 
@@ -171,22 +181,84 @@ mod tests {
             WatcherCacheConfig::default(),
         );
 
-        let invalid_root = FieldElement::from(99999u64);
+        let unknown_root = FieldElement::from(99999u64);
         let err = watcher
-            .ensure_root_valid(invalid_root)
+            .ensure_root_valid(unknown_root)
             .await
-            .expect_err("invalid root should be rejected");
+            .expect_err("unknown root should be rejected");
+        assert!(
+            matches!(err.as_ref(), MerkleWatcherError::UnknownMerkleRoot),
+            "expected UnknownMerkleRoot, got: {err:?}"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_outdated_root_rejected() -> eyre::Result<()> {
+        let anvil = TestAnvil::spawn_with_multicall3().await?;
+        let signer = anvil.signer(0)?;
+        let registry_address = anvil.deploy_world_id_registry(signer.clone()).await?;
+
+        // Record root1 (becomes latest).
+        let root1 = anvil
+            .create_account(
+                registry_address,
+                signer.clone(),
+                Address::with_last_byte(1),
+                U256::from(42),
+                U256::from(1),
+            )
+            .await;
+
+        // Collapse the validity window so any non-latest root is immediately expired.
+        anvil
+            .set_root_validity_window(registry_address, signer.clone(), 0)
+            .await;
+
+        // Record root2 — this supersedes root1, which is now expired (ts1 + 0 < block.timestamp).
+        let root2 = anvil
+            .create_account(
+                registry_address,
+                signer.clone(),
+                Address::with_last_byte(2),
+                U256::from(43),
+                U256::from(2),
+            )
+            .await;
+
+        let http_rpc_provider = build_http_provider(&anvil.instance);
+        let watcher = MerkleWatcher::init(
+            registry_address,
+            &http_rpc_provider,
+            WatcherCacheConfig::default(),
+        );
+
+        // root1 was recorded (ts != 0) but is now expired — InvalidMerkleRoot, not retried.
+        let err = watcher
+            .ensure_root_valid(root1)
+            .await
+            .expect_err("outdated root should be rejected");
         assert!(
             matches!(err.as_ref(), MerkleWatcherError::InvalidMerkleRoot),
-            "expected InvalidMerkleRoot, got: {err:?}"
+            "expected InvalidMerkleRoot for outdated root, got: {err:?}"
         );
+        assert!(
+            !watcher.merkle_root_cache.contains_key(&root1),
+            "outdated root must not be cached"
+        );
+
+        // root2 is the current latest root and must be accepted.
+        watcher
+            .ensure_root_valid(root2)
+            .await
+            .expect("latest root should be accepted");
         Ok(())
     }
 
     /// Regression test for `HackerOne` report #3494201: invalid roots must not be cached.
     #[tokio::test]
     async fn test_invalid_root_not_cached() -> eyre::Result<()> {
-        let anvil = TestAnvil::spawn()?;
+        let anvil = TestAnvil::spawn_with_multicall3().await?;
         let signer = anvil.signer(0)?;
         let registry_address = anvil.deploy_world_id_registry(signer.clone()).await?;
 
@@ -197,37 +269,37 @@ mod tests {
             WatcherCacheConfig::default(),
         );
 
-        let invalid_root = FieldElement::from(99999u64);
+        let unknown_root = FieldElement::from(99999u64);
 
         let err1 = watcher
-            .ensure_root_valid(invalid_root)
+            .ensure_root_valid(unknown_root)
             .await
             .expect_err("first call should fail");
         assert!(matches!(
             err1.as_ref(),
-            MerkleWatcherError::InvalidMerkleRoot
+            MerkleWatcherError::UnknownMerkleRoot
         ));
 
         assert!(
-            !watcher.merkle_root_cache.contains_key(&invalid_root),
-            "Cache should not have invalid root cached"
+            !watcher.merkle_root_cache.contains_key(&unknown_root),
+            "Cache should not have unknown root cached"
         );
 
         // second call should fail again
         let err2 = watcher
-            .ensure_root_valid(invalid_root)
+            .ensure_root_valid(unknown_root)
             .await
             .expect_err("second call should also fail (error must not be cached)");
         assert!(matches!(
             err2.as_ref(),
-            MerkleWatcherError::InvalidMerkleRoot
+            MerkleWatcherError::UnknownMerkleRoot
         ));
         Ok(())
     }
 
     #[tokio::test]
     async fn test_valid_root_cache_hit() -> eyre::Result<()> {
-        let anvil = TestAnvil::spawn()?;
+        let anvil = TestAnvil::spawn_with_multicall3().await?;
         let signer = anvil.signer(0)?;
         let registry_address = anvil.deploy_world_id_registry(signer.clone()).await?;
         let root = anvil
@@ -268,7 +340,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_ttl_expiry() -> eyre::Result<()> {
-        let anvil = TestAnvil::spawn()?;
+        let anvil = TestAnvil::spawn_with_multicall3().await?;
         let signer = anvil.signer(0)?;
         let registry_address = anvil.deploy_world_id_registry(signer.clone()).await?;
         let root = anvil
@@ -314,7 +386,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_contract_call_failure_returns_internal() -> eyre::Result<()> {
-        let anvil = TestAnvil::spawn()?;
+        let anvil = TestAnvil::spawn_with_multicall3().await?;
         let http_rpc_provider = build_http_provider(&anvil.instance);
         // Address with no contract bytecode — isValidRoot() response cannot be ABI-decoded
         let watcher = MerkleWatcher::init(
