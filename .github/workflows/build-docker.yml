@@ -6,10 +6,10 @@ on:
     branches:
       - main
     tags:
-      - 'world-id-indexer-v*'
-      - 'world-id-gateway-v*'
-      - 'world-id-oprf-node-v*'
-      - 'world-id-relay-v*'
+      - "world-id-indexer-v*"
+      - "world-id-gateway-v*"
+      - "world-id-oprf-node-v*"
+      - "world-id-relay-v*"
   workflow_dispatch:
 
 permissions:
@@ -29,7 +29,7 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           if [[ "$REF_TYPE" == "branch" ]]; then
-            echo 'services=["indexer","gateway","oprf-node","relay"]' >> "$GITHUB_OUTPUT"
+            echo 'services=["indexer","gateway","relay"]' >> "$GITHUB_OUTPUT"
           elif [[ "$REF_NAME" == world-id-indexer-v* ]]; then
             echo 'services=["indexer"]' >> "$GITHUB_OUTPUT"
           elif [[ "$REF_NAME" == world-id-gateway-v* ]]; then
