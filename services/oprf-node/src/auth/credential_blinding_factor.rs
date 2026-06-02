@@ -61,7 +61,9 @@ impl From<Arc<SchemaIssuerRegistryWatcherError>> for CredentialBlindingFactorMod
 impl From<Arc<MerkleWatcherError>> for CredentialBlindingFactorModuleError {
     fn from(value: Arc<MerkleWatcherError>) -> Self {
         match value.as_ref() {
-            MerkleWatcherError::InvalidMerkleRoot => Self::InvalidMerkleRoot,
+            MerkleWatcherError::InvalidMerkleRoot | MerkleWatcherError::UnknownMerkleRoot => {
+                Self::InvalidMerkleRoot
+            }
             MerkleWatcherError::Internal(_) => Self::Internal(eyre::Report::from(value)),
         }
     }
