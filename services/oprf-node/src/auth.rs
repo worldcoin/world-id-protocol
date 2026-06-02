@@ -96,7 +96,8 @@ mod tests {
     }
 
     pub(crate) fn build_http_provider(anvil: &AnvilInstance) -> web3::HttpRpcProvider {
-        HttpRpcProviderBuilder::with_default_values(vec![anvil.endpoint_url()])
+        HttpRpcProviderBuilder::with_default_values([anvil.endpoint_url()])
+            .expect("Can build http provider")
             .environment(taceo_nodes_common::Environment::Dev)
             .chain_id(31_337)
             .wallet(anvil.wallet().expect("Should have signer wallet"))

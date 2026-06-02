@@ -86,8 +86,8 @@ pub(crate) async fn handler(
     })?;
 
     let index_as_usize = leaf_index as usize;
-    let capacity = state.tree_state.capacity();
-    if index_as_usize >= capacity {
+    let num_leaves = state.tree_state.num_leaves().await;
+    if index_as_usize >= num_leaves {
         return Err(IndexerErrorResponse::bad_request(
             IndexerErrorCode::InvalidLeafIndex,
             "Leaf index out of range.".to_string(),

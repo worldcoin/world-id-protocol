@@ -11,6 +11,7 @@
 use std::sync::Arc;
 
 use alloy::{primitives::Address, providers::DynProvider};
+use backon::Retryable as _;
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
@@ -25,7 +26,7 @@ use crate::{config::WatcherCacheConfig, metrics};
 pub(crate) enum MerkleWatcherError {
     #[error("invalid Merkle root")]
     InvalidMerkleRoot,
-    #[error(transparent)]
+    #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
 }
 
@@ -37,6 +38,7 @@ pub(crate) enum MerkleWatcherError {
 pub(crate) struct MerkleWatcher {
     merkle_root_cache: Cache<FieldElement, ()>,
     contract: WorldIdRegistryInstance<DynProvider>,
+    cache_config: WatcherCacheConfig,
 }
 
 impl MerkleWatcher {
@@ -56,23 +58,24 @@ impl MerkleWatcher {
 
         let contract = WorldIdRegistry::new(contract_address, http_rpc_provider.inner());
 
-        let WatcherCacheConfig {
-            max_cache_size,
-            time_to_live,
-        } = cache_config;
-
-        let merkle_root_cache = Cache::builder()
-            .max_capacity(max_cache_size.get())
-            .time_to_live(time_to_live)
+        let merkle_root_cache_builder = Cache::builder()
+            .max_capacity(cache_config.max_cache_size.get())
+            .time_to_live(cache_config.time_to_live)
             .eviction_listener(move |root, (), cause| {
                 tracing::debug!("removing merkle-root {root} because: {cause:?}");
                 metrics::merkle_cache::dec();
-            })
-            .build();
+            });
+
+        let merkle_root_cache = if let Some(time_to_idle) = cache_config.time_to_idle {
+            merkle_root_cache_builder.time_to_idle(time_to_idle).build()
+        } else {
+            merkle_root_cache_builder.build()
+        };
 
         Self {
             merkle_root_cache,
             contract,
+            cache_config,
         }
     }
 
@@ -81,7 +84,7 @@ impl MerkleWatcher {
         &self,
         root: FieldElement,
     ) -> Result<(), Arc<MerkleWatcherError>> {
-        let is_valid_root = || async {
+        let is_valid_root = (|| async {
             let valid = self
                 .contract
                 .isValidRoot(root.into())
@@ -93,12 +96,18 @@ impl MerkleWatcher {
             } else {
                 Err(MerkleWatcherError::InvalidMerkleRoot)
             }
-        };
+        })
+        .retry(self.cache_config.backoff_strategy())
+        .sleep(tokio::time::sleep)
+        .when(|e| matches!(e, MerkleWatcherError::InvalidMerkleRoot))
+        .notify(|err, duration| {
+            tracing::warn!(%err, "Ensure root valid will retry after {duration:?}");
+        });
 
         let entry = self
             .merkle_root_cache
             .entry(root)
-            .or_try_insert_with(is_valid_root())
+            .or_try_insert_with(is_valid_root)
             .await?;
         if entry.is_fresh() {
             metrics::merkle_cache::inc();

@@ -41,7 +41,7 @@ pub(crate) enum CredentialBlindingFactorModuleError {
     #[error("unknown schema issuer: {0}")]
     UnknownSchemaIssuer(u64),
     /// Internal Error
-    #[error(transparent)]
+    #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
 }
 
@@ -90,9 +90,9 @@ impl From<CredentialBlindingFactorModuleError> for WorldIdRequestAuthError {
 impl CredentialBlindingFactorModuleError {
     fn log(&self) {
         if let CredentialBlindingFactorModuleError::Internal(report) = self {
-            tracing::error!("{report:?}");
+            tracing::error!(err = ?report, "Internal error");
         } else {
-            tracing::debug!("{self}");
+            tracing::warn!(auth_error=true, err = %self, "Error in credential issuer blinding module: {self}");
         }
     }
 }

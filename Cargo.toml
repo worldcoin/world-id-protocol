@@ -23,7 +23,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.10.2"
+version = "0.11.0"
 license = "MIT"
 authors = [
   "World Foundation",
@@ -74,8 +74,8 @@ itertools = "0.14"
 k256 = { version = "0.13" }
 sha2 = { version = "0.11", default-features = false }
 taceo-groth16-sol = { version = "0.3.1" }
-taceo-oprf = { version = "0.14.0", default-features = false }
-taceo-oprf-test-utils = { version = "0.12", default-features = false }
+taceo-oprf = { version = "0.15.1", default-features = false }
+taceo-oprf-test-utils = { version = "0.13", default-features = false }
 telemetry-batteries = "0.2"
 tikv-jemallocator = "0.6"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
@@ -142,22 +142,22 @@ testcontainers-modules = { version = "0.15", features = ["redis"] }
 sqlx = "0.8"
 take_mut = "0.2.2"
 tar = "0.4"
-taceo-nodes-common = { version = "0.5.1", default-features=false }
+taceo-nodes-common = { version = "0.7", default-features=false }
 tempfile = "3"
 tokio-util = "0.7"
 tempo-alloy = "1.6"
 tower = "0.5.3"
 
 # Internal
-world-id-core = { version = "0.10.2", default-features = false, path = "crates/core" }
-world-id-issuer = { version = "0.10.2", path = "crates/issuer" }
-world-id-proof = { version = "0.10.2", path = "crates/proof" }
-world-id-registries = { version = "0.10.2", path = "crates/registries" }
-world-id-authenticator = { version = "0.10.2", path = "crates/authenticator" }
-world-id-primitives = { version = "0.10.2", path = "crates/primitives", default-features = false }
-world-id-oprf-node = { version = "0.2.0", path = "services/oprf-node" }
+world-id-core = { version = "0.11.0", default-features = false, path = "crates/core" }
+world-id-issuer = { version = "0.11.0", path = "crates/issuer" }
+world-id-proof = { version = "0.11.0", path = "crates/proof" }
+world-id-registries = { version = "0.11.0", path = "crates/registries" }
+world-id-authenticator = { version = "0.11.0", path = "crates/authenticator" }
+world-id-primitives = { version = "0.11.0", path = "crates/primitives", default-features = false }
+world-id-oprf-node = { version = "0.1.0", path = "services/oprf-node" }
 world-id-test-utils = { path = "crates/test-utils" }
-world-id-services-common = { path = "services/common" }
+world-id-services-common = { path = "services/common", version = "0.1.0" }
 world-id-relay = { path = "services/relay" }
 
 # Compile all third-party dependencies with optimizations, even in dev/test builds.

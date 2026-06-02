@@ -13,6 +13,7 @@
 
 use crate::ProofError;
 use ark_bn254::Bn254;
+use ark_ff::BigInt;
 use rand::{CryptoRng, Rng};
 use std::{io::Read, path::Path};
 use world_id_primitives::{Credential, FieldElement, Nullifier, RequestItem, TREE_DEPTH};
@@ -332,7 +333,7 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         cred_genesis_issued_at: credential.genesis_issued_at.into(),
         cred_genesis_issued_at_min: request_item.genesis_issued_at_min.unwrap_or(0).into(),
         cred_expires_at: credential.expires_at.into(),
-        cred_id: credential.id.into(),
+        cred_id: BigInt([credential.id, u64::from(credential.issuer_version), 0, 0]).into(),
         cred_sub_blinding_factor: *credential_sub_blinding_factor,
         cred_s: cred_signature.s,
         cred_r: cred_signature.r,

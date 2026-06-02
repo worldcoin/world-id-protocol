@@ -6,8 +6,18 @@ use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    bindings::NothingChanged, cli::WorldChain, log::CommitmentLog, satellite::Satellite, stream,
+    bindings::NothingChanged, cli::WorldChain, log::CommitmentLog, metrics as relay_metrics,
+    primitives::StateCommitment, satellite::Satellite, stream,
 };
+
+fn event_kind(commitment: &StateCommitment) -> &'static str {
+    match commitment {
+        StateCommitment::ChainCommitted(_) => "chain_committed",
+        StateCommitment::RootCommitment(_) => "root_commitment",
+        StateCommitment::IssuerPubKey(_) => "issuer_pub_key",
+        StateCommitment::OprfPubKey(_) => "oprf_pub_key",
+    }
+}
 
 /// The core relay engine.
 ///
@@ -63,6 +73,7 @@ impl Engine {
             Ok(root) => root,
             Err(e) => {
                 warn!(error = %e, "failed to read source root");
+                relay_metrics::inc_propagate_outcome(relay_metrics::outcome::RPC_ERROR);
                 return Ok(());
             }
         };
@@ -76,6 +87,7 @@ impl Engine {
             Ok(root) => root,
             Err(e) => {
                 warn!(error = %e, "failed to read registry root");
+                relay_metrics::inc_propagate_outcome(relay_metrics::outcome::RPC_ERROR);
                 return Ok(());
             }
         };
@@ -83,16 +95,20 @@ impl Engine {
         // Drain pending entries — removed from the map now so concurrent
         // inserts during the await are not lost.
         let snapshot = self.log.take_pending();
+        relay_metrics::record_pending_counts(&self.log);
 
         let root_changed = source_root != registry_root;
 
         if !root_changed && snapshot.is_empty() {
             debug!("propagation tick: nothing to propagate");
+            relay_metrics::inc_propagate_outcome(relay_metrics::outcome::NOOP);
             return Ok(());
         }
 
         let issuers = snapshot.issuer_ids();
         let oprfs = snapshot.oprf_ids();
+        let issuers_attempted = issuers.len();
+        let oprfs_attempted = oprfs.len();
 
         info!(
             root_changed,
@@ -114,23 +130,40 @@ impl Engine {
             Ok(pending) => match pending.get_receipt().await {
                 Ok(receipt) if receipt.status() => {
                     info!(hash = %receipt.transaction_hash, "propagateState succeeded");
+                    relay_metrics::inc_propagate_outcome(relay_metrics::outcome::SUCCESS);
                 }
                 Ok(receipt) => {
-                    warn!(hash = %receipt.transaction_hash, "propagateState reverted on-chain");
+                    warn!(
+                        hash = %receipt.transaction_hash,
+                        issuers_attempted,
+                        oprfs_attempted,
+                        "propagateState reverted on-chain"
+                    );
                     self.log.restore_pending(snapshot);
+                    relay_metrics::record_pending_counts(&self.log);
+                    relay_metrics::inc_propagate_outcome(relay_metrics::outcome::REVERT_ON_CHAIN);
                 }
                 Err(e) => {
                     warn!(error = %e, "failed to get propagateState receipt");
                     self.log.restore_pending(snapshot);
+                    relay_metrics::record_pending_counts(&self.log);
+                    relay_metrics::inc_propagate_outcome(relay_metrics::outcome::RPC_ERROR);
                 }
             },
             Err(e) if e.as_decoded_error::<NothingChanged>().is_some() => {
                 debug!(error = %e, "propagateState reverted with NothingChanged");
                 // State is already on-chain — no need to restore.
+                relay_metrics::inc_propagate_outcome(relay_metrics::outcome::NOTHING_CHANGED);
             }
             Err(e) => {
-                warn!(error = %e, "propagateState simulation reverted");
+                warn!(
+                    error = %e,
+                    wallet = %self.world_chain.wallet_address(),
+                    "propagateState simulation reverted"
+                );
                 self.log.restore_pending(snapshot);
+                relay_metrics::record_pending_counts(&self.log);
+                relay_metrics::inc_propagate_outcome(relay_metrics::outcome::SIMULATION_REVERT);
             }
         }
         Ok(())
@@ -169,8 +202,13 @@ impl Engine {
                 Some(result) = events.next() => {
                     match result {
                         Ok(commitment) => {
-                            info!(event = %commitment, "received event from World Chain");
+                            info!(
+                                event = %commitment,
+                                event_kind = event_kind(&commitment),
+                                "received event from World Chain"
+                            );
                             self.log.insert(commitment);
+                            relay_metrics::record_pending_counts(&self.log);
                         }
                         Err(e) => warn!(error = %e, "failed to decode event"),
                     }

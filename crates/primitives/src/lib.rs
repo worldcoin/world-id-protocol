@@ -29,7 +29,7 @@ pub use key_set::{
 
 /// Contains the global configuration for interacting with the World ID Protocol.
 mod config;
-pub use config::Config;
+pub use config::{Config, ServiceEndpoint};
 
 /// SAFE-style sponge utilities and helpers.
 pub mod sponge;

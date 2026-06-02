@@ -96,6 +96,8 @@ mod engine;
 /// Append-only, hash-chain-verified commitment log with watch-based fan-out.
 mod log;
 
+pub mod metrics;
+
 /// Core domain types: commitments, keccak chain, key identifiers.
 pub mod primitives;
 

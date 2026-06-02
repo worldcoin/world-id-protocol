@@ -20,8 +20,10 @@ use crate::{
 
 use super::build_chain_head_attribute;
 
-/// USDC.e (TIP-20) fee token on Tempo.
-const FEE_TOKEN: Address = address!("0x20c000000000000000000000b9537d11c60e8b50");
+/// USDC.e (TIP-20) fee token on Tempo. Gas on Tempo is paid in this token,
+/// not native ETH — `eth_getBalance` returns a placeholder value on Tempo,
+/// so wallet-balance checks must query `balanceOf` on this contract instead.
+pub const FEE_TOKEN: Address = address!("0x20c000000000000000000000b9537d11c60e8b50");
 
 /// A permissioned satellite targeting a Tempo blockchain destination.
 ///

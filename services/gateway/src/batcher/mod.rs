@@ -10,7 +10,10 @@ pub(crate) use ops::{OpsBatcherHandle, OpsBatcherRunner, OpsEnvelope};
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use alloy::{network::Ethereum, primitives::Bytes, providers::DynProvider};
-use tokio::{sync::mpsc, time::Instant};
+use tokio::{
+    sync::{Mutex, mpsc},
+    time::Instant,
+};
 use uuid::Uuid;
 use world_id_primitives::api_types::{CreateAccountRequest, GatewayRequestState};
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
@@ -134,6 +137,7 @@ where
     tracker: RequestTracker,
     batch_policy: BatchPolicyConfig,
     base_fee_cache: BaseFeeCache,
+    tx_send_lock: Arc<Mutex<()>>,
     strategy: S,
 }
 
@@ -151,6 +155,7 @@ where
         tracker: RequestTracker,
         batch_policy: BatchPolicyConfig,
         base_fee_cache: BaseFeeCache,
+        tx_send_lock: Arc<Mutex<()>>,
     ) -> Self {
         Self {
             rx,
@@ -160,6 +165,7 @@ where
             tracker,
             batch_policy,
             base_fee_cache,
+            tx_send_lock,
             strategy: S::default(),
         }
     }
@@ -182,6 +188,7 @@ where
             .set_status_batch(&ids, GatewayRequestState::Batching)
             .await;
 
+        let _send_guard = self.tx_send_lock.lock().await;
         let start = Instant::now();
         match self.strategy.send_batch(&self.registry, batch).await {
             Ok(sent) => {

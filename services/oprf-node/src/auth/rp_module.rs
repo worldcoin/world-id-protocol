@@ -111,7 +111,7 @@ pub(crate) enum RpModuleError {
     Wip101VerificationFailed(Option<U256>),
     #[error("Auxiliary data for WIP101 contract too large")]
     Wip101AuxDataTooLarge,
-    #[error(transparent)]
+    #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
 }
 
@@ -187,9 +187,9 @@ impl From<RpModuleError> for WorldIdRequestAuthError {
 impl RpModuleError {
     fn log(&self) {
         if let RpModuleError::Internal(report) = self {
-            tracing::error!("{report:?}");
+            tracing::error!(err = ?report, "Internal error");
         } else {
-            tracing::debug!("{self}");
+            tracing::warn!(auth_error=true, err = %self, "Error in RP-module: {self}");
         }
     }
 }
@@ -443,13 +443,14 @@ impl RpModuleAuth {
             }
         }
 
-        let oprf_key_id = self
-            .verify_rp_signature(request.auth.action, request)
-            .await?;
+        let (verify_rp_signature_check, merkle_check) = tokio::join!(
+            self.verify_rp_signature(request.auth.action, request),
+            self.merkle_watcher
+                .ensure_root_valid(FieldElement::from(request.auth.merkle_root))
+        );
 
-        self.merkle_watcher
-            .ensure_root_valid(FieldElement::from(request.auth.merkle_root))
-            .await?;
+        let oprf_key_id = verify_rp_signature_check?;
+        merkle_check?;
 
         let valid = super::verify_query_proof(
             &self.query_vk,
@@ -485,8 +486,7 @@ impl OprfRequestAuthenticator for RpModuleAuth {
         &self,
         request: &OprfRequest<Self::RequestAuth>,
     ) -> Result<OprfKeyId, OprfRequestAuthenticatorError> {
-        Ok(self
-            .authenticate_inner(request)
+        Ok(Box::pin(self.authenticate_inner(request))
             .await
             .inspect_err(RpModuleError::log)
             .map_err(WorldIdRequestAuthError::from)?)

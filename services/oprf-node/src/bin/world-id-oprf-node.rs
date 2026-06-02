@@ -93,7 +93,7 @@ async fn run(config: FullWorldOprfNodeConfig) -> eyre::Result<()> {
     let max_wait_time_shutdown = config.max_wait_time_shutdown;
 
     tracing::info!("starting world-node service...");
-    let (oprf_service_router, oprf_node_tasks) = world_id_oprf_node::start(
+    let oprf_service_router = world_id_oprf_node::start(
         config.node_config,
         secret_manager,
         cancellation_token.clone(),
@@ -118,23 +118,14 @@ async fn run(config: FullWorldOprfNodeConfig) -> eyre::Result<()> {
     cancellation_token.cancelled().await;
 
     tracing::info!("waiting for shutdown of services (max wait time {max_wait_time_shutdown:?})..");
-    match tokio::time::timeout(max_wait_time_shutdown, async move {
-        let (server, oprf_node_tasks) = tokio::join!(server, oprf_node_tasks.join());
-        server??;
-        oprf_node_tasks?;
-        eyre::Ok(())
-    })
-    .await
-    {
-        Ok(Ok(_)) => {
-            tracing::info!("successfully finished graceful shutdown in time");
-            Ok(())
-        }
-        Ok(Err(err)) => Err(err),
-        Err(_) => {
-            eyre::bail!("could not finish shutdown in time");
-        }
-    }
+    tokio::time::timeout(max_wait_time_shutdown, server)
+        .await
+        .context("could not finish shutdown in time")?
+        .context("cannot join server task")?
+        .context("while serving axum")?;
+
+    tracing::info!("successfully finished graceful shutdown in time");
+    Ok(())
 }
 
 fn main() -> ExitCode {
