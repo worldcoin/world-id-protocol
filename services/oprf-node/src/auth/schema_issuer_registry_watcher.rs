@@ -5,6 +5,7 @@ use crate::{
     config::WatcherCacheConfig, metrics,
 };
 use alloy::{primitives::Address, providers::DynProvider};
+use backon::Retryable as _;
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
@@ -24,7 +25,7 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
     #[error("unknown schema issuer: {0}")]
     UnknownSchemaIssuerId(u64),
     /// Internal Error
-    #[error(transparent)]
+    #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
 }
 
@@ -39,6 +40,7 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
 pub(crate) struct SchemaIssuerRegistryWatcher {
     issuer_schema_store: Cache<u64, ()>,
     contract: CredentialSchemaIssuerRegistryInstance<DynProvider>,
+    cache_config: WatcherCacheConfig,
 }
 
 impl SchemaIssuerRegistryWatcher {
@@ -50,20 +52,14 @@ impl SchemaIssuerRegistryWatcher {
     ) -> Self {
         metrics::schema_issuer_cache::reset();
 
-        let WatcherCacheConfig {
-            max_cache_size,
-            time_to_live,
-            time_to_idle,
-        } = cache_config;
-
         let store_builder = Cache::builder()
-            .max_capacity(max_cache_size.get())
-            .time_to_live(time_to_live)
+            .max_capacity(cache_config.max_cache_size.get())
+            .time_to_live(cache_config.time_to_live)
             .eviction_listener(move |k, (), cause| {
                 tracing::debug!("removing issuer {k} because: {cause:?}");
                 metrics::schema_issuer_cache::dec();
             });
-        let issuer_schema_store = if let Some(time_to_idle) = time_to_idle {
+        let issuer_schema_store = if let Some(time_to_idle) = cache_config.time_to_idle {
             store_builder.time_to_idle(time_to_idle).build()
         } else {
             store_builder.build()
@@ -75,6 +71,7 @@ impl SchemaIssuerRegistryWatcher {
                 contract_address,
                 http_rpc_provider.inner(),
             ),
+            cache_config,
         }
     }
 
@@ -83,10 +80,23 @@ impl SchemaIssuerRegistryWatcher {
         &self,
         issuer_schema_id: u64,
     ) -> Result<(), Arc<SchemaIssuerRegistryWatcherError>> {
+        let backon_fetch_issuer = (|| async { self.fetch_issuer(issuer_schema_id).await })
+            .retry(self.cache_config.backoff_strategy())
+            .sleep(tokio::time::sleep)
+            .when(|e| {
+                matches!(
+                    e,
+                    SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(_)
+                )
+            })
+            .notify(|err, duration| {
+                tracing::warn!(%err, "fetch issuer will retry after {duration:?}");
+            });
+
         let entry = self
             .issuer_schema_store
             .entry(issuer_schema_id)
-            .or_try_insert_with(self.fetch_issuer(issuer_schema_id))
+            .or_try_insert_with(backon_fetch_issuer)
             .await?;
 
         if entry.is_fresh() {
