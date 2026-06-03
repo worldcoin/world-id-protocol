@@ -10,6 +10,7 @@ use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
 use tracing::instrument;
+use world_id_primitives::oprf::WorldIdRequestAuthError;
 
 alloy::sol! {
     #[allow(missing_docs, clippy::too_many_arguments, reason="Get this errors from sol macro")]
@@ -27,6 +28,17 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
     /// Internal Error
     #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
+}
+
+impl From<&SchemaIssuerRegistryWatcherError> for WorldIdRequestAuthError {
+    fn from(value: &SchemaIssuerRegistryWatcherError) -> Self {
+        match value {
+            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(_) => {
+                Self::UnknownSchemaIssuerId
+            }
+            SchemaIssuerRegistryWatcherError::Internal(_) => Self::Internal,
+        }
+    }
 }
 
 /// Validates and caches issuers from the `CredentialSchemaIssuerRegistry` contract.

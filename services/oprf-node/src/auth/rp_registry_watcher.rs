@@ -15,7 +15,7 @@ use moka::future::Cache;
 use taceo_nodes_common::web3;
 use taceo_oprf::types::OprfKeyId;
 use tracing::instrument;
-use world_id_primitives::rp::RpId;
+use world_id_primitives::{oprf::WorldIdRequestAuthError, rp::RpId};
 
 alloy::sol! {
     #[allow(missing_docs, clippy::too_many_arguments, reason="Get this errors from sol macro")]
@@ -39,6 +39,17 @@ pub(crate) enum RpRegistryWatcherError {
     /// Internal Error
     #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
+}
+
+impl From<&RpRegistryWatcherError> for WorldIdRequestAuthError {
+    fn from(value: &RpRegistryWatcherError) -> Self {
+        match value {
+            RpRegistryWatcherError::UnknownRp(_) => Self::UnknownRp,
+            RpRegistryWatcherError::InactiveRp(_) => Self::InactiveRp,
+            RpRegistryWatcherError::Timeout(_) => Self::Wip101AccountCheckTimeout,
+            RpRegistryWatcherError::Internal(_) => Self::Internal,
+        }
+    }
 }
 
 /// Validates and caches RPs from the `RpRegistry` contract.

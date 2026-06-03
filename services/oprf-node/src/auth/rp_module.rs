@@ -32,7 +32,6 @@ use tracing::instrument;
 use world_id_primitives::{
     FieldElement, SessionFeType, SessionFieldElement as _,
     oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
-    rp::RpId,
 };
 
 pub(crate) mod wip101;
@@ -64,8 +63,10 @@ pub(crate) enum RpModuleError {
     },
     #[error("Could not verify query proof")]
     InvalidQueryProof,
-    #[error("invalid Merkle root")]
-    InvalidMerkleRoot,
+    #[error(transparent)]
+    MerkleWatcher(#[from] Arc<MerkleWatcherError>),
+    #[error(transparent)]
+    RpRegistry(#[from] Arc<RpRegistryWatcherError>),
     #[error("Current Timestamp in request too old, timestamp={timestamp:?}, current={current:?}")]
     TimestampTooOld {
         timestamp: chrono::DateTime<Utc>,
@@ -85,10 +86,6 @@ pub(crate) enum RpModuleError {
     },
     #[error("Invalid Unix timestamp: {0}")]
     InvalidTimestamp(u64),
-    #[error("unknown rp: {0}")]
-    UnknownRp(RpId),
-    #[error("inactive rp: {0}")]
-    InactiveRp(RpId),
     #[error("Cannot build signature: {0}")]
     CorruptSignature(#[from] alloy::primitives::SignatureError),
     #[error("Invalid RP signature - recover signer failed")]
@@ -101,8 +98,6 @@ pub(crate) enum RpModuleError {
     DuplicateNonce(#[from] DuplicateNonce),
     #[error("RP signer is a contract but does not conform to WIP101")]
     Wip101IncompatibleRpSigner,
-    #[error("Ran into timeout while doing wip101 account check on RP: {0}")]
-    Wip101AccountCheckTimeout(RpId),
     #[error("Ran into timeout while verifying RP signature")]
     Wip101VerificationTimeout,
     #[error("RP signer contract reverted with custom error")]
@@ -115,83 +110,32 @@ pub(crate) enum RpModuleError {
     Internal(#[from] eyre::Report),
 }
 
-impl From<Arc<MerkleWatcherError>> for RpModuleError {
-    fn from(value: Arc<MerkleWatcherError>) -> Self {
-        match value.as_ref() {
-            MerkleWatcherError::InvalidMerkleRoot | MerkleWatcherError::UnknownMerkleRoot => {
-                Self::InvalidMerkleRoot
-            }
-            MerkleWatcherError::Internal(_) => Self::Internal(eyre::Report::from(value)),
-        }
-    }
-}
-
-impl From<Arc<RpRegistryWatcherError>> for RpModuleError {
-    fn from(value: Arc<RpRegistryWatcherError>) -> Self {
-        match value.as_ref() {
-            RpRegistryWatcherError::UnknownRp(rp_id) => Self::UnknownRp(*rp_id),
-            RpRegistryWatcherError::InactiveRp(rp_id) => Self::InactiveRp(*rp_id),
-            RpRegistryWatcherError::Timeout(rp_id) => Self::Wip101AccountCheckTimeout(*rp_id),
-            RpRegistryWatcherError::Internal(_) => Self::Internal(eyre::Report::from(value)),
-        }
-    }
-}
-
-impl From<RpModuleError> for WorldIdRequestAuthError {
-    fn from(value: RpModuleError) -> Self {
+impl From<&RpModuleError> for WorldIdRequestAuthError {
+    fn from(value: &RpModuleError) -> Self {
         match value {
             RpModuleError::InvalidAction { kind, .. } => match kind {
-                RpModuleKind::Session => WorldIdRequestAuthError::InvalidActionSession,
-                RpModuleKind::Uniqueness => WorldIdRequestAuthError::InvalidActionNullifier,
+                RpModuleKind::Session => Self::InvalidActionSession,
+                RpModuleKind::Uniqueness => Self::InvalidActionNullifier,
             },
-            RpModuleError::InvalidQueryProof => WorldIdRequestAuthError::InvalidQueryProof,
-            RpModuleError::InvalidMerkleRoot => WorldIdRequestAuthError::InvalidMerkleRoot,
-            RpModuleError::TimestampTooOld {
-                current: _,
-                timestamp: _,
-            } => WorldIdRequestAuthError::TimestampTooOld,
-            RpModuleError::TimestampTooFarInFuture {
-                current: _,
-                timestamp: _,
-            } => WorldIdRequestAuthError::TimestampTooFarInFuture,
-            RpModuleError::RpSignatureExpired {
-                current: _,
-                expired_timestamp: _,
-            } => WorldIdRequestAuthError::RpSignatureExpired,
-            RpModuleError::InvalidTimestamp(_) => WorldIdRequestAuthError::InvalidTimestamp,
-            RpModuleError::RpSignatureMissing => WorldIdRequestAuthError::RpSignatureMissing,
-            RpModuleError::Wip101AccountCheckTimeout(_) => {
-                WorldIdRequestAuthError::Wip101AccountCheckTimeout
-            }
-            RpModuleError::UnknownRp(_) => WorldIdRequestAuthError::UnknownRp,
-            RpModuleError::InactiveRp(_) => WorldIdRequestAuthError::InactiveRp,
+            RpModuleError::InvalidQueryProof => Self::InvalidQueryProof,
+            RpModuleError::MerkleWatcher(e) => e.as_ref().into(),
+            RpModuleError::RpRegistry(e) => e.as_ref().into(),
+            RpModuleError::TimestampTooOld { .. } => Self::TimestampTooOld,
+            RpModuleError::TimestampTooFarInFuture { .. } => Self::TimestampTooFarInFuture,
+            RpModuleError::RpSignatureExpired { .. } => Self::RpSignatureExpired,
+            RpModuleError::InvalidTimestamp(_) => Self::InvalidTimestamp,
+            RpModuleError::RpSignatureMissing => Self::RpSignatureMissing,
             RpModuleError::CorruptSignature(_) | RpModuleError::InvalidSignature => {
-                WorldIdRequestAuthError::InvalidRpSignature
+                Self::InvalidRpSignature
             }
-            RpModuleError::DuplicateNonce(_) => WorldIdRequestAuthError::DuplicateNonce,
-            RpModuleError::Wip101IncompatibleRpSigner => {
-                WorldIdRequestAuthError::Wip101IncompatibleRpSigner
-            }
-            RpModuleError::Wip101VerificationTimeout => {
-                WorldIdRequestAuthError::Wip101VerificationTimeout
-            }
-            RpModuleError::Wip101VerificationFailed(code) => {
-                WorldIdRequestAuthError::Wip101VerificationFailed(code)
-            }
-            RpModuleError::Wip101CustomRevert => WorldIdRequestAuthError::Wip101CustomRevert,
-            RpModuleError::Wip101AuxDataOnEoa => WorldIdRequestAuthError::Wip101AuxDataOnEoa,
-            RpModuleError::Wip101AuxDataTooLarge => WorldIdRequestAuthError::Wip101AuxDataTooLarge,
-            RpModuleError::Internal(_) => WorldIdRequestAuthError::Internal,
-        }
-    }
-}
-
-impl RpModuleError {
-    fn log(&self) {
-        if let RpModuleError::Internal(report) = self {
-            tracing::error!(err = ?report, "Internal error");
-        } else {
-            tracing::warn!(auth_error=true, err = %self, "Error in RP-module: {self}");
+            RpModuleError::DuplicateNonce(_) => Self::DuplicateNonce,
+            RpModuleError::Wip101IncompatibleRpSigner => Self::Wip101IncompatibleRpSigner,
+            RpModuleError::Wip101VerificationTimeout => Self::Wip101VerificationTimeout,
+            RpModuleError::Wip101VerificationFailed(code) => Self::Wip101VerificationFailed(*code),
+            RpModuleError::Wip101CustomRevert => Self::Wip101CustomRevert,
+            RpModuleError::Wip101AuxDataOnEoa => Self::Wip101AuxDataOnEoa,
+            RpModuleError::Wip101AuxDataTooLarge => Self::Wip101AuxDataTooLarge,
+            RpModuleError::Internal(_) => Self::Internal,
         }
     }
 }
@@ -490,8 +434,11 @@ impl OprfRequestAuthenticator for RpModuleAuth {
     ) -> Result<OprfKeyId, OprfRequestAuthenticatorError> {
         Ok(Box::pin(self.authenticate_inner(request))
             .await
-            .inspect_err(RpModuleError::log)
-            .map_err(WorldIdRequestAuthError::from)?)
+            .map_err(|err| {
+                let mapped = WorldIdRequestAuthError::from(&err);
+                super::log_auth_module_error(&err, mapped, "RP-module");
+                mapped
+            })?)
     }
 }
 

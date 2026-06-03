@@ -16,7 +16,7 @@
 use ark_bn254::Bn254;
 use ark_groth16::PreparedVerifyingKey;
 use taceo_oprf::types::OprfKeyId;
-use world_id_primitives::TREE_DEPTH;
+use world_id_primitives::{TREE_DEPTH, oprf::WorldIdRequestAuthError};
 
 pub(crate) mod credential_blinding_factor;
 pub(crate) mod merkle_watcher;
@@ -24,6 +24,20 @@ pub(crate) mod nonce_history;
 pub(crate) mod rp_module;
 pub(crate) mod rp_registry_watcher;
 pub(crate) mod schema_issuer_registry_watcher;
+
+/// Logs an auth-module error: `error!` for internal errors, `warn!` (with
+/// `auth_error=true`) for client-attributable auth failures.
+pub(crate) fn log_auth_module_error(
+    err: &(impl std::fmt::Debug + std::fmt::Display),
+    mapped: WorldIdRequestAuthError,
+    module: &str,
+) {
+    if matches!(mapped, WorldIdRequestAuthError::Internal) {
+        tracing::error!(?err, "Internal error in {module}");
+    } else {
+        tracing::warn!(auth_error = true, %err, ?err, "Error in {module}: {err}");
+    }
+}
 
 pub(crate) fn verify_query_proof(
     vk: &PreparedVerifyingKey<Bn254>,

@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use alloy::{
-    primitives::Address,
+    primitives::{Address, U256},
     providers::{DynProvider, Provider},
 };
 use backon::Retryable as _;
@@ -19,7 +19,7 @@ use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
 use tracing::instrument;
-use world_id_primitives::FieldElement;
+use world_id_primitives::{FieldElement, oprf::WorldIdRequestAuthError};
 use world_id_registries::world_id::WorldIdRegistry::{self, WorldIdRegistryInstance};
 
 use crate::{config::WatcherCacheConfig, metrics};
@@ -27,12 +27,29 @@ use crate::{config::WatcherCacheConfig, metrics};
 /// Error returned by the [`MerkleWatcher`] implementation.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum MerkleWatcherError {
-    #[error("invalid Merkle root")]
-    InvalidMerkleRoot,
-    #[error("merkle root unknown")]
-    UnknownMerkleRoot,
+    #[error(
+        "invalid Merkle root {root} at block #{block}. Timestamp on block {timestamp_block} - root time stamp from contract: {root_time_stamp}"
+    )]
+    InvalidMerkleRoot {
+        root: FieldElement,
+        block: U256,
+        timestamp_block: U256,
+        root_time_stamp: U256,
+    },
+    #[error("unknown Merkle root {root} at #{block}")]
+    UnknownMerkleRoot { root: FieldElement, block: U256 },
     #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
+}
+
+impl From<&MerkleWatcherError> for WorldIdRequestAuthError {
+    fn from(value: &MerkleWatcherError) -> Self {
+        match value {
+            MerkleWatcherError::InvalidMerkleRoot { .. }
+            | MerkleWatcherError::UnknownMerkleRoot { .. } => Self::InvalidMerkleRoot,
+            MerkleWatcherError::Internal(_) => Self::Internal,
+        }
+    }
 }
 
 /// Validates and caches merkle roots from the `WorldIDRegistry` contract.
@@ -90,26 +107,36 @@ impl MerkleWatcher {
         root: FieldElement,
     ) -> Result<(), Arc<MerkleWatcherError>> {
         let is_valid_root = (|| async {
-            let (valid, root_time_stamp) = self
+            let (valid, root_time_stamp, current_block, timestamp_block) = self
                 .contract
                 .provider()
                 .multicall()
                 .add(self.contract.isValidRoot(root.into()))
                 .add(self.contract.getRootTimestamp(root.into()))
+                .get_block_number()
+                .get_current_block_timestamp()
                 .aggregate()
                 .await
                 .context("while doing isValidRoot multi-call")?;
             if valid {
                 Ok(())
             } else if root_time_stamp == 0 {
-                Err(MerkleWatcherError::UnknownMerkleRoot)
+                Err(MerkleWatcherError::UnknownMerkleRoot {
+                    root,
+                    block: current_block,
+                })
             } else {
-                Err(MerkleWatcherError::InvalidMerkleRoot)
+                Err(MerkleWatcherError::InvalidMerkleRoot {
+                    root,
+                    block: current_block,
+                    timestamp_block,
+                    root_time_stamp,
+                })
             }
         })
         .retry(self.cache_config.backoff_strategy())
         .sleep(tokio::time::sleep)
-        .when(|e| matches!(e, MerkleWatcherError::UnknownMerkleRoot))
+        .when(|e| matches!(e, MerkleWatcherError::UnknownMerkleRoot { .. }))
         .notify(|err, duration| {
             tracing::warn!(%err, "Ensure root valid will retry after {duration:?}");
         });
@@ -186,10 +213,11 @@ mod tests {
             .ensure_root_valid(unknown_root)
             .await
             .expect_err("unknown root should be rejected");
-        assert!(
-            matches!(err.as_ref(), MerkleWatcherError::UnknownMerkleRoot),
-            "expected UnknownMerkleRoot, got: {err:?}"
-        );
+        let MerkleWatcherError::UnknownMerkleRoot { root, block } = err.as_ref() else {
+            panic!("expected UnknownMerkleRoot, got: {err:?}");
+        };
+        assert!(*block > U256::ZERO, "block number should be non-zero");
+        assert_eq!(*root, unknown_root);
         Ok(())
     }
 
@@ -238,9 +266,24 @@ mod tests {
             .ensure_root_valid(root1)
             .await
             .expect_err("outdated root should be rejected");
+        let MerkleWatcherError::InvalidMerkleRoot {
+            root,
+            block,
+            timestamp_block,
+            root_time_stamp,
+        } = err.as_ref()
+        else {
+            panic!("expected InvalidMerkleRoot for outdated root, got: {err:?}");
+        };
+        assert_eq!(*root, root1);
+        assert!(*block > U256::ZERO, "block number should be non-zero");
         assert!(
-            matches!(err.as_ref(), MerkleWatcherError::InvalidMerkleRoot),
-            "expected InvalidMerkleRoot for outdated root, got: {err:?}"
+            *root_time_stamp > U256::ZERO,
+            "root was recorded, so timestamp should be non-zero"
+        );
+        assert!(
+            *timestamp_block >= *root_time_stamp,
+            "with window=0 the block timestamp should be at or past the root timestamp"
         );
         assert!(
             !watcher.merkle_root_cache.contains_key(&root1),
@@ -275,10 +318,15 @@ mod tests {
             .ensure_root_valid(unknown_root)
             .await
             .expect_err("first call should fail");
-        assert!(matches!(
-            err1.as_ref(),
-            MerkleWatcherError::UnknownMerkleRoot
-        ));
+        let MerkleWatcherError::UnknownMerkleRoot {
+            root: root1,
+            block: block1,
+        } = err1.as_ref()
+        else {
+            panic!("expected UnknownMerkleRoot on first call, got: {err1:?}");
+        };
+        assert_eq!(*root1, unknown_root);
+        assert!(*block1 > U256::ZERO, "block number should be non-zero");
 
         assert!(
             !watcher.merkle_root_cache.contains_key(&unknown_root),
@@ -290,10 +338,15 @@ mod tests {
             .ensure_root_valid(unknown_root)
             .await
             .expect_err("second call should also fail (error must not be cached)");
-        assert!(matches!(
-            err2.as_ref(),
-            MerkleWatcherError::UnknownMerkleRoot
-        ));
+        let MerkleWatcherError::UnknownMerkleRoot {
+            root: root2,
+            block: block2,
+        } = err2.as_ref()
+        else {
+            panic!("expected UnknownMerkleRoot on second call, got: {err2:?}");
+        };
+        assert_eq!(*root2, unknown_root);
+        assert!(*block2 > U256::ZERO, "block number should be non-zero");
         Ok(())
     }
 
