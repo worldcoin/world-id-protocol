@@ -14,7 +14,7 @@ use crate::{
     },
     metrics,
 };
-use alloy::primitives::{U160, U256};
+use alloy::primitives::U160;
 use ark_bn254::Bn254;
 use ark_ff::AdditiveGroup;
 use ark_groth16::PreparedVerifyingKey;
@@ -35,88 +35,25 @@ pub(crate) enum CredentialBlindingFactorModuleError {
     InvalidAction(FieldElement),
     #[error("Could not verify query proof")]
     InvalidQueryProof,
-    #[error(
-        "invalid Merkle root at block #{block}. Timestamp on block {timestamp_block} - root time stamp from contract: {root_time_stamp}"
-    )]
-    InvalidMerkleRoot {
-        block: U256,
-        timestamp_block: U256,
-        root_time_stamp: U256,
-    },
-    #[error("unknown Merkle root at #{block}")]
-    UnknownMerkleRoot { block: U256 },
-    /// Unknown schema issuer.
-    #[error("unknown schema issuer: {0}")]
-    UnknownSchemaIssuer(u64),
+    #[error(transparent)]
+    MerkleWatcher(#[from] Arc<MerkleWatcherError>),
+    #[error(transparent)]
+    SchemaIssuerRegistry(#[from] Arc<SchemaIssuerRegistryWatcherError>),
     /// Internal Error
     #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
 }
 
-impl From<Arc<SchemaIssuerRegistryWatcherError>> for CredentialBlindingFactorModuleError {
-    fn from(value: Arc<SchemaIssuerRegistryWatcherError>) -> Self {
-        match value.as_ref() {
-            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(id) => {
-                Self::UnknownSchemaIssuer(*id)
-            }
-            SchemaIssuerRegistryWatcherError::Internal(_) => {
-                Self::Internal(eyre::Report::from(value))
-            }
-        }
-    }
-}
-
-impl From<Arc<MerkleWatcherError>> for CredentialBlindingFactorModuleError {
-    fn from(value: Arc<MerkleWatcherError>) -> Self {
-        match value.as_ref() {
-            MerkleWatcherError::InvalidMerkleRoot {
-                block,
-                timestamp_block,
-                root_time_stamp,
-            } => Self::InvalidMerkleRoot {
-                block: *block,
-                timestamp_block: *timestamp_block,
-                root_time_stamp: *root_time_stamp,
-            },
-            MerkleWatcherError::UnknownMerkleRoot { block } => {
-                Self::UnknownMerkleRoot { block: *block }
-            }
-            MerkleWatcherError::Internal(_) => Self::Internal(eyre::Report::from(value)),
-        }
-    }
-}
-
-impl From<CredentialBlindingFactorModuleError> for WorldIdRequestAuthError {
-    fn from(value: CredentialBlindingFactorModuleError) -> Self {
+impl From<&CredentialBlindingFactorModuleError> for WorldIdRequestAuthError {
+    fn from(value: &CredentialBlindingFactorModuleError) -> Self {
         match value {
             CredentialBlindingFactorModuleError::InvalidAction(_) => {
-                WorldIdRequestAuthError::InvalidActionSchemaIssuer
+                Self::InvalidActionSchemaIssuer
             }
-            CredentialBlindingFactorModuleError::InvalidQueryProof => {
-                WorldIdRequestAuthError::InvalidQueryProof
-            }
-            CredentialBlindingFactorModuleError::InvalidMerkleRoot {
-                block: _,
-                timestamp_block: _,
-                root_time_stamp: _,
-            }
-            | CredentialBlindingFactorModuleError::UnknownMerkleRoot { block: _ } => {
-                WorldIdRequestAuthError::InvalidMerkleRoot
-            }
-            CredentialBlindingFactorModuleError::UnknownSchemaIssuer(_) => {
-                WorldIdRequestAuthError::UnknownSchemaIssuerId
-            }
-            CredentialBlindingFactorModuleError::Internal(_) => WorldIdRequestAuthError::Internal,
-        }
-    }
-}
-
-impl CredentialBlindingFactorModuleError {
-    fn log(&self) {
-        if let CredentialBlindingFactorModuleError::Internal(report) = self {
-            tracing::error!(err = ?report, "Internal error");
-        } else {
-            tracing::warn!(auth_error=true, err = %self, "Error in credential issuer blinding module: {self}");
+            CredentialBlindingFactorModuleError::InvalidQueryProof => Self::InvalidQueryProof,
+            CredentialBlindingFactorModuleError::MerkleWatcher(e) => e.as_ref().into(),
+            CredentialBlindingFactorModuleError::SchemaIssuerRegistry(e) => e.as_ref().into(),
+            CredentialBlindingFactorModuleError::Internal(_) => Self::Internal,
         }
     }
 }
@@ -193,11 +130,11 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorModuleAuth {
         &self,
         request: &OprfRequest<Self::RequestAuth>,
     ) -> Result<OprfKeyId, OprfRequestAuthenticatorError> {
-        Ok(self
-            .authenticate_inner(request)
-            .await
-            .inspect_err(CredentialBlindingFactorModuleError::log)
-            .map_err(WorldIdRequestAuthError::from)?)
+        Ok(self.authenticate_inner(request).await.map_err(|err| {
+            let mapped = WorldIdRequestAuthError::from(&err);
+            super::log_auth_module_error(&err, mapped, "credential issuer blinding module");
+            mapped
+        })?)
     }
 }
 

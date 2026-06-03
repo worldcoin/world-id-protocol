@@ -19,7 +19,7 @@ use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
 use tracing::instrument;
-use world_id_primitives::FieldElement;
+use world_id_primitives::{FieldElement, oprf::WorldIdRequestAuthError};
 use world_id_registries::world_id::WorldIdRegistry::{self, WorldIdRegistryInstance};
 
 use crate::{config::WatcherCacheConfig, metrics};
@@ -39,6 +39,16 @@ pub(crate) enum MerkleWatcherError {
     UnknownMerkleRoot { block: U256 },
     #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
+}
+
+impl From<&MerkleWatcherError> for WorldIdRequestAuthError {
+    fn from(value: &MerkleWatcherError) -> Self {
+        match value {
+            MerkleWatcherError::InvalidMerkleRoot { .. }
+            | MerkleWatcherError::UnknownMerkleRoot { .. } => Self::InvalidMerkleRoot,
+            MerkleWatcherError::Internal(_) => Self::Internal,
+        }
+    }
 }
 
 /// Validates and caches merkle roots from the `WorldIDRegistry` contract.
@@ -261,7 +271,10 @@ mod tests {
             panic!("expected InvalidMerkleRoot for outdated root, got: {err:?}");
         };
         assert!(*block > U256::ZERO, "block number should be non-zero");
-        assert!(*root_time_stamp > U256::ZERO, "root was recorded, so timestamp should be non-zero");
+        assert!(
+            *root_time_stamp > U256::ZERO,
+            "root was recorded, so timestamp should be non-zero"
+        );
         assert!(
             *timestamp_block >= *root_time_stamp,
             "with window=0 the block timestamp should be at or past the root timestamp"
