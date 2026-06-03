@@ -64,8 +64,16 @@ pub(crate) enum RpModuleError {
     },
     #[error("Could not verify query proof")]
     InvalidQueryProof,
-    #[error("invalid Merkle root")]
-    InvalidMerkleRoot,
+    #[error(
+        "invalid Merkle root at block #{block}. Timestamp on block {timestamp_block} - root time stamp from contract: {root_time_stamp}"
+    )]
+    InvalidMerkleRoot {
+        block: U256,
+        timestamp_block: U256,
+        root_time_stamp: U256,
+    },
+    #[error("unknown Merkle root at #{block}")]
+    UnknownMerkleRoot { block: U256 },
     #[error("Current Timestamp in request too old, timestamp={timestamp:?}, current={current:?}")]
     TimestampTooOld {
         timestamp: chrono::DateTime<Utc>,
@@ -118,8 +126,17 @@ pub(crate) enum RpModuleError {
 impl From<Arc<MerkleWatcherError>> for RpModuleError {
     fn from(value: Arc<MerkleWatcherError>) -> Self {
         match value.as_ref() {
-            MerkleWatcherError::InvalidMerkleRoot | MerkleWatcherError::UnknownMerkleRoot => {
-                Self::InvalidMerkleRoot
+            MerkleWatcherError::InvalidMerkleRoot {
+                block,
+                timestamp_block,
+                root_time_stamp,
+            } => Self::InvalidMerkleRoot {
+                block: *block,
+                timestamp_block: *timestamp_block,
+                root_time_stamp: *root_time_stamp,
+            },
+            MerkleWatcherError::UnknownMerkleRoot { block } => {
+                Self::UnknownMerkleRoot { block: *block }
             }
             MerkleWatcherError::Internal(_) => Self::Internal(eyre::Report::from(value)),
         }
@@ -145,7 +162,14 @@ impl From<RpModuleError> for WorldIdRequestAuthError {
                 RpModuleKind::Uniqueness => WorldIdRequestAuthError::InvalidActionNullifier,
             },
             RpModuleError::InvalidQueryProof => WorldIdRequestAuthError::InvalidQueryProof,
-            RpModuleError::InvalidMerkleRoot => WorldIdRequestAuthError::InvalidMerkleRoot,
+            RpModuleError::InvalidMerkleRoot {
+                block: _,
+                timestamp_block: _,
+                root_time_stamp: _,
+            }
+            | RpModuleError::UnknownMerkleRoot { block: _ } => {
+                WorldIdRequestAuthError::InvalidMerkleRoot
+            }
             RpModuleError::TimestampTooOld {
                 current: _,
                 timestamp: _,

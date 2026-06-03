@@ -14,7 +14,7 @@ use crate::{
     },
     metrics,
 };
-use alloy::primitives::U160;
+use alloy::primitives::{U160, U256};
 use ark_bn254::Bn254;
 use ark_ff::AdditiveGroup;
 use ark_groth16::PreparedVerifyingKey;
@@ -35,8 +35,16 @@ pub(crate) enum CredentialBlindingFactorModuleError {
     InvalidAction(FieldElement),
     #[error("Could not verify query proof")]
     InvalidQueryProof,
-    #[error("invalid Merkle root")]
-    InvalidMerkleRoot,
+    #[error(
+        "invalid Merkle root at block #{block}. Timestamp on block {timestamp_block} - root time stamp from contract: {root_time_stamp}"
+    )]
+    InvalidMerkleRoot {
+        block: U256,
+        timestamp_block: U256,
+        root_time_stamp: U256,
+    },
+    #[error("unknown Merkle root at #{block}")]
+    UnknownMerkleRoot { block: U256 },
     /// Unknown schema issuer.
     #[error("unknown schema issuer: {0}")]
     UnknownSchemaIssuer(u64),
@@ -61,8 +69,17 @@ impl From<Arc<SchemaIssuerRegistryWatcherError>> for CredentialBlindingFactorMod
 impl From<Arc<MerkleWatcherError>> for CredentialBlindingFactorModuleError {
     fn from(value: Arc<MerkleWatcherError>) -> Self {
         match value.as_ref() {
-            MerkleWatcherError::InvalidMerkleRoot | MerkleWatcherError::UnknownMerkleRoot => {
-                Self::InvalidMerkleRoot
+            MerkleWatcherError::InvalidMerkleRoot {
+                block,
+                timestamp_block,
+                root_time_stamp,
+            } => Self::InvalidMerkleRoot {
+                block: *block,
+                timestamp_block: *timestamp_block,
+                root_time_stamp: *root_time_stamp,
+            },
+            MerkleWatcherError::UnknownMerkleRoot { block } => {
+                Self::UnknownMerkleRoot { block: *block }
             }
             MerkleWatcherError::Internal(_) => Self::Internal(eyre::Report::from(value)),
         }
@@ -78,7 +95,12 @@ impl From<CredentialBlindingFactorModuleError> for WorldIdRequestAuthError {
             CredentialBlindingFactorModuleError::InvalidQueryProof => {
                 WorldIdRequestAuthError::InvalidQueryProof
             }
-            CredentialBlindingFactorModuleError::InvalidMerkleRoot => {
+            CredentialBlindingFactorModuleError::InvalidMerkleRoot {
+                block: _,
+                timestamp_block: _,
+                root_time_stamp: _,
+            }
+            | CredentialBlindingFactorModuleError::UnknownMerkleRoot { block: _ } => {
                 WorldIdRequestAuthError::InvalidMerkleRoot
             }
             CredentialBlindingFactorModuleError::UnknownSchemaIssuer(_) => {
