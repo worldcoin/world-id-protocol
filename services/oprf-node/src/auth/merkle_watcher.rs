@@ -28,15 +28,16 @@ use crate::{config::WatcherCacheConfig, metrics};
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum MerkleWatcherError {
     #[error(
-        "invalid Merkle root at block #{block}. Timestamp on block {timestamp_block} - root time stamp from contract: {root_time_stamp}"
+        "invalid Merkle root {root} at block #{block}. Timestamp on block {timestamp_block} - root time stamp from contract: {root_time_stamp}"
     )]
     InvalidMerkleRoot {
+        root: FieldElement,
         block: U256,
         timestamp_block: U256,
         root_time_stamp: U256,
     },
-    #[error("unknown Merkle root at #{block}")]
-    UnknownMerkleRoot { block: U256 },
+    #[error("unknown Merkle root {root} at #{block}")]
+    UnknownMerkleRoot { root: FieldElement, block: U256 },
     #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
 }
@@ -121,10 +122,12 @@ impl MerkleWatcher {
                 Ok(())
             } else if root_time_stamp == 0 {
                 Err(MerkleWatcherError::UnknownMerkleRoot {
+                    root,
                     block: current_block,
                 })
             } else {
                 Err(MerkleWatcherError::InvalidMerkleRoot {
+                    root,
                     block: current_block,
                     timestamp_block,
                     root_time_stamp,
@@ -133,7 +136,7 @@ impl MerkleWatcher {
         })
         .retry(self.cache_config.backoff_strategy())
         .sleep(tokio::time::sleep)
-        .when(|e| matches!(e, MerkleWatcherError::UnknownMerkleRoot { block: _ }))
+        .when(|e| matches!(e, MerkleWatcherError::UnknownMerkleRoot { .. }))
         .notify(|err, duration| {
             tracing::warn!(%err, "Ensure root valid will retry after {duration:?}");
         });
@@ -210,10 +213,11 @@ mod tests {
             .ensure_root_valid(unknown_root)
             .await
             .expect_err("unknown root should be rejected");
-        let MerkleWatcherError::UnknownMerkleRoot { block } = err.as_ref() else {
+        let MerkleWatcherError::UnknownMerkleRoot { root, block } = err.as_ref() else {
             panic!("expected UnknownMerkleRoot, got: {err:?}");
         };
         assert!(*block > U256::ZERO, "block number should be non-zero");
+        assert_eq!(*root, unknown_root);
         Ok(())
     }
 
@@ -263,6 +267,7 @@ mod tests {
             .await
             .expect_err("outdated root should be rejected");
         let MerkleWatcherError::InvalidMerkleRoot {
+            root,
             block,
             timestamp_block,
             root_time_stamp,
@@ -270,6 +275,7 @@ mod tests {
         else {
             panic!("expected InvalidMerkleRoot for outdated root, got: {err:?}");
         };
+        assert_eq!(*root, root1);
         assert!(*block > U256::ZERO, "block number should be non-zero");
         assert!(
             *root_time_stamp > U256::ZERO,
@@ -312,9 +318,14 @@ mod tests {
             .ensure_root_valid(unknown_root)
             .await
             .expect_err("first call should fail");
-        let MerkleWatcherError::UnknownMerkleRoot { block: block1 } = err1.as_ref() else {
+        let MerkleWatcherError::UnknownMerkleRoot {
+            root: root1,
+            block: block1,
+        } = err1.as_ref()
+        else {
             panic!("expected UnknownMerkleRoot on first call, got: {err1:?}");
         };
+        assert_eq!(*root1, unknown_root);
         assert!(*block1 > U256::ZERO, "block number should be non-zero");
 
         assert!(
@@ -327,9 +338,14 @@ mod tests {
             .ensure_root_valid(unknown_root)
             .await
             .expect_err("second call should also fail (error must not be cached)");
-        let MerkleWatcherError::UnknownMerkleRoot { block: block2 } = err2.as_ref() else {
+        let MerkleWatcherError::UnknownMerkleRoot {
+            root: root2,
+            block: block2,
+        } = err2.as_ref()
+        else {
             panic!("expected UnknownMerkleRoot on second call, got: {err2:?}");
         };
+        assert_eq!(*root2, unknown_root);
         assert!(*block2 > U256::ZERO, "block number should be non-zero");
         Ok(())
     }
