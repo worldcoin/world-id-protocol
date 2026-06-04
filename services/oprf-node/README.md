@@ -7,5 +7,6 @@ workspace package for the service is `world-id-oprf-node`.
 
 `world-id-oprf-node` is released independently from the published Rust crates:
 
-1. Review and merge the generated release PR specifically for OPRF Nodes, which updates the package version and [`CHANGELOG.md`](./CHANGELOG.md).
-2. After the release PR lands on `main`, the GitHub release will be created, which will trigger the `build-docker.yml` workflow to generate and publish the attested image.
+1. Manually trigger the `Prepare OPRF Node Release` workflow (`workflow_dispatch`). It opens a release PR that updates the package version and [`CHANGELOG.md`](./CHANGELOG.md).
+2. Review and merge the release PR.
+3. On merge, the `Release OPRF Node` workflow detects the version bump, creates the `world-id-oprf-node-vX.Y.Z` tag and GitHub release, and calls `build-docker.yml` to build, attest, and publish the versioned image to GHCR.
