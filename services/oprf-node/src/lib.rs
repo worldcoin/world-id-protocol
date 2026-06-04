@@ -54,29 +54,6 @@ pub(crate) mod auth;
 pub mod config;
 pub mod metrics;
 
-/// The tasks spawned by the oprf-node. Should call [`WorldOprfNodeTasks::join`] when shutting down for graceful shutdown.
-#[allow(clippy::struct_field_names, reason = "Has the watcher suffix in name")]
-pub struct WorldOprfNodeTasks {
-    key_event_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
-}
-
-impl WorldOprfNodeTasks {
-    /// Awaits all background tasks and propagates any errors.
-    ///
-    /// This consumes the struct and joins all internally tracked
-    /// `tokio::task::JoinHandle`s. It waits for all tasks to finish
-    /// and returns an error if any of them failed or panicked.
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - any task returns an error, or
-    /// - any task panics or is aborted.
-    pub async fn join(self) -> eyre::Result<()> {
-        self.key_event_watcher.await??;
-        Ok(())
-    }
-}
-
 /// Starts the OPRF node and initializes all required services.
 ///
 /// This is the main entry point for running an OPRF node. It sets up all
@@ -109,19 +86,15 @@ impl WorldOprfNodeTasks {
 ///
 /// # Errors
 /// Returns an error if any component fails to initialize.
-#[allow(
+#[expect(
     clippy::missing_panics_doc,
     reason = "Can realistically not panic as we embed the key at compile time"
-)]
-#[allow(
-    clippy::too_many_lines,
-    reason = "Still acceptable length for an init function"
 )]
 pub async fn start(
     config: WorldOprfNodeConfig,
     secret_manager: SecretManagerService,
     cancellation_token: CancellationToken,
-) -> eyre::Result<(axum::Router, WorldOprfNodeTasks)> {
+) -> eyre::Result<axum::Router> {
     let node_config = config.node_config;
     let started_services = StartedServices::default();
 
@@ -194,10 +167,9 @@ pub async fn start(
         ));
 
     tracing::info!("init oprf service..");
-    let (router, key_event_watcher) = OprfServiceBuilder::init(
+    let router = OprfServiceBuilder::init(
         node_config,
         secret_manager,
-        http_rpc_provider.clone(),
         started_services,
         cancellation_token.clone(),
     )
@@ -215,7 +187,6 @@ pub async fn start(
         session_oprf_req_auth_service,
     )
     .build();
-    let tasks = WorldOprfNodeTasks { key_event_watcher };
 
-    Ok((router, tasks))
+    Ok(router)
 }

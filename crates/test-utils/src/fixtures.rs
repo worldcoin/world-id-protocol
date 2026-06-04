@@ -34,7 +34,9 @@ impl RegistryTestContext {
     /// Spawns Anvil, deploys the WorldIDRegistry and CredentialSchemaIssuerRegistry,
     /// and registers a random issuer.
     pub async fn new() -> Result<Self> {
-        let anvil = TestAnvil::spawn().wrap_err("failed to spawn anvil")?;
+        let anvil = TestAnvil::spawn_with_multicall3()
+            .await
+            .wrap_err("failed to spawn anvil")?;
         let deployer = anvil
             .signer(0)
             .wrap_err("failed to acquire default anvil signer")?;
@@ -93,7 +95,9 @@ impl RegistryTestContext {
     ///
     /// This variant is useful for auth tests that need issuer removal without running OPRF key-gen rounds.
     pub async fn new_with_mock_oprf_key_registry() -> Result<Self> {
-        let anvil = TestAnvil::spawn().wrap_err("failed to spawn anvil")?;
+        let anvil = TestAnvil::spawn_with_multicall3()
+            .await
+            .wrap_err("failed to spawn anvil")?;
         let deployer = anvil
             .signer(0)
             .wrap_err("failed to acquire default anvil signer")?;

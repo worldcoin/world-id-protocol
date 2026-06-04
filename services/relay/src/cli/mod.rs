@@ -8,15 +8,22 @@ use alloy::{
     providers::{DynProvider, Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
 };
-use alloy_primitives::{Address, utils::format_ether};
+use alloy_primitives::{
+    Address,
+    utils::{format_ether, format_units},
+};
 use axum::{Router, extract::State, http::StatusCode, routing::get};
 use tempo_alloy::{TempoNetwork, provider::TempoProviderBuilderExt};
 
 use crate::{
+    bindings::IERC20,
     engine::Engine,
     log::CommitmentLog,
     metrics as relay_metrics,
-    satellite::{EthereumMptSatellite, PermissionedSatellite, TempoSatellite},
+    satellite::{
+        EthereumMptSatellite, PermissionedSatellite, TempoSatellite,
+        permissioned::tempo::FEE_TOKEN as TEMPO_FEE_TOKEN,
+    },
 };
 
 pub mod chain;
@@ -351,6 +358,50 @@ async fn log_wallet_status<P: Provider>(
     Ok(())
 }
 
+/// Tempo-specific wallet status: native `eth_getBalance` returns a placeholder
+/// (~4.24e75) on Tempo, so balance is read from the TIP-20 fee token contract
+/// directly via `balanceOf`. Logs in USDC.e units (6 decimals).
+async fn log_tempo_wallet_status<P: Provider>(
+    provider: &P,
+    address: Address,
+    chain_id: u64,
+    chain_name: &str,
+) -> Result<()> {
+    let erc20 = IERC20::new(TEMPO_FEE_TOKEN, provider);
+    let (balance_call, nonce) = tokio::try_join!(
+        async {
+            erc20
+                .balanceOf(address)
+                .call()
+                .await
+                .map_err(eyre::Error::from)
+        },
+        async {
+            provider
+                .get_transaction_count(address)
+                .await
+                .map_err(eyre::Error::from)
+        }
+    )?;
+
+    let balance = balance_call;
+    let balance_usdc = format_units(balance, 6).unwrap_or_else(|_| balance.to_string());
+
+    relay_metrics::set_wallet_balance_wei(chain_id, f64::from(balance));
+
+    tracing::info!(
+        %chain_name,
+        chain_id,
+        wallet = %address,
+        fee_token = %TEMPO_FEE_TOKEN,
+        %balance_usdc,
+        nonce = ?nonce,
+        "relay wallet status (tempo TIP-20 fee token)"
+    );
+
+    Ok(())
+}
+
 /// Fire-and-forget so a panicking metrics task can't bring down the engine.
 fn spawn_wallet_metrics_task(provider: Arc<DynProvider>, chain_id: u64, wallet_address: Address) {
     tokio::spawn(async move {
@@ -361,6 +412,36 @@ fn spawn_wallet_metrics_task(provider: Arc<DynProvider>, chain_id: u64, wallet_a
             relay_metrics::WALLET_METRICS_INTERVAL,
         )
         .await
+    });
+}
+
+/// Tempo variant: polls the TIP-20 fee token's `balanceOf` instead of
+/// native `eth_getBalance` (which returns a placeholder on Tempo).
+/// The value written to `relay.wallet.balance_wei{chain_id:4217}` is in
+/// USDC.e base units (6 decimals) — i.e. `106041276` = $106.04.
+fn spawn_tempo_wallet_metrics_task(
+    provider: Arc<DynProvider>,
+    chain_id: u64,
+    wallet_address: Address,
+) {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(relay_metrics::WALLET_METRICS_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let erc20 = IERC20::new(TEMPO_FEE_TOKEN, provider);
+        loop {
+            ticker.tick().await;
+            match erc20.balanceOf(wallet_address).call().await {
+                Ok(balance) => {
+                    relay_metrics::set_wallet_balance_wei(chain_id, f64::from(balance));
+                }
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    chain_id,
+                    fee_token = %TEMPO_FEE_TOKEN,
+                    "failed to read tempo fee token balance"
+                ),
+            }
+        }
     });
 }
 
@@ -396,7 +477,7 @@ impl Cli {
             .parse()
             .map_err(|e| eyre::eyre!("failed to parse WALLET_PRIVATE_KEY: {e}"))?;
         let wallet_address = signer.address();
-        let wallet = EthereumWallet::from(signer);
+        let wallet = EthereumWallet::from(signer.clone());
 
         // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
         // NOTE: blocks the health server briefly so `Engine` can own the single
@@ -416,7 +497,7 @@ impl Cli {
 
         spawn_wallet_metrics_task(wc_provider.clone(), wc_config.chain_id, wallet_address);
 
-        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone());
+        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone(), &signer);
 
         let mut engine = Engine::new(world_chain);
 
@@ -468,7 +549,7 @@ impl Cli {
                     let read_provider =
                         Arc::new(satellite_provider(&sat_config.name, &wallet).await?);
 
-                    log_wallet_status(
+                    log_tempo_wallet_status(
                         read_provider.as_ref(),
                         wallet_address,
                         sat_config.destination_chain_id,
@@ -476,7 +557,7 @@ impl Cli {
                     )
                     .await?;
 
-                    spawn_wallet_metrics_task(
+                    spawn_tempo_wallet_metrics_task(
                         read_provider.clone(),
                         sat_config.destination_chain_id,
                         wallet_address,
