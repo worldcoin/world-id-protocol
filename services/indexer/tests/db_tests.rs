@@ -451,11 +451,11 @@ async fn test_insert_world_tree_event() {
         log_index,
         details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
             world_id_indexer::blockchain::AccountCreatedEvent {
-                leaf_index,
-                recovery_address: Address::ZERO,
-                authenticator_addresses: vec![],
-                authenticator_pubkeys: vec![],
-                offchain_signer_commitment: commitment,
+                leafIndex: leaf_index,
+                recoveryAddress: Address::ZERO,
+                authenticatorAddresses: vec![],
+                authenticatorPubkeys: vec![],
+                offchainSignerCommitment: commitment,
             },
         ),
     };
@@ -499,11 +499,11 @@ async fn test_duplicate_world_tree_event_insert() {
         log_index,
         details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
             world_id_indexer::blockchain::AccountCreatedEvent {
-                leaf_index,
-                recovery_address: Address::ZERO,
-                authenticator_addresses: vec![],
-                authenticator_pubkeys: vec![],
-                offchain_signer_commitment: commitment,
+                leafIndex: leaf_index,
+                recoveryAddress: Address::ZERO,
+                authenticatorAddresses: vec![],
+                authenticatorPubkeys: vec![],
+                offchainSignerCommitment: commitment,
             },
         ),
     };
@@ -547,11 +547,11 @@ async fn test_get_world_tree_event() {
         log_index,
         details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
             world_id_indexer::blockchain::AccountCreatedEvent {
-                leaf_index,
-                recovery_address: Address::ZERO,
-                authenticator_addresses: vec![],
-                authenticator_pubkeys: vec![],
-                offchain_signer_commitment: commitment,
+                leafIndex: leaf_index,
+                recoveryAddress: Address::ZERO,
+                authenticatorAddresses: vec![],
+                authenticatorPubkeys: vec![],
+                offchainSignerCommitment: commitment,
             },
         ),
     };
@@ -590,11 +590,11 @@ async fn test_get_latest_world_tree_events() {
             log_index: i,
             details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
                 world_id_indexer::blockchain::AccountCreatedEvent {
-                    leaf_index: i,
-                    recovery_address: Address::ZERO,
-                    authenticator_addresses: vec![],
-                    authenticator_pubkeys: vec![],
-                    offchain_signer_commitment: U256::from(i * 100),
+                    leafIndex: i,
+                    recoveryAddress: Address::ZERO,
+                    authenticatorAddresses: vec![],
+                    authenticatorPubkeys: vec![],
+                    offchainSignerCommitment: U256::from(i * 100),
                 },
             ),
         };
@@ -794,11 +794,11 @@ async fn test_multiple_operations_in_transaction() {
         log_index: 0,
         details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
             world_id_indexer::blockchain::AccountCreatedEvent {
-                leaf_index: 1,
-                recovery_address: Address::ZERO,
-                authenticator_addresses: vec![],
-                authenticator_pubkeys: vec![],
-                offchain_signer_commitment: U256::from(123),
+                leafIndex: 1,
+                recoveryAddress: Address::ZERO,
+                authenticatorAddresses: vec![],
+                authenticatorPubkeys: vec![],
+                offchainSignerCommitment: U256::from(123),
             },
         ),
     };

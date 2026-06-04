@@ -7,7 +7,7 @@ use alloy::{
 use world_id_registries::world_id::WorldIdRegistry;
 
 use crate::{
-    blockchain::RegistryEvent,
+    blockchain::{RegistryEvent, RegistryEventExt},
     db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId},
     error::{IndexerError, IndexerResult},
     events_processor::EventsProcessor,

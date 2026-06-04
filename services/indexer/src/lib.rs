@@ -27,6 +27,7 @@ pub mod metrics;
 pub mod rollback_executor;
 mod routes;
 mod sanity_check;
+pub mod tip_cache;
 pub mod tree;
 
 static BLOCKCHAIN_RETRY_DELAY: Duration = Duration::from_secs(1);
@@ -135,7 +136,6 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
             run_indexer_only(
                 db,
                 http_provider,
-                &cfg.ws_rpc_url,
                 cfg.registry_address,
                 indexer_config,
                 tree_state,
@@ -169,7 +169,6 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
             run_both(
                 db,
                 http_provider,
-                &cfg.ws_rpc_url,
                 cfg.registry_address,
                 indexer_config,
                 http_config,
@@ -184,14 +183,12 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
 async fn run_indexer_only(
     db: DB,
     http_provider: DynProvider,
-    ws_rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     tree_state: tree::TreeState,
 ) -> eyre::Result<()> {
     process_registry_events(
         http_provider,
-        ws_rpc_url,
         registry_address,
         indexer_cfg,
         &db,
@@ -273,7 +270,6 @@ async fn run_http_only(
 async fn run_both(
     db: DB,
     http_provider: DynProvider,
-    ws_rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
@@ -320,7 +316,6 @@ async fn run_both(
     tokio::select! {
         result = process_registry_events(
             http_provider,
-            ws_rpc_url,
             registry_address,
             indexer_cfg,
             &db,
@@ -348,38 +343,36 @@ pub async fn handle_registry_event<'a>(
     Ok(())
 }
 
-/// Stream registry events from the blockchain and process them.
-/// Restart when websocket connection is dropped.
+/// Poll registry events from the blockchain and process them.
+/// Restart when the poll stream returns an error (e.g. an RPC failure).
 #[instrument(level = "info", skip_all, fields(start_from))]
 pub async fn process_registry_events(
     http_provider: DynProvider,
-    ws_rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     db: &DB,
     tree_state: &tree::TreeState,
 ) -> IndexerResult<()> {
-    // We re-create the blockchain connection (including backfill and websocket) when the stream
-    // returns an error or the websocket connection is dropped.
+    let poll_interval = Duration::from_secs(indexer_cfg.poll_interval_secs);
+
+    // We re-create the blockchain connection and poll stream when the stream
+    // returns an error.
     loop {
         tracing::info!("starting blockchain connection");
 
-        let blockchain =
-            match Blockchain::new(http_provider.clone(), ws_rpc_url, registry_address).await {
-                Ok(b) => b,
-                Err(e) => {
-                    tracing::error!(?e, "failed to create blockchain connection, retrying");
-                    tokio::time::sleep(BLOCKCHAIN_RETRY_DELAY).await;
-                    continue;
-                }
-            };
+        let blockchain = Blockchain::new(http_provider.clone(), registry_address);
 
         let from = match db.world_id_registry_events().get_latest_block().await? {
             Some(block) => block + 1,
             None => indexer_cfg.start_block,
         };
 
-        let mut stream = blockchain.backfill_and_stream_events(from, indexer_cfg.batch_size);
+        let mut stream = blockchain.poll_events(
+            from,
+            indexer_cfg.batch_size,
+            indexer_cfg.confirmations,
+            poll_interval,
+        );
 
         let versioned_tree =
             tree::VersionedTreeState::new(tree_state.clone(), indexer_cfg.tree_max_block_age);
@@ -438,5 +431,6 @@ pub async fn process_registry_events(
         }
 
         tracing::warn!("restarting blockchain connection");
+        tokio::time::sleep(BLOCKCHAIN_RETRY_DELAY).await;
     }
 }

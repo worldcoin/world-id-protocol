@@ -57,10 +57,6 @@ impl TestSetup {
         self._anvil.endpoint().to_string()
     }
 
-    pub fn ws_url(&self) -> String {
-        self._anvil.ws_endpoint().to_string()
-    }
-
     pub async fn create_account(&self, auth_addr: Address, pubkey: U256, commitment: u64) {
         let deployer = self._anvil.signer(0).unwrap();
         let registry = WorldIdRegistry::new(

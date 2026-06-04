@@ -85,54 +85,54 @@ impl<'a> TryFrom<&'a str> for WorldIdRegistryEventType {
 
 pub fn serialize_account_created(ev: &AccountCreatedEvent) -> serde_json::Value {
     serde_json::json!({
-        "recovery_address": format!("{:?}", ev.recovery_address),
-        "authenticator_addresses": ev.authenticator_addresses.iter()
+        "recovery_address": format!("{:?}", ev.recoveryAddress),
+        "authenticator_addresses": ev.authenticatorAddresses.iter()
             .map(|a| format!("{:?}", a))
             .collect::<Vec<_>>(),
-        "authenticator_pubkeys": ev.authenticator_pubkeys.iter()
+        "authenticator_pubkeys": ev.authenticatorPubkeys.iter()
             .map(|p| format!("{:#x}", p))
             .collect::<Vec<_>>(),
-        "offchain_signer_commitment": format!("{:#x}", ev.offchain_signer_commitment),
+        "offchain_signer_commitment": format!("{:#x}", ev.offchainSignerCommitment),
     })
 }
 
 pub fn serialize_account_updated(ev: &AccountUpdatedEvent) -> serde_json::Value {
     serde_json::json!({
-        "pubkey_id": ev.pubkey_id,
-        "new_authenticator_pubkey": format!("{:#x}", ev.new_authenticator_pubkey),
-        "old_authenticator_address": format!("{:?}", ev.old_authenticator_address),
-        "new_authenticator_address": format!("{:?}", ev.new_authenticator_address),
-        "old_offchain_signer_commitment": format!("{:#x}", ev.old_offchain_signer_commitment),
-        "new_offchain_signer_commitment": format!("{:#x}", ev.new_offchain_signer_commitment),
+        "pubkey_id": ev.pubkeyId,
+        "new_authenticator_pubkey": format!("{:#x}", ev.newAuthenticatorPubkey),
+        "old_authenticator_address": format!("{:?}", ev.oldAuthenticatorAddress),
+        "new_authenticator_address": format!("{:?}", ev.newAuthenticatorAddress),
+        "old_offchain_signer_commitment": format!("{:#x}", ev.oldOffchainSignerCommitment),
+        "new_offchain_signer_commitment": format!("{:#x}", ev.newOffchainSignerCommitment),
     })
 }
 
 pub fn serialize_authenticator_inserted(ev: &AuthenticatorInsertedEvent) -> serde_json::Value {
     serde_json::json!({
-        "pubkey_id": ev.pubkey_id,
-        "authenticator_address": format!("{:?}", ev.authenticator_address),
-        "new_authenticator_pubkey": format!("{:#x}", ev.new_authenticator_pubkey),
-        "old_offchain_signer_commitment": format!("{:#x}", ev.old_offchain_signer_commitment),
-        "new_offchain_signer_commitment": format!("{:#x}", ev.new_offchain_signer_commitment),
+        "pubkey_id": ev.pubkeyId,
+        "authenticator_address": format!("{:?}", ev.authenticatorAddress),
+        "new_authenticator_pubkey": format!("{:#x}", ev.newAuthenticatorPubkey),
+        "old_offchain_signer_commitment": format!("{:#x}", ev.oldOffchainSignerCommitment),
+        "new_offchain_signer_commitment": format!("{:#x}", ev.newOffchainSignerCommitment),
     })
 }
 
 pub fn serialize_authenticator_removed(ev: &AuthenticatorRemovedEvent) -> serde_json::Value {
     serde_json::json!({
-        "pubkey_id": ev.pubkey_id,
-        "authenticator_address": format!("{:?}", ev.authenticator_address),
-        "authenticator_pubkey": format!("{:#x}", ev.authenticator_pubkey),
-        "old_offchain_signer_commitment": format!("{:#x}", ev.old_offchain_signer_commitment),
-        "new_offchain_signer_commitment": format!("{:#x}", ev.new_offchain_signer_commitment),
+        "pubkey_id": ev.pubkeyId,
+        "authenticator_address": format!("{:?}", ev.authenticatorAddress),
+        "authenticator_pubkey": format!("{:#x}", ev.authenticatorPubkey),
+        "old_offchain_signer_commitment": format!("{:#x}", ev.oldOffchainSignerCommitment),
+        "new_offchain_signer_commitment": format!("{:#x}", ev.newOffchainSignerCommitment),
     })
 }
 
 pub fn serialize_account_recovered(ev: &AccountRecoveredEvent) -> serde_json::Value {
     serde_json::json!({
-        "new_authenticator_address": format!("{:?}", ev.new_authenticator_address),
-        "new_authenticator_pubkey": format!("{:#x}", ev.new_authenticator_pubkey),
-        "old_offchain_signer_commitment": format!("{:#x}", ev.old_offchain_signer_commitment),
-        "new_offchain_signer_commitment": format!("{:#x}", ev.new_offchain_signer_commitment),
+        "new_authenticator_address": format!("{:?}", ev.newAuthenticatorAddress),
+        "new_authenticator_pubkey": format!("{:#x}", ev.newAuthenticatorPubkey),
+        "old_offchain_signer_commitment": format!("{:#x}", ev.oldOffchainSignerCommitment),
+        "new_offchain_signer_commitment": format!("{:#x}", ev.newOffchainSignerCommitment),
     })
 }
 
@@ -141,18 +141,6 @@ pub fn serialize_root_recorded(ev: &RootRecordedEvent) -> serde_json::Value {
         "root": format!("{:#x}", ev.root),
         "timestamp": format!("{}", ev.timestamp),
     })
-}
-
-/// Serialize event data to JSON for storage
-pub fn serialize_event_data(event: &RegistryEvent) -> serde_json::Value {
-    match event {
-        RegistryEvent::AccountCreated(ev) => serialize_account_created(ev),
-        RegistryEvent::AccountUpdated(ev) => serialize_account_updated(ev),
-        RegistryEvent::AuthenticatorInserted(ev) => serialize_authenticator_inserted(ev),
-        RegistryEvent::AuthenticatorRemoved(ev) => serialize_authenticator_removed(ev),
-        RegistryEvent::AccountRecovered(ev) => serialize_account_recovered(ev),
-        RegistryEvent::RootRecorded(ev) => serialize_root_recorded(ev),
-    }
 }
 
 pub fn deserialize_account_created(
@@ -186,11 +174,11 @@ pub fn deserialize_account_created(
         .map_err(|_| invalid_field!("offchain_signer_commitment", "failed to parse U256"))?;
 
     Ok(AccountCreatedEvent {
-        leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
-        recovery_address,
-        authenticator_addresses,
-        authenticator_pubkeys,
-        offchain_signer_commitment,
+        leafIndex: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
+        recoveryAddress: recovery_address,
+        authenticatorAddresses: authenticator_addresses,
+        authenticatorPubkeys: authenticator_pubkeys,
+        offchainSignerCommitment: offchain_signer_commitment,
     })
 }
 
@@ -233,13 +221,13 @@ pub fn deserialize_account_updated(
         .map_err(|_| invalid_field!("new_offchain_signer_commitment", "failed to parse U256"))?;
 
     Ok(AccountUpdatedEvent {
-        leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
-        pubkey_id,
-        new_authenticator_pubkey,
-        old_authenticator_address,
-        new_authenticator_address,
-        old_offchain_signer_commitment,
-        new_offchain_signer_commitment,
+        leafIndex: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
+        pubkeyId: pubkey_id,
+        newAuthenticatorPubkey: new_authenticator_pubkey,
+        oldAuthenticatorAddress: old_authenticator_address,
+        newAuthenticatorAddress: new_authenticator_address,
+        oldOffchainSignerCommitment: old_offchain_signer_commitment,
+        newOffchainSignerCommitment: new_offchain_signer_commitment,
     })
 }
 
@@ -276,12 +264,12 @@ pub fn deserialize_authenticator_inserted(
         .map_err(|_| invalid_field!("new_offchain_signer_commitment", "failed to parse U256"))?;
 
     Ok(AuthenticatorInsertedEvent {
-        leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
-        pubkey_id,
-        authenticator_address,
-        new_authenticator_pubkey,
-        old_offchain_signer_commitment,
-        new_offchain_signer_commitment,
+        leafIndex: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
+        pubkeyId: pubkey_id,
+        authenticatorAddress: authenticator_address,
+        newAuthenticatorPubkey: new_authenticator_pubkey,
+        oldOffchainSignerCommitment: old_offchain_signer_commitment,
+        newOffchainSignerCommitment: new_offchain_signer_commitment,
     })
 }
 
@@ -318,12 +306,12 @@ pub fn deserialize_authenticator_removed(
         .map_err(|_| invalid_field!("new_offchain_signer_commitment", "failed to parse U256"))?;
 
     Ok(AuthenticatorRemovedEvent {
-        leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
-        pubkey_id,
-        authenticator_address,
-        authenticator_pubkey,
-        old_offchain_signer_commitment,
-        new_offchain_signer_commitment,
+        leafIndex: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
+        pubkeyId: pubkey_id,
+        authenticatorAddress: authenticator_address,
+        authenticatorPubkey: authenticator_pubkey,
+        oldOffchainSignerCommitment: old_offchain_signer_commitment,
+        newOffchainSignerCommitment: new_offchain_signer_commitment,
     })
 }
 
@@ -356,11 +344,11 @@ pub fn deserialize_account_recovered(
         .map_err(|_| invalid_field!("new_offchain_signer_commitment", "failed to parse U256"))?;
 
     Ok(AccountRecoveredEvent {
-        leaf_index: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
-        new_authenticator_address,
-        new_authenticator_pubkey,
-        old_offchain_signer_commitment,
-        new_offchain_signer_commitment,
+        leafIndex: leaf_index.ok_or_else(|| missing_field!("leaf_index"))?,
+        newAuthenticatorAddress: new_authenticator_address,
+        newAuthenticatorPubkey: new_authenticator_pubkey,
+        oldOffchainSignerCommitment: old_offchain_signer_commitment,
+        newOffchainSignerCommitment: new_offchain_signer_commitment,
     })
 }
 
@@ -440,29 +428,42 @@ where
     /// Insert a full registry event
     #[instrument(level = "info", skip(self, event))]
     pub async fn insert_event(self, event: &BlockchainEvent<RegistryEvent>) -> DBResult<()> {
-        let event_type = match &event.details {
-            RegistryEvent::AccountCreated(_) => WorldIdRegistryEventType::AccountCreated,
-            RegistryEvent::AccountUpdated(_) => WorldIdRegistryEventType::AccountUpdated,
-            RegistryEvent::AuthenticatorInserted(_) => {
-                WorldIdRegistryEventType::AuthenticatorInserted
-            }
-            RegistryEvent::AuthenticatorRemoved(_) => {
-                WorldIdRegistryEventType::AuthenticatorRemoved
-            }
-            RegistryEvent::AccountRecovered(_) => WorldIdRegistryEventType::AccountRecovered,
-            RegistryEvent::RootRecorded(_) => WorldIdRegistryEventType::RootRecorded,
+        // Map the decoded event to its stored representation. Only the six
+        // indexed event types are ever fetched (see `RegistryEvent::signatures`);
+        // any other variant is rejected rather than silently stored.
+        let (event_type, leaf_index, event_data) = match &event.details {
+            RegistryEvent::AccountCreated(ev) => (
+                WorldIdRegistryEventType::AccountCreated,
+                Some(ev.leafIndex as i64),
+                serialize_account_created(ev),
+            ),
+            RegistryEvent::AccountUpdated(ev) => (
+                WorldIdRegistryEventType::AccountUpdated,
+                Some(ev.leafIndex as i64),
+                serialize_account_updated(ev),
+            ),
+            RegistryEvent::AuthenticatorInserted(ev) => (
+                WorldIdRegistryEventType::AuthenticatorInserted,
+                Some(ev.leafIndex as i64),
+                serialize_authenticator_inserted(ev),
+            ),
+            RegistryEvent::AuthenticatorRemoved(ev) => (
+                WorldIdRegistryEventType::AuthenticatorRemoved,
+                Some(ev.leafIndex as i64),
+                serialize_authenticator_removed(ev),
+            ),
+            RegistryEvent::AccountRecovered(ev) => (
+                WorldIdRegistryEventType::AccountRecovered,
+                Some(ev.leafIndex as i64),
+                serialize_account_recovered(ev),
+            ),
+            RegistryEvent::RootRecorded(ev) => (
+                WorldIdRegistryEventType::RootRecorded,
+                None,
+                serialize_root_recorded(ev),
+            ),
+            other => return Err(DBError::UnsupportedEvent(format!("{other:?}"))),
         };
-
-        let leaf_index = match &event.details {
-            RegistryEvent::AccountCreated(ev) => Some(ev.leaf_index as i64),
-            RegistryEvent::AccountUpdated(ev) => Some(ev.leaf_index as i64),
-            RegistryEvent::AuthenticatorInserted(ev) => Some(ev.leaf_index as i64),
-            RegistryEvent::AuthenticatorRemoved(ev) => Some(ev.leaf_index as i64),
-            RegistryEvent::AccountRecovered(ev) => Some(ev.leaf_index as i64),
-            RegistryEvent::RootRecorded(_) => None,
-        };
-
-        let event_data = serialize_event_data(&event.details);
 
         sqlx::query(
             r#"

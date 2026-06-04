@@ -12,7 +12,7 @@ use alloy::{
 sol!(
     /// The registry of World IDs. Each World ID is represented as a leaf in the Merkle tree.
     #[allow(clippy::too_many_arguments)]
-    #[sol(rpc, ignore_unlinked)]
+    #[sol(rpc, ignore_unlinked, extra_derives(Debug, PartialEq, Eq))]
     WorldIdRegistry,
     "abi/WorldIDRegistryAbi.json"
 );
