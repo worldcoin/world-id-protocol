@@ -78,7 +78,7 @@ impl RegistryEventExt for RegistryEvent {
 mod tests {
     use super::*;
     use alloy::{
-        primitives::{address, Address, Bytes, FixedBytes, Log, LogData},
+        primitives::{Address, Bytes, FixedBytes, Log, LogData, address},
         rpc::types::Log as RpcLog,
     };
 

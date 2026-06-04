@@ -27,6 +27,7 @@ pub mod metrics;
 pub mod rollback_executor;
 mod routes;
 mod sanity_check;
+pub mod tip_cache;
 pub mod tree;
 
 static BLOCKCHAIN_RETRY_DELAY: Duration = Duration::from_secs(1);

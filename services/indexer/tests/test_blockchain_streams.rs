@@ -11,7 +11,9 @@ use alloy::{
 };
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use futures_util::{StreamExt, TryStreamExt};
-use world_id_indexer::blockchain::{Blockchain, BlockchainError, BlockchainEvent, RegistryEvent};
+use world_id_indexer::blockchain::{
+    Blockchain, BlockchainError, BlockchainEvent, RegistryEvent, RegistryEventExt,
+};
 use world_id_registries::world_id::WorldIdRegistry;
 use world_id_services_common::ProviderArgs;
 use world_id_test_utils::anvil::TestAnvil;

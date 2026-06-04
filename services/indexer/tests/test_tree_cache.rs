@@ -516,12 +516,12 @@ async fn test_authenticator_removed_replay() {
         tx_hash: U256::from(1234),
         log_index: 0,
         details: RegistryEvent::AuthenticatorRemoved(AuthenticatorRemovedEvent {
-            leaf_index: 1,
-            pubkey_id: 0,
-            authenticator_address: Address::ZERO,
-            authenticator_pubkey: U256::ZERO,
-            old_offchain_signer_commitment: U256::ZERO,
-            new_offchain_signer_commitment: new_commitment_after_removal,
+            leafIndex: 1,
+            pubkeyId: 0,
+            authenticatorAddress: Address::ZERO,
+            authenticatorPubkey: U256::ZERO,
+            oldOffchainSignerCommitment: U256::ZERO,
+            newOffchainSignerCommitment: new_commitment_after_removal,
         }),
     };
 

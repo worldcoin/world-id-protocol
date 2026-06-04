@@ -274,4 +274,39 @@ impl Blockchain {
             .await
             .map_err(|err| BlockchainError::Rpc(Box::new(err)))
     }
+
+    /// Current chain head (tip) block number.
+    pub(crate) async fn current_block(&self) -> BlockchainResult<u64> {
+        self.get_block_number().await
+    }
+
+    /// Fetch and decode all registry events in `[from_block, to_block]`,
+    /// concurrently and in order. The caller is responsible for keeping the
+    /// range bounded (e.g. one poll window) to bound memory and task count.
+    pub(crate) async fn fetch_events(
+        &self,
+        from_block: u64,
+        to_block: u64,
+        batch_size: u64,
+    ) -> BlockchainResult<Vec<BlockchainEvent<RegistryEvent>>> {
+        let logs = self
+            .fetch_window_parallel(from_block, to_block, batch_size)
+            .await?;
+        logs.iter().map(|log| RegistryEvent::decode(log)).collect()
+    }
+
+    /// Fetch the canonical block hash for `number`, or `None` if the block is
+    /// not (yet) present on the canonical chain. Used to detect reorgs of
+    /// already-ingested, not-yet-confirmed blocks.
+    pub(crate) async fn canonical_block_hash(
+        &self,
+        number: u64,
+    ) -> BlockchainResult<Option<alloy::primitives::U256>> {
+        let block = self
+            .http_provider
+            .get_block_by_number(number.into())
+            .await
+            .map_err(|err| BlockchainError::Rpc(Box::new(err)))?;
+        Ok(block.map(|b| b.header.hash.into()))
+    }
 }

@@ -91,18 +91,14 @@ pub fn extract_leaf_commitment(event: &crate::blockchain::RegistryEvent) -> Opti
 
     match event {
         RegistryEvent::AccountCreated(ev) => Some((ev.leafIndex, ev.offchainSignerCommitment)),
-        RegistryEvent::AccountUpdated(ev) => {
-            Some((ev.leafIndex, ev.newOffchainSignerCommitment))
-        }
+        RegistryEvent::AccountUpdated(ev) => Some((ev.leafIndex, ev.newOffchainSignerCommitment)),
         RegistryEvent::AuthenticatorInserted(ev) => {
             Some((ev.leafIndex, ev.newOffchainSignerCommitment))
         }
         RegistryEvent::AuthenticatorRemoved(ev) => {
             Some((ev.leafIndex, ev.newOffchainSignerCommitment))
         }
-        RegistryEvent::AccountRecovered(ev) => {
-            Some((ev.leafIndex, ev.newOffchainSignerCommitment))
-        }
+        RegistryEvent::AccountRecovered(ev) => Some((ev.leafIndex, ev.newOffchainSignerCommitment)),
         // RootRecorded and all non-indexed events carry no leaf data.
         _ => None,
     }

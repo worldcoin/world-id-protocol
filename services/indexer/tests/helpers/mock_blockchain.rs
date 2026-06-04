@@ -38,11 +38,11 @@ pub fn mock_account_created_event_with_authenticators(
         tx_hash: U256::from(1),
         log_index,
         details: RegistryEvent::AccountCreated(world_id_indexer::blockchain::AccountCreatedEvent {
-            leaf_index,
-            recovery_address,
-            authenticator_addresses,
-            authenticator_pubkeys,
-            offchain_signer_commitment: commitment,
+            leafIndex: leaf_index,
+            recoveryAddress: recovery_address,
+            authenticatorAddresses: authenticator_addresses,
+            authenticatorPubkeys: authenticator_pubkeys,
+            offchainSignerCommitment: commitment,
         }),
     }
 }
@@ -65,13 +65,13 @@ pub fn mock_account_updated_event(
         tx_hash: U256::from(1),
         log_index,
         details: RegistryEvent::AccountUpdated(world_id_indexer::blockchain::AccountUpdatedEvent {
-            leaf_index,
-            pubkey_id,
-            new_authenticator_pubkey: new_pubkey,
-            old_authenticator_address: Address::ZERO,
-            new_authenticator_address: new_address,
-            old_offchain_signer_commitment: old_commitment,
-            new_offchain_signer_commitment: new_commitment,
+            leafIndex: leaf_index,
+            pubkeyId: pubkey_id,
+            newAuthenticatorPubkey: new_pubkey,
+            oldAuthenticatorAddress: Address::ZERO,
+            newAuthenticatorAddress: new_address,
+            oldOffchainSignerCommitment: old_commitment,
+            newOffchainSignerCommitment: new_commitment,
         }),
     }
 }
@@ -95,12 +95,12 @@ pub fn mock_authenticator_inserted_event(
         log_index,
         details: RegistryEvent::AuthenticatorInserted(
             world_id_indexer::blockchain::AuthenticatorInsertedEvent {
-                leaf_index,
-                pubkey_id,
-                authenticator_address,
-                new_authenticator_pubkey: new_pubkey,
-                old_offchain_signer_commitment: old_commitment,
-                new_offchain_signer_commitment: new_commitment,
+                leafIndex: leaf_index,
+                pubkeyId: pubkey_id,
+                authenticatorAddress: authenticator_address,
+                newAuthenticatorPubkey: new_pubkey,
+                oldOffchainSignerCommitment: old_commitment,
+                newOffchainSignerCommitment: new_commitment,
             },
         ),
     }
@@ -125,12 +125,12 @@ pub fn mock_authenticator_removed_event(
         log_index,
         details: RegistryEvent::AuthenticatorRemoved(
             world_id_indexer::blockchain::AuthenticatorRemovedEvent {
-                leaf_index,
-                pubkey_id,
-                authenticator_address,
-                authenticator_pubkey: pubkey,
-                old_offchain_signer_commitment: old_commitment,
-                new_offchain_signer_commitment: new_commitment,
+                leafIndex: leaf_index,
+                pubkeyId: pubkey_id,
+                authenticatorAddress: authenticator_address,
+                authenticatorPubkey: pubkey,
+                oldOffchainSignerCommitment: old_commitment,
+                newOffchainSignerCommitment: new_commitment,
             },
         ),
     }
@@ -153,11 +153,11 @@ pub fn mock_account_recovered_event(
         log_index,
         details: RegistryEvent::AccountRecovered(
             world_id_indexer::blockchain::AccountRecoveredEvent {
-                leaf_index,
-                new_authenticator_address: new_address,
-                new_authenticator_pubkey: new_pubkey,
-                old_offchain_signer_commitment: old_commitment,
-                new_offchain_signer_commitment: new_commitment,
+                leafIndex: leaf_index,
+                newAuthenticatorAddress: new_address,
+                newAuthenticatorPubkey: new_pubkey,
+                oldOffchainSignerCommitment: old_commitment,
+                newOffchainSignerCommitment: new_commitment,
             },
         ),
     }

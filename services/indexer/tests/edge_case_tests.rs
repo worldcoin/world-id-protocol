@@ -93,11 +93,11 @@ async fn test_max_block_number() {
         log_index: 0,
         details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
             world_id_indexer::blockchain::AccountCreatedEvent {
-                leaf_index: 1,
-                recovery_address: Address::ZERO,
-                authenticator_addresses: vec![],
-                authenticator_pubkeys: vec![],
-                offchain_signer_commitment: U256::from(100),
+                leafIndex: 1,
+                recoveryAddress: Address::ZERO,
+                authenticatorAddresses: vec![],
+                authenticatorPubkeys: vec![],
+                offchainSignerCommitment: U256::from(100),
             },
         ),
     };
@@ -130,11 +130,11 @@ async fn test_max_log_index() {
         log_index: max_log_index,
         details: world_id_indexer::blockchain::RegistryEvent::AccountCreated(
             world_id_indexer::blockchain::AccountCreatedEvent {
-                leaf_index: 1,
-                recovery_address: Address::ZERO,
-                authenticator_addresses: vec![],
-                authenticator_pubkeys: vec![],
-                offchain_signer_commitment: U256::from(100),
+                leafIndex: 1,
+                recoveryAddress: Address::ZERO,
+                authenticatorAddresses: vec![],
+                authenticatorPubkeys: vec![],
+                offchainSignerCommitment: U256::from(100),
             },
         ),
     };
@@ -197,59 +197,59 @@ async fn test_all_event_types() {
             WorldIdRegistryEventType::AccountCreated => {
                 world_id_indexer::blockchain::RegistryEvent::AccountCreated(
                     world_id_indexer::blockchain::AccountCreatedEvent {
-                        leaf_index: i as u64,
-                        recovery_address: Address::ZERO,
-                        authenticator_addresses: vec![],
-                        authenticator_pubkeys: vec![],
-                        offchain_signer_commitment: U256::from(i * 100),
+                        leafIndex: i as u64,
+                        recoveryAddress: Address::ZERO,
+                        authenticatorAddresses: vec![],
+                        authenticatorPubkeys: vec![],
+                        offchainSignerCommitment: U256::from(i * 100),
                     },
                 )
             }
             WorldIdRegistryEventType::AccountUpdated => {
                 world_id_indexer::blockchain::RegistryEvent::AccountUpdated(
                     world_id_indexer::blockchain::AccountUpdatedEvent {
-                        leaf_index: i as u64,
-                        pubkey_id: 0,
-                        new_authenticator_pubkey: U256::from(i * 100),
-                        old_authenticator_address: Address::ZERO,
-                        new_authenticator_address: Address::ZERO,
-                        old_offchain_signer_commitment: U256::ZERO,
-                        new_offchain_signer_commitment: U256::from(i * 100),
+                        leafIndex: i as u64,
+                        pubkeyId: 0,
+                        newAuthenticatorPubkey: U256::from(i * 100),
+                        oldAuthenticatorAddress: Address::ZERO,
+                        newAuthenticatorAddress: Address::ZERO,
+                        oldOffchainSignerCommitment: U256::ZERO,
+                        newOffchainSignerCommitment: U256::from(i * 100),
                     },
                 )
             }
             WorldIdRegistryEventType::AuthenticatorInserted => {
                 world_id_indexer::blockchain::RegistryEvent::AuthenticatorInserted(
                     world_id_indexer::blockchain::AuthenticatorInsertedEvent {
-                        leaf_index: i as u64,
-                        pubkey_id: 0,
-                        authenticator_address: Address::ZERO,
-                        new_authenticator_pubkey: U256::from(i * 100),
-                        old_offchain_signer_commitment: U256::ZERO,
-                        new_offchain_signer_commitment: U256::from(i * 100),
+                        leafIndex: i as u64,
+                        pubkeyId: 0,
+                        authenticatorAddress: Address::ZERO,
+                        newAuthenticatorPubkey: U256::from(i * 100),
+                        oldOffchainSignerCommitment: U256::ZERO,
+                        newOffchainSignerCommitment: U256::from(i * 100),
                     },
                 )
             }
             WorldIdRegistryEventType::AuthenticatorRemoved => {
                 world_id_indexer::blockchain::RegistryEvent::AuthenticatorRemoved(
                     world_id_indexer::blockchain::AuthenticatorRemovedEvent {
-                        leaf_index: i as u64,
-                        pubkey_id: 0,
-                        authenticator_address: Address::ZERO,
-                        authenticator_pubkey: U256::from(i * 100),
-                        old_offchain_signer_commitment: U256::ZERO,
-                        new_offchain_signer_commitment: U256::from(i * 100),
+                        leafIndex: i as u64,
+                        pubkeyId: 0,
+                        authenticatorAddress: Address::ZERO,
+                        authenticatorPubkey: U256::from(i * 100),
+                        oldOffchainSignerCommitment: U256::ZERO,
+                        newOffchainSignerCommitment: U256::from(i * 100),
                     },
                 )
             }
             WorldIdRegistryEventType::AccountRecovered => {
                 world_id_indexer::blockchain::RegistryEvent::AccountRecovered(
                     world_id_indexer::blockchain::AccountRecoveredEvent {
-                        leaf_index: i as u64,
-                        new_authenticator_address: Address::ZERO,
-                        new_authenticator_pubkey: U256::from(i * 100),
-                        old_offchain_signer_commitment: U256::ZERO,
-                        new_offchain_signer_commitment: U256::from(i * 100),
+                        leafIndex: i as u64,
+                        newAuthenticatorAddress: Address::ZERO,
+                        newAuthenticatorPubkey: U256::from(i * 100),
+                        oldOffchainSignerCommitment: U256::ZERO,
+                        newOffchainSignerCommitment: U256::from(i * 100),
                     },
                 )
             }
