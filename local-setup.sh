@@ -107,7 +107,7 @@ start_node() {
 run_indexer_and_gateway() {
     # remove the tree_cache_file as we have a new DB everytime we run local_setup
     rm -f /tmp/tree.mmap
-    REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WS_URL=ws://localhost:8545 DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres TREE_CACHE_FILE=/tmp/tree.mmap cargo run --release -p world-id-indexer -- --http --indexer > logs/world-id-indexer.log 2>&1 &
+    REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres TREE_CACHE_FILE=/tmp/tree.mmap cargo run --release -p world-id-indexer -- --http --indexer > logs/world-id-indexer.log 2>&1 &
     indexer_pid=$!
     echo "started indexer with PID $indexer_pid"
     wait_for_health 8080 "world-id-indexer" 300

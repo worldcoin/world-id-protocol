@@ -20,11 +20,11 @@ impl EventsProcessor {
                     .accounts()
                     .await?
                     .insert(
-                        ev.leaf_index,
-                        &ev.recovery_address,
-                        &ev.authenticator_addresses,
-                        &ev.authenticator_pubkeys,
-                        &ev.offchain_signer_commitment,
+                        ev.leafIndex,
+                        &ev.recoveryAddress,
+                        &ev.authenticatorAddresses,
+                        &ev.authenticatorPubkeys,
+                        &ev.offchainSignerCommitment,
                         event.block_number,
                         event.log_index,
                     )
@@ -35,11 +35,11 @@ impl EventsProcessor {
                     .accounts()
                     .await?
                     .update_authenticator_at_index(
-                        ev.leaf_index,
-                        ev.pubkey_id,
-                        &ev.new_authenticator_address,
-                        &ev.new_authenticator_pubkey,
-                        &ev.new_offchain_signer_commitment,
+                        ev.leafIndex,
+                        ev.pubkeyId,
+                        &ev.newAuthenticatorAddress,
+                        &ev.newAuthenticatorPubkey,
+                        &ev.newOffchainSignerCommitment,
                         event.block_number,
                         event.log_index,
                     )
@@ -50,11 +50,11 @@ impl EventsProcessor {
                     .accounts()
                     .await?
                     .insert_authenticator_at_index(
-                        ev.leaf_index,
-                        ev.pubkey_id,
-                        &ev.authenticator_address,
-                        &ev.new_authenticator_pubkey,
-                        &ev.new_offchain_signer_commitment,
+                        ev.leafIndex,
+                        ev.pubkeyId,
+                        &ev.authenticatorAddress,
+                        &ev.newAuthenticatorPubkey,
+                        &ev.newOffchainSignerCommitment,
                         event.block_number,
                         event.log_index,
                     )
@@ -65,9 +65,9 @@ impl EventsProcessor {
                     .accounts()
                     .await?
                     .remove_authenticator_at_index(
-                        ev.leaf_index,
-                        ev.pubkey_id,
-                        &ev.new_offchain_signer_commitment,
+                        ev.leafIndex,
+                        ev.pubkeyId,
+                        &ev.newOffchainSignerCommitment,
                         event.block_number,
                         event.log_index,
                     )
@@ -78,16 +78,19 @@ impl EventsProcessor {
                     .accounts()
                     .await?
                     .reset_authenticator(
-                        ev.leaf_index,
-                        &ev.new_authenticator_address,
-                        &ev.new_authenticator_pubkey,
-                        &ev.new_offchain_signer_commitment,
+                        ev.leafIndex,
+                        &ev.newAuthenticatorAddress,
+                        &ev.newAuthenticatorPubkey,
+                        &ev.newOffchainSignerCommitment,
                         event.block_number,
                         event.log_index,
                     )
                     .await?;
             }
             RegistryEvent::RootRecorded(_ev) => {}
+            // Other registry events (ownership, fee, recovery-agent, etc.) are
+            // not indexed and are never fetched by the log filter.
+            _ => {}
         }
 
         Ok(())

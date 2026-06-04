@@ -11,7 +11,6 @@ REGISTRY_ADDRESS="${REGISTRY_ADDRESS:-0x969947cFED008bFb5e3F32a25A1A2CDdf64d46fe
 BATCH_SIZE="${BATCH_SIZE:-512}"
 START_BLOCK="${START_BLOCK:-22827118}"
 RPC_URL="${RPC_URL:-https://worldchain-mainnet.g.alchemy.com/public}"
-WS_URL="${WS_URL:-wss://worldchain-mainnet.g.alchemy.com/public}"
 DATABASE_URL="${DATABASE_URL:-postgres://postgres:postgres@localhost:5433/indexer_stage}"
 TREE_CACHE_FILE="${TREE_CACHE_FILE:-$ROOT_DIR/tree-cache-stage.mmap}"
 DB_NAME="${DB_NAME:-indexer_stage}"
@@ -69,7 +68,6 @@ env \
   RUN_MODE="$RUN_MODE" \
   DATABASE_URL="$DATABASE_URL" \
   RPC_URL="$RPC_URL" \
-  WS_URL="$WS_URL" \
   REGISTRY_ADDRESS="$REGISTRY_ADDRESS" \
   START_BLOCK="$START_BLOCK" \
   BATCH_SIZE="$BATCH_SIZE" \

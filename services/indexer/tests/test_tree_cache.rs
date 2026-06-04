@@ -65,6 +65,8 @@ async fn test_cache_creation_and_restoration() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                confirmations: 0,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8090".parse().unwrap(),
@@ -75,7 +77,6 @@ async fn test_cache_creation_and_restoration() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -139,6 +140,8 @@ async fn test_incremental_replay() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                confirmations: 0,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8091".parse().unwrap(),
@@ -149,7 +152,6 @@ async fn test_incremental_replay() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -197,6 +199,8 @@ async fn test_incremental_replay() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                confirmations: 0,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8092".parse().unwrap(),
@@ -207,7 +211,6 @@ async fn test_incremental_replay() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -270,6 +273,8 @@ async fn test_missing_cache_creates_new() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                confirmations: 0,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8093".parse().unwrap(),
@@ -280,7 +285,6 @@ async fn test_missing_cache_creates_new() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -335,6 +339,8 @@ async fn test_http_only_cache_refresh() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                confirmations: 0,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8094".parse().unwrap(),
@@ -345,7 +351,6 @@ async fn test_http_only_cache_refresh() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -382,7 +387,6 @@ async fn test_http_only_cache_refresh() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -457,6 +461,8 @@ async fn test_authenticator_removed_replay() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                confirmations: 0,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8098".parse().unwrap(),
@@ -467,7 +473,6 @@ async fn test_authenticator_removed_replay() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -543,7 +548,6 @@ async fn test_authenticator_removed_replay() {
     // Restart indexer with replay - it should restore from cache and replay the removal event
     let db_url = setup.db_url.clone();
     let rpc_url = setup.rpc_url();
-    let ws_url = setup.ws_url();
     let registry_address = setup.registry_address;
 
     let cfg2 = GlobalConfig {
@@ -553,6 +557,8 @@ async fn test_authenticator_removed_replay() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                confirmations: 0,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8096".parse().unwrap(),
@@ -563,7 +569,6 @@ async fn test_authenticator_removed_replay() {
         },
         db_url: db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([rpc_url.clone()]),
-        ws_rpc_url: ws_url.clone(),
         registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -584,6 +589,8 @@ async fn test_authenticator_removed_replay() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                confirmations: 0,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8097".parse().unwrap(),
@@ -594,7 +601,6 @@ async fn test_authenticator_removed_replay() {
         },
         db_url: db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([rpc_url.clone()]),
-        ws_rpc_url: ws_url.clone(),
         registry_address,
         tree_cache: tree_cache_config_fresh.clone(),
     };
@@ -654,6 +660,8 @@ async fn test_init_root_matches_contract() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                confirmations: 0,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8100".parse().unwrap(),
@@ -664,7 +672,6 @@ async fn test_init_root_matches_contract() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -738,6 +745,8 @@ async fn test_replay_root_matches_contract() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                confirmations: 0,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8101".parse().unwrap(),
@@ -748,7 +757,6 @@ async fn test_replay_root_matches_contract() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -801,6 +809,8 @@ async fn test_replay_root_matches_contract() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                confirmations: 0,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8102".parse().unwrap(),
@@ -811,7 +821,6 @@ async fn test_replay_root_matches_contract() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -893,6 +902,8 @@ async fn test_corrupted_cache_returns_error() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                confirmations: 0,
+                poll_interval_secs: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8103".parse().unwrap(),
@@ -903,7 +914,6 @@ async fn test_corrupted_cache_returns_error() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -946,7 +956,6 @@ async fn test_corrupted_cache_returns_error() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };
@@ -1004,7 +1013,6 @@ async fn test_sanity_check_exits_on_root_mismatch() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
     };

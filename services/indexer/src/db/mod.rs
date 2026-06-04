@@ -20,6 +20,8 @@ pub enum DBError {
     Migrate(#[from] sqlx::migrate::MigrateError),
     #[error("unknown event type: {0}")]
     UnknownEventType(String),
+    #[error("unsupported registry event: {0}")]
+    UnsupportedEvent(String),
     #[error("missing required field '{field}' in event data")]
     MissingEventField { field: String },
     #[error("invalid value for field '{field}' in event data: {reason}")]
