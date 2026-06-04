@@ -1,4 +1,5 @@
 use ark_babyjubjub::EdwardsAffine;
+use ark_ff::BigInt;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use rand::Rng;
 use ruint::aliases::U256;
@@ -111,6 +112,16 @@ pub struct Credential {
     pub id: u64,
     /// The version of the Credential determines its structure.
     pub version: CredentialVersion,
+    /// A reference version field for issuer use. Different versions can determine how
+    /// the issuer-defined fields are constructed for a Credential.
+    ///
+    /// # Usage Examples
+    /// - Different claims values and their meaning could be determined from
+    ///   distinct issuer versions.
+    /// - Different construction of associated data or its commitment can be
+    ///   determined from distinct issuer versions.
+    #[serde(default)]
+    pub issuer_version: u8,
     /// Unique issuer schema id represents the unique combination of the credential's
     /// schema and the issuer.
     ///
@@ -175,6 +186,7 @@ impl Credential {
         Self {
             id: rng.r#gen(),
             version: CredentialVersion::V1,
+            issuer_version: 0,
             issuer_schema_id: 0,
             sub: FieldElement::ZERO,
             genesis_issued_at: 0,
@@ -199,6 +211,13 @@ impl Credential {
     #[must_use]
     pub const fn version(mut self, version: CredentialVersion) -> Self {
         self.version = version;
+        self
+    }
+
+    /// Set the `issuer_version` of the credential.
+    #[must_use]
+    pub const fn issuer_version(mut self, issuer_version: u8) -> Self {
+        self.issuer_version = issuer_version;
         self
     }
 
@@ -329,6 +348,8 @@ impl Credential {
     pub fn hash(&self) -> Result<FieldElement, eyre::Error> {
         match self.version {
             CredentialVersion::V1 => {
+                let id_issuer_version = BigInt([self.id, self.issuer_version as u64, 0, 0]);
+
                 let mut input = [
                     *self.get_cred_ds(),
                     self.issuer_schema_id.into(),
@@ -337,7 +358,7 @@ impl Credential {
                     self.expires_at.into(),
                     *self.claims_hash()?,
                     *self.associated_data_commitment,
-                    self.id.into(),
+                    id_issuer_version.into(),
                 ];
                 poseidon2::bn254::t8::permutation_in_place(&mut input);
                 Ok(input[1].into())
@@ -482,6 +503,21 @@ where
 mod tests {
     use super::*;
 
+    /// Tests the hash is deterministically computed for a default credential, this
+    /// helps detect issues where hashing inadvertently changed.
+    ///
+    /// Particularly relevant to ensure the introduction of other attributes into the last
+    /// item of the permutation does not bring in breaking changes.
+    #[test]
+    fn test_deterministic_credential_hash() {
+        let mut credential = Credential::new();
+        credential.id = 1;
+        assert_eq!(
+            hex::encode(credential.hash().unwrap().to_be_bytes()),
+            "2bc705762cbe8f31e0c3045ca347109ba3630b4b7ea955dc71515f182a079ae9"
+        );
+    }
+
     #[test]
     fn test_associated_data_matches_direct_hash() {
         let data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -533,5 +569,34 @@ mod tests {
 
         // Should have a non-zero claim hash
         assert_ne!(credential.claims[1], FieldElement::ZERO);
+    }
+
+    /// Tests that `issuer_version` is bound into the credential hash so that it
+    /// cannot be tampered with after issuance without invalidating the signature.
+    #[test]
+    fn test_issuer_version_is_bound_to_credential_hash() {
+        let mut credential = Credential::new();
+        credential.id = 1;
+        credential.issuer_version = 1;
+
+        let mut tampered = credential.clone();
+        tampered.issuer_version = 2;
+
+        let original_hash = credential.hash().unwrap();
+        let tampered_hash = tampered.hash().unwrap();
+        assert_ne!(original_hash, tampered_hash);
+
+        let signer = EdDSAPrivateKey::random(&mut rand::thread_rng());
+        let signed = credential.sign(&signer).unwrap();
+        let issuer_pubkey = signer.public();
+
+        assert!(signed.verify_signature(&issuer_pubkey).unwrap());
+
+        let mut tampered_signed = signed.clone();
+        tampered_signed.issuer_version = signed.issuer_version.wrapping_add(1);
+        assert!(
+            !tampered_signed.verify_signature(&issuer_pubkey).unwrap(),
+            "tampering with issuer_version must invalidate the signature"
+        );
     }
 }
