@@ -292,7 +292,7 @@ impl Blockchain {
         let logs = self
             .fetch_window_parallel(from_block, to_block, batch_size)
             .await?;
-        logs.iter().map(|log| RegistryEvent::decode(log)).collect()
+        logs.iter().map(RegistryEvent::decode).collect()
     }
 
     /// Fetch the canonical block hash for `number`, or `None` if the block is

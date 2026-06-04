@@ -163,8 +163,10 @@ pub struct IndexerConfig {
     pub start_block: u64,
     pub batch_size: u64,
     pub tree_max_block_age: u64,
-    /// Number of blocks to stay behind the chain head when polling, so that
-    /// short-lived reorgs of unconfirmed blocks are never ingested.
+    /// Confirmation depth before events are committed to the database. The
+    /// in-memory tree is updated at the tip (so proofs reflect unconfirmed
+    /// updates); events are only persisted once this many blocks deep. Reorgs
+    /// shallower than this are recovered in-memory without touching the DB.
     pub confirmations: u64,
     /// How long to wait between RPC poll cycles once caught up.
     pub poll_interval_secs: u64,

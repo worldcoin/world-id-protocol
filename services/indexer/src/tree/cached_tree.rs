@@ -38,11 +38,15 @@ pub async unsafe fn init_tree(
         match try_restore(db, cache_path, tree_depth).await {
             Ok(result) => result,
             Err(e) => {
-                tracing::error!(?e, "restore failed, deleting cache file");
+                // A stale cache is expected here: the tree is kept at the tip, so
+                // the persisted root often reflects unconfirmed state that is not
+                // (yet) a confirmed root in the DB. Rebuild from the confirmed DB
+                // state rather than crashing; the poll loop re-derives the tip.
+                tracing::warn!(?e, "cache restore failed, rebuilding from database");
                 if let Err(remove_err) = std::fs::remove_file(cache_path) {
                     tracing::error!(?remove_err, "failed to delete cache file");
                 }
-                return Err(e);
+                build_from_db_with_cache(db, cache_path, tree_depth).await?
             }
         }
     } else {

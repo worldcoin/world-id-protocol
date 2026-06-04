@@ -14,7 +14,9 @@ The indexer supports three run modes, selected via the `RUN_MODE` environment va
 
 ### Event Processing
 
-The indexer connects to the chain via HTTP RPC and polls for events. On startup it backfills from the last indexed block (or `START_BLOCK` if the DB is empty), then keeps polling for newly confirmed logs. Only logs at or below the confirmed head (`chain_head - CONFIRMATIONS`) are ingested, so short-lived reorgs of unconfirmed blocks are never committed.
+The indexer connects to the chain via HTTP RPC and polls for events at the **tip**. On startup it backfills from the last indexed block (or `START_BLOCK` if the DB is empty), then keeps polling the head. Each polled event is applied to the in-memory Merkle tree immediately — so inclusion proofs reflect the latest (unconfirmed) state — and buffered in an in-memory tip cache. Events are committed to the database only once their block is at least `CONFIRMATIONS` deep.
+
+Reorgs within the unconfirmed window are detected by tracking each pending block's canonical hash; on a divergence the in-memory tree is rolled back to the common ancestor and the canonical events are replayed, without ever touching the database. A reorg deeper than the unconfirmed window falls back to the on-chain rollback and a process restart. Note: because the database (and the `accounts` table it backs) holds only confirmed state, account metadata queries lag the tip by up to `CONFIRMATIONS` blocks, while inclusion proofs are served at the tip.
 
 Events are processed through `EventsCommitter`, which:
 
@@ -70,7 +72,7 @@ This restart-on-reorg pattern — detect, rollback state, exit cleanly, re-initi
 | `RUN_MODE` | `both` | `both`, `indexer`, or `http` |
 | `START_BLOCK` | `0` | Block to start indexing from if DB is empty |
 | `BATCH_SIZE` | `64` | Blocks per RPC batch during backfill |
-| `CONFIRMATIONS` | `8` | Blocks to stay behind the chain head when polling |
+| `CONFIRMATIONS` | `8` | Confirmation depth before events are committed to the DB (tree updates at the tip) |
 | `POLL_INTERVAL_SECS` | `2` | Seconds between RPC poll cycles once caught up |
 | `TREE_DEPTH` | `30` | Merkle tree depth |
 | `TREE_MAX_BLOCK_AGE` | `1000` | Blocks of per-leaf history kept for rollback |

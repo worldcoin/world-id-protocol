@@ -213,7 +213,12 @@ mod tests {
         TipCache::new(versioned, confirmations, WorldIdRegistryEventId::default())
     }
 
-    fn account_created(block: u64, log_index: u64, leaf: u64, commitment: u64) -> BlockchainEvent<RegistryEvent> {
+    fn account_created(
+        block: u64,
+        log_index: u64,
+        leaf: u64,
+        commitment: u64,
+    ) -> BlockchainEvent<RegistryEvent> {
         BlockchainEvent {
             block_number: block,
             block_hash: U256::from(block), // distinct per block by default
@@ -238,7 +243,11 @@ mod tests {
 
         c.apply(account_created(10, 0, 1, 42)).await.unwrap();
 
-        assert_ne!(c.tree().root().await, root0, "tip tree should reflect update");
+        assert_ne!(
+            c.tree().root().await,
+            root0,
+            "tip tree should reflect update"
+        );
         assert_eq!(c.highest_pending_block(), Some(10));
     }
 
@@ -250,7 +259,10 @@ mod tests {
         c.apply(account_created(11, 0, 3, 44)).await.unwrap();
 
         let hashes = c.block_hashes_desc();
-        assert_eq!(hashes.iter().map(|(b, _)| *b).collect::<Vec<_>>(), vec![11, 10]);
+        assert_eq!(
+            hashes.iter().map(|(b, _)| *b).collect::<Vec<_>>(),
+            vec![11, 10]
+        );
     }
 
     #[tokio::test]
@@ -263,7 +275,11 @@ mod tests {
 
         c.rollback_after_block(10).await.unwrap();
 
-        assert_eq!(c.tree().root().await, root_at_10, "tree rolled back to block 10");
+        assert_eq!(
+            c.tree().root().await,
+            root_at_10,
+            "tree rolled back to block 10"
+        );
         assert_eq!(c.highest_pending_block(), Some(10));
     }
 

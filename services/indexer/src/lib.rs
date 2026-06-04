@@ -6,9 +6,9 @@ use crate::{
     db::DB,
     events_committer::EventsCommitter,
     rollback_executor::rollback_to_last_valid_root,
+    tip_cache::TipCache,
 };
 use alloy::{primitives::Address, providers::DynProvider};
-use futures_util::StreamExt;
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc, time::Duration};
 use tracing::instrument;
 use world_id_registries::world_id::WorldIdRegistry;
@@ -343,8 +343,20 @@ pub async fn handle_registry_event<'a>(
     Ok(())
 }
 
-/// Poll registry events from the blockchain and process them.
-/// Restart when the poll stream returns an error (e.g. an RPC failure).
+/// Number of `batch_size` chunks fetched per catch-up window. Bounds the
+/// in-flight `eth_getLogs` fan-out (one task per chunk) and the memory held for
+/// a single fetch, matching the blockchain layer's concurrency cap.
+const CATCHUP_WINDOW_BATCHES: u64 = 16;
+
+/// Poll registry events at the chain tip and process them.
+///
+/// Events are applied to the in-memory tree immediately (so proofs reflect the
+/// tip) and buffered in a [`TipCache`]; they are committed to the database only
+/// once `confirmations` deep. Reorgs within the unconfirmed window are detected
+/// by tracking per-block canonical hashes and recovered in-memory via
+/// [`TipCache::rollback_after_block`] — the database is never touched. A reorg
+/// deeper than the unconfirmed window falls back to the on-chain rollback and a
+/// process restart.
 #[instrument(level = "info", skip_all, fields(start_from))]
 pub async fn process_registry_events(
     http_provider: DynProvider,
@@ -354,83 +366,147 @@ pub async fn process_registry_events(
     tree_state: &tree::TreeState,
 ) -> IndexerResult<()> {
     let poll_interval = Duration::from_secs(indexer_cfg.poll_interval_secs);
+    let batch_size = indexer_cfg.batch_size;
+    let window = batch_size
+        .saturating_mul(CATCHUP_WINDOW_BATCHES)
+        .max(batch_size);
 
-    // We re-create the blockchain connection and poll stream when the stream
-    // returns an error.
+    let blockchain = Blockchain::new(http_provider.clone(), registry_address);
+    let versioned_tree =
+        tree::VersionedTreeState::new(tree_state.clone(), indexer_cfg.tree_max_block_age);
+
+    let committed = db
+        .world_id_registry_events()
+        .get_latest_id()
+        .await?
+        .unwrap_or_default();
+    let mut cache = TipCache::new(versioned_tree, indexer_cfg.confirmations, committed);
+
+    let mut next_from = match db.world_id_registry_events().get_latest_block().await? {
+        Some(block) => block + 1,
+        None => indexer_cfg.start_block,
+    };
+
+    tracing::info!(
+        next_from,
+        confirmations = indexer_cfg.confirmations,
+        "polling at tip"
+    );
+
     loop {
-        tracing::info!("starting blockchain connection");
-
-        let blockchain = Blockchain::new(http_provider.clone(), registry_address);
-
-        let from = match db.world_id_registry_events().get_latest_block().await? {
-            Some(block) => block + 1,
-            None => indexer_cfg.start_block,
-        };
-
-        let mut stream = blockchain.poll_events(
-            from,
-            indexer_cfg.batch_size,
-            indexer_cfg.confirmations,
-            poll_interval,
-        );
-
-        let versioned_tree =
-            tree::VersionedTreeState::new(tree_state.clone(), indexer_cfg.tree_max_block_age);
-        let mut events_committer = EventsCommitter::new(db, versioned_tree.clone());
-
-        while let Some(event) = stream.next().await {
-            match event {
-                Ok(event) => {
-                    let block_number = event.block_number;
-                    match handle_registry_event(&mut events_committer, event).await {
-                        Ok(()) => {
-                            crate::metrics::set_chain_processed_block(block_number);
-                        }
-                        Err(IndexerError::ReorgDetected {
-                            block_number,
-                            reason,
-                        }) => {
-                            tracing::warn!(
-                                block_number,
-                                reason,
-                                "Reorg detected during event commit, rolling back"
-                            );
-                            match rollback_to_last_valid_root(
-                                db,
-                                &http_provider,
-                                registry_address,
-                                &versioned_tree,
-                            )
-                            .await
-                            {
-                                Ok(Some(target)) => {
-                                    tracing::info!(?target, "rolled back successfully");
-                                    return Err(IndexerError::ReorgDetected {
-                                        block_number: target.block_number,
-                                        reason: "rolled back to last valid root, restart required"
-                                            .to_string(),
-                                    });
-                                }
-                                Ok(None) => {
-                                    return Err(IndexerError::ReorgDetected {
-                                        block_number,
-                                        reason: "no valid root found during rollback".to_string(),
-                                    });
-                                }
-                                Err(e) => return Err(e),
-                            }
-                        }
-                        Err(e) => return Err(e),
-                    }
-                }
-                Err(e) => {
-                    tracing::error!(?e, "blockchain event stream error");
-                    break;
-                }
+        match poll_cycle(
+            &blockchain,
+            db,
+            &http_provider,
+            registry_address,
+            &mut cache,
+            &mut next_from,
+            batch_size,
+            window,
+        )
+        .await
+        {
+            Ok(()) => {}
+            // A reorg deeper than the unconfirmed window (or a tip-root
+            // mismatch) is fatal: the DB has been reconciled (if needed) and the
+            // process restarts to rebuild from the confirmed state.
+            Err(e @ IndexerError::ReorgDetected { .. }) => return Err(e),
+            // Transient errors (RPC/DB) are retried on the next tick.
+            Err(e) => {
+                tracing::error!(?e, "poll cycle failed, retrying");
+                tokio::time::sleep(BLOCKCHAIN_RETRY_DELAY).await;
             }
         }
 
-        tracing::warn!("restarting blockchain connection");
-        tokio::time::sleep(BLOCKCHAIN_RETRY_DELAY).await;
+        tokio::time::sleep(poll_interval).await;
     }
+}
+
+/// One poll iteration: reconcile reorgs, catch up to the tip, and flush newly
+/// confirmed events to the database.
+#[allow(clippy::too_many_arguments)]
+async fn poll_cycle(
+    blockchain: &Blockchain,
+    db: &DB,
+    http_provider: &DynProvider,
+    registry_address: Address,
+    cache: &mut TipCache,
+    next_from: &mut u64,
+    batch_size: u64,
+    window: u64,
+) -> IndexerResult<()> {
+    let head = blockchain.current_block().await?;
+    crate::metrics::set_chain_head_block(head);
+
+    // --- Reorg reconciliation over the unconfirmed window ---
+    if let Some(highest) = cache.highest_pending_block() {
+        let canonical = blockchain.canonical_block_hash(highest).await?;
+        let stored = cache
+            .block_hashes_desc()
+            .first()
+            .map(|(_, h)| *h)
+            .expect("highest_pending_block implies a tracked hash");
+
+        if canonical != Some(stored) {
+            // The unconfirmed suffix diverged. Walk back through tracked blocks
+            // to find the deepest one still on the canonical chain.
+            let mut ancestor = None;
+            for (block, stored_hash) in cache.block_hashes_desc() {
+                if blockchain.canonical_block_hash(block).await? == Some(stored_hash) {
+                    ancestor = Some(block);
+                    break;
+                }
+            }
+
+            match ancestor {
+                Some(block) => {
+                    tracing::warn!(rewind_to = block, "reorg detected, rolling back tip cache");
+                    cache.rollback_after_block(block).await?;
+                    *next_from = block + 1;
+                }
+                None => {
+                    // Reorg reached confirmed (DB-persisted) data. Reconcile the
+                    // DB + tree against the chain and restart.
+                    tracing::error!("reorg deeper than unconfirmed window; reconciling DB");
+                    match rollback_to_last_valid_root(
+                        db,
+                        http_provider,
+                        registry_address,
+                        cache.tree(),
+                    )
+                    .await?
+                    {
+                        Some(target) => {
+                            return Err(IndexerError::ReorgDetected {
+                                block_number: target.block_number,
+                                reason: "rolled back to last valid root, restart required"
+                                    .to_string(),
+                            });
+                        }
+                        None => {
+                            return Err(IndexerError::ReorgDetected {
+                                block_number: highest,
+                                reason: "no valid root found during rollback".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Catch up to the tip in bounded windows ---
+    while *next_from <= head {
+        let to = (*next_from).saturating_add(window - 1).min(head);
+
+        let events = blockchain.fetch_events(*next_from, to, batch_size).await?;
+        for event in events {
+            cache.apply(event).await?;
+        }
+
+        cache.flush_confirmed(db, head).await?;
+        *next_from = to + 1;
+    }
+
+    Ok(())
 }
