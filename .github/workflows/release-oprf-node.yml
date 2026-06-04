@@ -52,6 +52,11 @@ jobs:
     name: Build Docker
     needs: release
     if: needs.release.outputs.released == 'true'
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      attestations: write
     uses: ./.github/workflows/build-docker.yml
     with:
       service: oprf-node
