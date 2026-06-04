@@ -94,7 +94,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}/world-id-${{ matrix.service }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || steps.tag.outputs.is_stable == 'true' }}
+            type=raw,value=latest,enable=${{ (github.ref == 'refs/heads/main' && inputs.version == '') || steps.tag.outputs.is_stable == 'true' }}
             type=sha
             type=raw,value=${{ steps.tag.outputs.version }},enable=${{ steps.tag.outputs.version != '' }}
 
