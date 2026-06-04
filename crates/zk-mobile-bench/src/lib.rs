@@ -10,6 +10,7 @@ mod fixtures;
 
 use ark_babyjubjub::Fq;
 use ark_ec::CurveGroup;
+use ark_ff::BigInt;
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use groth16_material::circom::CircomGroth16Material;
 use rand::SeedableRng;
@@ -205,7 +206,7 @@ fn generate_nullifier_input() -> (
         cred_genesis_issued_at: credential.genesis_issued_at.into(),
         cred_genesis_issued_at_min: 0u64.into(),
         cred_expires_at: credential.expires_at.into(),
-        cred_id: credential.id.into(),
+        cred_id: BigInt([credential.id, u64::from(credential.issuer_version), 0, 0]).into(),
         cred_sub_blinding_factor: *credential_sub_blinding_factor,
         cred_s: cred_signature.s,
         cred_r: cred_signature.r,

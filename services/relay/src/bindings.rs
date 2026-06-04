@@ -263,6 +263,13 @@ sol! {
 // ── Sol interfaces ──────────────────────────────────────────────────────────
 
 sol! {
+    #[sol(rpc)]
+    interface IERC20 {
+        function balanceOf(address account) external view returns (uint256);
+    }
+}
+
+sol! {
     interface ICommitment {
         function updateRoot(uint256,uint256,bytes32);
         function setIssuerPubkey(uint64,uint256,uint256,bytes32);
