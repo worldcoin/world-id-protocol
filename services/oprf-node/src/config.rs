@@ -2,7 +2,8 @@
 
 use std::{num::NonZeroU64, time::Duration};
 
-use alloy::{primitives::Address, transports::http::reqwest::Url};
+use alloy::primitives::Address;
+use backon::{BackoffBuilder, ExponentialBackoff, ExponentialBuilder};
 use serde::Deserialize;
 use taceo_nodes_common::web3::{self};
 use taceo_oprf::service::{VersionReq, config::OprfNodeServiceConfig};
@@ -82,6 +83,32 @@ pub struct WatcherCacheConfig {
     /// Will drop entries that are not accessed (read/write) for this time.
     #[serde(default, with = "humantime_serde")]
     pub time_to_idle: Option<Duration>,
+
+    /// Min interval for retry logic for fetching data from chain.
+    ///
+    /// This will fire on every unexpected message we get from the RPCs and is NOT for actual errors. Nodes may lag behind, therefore we try to fetch multiple times if we get an unexpected message (i.e. root not valid).
+    #[serde(
+        default = "WatcherCacheConfig::default_retry_rpc_request_min_delay",
+        with = "humantime_serde"
+    )]
+    pub retry_rpc_request_min_delay: Duration,
+
+    /// Max interval for retry logic for fetching data from chain.
+    ///
+    /// This will fire on every unexpected message we get from the RPCs and is NOT for actual errors. Nodes may lag behind, therefore we try to fetch multiple times if we get an unexpected message (i.e. root not valid).
+    #[serde(
+        default = "WatcherCacheConfig::default_retry_rpc_request_max_delay",
+        with = "humantime_serde"
+    )]
+    pub retry_rpc_request_max_delay: Duration,
+
+    /// Max attempts for retry logic for fetching data from chain.
+    ///
+    /// This will fire on every unexpected message we get from the RPCs and is NOT for actual errors. Nodes may lag behind, therefore we try to fetch multiple times if we get an unexpected message (i.e. root not valid).
+    ///
+    /// *Note*: this value defaults to 0, disabling this retry behaviour. If it is need, this value must be set explicitly.
+    #[serde(default = "WatcherCacheConfig::default_retry_rpc_request_max_attempts")]
+    pub retry_rpc_request_max_attempts: usize,
 }
 
 impl WatcherCacheConfig {
@@ -89,9 +116,25 @@ impl WatcherCacheConfig {
     const fn default_max_cache_size() -> NonZeroU64 {
         NonZeroU64::new(1000).expect("1000 is non-zero")
     }
+
     /// Default time-to-live for cache entries
     const fn default_time_to_live() -> Duration {
         Duration::from_mins(10)
+    }
+
+    // Default min interval for RPC requests.
+    const fn default_retry_rpc_request_min_delay() -> Duration {
+        Duration::from_millis(250)
+    }
+
+    // Default max interval for RPC requests.
+    const fn default_retry_rpc_request_max_delay() -> Duration {
+        Duration::from_secs(2)
+    }
+
+    // Default max attempts for retrying RPC requests. Set to 0 (disabled on default).
+    const fn default_retry_rpc_request_max_attempts() -> usize {
+        0
     }
 
     /// Initialize with default values for all fields
@@ -100,7 +143,19 @@ impl WatcherCacheConfig {
             max_cache_size: Self::default_max_cache_size(),
             time_to_live: Self::default_time_to_live(),
             time_to_idle: None,
+            retry_rpc_request_min_delay: Self::default_retry_rpc_request_min_delay(),
+            retry_rpc_request_max_delay: Self::default_retry_rpc_request_max_delay(),
+            retry_rpc_request_max_attempts: Self::default_retry_rpc_request_max_attempts(),
         }
+    }
+
+    #[inline]
+    pub(crate) fn backoff_strategy(&self) -> ExponentialBackoff {
+        ExponentialBuilder::new()
+            .with_max_times(self.retry_rpc_request_max_attempts)
+            .with_min_delay(self.retry_rpc_request_min_delay)
+            .with_max_delay(self.retry_rpc_request_max_delay)
+            .build()
     }
 }
 
@@ -113,7 +168,7 @@ impl Default for WatcherCacheConfig {
 impl WorldOprfNodeConfig {
     /// Default maximum allowed difference between received and node timestamp
     fn default_current_time_stamp_max_difference() -> Duration {
-        Duration::from_mins(5) // 5 minutes
+        Duration::from_mins(5)
     }
 
     /// Default timeout for an `eth_call` to an unknown contract.
@@ -129,16 +184,14 @@ impl WorldOprfNodeConfig {
     )]
     pub fn with_default_values(
         environment: taceo_oprf::service::Environment,
-        contracts: WorldIdNodeContracts,
         version_req: VersionReq,
+        contracts: WorldIdNodeContracts,
         rpc_provider_config: web3::HttpRpcProviderConfig,
-        ws_rpc_url: Url,
     ) -> Self {
         let WorldIdNodeContracts {
             world_id_registry_contract,
             rp_registry_contract,
             credential_schema_issuer_registry_contract,
-            oprf_key_registry_contract,
         } = contracts;
         Self {
             world_id_registry_contract,
@@ -147,12 +200,7 @@ impl WorldOprfNodeConfig {
             rpc_provider_config,
             current_time_stamp_max_difference: Self::default_current_time_stamp_max_difference(),
             timeout_external_eth_call: Self::default_timeout_external_eth_call(),
-            node_config: OprfNodeServiceConfig::with_default_values(
-                environment,
-                oprf_key_registry_contract,
-                ws_rpc_url.clone(),
-                version_req,
-            ),
+            node_config: OprfNodeServiceConfig::with_default_values(environment, version_req),
             rp_cache_config: WatcherCacheConfig::default(),
             issuer_cache_config: WatcherCacheConfig::default(),
             merkle_cache_config: WatcherCacheConfig::default(),
@@ -174,6 +222,4 @@ pub struct WorldIdNodeContracts {
     pub rp_registry_contract: Address,
     /// Address of the `CredentialSchemaIssuerRegistry` contract.
     pub credential_schema_issuer_registry_contract: Address,
-    /// Address of the OPRF Key Registry contract.
-    pub oprf_key_registry_contract: Address,
 }
