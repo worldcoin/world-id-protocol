@@ -49,15 +49,6 @@ sol!(
 
 sol!(
     #[sol(rpc)]
-    Poseidon2T2V1,
-    concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/Poseidon2V1.sol/Poseidon2T2V1.json"
-    )
-);
-
-sol!(
-    #[sol(rpc)]
     PackedAccountData,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -424,12 +415,12 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        let poseidon_v1 = Poseidon2T2V1::deploy(provider.clone())
-            .await
-            .context("failed to deploy Poseidon2T2V1 library")?;
         let packed_account_data = PackedAccountData::deploy(provider.clone())
             .await
             .context("failed to deploy PackedAccountData library")?;
+        let full_storage_binary_imt = FullStorageBinaryIMT::deploy(provider.clone())
+            .await
+            .context("failed to deploy FullStorageBinaryIMT library")?;
 
         let v1_json = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -438,8 +429,7 @@ impl TestAnvil {
         let implementation_address = Self::deploy_linked_registry_impl(
             provider.clone(),
             v1_json,
-            Some(*poseidon_v1.address()),
-            None,
+            *full_storage_binary_imt.address(),
             *packed_account_data.address(),
         )
         .await
@@ -475,12 +465,12 @@ impl TestAnvil {
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
         // 1. Deploy the libraries used by the registry bytecode.
-        let poseidon_v1 = Poseidon2T2V1::deploy(provider.clone())
-            .await
-            .context("failed to deploy Poseidon2T2V1 library")?;
         let packed_account_data = PackedAccountData::deploy(provider.clone())
             .await
             .context("failed to deploy PackedAccountData library")?;
+        let full_storage_binary_imt = FullStorageBinaryIMT::deploy(provider.clone())
+            .await
+            .context("failed to deploy FullStorageBinaryIMT library")?;
 
         // 2. Deploy V1 implementation, link, and stand up the proxy.
         let v1_json = include_str!(concat!(
@@ -490,8 +480,7 @@ impl TestAnvil {
         let v1_impl = Self::deploy_linked_registry_impl(
             provider.clone(),
             v1_json,
-            Some(*poseidon_v1.address()),
-            None,
+            *full_storage_binary_imt.address(),
             *packed_account_data.address(),
         )
         .await
@@ -508,14 +497,10 @@ impl TestAnvil {
             env!("CARGO_MANIFEST_DIR"),
             "/../../contracts/out/WorldIDRegistryV2Unreleased.sol/WorldIDRegistryV2.json"
         ));
-        let full_storage_binary_imt = FullStorageBinaryIMT::deploy(provider.clone())
-            .await
-            .context("failed to deploy FullStorageBinaryIMT library")?;
         let v2_impl = Self::deploy_linked_registry_impl(
             provider.clone(),
             v2_json,
-            None,
-            Some(*full_storage_binary_imt.address()),
+            *full_storage_binary_imt.address(),
             *packed_account_data.address(),
         )
         .await
@@ -558,8 +543,7 @@ impl TestAnvil {
     async fn deploy_linked_registry_impl<P: Provider>(
         provider: P,
         impl_json: &str,
-        poseidon_v1_addr: Option<Address>,
-        full_storage_binary_imt_addr: Option<Address>,
+        full_storage_binary_imt_addr: Address,
         packed_account_data_addr: Address,
     ) -> Result<Address> {
         let json_value: serde_json::Value = serde_json::from_str(impl_json)?;
@@ -574,22 +558,12 @@ impl TestAnvil {
             })
             .to_string();
 
-        if let Some(poseidon_v1_addr) = poseidon_v1_addr {
-            bytecode_str = Self::link_bytecode_hex(
-                impl_json,
-                &bytecode_str,
-                "src/core/hash/Poseidon2V1.sol:Poseidon2T2V1",
-                poseidon_v1_addr,
-            )?;
-        }
-        if let Some(full_storage_binary_imt_addr) = full_storage_binary_imt_addr {
-            bytecode_str = Self::link_bytecode_hex(
-                impl_json,
-                &bytecode_str,
-                "src/core/libraries/FullStorageBinaryIMT.sol:FullStorageBinaryIMT",
-                full_storage_binary_imt_addr,
-            )?;
-        }
+        bytecode_str = Self::link_bytecode_hex(
+            impl_json,
+            &bytecode_str,
+            "src/core/libraries/FullStorageBinaryIMT.sol:FullStorageBinaryIMT",
+            full_storage_binary_imt_addr,
+        )?;
         bytecode_str = Self::link_bytecode_hex(
             impl_json,
             &bytecode_str,

@@ -101,14 +101,14 @@ library FullStorageBinaryIMT {
     }
 
     /// @dev Encode (level, idx) into a single mapping key.
-    function _key(uint256 level, uint256 idx) internal pure returns (uint256) {
+    function _key(uint256 level, uint256 idx) private pure returns (uint256) {
         return (level << 32) | idx;
     }
 
     /// @dev Returns the node value at (level, index). Unset nodes return the
     ///      default zero for that level.
     function _getNode(FullBinaryIMTData storage self, uint256 level, uint256 idx, uint256 numLeaves)
-        internal
+        private
         view
         returns (uint256)
     {
