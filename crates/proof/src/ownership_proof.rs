@@ -4,6 +4,9 @@
 //! with the authenticator's EdDSA key, then proving the Noir circuit
 //! via ProveKit.
 
+/// Domain sepawrator for the Ownership Proof Hash Message
+pub const DS_OWNERSHIP_PROOF: &[u8; 6] = b"WIP103";
+
 #[cfg(feature = "zk-ownership-prove")]
 pub use prover::generate_ownership_proof;
 

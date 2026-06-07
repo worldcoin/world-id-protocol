@@ -30,8 +30,6 @@ jobs:
             circom/OPRFNullifierGraph.bin
             circom/OPRFQuery.arks.zkey
             circom/OPRFNullifier.arks.zkey
-            crates/proof/noir/ownership-proof/artifacts/ownership_proof.pkp
-            crates/proof/noir/ownership-proof/artifacts/ownership_proof.pkv
           )
 
           for file in "${files[@]}"; do

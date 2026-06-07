@@ -23,56 +23,33 @@ At runtime, zkeys are decompressed in memory during initialization.
 
 zkey files are not included in the bin.
 
-## Circuit artifacts
+## Circom circuit artifacts
 
-Proof builds do not compile circuits. Instead, `build.rs` resolves prebuilt circuit artifacts by:
+For the embedded zkey flow, `build.rs` resolves prebuilt Circom artifacts by:
 
 1. using files committed in this repository; or
 2. downloading them from the GitHub release tag pinned in `build.rs`.
 
 The release tag is intentionally separate from the crate/software version track, e.g.
-`circuit-artifacts-v0.1.0`.
-
-### Circom artifacts
-
-The embedded zkey flow uses these artifacts:
+`circuit-artifacts-v0.1.0`. Artifacts published under that tag:
 
 - `circom/OPRFQueryGraph.bin`
 - `circom/OPRFNullifierGraph.bin`
 - `circom/OPRFQuery.arks.zkey`
 - `circom/OPRFNullifier.arks.zkey`
 
-When local files are unavailable, they are downloaded from the pinned circuit artifact release.
-
-### Noir ownership proof artifacts
-
-The Noir ownership proof uses persisted provekit artifacts:
-
-- `crates/proof/noir/ownership-proof/artifacts/ownership_proof.pkp`
-- `crates/proof/noir/ownership-proof/artifacts/ownership_proof.pkv`
-
-Normal builds only copy/download these files; they do not require `nargo`.
-
-To regenerate them locally:
-
-```sh
-just build-noir-artifacts
-```
-
-This requires the matching Noir toolchain (`nargo` v1.0.0-beta.11).
-
 ### Publishing circuit artifact releases
 
-Circuit artifact releases are created manually with the GitHub Actions workflow:
+Releases are created manually via the `Release circuit artifacts` GitHub Actions workflow, with a
+tag like `circuit-artifacts-v0.1.0`. The workflow creates a GitHub release and attaches the
+Circom artifact files listed above.
 
-```text
-Release circuit artifacts
+## Noir ownership proof
+
+The Noir ownership proof circuit is compiled just-in-time by `build.rs` using `nargo` and the
+provekit R1CS compiler. Building this crate with the `zk-ownership-prove` or `zk-ownership-verify`
+features requires `nargo` v1.0.0-beta.11 to be installed:
+
+```sh
+noirup --version v1.0.0-beta.11
 ```
-
-Run it with a tag like:
-
-```text
-circuit-artifacts-v0.1.0
-```
-
-The workflow creates a GitHub release and attaches only the circuit artifact files listed above.

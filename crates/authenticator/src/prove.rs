@@ -471,6 +471,8 @@ impl Authenticator {
         sub: FieldElement,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<OwnershipProof, AuthenticatorError> {
+        use world_id_proof::ownership_proof::DS_OWNERSHIP_PROOF;
+
         let authenticator_input = self
             .prepare_authenticator_input(account_inclusion_proof)
             .await?;
@@ -481,11 +483,18 @@ impl Authenticator {
             return Err(AuthenticatorError::InvalidSubOrBlindingFactor);
         }
 
+        let mut message = [
+            *FieldElement::from_be_bytes_mod_order(DS_OWNERSHIP_PROOF),
+            *commitment,
+            *nonce,
+        ];
+        poseidon2::bn254::t3::permutation_in_place(&mut message);
+
         let signature = self
             .signer
             .offchain_signer_private_key()
             .expose_secret()
-            .sign(*commitment);
+            .sign(message[1]);
 
         let input = OwnershipProofCircuitInput {
             key_index: authenticator_input.key_index,

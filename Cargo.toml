@@ -15,7 +15,6 @@ members = [
   "services/common",
   "services/faux-issuer",
   "tools/generate-solidity-fixtures",
-  "tools/generate-noir-artifacts",
   "services/relay",
 ]
 

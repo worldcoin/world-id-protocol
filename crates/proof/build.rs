@@ -4,10 +4,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(feature = "embed-zkeys")]
 use std::{fs::File, io};
 
+#[cfg(feature = "embed-zkeys")]
 const GITHUB_REPO: &str = "worldcoin/world-id-protocol";
 
+#[cfg(feature = "embed-zkeys")]
 const CIRCUIT_ARTIFACT_RELEASE_TAG: &str = "circuit-artifacts-v0.1.0";
 
 const CIRCUIT_FILES: &[&str] = &[
@@ -26,7 +29,7 @@ fn main() -> eyre::Result<()> {
         println!("cargo:rustc-check-cfg=cfg(docsrs)");
     }
 
-    // Skip for docs.rs as it doesn't have network access.
+    // Skip for docs.rs as it doesn't have network access or nargo
     if env::var("DOCS_RS").is_ok() {
         println!("cargo:warning=Building for docs.rs, skipping circuit compilation");
         return Ok(());
@@ -34,9 +37,9 @@ fn main() -> eyre::Result<()> {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
-    // Copy prebuilt Noir ownership proof artifacts into OUT_DIR.
+    // Compile noir ownership proof circuit and generate prover key package
     #[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
-    setup_noir_ownership_proof(&out_dir)?;
+    compile_noir_ownership_proof(&out_dir)?;
 
     if env::var("CARGO_FEATURE_EMBED_ZKEYS").is_err() {
         return Ok(());
@@ -99,12 +102,14 @@ fn main() -> eyre::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "embed-zkeys")]
 fn circuit_artifact_url(file_name: &str) -> String {
     format!(
         "https://github.com/{GITHUB_REPO}/releases/download/{CIRCUIT_ARTIFACT_RELEASE_TAG}/{file_name}"
     )
 }
 
+#[cfg(feature = "embed-zkeys")]
 fn download_file(url: &str, output_path: &Path) -> eyre::Result<()> {
     let response = reqwest::blocking::get(url)?;
 
@@ -230,36 +235,48 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
 }
 
 #[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
-fn setup_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
+fn compile_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
+    use provekit_common::{NoirProofScheme, Prover, Verifier};
+    use provekit_r1cs_compiler::NoirProofSchemeBuilder as _;
+
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let artifact_dir = manifest_dir.join("noir/ownership-proof/artifacts");
+    let circuit_dir = manifest_dir.join("noir/ownership-proof");
 
-    fetch_noir_artifact(&artifact_dir, "ownership_proof.pkp", out_dir)?;
-    fetch_noir_artifact(&artifact_dir, "ownership_proof.pkv", out_dir)?;
+    // Watch noir source files for changes
+    println!(
+        "cargo:rerun-if-changed={}",
+        circuit_dir.join("src").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        circuit_dir.join("Nargo.toml").display()
+    );
 
-    Ok(())
-}
+    let pkp_path = out_dir.join("ownership_proof.pkp");
+    let pkv_path = out_dir.join("ownership_proof.pkv");
 
-#[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
-fn fetch_noir_artifact(artifact_dir: &Path, file_name: &str, out_dir: &Path) -> eyre::Result<()> {
-    let output_path = out_dir.join(file_name);
-    let local_path = artifact_dir.join(file_name);
+    // Run nargo compile
+    let nargo_output = std::process::Command::new("nargo")
+        .arg("compile")
+        .current_dir(&circuit_dir)
+        .output()
+        .map_err(|e| eyre::eyre!("failed to run nargo: {e}"))?;
 
-    if local_path.exists() {
-        if output_path.exists() {
-            fs::remove_file(&output_path)?;
-        }
-        fs::copy(&local_path, &output_path)?;
-        println!("cargo:rerun-if-changed={}", local_path.display());
-        return Ok(());
+    if !nargo_output.status.success() {
+        let stderr = String::from_utf8_lossy(&nargo_output.stderr);
+        eyre::bail!(
+            "nargo compile failed:\n{stderr}\n\nCheck your Noir version - must be run with v1.0.0-beta.11\ninstall with noirup --version v1.0.0-beta.11"
+        );
     }
 
-    let url = circuit_artifact_url(file_name);
-    download_file(&url, &output_path).map_err(|e| {
-        eyre::eyre!(
-            "failed to fetch Noir artifact {file_name}. Run `just build-noir-artifacts` to generate it locally, or publish it at {url}: {e}"
-        )
-    })?;
+    let compiled_json = circuit_dir.join("target/ownership_proof.json");
+
+    let scheme =
+        NoirProofScheme::from_file(compiled_json).map_err(|e| eyre::eyre!(e.to_string()))?;
+    provekit_common::file::write(&Prover::from_noir_proof_scheme(scheme.clone()), &pkp_path)
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
+    provekit_common::file::write(&Verifier::from_noir_proof_scheme(scheme), &pkv_path)
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
 
     Ok(())
 }
