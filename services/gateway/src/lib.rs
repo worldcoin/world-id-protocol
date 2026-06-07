@@ -1,12 +1,16 @@
+#![recursion_limit = "256"]
+
 pub use crate::{
     config::{
         BatchPolicyConfig, BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig,
         defaults,
     },
     orphan_sweeper::sweep_once,
+    registry_version::RegistryVersion,
     request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
 };
-use crate::{routes::build_app, types::AppState};
+use crate::{registry_version::probe, routes::build_app, types::AppState};
+use alloy::{primitives::Address, providers::DynProvider};
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};
 use tokio::sync::oneshot;
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
@@ -17,6 +21,7 @@ mod config;
 mod error;
 pub mod metrics;
 pub mod orphan_sweeper;
+mod registry_version;
 mod request;
 pub mod request_tracker;
 mod routes;
@@ -25,6 +30,23 @@ mod types;
 // Re-export common types
 pub use crate::error::{GatewayError, GatewayResult};
 pub use world_id_services_common::{ProviderArgs, SignerArgs, SignerConfig};
+
+async fn registry_version_from_config(
+    registry_version: Option<RegistryVersion>,
+    registry_addr: Address,
+    provider: Arc<DynProvider>,
+) -> GatewayResult<RegistryVersion> {
+    match registry_version {
+        Some(registry_version) => {
+            tracing::info!(
+                ?registry_version,
+                "registry version override set; skipping startup probe"
+            );
+            Ok(registry_version)
+        }
+        None => probe(provider, registry_addr).await,
+    }
+}
 
 #[derive(Debug)]
 pub struct GatewayHandle {
@@ -55,8 +77,12 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
         cfg.registry_addr,
         provider.clone(),
     ));
+    let registry_version =
+        registry_version_from_config(cfg.registry_version, cfg.registry_addr, provider.clone())
+            .await?;
     let app = build_app(
         registry,
+        registry_version,
         batcher_config,
         cfg.redis_url,
         rate_limit,
@@ -105,11 +131,18 @@ pub async fn run() -> GatewayResult<()> {
     let sweeper_config = cfg.sweeper();
 
     let provider = Arc::new(cfg.provider.http().await?);
-    let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
+    let registry = Arc::new(WorldIdRegistryInstance::new(
+        cfg.registry_addr,
+        provider.clone(),
+    ));
+    let registry_version =
+        registry_version_from_config(cfg.registry_version, cfg.registry_addr, provider.clone())
+            .await?;
 
     tracing::info!("Config is ready. Building app...");
     let app = build_app(
         registry,
+        registry_version,
         batcher_config,
         cfg.redis_url,
         rate_limit,

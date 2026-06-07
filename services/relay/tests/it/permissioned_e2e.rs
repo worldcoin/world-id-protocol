@@ -417,7 +417,7 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
     let shared_signer = anvil.signer(0)?;
     let shared_provider = Arc::new(
         ProviderBuilder::new()
-            .wallet(alloy::network::EthereumWallet::from(shared_signer))
+            .wallet(alloy::network::EthereumWallet::from(shared_signer.clone()))
             .connect_http(anvil.endpoint().parse().unwrap())
             .erased(),
     );
@@ -432,7 +432,7 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
         deployment_block: 0,
     };
 
-    let world_chain = WorldChain::new(&wc_config, shared_provider.clone());
+    let world_chain = WorldChain::new(&wc_config, shared_provider.clone(), &shared_signer);
     let mut engine = Engine::new(world_chain);
     let log = engine.log().clone();
 

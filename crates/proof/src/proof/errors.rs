@@ -91,6 +91,19 @@ pub enum ProofInputError {
         "The provided session ID commitment is invalid for the given id and session id randomness."
     )]
     InvalidSessionId,
+    /// The proof request is expired.
+    #[error(
+        "The provided proof request has expired (expires_at: {expires_at}, check_timestamp: {current_timestamp})."
+    )]
+    ProofRequestExpired {
+        /// Current timestamp.
+        current_timestamp: u64,
+        /// Expiration timestamp.
+        expires_at: u64,
+    },
+    /// The proof's expires_at is greater than the created_at.
+    #[error("The proof's expires_at {expires_at} happens before the created_at {created_at}.")]
+    InvalidExpiresAt { created_at: u64, expires_at: u64 },
 }
 
 /// This method checks the validity of the input parameters by emulating the operations that are proved in ZK and raising Errors that would result in an invalid proof.
@@ -229,7 +242,7 @@ pub fn check_nullifier_input_validity<const TREE_DEPTH: usize>(
     let credential_expires_at_u64 = u64::try_from(FieldElement::from(inputs.cred_expires_at))
         .map_err(|_| ProofInputError::ValueOutOfBounds {
             name: "credential expiry timestamp",
-            is: inputs.current_timestamp,
+            is: inputs.cred_expires_at,
             limit: BaseField::new(u64::MAX.into()),
         })?;
     // Check that the credential has not expired.
@@ -839,5 +852,63 @@ mod tests {
                 super::ProofInputError::InvalidSessionId
             ));
         }
+    }
+
+    /// Verifies that the `cred_id` slot of the credential hash, which packs the
+    /// `Credential::id` and `Credential::issuer_version`, is computed
+    /// consistently between `Credential::hash` and the validation path used by
+    /// `check_nullifier_input_validity`.
+    ///
+    /// This protects against the proof-input validator silently diverging from
+    /// the issuer's actual signed hash when `issuer_version` is non-zero.
+    #[test]
+    fn test_packed_cred_id_matches_credential_hash() {
+        use super::hash_credential;
+        use ark_ff::BigInt;
+        use world_id_primitives::{Credential, FieldElement};
+
+        let mut credential = Credential::new();
+        credential.id = 0x1234_5678_9ABC_DEF0;
+        credential.issuer_version = 7;
+        credential.issuer_schema_id = 42;
+        credential.sub = FieldElement::from(100u64);
+        credential.genesis_issued_at = 1_000_000;
+        credential.expires_at = 2_000_000;
+
+        let direct = credential.hash().unwrap();
+
+        let packed_cred_id: ark_babyjubjub::Fq =
+            BigInt([credential.id, u64::from(credential.issuer_version), 0, 0]).into();
+
+        let via_validation = hash_credential(
+            FieldElement::from(credential.issuer_schema_id),
+            credential.sub,
+            FieldElement::from(credential.genesis_issued_at),
+            FieldElement::from(credential.expires_at),
+            credential.claims_hash().unwrap(),
+            credential.associated_data_commitment,
+            FieldElement::from(packed_cred_id),
+        );
+
+        assert_eq!(
+            direct, via_validation,
+            "packed cred_id must reproduce Credential::hash"
+        );
+
+        let unpacked_cred_id: ark_babyjubjub::Fq = credential.id.into();
+        let via_validation_unpacked = hash_credential(
+            FieldElement::from(credential.issuer_schema_id),
+            credential.sub,
+            FieldElement::from(credential.genesis_issued_at),
+            FieldElement::from(credential.expires_at),
+            credential.claims_hash().unwrap(),
+            credential.associated_data_commitment,
+            FieldElement::from(unpacked_cred_id),
+        );
+
+        assert_ne!(
+            direct, via_validation_unpacked,
+            "passing only id (without issuer_version) must NOT reproduce Credential::hash"
+        );
     }
 }

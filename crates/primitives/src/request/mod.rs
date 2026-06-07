@@ -512,6 +512,30 @@ impl ProofRequest {
         matches!(self.proof_type, ProofType::CreateSession)
     }
 
+    /// Validates the structural integrity of the constraint expression.
+    ///
+    /// Checks that the constraint tree (when present) does not exceed the maximum
+    /// nesting depth of 2 or the maximum node count. This is the same check
+    /// performed inside [`validate_response`]; exposing it separately allows
+    /// callers to pre-flight a request before attempting proof generation.
+    ///
+    /// # Errors
+    /// Returns [`ValidationError::ConstraintTooDeep`] or [`ValidationError::ConstraintTooLarge`]
+    /// if the expression exceeds protocol limits.
+    ///
+    /// [`validate_response`]: Self::validate_response
+    pub fn validate_constraints(&self) -> Result<(), ValidationError> {
+        if let Some(expr) = &self.constraints {
+            if !expr.validate_max_depth(2) {
+                return Err(ValidationError::ConstraintTooDeep);
+            }
+            if !expr.validate_max_nodes(MAX_CONSTRAINT_NODES) {
+                return Err(ValidationError::ConstraintTooLarge);
+            }
+        }
+        Ok(())
+    }
+
     /// Validate that a response satisfies this request: id match and constraints semantics.
     ///
     /// # Errors
@@ -606,12 +630,7 @@ impl ProofRequest {
                 Ok(())
             }
             Some(expr) => {
-                if !expr.validate_max_depth(2) {
-                    return Err(ValidationError::ConstraintTooDeep);
-                }
-                if !expr.validate_max_nodes(MAX_CONSTRAINT_NODES) {
-                    return Err(ValidationError::ConstraintTooLarge);
-                }
+                self.validate_constraints()?;
                 if expr.evaluate(&|t| provided.contains(t)) {
                     Ok(())
                 } else {

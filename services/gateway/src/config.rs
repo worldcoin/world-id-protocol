@@ -4,7 +4,10 @@ use alloy::primitives::Address;
 use clap::Parser;
 use world_id_services_common::ProviderArgs;
 
-use crate::error::{GatewayError, GatewayResult};
+use crate::{
+    error::{GatewayError, GatewayResult},
+    registry_version::RegistryVersion,
+};
 
 pub mod defaults {
     pub const MAX_CREATE_BATCH_SIZE: usize = 100;
@@ -102,6 +105,10 @@ pub struct GatewayConfig {
     /// The address of the `WorldIDRegistry` contract
     #[arg(long, env = "REGISTRY_ADDRESS")]
     pub registry_addr: Address,
+
+    /// Override registry version detection. If omitted, the gateway probes the registry on startup.
+    #[arg(long, env = "REGISTRY_VERSION")]
+    pub registry_version: Option<RegistryVersion>,
 
     /// The HTTP RPC endpoint to submit transactions
     #[command(flatten)]
@@ -291,6 +298,18 @@ mod tests {
     fn parse_valid_config() -> GatewayConfig {
         parse_with_signer_args(&["--wallet-private-key", TEST_PRIVATE_KEY])
             .expect("valid config should parse")
+    }
+
+    #[test]
+    fn registry_version_override_parses() {
+        let config = parse_with_signer_args(&[
+            "--wallet-private-key",
+            TEST_PRIVATE_KEY,
+            "--registry-version",
+            "v2",
+        ])
+        .expect("valid config should parse");
+        assert_eq!(config.registry_version, Some(RegistryVersion::V2));
     }
 
     #[test]

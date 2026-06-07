@@ -15,6 +15,7 @@ ark-ff = { workspace = true }
 ark-groth16 = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["json", "macros"] }
+backon = { workspace = true, features = ["std", "tokio-sleep"] }
 chrono = { workspace = true }
 circom-types = { workspace = true, features = [
   "bn254",
@@ -34,9 +35,9 @@ secrecy = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 taceo-nodes-common = { workspace = true, features = ["postgres"] }
-taceo-nodes-observability = { workspace = true }
 taceo-oprf = { workspace = true, features = ["core", "service", "types"] }
 thiserror = { workspace = true }
+telemetry-batteries = { workspace = true }
 tokio = { workspace = true, features = [
   "net",
   "rt-multi-thread",
@@ -46,10 +47,13 @@ tokio = { workspace = true, features = [
   "tokio-macros",
 ] }
 tokio-util = { workspace = true }
-tracing = { workspace = true }
+tracing = { workspace = true, features = ["release_max_level_debug"] }
 uuid = { workspace = true, features = ["serde", "v4"] }
 world-id-primitives = { workspace = true }
 world-id-registries = { workspace = true }
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = { workspace = true }
 
 [dev-dependencies]
 ark-serialize.workspace = true

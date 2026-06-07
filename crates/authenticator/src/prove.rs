@@ -511,7 +511,8 @@ mod tests {
     use ruint::aliases::U256;
     use taceo_oprf::client::Connector;
     use world_id_primitives::{
-        Config, Credential, FieldElement, Signer, TREE_DEPTH, merkle::AccountInclusionProof,
+        Config, Credential, FieldElement, ServiceEndpoint, Signer, TREE_DEPTH,
+        merkle::AccountInclusionProof,
     };
     use world_id_test_utils::fixtures::single_leaf_merkle_fixture;
 
@@ -531,8 +532,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            "http://indexer.example.com".to_string(),
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct("http://indexer.example.com".to_string()),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -547,17 +548,11 @@ mod tests {
             indexer_client: ServiceClient::new(
                 http_client.clone(),
                 ServiceKind::Indexer,
-                config.indexer_url(),
-                None,
+                config.indexer(),
             )
             .expect("valid indexer client"),
-            gateway_client: ServiceClient::new(
-                http_client,
-                ServiceKind::Gateway,
-                config.gateway_url(),
-                None,
-            )
-            .expect("valid gateway client"),
+            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
+                .expect("valid gateway client"),
             ws_connector: Connector::Plain,
             query_material: None,
             nullifier_material: None,

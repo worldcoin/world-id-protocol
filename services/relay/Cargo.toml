@@ -1,7 +1,8 @@
 [package]
 name = "world-id-relay"
 edition.workspace = true
-version.workspace = true
+version = "0.11.4"
+publish = false
 license.workspace = true
 authors.workspace = true
 homepage.workspace = true
@@ -9,6 +10,9 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+# http
+axum = { workspace = true }
+
 # alloy
 alloy = { workspace = true, features = [
     "full",
@@ -36,6 +40,7 @@ serde_json = { workspace = true }
 # telemetry
 tracing = { workspace = true }
 telemetry-batteries = { workspace = true }
+metrics = { workspace = true }
 
 # misc
 clap = { workspace = true, features = ["derive", "env"] }
@@ -59,3 +64,7 @@ rand = { workspace = true }
 world-id-primitives = { workspace = true }
 world-id-relay = { workspace = true }
 world-id-test-utils = { workspace = true }
+
+[[bin]]
+name = "world-id-relay"
+path = "src/bin/main.rs"

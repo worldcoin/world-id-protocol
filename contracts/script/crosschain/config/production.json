@@ -1,0 +1,41 @@
+{
+  "owner": "0x6348A4a4dF173F68eB28A452Ca6c13493e447aF1",
+  "bridgeName": "WorldID Bridge",
+  "bridgeVersion": "1.0.0",
+  "rootValidityWindow": 3600,
+  "treeDepth": 30,
+  "minExpirationThreshold": 18000,
+
+  "salts": {
+    "worldIDSource": "0x0000000000000000000000000000000000000000000000000000000000002111",
+    "worldIDSatellite": "0x0000000000000000000000000000000000000000000000000000000000002200",
+    "ownedGateway": "0x0000000000000000000000000000000000000000000000000000000000002300",
+    "l1Gateway": "0x0000000000000000000000000000000000000000000000000000000000002400",
+    "zkGateway": "0x0000000000000000000000000000000000000000000000000000000000002500",
+    "verifier": "0x0000000000000000000000000000000000000000000000000000000000002600"
+  },
+
+  "worldchain": {
+    "chainId": 480,
+    "alchemySlug": "worldchain-mainnet",
+    "registry": "0x0000000000aE079eB8a274cD51c0f44a9E4d67d4",
+    "issuerRegistry": "0x941239840F4d9668da8be76b568e836b50685d2c",
+    "oprfRegistry": "0x0D8b461799474207A3d223553d4d5e6609cb0c69"
+  },
+
+  "networks": ["base", "tempo"],
+
+  "base": {
+    "chainId": 8453,
+    "alchemySlug": "base-mainnet",
+    "verifier": "0x0000000000000000000000000000000000000000",
+    "ownedGateway": {}
+  },
+
+  "tempo": {
+    "chainId": 4217,
+    "alchemySlug": "tempo-mainnet",
+    "verifier": "0x0000000000000000000000000000000000000000",
+    "ownedGateway": {}
+  }
+}
