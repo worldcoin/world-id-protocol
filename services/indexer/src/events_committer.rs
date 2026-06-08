@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use crate::{
+    batch::{Batch, BatchHeader, BatchKind, BatchOrigin, BatchRootCheck, LeafChange},
     blockchain::{BlockchainEvent, RegistryEvent, RootRecordedEvent},
-    db::{DB, IsolationLevel, PostgresDBTransaction},
+    db::{DB, IsolationLevel, insert_sync_log_batch},
     error::{IndexerError, IndexerResult},
     events_processor::EventsProcessor,
     tree::{TreeState, apply_event_to_tree, extract_leaf_commitment},
@@ -110,7 +111,7 @@ impl<'a> EventsCommitter<'a> {
 
         let mut tx = self.db.transaction(IsolationLevel::Serializable).await?;
         let mut newly_committed_events = Vec::new();
-        let mut checkpoint_sync_id = None;
+        let mut checkpoint_batch_id = None;
 
         for event in self.buffered_events.iter() {
             let db_event = tx
@@ -184,10 +185,11 @@ impl<'a> EventsCommitter<'a> {
 
         if let Some(BlockchainEvent {
             block_number,
+            log_index,
             details:
                 RegistryEvent::RootRecorded(RootRecordedEvent {
                     root: expected_root,
-                    ..
+                    timestamp,
                 }),
             ..
         }) = self.buffered_events.last()
@@ -195,43 +197,50 @@ impl<'a> EventsCommitter<'a> {
             let block_number = *block_number;
             let expected_root = *expected_root;
 
-            let changes: Vec<(usize, alloy::primitives::U256)> = self
-                .buffered_events
-                .iter()
-                .filter_map(|e| {
-                    extract_leaf_commitment(&e.details)
-                        .map(|(leaf_index, value)| (leaf_index as usize, value))
-                })
-                .collect();
-
-            let simulated_root = self.tree.simulate_root(&changes).await?;
-            if simulated_root != expected_root {
-                return Err(IndexerError::ReorgDetected {
-                    block_number,
-                    reason: format!(
-                        "simulated tree root (0x{:x}) does not match RootRecorded root (0x{:x})",
-                        simulated_root, expected_root,
-                    ),
-                });
-            }
-
             if !newly_committed_events.is_empty() {
-                checkpoint_sync_id = Some(
-                    append_sync_log_for_batch(&mut tx, &newly_committed_events, expected_root)
-                        .await?,
+                let batch = build_forward_batch(
+                    &newly_committed_events,
+                    expected_root,
+                    *log_index,
+                    block_number,
+                    *timestamp,
+                    tx.accounts().await?.get_next_leaf_index().await?,
                 );
+
+                match self.tree.simulate_batch(&batch).await? {
+                    BatchRootCheck::Match => {
+                        checkpoint_batch_id =
+                            Some(insert_sync_log_batch(&mut tx, &batch).await?);
+                    }
+                    BatchRootCheck::Mismatch { simulated } => {
+                        return Err(IndexerError::ReorgDetected {
+                            block_number,
+                            reason: format!(
+                                "simulated tree root (0x{:x}) does not match RootRecorded root (0x{:x})",
+                                simulated, expected_root,
+                            ),
+                        });
+                    }
+                }
             }
         }
 
         tx.commit().await?;
 
-        if let Some(sync_id) = checkpoint_sync_id {
-            self.tree.set_last_sync_id(sync_id).await;
-        }
-
-        let tree = &self.tree;
-        for event in self.buffered_events.iter() {
-            apply_event_to_tree(tree, event).await?;
+        if let Some(checkpoint_batch_id) = checkpoint_batch_id {
+            let base_batch_id = self.tree.last_batch_id().await;
+            crate::tree::cached_tree::apply_checkpoint_from_sync_log(
+                self.db,
+                &self.tree,
+                base_batch_id,
+                checkpoint_batch_id,
+            )
+            .await?;
+        } else {
+            let tree = &self.tree;
+            for event in self.buffered_events.iter() {
+                apply_event_to_tree(tree, event).await?;
+            }
         }
 
         let latency_ms = started.elapsed().as_millis() as f64;
@@ -243,26 +252,33 @@ impl<'a> EventsCommitter<'a> {
     }
 }
 
-async fn append_sync_log_for_batch(
-    tx: &mut PostgresDBTransaction<'_>,
+fn build_forward_batch(
     events: &[&BlockchainEvent<RegistryEvent>],
     expected_root: alloy::primitives::U256,
-) -> IndexerResult<u64> {
-    for event in events {
-        if let Some((leaf_index, commitment)) = extract_leaf_commitment(&event.details) {
-            tx.sync_log()
-                .await?
-                .insert_leaf_update(leaf_index, commitment)
-                .await?;
-        }
+    log_index: u64,
+    block_number: u64,
+    onchain_timestamp: alloy::primitives::U256,
+    next_leaf_index: u64,
+) -> Batch {
+    let changes = events
+        .iter()
+        .filter_map(|event| {
+            extract_leaf_commitment(&event.details)
+                .map(|(leaf_index, commitment)| LeafChange::new(leaf_index, commitment))
+        })
+        .collect();
+
+    Batch {
+        header: BatchHeader {
+            kind: BatchKind::Forward,
+            expected_root,
+            next_leaf_index,
+            origin: BatchOrigin {
+                block_number,
+                log_index,
+                onchain_timestamp: onchain_timestamp.as_limbs()[0],
+            },
+        },
+        changes,
     }
-
-    let next_leaf_index = tx.accounts().await?.get_next_leaf_index().await?;
-    let checkpoint_sync_id = tx
-        .sync_log()
-        .await?
-        .insert_root_verification(expected_root, next_leaf_index)
-        .await?;
-
-    Ok(checkpoint_sync_id)
 }

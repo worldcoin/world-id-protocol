@@ -17,6 +17,7 @@ use world_id_registries::world_id::WorldIdRegistry;
 pub use config::GlobalConfig;
 pub use error::{IndexerError, IndexerResult};
 
+pub mod batch;
 pub mod blockchain;
 pub mod config;
 pub mod db;
@@ -31,7 +32,8 @@ pub mod tree;
 
 static BLOCKCHAIN_RETRY_DELAY: Duration = Duration::from_secs(1);
 
-/// Initializes the in-memory tree from a cache file if it exists, otherwise builds from DB.
+/// Initializes the in-memory tree from a verified mmap cache when possible,
+/// otherwise builds from the reader-facing sync batch projection.
 ///
 /// # Safety
 ///

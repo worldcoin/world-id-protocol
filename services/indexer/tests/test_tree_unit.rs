@@ -5,18 +5,14 @@ mod helpers;
 use std::{fs, path::PathBuf};
 
 use alloy::primitives::{Address, U256};
-use helpers::db_helpers::{
-    create_unique_test_db, insert_test_account, insert_test_world_tree_event,
-    insert_test_world_tree_root,
-};
+use helpers::db_helpers::{create_unique_test_db, insert_test_account, seed_forward_batch};
 use world_id_indexer::{
-    blockchain::{
-        AccountCreatedEvent, AccountUpdatedEvent, BlockchainEvent, RegistryEvent, RootRecordedEvent,
-    },
+    blockchain::{AccountCreatedEvent, BlockchainEvent, RegistryEvent, RootRecordedEvent},
     events_committer::EventsCommitter,
     handle_registry_event,
     tree::{
         TreeState,
+        cache_metadata::metadata_path,
         cached_tree::{init_tree, sync_from_db},
     },
 };
@@ -27,6 +23,18 @@ fn temp_cache_path() -> PathBuf {
 
 fn cleanup(path: &PathBuf) {
     let _ = fs::remove_file(path);
+    let _ = fs::remove_file(metadata_path(path));
+}
+
+async fn root_for_leaves(tree_depth: usize, leaves: &[(usize, U256)]) -> U256 {
+    let path = temp_cache_path();
+    let tree = unsafe { TreeState::new_empty(tree_depth, &path).unwrap() };
+    for &(leaf_index, value) in leaves {
+        tree.set_leaf_at_index(leaf_index, value).await.unwrap();
+    }
+    let root = tree.root().await;
+    cleanup(&path);
+    root
 }
 
 // ============================================================================
@@ -50,328 +58,42 @@ async fn test_init_tree_empty_db() {
 // Tree Restoration tests
 // ============================================================================
 
-/// When the cached root is not in world_tree_roots (stale), init_tree
-/// returns an error and deletes the cache file.
+/// When clean metadata no longer matches the cached tree, init rebuilds from sync_log.
 #[tokio::test]
-async fn test_stale_cache_returns_error() {
+async fn test_stale_cache_rebuilds_from_sync_log() {
     let test_db = create_unique_test_db().await;
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    // First init: builds cache from one account
-    insert_test_account(db, 1, Address::ZERO, U256::from(100))
-        .await
-        .unwrap();
+    let first_root = root_for_leaves(6, &[(1, U256::from(100))]).await;
+    let checkpoint_id = seed_forward_batch(
+        db,
+        first_root,
+        2,
+        &[(1, Some(U256::from(100)))],
+    )
+    .await
+    .unwrap();
 
     let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     drop(tree_state);
-    assert!(cache_path.exists());
 
-    // Second init: cache root is NOT in world_tree_roots → StaleCache → error
-    let result = unsafe { init_tree(db, &cache_path, 6).await };
-    assert!(
-        result.is_err(),
-        "init_tree should fail when cache root is not in DB"
-    );
-
-    // Cache file should have been deleted
-    assert!(
-        !cache_path.exists(),
-        "cache file should be deleted on restore failure"
-    );
-
-    cleanup(&cache_path);
-}
-
-/// Test 9: Replay with zero new events — cache is already up-to-date.
-#[tokio::test]
-async fn test_replay_with_no_new_events() {
-    let test_db = create_unique_test_db().await;
-    let db = test_db.db();
-    let cache_path = temp_cache_path();
-
-    // Insert account + matching event
-    insert_test_account(db, 1, Address::ZERO, U256::from(100))
-        .await
-        .unwrap();
-    insert_test_world_tree_event(
+    let updated_root = root_for_leaves(6, &[(1, U256::from(400))]).await;
+    seed_forward_batch(
         db,
-        &BlockchainEvent {
-            block_number: 10,
-            block_hash: U256::from(11),
-            tx_hash: U256::from(1),
-            log_index: 0,
-            details: RegistryEvent::AccountCreated(AccountCreatedEvent {
-                leaf_index: 1,
-                recovery_address: Address::ZERO,
-                authenticator_addresses: vec![],
-                authenticator_pubkeys: vec![],
-                offchain_signer_commitment: U256::from(100),
-            }),
-        },
+        updated_root,
+        2,
+        &[(1, Some(U256::from(400)))],
     )
     .await
     .unwrap();
 
-    // Build cache
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    let root = tree_state.root().await;
-    drop(tree_state);
-
-    // Record the cache root so try_restore can validate it.
-    // Place the root AFTER the latest event (at log_index 1) so
-    // replay_events finds nothing after it.
-    insert_test_world_tree_root(db, 10, 1, root, U256::ZERO)
-        .await
+    world_id_indexer::tree::cache_metadata::write_clean_metadata(&cache_path, 6, checkpoint_id)
         .unwrap();
 
-    // Second init: restore from cache, replay 0 events
-    let tree_state2 = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    assert_eq!(tree_state2.root().await, root, "root must be unchanged");
-
-    cleanup(&cache_path);
-}
-
-/// Test 10: Replay deduplicates multiple events that update the same leaf,
-/// keeping only the final commitment value.
-#[tokio::test]
-async fn test_replay_deduplication() {
-    let test_db = create_unique_test_db().await;
-    let db = test_db.db();
-    let cache_path = temp_cache_path();
-
-    // Initial state
-    insert_test_account(db, 1, Address::ZERO, U256::from(100))
-        .await
-        .unwrap();
-    insert_test_world_tree_event(
-        db,
-        &BlockchainEvent {
-            block_number: 10,
-            block_hash: U256::from(11),
-            tx_hash: U256::from(1),
-            log_index: 0,
-            details: RegistryEvent::AccountCreated(AccountCreatedEvent {
-                leaf_index: 1,
-                recovery_address: Address::ZERO,
-                authenticator_addresses: vec![],
-                authenticator_pubkeys: vec![],
-                offchain_signer_commitment: U256::from(100),
-            }),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Build cache
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    let root = tree_state.root().await;
-    drop(tree_state);
-
-    // Record root so try_restore succeeds
-    insert_test_world_tree_root(db, 10, 1, root, U256::ZERO)
-        .await
-        .unwrap();
-
-    // Three updates to the same leaf after the root position
-    for (block, commitment) in [(11, 200u64), (12, 300), (13, 400)] {
-        insert_test_world_tree_event(
-            db,
-            &BlockchainEvent {
-                block_number: block,
-                block_hash: U256::from(1000 + block),
-                tx_hash: U256::from(block),
-                log_index: 0,
-                details: RegistryEvent::AccountUpdated(AccountUpdatedEvent {
-                    leaf_index: 1,
-                    pubkey_id: 0,
-                    new_authenticator_pubkey: U256::from(commitment),
-                    old_authenticator_address: Address::ZERO,
-                    new_authenticator_address: Address::ZERO,
-                    old_offchain_signer_commitment: U256::ZERO,
-                    new_offchain_signer_commitment: U256::from(commitment),
-                }),
-            },
-        )
-        .await
-        .unwrap();
-    }
-
-    // Update account table to match final state (for potential rebuild parity)
-    sqlx::query("UPDATE accounts SET offchain_signer_commitment = $1 WHERE leaf_index = $2")
-        .bind(U256::from(400))
-        .bind(1)
-        .execute(db.pool())
-        .await
-        .unwrap();
-
-    // Restore + replay should deduplicate to final value 400
-    let tree_state2 = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-
-    let tree = tree_state2.read().await;
-    assert_eq!(
-        tree.get_leaf(1),
-        U256::from(400),
-        "dedup must keep only the final commitment"
-    );
-
-    cleanup(&cache_path);
-}
-
-/// Test 11: Replay of multiple distinct leaves produces the same tree root
-/// as a fresh rebuild, regardless of HashMap iteration order.
-#[tokio::test]
-async fn test_replay_matches_fresh_build() {
-    let test_db = create_unique_test_db().await;
-    let db = test_db.db();
-    let cache_path = temp_cache_path();
-
-    // Initial state: two accounts
-    insert_test_account(db, 1, Address::ZERO, U256::from(100))
-        .await
-        .unwrap();
-    insert_test_account(db, 2, Address::ZERO, U256::from(200))
-        .await
-        .unwrap();
-
-    insert_test_world_tree_event(
-        db,
-        &BlockchainEvent {
-            block_number: 10,
-            block_hash: U256::from(11),
-            tx_hash: U256::from(1),
-            log_index: 0,
-            details: RegistryEvent::AccountCreated(AccountCreatedEvent {
-                leaf_index: 1,
-                recovery_address: Address::ZERO,
-                authenticator_addresses: vec![],
-                authenticator_pubkeys: vec![],
-                offchain_signer_commitment: U256::from(100),
-            }),
-        },
-    )
-    .await
-    .unwrap();
-    insert_test_world_tree_event(
-        db,
-        &BlockchainEvent {
-            block_number: 10,
-            block_hash: U256::from(12),
-            tx_hash: U256::from(2),
-            log_index: 1,
-            details: RegistryEvent::AccountCreated(AccountCreatedEvent {
-                leaf_index: 2,
-                recovery_address: Address::ZERO,
-                authenticator_addresses: vec![],
-                authenticator_pubkeys: vec![],
-                offchain_signer_commitment: U256::from(200),
-            }),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Build cache
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    let root = tree_state.root().await;
-    drop(tree_state);
-
-    // Record root
-    insert_test_world_tree_root(db, 10, 2, root, U256::ZERO)
-        .await
-        .unwrap();
-
-    // Events after root: update leaf 1, update leaf 2, insert leaf 3
-    insert_test_world_tree_event(
-        db,
-        &BlockchainEvent {
-            block_number: 11,
-            block_hash: U256::from(111),
-            tx_hash: U256::from(11),
-            log_index: 0,
-            details: RegistryEvent::AccountUpdated(AccountUpdatedEvent {
-                leaf_index: 1,
-                pubkey_id: 0,
-                new_authenticator_pubkey: U256::from(300),
-                old_authenticator_address: Address::ZERO,
-                new_authenticator_address: Address::ZERO,
-                old_offchain_signer_commitment: U256::ZERO,
-                new_offchain_signer_commitment: U256::from(300),
-            }),
-        },
-    )
-    .await
-    .unwrap();
-    insert_test_world_tree_event(
-        db,
-        &BlockchainEvent {
-            block_number: 11,
-            block_hash: U256::from(112),
-            tx_hash: U256::from(12),
-            log_index: 1,
-            details: RegistryEvent::AccountUpdated(AccountUpdatedEvent {
-                leaf_index: 2,
-                pubkey_id: 0,
-                new_authenticator_pubkey: U256::from(400),
-                old_authenticator_address: Address::ZERO,
-                new_authenticator_address: Address::ZERO,
-                old_offchain_signer_commitment: U256::ZERO,
-                new_offchain_signer_commitment: U256::from(400),
-            }),
-        },
-    )
-    .await
-    .unwrap();
-    insert_test_world_tree_event(
-        db,
-        &BlockchainEvent {
-            block_number: 12,
-            block_hash: U256::from(113),
-            tx_hash: U256::from(13),
-            log_index: 0,
-            details: RegistryEvent::AccountCreated(AccountCreatedEvent {
-                leaf_index: 3,
-                recovery_address: Address::ZERO,
-                authenticator_addresses: vec![],
-                authenticator_pubkeys: vec![],
-                offchain_signer_commitment: U256::from(500),
-            }),
-        },
-    )
-    .await
-    .unwrap();
-
-    // Update accounts table to final state
-    sqlx::query("UPDATE accounts SET offchain_signer_commitment = $1 WHERE leaf_index = $2")
-        .bind(U256::from(300))
-        .bind(1)
-        .execute(db.pool())
-        .await
-        .unwrap();
-    sqlx::query("UPDATE accounts SET offchain_signer_commitment = $1 WHERE leaf_index = $2")
-        .bind(U256::from(400))
-        .bind(2)
-        .execute(db.pool())
-        .await
-        .unwrap();
-    insert_test_account(db, 3, Address::ZERO, U256::from(500))
-        .await
-        .unwrap();
-
-    // Path A: Restore from cache + replay
-    let replayed = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    let replayed_root = replayed.root().await;
-    drop(replayed);
-
-    // Path B: Fresh rebuild (delete cache first)
-    cleanup(&cache_path);
-    let fresh = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    let fresh_root = fresh.root().await;
-
-    assert_eq!(
-        replayed_root, fresh_root,
-        "replay and fresh rebuild must produce identical roots"
-    );
+    let rebuilt = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    assert_eq!(rebuilt.root().await, updated_root);
+    assert_eq!(rebuilt.get_leaf(1).await, U256::from(400));
 
     cleanup(&cache_path);
 }
@@ -395,46 +117,34 @@ async fn test_sync_from_db_no_pending_events() {
     cleanup(&cache_path);
 }
 
-/// Test 13: sync_from_db deduplicates multiple events for the same leaf.
+/// Test 13: sync_from_db deduplicates multiple sync_log rows for the same leaf.
 #[tokio::test]
 async fn test_sync_from_db_deduplication() {
     let test_db = create_unique_test_db().await;
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    insert_test_account(db, 1, Address::ZERO, U256::from(100))
-        .await
-        .unwrap();
-
-    // Build tree — last_synced_event_id will be (0,0) since no events exist yet
     let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
 
-    // Insert 3 events for the same leaf with increasing commitments
-    for (block, commitment) in [(100, 200u64), (101, 300), (102, 400)] {
-        insert_test_world_tree_event(
-            db,
-            &BlockchainEvent {
-                block_number: block,
-                block_hash: U256::from(1000 + block),
-                tx_hash: U256::from(block),
-                log_index: 0,
-                details: RegistryEvent::AccountUpdated(AccountUpdatedEvent {
-                    leaf_index: 1,
-                    pubkey_id: 0,
-                    new_authenticator_pubkey: U256::from(commitment),
-                    old_authenticator_address: Address::ZERO,
-                    new_authenticator_address: Address::ZERO,
-                    old_offchain_signer_commitment: U256::ZERO,
-                    new_offchain_signer_commitment: U256::from(commitment),
-                }),
-            },
-        )
-        .await
-        .unwrap();
-    }
+    let expected_root = root_for_leaves(6, &[(1, U256::from(400))]).await;
+    seed_forward_batch(
+        db,
+        expected_root,
+        2,
+        &[
+            (1, Some(U256::from(100))),
+            (1, Some(U256::from(200))),
+            (1, Some(U256::from(400))),
+        ],
+    )
+    .await
+    .unwrap();
 
     let count = sync_from_db(db, &tree_state).await.unwrap();
-    assert_eq!(count, 3, "all 3 raw events should be counted");
+    assert_eq!(
+        count, 3,
+        "all leaf changes in the batch should be counted"
+    );
 
     let tree = tree_state.read().await;
     assert_eq!(
@@ -450,8 +160,8 @@ async fn test_sync_from_db_deduplication() {
 // handle_registry_event root validation tests
 // ============================================================================
 
-/// handle_registry_event returns RootMismatch error when tree root after sync
-/// does not match any known root in world_tree_roots.
+/// handle_registry_event returns ReorgDetected when the simulated batch root
+/// does not match the RootRecorded event.
 #[tokio::test]
 async fn test_handle_registry_event_root_mismatch() {
     let test_db = create_unique_test_db().await;
@@ -571,49 +281,58 @@ async fn test_handle_registry_event_root_match() {
 // init_tree error propagation tests
 // ============================================================================
 
-/// init_tree deletes the cache file and returns error when restore fails.
+/// init_tree rebuilds when cache and metadata exist but mmap storage is invalid.
 #[tokio::test]
-async fn test_init_tree_restore_failure_deletes_cache() {
+async fn test_init_tree_restore_failure_rebuilds() {
     let test_db = create_unique_test_db().await;
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    // Write garbage to the cache file to simulate corruption
-    fs::write(&cache_path, b"not a valid mmap file").unwrap();
-    assert!(cache_path.exists());
+    let expected_root = root_for_leaves(6, &[(1, U256::from(100))]).await;
+    let checkpoint_id = seed_forward_batch(
+        db,
+        expected_root,
+        2,
+        &[(1, Some(U256::from(100)))],
+    )
+    .await
+    .unwrap();
 
-    let result = unsafe { init_tree(db, &cache_path, 6).await };
-    assert!(result.is_err(), "should fail with corrupted cache");
-    assert!(
-        !cache_path.exists(),
-        "cache file should be deleted after restore failure"
-    );
+    fs::write(&cache_path, b"not a valid mmap file").unwrap();
+    world_id_indexer::tree::cache_metadata::write_clean_metadata(&cache_path, 6, checkpoint_id)
+        .unwrap();
+
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    assert_eq!(tree_state.root().await, expected_root);
+    assert!(cache_path.exists());
+    assert!(metadata_path(&cache_path).exists());
 
     cleanup(&cache_path);
 }
 
-/// After init_tree fails and deletes cache, a subsequent call succeeds
-/// by doing a fresh build from DB (the single rebuild path).
+/// After init_tree rebuilds from invalid cache, a subsequent restore succeeds.
 #[tokio::test]
-async fn test_init_tree_recovers_after_cache_deletion() {
+async fn test_init_tree_recovers_after_cache_rebuild() {
     let test_db = create_unique_test_db().await;
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    insert_test_account(db, 1, Address::ZERO, U256::from(100))
-        .await
-        .unwrap();
+    let expected_root = root_for_leaves(6, &[(1, U256::from(100))]).await;
+    seed_forward_batch(
+        db,
+        expected_root,
+        2,
+        &[(1, Some(U256::from(100)))],
+    )
+    .await
+    .unwrap();
 
-    // First call: corrupted cache → error + cache deleted
     fs::write(&cache_path, b"corrupted").unwrap();
-    let result = unsafe { init_tree(db, &cache_path, 6).await };
-    assert!(result.is_err());
-    assert!(!cache_path.exists());
+    let first = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    assert_eq!(first.root().await, expected_root);
 
-    // Second call: no cache file → fresh build from DB
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    let tree = tree_state.read().await;
-    assert_eq!(tree.get_leaf(1), U256::from(100));
+    let second = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    assert_eq!(second.root().await, expected_root);
 
     cleanup(&cache_path);
 }

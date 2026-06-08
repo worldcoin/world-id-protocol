@@ -7,8 +7,9 @@ use alloy::{
 use world_id_registries::world_id::WorldIdRegistry;
 
 use crate::{
+    batch::{Batch, BatchHeader, BatchKind, BatchOrigin, LeafChange},
     blockchain::RegistryEvent,
-    db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId},
+    db::{DB, DBResult, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId, insert_sync_log_batch},
     error::{IndexerError, IndexerResult},
     events_processor::EventsProcessor,
     tree::TreeState,
@@ -17,7 +18,8 @@ use crate::{
 #[derive(Debug, Clone)]
 struct RollbackTarget {
     id: WorldIdRegistryEventId,
-    root: U256,
+    root: alloy::primitives::U256,
+    onchain_timestamp: u64,
 }
 
 /// Walk backwards through all `RootRecorded` events in the DB and find the
@@ -40,22 +42,18 @@ pub async fn rollback_to_last_valid_root(
 
     let mut tx = db.transaction(IsolationLevel::Serializable).await?;
     let affected_leaf_indices = rollback_to_event(&mut tx, target_id).await?;
-    let checkpoint_sync_id =
-        append_rollback_sync_log(&mut tx, &affected_leaf_indices, target.root).await?;
+    let checkpoint_batch_id =
+        append_rollback_sync_log(&mut tx, &target, &affected_leaf_indices).await?;
     tx.commit().await?;
 
-    // Reconciliation reads the post-rollback account rows after the rollback
-    // transaction commits. This relies on the current single-writer indexer
-    // model and restart-after-reorg flow: no other indexer should advance the
-    // DB between this commit and the tree update below. If either assumption
-    // changes, keep the DB snapshot and tree reconciliation within one
-    // serialized boundary.
-    reconcile_tree_from_db(
+    tree.set_last_synced_event_id(target_id).await;
+
+    let base_batch_id = tree.last_batch_id().await;
+    crate::tree::cached_tree::apply_checkpoint_from_sync_log(
         db,
         tree,
-        &affected_leaf_indices,
-        target_id,
-        Some(checkpoint_sync_id),
+        base_batch_id,
+        checkpoint_batch_id,
     )
     .await?;
 
@@ -69,7 +67,7 @@ pub async fn reconcile_tree_from_db(
     tree: &TreeState,
     affected_leaf_indices: &[u64],
     target_event_id: WorldIdRegistryEventId,
-    checkpoint_sync_id: Option<u64>,
+    checkpoint_batch_id: Option<u64>,
 ) -> IndexerResult<()> {
     for &leaf_index in affected_leaf_indices {
         let value = match db.accounts().get_account(leaf_index).await? {
@@ -80,8 +78,8 @@ pub async fn reconcile_tree_from_db(
     }
 
     tree.set_last_synced_event_id(target_event_id).await;
-    if let Some(sync_id) = checkpoint_sync_id {
-        tree.set_last_sync_id(sync_id).await;
+    if let Some(batch_id) = checkpoint_batch_id {
+        tree.set_last_batch_id(batch_id).await;
     }
 
     Ok(())
@@ -159,6 +157,7 @@ async fn find_last_valid_root(
                         log_index: event.log_index,
                     },
                     root: event.details.root,
+                    onchain_timestamp: event.details.timestamp.as_limbs()[0],
                 }));
             }
 
@@ -180,9 +179,10 @@ async fn find_last_valid_root(
 
 async fn append_rollback_sync_log(
     tx: &mut PostgresDBTransaction<'_>,
+    target: &RollbackTarget,
     affected_leaf_indices: &[u64],
-    expected_root: U256,
 ) -> DBResult<u64> {
+    let mut changes = Vec::with_capacity(affected_leaf_indices.len());
     for &leaf_index in affected_leaf_indices {
         let commitment = tx
             .accounts()
@@ -191,17 +191,28 @@ async fn append_rollback_sync_log(
             .await?
             .map(|account| account.offchain_signer_commitment);
 
-        tx.sync_log()
-            .await?
-            .insert_rollback_leaf(leaf_index, commitment)
-            .await?;
+        changes.push(LeafChange {
+            leaf_index,
+            commitment,
+        });
     }
 
     let next_leaf_index = tx.accounts().await?.get_next_leaf_index().await?;
-    tx.sync_log()
-        .await?
-        .insert_root_verification(expected_root, next_leaf_index)
-        .await
+    let batch = Batch {
+        header: BatchHeader {
+            kind: BatchKind::Rollback,
+            expected_root: target.root,
+            next_leaf_index,
+            origin: BatchOrigin {
+                block_number: target.id.block_number,
+                log_index: target.id.log_index,
+                onchain_timestamp: target.onchain_timestamp,
+            },
+        },
+        changes,
+    };
+
+    insert_sync_log_batch(tx, &batch).await
 }
 
 /// Roll back DB state to `event_id` (inclusive). Returns leaf indices whose

@@ -29,9 +29,12 @@ fn create_temp_cache_config() -> (TreeCacheConfig, PathBuf) {
     (config, cache_path)
 }
 
-/// Helper to cleanup cache files
+/// Helper to cleanup cache files and sidecar metadata.
 fn cleanup_cache_files(cache_path: &PathBuf) {
     let _ = fs::remove_file(cache_path);
+    let _ = fs::remove_file(world_id_indexer::tree::cache_metadata::metadata_path(
+        cache_path,
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -846,10 +849,10 @@ async fn test_replay_root_matches_contract() {
     cleanup_cache_files(&cache_path);
 }
 
-/// Test that corrupted cache triggers full rebuild instead of failing
+/// Test that corrupted cache with valid metadata triggers rebuild and startup succeeds.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
-async fn test_corrupted_cache_returns_error() {
+async fn test_corrupted_cache_rebuilds_on_startup() {
     // Use tree_depth=6 to match create_temp_cache_config()
     let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
@@ -921,7 +924,7 @@ async fn test_corrupted_cache_returns_error() {
     // CORRUPT THE CACHE - truncate the mmap file to simulate corruption
     fs::write(&cache_path, b"corrupted data").expect("Should write corrupted cache");
 
-    // Start indexer in HttpOnly mode - should fail due to corrupted cache
+    // Start indexer in HttpOnly mode — corrupted mmap should fall back to sync_log rebuild.
     let cfg2 = GlobalConfig {
         environment: Environment::Development,
         run_mode: RunMode::HttpOnly {
@@ -939,16 +942,18 @@ async fn test_corrupted_cache_returns_error() {
         tree_cache: tree_cache_config.clone(),
     };
 
-    let result = unsafe { world_id_indexer::run_indexer(cfg2).await };
-    assert!(
-        result.is_err(),
-        "Corrupted cache should cause run_indexer to fail"
-    );
+    let indexer_task2 = tokio::spawn(async move {
+        unsafe { world_id_indexer::run_indexer(cfg2).await }.unwrap();
+    });
 
-    // Cache file should have been deleted so next restart can do a clean rebuild
+    TestSetup::wait_for_health("http://127.0.0.1:8104").await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    indexer_task2.abort();
+
+    assert!(cache_path.exists(), "Cache file should exist after rebuild");
     assert!(
-        !cache_path.exists(),
-        "Cache file should be deleted on corruption"
+        world_id_indexer::tree::cache_metadata::metadata_path(&cache_path).exists(),
+        "Sidecar metadata should exist after rebuild"
     );
 
     cleanup_cache_files(&cache_path);

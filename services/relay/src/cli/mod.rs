@@ -421,7 +421,7 @@ impl Cli {
             wc_config.chain_id,
             "world_chain",
         )
-        .await?;
+        .await;
 
         spawn_wallet_metrics_task(wc_provider.clone(), wc_config.chain_id, wallet_address);
 
@@ -454,7 +454,7 @@ impl Cli {
                         sat_config.destination_chain_id,
                         &sat_config.name,
                     )
-                    .await?;
+                    .await;
 
                     spawn_wallet_metrics_task(
                         provider.clone(),
@@ -483,7 +483,7 @@ impl Cli {
                         sat_config.destination_chain_id,
                         &sat_config.name,
                     )
-                    .await?;
+                    .await;
 
                     spawn_wallet_metrics_task(
                         read_provider.clone(),
@@ -530,7 +530,7 @@ impl Cli {
                 sat_config.destination_chain_id,
                 &sat_config.name,
             )
-            .await?;
+            .await;
 
             spawn_wallet_metrics_task(
                 provider.clone(),

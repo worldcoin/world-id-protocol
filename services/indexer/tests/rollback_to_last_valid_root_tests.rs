@@ -228,18 +228,16 @@ async fn test_rolls_back_to_last_valid_root() {
     assert_account_exists(db.pool(), 1).await;
     assert_account_not_exists(db.pool(), 2).await;
     assert_eq!(
-        count_sync_log_kind(db.pool(), "rollback_leaf")
-            .await
-            .unwrap(),
+        count_sync_batch_kind(db.pool(), "rollback").await.unwrap(),
         1,
-        "rollback should append a repair row for the removed leaf"
+        "rollback should append a rollback batch"
     );
     assert_eq!(
-        count_sync_log_kind(db.pool(), "root_verification")
+        count_sync_batch_changes_for_kind(db.pool(), "rollback")
             .await
             .unwrap(),
         1,
-        "rollback should append a checkpoint"
+        "rollback batch should contain one leaf change"
     );
 }
 

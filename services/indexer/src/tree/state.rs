@@ -11,7 +11,11 @@ use semaphore_rs_trees::{cascading::CascadingMerkleTree, proof::InclusionProof};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::{MerkleTree, PoseidonHasher, TreeError, TreeResult};
-use crate::{db::WorldIdRegistryEventId, tree::cached_tree::set_arbitrary_leaf};
+use crate::{
+    batch::{Batch, BatchRootCheck},
+    db::WorldIdRegistryEventId,
+    tree::cached_tree::set_arbitrary_leaf,
+};
 
 /// Thread-safe wrapper around the Merkle tree and its configuration.
 #[derive(Clone, Debug)]
@@ -23,8 +27,9 @@ pub struct TreeState {
 struct TreeStateInner {
     tree: RwLock<CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>>,
     tree_depth: usize,
+    cache_path: Option<std::path::PathBuf>,
     last_synced_event_id: RwLock<WorldIdRegistryEventId>,
-    last_sync_id: RwLock<u64>,
+    last_batch_id: RwLock<u64>,
 }
 
 impl TreeState {
@@ -34,22 +39,24 @@ impl TreeState {
         tree_depth: usize,
         last_synced_event_id: WorldIdRegistryEventId,
     ) -> Self {
-        Self::new_with_sync_id(tree, tree_depth, last_synced_event_id, 0)
+        Self::new_with_batch_id(tree, tree_depth, last_synced_event_id, 0, None)
     }
 
-    /// Create a new `TreeState` with an existing tree, depth, event cursor, and sync-log cursor.
-    pub fn new_with_sync_id(
+    /// Create a new `TreeState` with an existing tree, depth, event cursor, and batch cursor.
+    pub fn new_with_batch_id(
         tree: CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>,
         tree_depth: usize,
         last_synced_event_id: WorldIdRegistryEventId,
-        last_sync_id: u64,
+        last_batch_id: u64,
+        cache_path: Option<std::path::PathBuf>,
     ) -> Self {
         Self {
             inner: Arc::new(TreeStateInner {
                 tree: RwLock::new(tree),
                 tree_depth,
+                cache_path,
                 last_synced_event_id: RwLock::new(last_synced_event_id),
-                last_sync_id: RwLock::new(last_sync_id),
+                last_batch_id: RwLock::new(last_batch_id),
             }),
         }
     }
@@ -74,6 +81,11 @@ impl TreeState {
     /// Returns the configured depth.
     pub fn depth(&self) -> usize {
         self.inner.tree_depth
+    }
+
+    /// Returns the mmap cache path when this tree is backed by a local cache file.
+    pub fn cache_path(&self) -> Option<&Path> {
+        self.inner.cache_path.as_deref()
     }
 
     /// Returns the tree capacity (2^depth).
@@ -172,14 +184,24 @@ impl TreeState {
         *self.inner.last_synced_event_id.write().await = id;
     }
 
-    /// Get the last processed sync_log row ID.
-    pub async fn last_sync_id(&self) -> u64 {
-        *self.inner.last_sync_id.read().await
+    /// Get the last processed sync batch id.
+    pub async fn last_batch_id(&self) -> u64 {
+        *self.inner.last_batch_id.read().await
     }
 
-    /// Set the last processed sync_log row ID.
-    pub async fn set_last_sync_id(&self, id: u64) {
-        *self.inner.last_sync_id.write().await = id;
+    /// Set the last processed sync batch id.
+    pub async fn set_last_batch_id(&self, id: u64) {
+        *self.inner.last_batch_id.write().await = id;
+    }
+
+    /// Simulate a batch non-mutatingly and compare against its expected root.
+    pub async fn simulate_batch(&self, batch: &Batch) -> TreeResult<BatchRootCheck> {
+        let simulated = self.simulate_root(&batch.simulation_changes()).await?;
+        if simulated == batch.header.expected_root {
+            Ok(BatchRootCheck::Match)
+        } else {
+            Ok(BatchRootCheck::Mismatch { simulated })
+        }
     }
 
     /// Compute a simulated Merkle root after applying `changes` without
@@ -463,5 +485,57 @@ mod tests {
         state.set_leaf_at_index(0, val_a).await.unwrap();
         state.set_leaf_at_index(7, val_b).await.unwrap();
         assert_eq!(simulated, state.root().await);
+    }
+
+    #[tokio::test]
+    async fn simulate_batch_matches_actual_set() {
+        let state = make_tree(4);
+        let new_val = U256::from(42u64);
+        state.set_leaf_at_index(0, new_val).await.unwrap();
+        let batch = crate::batch::Batch {
+            header: crate::batch::BatchHeader {
+                kind: crate::batch::BatchKind::Forward,
+                expected_root: state.root().await,
+                next_leaf_index: 2,
+                origin: crate::batch::BatchOrigin {
+                    block_number: 1,
+                    log_index: 0,
+                    onchain_timestamp: 1,
+                },
+            },
+            changes: vec![crate::batch::LeafChange::new(0, new_val)],
+        };
+
+        match state.simulate_batch(&batch).await.unwrap() {
+            crate::batch::BatchRootCheck::Match => {}
+            crate::batch::BatchRootCheck::Mismatch { .. } => {
+                panic!("expected batch simulation to match");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn simulate_batch_reports_mismatch() {
+        let state = make_tree(4);
+        let batch = crate::batch::Batch {
+            header: crate::batch::BatchHeader {
+                kind: crate::batch::BatchKind::Forward,
+                expected_root: U256::from(999),
+                next_leaf_index: 2,
+                origin: crate::batch::BatchOrigin {
+                    block_number: 1,
+                    log_index: 0,
+                    onchain_timestamp: 1,
+                },
+            },
+            changes: vec![crate::batch::LeafChange::new(0, U256::from(42))],
+        };
+
+        match state.simulate_batch(&batch).await.unwrap() {
+            crate::batch::BatchRootCheck::Match => panic!("expected mismatch"),
+            crate::batch::BatchRootCheck::Mismatch { simulated } => {
+                assert_ne!(simulated, batch.header.expected_root);
+            }
+        }
     }
 }

@@ -1,55 +1,14 @@
+use std::collections::HashMap;
+
 use alloy::primitives::U256;
+use futures_util::{Stream, StreamExt as _};
 use sqlx::{Postgres, Row, postgres::PgRow};
 use tracing::instrument;
 
-use crate::{db::DBResult, invalid_field};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SyncLogKind {
-    LeafUpdate,
-    RollbackLeaf,
-    RootVerification,
-}
-
-impl SyncLogKind {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::LeafUpdate => "leaf_update",
-            Self::RollbackLeaf => "rollback_leaf",
-            Self::RootVerification => "root_verification",
-        }
-    }
-}
-
-impl TryFrom<&str> for SyncLogKind {
-    type Error = crate::db::DBError;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "leaf_update" => Ok(Self::LeafUpdate),
-            "rollback_leaf" => Ok(Self::RollbackLeaf),
-            "root_verification" => Ok(Self::RootVerification),
-            _ => Err(invalid_field!("kind", "unknown sync_log kind")),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyncLogEntry {
-    pub sync_id: u64,
-    pub kind: SyncLogKind,
-    pub leaf_index: Option<u64>,
-    pub commitment: Option<U256>,
-    pub expected_root: Option<U256>,
-    pub next_leaf_index: Option<u64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RootVerification {
-    pub sync_id: u64,
-    pub expected_root: U256,
-    pub next_leaf_index: u64,
-}
+use crate::{
+    batch::{Batch, BatchHeader, BatchKind, BatchOrigin, LeafChange, Persisted},
+    db::{DBResult, PostgresDBTransaction},
+};
 
 pub struct SyncLog<'a, E>
 where
@@ -70,194 +29,287 @@ where
         }
     }
 
-    #[instrument(level = "info", skip(self, commitment))]
-    pub async fn insert_leaf_update(self, leaf_index: u64, commitment: U256) -> DBResult<u64> {
-        self.insert_leaf_row(SyncLogKind::LeafUpdate, leaf_index, Some(commitment))
-            .await
-    }
+    #[instrument(level = "info", skip(self, header))]
+    pub async fn insert_batch_header(self, header: &BatchHeader) -> DBResult<u64> {
+        let origin = &header.origin;
 
-    #[instrument(level = "info", skip(self, commitment))]
-    pub async fn insert_rollback_leaf(
-        self,
-        leaf_index: u64,
-        commitment: Option<U256>,
-    ) -> DBResult<u64> {
-        self.insert_leaf_row(SyncLogKind::RollbackLeaf, leaf_index, commitment)
-            .await
-    }
-
-    async fn insert_leaf_row(
-        self,
-        kind: SyncLogKind,
-        leaf_index: u64,
-        commitment: Option<U256>,
-    ) -> DBResult<u64> {
         let row = sqlx::query(
             r#"
-                INSERT INTO sync_log (
+                INSERT INTO sync_batch (
                     kind,
+                    expected_root,
+                    next_leaf_index,
+                    block_number,
+                    log_index,
+                    onchain_timestamp
+                ) VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING batch_id
+            "#,
+        )
+        .bind(header.kind.as_str())
+        .bind(header.expected_root)
+        .bind(header.next_leaf_index as i64)
+        .bind(origin.block_number as i64)
+        .bind(origin.log_index as i64)
+        .bind(origin.onchain_timestamp as i64)
+        .fetch_one(self.executor)
+        .await?;
+
+        Ok(row.get::<i64, _>("batch_id") as u64)
+    }
+
+    #[instrument(level = "info", skip(self, change))]
+    pub async fn insert_leaf_change(self, batch_id: u64, change: &LeafChange) -> DBResult<()> {
+        sqlx::query(
+            r#"
+                INSERT INTO sync_leaf_change (
+                    batch_id,
                     leaf_index,
                     commitment
                 ) VALUES ($1, $2, $3)
-                RETURNING sync_id
             "#,
         )
-        .bind(kind.as_str())
-        .bind(leaf_index as i64)
-        .bind(commitment)
-        .fetch_one(self.executor)
+        .bind(batch_id as i64)
+        .bind(change.leaf_index as i64)
+        .bind(change.commitment)
+        .execute(self.executor)
         .await?;
 
-        Ok(row.get::<i64, _>("sync_id") as u64)
-    }
-
-    #[instrument(level = "info", skip(self, expected_root))]
-    pub async fn insert_root_verification(
-        self,
-        expected_root: U256,
-        next_leaf_index: u64,
-    ) -> DBResult<u64> {
-        let row = sqlx::query(
-            r#"
-                INSERT INTO sync_log (
-                    kind,
-                    expected_root,
-                    next_leaf_index
-                ) VALUES ($1, $2, $3)
-                RETURNING sync_id
-            "#,
-        )
-        .bind(SyncLogKind::RootVerification.as_str())
-        .bind(expected_root)
-        .bind(next_leaf_index as i64)
-        .fetch_one(self.executor)
-        .await?;
-
-        Ok(row.get::<i64, _>("sync_id") as u64)
+        Ok(())
     }
 
     #[instrument(level = "info", skip(self))]
-    pub async fn get_max_sync_id(self) -> DBResult<u64> {
-        let row = sqlx::query("SELECT coalesce(max(sync_id), 0) AS max_sync_id FROM sync_log")
+    pub async fn get_max_batch_id(self) -> DBResult<u64> {
+        let row = sqlx::query("SELECT coalesce(max(batch_id), 0) AS max_batch_id FROM sync_batch")
             .fetch_one(self.executor)
             .await?;
 
-        Ok(row.get::<i64, _>("max_sync_id") as u64)
+        Ok(row.get::<i64, _>("max_batch_id") as u64)
     }
 
+    /// Returns batches with `batch_id > from_batch_id`, ordered by ascending
+    /// batch id.
+    ///
+    /// `to_batch_id`, when set, caps the range to `batch_id <= to_batch_id`.
+    /// `limit`, when set, caps the number of batches returned (the cap applies
+    /// to batches, not to the JOIN-expanded leaf-change rows). Note: The same
+    /// thing can not be achieved with `to_batch_id` since `batch_id` may have gaps.
     #[instrument(level = "info", skip(self))]
-    pub async fn get_after(self, sync_id: u64, limit: u64) -> DBResult<Vec<SyncLogEntry>> {
+    pub async fn get_batches(
+        self,
+        from_batch_id: u64,
+        to_batch_id: Option<u64>,
+        limit: Option<u64>,
+    ) -> DBResult<Vec<Persisted<Batch>>> {
         let rows = sqlx::query(
             r#"
                 SELECT
-                    sync_id,
-                    kind,
-                    leaf_index,
-                    commitment,
-                    expected_root,
-                    next_leaf_index
-                FROM sync_log
-                WHERE sync_id > $1
-                ORDER BY sync_id ASC
-                LIMIT $2
+                    b.batch_id,
+                    b.kind,
+                    b.expected_root,
+                    b.next_leaf_index,
+                    b.block_number,
+                    b.log_index,
+                    b.onchain_timestamp,
+                    c.leaf_index,
+                    c.commitment,
+                    c.change_id
+                FROM sync_batch b
+                LEFT JOIN sync_leaf_change c ON c.batch_id = b.batch_id
+                WHERE b.batch_id IN (
+                    SELECT batch_id
+                    FROM sync_batch
+                    WHERE batch_id > $1
+                      AND ($2::int8 IS NULL OR batch_id <= $2)
+                    ORDER BY batch_id ASC
+                    LIMIT $3
+                )
+                ORDER BY b.batch_id ASC, c.change_id ASC
             "#,
         )
-        .bind(sync_id as i64)
-        .bind(limit as i64)
+        .bind(from_batch_id as i64)
+        .bind(to_batch_id.map(|v| v as i64))
+        .bind(limit.map(|v| v as i64))
         .fetch_all(self.executor)
         .await?;
 
-        rows.iter().map(Self::map_entry).collect()
+        Self::group_batch_rows(rows)
     }
 
+    /// Returns the exact batch row at `batch_id`, if present.
     #[instrument(level = "info", skip(self))]
-    pub async fn get_latest_root_verification_at(
-        self,
-        sync_id: u64,
-    ) -> DBResult<Option<RootVerification>> {
+    pub async fn get_batch_at(self, batch_id: u64) -> DBResult<Option<Persisted<BatchHeader>>> {
         let result = sqlx::query(
             r#"
                 SELECT
-                    sync_id,
+                    batch_id,
+                    kind,
                     expected_root,
-                    next_leaf_index
-                FROM sync_log
-                WHERE kind = 'root_verification'
-                  AND sync_id <= $1
-                ORDER BY sync_id DESC
-                LIMIT 1
+                    next_leaf_index,
+                    block_number,
+                    log_index,
+                    onchain_timestamp
+                FROM sync_batch
+                WHERE batch_id = $1
             "#,
         )
-        .bind(sync_id as i64)
+        .bind(batch_id as i64)
         .fetch_optional(self.executor)
         .await?;
 
         result
-            .map(|row| Self::map_root_verification(&row))
+            .map(|row| Self::map_persisted_header(&row))
             .transpose()
     }
 
+    /// Returns the latest batch at or before `batch_id`.
     #[instrument(level = "info", skip(self))]
-    pub async fn get_latest_leaf_values_at(
+    pub async fn get_latest_batch_at(
         self,
-        sync_id: u64,
-    ) -> DBResult<Vec<(u64, Option<U256>)>> {
-        let rows = sqlx::query(
+        batch_id: u64,
+    ) -> DBResult<Option<Persisted<BatchHeader>>> {
+        let result = sqlx::query(
             r#"
-                SELECT DISTINCT ON (leaf_index)
-                    leaf_index,
-                    commitment
-                FROM sync_log
-                WHERE leaf_index IS NOT NULL
-                  AND sync_id <= $1
-                  AND kind IN ('leaf_update', 'rollback_leaf')
-                ORDER BY leaf_index ASC, sync_id DESC
+                SELECT
+                    batch_id,
+                    kind,
+                    expected_root,
+                    next_leaf_index,
+                    block_number,
+                    log_index,
+                    onchain_timestamp
+                FROM sync_batch
+                WHERE batch_id <= $1
+                ORDER BY batch_id DESC
+                LIMIT 1
             "#,
         )
-        .bind(sync_id as i64)
-        .fetch_all(self.executor)
+        .bind(batch_id as i64)
+        .fetch_optional(self.executor)
         .await?;
 
-        rows.iter()
-            .map(|row| {
-                Ok((
-                    row.get::<i64, _>("leaf_index") as u64,
-                    row.get::<Option<U256>, _>("commitment"),
-                ))
+        result
+            .map(|row| Self::map_persisted_header(&row))
+            .transpose()
+    }
+
+    /// Streams the latest known value for each leaf at or before `batch_id`.
+    /// Note: Stream is necessary here because there is one leaf per world id account (millions of accounts) and we need a consistent view of the tree.
+    #[instrument(level = "info", skip(self))]
+    pub fn stream_latest_leaf_values_at(
+        self,
+        batch_id: u64,
+    ) -> impl Stream<Item = DBResult<(u64, Option<U256>)>> + 'a {
+        sqlx::query(
+            r#"
+                SELECT DISTINCT ON (c.leaf_index)
+                    c.leaf_index,
+                    c.commitment
+                FROM sync_leaf_change c
+                JOIN sync_batch b USING (batch_id)
+                WHERE b.batch_id <= $1
+                ORDER BY c.leaf_index ASC, b.batch_id DESC, c.change_id DESC
+            "#,
+        )
+        .bind(batch_id as i64)
+        .fetch(self.executor)
+        .map(|row_result| {
+            let row = row_result?;
+            Ok((
+                row.get::<i64, _>("leaf_index") as u64,
+                row.get::<Option<U256>, _>("commitment"),
+            ))
+        })
+    }
+
+    // Conversion helper `sync_batch` rows to `Persisted<BatchHeader>`.
+    fn map_persisted_header(row: &PgRow) -> DBResult<Persisted<BatchHeader>> {
+        Ok(Persisted {
+            batch_id: row.get::<i64, _>("batch_id") as u64,
+            inner: BatchHeader {
+                kind: BatchKind::try_from(row.get::<&str, _>("kind"))?,
+                expected_root: row.get::<U256, _>("expected_root"),
+                next_leaf_index: row.get::<i64, _>("next_leaf_index") as u64,
+                origin: BatchOrigin {
+                    block_number: row.get::<i64, _>("block_number") as u64,
+                    log_index: row.get::<i64, _>("log_index") as u64,
+                    onchain_timestamp: row.get::<i64, _>("onchain_timestamp") as u64,
+                },
+            },
+        })
+    }
+
+    // Conversion helper for JOIN-expanded `sync_batch`/`sync_leaf_change` rows
+    // into `Persisted<Batch>`, preserving the query's batch ordering.
+    fn group_batch_rows(rows: Vec<PgRow>) -> DBResult<Vec<Persisted<Batch>>> {
+        let mut batches_map: HashMap<u64, Persisted<Batch>> = HashMap::new();
+        let mut order = Vec::new();
+
+        for row in rows {
+            let batch_id = row.get::<i64, _>("batch_id") as u64;
+            if !batches_map.contains_key(&batch_id) {
+                order.push(batch_id);
+                batches_map.insert(
+                    batch_id,
+                    Persisted {
+                        batch_id,
+                        inner: Batch {
+                            header: BatchHeader {
+                                kind: BatchKind::try_from(row.get::<&str, _>("kind"))?,
+                                expected_root: row.get::<U256, _>("expected_root"),
+                                next_leaf_index: row.get::<i64, _>("next_leaf_index") as u64,
+                                origin: BatchOrigin {
+                                    block_number: row.get::<i64, _>("block_number") as u64,
+                                    log_index: row.get::<i64, _>("log_index") as u64,
+                                    onchain_timestamp: row.get::<i64, _>("onchain_timestamp")
+                                        as u64,
+                                },
+                            },
+                            changes: Vec::new(),
+                        },
+                    },
+                );
+            }
+
+            if let Some(leaf_index) = row.get::<Option<i64>, _>("leaf_index") {
+                batches_map
+                    .get_mut(&batch_id)
+                    .expect("batch inserted above")
+                    .inner
+                    .changes
+                    .push(LeafChange {
+                        leaf_index: leaf_index as u64,
+                        commitment: row.get::<Option<U256>, _>("commitment"),
+                    });
+            }
+        }
+
+        Ok(order
+            .into_iter()
+            .map(|batch_id| {
+                batches_map
+                    .remove(&batch_id)
+                    .expect("batch id present in order")
             })
-            .collect()
+            .collect())
     }
+}
 
-    fn map_entry(row: &PgRow) -> DBResult<SyncLogEntry> {
-        Ok(SyncLogEntry {
-            sync_id: row.get::<i64, _>("sync_id") as u64,
-            kind: SyncLogKind::try_from(row.get::<&str, _>("kind"))?,
-            leaf_index: row.get::<Option<i64>, _>("leaf_index").map(|v| v as u64),
-            commitment: row.get::<Option<U256>, _>("commitment"),
-            expected_root: row.get::<Option<U256>, _>("expected_root"),
-            next_leaf_index: row
-                .get::<Option<i64>, _>("next_leaf_index")
-                .map(|v| v as u64),
-        })
+/// Persist a batch and its leaf changes within a transaction.
+pub async fn insert_sync_log_batch(
+    tx: &mut PostgresDBTransaction<'_>,
+    batch: &Batch,
+) -> DBResult<u64> {
+    let batch_id = tx
+        .sync_log()
+        .await?
+        .insert_batch_header(&batch.header)
+        .await?;
+    for change in &batch.changes {
+        tx.sync_log()
+            .await?
+            .insert_leaf_change(batch_id, change)
+            .await?;
     }
-
-    fn map_root_verification(row: &PgRow) -> DBResult<RootVerification> {
-        let expected_root = row.get::<Option<U256>, _>("expected_root").ok_or_else(|| {
-            invalid_field!("expected_root", "root verification row is missing root")
-        })?;
-        let next_leaf_index = row
-            .get::<Option<i64>, _>("next_leaf_index")
-            .ok_or_else(|| {
-                invalid_field!(
-                    "next_leaf_index",
-                    "root verification row is missing next leaf index"
-                )
-            })?;
-
-        Ok(RootVerification {
-            sync_id: row.get::<i64, _>("sync_id") as u64,
-            expected_root,
-            next_leaf_index: next_leaf_index as u64,
-        })
-    }
+    Ok(batch_id)
 }

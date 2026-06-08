@@ -5,8 +5,11 @@ mod accounts;
 mod sync_log;
 mod world_id_registry_events;
 
+pub use crate::batch::{
+    Batch, BatchHeader, BatchKind, BatchOrigin, BatchRootCheck, LeafChange, Persisted,
+};
 pub use accounts::Accounts;
-pub use sync_log::{RootVerification, SyncLog, SyncLogEntry, SyncLogKind};
+pub use sync_log::{SyncLog, insert_sync_log_batch};
 pub use world_id_registry_events::{
     BlockWithConflictingHashes, WorldIdRegistryEvent, WorldIdRegistryEventId,
     WorldIdRegistryEventType, WorldIdRegistryEvents,

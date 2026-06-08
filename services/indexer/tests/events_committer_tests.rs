@@ -52,19 +52,15 @@ async fn test_events_are_buffered_and_committed() {
     let root_count = count_world_tree_roots(db.pool()).await.unwrap();
     assert_eq!(root_count, 1, "Root event should be committed");
 
-    let sync_count = count_sync_log_entries(db.pool()).await.unwrap();
+    let batch_count = count_sync_batches(db.pool()).await.unwrap();
+    assert_eq!(batch_count, 1, "One forward batch should be appended");
     assert_eq!(
-        sync_count, 3,
-        "Two leaf updates plus one root checkpoint should be appended"
+        count_sync_leaf_changes(db.pool()).await.unwrap(),
+        2,
+        "Batch should contain two leaf changes"
     );
     assert_eq!(
-        count_sync_log_kind(db.pool(), "leaf_update").await.unwrap(),
-        2
-    );
-    assert_eq!(
-        count_sync_log_kind(db.pool(), "root_verification")
-            .await
-            .unwrap(),
+        count_sync_batch_kind(db.pool(), "forward").await.unwrap(),
         1
     );
 }
@@ -101,10 +97,10 @@ async fn test_event_idempotency() {
         "Duplicate event should not create duplicate account"
     );
 
-    let sync_count = count_sync_log_entries(db.pool()).await.unwrap();
+    let batch_count = count_sync_batches(db.pool()).await.unwrap();
     assert_eq!(
-        sync_count, 2,
-        "Duplicate batch should not append duplicate sync_log rows"
+        batch_count, 1,
+        "Duplicate batch should not append duplicate sync batches"
     );
 }
 

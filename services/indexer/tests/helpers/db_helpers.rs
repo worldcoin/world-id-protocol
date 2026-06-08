@@ -5,8 +5,9 @@ use futures_util::StreamExt as _;
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
 use world_id_indexer::{
+    batch::{Batch, BatchHeader, BatchKind, BatchOrigin, LeafChange},
     blockchain::{BlockchainEvent, RegistryEvent, RootRecordedEvent},
-    db::{DB, DBResult},
+    db::{DB, DBResult, IsolationLevel, insert_sync_log_batch},
     tree::{self, TreeState},
 };
 
@@ -197,23 +198,120 @@ pub async fn count_world_tree_roots(pool: &PgPool) -> DBResult<i64> {
     Ok(count)
 }
 
-/// Count sync_log entries.
-pub async fn count_sync_log_entries(pool: &PgPool) -> DBResult<i64> {
+/// Count sync batches.
+pub async fn count_sync_batches(pool: &PgPool) -> DBResult<i64> {
     let (count,): (i64,) =
-        sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM sync_log")
+        sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM sync_batch")
             .fetch_one(pool)
             .await?;
     Ok(count)
 }
 
-/// Count sync_log entries by kind.
-pub async fn count_sync_log_kind(pool: &PgPool, kind: &str) -> DBResult<i64> {
+/// Count sync leaf changes.
+pub async fn count_sync_leaf_changes(pool: &PgPool) -> DBResult<i64> {
     let (count,): (i64,) =
-        sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM sync_log WHERE kind = $1")
+        sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM sync_leaf_change")
+            .fetch_one(pool)
+            .await?;
+    Ok(count)
+}
+
+/// Count sync batches by kind.
+pub async fn count_sync_batch_kind(pool: &PgPool, kind: &str) -> DBResult<i64> {
+    let (count,): (i64,) =
+        sqlx::query_as::<sqlx::Postgres, (i64,)>("SELECT COUNT(*) FROM sync_batch WHERE kind = $1")
             .bind(kind)
             .fetch_one(pool)
             .await?;
     Ok(count)
+}
+
+pub fn test_batch_origin(block_number: u64, log_index: u64) -> BatchOrigin {
+    BatchOrigin {
+        block_number,
+        log_index,
+        onchain_timestamp: 1_000,
+    }
+}
+
+/// Insert a sync batch with the given header metadata and leaf changes.
+pub async fn seed_batch(
+    db: &DB,
+    kind: BatchKind,
+    expected_root: U256,
+    next_leaf_index: u64,
+    origin: BatchOrigin,
+    leaves: &[(u64, Option<U256>)],
+) -> DBResult<u64> {
+    let batch = Batch {
+        header: BatchHeader {
+            kind,
+            expected_root,
+            next_leaf_index,
+            origin,
+        },
+        changes: leaves
+            .iter()
+            .map(|(leaf_index, commitment)| LeafChange {
+                leaf_index: *leaf_index,
+                commitment: *commitment,
+            })
+            .collect(),
+    };
+
+    let mut tx = db.transaction(IsolationLevel::ReadCommitted).await?;
+    let batch_id = insert_sync_log_batch(&mut tx, &batch).await?;
+    tx.commit().await?;
+    Ok(batch_id)
+}
+
+/// Insert a forward sync batch using default test origin metadata.
+pub async fn seed_forward_batch(
+    db: &DB,
+    expected_root: U256,
+    next_leaf_index: u64,
+    leaves: &[(u64, Option<U256>)],
+) -> DBResult<u64> {
+    seed_batch(
+        db,
+        BatchKind::Forward,
+        expected_root,
+        next_leaf_index,
+        test_batch_origin(100, 0),
+        leaves,
+    )
+    .await
+}
+
+/// Count sync leaf changes belonging to batches of the given kind.
+pub async fn count_sync_batch_changes_for_kind(pool: &PgPool, kind: &str) -> DBResult<i64> {
+    let (count,): (i64,) = sqlx::query_as::<sqlx::Postgres, (i64,)>(
+        r#"
+            SELECT COUNT(*)
+            FROM sync_leaf_change c
+            JOIN sync_batch b USING (batch_id)
+            WHERE b.kind = $1
+        "#,
+    )
+    .bind(kind)
+    .fetch_one(pool)
+    .await?;
+    Ok(count)
+}
+
+/// Count legacy sync_log entries (deprecated table removed; kept for transitional callers).
+pub async fn count_sync_log_entries(pool: &PgPool) -> DBResult<i64> {
+    count_sync_leaf_changes(pool).await
+}
+
+/// Count legacy sync_log kinds (maps to sync_batch.kind).
+pub async fn count_sync_log_kind(pool: &PgPool, kind: &str) -> DBResult<i64> {
+    let mapped = match kind {
+        "leaf_update" | "root_verification" => "forward",
+        "rollback_leaf" => "rollback",
+        other => other,
+    };
+    count_sync_batch_kind(pool, mapped).await
 }
 
 /// Check if account exists by leaf index
