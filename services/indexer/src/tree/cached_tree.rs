@@ -2,15 +2,10 @@ use std::path::Path;
 
 use alloy::primitives::U256;
 use futures_util::TryStreamExt as _;
-use tracing::{info, instrument, warn};
+use semaphore_rs_storage::MmapVec;
+use tracing::{info, instrument};
 
-use super::{
-    TreeError, TreeResult, TreeState,
-    cache::{
-        self, CacheStatus, metadata_path, persist_clean_checkpoint, persist_dirty_checkpoint,
-        remove_cache_files,
-    },
-};
+use super::{TreeError, TreeResult, TreeState};
 use crate::{
     batch::{Batch, BatchHeader, Persisted},
     db::{DB, IsolationLevel, WorldIdRegistryEventId},
@@ -23,11 +18,8 @@ use crate::{
 
 /// Unified tree initialization.
 ///
-/// Attempts to restore a verified mmap cache when a sidecar metadata file is
-/// present. Clean caches are validated against the exact sync batch checkpoint;
-/// dirty caches re-apply the in-flight checkpoint range before continuing.
-/// Any validation or storage failure falls back to a full rebuild from
-/// `sync_batch` / `sync_leaf_change`.
+/// 1. If mmap file exists → load it, validate root against sync batches, catch up
+/// 2. If mmap missing or validation fails → full rebuild from sync batches
 ///
 /// Returns a `TreeState` with the batch cursor set so `sync_from_db()` can
 /// pick up future batches incrementally.
@@ -43,30 +35,21 @@ pub async unsafe fn init_tree(
     cache_path: &Path,
     tree_depth: usize,
 ) -> eyre::Result<TreeState> {
-    let meta_path = metadata_path(cache_path);
-
-    let init_result = if cache_path.exists() && meta_path.exists() {
-        match try_restore_from_cache(db, cache_path, &meta_path, tree_depth).await {
-            Ok(result) => Ok(result),
-            Err(error) if is_rebuildable_validation_error(&error) => {
-                warn!(?error, "cache restore failed, rebuilding from sync batches");
-                remove_cache_files(cache_path);
-                build_from_sync_log_with_cache(db, cache_path, tree_depth).await
+    let (tree, last_event_id, last_batch_id) = if cache_path.exists() {
+        match try_restore(db, cache_path, tree_depth).await {
+            Ok(result) => result,
+            Err(e) => {
+                tracing::error!(?e, "restore failed, deleting cache file");
+                let _ = std::fs::remove_file(cache_path);
+                return Err(e);
             }
-            Err(error) => Err(error.into()),
         }
     } else {
-        build_from_sync_log_with_cache(db, cache_path, tree_depth).await
-    }?;
+        info!("no cache file, building from sync batches");
+        build_from_sync_log_with_cache(db, cache_path, tree_depth).await?
+    };
 
-    let (tree, last_event_id, last_batch_id) = init_result;
-    let tree_state = TreeState::new_with_batch_id(
-        tree,
-        tree_depth,
-        last_event_id,
-        last_batch_id,
-        Some(cache_path.to_path_buf()),
-    );
+    let tree_state = TreeState::new_with_batch_id(tree, tree_depth, last_event_id, last_batch_id);
     crate::metrics::set_tree_last_synced_block(last_event_id.block_number);
     crate::metrics::set_chain_processed_block(last_event_id.block_number);
 
@@ -126,25 +109,6 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
     Ok(processed_count)
 }
 
-/// Mark the cache dirty before applying a checkpoint, then replay the sync
-/// batches through `sync_from_db()` and persist clean metadata on success.
-pub async fn apply_checkpoint_from_sync_log(
-    db: &DB,
-    tree_state: &TreeState,
-    base_batch_id: u64,
-    target_batch_id: u64,
-) -> TreeResult<()> {
-    persist_dirty_checkpoint(
-        tree_state.cache_path(),
-        tree_state.depth(),
-        base_batch_id,
-        target_batch_id,
-    )?;
-
-    sync_from_db(db, tree_state).await?;
-    Ok(())
-}
-
 // =============================================================================
 // Private helpers
 // =============================================================================
@@ -156,22 +120,27 @@ struct SyncLogSnapshot {
     last_event_id: WorldIdRegistryEventId,
 }
 
-struct RestoreResult {
-    tree: MerkleTree,
-    last_event_id: WorldIdRegistryEventId,
-    last_batch_id: u64,
-}
-
-async fn try_restore_from_cache(
+/// Try to restore from mmap cache and recover the batch cursor from the DB.
+async fn try_restore(
     db: &DB,
     cache_path: &Path,
-    meta_path: &Path,
     tree_depth: usize,
-) -> TreeResult<(MerkleTree, WorldIdRegistryEventId, u64)> {
-    let metadata = cache::read_metadata(meta_path)?;
-    metadata.ensure_tree_depth(tree_depth)?;
+) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId, u64)> {
+    let tree = restore_from_cache(cache_path, tree_depth)?;
+    let root = tree.root();
 
-    let tree = unsafe { cache::restore_tree(cache_path, tree_depth)? };
+    info!(
+        root = %format!("0x{:x}", root),
+        "loaded mmap"
+    );
+
+    let last_batch_id = db
+        .sync_log()
+        .get_latest_batch_id_by_root(root)
+        .await?
+        .ok_or(TreeError::StaleCache {
+            root: format!("0x{root:x}"),
+        })?;
 
     let last_event_id = db
         .world_id_registry_events()
@@ -179,117 +148,23 @@ async fn try_restore_from_cache(
         .await?
         .unwrap_or_default();
 
-    let restored = match metadata.status {
-        CacheStatus::Clean {
-            last_verified_batch_id,
-        } => {
-            validate_clean_cache(db, &tree, last_verified_batch_id).await?;
-            RestoreResult {
-                tree,
-                last_event_id,
-                last_batch_id: last_verified_batch_id,
-            }
-        }
-        CacheStatus::Dirty {
-            base_batch_id,
-            target_batch_id,
-        } => {
-            recover_dirty_cache(
-                db,
-                cache_path,
-                tree,
-                tree_depth,
-                base_batch_id,
-                target_batch_id,
-                last_event_id,
-            )
-            .await?
-        }
-    };
+    info!(last_batch_id, ?last_event_id, "restored tree from cache");
 
-    Ok((
-        restored.tree,
-        restored.last_event_id,
-        restored.last_batch_id,
-    ))
+    Ok((tree, last_event_id, last_batch_id))
 }
 
-async fn validate_clean_cache(
-    db: &DB,
-    tree: &MerkleTree,
-    last_verified_batch_id: u64,
-) -> TreeResult<()> {
-    if last_verified_batch_id == 0 {
-        let max_batch_id = db.sync_log().get_max_batch_id().await?;
-        if max_batch_id == 0 {
-            return Ok(());
-        }
-        return Err(TreeError::CacheValidation(
-            "clean metadata points to batch_id 0 but sync batches are non-empty".to_string(),
-        ));
-    }
+/// Restore tree from mmap file (no validation).
+fn restore_from_cache(cache_path: &Path, tree_depth: usize) -> eyre::Result<MerkleTree> {
+    let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
+    let storage = unsafe { MmapVec::<U256>::restore_from_path(cache_path_str)? };
+    let tree = MerkleTree::restore(storage, tree_depth, &U256::ZERO)?;
+    info!(
+        cache_file = %cache_path.display(),
+        root = %format!("0x{:x}", tree.root()),
+        "Restored tree from cache"
+    );
 
-    let checkpoint = db
-        .sync_log()
-        .get_batch_at(last_verified_batch_id)
-        .await?
-        .ok_or_else(|| {
-            TreeError::CacheValidation(format!(
-                "missing sync batch at batch_id {last_verified_batch_id}"
-            ))
-        })?;
-
-    verify_root(tree.root(), checkpoint.inner.expected_root)
-}
-
-async fn recover_dirty_cache(
-    db: &DB,
-    cache_path: &Path,
-    mut tree: MerkleTree,
-    tree_depth: usize,
-    base_batch_id: u64,
-    target_batch_id: u64,
-    last_event_id: WorldIdRegistryEventId,
-) -> TreeResult<RestoreResult> {
-    let checkpoint = db
-        .sync_log()
-        .get_batch_at(target_batch_id)
-        .await?
-        .ok_or_else(|| {
-            TreeError::CacheValidation(format!(
-                "missing sync batch at dirty target batch_id {target_batch_id}"
-            ))
-        })?;
-
-    let batches = db
-        .sync_log()
-        .get_batches(base_batch_id, Some(target_batch_id), None)
-        .await?;
-
-    let mut last_verified_batch_id = base_batch_id;
-    apply_batches_to_tree(
-        &mut tree,
-        tree_depth,
-        &batches,
-        &mut last_verified_batch_id,
-        Some(cache_path),
-    )?;
-
-    if last_verified_batch_id != target_batch_id {
-        return Err(TreeError::CacheValidation(format!(
-            "dirty recovery did not reach target batch_id {target_batch_id}"
-        )));
-    }
-
-    verify_root(tree.root(), checkpoint.inner.expected_root)?;
-
-    persist_clean_checkpoint(Some(cache_path), tree_depth, target_batch_id)?;
-
-    Ok(RestoreResult {
-        tree,
-        last_event_id,
-        last_batch_id: target_batch_id,
-    })
+    Ok(tree)
 }
 
 /// Build tree from the sync batch projection with mmap backing.
@@ -301,7 +176,9 @@ async fn build_from_sync_log_with_cache(
 ) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId, u64)> {
     info!("Building tree from sync batches with mmap cache");
 
-    remove_cache_files(cache_path);
+    if cache_path.exists() {
+        std::fs::remove_file(cache_path)?;
+    }
 
     let snapshot = load_sync_log_snapshot(db, tree_depth).await?;
 
@@ -311,11 +188,12 @@ async fn build_from_sync_log_with_cache(
         "Building Tree"
     );
 
-    let tree = unsafe { cache::create_tree(cache_path, tree_depth, &snapshot.leaves)? };
+    let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
+    let storage = unsafe { MmapVec::<U256>::create_from_path(cache_path_str)? };
+    let tree = MerkleTree::new_with_leaves(storage, tree_depth, &U256::ZERO, &snapshot.leaves);
 
     if let Some(checkpoint) = &snapshot.checkpoint {
         verify_root(tree.root(), checkpoint.inner.expected_root)?;
-        persist_clean_checkpoint(Some(cache_path), tree_depth, checkpoint.batch_id)?;
     }
 
     info!(
@@ -390,13 +268,7 @@ async fn apply_batches(
 ) -> TreeResult<usize> {
     let processed = {
         let mut tree = tree_state.write().await;
-        apply_batches_to_tree(
-            &mut tree,
-            tree_state.depth(),
-            batches,
-            last_verified_batch_id,
-            tree_state.cache_path(),
-        )?
+        apply_batches_to_tree(&mut tree, tree_state.depth(), batches, last_verified_batch_id)?
     };
 
     tree_state.set_last_batch_id(*last_verified_batch_id).await;
@@ -409,7 +281,6 @@ fn apply_batches_to_tree(
     tree_depth: usize,
     batches: &[Persisted<Batch>],
     last_verified_batch_id: &mut u64,
-    cache_path: Option<&Path>,
 ) -> TreeResult<usize> {
     let mut processed_count = 0usize;
 
@@ -417,7 +288,6 @@ fn apply_batches_to_tree(
         apply_batch_to_tree(tree, tree_depth, persisted)?;
         processed_count += persisted.inner.changes.len();
         *last_verified_batch_id = persisted.batch_id;
-        persist_clean_checkpoint(cache_path, tree_depth, persisted.batch_id)?;
     }
 
     Ok(processed_count)
@@ -464,20 +334,6 @@ fn verify_root(actual: U256, expected: U256) -> TreeResult<()> {
     Ok(())
 }
 
-fn is_rebuildable_validation_error(error: &TreeError) -> bool {
-    matches!(
-        error,
-        TreeError::RootMismatch { .. }
-            | TreeError::StaleCache { .. }
-            | TreeError::InvalidSyncLogRow(_)
-            | TreeError::CacheRestore(_)
-            | TreeError::InvalidCacheMetadata(_)
-            | TreeError::TreeDepthMismatch { .. }
-            | TreeError::CacheValidation(_)
-            | TreeError::CacheCreate(_)
-    )
-}
-
 /// Set a leaf value at the given index, extending the tree if necessary.
 pub(crate) fn set_arbitrary_leaf(tree: &mut MerkleTree, leaf_index: usize, value: U256) {
     let num_leaves = tree.num_leaves();
@@ -489,5 +345,34 @@ pub(crate) fn set_arbitrary_leaf(tree: &mut MerkleTree, leaf_index: usize, value
         tree.extend_from_slice(&new);
     } else {
         tree.set_leaf(leaf_index, value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test 15: Cache file with no read permissions fails with CacheRestore.
+    #[test]
+    fn test_restore_unreadable_cache_file() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let cache_path =
+                std::env::temp_dir().join(format!("test_perms_{}.mmap", uuid::Uuid::new_v4()));
+            std::fs::write(&cache_path, b"some data").unwrap();
+            std::fs::set_permissions(&cache_path, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+            let result = restore_from_cache(&cache_path, 6);
+            assert!(
+                result.is_err(),
+                "restore should fail on unreadable cache file"
+            );
+
+            // Restore permissions for cleanup
+            std::fs::set_permissions(&cache_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+            std::fs::remove_file(&cache_path).unwrap();
+        }
     }
 }

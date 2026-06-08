@@ -12,7 +12,6 @@ use world_id_indexer::{
     handle_registry_event,
     tree::{
         TreeState,
-        cache::metadata_path,
         cached_tree::{init_tree, sync_from_db},
     },
 };
@@ -23,7 +22,6 @@ fn temp_cache_path() -> PathBuf {
 
 fn cleanup(path: &PathBuf) {
     let _ = fs::remove_file(path);
-    let _ = fs::remove_file(metadata_path(path));
 }
 
 async fn root_for_leaves(tree_depth: usize, leaves: &[(usize, U256)]) -> U256 {
@@ -58,15 +56,15 @@ async fn test_init_tree_empty_db() {
 // Tree Restoration tests
 // ============================================================================
 
-/// When clean metadata no longer matches the cached tree, init rebuilds from sync_log.
+/// When the cached mmap is behind the DB, init restores and sync catches up.
 #[tokio::test]
-async fn test_stale_cache_rebuilds_from_sync_log() {
+async fn test_stale_cache_catches_up_from_sync_log() {
     let test_db = create_unique_test_db().await;
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
     let first_root = root_for_leaves(6, &[(1, U256::from(100))]).await;
-    let checkpoint_id = seed_forward_batch(db, first_root, 2, &[(1, Some(U256::from(100)))])
+    seed_forward_batch(db, first_root, 2, &[(1, Some(U256::from(100)))])
         .await
         .unwrap();
 
@@ -78,11 +76,9 @@ async fn test_stale_cache_rebuilds_from_sync_log() {
         .await
         .unwrap();
 
-    world_id_indexer::tree::cache::write_clean_metadata(&cache_path, 6, checkpoint_id).unwrap();
-
-    let rebuilt = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    assert_eq!(rebuilt.root().await, updated_root);
-    assert_eq!(rebuilt.get_leaf(1).await, U256::from(400));
+    let restored = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    assert_eq!(restored.root().await, updated_root);
+    assert_eq!(restored.get_leaf(1).await, U256::from(400));
 
     cleanup(&cache_path);
 }
@@ -267,30 +263,32 @@ async fn test_handle_registry_event_root_match() {
 // init_tree error propagation tests
 // ============================================================================
 
-/// init_tree rebuilds when cache and metadata exist but mmap storage is invalid.
+/// init_tree returns an error when the mmap file is invalid and deletes the cache.
 #[tokio::test]
-async fn test_init_tree_restore_failure_rebuilds() {
+async fn test_init_tree_restore_failure_returns_error() {
     let test_db = create_unique_test_db().await;
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
     let expected_root = root_for_leaves(6, &[(1, U256::from(100))]).await;
-    let checkpoint_id = seed_forward_batch(db, expected_root, 2, &[(1, Some(U256::from(100)))])
+    seed_forward_batch(db, expected_root, 2, &[(1, Some(U256::from(100)))])
         .await
         .unwrap();
 
     fs::write(&cache_path, b"not a valid mmap file").unwrap();
-    world_id_indexer::tree::cache::write_clean_metadata(&cache_path, 6, checkpoint_id).unwrap();
+
+    let result = unsafe { init_tree(db, &cache_path, 6).await };
+    assert!(result.is_err());
+    assert!(!cache_path.exists(), "corrupted cache should be deleted");
 
     let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     assert_eq!(tree_state.root().await, expected_root);
     assert!(cache_path.exists());
-    assert!(metadata_path(&cache_path).exists());
 
     cleanup(&cache_path);
 }
 
-/// After init_tree rebuilds from invalid cache, a subsequent restore succeeds.
+/// After init_tree deletes an invalid cache, a subsequent restore succeeds.
 #[tokio::test]
 async fn test_init_tree_recovers_after_cache_rebuild() {
     let test_db = create_unique_test_db().await;
@@ -303,11 +301,14 @@ async fn test_init_tree_recovers_after_cache_rebuild() {
         .unwrap();
 
     fs::write(&cache_path, b"corrupted").unwrap();
-    let first = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    assert_eq!(first.root().await, expected_root);
+    let first = unsafe { init_tree(db, &cache_path, 6).await };
+    assert!(first.is_err());
 
     let second = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     assert_eq!(second.root().await, expected_root);
+
+    let third = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    assert_eq!(third.root().await, expected_root);
 
     cleanup(&cache_path);
 }

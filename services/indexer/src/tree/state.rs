@@ -27,7 +27,6 @@ pub struct TreeState {
 struct TreeStateInner {
     tree: RwLock<CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>>,
     tree_depth: usize,
-    cache_path: Option<std::path::PathBuf>,
     last_synced_event_id: RwLock<WorldIdRegistryEventId>,
     last_batch_id: RwLock<u64>,
 }
@@ -39,7 +38,7 @@ impl TreeState {
         tree_depth: usize,
         last_synced_event_id: WorldIdRegistryEventId,
     ) -> Self {
-        Self::new_with_batch_id(tree, tree_depth, last_synced_event_id, 0, None)
+        Self::new_with_batch_id(tree, tree_depth, last_synced_event_id, 0)
     }
 
     /// Create a new `TreeState` with an existing tree, depth, event cursor, and batch cursor.
@@ -48,13 +47,11 @@ impl TreeState {
         tree_depth: usize,
         last_synced_event_id: WorldIdRegistryEventId,
         last_batch_id: u64,
-        cache_path: Option<std::path::PathBuf>,
     ) -> Self {
         Self {
             inner: Arc::new(TreeStateInner {
                 tree: RwLock::new(tree),
                 tree_depth,
-                cache_path,
                 last_synced_event_id: RwLock::new(last_synced_event_id),
                 last_batch_id: RwLock::new(last_batch_id),
             }),
@@ -81,11 +78,6 @@ impl TreeState {
     /// Returns the configured depth.
     pub fn depth(&self) -> usize {
         self.inner.tree_depth
-    }
-
-    /// Returns the mmap cache path when this tree is backed by a local cache file.
-    pub fn cache_path(&self) -> Option<&Path> {
-        self.inner.cache_path.as_deref()
     }
 
     /// Returns the tree capacity (2^depth).

@@ -5,7 +5,6 @@ use semaphore_rs_storage::MmapVec;
 use semaphore_rs_trees::cascading::CascadingMerkleTree;
 use thiserror::Error;
 
-pub mod cache;
 pub mod cached_tree;
 pub mod state;
 
@@ -40,15 +39,6 @@ pub enum TreeError {
     SimulationMissingRoot,
     #[error("invalid sync_log row: {0}")]
     InvalidSyncLogRow(String),
-    #[error("invalid cache metadata: {0}")]
-    InvalidCacheMetadata(String),
-    #[error("cache metadata tree depth {metadata} does not match configured depth {configured}")]
-    TreeDepthMismatch {
-        metadata: usize,
-        configured: usize,
-    },
-    #[error("transient cache validation failure: {0}")]
-    CacheValidation(String),
     #[error(transparent)]
     Db(#[from] crate::db::DBError),
 }

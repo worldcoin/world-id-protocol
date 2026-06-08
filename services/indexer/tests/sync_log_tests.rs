@@ -8,9 +8,6 @@ use world_id_indexer::{
     batch::BatchKind,
     tree::{
         TreeState,
-        cache::{
-            CacheStatus, metadata_path, read_metadata, write_clean_metadata, write_dirty_metadata,
-        },
         cached_tree::{init_tree, sync_from_db},
     },
 };
@@ -21,7 +18,6 @@ fn temp_cache_path() -> PathBuf {
 
 fn cleanup(path: &PathBuf) {
     let _ = fs::remove_file(path);
-    let _ = fs::remove_file(metadata_path(path));
 }
 
 async fn root_for_leaves(tree_depth: usize, leaves: &[(usize, U256)]) -> U256 {
@@ -62,7 +58,7 @@ async fn test_bootstrap_uses_latest_sync_batch_row_per_leaf() {
     assert_eq!(tree.get_leaf(1).await, U256::from(400));
     assert_eq!(tree.get_leaf(2).await, U256::ZERO);
     assert_eq!(tree.last_batch_id().await, checkpoint_id);
-    assert!(metadata_path(&cache_path).exists());
+    assert!(cache_path.exists());
 
     cleanup(&cache_path);
 }
@@ -155,155 +151,6 @@ async fn test_restore_clean_cache_on_restart() {
     assert_eq!(restored.get_leaf(1).await, U256::from(400));
     assert_eq!(restored.last_batch_id().await, second_checkpoint);
 
-    let metadata = read_metadata(&metadata_path(&cache_path)).unwrap();
-    assert!(matches!(
-        metadata.status,
-        CacheStatus::Clean {
-            last_verified_batch_id
-        } if last_verified_batch_id == second_checkpoint
-    ));
-
-    cleanup(&cache_path);
-}
-
-#[tokio::test]
-async fn test_restore_falls_back_on_root_mismatch() {
-    let test_db = create_unique_test_db().await;
-    let db = &test_db.db;
-    let cache_path = temp_cache_path();
-
-    let expected_root = root_for_leaves(6, &[(1, U256::from(100))]).await;
-    let checkpoint_id = seed_forward_batch(
-        db,
-        expected_root,
-        2,
-        &[(1, Some(U256::from(100)))],
-    )
-    .await
-    .unwrap();
-
-    let tree = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    drop(tree);
-
-    let updated_root = root_for_leaves(6, &[(1, U256::from(400))]).await;
-    seed_forward_batch(
-        db,
-        updated_root,
-        2,
-        &[(1, Some(U256::from(400)))],
-    )
-    .await
-    .unwrap();
-
-    write_clean_metadata(&cache_path, 6, checkpoint_id).unwrap();
-
-    let rebuilt = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    assert_eq!(rebuilt.root().await, updated_root);
-    assert_eq!(rebuilt.get_leaf(1).await, U256::from(400));
-
-    cleanup(&cache_path);
-}
-
-#[tokio::test]
-async fn test_restore_falls_back_on_depth_mismatch() {
-    let test_db = create_unique_test_db().await;
-    let db = &test_db.db;
-    let cache_path = temp_cache_path();
-
-    let expected_root = root_for_leaves(6, &[(1, U256::from(100))]).await;
-    seed_forward_batch(
-        db,
-        expected_root,
-        2,
-        &[(1, Some(U256::from(100)))],
-    )
-    .await
-    .unwrap();
-
-    let tree = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    drop(tree);
-
-    write_clean_metadata(&cache_path, 4, 2).unwrap();
-
-    let rebuilt = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    assert_eq!(rebuilt.root().await, expected_root);
-
-    cleanup(&cache_path);
-}
-
-#[tokio::test]
-async fn test_dirty_cache_recovery_on_restart() {
-    let test_db = create_unique_test_db().await;
-    let db = &test_db.db;
-    let cache_path = temp_cache_path();
-
-    let first_root = root_for_leaves(6, &[(1, U256::from(100))]).await;
-    let base_batch_id = seed_forward_batch(
-        db,
-        first_root,
-        2,
-        &[(1, Some(U256::from(100)))],
-    )
-    .await
-    .unwrap();
-
-    let tree = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    assert_eq!(tree.root().await, first_root);
-    drop(tree);
-
-    let target_root = root_for_leaves(6, &[(1, U256::from(400))]).await;
-    let target_batch_id = seed_forward_batch(
-        db,
-        target_root,
-        2,
-        &[(1, Some(U256::from(400)))],
-    )
-    .await
-    .unwrap();
-
-    write_dirty_metadata(&cache_path, 6, base_batch_id, target_batch_id).unwrap();
-
-    let recovered = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    assert_eq!(recovered.root().await, target_root);
-    assert_eq!(recovered.get_leaf(1).await, U256::from(400));
-    assert_eq!(recovered.last_batch_id().await, target_batch_id);
-
-    let metadata = read_metadata(&metadata_path(&cache_path)).unwrap();
-    assert!(matches!(
-        metadata.status,
-        CacheStatus::Clean {
-            last_verified_batch_id
-        } if last_verified_batch_id == target_batch_id
-    ));
-
-    cleanup(&cache_path);
-}
-
-#[tokio::test]
-async fn test_missing_metadata_rebuilds() {
-    let test_db = create_unique_test_db().await;
-    let db = &test_db.db;
-    let cache_path = temp_cache_path();
-
-    let expected_root = root_for_leaves(6, &[(1, U256::from(100))]).await;
-    seed_forward_batch(
-        db,
-        expected_root,
-        2,
-        &[(1, Some(U256::from(100)))],
-    )
-    .await
-    .unwrap();
-
-    let tree = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    drop(tree);
-
-    let _ = fs::remove_file(metadata_path(&cache_path));
-
-    let rebuilt = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    assert_eq!(rebuilt.root().await, expected_root);
-    assert!(metadata_path(&cache_path).exists());
-
     cleanup(&cache_path);
 }
 
@@ -344,41 +191,6 @@ async fn test_restore_applies_rollback_batches_after_checkpoint() {
     assert_eq!(restored.get_leaf(1).await, U256::from(400));
     assert_eq!(restored.last_batch_id().await, target_batch_id);
     assert!(base_batch_id < target_batch_id);
-
-    cleanup(&cache_path);
-}
-
-#[tokio::test]
-async fn test_dirty_recovery_falls_back_when_target_checkpoint_missing() {
-    let test_db = create_unique_test_db().await;
-    let db = &test_db.db;
-    let cache_path = temp_cache_path();
-
-    let expected_root = root_for_leaves(6, &[(1, U256::from(100))]).await;
-    let base_batch_id = seed_forward_batch(
-        db,
-        expected_root,
-        2,
-        &[(1, Some(U256::from(100)))],
-    )
-    .await
-    .unwrap();
-
-    let tree = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    drop(tree);
-
-    write_dirty_metadata(&cache_path, 6, base_batch_id, 999_999).unwrap();
-
-    let rebuilt = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    assert_eq!(rebuilt.root().await, expected_root);
-
-    let metadata = read_metadata(&metadata_path(&cache_path)).unwrap();
-    assert!(matches!(
-        metadata.status,
-        CacheStatus::Clean {
-            last_verified_batch_id
-        } if last_verified_batch_id == base_batch_id
-    ));
 
     cleanup(&cache_path);
 }

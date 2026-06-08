@@ -193,6 +193,19 @@ where
             .transpose()
     }
 
+    /// Latest batch_id whose checkpoint root equals `root`, if any.
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_latest_batch_id_by_root(self, root: U256) -> DBResult<Option<u64>> {
+        let row = sqlx::query(
+            "SELECT max(batch_id) AS batch_id FROM sync_batch WHERE expected_root = $1",
+        )
+        .bind(root)
+        .fetch_one(self.executor)
+        .await?;
+
+        Ok(row.get::<Option<i64>, _>("batch_id").map(|v| v as u64))
+    }
+
     /// Streams the latest known value for each leaf at or before `batch_id`.
     /// Note: Stream is necessary here because there is one leaf per world id account (millions of accounts) and we need a consistent view of the tree.
     #[instrument(level = "info", skip(self))]

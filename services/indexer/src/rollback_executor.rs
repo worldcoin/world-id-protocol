@@ -42,20 +42,13 @@ pub async fn rollback_to_last_valid_root(
 
     let mut tx = db.transaction(IsolationLevel::Serializable).await?;
     let affected_leaf_indices = rollback_to_event(&mut tx, target_id).await?;
-    let checkpoint_batch_id =
+    let _checkpoint_batch_id =
         append_rollback_sync_log(&mut tx, &target, &affected_leaf_indices).await?;
     tx.commit().await?;
 
     tree.set_last_synced_event_id(target_id).await;
 
-    let base_batch_id = tree.last_batch_id().await;
-    crate::tree::cached_tree::apply_checkpoint_from_sync_log(
-        db,
-        tree,
-        base_batch_id,
-        checkpoint_batch_id,
-    )
-    .await?;
+    crate::tree::cached_tree::sync_from_db(db, tree).await?;
 
     Ok(Some(target_id))
 }

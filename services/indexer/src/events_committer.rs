@@ -227,15 +227,8 @@ impl<'a> EventsCommitter<'a> {
 
         tx.commit().await?;
 
-        if let Some(checkpoint_batch_id) = checkpoint_batch_id {
-            let base_batch_id = self.tree.last_batch_id().await;
-            crate::tree::cached_tree::apply_checkpoint_from_sync_log(
-                self.db,
-                &self.tree,
-                base_batch_id,
-                checkpoint_batch_id,
-            )
-            .await?;
+        if let Some(_checkpoint_batch_id) = checkpoint_batch_id {
+            crate::tree::cached_tree::sync_from_db(self.db, &self.tree).await?;
         } else {
             let tree = &self.tree;
             for event in self.buffered_events.iter() {
