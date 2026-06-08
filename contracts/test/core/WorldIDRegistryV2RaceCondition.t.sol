@@ -90,6 +90,25 @@ contract WorldIDRegistryV2RaceConditionTest is Test {
         assertFalse(registry.isValidRoot(rootA), "rootA expires after full window from replacement time");
     }
 
+    function test_FreshV2Deployment_DoesNotRecordZeroRoot() public {
+        vm.warp(123);
+
+        WorldIDRegistryV2 implementationV2 = new WorldIDRegistryV2();
+        ERC20Mock feeToken = new ERC20Mock();
+        bytes memory initData =
+            abi.encodeWithSelector(WorldIDRegistry.initialize.selector, 30, address(0xAAA), feeToken, 0);
+        ERC1967Proxy freshProxy = new ERC1967Proxy(address(implementationV2), initData);
+        WorldIDRegistryV2 registry = WorldIDRegistryV2(address(freshProxy));
+
+        uint256 initialRoot = registry.currentRoot();
+        assertTrue(initialRoot != 0, "initial root should be non-zero after sentinel insertion");
+        assertTrue(registry.isValidRoot(initialRoot), "latest root should be valid");
+        assertFalse(registry.isValidRoot(0), "zero root should remain unknown");
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDRegistryV2.UnknownRoot.selector, 0));
+        registry.getRootExpiration(0);
+    }
+
     /// @notice getRootExpiration returns 0 for the latest root (not yet replaced),
     ///         the replacement timestamp for a superseded root, and reverts for unknown roots.
     function test_getRootExpiration() public {

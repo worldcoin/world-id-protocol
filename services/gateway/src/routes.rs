@@ -38,7 +38,7 @@ use axum::{
     routing::{get, post},
 };
 use moka::future::Cache;
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 use utoipa::OpenApi;
 use world_id_primitives::api_types::{
     CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
@@ -99,6 +99,7 @@ pub(crate) async fn build_app(
     )
     .await;
     let base_fee_cache = BaseFeeCache::default();
+    let tx_send_lock = Arc::new(Mutex::new(()));
 
     spawn_base_fee_sampler(
         registry.provider().clone(),
@@ -116,6 +117,7 @@ pub(crate) async fn build_app(
         tracker.clone(),
         batch_policy_config.clone(),
         base_fee_cache.clone(),
+        tx_send_lock.clone(),
     );
     tokio::spawn(runner.run());
 
@@ -130,6 +132,7 @@ pub(crate) async fn build_app(
         tracker.clone(),
         batch_policy_config,
         base_fee_cache,
+        tx_send_lock,
     );
     tokio::spawn(ops_runner.run());
 

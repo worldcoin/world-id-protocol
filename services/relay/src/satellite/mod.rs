@@ -1,5 +1,5 @@
 mod ethereum_mpt;
-mod permissioned;
+pub mod permissioned;
 
 pub use ethereum_mpt::EthereumMptSatellite;
 pub use permissioned::{PermissionedSatellite, TempoSatellite};
