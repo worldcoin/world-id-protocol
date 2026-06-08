@@ -32,7 +32,7 @@ fn create_temp_cache_config() -> (TreeCacheConfig, PathBuf) {
 /// Helper to cleanup cache files and sidecar metadata.
 fn cleanup_cache_files(cache_path: &PathBuf) {
     let _ = fs::remove_file(cache_path);
-    let _ = fs::remove_file(world_id_indexer::tree::cache_metadata::metadata_path(
+    let _ = fs::remove_file(world_id_indexer::tree::cache::metadata_path(
         cache_path,
     ));
 }
@@ -952,7 +952,7 @@ async fn test_corrupted_cache_rebuilds_on_startup() {
 
     assert!(cache_path.exists(), "Cache file should exist after rebuild");
     assert!(
-        world_id_indexer::tree::cache_metadata::metadata_path(&cache_path).exists(),
+        world_id_indexer::tree::cache::metadata_path(&cache_path).exists(),
         "Sidecar metadata should exist after rebuild"
     );
 

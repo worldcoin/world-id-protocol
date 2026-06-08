@@ -2,12 +2,11 @@ use std::path::Path;
 
 use alloy::primitives::U256;
 use futures_util::TryStreamExt as _;
-use semaphore_rs_storage::MmapVec;
 use tracing::{info, instrument, warn};
 
 use super::{
     TreeError, TreeResult, TreeState,
-    cache_metadata::{
+    cache::{
         self, CacheStatus, metadata_path, persist_clean_checkpoint, persist_dirty_checkpoint,
         remove_cache_files,
     },
@@ -169,17 +168,10 @@ async fn try_restore_from_cache(
     meta_path: &Path,
     tree_depth: usize,
 ) -> TreeResult<(MerkleTree, WorldIdRegistryEventId, u64)> {
-    let metadata = cache_metadata::read_metadata(meta_path)?;
+    let metadata = cache::read_metadata(meta_path)?;
     metadata.ensure_tree_depth(tree_depth)?;
 
-    let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
-    let storage =
-        unsafe { MmapVec::<U256>::restore_from_path(cache_path_str) }.map_err(|source| {
-            TreeError::CacheValidation(format!("failed to restore mmap cache: {source}"))
-        })?;
-    let tree = MerkleTree::restore(storage, tree_depth, &U256::ZERO).map_err(|source| {
-        TreeError::CacheValidation(format!("failed to validate restored tree: {source}"))
-    })?;
+    let tree = unsafe { cache::restore_tree(cache_path, tree_depth)? };
 
     let last_event_id = db
         .world_id_registry_events()
@@ -319,9 +311,7 @@ async fn build_from_sync_log_with_cache(
         "Building Tree"
     );
 
-    let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
-    let storage = unsafe { MmapVec::<U256>::create_from_path(cache_path_str)? };
-    let tree = MerkleTree::new_with_leaves(storage, tree_depth, &U256::ZERO, &snapshot.leaves);
+    let tree = unsafe { cache::create_tree(cache_path, tree_depth, &snapshot.leaves)? };
 
     if let Some(checkpoint) = &snapshot.checkpoint {
         verify_root(tree.root(), checkpoint.inner.expected_root)?;

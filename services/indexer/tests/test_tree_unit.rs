@@ -12,7 +12,7 @@ use world_id_indexer::{
     handle_registry_event,
     tree::{
         TreeState,
-        cache_metadata::metadata_path,
+        cache::metadata_path,
         cached_tree::{init_tree, sync_from_db},
     },
 };
@@ -66,30 +66,19 @@ async fn test_stale_cache_rebuilds_from_sync_log() {
     let cache_path = temp_cache_path();
 
     let first_root = root_for_leaves(6, &[(1, U256::from(100))]).await;
-    let checkpoint_id = seed_forward_batch(
-        db,
-        first_root,
-        2,
-        &[(1, Some(U256::from(100)))],
-    )
-    .await
-    .unwrap();
+    let checkpoint_id = seed_forward_batch(db, first_root, 2, &[(1, Some(U256::from(100)))])
+        .await
+        .unwrap();
 
     let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     drop(tree_state);
 
     let updated_root = root_for_leaves(6, &[(1, U256::from(400))]).await;
-    seed_forward_batch(
-        db,
-        updated_root,
-        2,
-        &[(1, Some(U256::from(400)))],
-    )
-    .await
-    .unwrap();
-
-    world_id_indexer::tree::cache_metadata::write_clean_metadata(&cache_path, 6, checkpoint_id)
+    seed_forward_batch(db, updated_root, 2, &[(1, Some(U256::from(400)))])
+        .await
         .unwrap();
+
+    world_id_indexer::tree::cache::write_clean_metadata(&cache_path, 6, checkpoint_id).unwrap();
 
     let rebuilt = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     assert_eq!(rebuilt.root().await, updated_root);
@@ -141,10 +130,7 @@ async fn test_sync_from_db_deduplication() {
     .unwrap();
 
     let count = sync_from_db(db, &tree_state).await.unwrap();
-    assert_eq!(
-        count, 3,
-        "all leaf changes in the batch should be counted"
-    );
+    assert_eq!(count, 3, "all leaf changes in the batch should be counted");
 
     let tree = tree_state.read().await;
     assert_eq!(
@@ -289,18 +275,12 @@ async fn test_init_tree_restore_failure_rebuilds() {
     let cache_path = temp_cache_path();
 
     let expected_root = root_for_leaves(6, &[(1, U256::from(100))]).await;
-    let checkpoint_id = seed_forward_batch(
-        db,
-        expected_root,
-        2,
-        &[(1, Some(U256::from(100)))],
-    )
-    .await
-    .unwrap();
+    let checkpoint_id = seed_forward_batch(db, expected_root, 2, &[(1, Some(U256::from(100)))])
+        .await
+        .unwrap();
 
     fs::write(&cache_path, b"not a valid mmap file").unwrap();
-    world_id_indexer::tree::cache_metadata::write_clean_metadata(&cache_path, 6, checkpoint_id)
-        .unwrap();
+    world_id_indexer::tree::cache::write_clean_metadata(&cache_path, 6, checkpoint_id).unwrap();
 
     let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     assert_eq!(tree_state.root().await, expected_root);
@@ -318,14 +298,9 @@ async fn test_init_tree_recovers_after_cache_rebuild() {
     let cache_path = temp_cache_path();
 
     let expected_root = root_for_leaves(6, &[(1, U256::from(100))]).await;
-    seed_forward_batch(
-        db,
-        expected_root,
-        2,
-        &[(1, Some(U256::from(100)))],
-    )
-    .await
-    .unwrap();
+    seed_forward_batch(db, expected_root, 2, &[(1, Some(U256::from(100)))])
+        .await
+        .unwrap();
 
     fs::write(&cache_path, b"corrupted").unwrap();
     let first = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };

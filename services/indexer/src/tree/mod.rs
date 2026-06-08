@@ -5,7 +5,7 @@ use semaphore_rs_storage::MmapVec;
 use semaphore_rs_trees::cascading::CascadingMerkleTree;
 use thiserror::Error;
 
-pub mod cache_metadata;
+pub mod cache;
 pub mod cached_tree;
 pub mod state;
 

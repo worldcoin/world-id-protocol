@@ -3,10 +3,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use alloy::primitives::U256;
+use semaphore_rs_storage::MmapVec;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use super::TreeError;
+use super::{MerkleTree, TreeError, TreeResult};
 
 pub const METADATA_VERSION: u32 = 2;
 
@@ -199,6 +201,47 @@ pub fn persist_dirty_checkpoint(
         "wrote dirty cache metadata"
     );
     Ok(())
+}
+
+/// Restore a Merkle tree from an existing mmap cache file.
+///
+/// # Safety
+///
+/// Memory-maps `cache_path`; the caller must ensure no other process
+/// concurrently accesses or modifies the file.
+pub unsafe fn restore_tree(cache_path: &Path, tree_depth: usize) -> TreeResult<MerkleTree> {
+    let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
+    let storage =
+        unsafe { MmapVec::<U256>::restore_from_path(cache_path_str) }.map_err(|source| {
+            TreeError::CacheValidation(format!("failed to restore mmap cache: {source}"))
+        })?;
+    MerkleTree::restore(storage, tree_depth, &U256::ZERO).map_err(|source| {
+        TreeError::CacheValidation(format!("failed to validate restored tree: {source}"))
+    })
+}
+
+/// Create a fresh mmap-backed Merkle tree seeded with `leaves`.
+///
+/// # Safety
+///
+/// Memory-maps `cache_path`; the caller must ensure no other process
+/// concurrently accesses or modifies the file.
+pub unsafe fn create_tree(
+    cache_path: &Path,
+    tree_depth: usize,
+    leaves: &[U256],
+) -> TreeResult<MerkleTree> {
+    let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
+    let storage =
+        unsafe { MmapVec::<U256>::create_from_path(cache_path_str) }.map_err(|source| {
+            TreeError::CacheCreate(Box::new(std::io::Error::other(source.to_string())))
+        })?;
+    Ok(MerkleTree::new_with_leaves(
+        storage,
+        tree_depth,
+        &U256::ZERO,
+        leaves,
+    ))
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ use world_id_indexer::{
     batch::BatchKind,
     tree::{
         TreeState,
-        cache_metadata::{
+        cache::{
             CacheStatus, metadata_path, read_metadata, write_clean_metadata, write_dirty_metadata,
         },
         cached_tree::{init_tree, sync_from_db},
