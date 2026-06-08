@@ -243,7 +243,16 @@ pub async fn rollback_to_event(
 
     tracing::info!("Removed {} registry events", removed_registry_events);
 
-    // Step 4: Replay events for each affected leaf index
+    // Step 4: Remove sync batches that originated from events after the rollback point
+    let removed_batches = tx
+        .sync_log()
+        .await?
+        .delete_batches_after_event(event_id.block_number, event_id.log_index)
+        .await?;
+
+    tracing::info!("Removed {} sync batches", removed_batches);
+
+    // Step 5: Replay events for each affected leaf index
     for leaf_index in &affected_leaf_indices {
         replay_events_for_leaf(tx, *leaf_index, &event_id).await?;
     }

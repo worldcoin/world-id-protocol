@@ -197,30 +197,36 @@ impl<'a> EventsCommitter<'a> {
             let block_number = *block_number;
             let expected_root = *expected_root;
 
-            if !newly_committed_events.is_empty() {
-                let batch = build_forward_batch(
-                    &newly_committed_events,
-                    expected_root,
-                    *log_index,
-                    block_number,
-                    *timestamp,
-                    tx.accounts().await?.get_next_leaf_index().await?,
-                );
+            let events_for_batch: Vec<&BlockchainEvent<RegistryEvent>> = if !newly_committed_events.is_empty() {
+                newly_committed_events.clone()
+            } else {
+                self.buffered_events.iter().collect()
+            };
 
-                match self.tree.simulate_batch(&batch).await? {
-                    BatchRootCheck::Match => {
+            let batch = build_forward_batch(
+                &events_for_batch,
+                expected_root,
+                *log_index,
+                block_number,
+                *timestamp,
+                tx.accounts().await?.get_next_leaf_index().await?,
+            );
+
+            match self.tree.simulate_batch(&batch).await? {
+                BatchRootCheck::Match => {
+                    if !newly_committed_events.is_empty() {
                         checkpoint_batch_id =
                             Some(insert_sync_log_batch(&mut tx, &batch).await?);
                     }
-                    BatchRootCheck::Mismatch { simulated } => {
-                        return Err(IndexerError::ReorgDetected {
-                            block_number,
-                            reason: format!(
-                                "simulated tree root (0x{:x}) does not match RootRecorded root (0x{:x})",
-                                simulated, expected_root,
-                            ),
-                        });
-                    }
+                }
+                BatchRootCheck::Mismatch { simulated } => {
+                    return Err(IndexerError::ReorgDetected {
+                        block_number,
+                        reason: format!(
+                            "simulated tree root (0x{:x}) does not match RootRecorded root (0x{:x})",
+                            simulated, expected_root,
+                        ),
+                    });
                 }
             }
         }

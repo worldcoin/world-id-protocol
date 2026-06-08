@@ -206,6 +206,28 @@ where
         Ok(row.get::<Option<i64>, _>("batch_id").map(|v| v as u64))
     }
 
+    /// Delete sync batches that originated from events after the given event_id.
+    #[instrument(level = "info", skip(self))]
+    pub async fn delete_batches_after_event(
+        self,
+        block_number: u64,
+        log_index: u64,
+    ) -> DBResult<u64> {
+        let result = sqlx::query(
+            r#"
+                DELETE FROM sync_batch
+                WHERE (block_number > $1)
+                   OR (block_number = $1 AND log_index > $2)
+            "#,
+        )
+        .bind(block_number as i64)
+        .bind(log_index as i64)
+        .execute(self.executor)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
     /// Streams the latest known value for each leaf at or before `batch_id`.
     /// Note: Stream is necessary here because there is one leaf per world id account (millions of accounts) and we need a consistent view of the tree.
     #[instrument(level = "info", skip(self))]
