@@ -49,5 +49,6 @@ ignore = [
     "RUSTSEC-2026-0112", # `astral-tokio-tar` PAX header desync; via testcontainers, dev-only, does not affect our usage (2026-04-27)
     "RUSTSEC-2026-0113", # `astral-tokio-tar` chmod-via-symlink in `unpack_in`; via testcontainers, dev-only, does not affect our usage (2026-04-27)
     "RUSTSEC-2026-0153",  # russh-cryptovec broken, via testcontainers, dev-only, does not affect our usage (2026-06-02)
-    "RUSTSEC-2026-0154"  # russh-cryptovec broken, via testcontainers, dev-only, does not affect our usage (2026-06-02)
+    "RUSTSEC-2026-0154", # russh-cryptovec broken, via testcontainers, dev-only, does not affect our usage (2026-06-02)
+    "RUSTSEC-2026-0173"  # Unmaintained `proc-macro-error2`; transitive via alloy-sol-macro, no safe upgrade available (2026-06-08)
 ]
