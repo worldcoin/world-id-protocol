@@ -70,7 +70,7 @@ This restart-on-reorg pattern — detect, rollback state, exit cleanly, re-initi
 | `RUN_MODE` | `both` | `both`, `indexer`, or `http` |
 | `START_BLOCK` | `0` | Block to start indexing from if DB is empty |
 | `BATCH_SIZE` | `64` | Blocks per RPC batch during sync |
-| `BLOCKCHAIN_POLL_INTERVAL_SECS` | `1` | Seconds between HTTP polls for new events |
+| `BLOCKCHAIN_POLL_INTERVAL_MS` | `1000` | Milliseconds between HTTP polls for new events |
 | `TREE_DEPTH` | `30` | Merkle tree depth |
 | `TREE_MAX_BLOCK_AGE` | `1000` | Blocks of per-leaf history kept for rollback |
 | `HTTP_ADDR` | `0.0.0.0:8080` | Address for the HTTP server |
