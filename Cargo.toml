@@ -112,6 +112,7 @@ secrecy = "0.10"
 mockito = "1"
 ciborium = "0.2"
 arrayvec = "0.7"
+async-stream = "0.3"
 async-trait = "0.1"
 aws-config = "1"
 aws-sdk-kms = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio", "behavior-version-latest"] }
