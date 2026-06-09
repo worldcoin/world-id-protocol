@@ -155,7 +155,7 @@ world-id-proof = { version = "0.11.0", path = "crates/proof" }
 world-id-registries = { version = "0.11.0", path = "crates/registries" }
 world-id-authenticator = { version = "0.11.0", path = "crates/authenticator" }
 world-id-primitives = { version = "0.11.0", path = "crates/primitives", default-features = false }
-world-id-oprf-node = { version = "0.2.0", path = "services/oprf-node" }
+world-id-oprf-node = { version = "1.2.0", path = "services/oprf-node" }
 world-id-test-utils = { path = "crates/test-utils" }
 world-id-services-common = { path = "services/common", version = "0.1.0" }
 world-id-relay = { path = "services/relay" }
