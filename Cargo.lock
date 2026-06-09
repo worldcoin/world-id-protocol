@@ -4288,7 +4288,7 @@ dependencies = [
 
 [[package]]
 name = "generate-noir-artifacts"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "eyre",
  "provekit-common",
@@ -4297,7 +4297,7 @@ dependencies = [
 
 [[package]]
 name = "generate-solidity-fixtures"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "alloy",
  "eyre",
@@ -12344,7 +12344,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-authenticator"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -12382,7 +12382,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-core"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "alloy",
  "backon",
@@ -12516,7 +12516,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-issuer"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -12602,7 +12602,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-primitives"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -12639,7 +12639,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-proof"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
@@ -12673,7 +12673,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-registries"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "alloy",
  "anyhow",
