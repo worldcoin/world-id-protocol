@@ -73,7 +73,7 @@ impl Blockchain {
     /// Fetches logs from `from_block` up to the current chain head, emits decoded
     /// events, then sleeps for `poll_delay` before polling again when caught up.
     /// The stream terminates after the first error.
-    pub fn pull_events(
+    pub fn stream_blockchain_events(
         &self,
         from_block: u64,
         batch_size: u64,

@@ -362,7 +362,7 @@ pub async fn process_registry_events(
             None => indexer_cfg.start_block,
         };
 
-        let mut stream = blockchain.pull_events(
+        let mut stream = blockchain.stream_blockchain_events(
             from,
             indexer_cfg.batch_size,
             Duration::from_secs(indexer_cfg.blockchain_poll_interval_secs),

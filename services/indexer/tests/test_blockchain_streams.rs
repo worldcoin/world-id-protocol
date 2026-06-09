@@ -89,7 +89,7 @@ async fn test_pull_events_emits_after_poll() {
         .expect("failed to get block number");
 
     let poll_interval = Duration::from_millis(200);
-    let stream = blockchain.pull_events(from_block + 1, 2, poll_interval, 1);
+    let stream = blockchain.stream_blockchain_events(from_block + 1, 2, poll_interval, 1);
 
     let endpoint = anvil.endpoint().to_string();
     let signer = anvil.signer(0).unwrap();
@@ -175,7 +175,8 @@ async fn test_pull_stream_stops_on_error() {
     )
     .await;
 
-    let mut stream = blockchain.pull_events(from_block + 1, 2, Duration::from_millis(100), 1);
+    let mut stream =
+        blockchain.stream_blockchain_events(from_block + 1, 2, Duration::from_millis(100), 1);
 
     let _partial: Vec<BlockchainEvent<RegistryEvent>> = tokio::time::timeout(
         Duration::from_secs(30),
