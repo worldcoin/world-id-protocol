@@ -87,7 +87,6 @@ impl Blockchain {
             loop {
                 let latest_block = loop {
                     let block = self.get_block_number().await?;
-                    crate::metrics::set_chain_head_block(block);
 
                     if current_from <= block {
                         break block;
@@ -95,6 +94,8 @@ impl Blockchain {
 
                     tokio::time::sleep(poll_delay).await;
                 };
+
+                crate::metrics::set_chain_head_block(latest_block);
 
                 tracing::info!(
                     "Fetching logs from block {} to {}",
@@ -125,6 +126,7 @@ impl Blockchain {
                     latest_block,
                     total_logs,
                 );
+
 
                 current_from = latest_block.saturating_add(1);
             }
