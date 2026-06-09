@@ -12471,7 +12471,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-indexer"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
