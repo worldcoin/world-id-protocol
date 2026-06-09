@@ -366,6 +366,7 @@ pub async fn process_registry_events(
             from,
             indexer_cfg.batch_size,
             Duration::from_secs(indexer_cfg.blockchain_poll_interval_secs),
+            indexer_cfg.max_concurrent_log_requests,
         );
 
         let versioned_tree =
