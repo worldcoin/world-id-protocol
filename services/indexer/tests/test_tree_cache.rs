@@ -65,7 +65,7 @@ async fn test_cache_creation_and_restoration() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
@@ -140,7 +140,7 @@ async fn test_incremental_replay() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
@@ -199,7 +199,7 @@ async fn test_incremental_replay() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
@@ -273,7 +273,7 @@ async fn test_missing_cache_creates_new() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
@@ -339,7 +339,7 @@ async fn test_http_only_cache_refresh() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
@@ -461,7 +461,7 @@ async fn test_authenticator_removed_replay() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
@@ -557,7 +557,7 @@ async fn test_authenticator_removed_replay() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
@@ -589,7 +589,7 @@ async fn test_authenticator_removed_replay() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
@@ -660,7 +660,7 @@ async fn test_init_root_matches_contract() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
@@ -745,7 +745,7 @@ async fn test_replay_root_matches_contract() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
@@ -809,7 +809,7 @@ async fn test_replay_root_matches_contract() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
@@ -902,7 +902,7 @@ async fn test_corrupted_cache_returns_error() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {

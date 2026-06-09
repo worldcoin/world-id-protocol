@@ -49,7 +49,7 @@ async fn test_backfill_and_live_sync() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
@@ -180,7 +180,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
