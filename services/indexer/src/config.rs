@@ -163,7 +163,7 @@ pub struct IndexerConfig {
     pub start_block: u64,
     pub batch_size: u64,
     pub tree_max_block_age: u64,
-    pub blockchain_poll_interval_secs: u64,
+    pub blockchain_poll_interval_ms: u64,
 }
 
 impl IndexerConfig {
@@ -195,10 +195,10 @@ impl IndexerConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(1000),
-            blockchain_poll_interval_secs: std::env::var("BLOCKCHAIN_POLL_INTERVAL_SECS")
+            blockchain_poll_interval_ms: std::env::var("BLOCKCHAIN_POLL_INTERVAL_MS")
                 .ok()
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(1),
+                .unwrap_or(1000),
         };
         tracing::info!("✔️ Indexer config loaded from env");
         config
@@ -352,7 +352,7 @@ mod tests {
             // Indexer config
             env::remove_var("START_BLOCK");
             env::remove_var("BATCH_SIZE");
-            env::remove_var("BLOCKCHAIN_POLL_INTERVAL_SECS");
+            env::remove_var("BLOCKCHAIN_POLL_INTERVAL_MS");
             env::remove_var("TREE_MAX_BLOCK_AGE");
 
             // Tree cache config
@@ -509,7 +509,7 @@ mod tests {
         assert_eq!(config.start_block, 0);
         assert_eq!(config.batch_size, 64);
         assert_eq!(config.tree_max_block_age, 1000);
-        assert_eq!(config.blockchain_poll_interval_secs, 1);
+        assert_eq!(config.blockchain_poll_interval_ms, 1000);
     }
 
     #[test]
@@ -520,14 +520,14 @@ mod tests {
         set_env("START_BLOCK", "12345");
         set_env("BATCH_SIZE", "128");
         set_env("TREE_MAX_BLOCK_AGE", "500");
-        set_env("BLOCKCHAIN_POLL_INTERVAL_SECS", "5");
+        set_env("BLOCKCHAIN_POLL_INTERVAL_MS", "500");
 
         let config = IndexerConfig::from_env();
 
         assert_eq!(config.start_block, 12345);
         assert_eq!(config.batch_size, 128);
         assert_eq!(config.tree_max_block_age, 500);
-        assert_eq!(config.blockchain_poll_interval_secs, 5);
+        assert_eq!(config.blockchain_poll_interval_ms, 500);
     }
 
     #[test]

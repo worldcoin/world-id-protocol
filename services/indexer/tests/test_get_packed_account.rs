@@ -35,7 +35,7 @@ async fn test_packed_account_endpoint() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
-                blockchain_poll_interval_secs: 1,
+                blockchain_poll_interval_ms: 1000,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8083".parse().unwrap(),
