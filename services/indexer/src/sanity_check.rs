@@ -60,8 +60,6 @@ pub async fn root_sanity_check_loop(
                 expected: format!("0x{current_onchain_root:x}"),
             }
             .into());
-        } else {
-            tracing::debug!(local_root = %format!("0x{local_root:x}"), "Local Merkle root is valid on-chain");
         }
 
         let is_valid = match contract.isValidRoot(local_root).call().await {
