@@ -62,14 +62,11 @@ impl SchemaIssuerRegistryWatcher {
         http_rpc_provider: &web3::HttpRpcProvider,
         cache_config: WatcherCacheConfig,
     ) -> Self {
-        metrics::schema_issuer_cache::reset();
-
         let store_builder = Cache::builder()
             .max_capacity(cache_config.max_cache_size.get())
             .time_to_live(cache_config.time_to_live)
             .eviction_listener(move |k, (), cause| {
-                tracing::debug!("removing issuer {k} because: {cause:?}");
-                metrics::schema_issuer_cache::dec();
+                tracing::trace!("removing issuer {k} because: {cause:?}");
             });
         let issuer_schema_store = if let Some(time_to_idle) = cache_config.time_to_idle {
             store_builder.time_to_idle(time_to_idle).build()
@@ -112,9 +109,10 @@ impl SchemaIssuerRegistryWatcher {
             .await?;
 
         if entry.is_fresh() {
-            metrics::schema_issuer_cache::inc();
+            self.issuer_schema_store.run_pending_tasks().await;
+            metrics::schema_issuer_cache::set(self.issuer_schema_store.entry_count());
             metrics::schema_issuer_cache::miss();
-            tracing::debug!("issuer {issuer_schema_id} loaded from chain");
+            tracing::trace!("issuer {issuer_schema_id} loaded from chain");
         } else {
             metrics::schema_issuer_cache::hit();
         }
