@@ -35,7 +35,7 @@ pub(crate) fn log_auth_module_error(
     if matches!(mapped, WorldIdRequestAuthError::Internal) {
         tracing::error!(?err, "Internal error in {module}");
     } else {
-        tracing::warn!(auth_error = true, %err, ?err, "Error in {module}: {err}");
+        tracing::warn!(auth_error = true, ?err, "Error in {module}: {err}");
     }
 }
 
