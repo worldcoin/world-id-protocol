@@ -164,6 +164,7 @@ pub struct IndexerConfig {
     pub batch_size: u64,
     pub tree_max_block_age: u64,
     pub blockchain_poll_interval_ms: u64,
+    pub max_concurrent_log_requests: usize,
 }
 
 impl IndexerConfig {
@@ -185,6 +186,23 @@ impl IndexerConfig {
             })
             .unwrap_or(64);
 
+        let max_concurrent_log_requests = std::env::var("MAX_CONCURRENT_LOG_REQUESTS")
+            .ok()
+            .and_then(|raw| match raw.parse::<usize>() {
+                Ok(0) => {
+                    tracing::warn!("MAX_CONCURRENT_LOG_REQUESTS=0 is not allowed; defaulting to 1");
+                    None
+                }
+                Ok(value) => Some(value),
+                Err(_) => {
+                    tracing::warn!(
+                        "Failed to parse MAX_CONCURRENT_LOG_REQUESTS into usize; defaulting to 1"
+                    );
+                    None
+                }
+            })
+            .unwrap_or(1);
+
         let config = Self {
             start_block: std::env::var("START_BLOCK")
                 .ok()
@@ -199,6 +217,7 @@ impl IndexerConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(1000),
+            max_concurrent_log_requests,
         };
         tracing::info!("✔️ Indexer config loaded from env");
         config
@@ -353,6 +372,7 @@ mod tests {
             env::remove_var("START_BLOCK");
             env::remove_var("BATCH_SIZE");
             env::remove_var("BLOCKCHAIN_POLL_INTERVAL_MS");
+            env::remove_var("MAX_CONCURRENT_LOG_REQUESTS");
             env::remove_var("TREE_MAX_BLOCK_AGE");
 
             // Tree cache config
@@ -510,6 +530,7 @@ mod tests {
         assert_eq!(config.batch_size, 64);
         assert_eq!(config.tree_max_block_age, 1000);
         assert_eq!(config.blockchain_poll_interval_ms, 1000);
+        assert_eq!(config.max_concurrent_log_requests, 1);
     }
 
     #[test]
@@ -521,6 +542,7 @@ mod tests {
         set_env("BATCH_SIZE", "128");
         set_env("TREE_MAX_BLOCK_AGE", "500");
         set_env("BLOCKCHAIN_POLL_INTERVAL_MS", "500");
+        set_env("MAX_CONCURRENT_LOG_REQUESTS", "4");
 
         let config = IndexerConfig::from_env();
 
@@ -528,6 +550,7 @@ mod tests {
         assert_eq!(config.batch_size, 128);
         assert_eq!(config.tree_max_block_age, 500);
         assert_eq!(config.blockchain_poll_interval_ms, 500);
+        assert_eq!(config.max_concurrent_log_requests, 4);
     }
 
     #[test]
@@ -722,6 +745,20 @@ mod tests {
         set_env("BATCH_SIZE", "0");
         let config = IndexerConfig::from_env();
         assert_eq!(config.batch_size, 64);
+    }
+
+    #[test]
+    #[serial]
+    fn test_max_concurrent_log_requests_validation() {
+        clear_all_config_env();
+
+        set_env("MAX_CONCURRENT_LOG_REQUESTS", "8");
+        let config = IndexerConfig::from_env();
+        assert_eq!(config.max_concurrent_log_requests, 8);
+
+        set_env("MAX_CONCURRENT_LOG_REQUESTS", "0");
+        let config = IndexerConfig::from_env();
+        assert_eq!(config.max_concurrent_log_requests, 1);
     }
 
     #[test]

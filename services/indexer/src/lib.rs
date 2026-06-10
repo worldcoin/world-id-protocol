@@ -362,10 +362,11 @@ pub async fn process_registry_events(
             None => indexer_cfg.start_block,
         };
 
-        let mut stream = blockchain.pull_events(
+        let mut stream = blockchain.stream_blockchain_events(
             from,
             indexer_cfg.batch_size,
             Duration::from_millis(indexer_cfg.blockchain_poll_interval_ms),
+            indexer_cfg.max_concurrent_log_requests,
         );
 
         let versioned_tree =

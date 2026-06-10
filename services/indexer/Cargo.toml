@@ -24,6 +24,7 @@ url = { workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
 ruint = { workspace = true, features = ["sqlx"] }
+async-stream = { workspace = true }
 futures-util = { workspace = true }
 rustls = { workspace = true, features = ["aws-lc-rs"] }
 sqlx = { workspace = true, features = [

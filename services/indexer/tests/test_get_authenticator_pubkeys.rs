@@ -35,6 +35,7 @@ async fn test_get_authenticator_pubkeys_returns_offchain_signer_commitment() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8086".parse().unwrap(),

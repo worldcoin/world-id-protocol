@@ -66,6 +66,7 @@ async fn test_cache_creation_and_restoration() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8090".parse().unwrap(),
@@ -140,6 +141,7 @@ async fn test_incremental_replay() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8091".parse().unwrap(),
@@ -198,6 +200,7 @@ async fn test_incremental_replay() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8092".parse().unwrap(),
@@ -271,6 +274,7 @@ async fn test_missing_cache_creates_new() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8093".parse().unwrap(),
@@ -336,6 +340,7 @@ async fn test_http_only_cache_refresh() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8094".parse().unwrap(),
@@ -457,6 +462,7 @@ async fn test_authenticator_removed_replay() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8098".parse().unwrap(),
@@ -552,6 +558,7 @@ async fn test_authenticator_removed_replay() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8096".parse().unwrap(),
@@ -583,6 +590,7 @@ async fn test_authenticator_removed_replay() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8097".parse().unwrap(),
@@ -653,6 +661,7 @@ async fn test_init_root_matches_contract() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8100".parse().unwrap(),
@@ -737,6 +746,7 @@ async fn test_replay_root_matches_contract() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8101".parse().unwrap(),
@@ -800,6 +810,7 @@ async fn test_replay_root_matches_contract() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8102".parse().unwrap(),
@@ -892,6 +903,7 @@ async fn test_corrupted_cache_returns_error() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8103".parse().unwrap(),

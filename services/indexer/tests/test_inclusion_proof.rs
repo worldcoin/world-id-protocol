@@ -50,6 +50,7 @@ async fn test_backfill_and_live_sync() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8080".parse().unwrap(),
@@ -180,6 +181,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
                 batch_size: 1000,
                 tree_max_block_age: 1000,
                 blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8082".parse().unwrap(),
