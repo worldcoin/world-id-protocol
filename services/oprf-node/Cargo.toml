@@ -6,7 +6,6 @@ rust-version.workspace = true
 homepage.workspace = true
 repository.workspace = true
 license.workspace = true
-publish = false
 
 [dependencies]
 alloy = { workspace = true, features = ["full", "rpc", "rpc-client-ws"] }
