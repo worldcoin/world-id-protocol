@@ -370,7 +370,6 @@ pub async fn process_registry_events(
         };
 
         tracing::info!("starting streaming blockchain events from block {}", from);
-
         let mut stream = blockchain.stream_blockchain_events(
             from,
             indexer_cfg.batch_size,
