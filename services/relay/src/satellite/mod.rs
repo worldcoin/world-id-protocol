@@ -25,19 +25,6 @@ const RELAY_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Maximum number of individual commitments to include in a single relay
 /// transaction.
-///
-/// A satellite that is far behind — most notably one being cold-started from a
-/// zero chain head — must replay its entire un-relayed backlog. Submitting that
-/// backlog as one transaction makes the transaction grow without bound: it can
-/// exceed the destination RPC's `eth_estimateGas` gas cap (so the relay never
-/// even gets sent) and, eventually, the destination block gas limit (so it can
-/// never be included at all). Splitting the delta into bounded chunks keeps
-/// every relay transaction cheap to estimate and includable. Each chunk still
-/// ends on a real on-chain chain head, so the satellite applies it
-/// incrementally via its keccak-chain check.
-///
-/// 64 commitments is ~4-5M gas — comfortably below typical estimateGas caps and
-/// block gas limits (e.g. Arc Mainnet's 30M) with ample margin.
 const MAX_COMMITMENTS_PER_RELAY: usize = 64;
 
 /// A destination chain that can receive bridged World ID state.
@@ -342,5 +329,143 @@ mod tests {
         let delta = vec![commitment_with(1)];
         let chunks = chunk_by_commitments(&delta, MAX_COMMITMENTS_PER_RELAY);
         assert_eq!(chunks.len(), 1);
+    }
+
+    /// End-to-end: fork Arc Mainnet, impersonate the relay operator, and drive
+    /// the **real** chunked relay path (`chunk_by_commitments` + `reduce` +
+    /// `sendMessage`) chunk-by-chunk through the *currently deployed* gateway
+    /// and satellite. Asserts the satellite's keccak chain advances from a zero
+    /// head all the way to the live source tip.
+    ///
+    /// Needs `WORLDCHAIN_RPC_URL` + `ARC_RPC_URL` and a local `anvil`.
+    #[tokio::test]
+    #[ignore = "forks Arc Mainnet; needs WORLDCHAIN_RPC_URL + ARC_RPC_URL + anvil"]
+    async fn cold_start_chunked_catch_up_reaches_source_tip_on_fork() -> eyre::Result<()> {
+        use crate::{
+            bindings::{IGateway, IWorldIDSatellite},
+            relay::encode_evm_v1_address,
+            satellite::permissioned::build_chain_head_attribute,
+        };
+        use alloy::{
+            node_bindings::Anvil,
+            primitives::{Address, U256, address},
+            providers::{Provider, ProviderBuilder, ext::AnvilApi},
+            rpc::types::{Filter, TransactionRequest},
+            sol_types::SolEvent,
+        };
+
+        const SOURCE: Address = address!("12E8f92fE5901c17341E4A445F6CF991fFc2909E");
+        const ARC_GATEWAY: Address = address!("2940Ce2f0f852230Cde632e203D327513b090206");
+        const ARC_SATELLITE: Address = address!("304E14e4dC0508C0927e3b307a2C18422C07E394");
+        const RELAYER: Address = address!("6348A4a4dF173F68eB28A452Ca6c13493e447aF1");
+        const ANCHOR_CHAIN_ID: u64 = 480;
+        const DEPLOYMENT_BLOCK: u64 = 29_732_292;
+
+        let (Ok(wc_url), Ok(arc_url)) = (
+            std::env::var("WORLDCHAIN_RPC_URL"),
+            std::env::var("ARC_RPC_URL"),
+        ) else {
+            eprintln!("skipping: set WORLDCHAIN_RPC_URL and ARC_RPC_URL");
+            return Ok(());
+        };
+
+        // ── Reconstruct the full backlog (the cold-start delta from head 0x0). ──
+        let wc = ProviderBuilder::new().connect_http(wc_url.parse()?);
+        let topic = IWorldIDSource::ChainCommitted::SIGNATURE_HASH;
+        let latest = wc.get_block_number().await?;
+        let mut delta: Vec<Arc<ChainCommitment>> = Vec::new();
+        let (mut from, chunk) = (DEPLOYMENT_BLOCK, 50_000u64);
+        while from <= latest {
+            let to = (from + chunk - 1).min(latest);
+            let filter = Filter::new()
+                .address(SOURCE)
+                .event_signature(topic)
+                .from_block(from)
+                .to_block(to);
+            for log in wc.get_logs(&filter).await? {
+                let ev = IWorldIDSource::ChainCommitted::decode_log(&log.inner)?;
+                delta.push(Arc::new(ChainCommitment {
+                    chain_head: ev.keccakChain,
+                    block_number: ev.blockNumber.to::<u64>(),
+                    chain_id: ev.chainId.to::<u64>(),
+                    commitment_payload: ev.commitment.clone(),
+                    timestamp: 0,
+                }));
+            }
+            from = to + 1;
+        }
+        let target_head = delta.last().expect("backlog non-empty").chain_head;
+        let target_len: usize = delta.iter().map(|c| commitment_count(c)).sum();
+        println!(
+            "backlog: {} events / {} commitments → tip {target_head}",
+            delta.len(),
+            target_len
+        );
+
+        // ── Fork Arc and impersonate the relay operator (gateway owner). ────────
+        let anvil = Anvil::new().fork(arc_url).spawn();
+        let fork = ProviderBuilder::new().connect_http(anvil.endpoint_url());
+        fork.anvil_impersonate_account(RELAYER).await?;
+        fork.anvil_set_balance(RELAYER, U256::from(10u128.pow(20)))
+            .await?;
+
+        let satellite = IWorldIDSatellite::new(ARC_SATELLITE, &fork);
+        let start = satellite.KECCAK_CHAIN().call().await?;
+        assert_eq!(start.head, B256::ZERO, "satellite must start cold");
+        assert_eq!(start.length, 0);
+
+        // ── Drive the production chunking path chunk-by-chunk. ──────────────────
+        let recipient = encode_evm_v1_address(ANCHOR_CHAIN_ID, ARC_SATELLITE);
+        let chunks = chunk_by_commitments(&delta, MAX_COMMITMENTS_PER_RELAY);
+        let n_chunks = chunks.len();
+        for (i, chunk) in chunks.into_iter().enumerate() {
+            let merged = reduce(chunk)?;
+            let calldata = IGateway::sendMessageCall {
+                recipient: recipient.clone().into(),
+                payload: merged.commitment_payload.clone(),
+                attributes: vec![build_chain_head_attribute(merged.chain_head)],
+            }
+            .abi_encode();
+            let tx = TransactionRequest::default()
+                .from(RELAYER)
+                .to(ARC_GATEWAY)
+                .input(calldata.into());
+            let receipt = fork.send_transaction(tx).await?.get_receipt().await?;
+            assert!(
+                receipt.status(),
+                "chunk {} of {n_chunks} reverted on-chain",
+                i + 1
+            );
+            let now = satellite.KECCAK_CHAIN().call().await?;
+            println!(
+                "  chunk {:>2}/{n_chunks}: {:>2} events, gas {:>8} → head {} (len {})",
+                i + 1,
+                chunk.len(),
+                receipt.gas_used,
+                now.head,
+                now.length
+            );
+        }
+
+        // ── The satellite must now sit at the live source tip. ──────────────────
+        let end = satellite.KECCAK_CHAIN().call().await?;
+        assert_eq!(
+            end.head, target_head,
+            "satellite head must reach source tip"
+        );
+        assert_eq!(
+            end.length as usize, target_len,
+            "all commitments must apply"
+        );
+
+        let sat_root = satellite.LATEST_ROOT().call().await?;
+        let src_root = IWorldIDSource::new(SOURCE, &wc)
+            .LATEST_ROOT()
+            .call()
+            .await?;
+        assert_eq!(sat_root, src_root, "satellite root must equal source root");
+        println!("caught up to tip: head {} root {sat_root}", end.head);
+
+        Ok(())
     }
 }
