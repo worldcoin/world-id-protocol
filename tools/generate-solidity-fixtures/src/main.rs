@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! Generates Solidity test fixtures for `WorldIDVerifierTest.t.sol`.
 //!
 //! Spins up a local Anvil node, gateway, OPRF nodes, and indexer stub, then
@@ -164,7 +165,6 @@ async fn main() -> Result<()> {
     let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
         &anvil,
         node_secret_managers,
-        oprf_key_registry,
         world_id_registry,
         rp_registry,
         credential_registry,

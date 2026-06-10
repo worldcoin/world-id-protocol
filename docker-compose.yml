@@ -22,7 +22,7 @@ services:  # world-id-indexer
       retries: 5
   oprf-key-gen0:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.2.0-rc.2
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.2.0-rc.5
     network_mode: "host"
     environment:
       RUST_LOG: "taceo=trace,warn"
@@ -43,7 +43,7 @@ services:  # world-id-indexer
       TACEO_OPRF_KEY_GEN__POSTGRES__SCHEMA: oprf0
   oprf-key-gen1:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.2.0-rc.2
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.2.0-rc.5
     network_mode: "host"
     environment:
       RUST_LOG: "taceo=trace,warn"
@@ -64,7 +64,7 @@ services:  # world-id-indexer
       TACEO_OPRF_KEY_GEN__POSTGRES__SCHEMA: oprf1
   oprf-key-gen2:
     # this tag/sha must match the versions of taceo crates in Cargo.toml
-    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.2.0-rc.2
+    image: ghcr.io/taceolabs/oprf-service/oprf-key-gen:v1.2.0-rc.5
     network_mode: "host"
     environment:
       RUST_LOG: "taceo=trace,warn"

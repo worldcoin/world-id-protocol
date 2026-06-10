@@ -9,12 +9,13 @@ use crate::{
     metrics,
 };
 use alloy::{primitives::Address, providers::DynProvider};
+use backon::Retryable as _;
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
 use taceo_oprf::types::OprfKeyId;
 use tracing::instrument;
-use world_id_primitives::rp::RpId;
+use world_id_primitives::{oprf::WorldIdRequestAuthError, rp::RpId};
 
 alloy::sol! {
     #[allow(missing_docs, clippy::too_many_arguments, reason="Get this errors from sol macro")]
@@ -36,8 +37,19 @@ pub(crate) enum RpRegistryWatcherError {
     #[error("inactive rp: {0}")]
     InactiveRp(RpId),
     /// Internal Error
-    #[error(transparent)]
+    #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
+}
+
+impl From<&RpRegistryWatcherError> for WorldIdRequestAuthError {
+    fn from(value: &RpRegistryWatcherError) -> Self {
+        match value {
+            RpRegistryWatcherError::UnknownRp(_) => Self::UnknownRp,
+            RpRegistryWatcherError::InactiveRp(_) => Self::InactiveRp,
+            RpRegistryWatcherError::Timeout(_) => Self::Wip101AccountCheckTimeout,
+            RpRegistryWatcherError::Internal(_) => Self::Internal,
+        }
+    }
 }
 
 /// Validates and caches RPs from the `RpRegistry` contract.
@@ -53,6 +65,7 @@ pub(crate) struct RpRegistryWatcher {
     contract: RpRegistryInstance<DynProvider>,
     timeout_external_eth_call: Duration,
     http_rpc_provider: web3::HttpRpcProvider,
+    cache_config: WatcherCacheConfig,
 }
 
 impl RpRegistryWatcher {
@@ -63,22 +76,13 @@ impl RpRegistryWatcher {
         timeout_external_eth_call: Duration,
         cache_config: WatcherCacheConfig,
     ) -> Self {
-        metrics::rp_registry_cache::reset();
-
-        let WatcherCacheConfig {
-            max_cache_size,
-            time_to_live,
-            time_to_idle,
-        } = cache_config;
-
         let rp_store_builder = Cache::builder()
-            .max_capacity(max_cache_size.get())
-            .time_to_live(time_to_live)
+            .max_capacity(cache_config.max_cache_size.get())
+            .time_to_live(cache_config.time_to_live)
             .eviction_listener(move |k, v: RelyingParty, cause| {
-                tracing::debug!("removing rp {k}/{} because: {cause:?}", v.account_type);
-                metrics::rp_registry_cache::dec(v.account_type);
+                tracing::trace!("removing rp {k}/{} because: {cause:?}", v.account_type);
             });
-        let rp_store = if let Some(time_to_idle) = time_to_idle {
+        let rp_store = if let Some(time_to_idle) = cache_config.time_to_idle {
             rp_store_builder.time_to_idle(time_to_idle).build()
         } else {
             rp_store_builder.build()
@@ -89,6 +93,7 @@ impl RpRegistryWatcher {
             contract: RpRegistry::new(contract_address, http_rpc_provider.inner()),
             timeout_external_eth_call,
             http_rpc_provider,
+            cache_config,
         }
     }
 
@@ -97,20 +102,29 @@ impl RpRegistryWatcher {
         &self,
         rp_id: &RpId,
     ) -> Result<RelyingParty, Arc<RpRegistryWatcherError>> {
+        let backon_fetch_rp = (|| async { self.fetch_rp_from_chain(*rp_id).await })
+            .retry(self.cache_config.backoff_strategy())
+            .sleep(tokio::time::sleep)
+            .when(|e| matches!(e, RpRegistryWatcherError::UnknownRp(_)))
+            .notify(|err, duration| {
+                tracing::warn!(%err, "fetch rp from chain will retry after {duration:?}");
+            });
+
         let entry = self
             .rp_store
             .entry(*rp_id)
-            .or_try_insert_with(self.fetch_rp_from_chain(*rp_id))
+            .or_try_insert_with(backon_fetch_rp)
             .await?;
         let rp = if entry.is_fresh() {
-            let rp = entry.value().to_owned();
-            metrics::rp_registry_cache::inc(rp.account_type);
+            let rp = entry.into_value();
+            self.rp_store.run_pending_tasks().await;
+            metrics::rp_registry_cache::set(self.rp_store.entry_count());
             metrics::rp_registry_cache::miss();
-            tracing::debug!("rp {rp_id}/{} loaded from chain", rp.account_type);
+            tracing::trace!("rp {rp_id}/{} loaded from chain", rp.account_type);
             rp
         } else {
             metrics::rp_registry_cache::hit();
-            entry.value().to_owned()
+            entry.into_value()
         };
 
         tracing::trace!("returning {rp_id}/{}", rp.account_type);

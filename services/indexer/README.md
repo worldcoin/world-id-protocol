@@ -14,7 +14,7 @@ The indexer supports three run modes, selected via the `RUN_MODE` environment va
 
 ### Event Processing
 
-The indexer connects to the chain via HTTP + WebSocket RPC. On startup it backfills from the last indexed block (or `START_BLOCK` if the DB is empty), then transitions to live WebSocket streaming.
+The indexer connects to the chain via HTTP RPC. On startup it backfills from the last indexed block (or `START_BLOCK` if the DB is empty), then continues with periodic HTTP polling for new events.
 
 Events are processed through `EventsCommitter`, which:
 
@@ -65,12 +65,12 @@ This restart-on-reorg pattern — detect, rollback state, exit cleanly, re-initi
 |---|---|---|
 | `DATABASE_URL` | required | PostgreSQL connection string |
 | `RPC_URL` | required | HTTP RPC endpoint |
-| `WS_URL` | required | WebSocket RPC endpoint |
 | `REGISTRY_ADDRESS` | required | `AccountRegistry` contract address |
 | `TREE_CACHE_FILE` | required | Path to mmap-backed tree cache file |
 | `RUN_MODE` | `both` | `both`, `indexer`, or `http` |
 | `START_BLOCK` | `0` | Block to start indexing from if DB is empty |
-| `BATCH_SIZE` | `64` | Blocks per RPC batch during backfill |
+| `BATCH_SIZE` | `64` | Blocks per RPC batch during sync |
+| `BLOCKCHAIN_POLL_INTERVAL_MS` | `1000` | Milliseconds between HTTP polls for new events |
 | `TREE_DEPTH` | `30` | Merkle tree depth |
 | `TREE_MAX_BLOCK_AGE` | `1000` | Blocks of per-leaf history kept for rollback |
 | `HTTP_ADDR` | `0.0.0.0:8080` | Address for the HTTP server |

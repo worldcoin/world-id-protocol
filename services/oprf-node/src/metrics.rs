@@ -104,16 +104,8 @@ pub(crate) mod merkle_cache {
         );
     }
 
-    pub(crate) fn reset() {
-        metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(0.0);
-    }
-
-    pub(crate) fn inc() {
-        metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).increment(1);
-    }
-
-    pub(crate) fn dec() {
-        metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).decrement(1);
+    pub(crate) fn set(val: u64) {
+        metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(val as f64);
     }
 
     pub(crate) fn hit() {
@@ -126,10 +118,6 @@ pub(crate) mod merkle_cache {
 }
 
 pub(crate) mod rp_registry_cache {
-    use crate::auth::rp_module::RpAccountType;
-
-    /// Attribute ID attached to size metrics distinguishing the RP signer type.
-    const METRICS_ATTRID_RP_TYPE: &str = "type";
 
     /// Number of stored RPs in the `rp_registry_watcher` cache.
     const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE: &str =
@@ -140,14 +128,6 @@ pub(crate) mod rp_registry_cache {
     /// Number of hits in the `rp_registry_watcher` cache.
     const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS: &str =
         "taceo.oprf.node.rp_registry_watcher_cache.hits";
-
-    fn label(ty: RpAccountType) -> &'static str {
-        match ty {
-            RpAccountType::Eoa => "eoa",
-            RpAccountType::Contract => "contract",
-            RpAccountType::IncompatibleWip101 => "incompatible_wip101",
-        }
-    }
 
     pub(super) fn describe_metrics() {
         metrics::describe_gauge!(
@@ -169,34 +149,8 @@ pub(crate) mod rp_registry_cache {
         );
     }
 
-    pub(crate) fn reset() {
-        for ty in [
-            RpAccountType::Eoa,
-            RpAccountType::Contract,
-            RpAccountType::IncompatibleWip101,
-        ] {
-            metrics::gauge!(
-                METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
-                METRICS_ATTRID_RP_TYPE => label(ty),
-            )
-            .set(0.0);
-        }
-    }
-
-    pub(crate) fn inc(ty: RpAccountType) {
-        metrics::gauge!(
-            METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
-            METRICS_ATTRID_RP_TYPE => label(ty),
-        )
-        .increment(1);
-    }
-
-    pub(crate) fn dec(ty: RpAccountType) {
-        metrics::gauge!(
-            METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
-            METRICS_ATTRID_RP_TYPE => label(ty),
-        )
-        .decrement(1);
+    pub(crate) fn set(val: u64) {
+        metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).set(val as f64);
     }
 
     pub(crate) fn hit() {
@@ -241,16 +195,8 @@ pub(crate) mod schema_issuer_cache {
         );
     }
 
-    pub(crate) fn reset() {
-        metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE).set(0.0);
-    }
-
-    pub(crate) fn inc() {
-        metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE).increment(1);
-    }
-
-    pub(crate) fn dec() {
-        metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE).decrement(1);
+    pub(crate) fn set(val: u64) {
+        metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE).set(val as f64);
     }
 
     pub(crate) fn hit() {

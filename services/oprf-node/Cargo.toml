@@ -1,11 +1,12 @@
 [package]
 name = "world-id-oprf-node"
-version = "0.1.0"
+version = "1.2.0"
 edition.workspace = true
 rust-version.workspace = true
 homepage.workspace = true
 repository.workspace = true
 license.workspace = true
+publish = false
 
 [dependencies]
 alloy = { workspace = true, features = ["full", "rpc", "rpc-client-ws"] }
@@ -15,6 +16,7 @@ ark-ff = { workspace = true }
 ark-groth16 = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["json", "macros"] }
+backon = { workspace = true, features = ["std", "tokio-sleep"] }
 chrono = { workspace = true }
 circom-types = { workspace = true, features = [
   "bn254",
@@ -46,7 +48,7 @@ tokio = { workspace = true, features = [
   "tokio-macros",
 ] }
 tokio-util = { workspace = true }
-tracing = { workspace = true }
+tracing = { workspace = true, features = ["release_max_level_debug"] }
 uuid = { workspace = true, features = ["serde", "v4"] }
 world-id-primitives = { workspace = true }
 world-id-registries = { workspace = true }
