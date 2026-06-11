@@ -55,6 +55,8 @@ pub fn describe_metrics() {
         ::metrics::Unit::Milliseconds,
         "HTTP request latency in milliseconds."
     );
+
+    world_id_services_common::describe_provider_metrics();
 }
 
 pub fn set_chain_head_block(block_number: u64) {
