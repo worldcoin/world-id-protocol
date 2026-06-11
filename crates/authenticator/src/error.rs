@@ -35,6 +35,22 @@ pub enum AuthenticatorError {
         body: String,
     },
 
+    /// A service (gateway or indexer), or an upstream target it depends on, is
+    /// temporarily unavailable (HTTP 502/503/504). Distinct from a generic 5xx
+    /// application error: these statuses specifically indicate an unreachable or
+    /// overloaded upstream. Per RFC 9458 §5.2 a gateway that cannot reach its
+    /// target returns 504, so an OHTTP inner 504 surfaces here once the gateway
+    /// emits it.
+    #[error(
+        "{service} is unavailable (status {status}); the service or an upstream target may be down or unreachable"
+    )]
+    ServiceUnavailable {
+        /// Which service was being called (e.g. `gateway`, `indexer`).
+        service: String,
+        /// The HTTP status code (502, 503, or 504).
+        status: StatusCode,
+    },
+
     /// Indexer returned an error response.
     #[error("Indexer error (status {status}): {body}")]
     IndexerError {
