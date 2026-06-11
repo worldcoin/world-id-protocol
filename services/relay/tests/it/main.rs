@@ -1,3 +1,4 @@
+mod arc_cold_start_repro;
 mod permissioned_e2e;
 mod testsuite;
 
