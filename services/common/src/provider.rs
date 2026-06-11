@@ -27,6 +27,7 @@ use url::Url;
 
 use crate::{
     provider_layers::{RetryConfig, RetryLayer, ThrottleConfig, ThrottleLayer},
+    provider_metrics::MeteredTransport,
     tx_fillers::GasEstimateWithFallbackFiller,
 };
 
@@ -317,7 +318,10 @@ impl ProviderArgs {
 
         let transports = http
             .into_iter()
-            .map(|url| Http::with_client(http_client.clone(), url))
+            .map(|url| {
+                let transport = Http::with_client(http_client.clone(), url.clone());
+                MeteredTransport::new(&url, transport)
+            })
             .collect::<Vec<_>>();
 
         // Configure the fallback layer (always)
