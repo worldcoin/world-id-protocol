@@ -13,9 +13,10 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
+use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use tokio::net::TcpListener;
 use url::Url;
-use world_id_services_common::{ProviderArgs, RetryConfig};
+use world_id_services_common::{METRICS_RPC_ENDPOINT_REQUESTS, ProviderArgs, RetryConfig};
 
 const CHAIN_ID_RESPONSE: &str = r#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#;
 
@@ -70,6 +71,12 @@ fn fast_retry(max_retries: u32) -> RetryConfig {
         timeout_secs: 10,
         ..RetryConfig::default()
     }
+}
+
+/// The metric label the provider derives from a mock-server URL
+/// (`host:port` — the port is always non-default in tests).
+fn endpoint_label(url: &Url) -> String {
+    format!("{}:{}", url.host_str().unwrap(), url.port().unwrap())
 }
 
 // ---------------------------------------------------------------------------
@@ -283,4 +290,58 @@ async fn retries_disabled_when_max_retries_zero() {
     let result = provider.get_chain_id().await;
     assert!(result.is_err());
     assert_eq!(counter.load(Ordering::SeqCst), 1);
+}
+
+// ---------------------------------------------------------------------------
+// Test 8: Per-endpoint metrics record a transport error with the right labels
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn endpoint_metrics_record_transport_errors() {
+    // Sole metrics test, so it can own the process-global recorder and snapshot
+    // once (snapshot() is destructive, draining counters to zero).
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    recorder.install().expect("install debugging recorder");
+
+    // Bind a port then immediately drop the listener so nothing is listening.
+    let dead_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let dead_addr = dead_listener.local_addr().unwrap();
+    drop(dead_listener);
+    let dead_url: Url = format!("http://{dead_addr}").parse().unwrap();
+    let dead_label = endpoint_label(&dead_url);
+
+    let provider = build_provider_args(vec![dead_url], fast_retry(0))
+        .http()
+        .await
+        .unwrap();
+
+    assert!(provider.get_chain_id().await.is_err());
+
+    let snapshot = snapshotter.snapshot().into_vec();
+    let count = |status: &str| -> u64 {
+        snapshot
+            .iter()
+            .filter_map(|(key, _unit, _desc, value)| {
+                let key = key.key();
+                if key.name() != METRICS_RPC_ENDPOINT_REQUESTS {
+                    return None;
+                }
+                let has = |name: &str, want: &str| {
+                    key.labels().any(|l| l.key() == name && l.value() == want)
+                };
+                match value {
+                    DebugValue::Counter(v)
+                        if has("endpoint", &dead_label) && has("status", status) =>
+                    {
+                        Some(*v)
+                    }
+                    _ => None,
+                }
+            })
+            .sum()
+    };
+
+    assert_eq!(count("error"), 1);
+    assert_eq!(count("success"), 0);
 }

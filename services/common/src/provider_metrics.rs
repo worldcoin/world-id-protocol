@@ -140,26 +140,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn endpoint_label_elides_default_port() {
-        let url: Url = "https://worldchain-mainnet.g.alchemy.com/v2/secret-api-key"
+    fn endpoint_label_uses_host_and_non_default_port() {
+        // Default port for the scheme is elided.
+        let alchemy: Url = "https://worldchain-mainnet.g.alchemy.com/v2/secret-api-key"
             .parse()
             .unwrap();
-        assert_eq!(endpoint_label(&url), "worldchain-mainnet.g.alchemy.com");
-    }
+        assert_eq!(endpoint_label(&alchemy), "worldchain-mainnet.g.alchemy.com");
 
-    #[test]
-    fn endpoint_label_includes_non_default_port() {
-        let url: Url = "http://worldchain-rpc.internal.worldcoin.dev:9545"
+        // Non-default port is kept.
+        let internal: Url = "http://worldchain-rpc.internal.worldcoin.dev:9545"
             .parse()
             .unwrap();
         assert_eq!(
-            endpoint_label(&url),
+            endpoint_label(&internal),
             "worldchain-rpc.internal.worldcoin.dev:9545"
         );
     }
 
     #[test]
-    fn endpoint_label_never_contains_path() {
+    fn endpoint_label_never_leaks_api_key_from_path() {
         let url: Url = "https://example.com/v2/secret-api-key".parse().unwrap();
         assert!(!endpoint_label(&url).contains("secret-api-key"));
     }
