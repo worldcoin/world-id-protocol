@@ -28,6 +28,17 @@ impl OhttpClientConfig {
     }
 }
 
+/// Returns `true` if `content_type` is the OHTTP response media type
+/// `message/ohttp-res`, matched loosely: case-insensitive and ignoring any
+/// parameters (e.g. `message/ohttp-res; charset=utf-8`).
+fn is_ohttp_res_content_type(content_type: &str) -> bool {
+    content_type
+        .split(';')
+        .next()
+        .map(str::trim)
+        .is_some_and(|media_type| media_type.eq_ignore_ascii_case("message/ohttp-res"))
+}
+
 /// Parsed response from an OHTTP-decapsulated Binary HTTP message.
 #[derive(Debug)]
 pub struct OhttpResponse {
@@ -42,6 +53,7 @@ pub struct OhttpResponse {
 #[derive(Clone, Debug)]
 pub struct OhttpClient {
     client: Client,
+    config_scope: String,
     relay_url: String,
     target_scheme: String,
     target_authority: String,
@@ -97,6 +109,7 @@ impl OhttpClient {
 
         Ok(Self {
             client,
+            config_scope: config_scope.to_owned(),
             relay_url: config.relay_url,
             target_scheme,
             target_authority,
@@ -160,13 +173,36 @@ impl OhttpClient {
 
         if !resp.status().is_success() {
             return Err(AuthenticatorError::OhttpRelayError {
+                service: self.config_scope.clone(),
+                relay_url: self.relay_url.clone(),
                 status: resp.status(),
                 body: resp.text().await.unwrap_or_default(),
             });
         }
 
+        // RFC 9458: a successful OHTTP exchange is returned as `message/ohttp-res`.
+        // The gateway sets this content-type only on a 2xx success; any other 2xx
+        // body (e.g. a captive portal or proxy HTML page) is not decryptable, so
+        // reject it with a clear error instead of a cryptic decapsulation failure.
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        if !content_type
+            .as_deref()
+            .is_some_and(is_ohttp_res_content_type)
+        {
+            return Err(AuthenticatorError::OhttpRelayInvalidResponse {
+                relay_url: self.relay_url.clone(),
+                content_type,
+            });
+        }
+
         let enc_response = resp.bytes().await?;
-        let response_buf = ohttp_resp_ctx.decapsulate(&enc_response)?;
+        let response_buf = ohttp_resp_ctx
+            .decapsulate(&enc_response)
+            .map_err(AuthenticatorError::OhttpDecapsulationError)?;
 
         let response_msg = Message::read_bhttp(&mut std::io::Cursor::new(&response_buf))?;
         let status_code = response_msg
