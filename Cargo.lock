@@ -12471,11 +12471,12 @@ dependencies = [
 
 [[package]]
 name = "world-id-indexer"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
  "ark-ff 0.5.0",
+ "async-stream",
  "axum",
  "clap",
  "dotenvy",
@@ -12559,7 +12560,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-oprf-node"
-version = "0.1.0"
+version = "1.2.0"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",

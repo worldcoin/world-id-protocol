@@ -122,7 +122,26 @@ impl SharedDevClientComponents {
         AuthenticatorPublicKeySet,
         u64,
     )> {
-        let account_inclusion_proof = self.authenticator.fetch_inclusion_proof().await?;
+        // Under poll-based indexer sync the indexer is eventually-consistent: a freshly
+        // created account may not be indexed until the next poll tick. Retry the read while
+        // the indexer reports "not indexed yet" (404) or "insertion pending" (423 Locked),
+        // and bail immediately on any other error.
+        let indexer_not_ready = |e: &AuthenticatorError| {
+            matches!(
+                e,
+                AuthenticatorError::IndexerError { status, .. }
+                    if status.as_u16() == 404 || status.as_u16() == 423
+            )
+        };
+        let backoff = backon::ExponentialBuilder::default()
+            .with_min_delay(std::time::Duration::from_millis(500))
+            .with_factor(1.5)
+            .without_max_times()
+            .with_total_delay(Some(std::time::Duration::from_secs(30)));
+        let account_inclusion_proof =
+            backon::Retryable::retry(|| self.authenticator.fetch_inclusion_proof(), backoff)
+                .when(indexer_not_ready)
+                .await?;
 
         let key_index = account_inclusion_proof
             .authenticator_pubkeys

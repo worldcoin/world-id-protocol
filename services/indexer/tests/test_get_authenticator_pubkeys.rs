@@ -34,6 +34,8 @@ async fn test_get_authenticator_pubkeys_returns_offchain_signer_commitment() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8086".parse().unwrap(),
@@ -44,7 +46,6 @@ async fn test_get_authenticator_pubkeys_returns_offchain_signer_commitment() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: TreeCacheConfig {
             cache_file_path: temp_cache_path.to_str().unwrap().to_string(),

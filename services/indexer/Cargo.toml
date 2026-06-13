@@ -1,6 +1,6 @@
 [package]
 name = "world-id-indexer"
-version = "0.1.4"
+version = "0.1.5"
 license.workspace = true
 edition.workspace = true
 publish = false
@@ -16,7 +16,6 @@ serde_json = { workspace = true }
 poseidon2 = { workspace = true }
 alloy = { workspace = true, default-features = true, features = [
   "rpc-types",
-  "provider-ws",
 ] }
 clap = { workspace = true, features = ["derive", "env"] }
 eyre = { workspace = true }
@@ -25,6 +24,7 @@ url = { workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
 ruint = { workspace = true, features = ["sqlx"] }
+async-stream = { workspace = true }
 futures-util = { workspace = true }
 rustls = { workspace = true, features = ["aws-lc-rs"] }
 sqlx = { workspace = true, features = [
