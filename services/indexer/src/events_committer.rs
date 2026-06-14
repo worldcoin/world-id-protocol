@@ -1,5 +1,8 @@
 use std::time::Duration;
 
+use backon::BackoffBuilder as _;
+use backon::ExponentialBuilder;
+
 use crate::{
     blockchain::{BlockchainEvent, RegistryEvent, RootRecordedEvent},
     db::{DB, IsolationLevel},
@@ -49,7 +52,8 @@ impl<'a> EventsCommitter<'a> {
         &mut self,
         event: BlockchainEvent<RegistryEvent>,
     ) -> IndexerResult<bool> {
-        self.buffer_event(event);
+        tracing::info!(?event, "buffered event");
+        self.buffered_events.push(event);
 
         if let RegistryEvent::RootRecorded(_) =
             self.buffered_events.last().expect("just pushed").details
@@ -61,34 +65,34 @@ impl<'a> EventsCommitter<'a> {
         Ok(false)
     }
 
-    fn buffer_event(&mut self, event: BlockchainEvent<RegistryEvent>) {
-        tracing::info!(?event, "buffering event");
-        self.buffered_events.push(event);
-    }
-
+    /// Commit the buffered events to the database. Expects a RootRecorded event to be the last event in the buffered events.
     async fn commit_events(&mut self) -> IndexerResult<()> {
         const MAX_ATTEMPTS: u32 = 3;
 
         let root_recorded_block = self.buffered_events.last().map(|e| e.block_number);
+        let mut backoff = ExponentialBuilder::default()
+            .with_min_delay(Duration::from_millis(500))
+            .with_max_delay(Duration::from_secs(3))
+            .with_max_times((MAX_ATTEMPTS - 1) as usize)
+            .build();
 
-        let mut attempt = 0u32;
-        loop {
-            attempt += 1;
+        for attempt in 1..=MAX_ATTEMPTS {
             match self.attempt_commit().await {
                 Ok(()) => return Ok(()),
-                Err(e @ IndexerError::ReorgDetected { .. }) => return Err(e),
-                Err(e) if attempt >= MAX_ATTEMPTS => {
-                    tracing::error!(
-                        ?e,
-                        root_recorded_block,
-                        attempt,
-                        "DB commit failed after max attempts"
-                    );
-                    return Err(e);
-                }
                 Err(e) => {
-                    let delay =
-                        Duration::from_millis(500 * (1u64 << attempt)).min(Duration::from_secs(3));
+                    if matches!(e, IndexerError::ReorgDetected { .. }) {
+                        return Err(e);
+                    }
+                    if attempt == MAX_ATTEMPTS {
+                        tracing::error!(
+                            ?e,
+                            root_recorded_block,
+                            attempt,
+                            "DB commit failed after max attempts"
+                        );
+                        return Err(e);
+                    }
+                    let delay = backoff.next().unwrap_or(Duration::ZERO);
                     tracing::warn!(
                         ?e,
                         root_recorded_block,
@@ -100,6 +104,7 @@ impl<'a> EventsCommitter<'a> {
                 }
             }
         }
+        unreachable!();
     }
 
     async fn attempt_commit(&mut self) -> IndexerResult<()> {
@@ -163,7 +168,7 @@ impl<'a> EventsCommitter<'a> {
             EventsProcessor::process_event(&mut tx, event).await?;
         }
         // Check for any block we have events for in the DB (there could be multiple events per block),
-        // wether there are conflicting block hashes.
+        // wether there have conflicting block hashes.
         // Note: The earlier check checks only for conflicting events.
         let batch_block_numbers: Vec<i64> = self
             .buffered_events

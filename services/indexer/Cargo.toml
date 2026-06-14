@@ -46,6 +46,7 @@ utoipa = { workspace = true }
 world-id-primitives = { workspace = true, features = ["openapi"] }
 world-id-registries = { workspace = true }
 metrics = { workspace = true }
+backon = { workspace = true }
 
 [dev-dependencies]
 eddsa-babyjubjub = { workspace = true }

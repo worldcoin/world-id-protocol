@@ -133,7 +133,7 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
             let tree_state = unsafe { initialize_tree_with_config(&cfg.tree_cache, &db).await? };
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
 
-            run_indexer_only(
+            run_worker_only(
                 db,
                 http_provider,
                 cfg.registry_address,
@@ -179,8 +179,9 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
     }
 }
 
+/// Runs only the worker part of the indexer (sync chain data and write to DB)
 #[instrument(level = "info", skip_all)]
-async fn run_indexer_only(
+async fn run_worker_only(
     db: DB,
     http_provider: DynProvider,
     registry_address: Address,
@@ -199,6 +200,7 @@ async fn run_indexer_only(
     Ok(())
 }
 
+/// Runs only the HTTP server part of the indexer (serve inclusion proofs and account data)
 #[instrument(level = "info", skip_all)]
 async fn run_http_only(
     db: DB,
@@ -384,11 +386,12 @@ pub async fn process_registry_events(
                 Ok(event) => {
                     let block_number = event.block_number;
                     match events_committer.handle_event(event).await {
-                        Ok(root_recorded) => {
+                        // Event was root recorded event and batch was committed to DB successfully
+                        Ok(batch_committed) => {
                             crate::metrics::set_chain_processed_block(block_number);
                             // Only update the watermark block if the committed block number is higher than the current watermark.
                             // It may be lower if there was a reorg and we rolled back to a previous valid root.
-                            if root_recorded {
+                            if batch_committed {
                                 if block_number > watermark_block_number {
                                     watermark_block_number = block_number;
                                     rollbacks_without_progress = 0;
@@ -404,27 +407,22 @@ pub async fn process_registry_events(
                                 reason,
                                 "Reorg detected during event commit, rolling back"
                             );
-                            match rollback_to_last_valid_root(
+                            let Some(target) = rollback_to_last_valid_root(
                                 db,
                                 &http_provider,
                                 registry_address,
                                 &versioned_tree,
                             )
-                            .await
-                            {
-                                Ok(Some(target)) => {
-                                    tracing::info!(?target, "rolled back successfully");
-                                    rollbacks_without_progress += 1;
-                                    break;
-                                }
-                                Ok(None) => {
-                                    return Err(IndexerError::ReorgDetected {
-                                        block_number,
-                                        reason: "no valid root found during rollback".to_string(),
-                                    });
-                                }
-                                Err(e) => return Err(e),
-                            }
+                            .await?
+                            else {
+                                return Err(IndexerError::ReorgDetected {
+                                    block_number,
+                                    reason: "no valid root found during rollback".to_string(),
+                                });
+                            };
+                            tracing::info!(?target, "rolled back successfully");
+                            rollbacks_without_progress += 1;
+                            break;
                         }
                         Err(e) => return Err(e),
                     }
