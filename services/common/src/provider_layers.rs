@@ -330,7 +330,7 @@ impl<S> Layer<Vec<(&'static str, S)>> for EndpointMetricsLayer {
 ///
 /// `status="error"` means a transport-level failure (connection error,
 /// timeout, non-2xx HTTP). A well-formed JSON-RPC *error response* still
-/// counts as `success` here — the endpoint did serve the request.
+/// counts as `success` here.
 #[derive(Debug, Clone)]
 pub(crate) struct MeteredTransport<S> {
     endpoint: &'static str,
