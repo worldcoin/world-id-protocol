@@ -116,9 +116,7 @@ fn pod_ordinal() -> Option<usize> {
     parse_ordinal(&std::env::var("HOSTNAME").ok()?)
 }
 
-/// Low-cardinality, secret-free metric label for an RPC endpoint:
-/// the host, plus `:port` when the port is non-default for the scheme.
-/// Strip full path to avoid leaking API keys.
+/// Strips the url to leave only the host & port
 fn endpoint_label(url: &Url) -> String {
     let host = url.host_str().unwrap_or("unknown");
     // `Url::port()` is `None` when the port matches the scheme default.
