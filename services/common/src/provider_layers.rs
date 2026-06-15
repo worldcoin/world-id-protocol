@@ -295,7 +295,7 @@ where
 /// (`"success"` / `"error"`).
 pub const METRICS_RPC_ENDPOINT_REQUESTS: &str = "rpc.endpoint_requests";
 /// Histogram: latency of completed RPC transport calls in milliseconds,
-/// label `endpoint`.
+/// labels `endpoint` and `status` (`"success"` / `"error"`).
 pub const METRICS_RPC_ENDPOINT_LATENCY_MS: &str = "rpc.endpoint_latency_ms";
 
 /// A Tower layer that records per-endpoint RPC transport metrics.
@@ -382,7 +382,8 @@ where
             .increment(1);
             ::metrics::histogram!(
                 METRICS_RPC_ENDPOINT_LATENCY_MS,
-                "endpoint" => endpoint
+                "endpoint" => endpoint,
+                "status" => status
             )
             .record(start.elapsed().as_secs_f64() * 1000.0);
 
@@ -404,6 +405,6 @@ pub fn describe_provider_transport_metrics() {
     ::metrics::describe_histogram!(
         METRICS_RPC_ENDPOINT_LATENCY_MS,
         ::metrics::Unit::Milliseconds,
-        "Latency of completed RPC transport calls per endpoint."
+        "Latency of completed RPC transport calls per endpoint, labelled by endpoint host and outcome."
     );
 }
