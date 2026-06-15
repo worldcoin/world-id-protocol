@@ -76,14 +76,11 @@ impl RpRegistryWatcher {
         timeout_external_eth_call: Duration,
         cache_config: WatcherCacheConfig,
     ) -> Self {
-        metrics::rp_registry_cache::reset();
-
         let rp_store_builder = Cache::builder()
             .max_capacity(cache_config.max_cache_size.get())
             .time_to_live(cache_config.time_to_live)
             .eviction_listener(move |k, v: RelyingParty, cause| {
-                tracing::debug!("removing rp {k}/{} because: {cause:?}", v.account_type);
-                metrics::rp_registry_cache::dec(v.account_type);
+                tracing::trace!("removing rp {k}/{} because: {cause:?}", v.account_type);
             });
         let rp_store = if let Some(time_to_idle) = cache_config.time_to_idle {
             rp_store_builder.time_to_idle(time_to_idle).build()
@@ -120,9 +117,10 @@ impl RpRegistryWatcher {
             .await?;
         let rp = if entry.is_fresh() {
             let rp = entry.into_value();
-            metrics::rp_registry_cache::inc(rp.account_type);
+            self.rp_store.run_pending_tasks().await;
+            metrics::rp_registry_cache::set(self.rp_store.entry_count());
             metrics::rp_registry_cache::miss();
-            tracing::debug!("rp {rp_id}/{} loaded from chain", rp.account_type);
+            tracing::trace!("rp {rp_id}/{} loaded from chain", rp.account_type);
             rp
         } else {
             metrics::rp_registry_cache::hit();

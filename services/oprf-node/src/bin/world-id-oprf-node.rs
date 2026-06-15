@@ -17,7 +17,7 @@ use config::{Config, Environment};
 use eyre::Context;
 use serde::Deserialize;
 use taceo_nodes_common::postgres::PostgresConfig;
-use taceo_oprf::service::secret_manager::postgres::PostgresSecretManager;
+use taceo_oprf::service::secret_manager::{SecretManager, postgres::PostgresSecretManager};
 use world_id_oprf_node::config::WorldOprfNodeConfig;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -92,13 +92,18 @@ async fn run(config: FullWorldOprfNodeConfig) -> eyre::Result<()> {
     let bind_addr = config.bind_addr;
     let max_wait_time_shutdown = config.max_wait_time_shutdown;
 
+    let node_information = secret_manager
+        .load_node_information()
+        .await
+        .context("while loading node information")?;
+
     tracing::info!("starting world-node service...");
     let oprf_service_router = world_id_oprf_node::start(
         config.node_config,
         secret_manager,
+        node_information,
         cancellation_token.clone(),
-    )
-    .await?;
+    )?;
 
     let server = tokio::spawn({
         let cancellation_token = cancellation_token.clone();

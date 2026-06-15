@@ -73,8 +73,8 @@ itertools = "0.14"
 k256 = { version = "0.13" }
 sha2 = { version = "0.11", default-features = false }
 taceo-groth16-sol = { version = "0.3.1" }
-taceo-oprf = { version = "0.15.1", default-features = false }
-taceo-oprf-test-utils = { version = "0.13", default-features = false }
+taceo-oprf = { version = "0.16", default-features = false }
+taceo-oprf-test-utils = { version = "0.14", default-features = false }
 telemetry-batteries = "0.2"
 tikv-jemallocator = "0.6"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
@@ -111,6 +111,7 @@ secrecy = "0.10"
 mockito = "1"
 ciborium = "0.2"
 arrayvec = "0.7"
+async-stream = "0.3"
 async-trait = "0.1"
 aws-config = "1"
 aws-sdk-kms = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio", "behavior-version-latest"] }
@@ -154,7 +155,7 @@ world-id-proof = { version = "0.11.0", path = "crates/proof" }
 world-id-registries = { version = "0.11.0", path = "crates/registries" }
 world-id-authenticator = { version = "0.11.0", path = "crates/authenticator" }
 world-id-primitives = { version = "0.11.0", path = "crates/primitives", default-features = false }
-world-id-oprf-node = { version = "0.1.0", path = "services/oprf-node" }
+world-id-oprf-node = { version = "1.2.0", path = "services/oprf-node" }
 world-id-test-utils = { path = "crates/test-utils" }
 world-id-services-common = { path = "services/common", version = "0.1.0" }
 world-id-relay = { path = "services/relay" }

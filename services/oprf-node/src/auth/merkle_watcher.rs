@@ -76,16 +76,13 @@ impl MerkleWatcher {
         http_rpc_provider: &web3::HttpRpcProvider,
         cache_config: WatcherCacheConfig,
     ) -> Self {
-        metrics::merkle_cache::reset();
-
         let contract = WorldIdRegistry::new(contract_address, http_rpc_provider.inner());
 
         let merkle_root_cache_builder = Cache::builder()
             .max_capacity(cache_config.max_cache_size.get())
             .time_to_live(cache_config.time_to_live)
             .eviction_listener(move |root, (), cause| {
-                tracing::debug!("removing merkle-root {root} because: {cause:?}");
-                metrics::merkle_cache::dec();
+                tracing::trace!("removing merkle-root {root} because: {cause:?}");
             });
 
         let merkle_root_cache = if let Some(time_to_idle) = cache_config.time_to_idle {
@@ -147,8 +144,10 @@ impl MerkleWatcher {
             .or_try_insert_with(is_valid_root)
             .await?;
         if entry.is_fresh() {
-            metrics::merkle_cache::inc();
+            self.merkle_root_cache.run_pending_tasks().await;
+            metrics::merkle_cache::set(self.merkle_root_cache.entry_count());
             metrics::merkle_cache::miss();
+            tracing::trace!("merkle root {root} loaded from chain");
         } else {
             metrics::merkle_cache::hit();
         }

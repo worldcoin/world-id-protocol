@@ -31,8 +31,9 @@ use std::sync::Arc;
 use ark_bn254::Bn254;
 use circom_types::groth16::VerificationKey;
 use eyre::Context;
-use taceo_oprf::service::{
-    OprfServiceBuilder, StartedServices, secret_manager::SecretManagerService,
+use taceo_oprf::{
+    service::{OprfServiceBuilder, StartedServices, secret_manager::SecretManagerService},
+    types::service::NodeInformation,
 };
 use tokio_util::sync::CancellationToken;
 use world_id_primitives::oprf::OprfModule;
@@ -90,9 +91,10 @@ pub mod metrics;
     clippy::missing_panics_doc,
     reason = "Can realistically not panic as we embed the key at compile time"
 )]
-pub async fn start(
+pub fn start(
     config: WorldOprfNodeConfig,
     secret_manager: SecretManagerService,
+    node_information: NodeInformation,
     cancellation_token: CancellationToken,
 ) -> eyre::Result<axum::Router> {
     let node_config = config.node_config;
@@ -171,9 +173,9 @@ pub async fn start(
         node_config,
         secret_manager,
         started_services,
-        cancellation_token.clone(),
-    )
-    .await?
+        node_information,
+        cancellation_token,
+    )?
     .module(
         &format!("/{}", OprfModule::Nullifier),
         nullifier_oprf_req_auth_service,
