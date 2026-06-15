@@ -358,7 +358,6 @@ impl ProviderArgs {
         // EndpointMetricsLayer calls transports.
         // I.e. if throttling is enabled retries count into the request budget.
         // NOTE: Retries can be disabled by setting max_retries to 0 in the retry config.
-        // Layer could be made optional as well in the future.
         let client = if let Some(throttle_cfg) = self.throttle {
             let throttle_layer = ThrottleLayer::new_with_config(
                 throttle_cfg.requests_per_second,
