@@ -16,7 +16,9 @@ use axum::{
 use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use tokio::net::TcpListener;
 use url::Url;
-use world_id_services_common::{METRICS_RPC_ENDPOINT_REQUESTS, ProviderArgs, RetryConfig};
+use world_id_services_common::{
+    METRICS_RPC_ENDPOINT_LATENCY_MS, METRICS_RPC_ENDPOINT_REQUESTS, ProviderArgs, RetryConfig,
+};
 
 const CHAIN_ID_RESPONSE: &str = r#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#;
 
@@ -293,33 +295,42 @@ async fn retries_disabled_when_max_retries_zero() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 8: Per-endpoint metrics record a transport error with the right labels
+// Test 8: Per-endpoint metrics record transport success/error with the right labels
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn endpoint_metrics_record_transport_errors() {
-    // Sole metrics test, so it can own the process-global recorder and snapshot
-    // once (snapshot() is destructive, draining counters to zero).
+async fn endpoint_metrics_record_transport_outcomes() {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
     recorder.install().expect("install debugging recorder");
 
-    // Bind a port then immediately drop the listener so nothing is listening.
+    // Provider for failed transport call.
     let dead_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let dead_addr = dead_listener.local_addr().unwrap();
     drop(dead_listener);
     let dead_url: Url = format!("http://{dead_addr}").parse().unwrap();
     let dead_label = endpoint_label(&dead_url);
 
-    let provider = build_provider_args(vec![dead_url], fast_retry(0))
+    let dead_provider = build_provider_args(vec![dead_url], fast_retry(0))
         .http()
         .await
         .unwrap();
+    assert!(dead_provider.get_chain_id().await.is_err());
 
-    assert!(provider.get_chain_id().await.is_err());
+    // Provide for successful transport call.
+    let (live_url, _live_counter) = spawn_mock_rpc(|_| success_response()).await;
+    let live_label = endpoint_label(&live_url);
+
+    let live_provider = build_provider_args(vec![live_url], fast_retry(0))
+        .http()
+        .await
+        .unwrap();
+    assert_eq!(live_provider.get_chain_id().await.unwrap(), 1);
 
     let snapshot = snapshotter.snapshot().into_vec();
-    let count = |status: &str| -> u64 {
+    // Sum the `rpc.endpoint_requests` counter value for the given endpoint and
+    // status, i.e. how many transport calls were recorded with those labels.
+    let count = |endpoint: &str, status: &str| -> u64 {
         snapshot
             .iter()
             .filter_map(|(key, _unit, _desc, value)| {
@@ -332,7 +343,7 @@ async fn endpoint_metrics_record_transport_errors() {
                 };
                 match value {
                     DebugValue::Counter(v)
-                        if has("endpoint", &dead_label) && has("status", status) =>
+                        if has("endpoint", endpoint) && has("status", status) =>
                     {
                         Some(*v)
                     }
@@ -342,6 +353,36 @@ async fn endpoint_metrics_record_transport_errors() {
             .sum()
     };
 
-    assert_eq!(count("error"), 1);
-    assert_eq!(count("success"), 0);
+    assert_eq!(count(&dead_label, "error"), 1);
+    assert_eq!(count(&dead_label, "success"), 0);
+    assert_eq!(count(&live_label, "success"), 1);
+    assert_eq!(count(&live_label, "error"), 0);
+
+    // The latency histogram is recorded for every completed call and carries the
+    // same `endpoint` / `status` labels: one sample per transport call.
+    let latency_samples = |endpoint: &str, status: &str| -> usize {
+        snapshot
+            .iter()
+            .filter_map(|(key, _unit, _desc, value)| {
+                let key = key.key();
+                if key.name() != METRICS_RPC_ENDPOINT_LATENCY_MS {
+                    return None;
+                }
+                let has = |name: &str, want: &str| {
+                    key.labels().any(|l| l.key() == name && l.value() == want)
+                };
+                match value {
+                    DebugValue::Histogram(samples)
+                        if has("endpoint", endpoint) && has("status", status) =>
+                    {
+                        Some(samples.len())
+                    }
+                    _ => None,
+                }
+            })
+            .sum()
+    };
+
+    assert_eq!(latency_samples(&dead_label, "error"), 1);
+    assert_eq!(latency_samples(&live_label, "success"), 1);
 }
