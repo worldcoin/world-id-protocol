@@ -4287,15 +4287,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "generate-noir-artifacts"
-version = "0.11.0"
-dependencies = [
- "eyre",
- "provekit-common",
- "provekit-r1cs-compiler",
-]
-
-[[package]]
 name = "generate-solidity-fixtures"
 version = "0.11.0"
 dependencies = [
@@ -12626,6 +12617,7 @@ dependencies = [
  "eyre",
  "provekit-common",
  "provekit-prover",
+ "provekit-r1cs-compiler",
  "provekit-verifier",
  "rand 0.8.5",
  "rayon",
