@@ -115,7 +115,7 @@ pub fn describe_metrics() {
         "Number of rejected requests by reason."
     );
 
-    world_id_services_common::describe_provider_metrics();
+    world_id_services_common::describe_provider_transport_metrics();
 }
 
 pub fn record_http_latency_ms(path: &str, status: u16, latency_ms: f64) {

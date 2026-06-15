@@ -26,8 +26,9 @@ use tower::ServiceBuilder;
 use url::Url;
 
 use crate::{
-    provider_layers::{RetryConfig, RetryLayer, ThrottleConfig, ThrottleLayer},
-    provider_metrics::MeteredTransport,
+    provider_layers::{
+        EndpointMetricsLayer, RetryConfig, RetryLayer, ThrottleConfig, ThrottleLayer,
+    },
     tx_fillers::GasEstimateWithFallbackFiller,
 };
 
@@ -113,6 +114,18 @@ fn parse_ordinal(hostname: &str) -> Option<usize> {
 
 fn pod_ordinal() -> Option<usize> {
     parse_ordinal(&std::env::var("HOSTNAME").ok()?)
+}
+
+/// Low-cardinality, secret-free metric label for an RPC endpoint:
+/// the host, plus `:port` when the port is non-default for the scheme.
+/// Strip full path to avoid leaking API keys.
+fn endpoint_label(url: &Url) -> String {
+    let host = url.host_str().unwrap_or("unknown");
+    // `Url::port()` is `None` when the port matches the scheme default.
+    match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    }
 }
 
 impl SignerArgs {
@@ -316,11 +329,13 @@ impl ProviderArgs {
 
         let num_urls = http.len();
 
-        let transports = http
+        let labeled_transports = http
             .into_iter()
             .map(|url| {
+                // Leaks a static str to avoid per-request metric-label allocs.
+                let label: &'static str = Box::leak(endpoint_label(&url).into_boxed_str());
                 let transport = Http::with_client(http_client.clone(), url.clone());
-                MeteredTransport::new(&url, transport)
+                (label, transport)
             })
             .collect::<Vec<_>>();
 
@@ -341,9 +356,11 @@ impl ProviderArgs {
             });
         let retry_layer = RetryLayer::new(retry_policy, &retry_cfg);
 
-        // Flow is: RetryLayer calls ThrottleLayer calls FallbackLayer calls transports
-        // I.e. if throttling is enabled retries count into the request budget
-        // NOTE: Retries can be disabled by setting max_retries to 0 in the retry config. Layer could be made optional as well.
+        // Flow is: RetryLayer calls ThrottleLayer calls FallbackLayer calls
+        // EndpointMetricsLayer calls transports.
+        // I.e. if throttling is enabled retries count into the request budget.
+        // NOTE: Retries can be disabled by setting max_retries to 0 in the retry config.
+        // Layer could be made optional as well in the future.
         let client = if let Some(throttle_cfg) = self.throttle {
             let throttle_layer = ThrottleLayer::new_with_config(
                 throttle_cfg.requests_per_second,
@@ -354,14 +371,16 @@ impl ProviderArgs {
                 .layer(retry_layer)
                 .layer(throttle_layer)
                 .layer(fallback_layer)
-                .service(transports);
+                .layer(EndpointMetricsLayer)
+                .service(labeled_transports);
 
             RpcClient::builder().transport(transport, false)
         } else {
             let transport = ServiceBuilder::new()
                 .layer(retry_layer)
                 .layer(fallback_layer)
-                .service(transports);
+                .layer(EndpointMetricsLayer)
+                .service(labeled_transports);
 
             RpcClient::builder().transport(transport, false)
         };
@@ -548,5 +567,23 @@ mod tests {
             args.signer_config(),
             Some(SignerConfig::AwsKms(_))
         ));
+    }
+
+    #[test]
+    fn endpoint_label_is_correct() {
+        // Default port for the scheme is elided.
+        let alchemy: Url = "https://worldchain-mainnet.g.alchemy.com/v2/secret-api-key"
+            .parse()
+            .unwrap();
+        assert_eq!(endpoint_label(&alchemy), "worldchain-mainnet.g.alchemy.com");
+
+        // Non-default port is kept.
+        let internal: Url = "http://worldchain-rpc.internal.worldcoin.dev:9545"
+            .parse()
+            .unwrap();
+        assert_eq!(
+            endpoint_label(&internal),
+            "worldchain-rpc.internal.worldcoin.dev:9545"
+        );
     }
 }
