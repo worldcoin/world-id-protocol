@@ -354,9 +354,6 @@ impl ProviderArgs {
             });
         let retry_layer = RetryLayer::new(retry_policy, &retry_cfg);
 
-        // Flow is: RetryLayer calls ThrottleLayer calls FallbackLayer calls
-        // EndpointMetricsLayer calls transports.
-        // I.e. if throttling is enabled retries count into the request budget.
         // NOTE: Retries can be disabled by setting max_retries to 0 in the retry config.
         let client = if let Some(throttle_cfg) = self.throttle {
             let throttle_layer = ThrottleLayer::new_with_config(
