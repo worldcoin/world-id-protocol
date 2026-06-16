@@ -220,9 +220,17 @@ async fn spawn_orpf_node(
 
     tokio::spawn(async move {
         let cancellation_token = CancellationToken::new();
-        let router = world_id_oprf_node::start(config, secret_manager, cancellation_token.clone())
+        let node_information = secret_manager
+            .load_node_information()
             .await
-            .expect("Can start");
+            .expect("Can load node information");
+        let router = world_id_oprf_node::start(
+            config,
+            secret_manager,
+            node_information,
+            cancellation_token.clone(),
+        )
+        .expect("Can start");
         let listener = tokio::net::TcpListener::bind(bind_addr)
             .await
             .expect("Can bind listener");
