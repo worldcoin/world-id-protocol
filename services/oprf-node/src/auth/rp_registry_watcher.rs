@@ -223,8 +223,11 @@ mod tests {
         let watcher = RpRegistryWatcher::init(
             rp_registry,
             http_rpc_provider,
-            ttl,
-            WatcherCacheConfig::default(),
+            Duration::from_secs(10),
+            WatcherCacheConfig {
+                time_to_live: ttl,
+                ..Default::default()
+            },
         );
 
         Ok((watcher, anvil, rp_fixture, rp_registry))
@@ -319,7 +322,7 @@ mod tests {
         );
         tokio::time::sleep(Duration::from_secs(2)).await;
         assert!(
-            watcher.rp_store.contains_key(&rp_fixture.world_rp_id),
+            !watcher.rp_store.contains_key(&rp_fixture.world_rp_id),
             "RP should NOT be in cache anymore"
         );
         let rp2 = watcher.get_rp(&rp_fixture.world_rp_id).await?;
