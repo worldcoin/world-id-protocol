@@ -23,10 +23,197 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Run release-plz release-pr
-        uses: release-plz/action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5.128 (https://github.com/release-plz/action/releases/tag/v0.5.128)
-        with:
-          command: release-pr
-          config: services/oprf-node/release-plz.toml
+      - name: Determine next version
+        id: version
+        run: |
+          set -euo pipefail
+
+          CURRENT=$(grep -m1 '^version = ' services/oprf-node/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          BASE_TAG="world-id-oprf-node-v${CURRENT}"
+          echo "current=${CURRENT}" >> "$GITHUB_OUTPUT"
+          echo "base_tag=${BASE_TAG}" >> "$GITHUB_OUTPUT"
+
+          # Scan commit subjects since the base tag that touch services/oprf-node/
+          SUBJECTS=$(git log --format='%s' "${BASE_TAG}..HEAD" -- services/oprf-node/)
+
+          # Bump rule: minor if any feat commit, otherwise patch
+          # (manual dispatch always implies intent to release, so minimum is patch)
+          BUMP="patch"
+          while IFS= read -r subject; do
+            [ -z "$subject" ] && continue
+            TYPE=$(echo "$subject" | grep -oE '^[a-z]+' || true)
+            if [ "$TYPE" = "feat" ] || echo "$subject" | grep -qF "BREAKING CHANGE"; then
+              BUMP="minor"
+              break
+            fi
+          done <<< "$SUBJECTS"
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          if [ "$BUMP" = "minor" ]; then
+            NEW="${MAJOR}.$((MINOR + 1)).0"
+          else
+            NEW="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+
+          echo "new=${NEW}" >> "$GITHUB_OUTPUT"
+          echo "Bumping ${CURRENT} -> ${NEW} (${BUMP} bump)"
+
+      - name: Generate changelog entries
+        id: changelog
+        run: |
+          set -euo pipefail
+
+          BASE_TAG="${{ steps.version.outputs.base_tag }}"
+
+          ADDED_FILE=$(mktemp)
+          FIXED_FILE=$(mktemp)
+          OTHER_FILE=$(mktemp)
+          SECTION_FILE=$(mktemp)
+
+          while IFS= read -r subject; do
+            [ -z "$subject" ] && continue
+
+            # Extract trailing PR number: (#NNN)
+            PR_NUM=$(echo "$subject" | grep -oE '\(#[0-9]+\)$' | grep -oE '[0-9]+' || true)
+
+            # Strip PR reference for conventional commit parsing
+            CLEAN=$(echo "$subject" | sed 's/ (#[0-9]*)\s*$//')
+
+            # Parse type, optional scope, description
+            TYPE=$(echo "$CLEAN" | grep -oE '^[a-z]+' || true)
+            SCOPE=$(echo "$CLEAN" | sed -n 's/^[a-z!]*(\([^)]*\)).*/\1/p' || true)
+            DESC=$(echo "$CLEAN" | sed 's/^[^:]*: //' || true)
+
+            if [ -n "$PR_NUM" ]; then
+              PR_LINK=" ([#${PR_NUM}](https://github.com/worldcoin/world-id-protocol/pull/${PR_NUM}))"
+            else
+              PR_LINK=""
+            fi
+
+            if [ -n "$SCOPE" ]; then
+              ENTRY="- *(${SCOPE})* ${DESC}${PR_LINK}"
+            else
+              ENTRY="- ${DESC}${PR_LINK}"
+            fi
+
+            case "$TYPE" in
+              feat) echo "$ENTRY" >> "$ADDED_FILE" ;;
+              fix)  echo "$ENTRY" >> "$FIXED_FILE" ;;
+              *)    echo "$ENTRY" >> "$OTHER_FILE" ;;
+            esac
+          done <<< "$(git log --format='%s' "${BASE_TAG}..HEAD" -- services/oprf-node/)"
+
+          # Assemble the section file (no leading blank line; awk will add the separator)
+          NEW_VERSION="${{ steps.version.outputs.new }}"
+          DATE=$(date -u +%Y-%m-%d)
+          echo "## [${NEW_VERSION}](https://github.com/worldcoin/world-id-protocol/releases/tag/world-id-oprf-node-v${NEW_VERSION}) - ${DATE}" >> "$SECTION_FILE"
+
+          if [ -s "$ADDED_FILE" ]; then
+            echo "" >> "$SECTION_FILE"
+            echo "### Added" >> "$SECTION_FILE"
+            echo "" >> "$SECTION_FILE"
+            cat "$ADDED_FILE" >> "$SECTION_FILE"
+          fi
+          if [ -s "$FIXED_FILE" ]; then
+            echo "" >> "$SECTION_FILE"
+            echo "### Fixed" >> "$SECTION_FILE"
+            echo "" >> "$SECTION_FILE"
+            cat "$FIXED_FILE" >> "$SECTION_FILE"
+          fi
+          if [ -s "$OTHER_FILE" ]; then
+            echo "" >> "$SECTION_FILE"
+            echo "### Other" >> "$SECTION_FILE"
+            echo "" >> "$SECTION_FILE"
+            cat "$OTHER_FILE" >> "$SECTION_FILE"
+          fi
+
+          echo "section_file=${SECTION_FILE}" >> "$GITHUB_OUTPUT"
+          echo "Generated changelog section:"
+          cat "$SECTION_FILE"
+
+      - name: Update CHANGELOG.md
+        run: |
+          set -euo pipefail
+
+          SECTION_FILE="${{ steps.changelog.outputs.section_file }}"
+
+          # Insert after ## [Unreleased], replacing the blank lines that follow it
+          export SECTION_FILE
+          python3 - <<'PYEOF'
+          import re, os
+
+          with open('services/oprf-node/CHANGELOG.md', 'r') as f:
+              content = f.read()
+
+          with open(os.environ['SECTION_FILE'], 'r') as f:
+              section = f.read().rstrip('\n')
+
+          def insert_section(m):
+              return m.group(1) + '\n\n' + section + '\n\n'
+
+          new_content = re.sub(
+              r'(## \[Unreleased\])\n+',
+              insert_section,
+              content,
+              count=1,
+          )
+
+          with open('services/oprf-node/CHANGELOG.md', 'w') as f:
+              f.write(new_content)
+          PYEOF
+
+      - name: Bump versions in Cargo.toml files
+        run: |
+          set -euo pipefail
+
+          CURRENT="${{ steps.version.outputs.current }}"
+          NEW="${{ steps.version.outputs.new }}"
+
+          # services/oprf-node/Cargo.toml
+          sed -i "s/^version = \"${CURRENT}\"/version = \"${NEW}\"/" services/oprf-node/Cargo.toml
+
+          # Root Cargo.toml workspace dep
+          sed -i "s/world-id-oprf-node = { version = \"${CURRENT}\", path = \"services\/oprf-node\" }/world-id-oprf-node = { version = \"${NEW}\", path = \"services\/oprf-node\" }/" Cargo.toml
+
+          echo "Updated version ${CURRENT} -> ${NEW}"
+
+      - name: Update Cargo.lock
+        run: cargo update --workspace
+
+      - name: Create release branch and commit
+        id: branch
+        run: |
+          set -euo pipefail
+
+          NEW="${{ steps.version.outputs.new }}"
+          BRANCH="release-plz-oprf-node-$(date +%s)"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH"
+          git add services/oprf-node/CHANGELOG.md
+          git add services/oprf-node/Cargo.toml
+          git add Cargo.toml
+          git add Cargo.lock
+          git commit -m "chore(world-id-oprf-node): release v${NEW}"
+          git push origin "$BRANCH"
+
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Create pull request
+        run: |
+          set -euo pipefail
+
+          NEW="${{ steps.version.outputs.new }}"
+          SECTION_FILE="${{ steps.changelog.outputs.section_file }}"
+          BRANCH="${{ steps.branch.outputs.branch }}"
+
+          gh pr create \
+            --title "chore(world-id-oprf-node): release v${NEW}" \
+            --body "$(cat "$SECTION_FILE")" \
+            --label "release" \
+            --base main \
+            --head "$BRANCH"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

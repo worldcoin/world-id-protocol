@@ -15,8 +15,8 @@ jobs:
     permissions:
       contents: write
     outputs:
-      released: ${{ steps.release-plz.outputs.releases_created }}
-      version: ${{ steps.version.outputs.value }}
+      released: ${{ steps.release.outputs.released }}
+      version: ${{ steps.release.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -24,29 +24,71 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
-        with:
-          toolchain: stable
-
-      - name: Run release-plz release
-        id: release-plz
-        uses: release-plz/action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5.128 (https://github.com/release-plz/action/releases/tag/v0.5.128)
-        with:
-          command: release
-          config: services/oprf-node/release-plz.toml
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Derive image version
-        if: steps.release-plz.outputs.releases_created == 'true'
-        id: version
+      - name: Check if release commit
+        id: guard
         run: |
           set -euo pipefail
-          version="$(cargo metadata --format-version 1 --no-deps \
-            --manifest-path services/oprf-node/Cargo.toml \
-            | jq -er '.packages[] | select(.name == "world-id-oprf-node") | .version')"
-          echo "value=v$version" >> "$GITHUB_OUTPUT"
+          COMMIT_MSG=$(git log -1 --format='%s')
+          if echo "$COMMIT_MSG" | grep -qE '^chore\(world-id-oprf-node\): release v'; then
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+            echo "Release commit detected: ${COMMIT_MSG}"
+          else
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+            echo "Not a release commit, skipping. Subject: ${COMMIT_MSG}"
+          fi
+
+      - name: Read version
+        id: version
+        if: steps.guard.outputs.is_release == 'true'
+        run: |
+          set -euo pipefail
+          VERSION=$(grep -m1 '^version = ' services/oprf-node/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "value=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=world-id-oprf-node-v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Check tag idempotency
+        id: idempotency
+        if: steps.guard.outputs.is_release == 'true'
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q "${TAG}"; then
+            echo "Tag ${TAG} already exists, skipping release"
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create tag and GitHub release
+        id: release
+        if: steps.guard.outputs.is_release == 'true' && steps.idempotency.outputs.tag_exists == 'false'
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.version.outputs.value }}"
+          TAG="${{ steps.version.outputs.tag }}"
+
+          # Extract this version's changelog section (between its header and the next ## [)
+          RELEASE_NOTES=$(awk -v ver="${VERSION}" '
+            $0 ~ ("^## \\[" ver "\\]") { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' services/oprf-node/CHANGELOG.md)
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push origin "${TAG}"
+
+          gh release create "${TAG}" \
+            --title "${TAG}" \
+            --notes "${RELEASE_NOTES}"
+
+          echo "released=true" >> "$GITHUB_OUTPUT"
+          echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-docker:
     name: Build Docker
