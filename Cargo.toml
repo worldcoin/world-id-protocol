@@ -108,6 +108,7 @@ moka = { version = "0.12.13", features = ["future"] }
 dashmap = { version = "6.1.0" }
 parking_lot = { version = "0.12.5"}
 metrics = "0.24"
+metrics-util = "0.20"
 secrecy = "0.10"
 mockito = "1"
 ciborium = "0.2"

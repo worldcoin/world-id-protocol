@@ -4,12 +4,12 @@ use std::{
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use alloy::{
-    rpc::json_rpc::RequestPacket,
-    transports::{TransportError, TransportErrorKind},
+    rpc::json_rpc::{RequestPacket, ResponsePacket},
+    transports::{TransportError, TransportErrorKind, TransportFut},
 };
 use backon::{BackoffBuilder, ExponentialBuilder};
 use clap::Args;
@@ -289,4 +289,120 @@ where
             }
         })
     }
+}
+
+/// Counter: completed RPC transport calls, labels `endpoint` and `status`
+/// (`"success"` / `"error"`).
+pub const METRICS_RPC_ENDPOINT_REQUESTS: &str = "rpc.endpoint_requests";
+/// Histogram: latency of completed RPC transport calls in milliseconds,
+/// labels `endpoint` and `status` (`"success"` / `"error"`).
+pub const METRICS_RPC_ENDPOINT_LATENCY_MS: &str = "rpc.endpoint_latency_ms";
+
+/// A Tower layer that records per-endpoint RPC transport metrics.
+///
+/// Maps a `Vec` of `(label, transport)` pairs into a `Vec` of
+/// [`MeteredTransport`] services.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct EndpointMetricsLayer;
+
+impl<S> Layer<Vec<(&'static str, S)>> for EndpointMetricsLayer {
+    type Service = Vec<MeteredTransport<S>>;
+
+    fn layer(&self, inner: Vec<(&'static str, S)>) -> Self::Service {
+        inner
+            .into_iter()
+            .map(|(endpoint, svc)| MeteredTransport::new(endpoint, svc))
+            .collect()
+    }
+}
+
+/// Wraps a single RPC transport and records per-endpoint request metrics.
+///
+/// # Cancellation semantics
+///
+/// This service sits *below* alloy's `FallbackLayer`, which fans a request
+/// out to several transports in parallel and drops the losing in-flight
+/// futures as soon as one succeeds. A dropped future never reaches the
+/// recording code, so metrics are only emitted for calls that ran to
+/// completion. This is intentional: `rpc.endpoint_requests{status="success"}`
+/// answers "which endpoint actually served the request", not "which
+/// endpoints were attempted".
+///
+/// `status="error"` means a transport-level failure (connection error,
+/// timeout, non-2xx HTTP). A well-formed JSON-RPC *error response* still
+/// counts as `success` here.
+#[derive(Debug, Clone)]
+pub(crate) struct MeteredTransport<S> {
+    endpoint: &'static str,
+    inner: S,
+}
+
+impl<S> MeteredTransport<S> {
+    /// Wrap `inner`, labelling its metrics with `endpoint`.
+    pub(crate) fn new(endpoint: &'static str, inner: S) -> Self {
+        Self { endpoint, inner }
+    }
+}
+
+impl<S> Service<RequestPacket> for MeteredTransport<S>
+where
+    S: Service<RequestPacket, Response = ResponsePacket, Error = TransportError>
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    S::Future: Send,
+{
+    type Response = ResponsePacket;
+    type Error = TransportError;
+    type Future = TransportFut<'static>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: RequestPacket) -> Self::Future {
+        let endpoint = self.endpoint;
+        let mut inner = self.inner.clone();
+
+        Box::pin(async move {
+            let start = Instant::now();
+            let result = inner.call(req).await;
+
+            // Only completed requests are recorded: if `FallbackLayer` drops this
+            // future after another endpoint wins, we never reach this point.
+            let status = if result.is_ok() { "success" } else { "error" };
+            ::metrics::counter!(
+                METRICS_RPC_ENDPOINT_REQUESTS,
+                "endpoint" => endpoint,
+                "status" => status
+            )
+            .increment(1);
+            ::metrics::histogram!(
+                METRICS_RPC_ENDPOINT_LATENCY_MS,
+                "endpoint" => endpoint,
+                "status" => status
+            )
+            .record(start.elapsed().as_secs_f64() * 1000.0);
+
+            result
+        })
+    }
+}
+
+/// Register descriptions for the provider transport metrics.
+///
+/// Services that build a provider via [`ProviderArgs`](crate::ProviderArgs)
+/// should call this from their own `describe_metrics()`.
+pub fn describe_provider_transport_metrics() {
+    ::metrics::describe_counter!(
+        METRICS_RPC_ENDPOINT_REQUESTS,
+        ::metrics::Unit::Count,
+        "Completed RPC transport calls per endpoint, labelled by endpoint host and outcome."
+    );
+    ::metrics::describe_histogram!(
+        METRICS_RPC_ENDPOINT_LATENCY_MS,
+        ::metrics::Unit::Milliseconds,
+        "Latency of completed RPC transport calls per endpoint, labelled by endpoint host and outcome."
+    );
 }
