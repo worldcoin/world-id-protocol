@@ -355,8 +355,6 @@ where
 {
     type Response = ResponsePacket;
     type Error = TransportError;
-    // Must be exactly `TransportFut<'static>`: the `FallbackService` this
-    // feeds into requires `S: Service<RequestPacket, Future = TransportFut<'static>, ...>`.
     type Future = TransportFut<'static>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
