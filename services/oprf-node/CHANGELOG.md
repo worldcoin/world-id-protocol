@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1](https://github.com/worldcoin/world-id-protocol/releases/tag/world-id-oprf-node-v1.2.1) - 2026-06-16
+
+### Fixed
+
+- *(node)* fixes a test-cases ([#787](https://github.com/worldcoin/world-id-protocol/pull/787))
+- oprf release process ([#782](https://github.com/worldcoin/world-id-protocol/pull/782))
+
+### Other
+
+- wip
+- dfsa
+- wip
+- *(node)* bump to latest oprf version ([#786](https://github.com/worldcoin/world-id-protocol/pull/786))
+- *(node)* small logging/metrics cleanup ([#781](https://github.com/worldcoin/world-id-protocol/pull/781))
+
 ## [1.2.0](https://github.com/worldcoin/world-id-protocol/releases/tag/v1.2.0) - 2026-06-09
 
 ### Added
