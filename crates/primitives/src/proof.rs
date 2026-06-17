@@ -1,7 +1,7 @@
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
-use crate::FieldElement;
+use crate::{FieldElement, PrimitiveError};
 
 /// Encoded World ID Proof.
 ///
@@ -19,9 +19,55 @@ pub struct ZeroKnowledgeProof {
 
 impl ZeroKnowledgeProof {
     /// Outputs the proof as a Solidity-friendly representation.
+    ///
+    /// This is the direct calldata shape expected by the EVM verifier: four
+    /// Solidity-compressed Groth16 proof words followed by the Merkle root.
     #[must_use]
     pub const fn as_ethereum_representation(&self) -> [U256; 5] {
         self.inner
+    }
+
+    /// Outputs the proof as EVM verifier calldata.
+    ///
+    /// This is an explicit alias for [`Self::as_ethereum_representation`].
+    #[must_use]
+    pub const fn as_evm_verifier_calldata(&self) -> [U256; 5] {
+        self.as_ethereum_representation()
+    }
+
+    /// Outputs only the four Solidity-compressed Groth16 proof words.
+    ///
+    /// The returned values are `[A, B_x1, B_x0_with_bits, C]`, matching
+    /// `Verifier.sol`'s `verifyCompressedProof` proof argument.
+    #[must_use]
+    pub const fn as_solidity_compressed_groth16_proof(&self) -> [U256; 4] {
+        [self.inner[0], self.inner[1], self.inner[2], self.inner[3]]
+    }
+
+    /// Outputs only the four Solidity-compressed Groth16 proof words as
+    /// big-endian 32-byte arrays.
+    ///
+    /// This is the byte-oriented shape consumed by non-EVM verifiers that reuse
+    /// World ID's Solidity-compatible compressed proof encoding.
+    #[must_use]
+    pub fn as_solidity_compressed_groth16_proof_bytes(&self) -> [[u8; 32]; 4] {
+        self.as_solidity_compressed_groth16_proof()
+            .map(|word| word.to_be_bytes::<32>())
+    }
+
+    /// Returns the Merkle root word bundled with the proof.
+    #[must_use]
+    pub const fn merkle_root_word(&self) -> U256 {
+        self.inner[4]
+    }
+
+    /// Returns the Merkle root bundled with the proof as a field element.
+    ///
+    /// # Errors
+    /// Returns [`PrimitiveError::NotInField`] if the bundled root is not a
+    /// valid field element.
+    pub fn merkle_root(&self) -> Result<FieldElement, PrimitiveError> {
+        FieldElement::try_from(self.merkle_root_word())
     }
 
     /// Initializes a proof from an encoded Solidity-friendly representation.
@@ -158,6 +204,19 @@ mod tests {
 
         let proof = ZeroKnowledgeProof::from_ethereum_representation(values);
         assert_eq!(proof.as_ethereum_representation(), values);
+        assert_eq!(proof.as_evm_verifier_calldata(), values);
+        assert_eq!(
+            proof.as_solidity_compressed_groth16_proof(),
+            [values[0], values[1], values[2], values[3]]
+        );
+        assert_eq!(proof.merkle_root_word(), values[4]);
+        assert!(proof.merkle_root().is_ok());
+
+        let proof_bytes = proof.as_solidity_compressed_groth16_proof_bytes();
+        assert_eq!(proof_bytes[0], values[0].to_be_bytes::<32>());
+        assert_eq!(proof_bytes[1], values[1].to_be_bytes::<32>());
+        assert_eq!(proof_bytes[2], values[2].to_be_bytes::<32>());
+        assert_eq!(proof_bytes[3], values[3].to_be_bytes::<32>());
 
         // Test serialization roundtrip
         let bytes = proof.to_compressed_bytes();
