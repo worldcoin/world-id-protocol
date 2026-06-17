@@ -452,7 +452,11 @@ fn biguint_word(value: &BigUint) -> [u8; 32] {
 mod tests {
     use super::*;
 
-    const VALID_PROOF: [&str; 4] = [
+    // Ported from `contracts/test/core/WorldIDVerifierTest.t.sol`.
+    const ROOT_CORRECT: &str = "af727d9412a9d5c73b685fd09dc39e727064e65b8269b233009edfc105f9853";
+    const ROOT_WRONG: &str = "2";
+
+    const NULLIFIER_PROOF: [&str; 4] = [
         "4906f4e17b969ef2cfc44bd96520f01a3f5c32972bca2e10b70e05e03e3d9f13",
         "d6d9a3456e9af7d8f6f78eb3380deb8c93505c062f62fa18b8ef8a2ccb55db8",
         "a92a48edeb327b190048648788de9a8eff0abed5dc93bee8881387da40571278",
@@ -474,26 +478,37 @@ mod tests {
     ];
 
     #[test]
-    fn verifies_solidity_nullifier_fixture() {
-        verify_solidity_compressed_proof(&proof(VALID_PROOF), &nullifier_inputs()).unwrap();
+    fn verifies_world_id_verifier_nullifier_fixture() {
+        verify_solidity_compressed_proof(&proof(NULLIFIER_PROOF), &nullifier_inputs()).unwrap();
     }
 
     #[test]
-    fn verifies_zero_knowledge_proof_fixture() {
-        verify_zero_knowledge_proof(&zero_knowledge_proof(VALID_PROOF), &nullifier_inputs())
+    fn verifies_world_id_verifier_zero_knowledge_proof_fixture() {
+        verify_zero_knowledge_proof(&zero_knowledge_proof(NULLIFIER_PROOF), &nullifier_inputs())
             .unwrap();
     }
 
     #[test]
-    fn rejects_wrong_rp_id() {
-        let mut inputs = nullifier_inputs();
-        inputs[8] = hex_word("2").unwrap();
+    fn zero_knowledge_proof_fixture_matches_evm_compressed_shape() {
+        let proof = zero_knowledge_proof(NULLIFIER_PROOF);
 
-        assert!(verify_solidity_compressed_proof(&proof(VALID_PROOF), &inputs).is_err());
+        assert_eq!(
+            proof.as_solidity_compressed_groth16_proof_bytes(),
+            self::proof(NULLIFIER_PROOF)
+        );
+        assert_eq!(proof.merkle_root_word().to_be_bytes::<32>(), root());
     }
 
     #[test]
-    fn rejects_wrong_credential_issuer() {
+    fn rejects_world_id_verifier_wrong_rp_id_fixture() {
+        let mut inputs = nullifier_inputs();
+        inputs[8] = hex_word("2").unwrap();
+
+        assert!(verify_solidity_compressed_proof(&proof(NULLIFIER_PROOF), &inputs).is_err());
+    }
+
+    #[test]
+    fn rejects_world_id_verifier_wrong_credential_issuer_fixture() {
         let mut inputs = nullifier_inputs();
         inputs[1] = hex_word("2").unwrap();
         inputs[2] =
@@ -501,23 +516,59 @@ mod tests {
         inputs[3] =
             hex_word("3f5c610720cfa296066965732468ea34a8f7e3725899e1b4470c6b5a76321a3").unwrap();
 
-        assert!(verify_solidity_compressed_proof(&proof(VALID_PROOF), &inputs).is_err());
+        assert!(verify_solidity_compressed_proof(&proof(NULLIFIER_PROOF), &inputs).is_err());
     }
 
     #[test]
-    fn rejects_broken_nullifier_proof() {
+    fn rejects_world_id_verifier_wrong_root_public_input_fixture() {
+        let mut inputs = nullifier_inputs();
+        inputs[6] = hex_word(ROOT_WRONG).unwrap();
+
+        assert!(verify_solidity_compressed_proof(&proof(NULLIFIER_PROOF), &inputs).is_err());
+    }
+
+    #[test]
+    fn rejects_world_id_verifier_broken_nullifier_proof_fixture() {
         assert!(
             verify_solidity_compressed_proof(&proof(BROKEN_PROOF), &nullifier_inputs()).is_err()
         );
     }
 
     #[test]
-    fn verifies_solidity_session_fixture() {
+    fn verifies_world_id_verifier_session_fixture() {
         verify_solidity_compressed_proof(&proof(SESSION_PROOF), &session_inputs()).unwrap();
     }
 
     #[test]
-    fn rejects_broken_session_proof() {
+    fn rejects_world_id_verifier_session_wrong_rp_id_fixture() {
+        let mut inputs = session_inputs();
+        inputs[8] = hex_word("2").unwrap();
+
+        assert!(verify_solidity_compressed_proof(&proof(SESSION_PROOF), &inputs).is_err());
+    }
+
+    #[test]
+    fn rejects_world_id_verifier_session_wrong_credential_issuer_fixture() {
+        let mut inputs = session_inputs();
+        inputs[1] = hex_word("2").unwrap();
+        inputs[2] =
+            hex_word("1583c671e97dd91df79d8c5b311d452a3eec14932c89d9cff0364d5b98ef215e").unwrap();
+        inputs[3] =
+            hex_word("3f5c610720cfa296066965732468ea34a8f7e3725899e1b4470c6b5a76321a3").unwrap();
+
+        assert!(verify_solidity_compressed_proof(&proof(SESSION_PROOF), &inputs).is_err());
+    }
+
+    #[test]
+    fn rejects_world_id_verifier_session_wrong_root_public_input_fixture() {
+        let mut inputs = session_inputs();
+        inputs[6] = hex_word(ROOT_WRONG).unwrap();
+
+        assert!(verify_solidity_compressed_proof(&proof(SESSION_PROOF), &inputs).is_err());
+    }
+
+    #[test]
+    fn rejects_world_id_verifier_broken_session_proof_fixture() {
         assert!(verify_solidity_compressed_proof(&proof(BROKEN_PROOF), &session_inputs()).is_err());
     }
 
@@ -530,9 +581,13 @@ mod tests {
         for word in proof(values) {
             bytes.extend_from_slice(&word);
         }
-        bytes.extend_from_slice(&nullifier_inputs()[6]);
+        bytes.extend_from_slice(&root());
 
         ZeroKnowledgeProof::from_compressed_bytes(&bytes).unwrap()
+    }
+
+    fn root() -> [u8; 32] {
+        hex_word(ROOT_CORRECT).unwrap()
     }
 
     fn nullifier_inputs() -> [[u8; 32]; 15] {
@@ -559,7 +614,7 @@ mod tests {
             hex_word("230e4f93a5f1187639314dd25e595db06dc18de219cfaeb8cfdf81d4afe910d5").unwrap(),
             hex_word("699cfa47").unwrap(),
             hex_word("0").unwrap(),
-            hex_word("af727d9412a9d5c73b685fd09dc39e727064e65b8269b233009edfc105f9853").unwrap(),
+            root(),
             hex_word("1e").unwrap(),
             hex_word("1a6ccf8f70e5de68").unwrap(),
             hex_word(action).unwrap(),
