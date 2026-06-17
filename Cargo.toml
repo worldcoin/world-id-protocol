@@ -6,6 +6,7 @@ members = [
   "crates/proof",
   "crates/primitives",
   "crates/registries",
+  "crates/solana-satellite",
   "crates/solana-verifier",
   "crates/test-utils",
   "crates/zk-mobile-bench",
@@ -62,6 +63,7 @@ ark-bn254 = "0.5"
 ark-ff = "0.5"
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
+anchor-lang = "1.0.2"
 backon = "1"
 base64 = "0.22"
 circom-types = { package = "taceo-circom-types", version = "0.2", default-features = false }
