@@ -12774,6 +12774,7 @@ dependencies = [
  "num-bigint",
  "solana-bn254",
  "thiserror 2.0.18",
+ "world-id-primitives",
 ]
 
 [[package]]

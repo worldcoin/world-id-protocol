@@ -16,3 +16,4 @@ hex = { workspace = true }
 num-bigint = "0.4.6"
 solana-bn254 = "2.2.2"
 thiserror = { workspace = true }
+world-id-primitives = { workspace = true }
