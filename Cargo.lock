@@ -10390,9 +10390,9 @@ dependencies = [
 
 [[package]]
 name = "telemetry-batteries"
-version = "0.2.1"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "389eb13150fdfb5c2a79f333a8d71808cd024e1335d73d184590e2a02e0dd53a"
+checksum = "87b9214761fa0b4c2879a491aa4109a4036dc3c1ac9f47ba42ae15916fba7b23"
 dependencies = [
  "backtrace",
  "bon",
@@ -10418,8 +10418,8 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-appender",
- "tracing-error",
  "tracing-opentelemetry",
+ "tracing-opentelemetry-instrumentation-sdk",
  "tracing-serde 0.1.3",
  "tracing-subscriber 0.3.22",
 ]
@@ -11100,6 +11100,19 @@ dependencies = [
  "tracing-log",
  "tracing-subscriber 0.3.22",
  "web-time",
+]
+
+[[package]]
+name = "tracing-opentelemetry-instrumentation-sdk"
+version = "0.32.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8f2540011f6d5ac30e1fc9ff169573b4559406498ac27e0242549d9bf527ed1"
+dependencies = [
+ "http 1.4.0",
+ "opentelemetry",
+ "opentelemetry-semantic-conventions",
+ "tracing",
+ "tracing-opentelemetry",
 ]
 
 [[package]]
@@ -12565,7 +12578,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-oprf-node"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "alloy",
  "ark-bn254 0.5.0",
@@ -12733,6 +12746,7 @@ dependencies = [
  "metrics",
  "metrics-util",
  "serde",
+ "telemetry-batteries",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
