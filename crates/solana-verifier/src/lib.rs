@@ -452,7 +452,7 @@ fn biguint_word(value: &BigUint) -> [u8; 32] {
 mod tests {
     use super::*;
 
-    // Ported from `contracts/test/core/WorldIDVerifierTest.t.sol`.
+    // Ported from `contracts/test/core/Verifier.t.sol::testVerifyNullifier`.
     const ROOT_CORRECT: &str = "af727d9412a9d5c73b685fd09dc39e727064e65b8269b233009edfc105f9853";
     const ROOT_WRONG: &str = "2";
 
@@ -478,7 +478,7 @@ mod tests {
     ];
 
     #[test]
-    fn verifies_world_id_verifier_nullifier_fixture() {
+    fn verifies_verifier_t_sol_test_verify_nullifier_fixture() {
         verify_solidity_compressed_proof(&proof(NULLIFIER_PROOF), &nullifier_inputs()).unwrap();
     }
 
