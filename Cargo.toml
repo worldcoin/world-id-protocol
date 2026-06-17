@@ -6,6 +6,7 @@ members = [
   "crates/proof",
   "crates/primitives",
   "crates/registries",
+  "crates/solana-verifier",
   "crates/test-utils",
   "crates/zk-mobile-bench",
   "services/indexer",
