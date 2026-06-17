@@ -5,6 +5,14 @@ All notable changes to `world-id-oprf-node` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-oprf-node-v1.2.0...world-id-oprf-node-v1.2.1) (2026-06-17)
+
+
+### Bug Fixes
+
+* **node:** fixes a test-cases ([#787](https://github.com/worldcoin/world-id-protocol/issues/787)) ([ab243a3](https://github.com/worldcoin/world-id-protocol/commit/ab243a3e0eadb3d786c12106758239c50ed9ff49))
+* oprf release process ([#782](https://github.com/worldcoin/world-id-protocol/issues/782)) ([a0c1cba](https://github.com/worldcoin/world-id-protocol/commit/a0c1cba06b0005f3e6f52cb6535984ca0e9b927d))
+
 ## [Unreleased]
 
 ## [1.2.0](https://github.com/worldcoin/world-id-protocol/releases/tag/v1.2.0) - 2026-06-09
