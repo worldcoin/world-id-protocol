@@ -477,17 +477,20 @@ mod tests {
         "3282817e430906e0a5f73e22d404971f1e8701d4d4270f3d531f07d0d8819db8",
     ];
 
+    // Solidity source: `contracts/test/core/Verifier.t.sol::testVerifyNullifier`.
     #[test]
     fn verifies_verifier_t_sol_test_verify_nullifier_fixture() {
         verify_solidity_compressed_proof(&proof(NULLIFIER_PROOF), &nullifier_inputs()).unwrap();
     }
 
+    // Solidity source: `contracts/test/core/WorldIDVerifierTest.t.sol::test_Success`.
     #[test]
     fn verifies_world_id_verifier_zero_knowledge_proof_fixture() {
         verify_zero_knowledge_proof(&zero_knowledge_proof(NULLIFIER_PROOF), &nullifier_inputs())
             .unwrap();
     }
 
+    // Solidity source: `contracts/test/core/WorldIDVerifierTest.t.sol::test_Success`.
     #[test]
     fn zero_knowledge_proof_fixture_matches_evm_compressed_shape() {
         let proof = zero_knowledge_proof(NULLIFIER_PROOF);
@@ -499,6 +502,7 @@ mod tests {
         assert_eq!(proof.merkle_root_word().to_be_bytes::<32>(), root());
     }
 
+    // Solidity source: `contracts/test/core/WorldIDVerifierTest.t.sol::test_WrongRpId`.
     #[test]
     fn rejects_world_id_verifier_wrong_rp_id_fixture() {
         let mut inputs = nullifier_inputs();
@@ -507,6 +511,7 @@ mod tests {
         assert!(verify_solidity_compressed_proof(&proof(NULLIFIER_PROOF), &inputs).is_err());
     }
 
+    // Solidity source: `contracts/test/core/WorldIDVerifierTest.t.sol::test_WrongCredentialIssuer`.
     #[test]
     fn rejects_world_id_verifier_wrong_credential_issuer_fixture() {
         let mut inputs = nullifier_inputs();
@@ -519,6 +524,9 @@ mod tests {
         assert!(verify_solidity_compressed_proof(&proof(NULLIFIER_PROOF), &inputs).is_err());
     }
 
+    // Solidity source: `contracts/test/core/WorldIDVerifierTest.t.sol::test_InvalidRoot`.
+    // This Solana unit test mutates the root public input; root registry validity
+    // belongs in the Solana program wrapper rather than this Groth16 adapter.
     #[test]
     fn rejects_world_id_verifier_wrong_root_public_input_fixture() {
         let mut inputs = nullifier_inputs();
@@ -527,6 +535,7 @@ mod tests {
         assert!(verify_solidity_compressed_proof(&proof(NULLIFIER_PROOF), &inputs).is_err());
     }
 
+    // Solidity source: `contracts/test/core/WorldIDVerifierTest.t.sol::test_WrongProof`.
     #[test]
     fn rejects_world_id_verifier_broken_nullifier_proof_fixture() {
         assert!(
@@ -534,11 +543,13 @@ mod tests {
         );
     }
 
+    // Solidity source: `contracts/test/core/WorldIDVerifierTest.t.sol::test_SessionSuccess`.
     #[test]
     fn verifies_world_id_verifier_session_fixture() {
         verify_solidity_compressed_proof(&proof(SESSION_PROOF), &session_inputs()).unwrap();
     }
 
+    // Solidity source: `contracts/test/core/WorldIDVerifierTest.t.sol::test_SessionWrongRpId`.
     #[test]
     fn rejects_world_id_verifier_session_wrong_rp_id_fixture() {
         let mut inputs = session_inputs();
@@ -547,6 +558,7 @@ mod tests {
         assert!(verify_solidity_compressed_proof(&proof(SESSION_PROOF), &inputs).is_err());
     }
 
+    // Solidity source: `contracts/test/core/WorldIDVerifierTest.t.sol::test_SessionWrongCredentialIssuer`.
     #[test]
     fn rejects_world_id_verifier_session_wrong_credential_issuer_fixture() {
         let mut inputs = session_inputs();
@@ -559,6 +571,9 @@ mod tests {
         assert!(verify_solidity_compressed_proof(&proof(SESSION_PROOF), &inputs).is_err());
     }
 
+    // Solidity source: `contracts/test/core/WorldIDVerifierTest.t.sol::test_SessionInvalidRoot`.
+    // This Solana unit test mutates the root public input; root registry validity
+    // belongs in the Solana program wrapper rather than this Groth16 adapter.
     #[test]
     fn rejects_world_id_verifier_session_wrong_root_public_input_fixture() {
         let mut inputs = session_inputs();
@@ -567,6 +582,7 @@ mod tests {
         assert!(verify_solidity_compressed_proof(&proof(SESSION_PROOF), &inputs).is_err());
     }
 
+    // Solidity source: `contracts/test/core/WorldIDVerifierTest.t.sol::test_SessionWrongProof`.
     #[test]
     fn rejects_world_id_verifier_broken_session_proof_fixture() {
         assert!(verify_solidity_compressed_proof(&proof(BROKEN_PROOF), &session_inputs()).is_err());
