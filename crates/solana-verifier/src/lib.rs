@@ -7,17 +7,19 @@
 use std::str::FromStr;
 
 use groth16_solana::{
-    decompression::{decompress_g1, decompress_g2},
     errors::Groth16Error,
     groth16::{Groth16Verifier, Groth16Verifyingkey},
 };
 use num_bigint::BigUint;
-use solana_bn254::prelude::alt_bn128_multiplication;
 
-const BN254_SCALAR_FIELD_MINUS_ONE_HEX: &str =
-    "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000";
 const BN254_BASE_FIELD_HEX: &str =
     "30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47";
+const FRACTION_1_2_FP_HEX: &str =
+    "183227397098d014dc2822db40c0ac2ecbc0b548b438e5469e10460b6c3e7ea4";
+const FRACTION_27_82_FP_HEX: &str =
+    "2b149d40ceb8aaae81be18991be06ac3b5b4c5e559dbefa33267e6dc24a138e5";
+const FRACTION_3_82_FP_HEX: &str =
+    "2fcd3ac2a640a154eb23960892a85a68f031ca0c8344b23a577dcf1052b9e775";
 
 const ALPHA_X: &str =
     "16428432848801857252194528405604668803277877773566238944394625302971855135431";
@@ -189,67 +191,19 @@ fn verify_uncompressed_proof_with_vk_sign(
 
 /// Verifies the current Solidity-friendly compressed proof layout.
 ///
-/// This is a compatibility adapter for Phase 0. It converts Solidity's packed
-/// low-bit point representation into Solana/ark compressed points, delegates
-/// decompression to `groth16-solana`, then delegates verification to the same
-/// Solana verifier path as [`verify_uncompressed_proof`].
+/// This follows the exact packing used by `Verifier.sol`: `A` and `C` are G1
+/// points encoded as `(x << 1) | sign`, while `B` is a G2 point encoded as
+/// `[(x1), (x0 << 2) | hint | sign]` in the proof array. After decoding, Groth16
+/// verification is still delegated to `groth16-solana`.
 pub fn verify_solidity_compressed_proof(
     compressed_proof: &[[u8; 32]; 4],
     public_inputs: &[[u8; 32]; 15],
 ) -> Result<(), Error> {
-    let mut last_error = Error::Decompression;
+    let proof_a = decompress_solidity_g1(&compressed_proof[0])?;
+    let proof_b = decompress_solidity_g2(&compressed_proof[2], &compressed_proof[1])?;
+    let proof_c = decompress_solidity_g1(&compressed_proof[3])?;
 
-    for a_negative in [false, true] {
-        for b_negative in [false, true] {
-            for c_negative in [false, true] {
-                for g2_x1_first in [false, true] {
-                    for negate_a in [false, true] {
-                        for use_negative_g2_vk in [false, true] {
-                            let Ok(proof_a) =
-                                decompress_solidity_g1(&compressed_proof[0], a_negative)
-                            else {
-                                continue;
-                            };
-                            let Ok(proof_b) = decompress_solidity_g2(
-                                &compressed_proof[2],
-                                &compressed_proof[1],
-                                b_negative,
-                                g2_x1_first,
-                            ) else {
-                                continue;
-                            };
-                            let Ok(proof_c) =
-                                decompress_solidity_g1(&compressed_proof[3], c_negative)
-                            else {
-                                continue;
-                            };
-                            let proof_a_for_pairing = if negate_a {
-                                let Ok(proof_a_neg) = negate_g1(&proof_a) else {
-                                    continue;
-                                };
-                                proof_a_neg
-                            } else {
-                                proof_a
-                            };
-
-                            match verify_uncompressed_proof_with_vk_sign(
-                                &proof_a_for_pairing,
-                                &proof_b,
-                                &proof_c,
-                                public_inputs,
-                                use_negative_g2_vk,
-                            ) {
-                                Ok(()) => return Ok(()),
-                                Err(error) => last_error = error,
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Err(last_error)
+    verify_uncompressed_proof_with_vk_sign(&proof_a, &proof_b, &proof_c, public_inputs, true)
 }
 
 /// Converts a 32-byte hexadecimal string into a big-endian field element.
@@ -313,50 +267,62 @@ fn signed_g2(
     Ok(out)
 }
 
-fn decompress_solidity_g1(word: &[u8; 32], y_negative: bool) -> Result<[u8; 64], Error> {
+fn decompress_solidity_g1(word: &[u8; 32]) -> Result<[u8; 64], Error> {
     let c = BigUint::from_bytes_be(word);
+    if c == BigUint::from(0u8) {
+        return Ok([0u8; 64]);
+    }
+
+    let negate_point = word[31] & 1 == 1;
     let x = c >> 1usize;
-    let mut compressed = biguint_word(&x);
-    if y_negative {
-        compressed[0] |= 0x80;
+    if x >= fp_modulus()? {
+        return Err(Error::Decompression);
     }
-    decompress_g1(&compressed).map_err(|_| Error::Decompression)
+
+    let y2 = fp_add(&fp_mul(&fp_mul(&x, &x)?, &x)?, &BigUint::from(3u8))?;
+    let mut y = fp_sqrt(&y2)?;
+    if negate_point {
+        y = fp_neg(&y)?;
+    }
+
+    Ok(g1_from_xy(&x, &y))
 }
 
-fn decompress_solidity_g2(
-    c0_word: &[u8; 32],
-    c1_word: &[u8; 32],
-    y_negative: bool,
-    x1_first: bool,
-) -> Result<[u8; 128], Error> {
+fn decompress_solidity_g2(c0_word: &[u8; 32], c1_word: &[u8; 32]) -> Result<[u8; 128], Error> {
+    if c0_word.iter().all(|byte| *byte == 0) && c1_word.iter().all(|byte| *byte == 0) {
+        return Ok([0u8; 128]);
+    }
+
     let c0 = BigUint::from_bytes_be(c0_word);
+    let negate_point = c0_word[31] & 1 == 1;
+    let hint = c0_word[31] & 2 == 2;
     let x0 = c0 >> 2usize;
-
-    let mut compressed = [0u8; 64];
-    if x1_first {
-        compressed[..32].copy_from_slice(c1_word);
-        compressed[32..].copy_from_slice(&biguint_word(&x0));
-    } else {
-        compressed[..32].copy_from_slice(&biguint_word(&x0));
-        compressed[32..].copy_from_slice(c1_word);
-    }
-    if y_negative {
-        compressed[0] |= 0x80;
+    let x1 = BigUint::from_bytes_be(c1_word);
+    let p = fp_modulus()?;
+    if x0 >= p || x1 >= p {
+        return Err(Error::Decompression);
     }
 
-    decompress_g2(&compressed).map_err(|_| Error::Decompression)
-}
+    let n3ab = fp_mul(&fp_mul(&x0, &x1)?, &(&fp_modulus()? - BigUint::from(3u8)))?;
+    let x0_3 = fp_mul(&fp_mul(&x0, &x0)?, &x0)?;
+    let x1_3 = fp_mul(&fp_mul(&x1, &x1)?, &x1)?;
 
-fn negate_g1(point: &[u8; 64]) -> Result<[u8; 64], Error> {
-    let scalar = hex_word(BN254_SCALAR_FIELD_MINUS_ONE_HEX)?;
-    let mut input = [0u8; 96];
-    input[..64].copy_from_slice(point);
-    input[64..].copy_from_slice(&scalar);
+    let y0 = fp_add(
+        &hex_biguint(FRACTION_27_82_FP_HEX)?,
+        &fp_add(&x0_3, &fp_mul(&n3ab, &x1)?)?,
+    )?;
+    let y1 = fp_neg(&fp_add(
+        &hex_biguint(FRACTION_3_82_FP_HEX)?,
+        &fp_add(&x1_3, &fp_mul(&n3ab, &x0)?)?,
+    )?)?;
 
-    alt_bn128_multiplication(&input)
-        .map_err(|_| Error::Bn254Operation)?
-        .try_into()
-        .map_err(|_| Error::Bn254Operation)
+    let (mut y0, mut y1) = fp2_sqrt(&y0, &y1, hint)?;
+    if negate_point {
+        y0 = fp_neg(&y0)?;
+        y1 = fp_neg(&y1)?;
+    }
+
+    Ok(g2_from_xy(&x0, &x1, &y0, &y1))
 }
 
 fn positive_from_negative_fp(value: &str) -> Result<BigUint, Error> {
@@ -376,6 +342,87 @@ fn decimal_word(value: &str) -> Result<[u8; 32], Error> {
 
 fn decimal_biguint(value: &str) -> Result<BigUint, Error> {
     BigUint::from_str(value).map_err(|_| Error::InvalidInteger)
+}
+
+fn hex_biguint(value: &str) -> Result<BigUint, Error> {
+    BigUint::parse_bytes(value.as_bytes(), 16).ok_or(Error::InvalidInteger)
+}
+
+fn fp_modulus() -> Result<BigUint, Error> {
+    hex_biguint(BN254_BASE_FIELD_HEX)
+}
+
+fn fp_add(a: &BigUint, b: &BigUint) -> Result<BigUint, Error> {
+    Ok((a + b) % fp_modulus()?)
+}
+
+fn fp_mul(a: &BigUint, b: &BigUint) -> Result<BigUint, Error> {
+    Ok((a * b) % fp_modulus()?)
+}
+
+fn fp_neg(a: &BigUint) -> Result<BigUint, Error> {
+    let p = fp_modulus()?;
+    Ok((&p - (a % &p)) % p)
+}
+
+fn fp_inv(a: &BigUint) -> Result<BigUint, Error> {
+    let p = fp_modulus()?;
+    let inverse = a.modpow(&(&p - BigUint::from(2u8)), &p);
+    if fp_mul(a, &inverse)? != BigUint::from(1u8) {
+        return Err(Error::Decompression);
+    }
+    Ok(inverse)
+}
+
+fn fp_sqrt(a: &BigUint) -> Result<BigUint, Error> {
+    let p = fp_modulus()?;
+    if a >= &p {
+        return Err(Error::Decompression);
+    }
+
+    let root = a.modpow(&((&p + BigUint::from(1u8)) >> 2usize), &p);
+    if fp_mul(&root, &root)? != *a {
+        return Err(Error::Decompression);
+    }
+    Ok(root)
+}
+
+fn fp2_sqrt(a0: &BigUint, a1: &BigUint, hint: bool) -> Result<(BigUint, BigUint), Error> {
+    let norm = fp_add(&fp_mul(a0, a0)?, &fp_mul(a1, a1)?)?;
+    let mut d = fp_sqrt(&norm)?;
+    if hint {
+        d = fp_neg(&d)?;
+    }
+
+    let x0 = fp_sqrt(&fp_mul(
+        &fp_add(a0, &d)?,
+        &hex_biguint(FRACTION_1_2_FP_HEX)?,
+    )?)?;
+    let x1 = fp_mul(a1, &fp_inv(&fp_mul(&x0, &BigUint::from(2u8))?)?)?;
+
+    let square_real = fp_add(&fp_mul(&x0, &x0)?, &fp_neg(&fp_mul(&x1, &x1)?)?)?;
+    let square_imag = fp_mul(&BigUint::from(2u8), &fp_mul(&x0, &x1)?)?;
+    if square_real != *a0 || square_imag != *a1 {
+        return Err(Error::Decompression);
+    }
+
+    Ok((x0, x1))
+}
+
+fn g1_from_xy(x: &BigUint, y: &BigUint) -> [u8; 64] {
+    let mut out = [0u8; 64];
+    out[..32].copy_from_slice(&biguint_word(x));
+    out[32..].copy_from_slice(&biguint_word(y));
+    out
+}
+
+fn g2_from_xy(x0: &BigUint, x1: &BigUint, y0: &BigUint, y1: &BigUint) -> [u8; 128] {
+    let mut out = [0u8; 128];
+    out[..32].copy_from_slice(&biguint_word(x1));
+    out[32..64].copy_from_slice(&biguint_word(x0));
+    out[64..96].copy_from_slice(&biguint_word(y1));
+    out[96..].copy_from_slice(&biguint_word(y0));
+    out
 }
 
 fn biguint_word(value: &BigUint) -> [u8; 32] {
