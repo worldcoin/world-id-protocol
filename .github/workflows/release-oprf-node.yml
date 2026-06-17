@@ -1,7 +1,9 @@
 name: Release OPRF Node
 
 on:
-  push:
+  pull_request:
+    types:
+      - closed
     branches:
       - main
 
@@ -11,6 +13,9 @@ permissions:
 jobs:
   release:
     name: Release OPRF Node
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.ref == 'release-please--branches--main--components--world-id-oprf-node'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -24,8 +29,9 @@ jobs:
         uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          config-file: services/oprf-node/release-please-config.json
-          manifest-file: services/oprf-node/.release-please-manifest.json
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          target-branch: main
 
   build-docker:
     name: Build Docker
