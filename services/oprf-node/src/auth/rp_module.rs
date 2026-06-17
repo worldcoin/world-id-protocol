@@ -355,7 +355,7 @@ impl RpModuleAuth {
             .add_nonce(FieldElement::from(request.auth.nonce), nonce_scope)
             .await?;
 
-        tracing::trace!("RP signature authentication successful!");
+        tracing::trace!("RP signature authentication successful");
         Ok(rp.oprf_key_id)
     }
 

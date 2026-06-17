@@ -24,8 +24,8 @@ jobs:
         uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          config-file: services/oprf-node/release-please-config.json
-          manifest-file: services/oprf-node/.release-please-manifest.json
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
 
   build-docker:
     name: Build Docker
