@@ -14,39 +14,18 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     outputs:
-      released: ${{ steps.release-plz.outputs.releases_created }}
-      version: ${{ steps.version.outputs.value }}
+      released: ${{ steps.release.outputs['services/oprf-node--release_created'] }}
+      version: ${{ steps.release.outputs['services/oprf-node--version'] }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - name: Run release-please release
+        id: release
+        uses: googleapis/release-please-action@v4
         with:
-          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
-        with:
-          toolchain: stable
-
-      - name: Run release-plz release
-        id: release-plz
-        uses: release-plz/action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5.128 (https://github.com/release-plz/action/releases/tag/v0.5.128)
-        with:
-          command: release
-          config: services/oprf-node/release-plz.toml
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Derive image version
-        if: steps.release-plz.outputs.releases_created == 'true'
-        id: version
-        run: |
-          set -euo pipefail
-          version="$(cargo metadata --format-version 1 --no-deps \
-            --manifest-path services/oprf-node/Cargo.toml \
-            | jq -er '.packages[] | select(.name == "world-id-oprf-node") | .version')"
-          echo "value=v$version" >> "$GITHUB_OUTPUT"
+          config-file: services/oprf-node/release-please-config.json
+          manifest-file: services/oprf-node/.release-please-manifest.json
 
   build-docker:
     name: Build Docker
@@ -60,5 +39,5 @@ jobs:
     uses: ./.github/workflows/build-docker.yml
     with:
       service: oprf-node
-      version: ${{ needs.release.outputs.version }}
+      version: v${{ needs.release.outputs.version }}
     secrets: inherit

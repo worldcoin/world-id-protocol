@@ -12,21 +12,10 @@ jobs:
     name: Prepare OPRF Node Release
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - name: Run release-please release-pr
+        uses: googleapis/release-please-action@v4
         with:
-          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
-        with:
-          toolchain: stable
-
-      - name: Run release-plz release-pr
-        uses: release-plz/action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5.128 (https://github.com/release-plz/action/releases/tag/v0.5.128)
-        with:
-          command: release-pr
-          config: services/oprf-node/release-plz.toml
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          config-file: services/oprf-node/release-please-config.json
+          manifest-file: services/oprf-node/.release-please-manifest.json
+          skip-github-release: true
