@@ -16453,6 +16453,7 @@ dependencies = [
  "world-id-primitives",
  "world-id-relay",
  "world-id-solana-satellite",
+ "world-id-solana-verifier",
  "world-id-test-utils",
 ]
 
