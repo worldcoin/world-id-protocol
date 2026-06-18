@@ -761,10 +761,29 @@ where
                     event_type,
                     leaf_index,
                     event_data
-                FROM world_id_registry_events
-                WHERE
-                    (block_number = $1 AND log_index > $2)
-                    OR block_number > $1
+                FROM (
+                    SELECT
+                        block_number,
+                        log_index,
+                        block_hash,
+                        tx_hash,
+                        event_type,
+                        leaf_index,
+                        event_data
+                    FROM world_id_registry_events
+                    WHERE block_number = $1 AND log_index > $2
+                    UNION ALL
+                    SELECT
+                        block_number,
+                        log_index,
+                        block_hash,
+                        tx_hash,
+                        event_type,
+                        leaf_index,
+                        event_data
+                    FROM world_id_registry_events
+                    WHERE block_number > $1
+                ) sub
                 ORDER BY
                     block_number ASC,
                     log_index ASC
