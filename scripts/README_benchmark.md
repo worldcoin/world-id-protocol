@@ -15,6 +15,19 @@ which introduces index and query changes to improve paginated event fetches.
 Queries 2 and 3 are the before/after versions of the same logical query, so their results
 can be directly compared.
 
+## Seeding test data
+
+Before running the benchmark you need data in the `world_id_registry_events` table.
+The seed script inserts ~10,000 realistic rows (a mix of `root_recorded` and
+`identity_updated` events with deterministic hashes and JSONB payloads):
+
+```bash
+DATABASE_URL='postgres://user:pass@host:5432/dbname' ./scripts/seed_benchmark_db.sh
+```
+
+If the table already contains data the script will ask whether to truncate first.
+Re-running is safe — it uses `ON CONFLICT DO NOTHING`.
+
 ## Prerequisites
 
 - `psql` installed and on `$PATH`
