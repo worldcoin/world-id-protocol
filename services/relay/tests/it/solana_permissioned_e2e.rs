@@ -107,7 +107,7 @@ fn e2e_solana_permissioned_replays_commitment_on_local_svm() -> Result<()> {
     let program_so = satellite_program_so();
     if !program_so.exists() {
         eprintln!(
-            "skipping Solana LiteSVM E2E; build {} first",
+            "skipping Solana LiteSVM E2E; build {} first with `cargo build-sbf --manifest-path crates/solana-satellite/Cargo.toml --sbf-out-dir target/deploy`",
             program_so.display()
         );
         return Ok(());
