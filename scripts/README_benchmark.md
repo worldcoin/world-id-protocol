@@ -15,42 +15,61 @@ which introduces index and query changes to improve paginated event fetches.
 Queries 2 and 3 are the before/after versions of the same logical query, so their results
 can be directly compared.
 
-## Seeding test data
+## Full benchmark workflow
 
-Before running the benchmark you need data in the `world_id_registry_events` table.
-The seed script inserts ~10,000 realistic rows (a mix of `root_recorded` and
-`identity_updated` events with deterministic hashes and JSONB payloads):
+### 1. Start Postgres and run migrations
 
 ```bash
-DATABASE_URL='postgres://user:pass@host:5432/dbname' ./scripts/seed_benchmark_db.sh
+docker compose -f docker-compose.benchmark.yml up --abort-on-container-exit migrate
 ```
 
+This starts a fresh Postgres container, waits for it to be healthy, and applies every
+SQL file under `services/indexer/migrations/` in order. No `sqlx-cli` or Rust toolchain
+required.
+
+### 2. Seed the database
+
+```bash
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/indexer_tests \
+  ./scripts/seed_benchmark_db.sh
+```
+
+The seed script inserts ~10,000 realistic rows (a mix of `root_recorded` and
+`identity_updated` events with deterministic hashes and JSONB payloads).
 If the table already contains data the script will ask whether to truncate first.
 Re-running is safe — it uses `ON CONFLICT DO NOTHING`.
 
-## Prerequisites
-
-- `psql` installed and on `$PATH`
-- Access to a Postgres database with a populated `world_id_registry_events` table
-  (local or staging)
-
-## Usage
+### 3. Run the benchmark (on main branch first)
 
 ```bash
-DATABASE_URL='postgres://user:pass@host:5432/dbname' ./scripts/benchmark_slow_queries.sh
+git checkout main
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/indexer_tests \
+  ./scripts/benchmark_slow_queries.sh
 ```
 
-Each query is run 5 times with `EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)`.
-Results are written to `benchmarks/results_<ISO_TIMESTAMP>.txt`.
-
-## Comparing branches
-
-1. Checkout `main`, run the script, note the output file path.
-2. Checkout the PR branch (or apply the index/query changes), run the script again.
-3. Diff the two result files:
+### 4. Run the benchmark on the PR branch
 
 ```bash
-diff benchmarks/results_<main_timestamp>.txt benchmarks/results_<pr_timestamp>.txt
+git checkout fix/slow-queries-world-id-registry-events
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/indexer_tests \
+  ./scripts/benchmark_slow_queries.sh
+```
+
+### 5. Compare results
+
+```bash
+diff benchmarks/results_<main_ts>.txt benchmarks/results_<pr_ts>.txt
 ```
 
 Or compare the summary lines at the bottom of each file for a quick glance.
+
+### Teardown
+
+```bash
+docker compose -f docker-compose.benchmark.yml down -v
+```
+
+## Prerequisites
+
+- Docker (with Compose v2)
+- `psql` installed and on `$PATH` (for the seed and benchmark scripts)

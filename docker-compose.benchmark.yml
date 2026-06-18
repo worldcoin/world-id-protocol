@@ -1,0 +1,34 @@
+name: world-id-protocol-benchmark
+
+services:
+  postgres:
+    image: public.ecr.aws/docker/library/postgres:latest
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: indexer_tests
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: public.ecr.aws/docker/library/postgres:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: postgres
+    volumes:
+      - ./services/indexer/migrations:/migrations
+    command: >
+      bash -c "
+        for f in /migrations/*.sql; do
+          echo \"Applying $$f ...\" &&
+          psql -h postgres -U postgres -d indexer_tests -f \"$$f\" || exit 1
+        done &&
+        echo 'Migrations complete.'
+      "
+    restart: "no"
