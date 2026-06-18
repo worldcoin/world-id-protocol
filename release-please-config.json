@@ -8,5 +8,10 @@
     }
   },
   "include-component-in-tag": true,
-  "separate-pull-requests": true
+  "separate-pull-requests": true,
+  "plugins": [
+        {
+            "type": "cargo-workspace"
+        }
+    ]
 }
