@@ -1,4 +1,4 @@
--- no-transaction
+-- !no-transaction
 -- Partial expression index for root lookup
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_world_id_registry_events_root
     ON world_id_registry_events ((event_data->>'root'))
