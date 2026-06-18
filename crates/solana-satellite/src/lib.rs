@@ -49,6 +49,7 @@ pub mod world_id_solana_satellite {
         config.tree_depth = tree_depth;
         config.min_expiration_threshold = min_expiration_threshold;
         config.latest_root = [0u8; 32];
+        config.latest_chain_head = [0u8; 32];
         config.bump = ctx.bumps.config;
 
         Ok(())
@@ -58,6 +59,13 @@ pub mod world_id_solana_satellite {
     pub fn set_gateway(ctx: Context<SetGateway>, gateway: Pubkey) -> Result<()> {
         require!(gateway != Pubkey::default(), SatelliteError::ZeroPubkey);
         ctx.accounts.config.gateway = gateway;
+        Ok(())
+    }
+
+    /// Records the latest bridged World Chain keccak head.
+    pub fn set_chain_head(ctx: Context<GatewaySetChainHead>, chain_head: [u8; 32]) -> Result<()> {
+        require!(chain_head != [0u8; 32], SatelliteError::InvalidChainHead);
+        ctx.accounts.config.latest_chain_head = chain_head;
         Ok(())
     }
 
@@ -338,6 +346,16 @@ pub struct GatewayUpdateRoot<'info> {
     pub system_program: Program<'info, System>,
 }
 
+/// Gateway chain-head update accounts.
+#[derive(Accounts)]
+pub struct GatewaySetChainHead<'info> {
+    /// Satellite configuration PDA.
+    #[account(mut, seeds = [CONFIG_SEED], bump = config.bump, has_one = gateway)]
+    pub config: Account<'info, Config>,
+    /// Permissioned gateway signer.
+    pub gateway: Signer<'info>,
+}
+
 /// Gateway issuer key update accounts.
 #[derive(Accounts)]
 #[instruction(issuer_schema_id: u64)]
@@ -413,13 +431,15 @@ pub struct Config {
     pub min_expiration_threshold: i64,
     /// Latest bridged root.
     pub latest_root: [u8; 32],
+    /// Latest bridged World Chain keccak head.
+    pub latest_chain_head: [u8; 32],
     /// Config PDA bump.
     pub bump: u8,
 }
 
 impl Config {
     /// Serialized account size.
-    pub const SPACE: usize = 8 + 32 + 32 + 8 + 8 + 8 + 32 + 1;
+    pub const SPACE: usize = 8 + 32 + 32 + 8 + 8 + 8 + 32 + 32 + 1;
 }
 
 /// Bridged root metadata.
@@ -574,6 +594,9 @@ pub enum SatelliteError {
     /// State account does not match the expected PDA or config.
     #[msg("invalid state account")]
     InvalidStateAccount,
+    /// Chain head cannot be zero.
+    #[msg("invalid chain head")]
+    InvalidChainHead,
 }
 
 #[cfg(test)]

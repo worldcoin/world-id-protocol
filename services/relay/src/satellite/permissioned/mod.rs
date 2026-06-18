@@ -1,7 +1,9 @@
 mod default;
+pub mod solana;
 pub mod tempo;
 
 pub use default::PermissionedSatellite;
+pub use solana::SolanaPermissionedSatellite;
 pub use tempo::TempoSatellite;
 
 use alloy::{
