@@ -117,6 +117,13 @@ interface IWorldIDRegistryV2 is IWorldIDRegistry {
      */
     function revertRecoveryAgentUpdate(uint64 leafIndex, bytes memory signature, uint256 nonce) external;
 
+    /**
+     * @dev Migrates a pending V1 Recovery Agent update into V2's immediate-update/revert-window model.
+     *      Preserves the original V1 `executeAfter` timestamp as V2's `invalidAfter`.
+     * @param leafIndex The leaf index whose legacy pending update should be migrated.
+     */
+    function migrateLegacyRecoveryAgentUpdate(uint64 leafIndex) external;
+
     ////////////////////////////////////////////////////////////
     //                    VIEW FUNCTIONS                      //
     ////////////////////////////////////////////////////////////
