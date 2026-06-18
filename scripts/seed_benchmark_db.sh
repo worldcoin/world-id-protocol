@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Seed the world_id_registry_events table with realistic benchmark data.
-# Generates ~1,000,000 rows using 8 batched SQL statements with generate_series.
+# Generates ~10,000,000 rows using 80 batched SQL statements with generate_series.
 #
 # Usage: DATABASE_URL=postgres://... ./scripts/seed_benchmark_db.sh
 #
@@ -39,10 +39,10 @@ if [[ "$EXISTING" -gt 0 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Seed data  (8 batches of ~125,000 rows each ≈ 1,000,000 rows total)
+# 3. Seed data  (80 batches of ~125,000 rows each ≈ 10,000,000 rows total)
 # ---------------------------------------------------------------------------
-# We generate ~1,000,000 rows spread across 8 batches:
-#   - ~400,000 blocks in range [1_000_000 .. 1_479_999]
+# We generate ~10,000,000 rows spread across 80 batches:
+#   - ~4,000,000 blocks in range [1_000_000 .. 5_799_999]
 #   - ~2.5 log entries per block on average (1..4 via deterministic hash)
 #   - ~40% root_recorded, ~60% identity_updated
 #
@@ -50,8 +50,8 @@ fi
 # (~83% pass the hashtext % 6 <> 0 filter) → ~125,000 rows per batch.
 # Batching avoids materialising the full result set in one shot.
 
-# Total series length: 8 × 60,000 = 480,000 → ~400,000 blocks → ~1,000,000 rows
-TOTAL_BATCHES=8
+# Total series length: 80 × 60,000 = 4,800,000 → ~4,000,000 blocks → ~10,000,000 rows
+TOTAL_BATCHES=80
 BATCH_SIZE=60000
 
 echo ""
