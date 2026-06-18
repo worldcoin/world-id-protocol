@@ -64,6 +64,8 @@ ark-ff = "0.5"
 ark-groth16 = "0.5"
 ark-serialize = "0.5"
 anchor-lang = "1.0.2"
+anchor-client = "1.0.2"
+anchor-litesvm = "0.4.0"
 backon = "1"
 base64 = "0.22"
 circom-types = { package = "taceo-circom-types", version = "0.2", default-features = false }
@@ -91,6 +93,7 @@ semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha3 = { version = "0.10", default-features = false }
+solana-keypair = "3.0.1"
 strum = { version = "0.27", features = ["derive"] }
 thiserror = "2"
 tokio = { version = "1", default-features = false }

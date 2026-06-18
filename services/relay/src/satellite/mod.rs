@@ -2,7 +2,7 @@ mod ethereum_mpt;
 pub mod permissioned;
 
 pub use ethereum_mpt::EthereumMptSatellite;
-pub use permissioned::{PermissionedSatellite, TempoSatellite};
+pub use permissioned::{PermissionedSatellite, SolanaPermissionedSatellite, TempoSatellite};
 use tracing::Instrument;
 
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};

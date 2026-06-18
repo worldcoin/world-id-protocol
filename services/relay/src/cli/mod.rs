@@ -1,7 +1,9 @@
-use std::sync::Arc;
+use std::{io::Cursor, path::Path, str::FromStr, sync::Arc};
 
+use anchor_client::anchor_lang::prelude::Pubkey as SolanaPubkey;
 use eyre::Result;
 use serde::Deserialize;
+use solana_keypair::{Keypair, Signer, read_keypair, read_keypair_file};
 
 use alloy::{
     network::EthereumWallet,
@@ -21,7 +23,7 @@ use crate::{
     log::CommitmentLog,
     metrics as relay_metrics,
     satellite::{
-        EthereumMptSatellite, PermissionedSatellite, TempoSatellite,
+        EthereumMptSatellite, PermissionedSatellite, SolanaPermissionedSatellite, TempoSatellite,
         permissioned::tempo::FEE_TOKEN as TEMPO_FEE_TOKEN,
     },
 };
@@ -95,6 +97,13 @@ pub struct Cli {
 ///       "chain_type": "tempo"
 ///     }
 ///   ],
+///   "solana_permissioned_gateways": [
+///     {
+///       "name": "SOLANA_LOCALNET",
+///       "destination_chain_id": 1337,
+///       "program_id": "BxHvVSWUkStm7RsKySrzyGWV85PNF8TsGTsPEQ3PsVfK"
+///     }
+///   ],
 ///   "ethereum_mpt_gateways": [
 ///     {
 ///       "name": "SEPOLIA",
@@ -120,6 +129,10 @@ pub struct RelayConfig {
     /// Ethereum MPT gateway satellites (OP Stack dispute game + MPT proofs).
     #[serde(default)]
     pub ethereum_mpt_gateways: Option<Vec<EthereumMptGatewayConfig>>,
+
+    /// Solana permissioned gateway satellites.
+    #[serde(default)]
+    pub solana_permissioned_gateways: Option<Vec<SolanaPermissionedGatewayConfig>>,
 }
 
 /// World Chain source configuration.
@@ -206,6 +219,24 @@ pub struct PermissionedGatewayConfig {
     pub chain_type: ChainType,
 }
 
+/// Configuration for a Solana permissioned gateway satellite.
+///
+/// The RPC endpoint is read from `{NAME}_RPC_URL`. The gateway signer keypair
+/// is read from `{NAME}_KEYPAIR` as either a Solana JSON keypair file path, a
+/// JSON keypair string, or a base58-encoded keypair.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SolanaPermissionedGatewayConfig {
+    /// Satellite identifier, also used to derive RPC and keypair env vars.
+    pub name: String,
+
+    /// Destination chain ID used for relay metrics and logs.
+    pub destination_chain_id: u64,
+
+    /// Anchor program id. Defaults to the workspace satellite program id.
+    #[serde(default)]
+    pub program_id: Option<String>,
+}
+
 /// Configuration for an Ethereum MPT gateway satellite.
 ///
 /// Uses OP Stack dispute game + MPT storage proofs to bridge state to L1.
@@ -266,10 +297,55 @@ fn rpc_url_from_env(env_var: &str) -> eyre::Result<String> {
     })
 }
 
+fn solana_keypair_from_env(env_var: &str) -> eyre::Result<Keypair> {
+    let raw = std::env::var(env_var).map_err(|_| {
+        eyre::eyre!(
+            "{env_var} env var is required but not set — \
+             set it to a Solana keypair JSON file path, JSON array, or base58 keypair"
+        )
+    })?;
+    let trimmed = raw.trim();
+
+    if trimmed.starts_with('[') {
+        let mut reader = Cursor::new(trimmed.as_bytes());
+        return read_keypair(&mut reader)
+            .map_err(|e| eyre::eyre!("failed to parse {env_var} JSON keypair: {e}"));
+    }
+
+    if Path::new(trimmed).exists() {
+        return read_keypair_file(trimmed)
+            .map_err(|e| eyre::eyre!("failed to read {env_var} keypair file: {e}"));
+    }
+
+    std::panic::catch_unwind(|| Keypair::from_base58_string(trimmed))
+        .map_err(|_| eyre::eyre!("failed to parse {env_var} as a base58 Solana keypair"))
+}
+
 impl PermissionedGatewayConfig {
     /// Returns the env var name that supplies this satellite's RPC URL.
     pub fn rpc_env_var(&self) -> String {
         format!("{}_RPC_URL", self.name.to_uppercase())
+    }
+}
+
+impl SolanaPermissionedGatewayConfig {
+    /// Returns the env var name that supplies this satellite's RPC URL.
+    pub fn rpc_env_var(&self) -> String {
+        format!("{}_RPC_URL", self.name.to_uppercase())
+    }
+
+    /// Returns the env var name that supplies this satellite's gateway keypair.
+    pub fn keypair_env_var(&self) -> String {
+        format!("{}_KEYPAIR", self.name.to_uppercase())
+    }
+
+    /// Returns the configured program id, or the local satellite program id.
+    pub fn program_pubkey(&self) -> Result<SolanaPubkey> {
+        match &self.program_id {
+            Some(program_id) => SolanaPubkey::from_str(program_id)
+                .map_err(|e| eyre::eyre!("failed to parse Solana program_id: {e}")),
+            None => Ok(world_id_solana_satellite::ID),
+        }
     }
 }
 
@@ -592,6 +668,33 @@ impl Cli {
             );
         }
 
+        // Spawn Solana permissioned gateway satellites.
+        for sat_config in config.solana_permissioned_gateways.iter().flatten() {
+            let rpc_url = rpc_url_from_env(&sat_config.rpc_env_var())?;
+            let gateway_keypair = solana_keypair_from_env(&sat_config.keypair_env_var())?;
+            let gateway = gateway_keypair.pubkey();
+            let program_id = sat_config.program_pubkey()?;
+
+            let satellite = SolanaPermissionedSatellite::new(
+                &sat_config.name,
+                sat_config.destination_chain_id,
+                &rpc_url,
+                program_id,
+                gateway_keypair,
+            )?;
+            engine.spawn_satellite(satellite);
+            satellite_count += 1;
+
+            tracing::info!(
+                name = %sat_config.name,
+                adapter = "solana_permissioned",
+                chain_id = sat_config.destination_chain_id,
+                %program_id,
+                %gateway,
+                "registered Solana permissioned satellite"
+            );
+        }
+
         // Spawn Ethereum MPT gateway satellites.
         for sat_config in config.ethereum_mpt_gateways.iter().flatten() {
             let provider = Arc::new(satellite_provider(&sat_config.name, &wallet).await?);
@@ -693,6 +796,13 @@ mod tests {
                     "satellite": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                     "chain_type": "tempo"
                 }
+            ],
+            "solana_permissioned_gateways": [
+                {
+                    "name": "SOLANA_LOCALNET",
+                    "destination_chain_id": 1337,
+                    "program_id": "BxHvVSWUkStm7RsKySrzyGWV85PNF8TsGTsPEQ3PsVfK"
+                }
             ]
         }"#;
 
@@ -725,6 +835,16 @@ mod tests {
         assert_eq!(perm[1].rpc_env_var(), "TEMPO_RPC_URL");
         assert_eq!(perm[1].destination_chain_id, 12345);
         assert_eq!(perm[1].chain_type, ChainType::Tempo);
+
+        let solana = config.solana_permissioned_gateways.as_ref().unwrap();
+        assert_eq!(solana.len(), 1);
+        assert_eq!(solana[0].name, "SOLANA_LOCALNET");
+        assert_eq!(solana[0].rpc_env_var(), "SOLANA_LOCALNET_RPC_URL");
+        assert_eq!(solana[0].keypair_env_var(), "SOLANA_LOCALNET_KEYPAIR");
+        assert_eq!(
+            solana[0].program_pubkey().unwrap(),
+            world_id_solana_satellite::ID
+        );
     }
 
     #[test]
@@ -743,5 +863,6 @@ mod tests {
         assert_eq!(config.source.bridge_interval_secs, 3600);
         assert!(config.permissioned_gateways.is_none());
         assert!(config.ethereum_mpt_gateways.is_none());
+        assert!(config.solana_permissioned_gateways.is_none());
     }
 }
