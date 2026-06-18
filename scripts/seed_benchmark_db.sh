@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Seed the world_id_registry_events table with realistic benchmark data.
-# Generates ~10,000+ rows using a single SQL statement with generate_series.
+# Generates ~1,000,000 rows using 8 batched SQL statements with generate_series.
 #
 # Usage: DATABASE_URL=postgres://... ./scripts/seed_benchmark_db.sh
 #
@@ -39,20 +39,31 @@ if [[ "$EXISTING" -gt 0 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Seed data
+# 3. Seed data  (8 batches of ~125,000 rows each ≈ 1,000,000 rows total)
 # ---------------------------------------------------------------------------
-echo ""
-echo "Inserting benchmark rows..."
-
-# We generate ~10,000 rows:
-#   - 5,000 blocks in range [1_000_000 .. 1_004_999]
-#   - ~2 log entries per block on average (0..3 via random)
+# We generate ~1,000,000 rows spread across 8 batches:
+#   - ~400,000 blocks in range [1_000_000 .. 1_479_999]
+#   - ~2.5 log entries per block on average (1..4 via deterministic hash)
 #   - ~40% root_recorded, ~60% identity_updated
 #
-# Using a single INSERT ... SELECT for maximum performance.
+# Each batch covers 60,000 values in generate_series → ~50,000 blocks kept
+# (~83% pass the hashtext % 6 <> 0 filter) → ~125,000 rows per batch.
+# Batching avoids materialising the full result set in one shot.
 
-psql "$DB_URL" -X -e <<'SEED_SQL'
--- Use a CTE to generate candidate rows, then insert.
+# Total series length: 8 × 60,000 = 480,000 → ~400,000 blocks → ~1,000,000 rows
+TOTAL_BATCHES=8
+BATCH_SIZE=60000
+
+echo ""
+echo "Inserting benchmark rows in ${TOTAL_BATCHES} batches of ~${BATCH_SIZE} series values each..."
+
+for (( BATCH=0; BATCH<TOTAL_BATCHES; BATCH++ )); do
+  SERIES_START=$(( BATCH * BATCH_SIZE ))
+  SERIES_END=$(( SERIES_START + BATCH_SIZE - 1 ))
+  echo "  Batch $((BATCH + 1))/${TOTAL_BATCHES}: series ${SERIES_START}..${SERIES_END}"
+
+  psql "$DB_URL" -X -e <<SEED_SQL
+-- Batch $((BATCH + 1)) of ${TOTAL_BATCHES}: series ${SERIES_START}..${SERIES_END}
 INSERT INTO world_id_registry_events
   (block_number, log_index, block_hash, tx_hash, event_type, leaf_index, event_data)
 SELECT
@@ -76,7 +87,7 @@ SELECT
       THEN NULL
     ELSE row_number() OVER (
            ORDER BY b.block_number, l.log_index
-         ) - 1  -- 0-based sequential
+         ) - 1  -- 0-based sequential within batch
   END,
   -- event_data: root_recorded gets a root field; others get {}
   CASE
@@ -88,10 +99,10 @@ SELECT
     ELSE '{}'::jsonb
   END
 FROM
-  -- Generate ~5000 blocks (skip some to create gaps)
+  -- ~50,000 blocks per batch (skip some to create gaps)
   (SELECT 1000000 + s AS block_number
-   FROM generate_series(0, 5999) s
-   WHERE hashtext(s::text) % 6 <> 0   -- ~83% of blocks kept ≈ 5000
+   FROM generate_series(${SERIES_START}, ${SERIES_END}) s
+   WHERE hashtext(s::text) % 6 <> 0   -- ~83% of blocks kept ≈ 50,000 per batch
   ) b
   CROSS JOIN LATERAL (
     -- 1–4 log entries per block (deterministic based on block)
@@ -100,6 +111,7 @@ FROM
   ) l
 ON CONFLICT (block_number, log_index) DO NOTHING;
 SEED_SQL
+done
 
 # ---------------------------------------------------------------------------
 # 4. Report
