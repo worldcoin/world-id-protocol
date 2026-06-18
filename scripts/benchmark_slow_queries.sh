@@ -78,8 +78,9 @@ LIMIT 100;"
 # 4. Helper: extract "Execution Time: XX.XXX ms" from EXPLAIN output
 # ---------------------------------------------------------------------------
 extract_exec_time() {
-  # Returns the numeric ms value from the last "Execution Time:" line
-  grep -i 'Execution Time:' <<< "$1" | tail -1 | sed -E 's/.*Execution Time:\s*([0-9.]+)\s*ms.*/\1/'
+  # Returns the numeric ms value from the last "Execution Time:" line.
+  # Uses awk for cross-platform compatibility (BSD awk on macOS doesn't support \s in sed).
+  printf '%s\n' "$1" | awk '/Execution Time:/ {val = $3} END {if (val != "") printf "%.3f", val}'
 }
 
 # ---------------------------------------------------------------------------
