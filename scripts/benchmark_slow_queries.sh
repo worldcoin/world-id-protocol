@@ -4,9 +4,20 @@
 #
 # Performs a full before/after comparison in a single run:
 #   Phase 1 — Drop perf indexes, run "slow" queries (baseline)
-#   Phase 2 — Create perf indexes
+#   Phase 2 — Create perf indexes (from 0002_perf_indexes.sql)
 #   Phase 3 — Run "fast" queries (optimized)
 #   Phase 4 — Print side-by-side comparison
+#
+# Queries benchmarked (both phases):
+#   Query 1 — Root existence check  (benefits from partial expression index)
+#   Query 3 — Insert                (shows index maintenance overhead)
+#
+# NOTE — Query 2 (paginated fetch with OR) was benchmarked during development
+# and found to already be fast (≈0.066 ms) via the primary key on
+# (block_number, log_index).  A UNION ALL rewrite was tested but turned out
+# to be ~6000x SLOWER because it prevents PostgreSQL from doing early
+# termination with LIMIT.  The rewrite was therefore dropped from PR #800 and
+# Query 2 is excluded from this script.
 #
 # Usage: DATABASE_URL=postgres://... ./scripts/benchmark_slow_queries.sh
 #
@@ -43,23 +54,31 @@ GIT_COMMIT="$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo 'unk
 
 # ---------------------------------------------------------------------------
 # 3. Define queries
+#
+#  Only the two queries that are directly affected by the indexes added in
+#  0002_perf_indexes.sql are included:
+#
+#   Query 1 — root_exists()
+#     Partial expression index idx_world_id_registry_events_root turns a full
+#     table seq scan into an index scan on root_recorded rows only.
+#
+#   Query 3 — INSERT
+#     Included for completeness: shows the index maintenance overhead added by
+#     the two new indexes on every insert.
 # ---------------------------------------------------------------------------
-# Labels used in the comparison output
+
 QUERY_LABELS=(
   "Query 1 — Root existence check"
-  "Query 2 — Paginated fetch"
   "Query 3 — Insert"
 )
 
 BEFORE_LABELS=(
   "BEFORE (seq scan)"
-  "BEFORE (OR / seq scan)"
   "BEFORE"
 )
 
 AFTER_LABELS=(
   "AFTER  (idx scan)"
-  "AFTER  (UNION ALL / idx)"
   "AFTER"
 )
 
@@ -73,20 +92,14 @@ WHERE event_type = 'root_recorded'
 LIMIT 1;"
 
   "EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
-SELECT block_number, log_index, block_hash, tx_hash, event_type, leaf_index, event_data
-FROM world_id_registry_events
-WHERE (block_number = 1000000 AND log_index > 0)
-   OR block_number > 1000000
-ORDER BY block_number ASC, log_index ASC
-LIMIT 100;"
-
-  "EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
 INSERT INTO world_id_registry_events (block_number, log_index, block_hash, tx_hash, event_type, leaf_index, event_data)
 VALUES (0, 0, '0xBENCH', '0xBENCH', 'bench_noop', 0, '{}')
 ON CONFLICT (block_number, log_index) DO NOTHING;"
 )
 
 # --- AFTER queries (with indexes) ---
+# Query 1 and Query 3 are identical in both phases; the difference is whether
+# the indexes exist, which the planner picks up automatically.
 AFTER_SQL=(
   "EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
 SELECT 1
@@ -94,20 +107,6 @@ FROM world_id_registry_events
 WHERE event_type = 'root_recorded'
   AND event_data->>'root' = 'BENCH_ROOT_PLACEHOLDER'
 LIMIT 1;"
-
-  "EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
-SELECT block_number, log_index, block_hash, tx_hash, event_type, leaf_index, event_data
-FROM (
-    SELECT block_number, log_index, block_hash, tx_hash, event_type, leaf_index, event_data
-    FROM world_id_registry_events
-    WHERE block_number = 1000000 AND log_index > 0
-    UNION ALL
-    SELECT block_number, log_index, block_hash, tx_hash, event_type, leaf_index, event_data
-    FROM world_id_registry_events
-    WHERE block_number > 1000000
-) sub
-ORDER BY block_number ASC, log_index ASC
-LIMIT 100;"
 
   "EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
 INSERT INTO world_id_registry_events (block_number, log_index, block_hash, tx_hash, event_type, leaf_index, event_data)
@@ -231,6 +230,10 @@ run_phase() {
   echo "  Commit    : $GIT_COMMIT"
   echo "  Runs/query: $RUNS"
   echo ""
+  echo "  Queries   : Query 1 (root existence check), Query 3 (insert)"
+  echo "  Note      : Query 2 (paginated fetch / OR) excluded — already fast"
+  echo "              via primary key; UNION ALL rewrite was ~6000x slower."
+  echo ""
 } | tee "$OUTFILE"
 
 # ---------------------------------------------------------------------------
@@ -248,18 +251,20 @@ echo "  Indexes dropped." | tee -a "$OUTFILE"
 run_phase "Phase 1 — BEFORE (no indexes)" "BEFORE"
 
 # ---------------------------------------------------------------------------
-# 9. Phase 2 — Create indexes
+# 9. Phase 2 — Create indexes (mirrors 0002_perf_indexes.sql exactly)
 # ---------------------------------------------------------------------------
 echo "" | tee -a "$OUTFILE"
-echo ">>> Phase 2: Creating perf indexes ..." | tee -a "$OUTFILE"
+echo ">>> Phase 2: Creating perf indexes (0002_perf_indexes.sql) ..." | tee -a "$OUTFILE"
 echo "" | tee -a "$OUTFILE"
 
+# Index 1: partial expression index for root_exists()
 psql "$DB_URL" -X -c "
 CREATE INDEX IF NOT EXISTS idx_world_id_registry_events_root
     ON world_id_registry_events ((event_data->>'root'))
     WHERE event_type = 'root_recorded';
 " 2>&1 | tee -a "$OUTFILE"
 
+# Index 2: compound index for get_blocks_with_conflicting_hashes()
 psql "$DB_URL" -X -c "
 CREATE INDEX IF NOT EXISTS idx_world_id_registry_events_block_number_hash
     ON world_id_registry_events (block_number, block_hash);
@@ -268,7 +273,7 @@ CREATE INDEX IF NOT EXISTS idx_world_id_registry_events_block_number_hash
 echo "  Indexes created." | tee -a "$OUTFILE"
 
 # ---------------------------------------------------------------------------
-# 10. Phase 3 — AFTER (with indexes, optimized queries)
+# 10. Phase 3 — AFTER (with indexes)
 # ---------------------------------------------------------------------------
 run_phase "Phase 3 — AFTER (with indexes)" "AFTER"
 
