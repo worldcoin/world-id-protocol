@@ -21,11 +21,4 @@ create index if not exists idx_world_id_registry_events_block_number_hash
 -- JSONB document on every insert. The root lookup query uses the targeted partial
 -- expression index (idx_world_id_registry_events_root) instead, so the full GIN
 -- index is never consulted.
---
--- The remaining three are maintained on every insert but match no query in the
--- codebase: block_hash is covered by the compound block_number_hash index;
--- tx_hash and created_at appear only in SELECT lists, never in WHERE clauses.
 drop index if exists idx_world_id_registry_events_event_data;
-drop index if exists idx_world_id_registry_events_created_at;
-drop index if exists idx_world_id_registry_events_block_hash;
-drop index if exists idx_world_id_registry_events_tx_hash;
