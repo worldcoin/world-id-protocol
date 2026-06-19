@@ -15,7 +15,6 @@ members = [
   "services/common",
   "services/faux-issuer",
   "tools/generate-solidity-fixtures",
-  "tools/generate-noir-artifacts",
   "services/relay",
 ]
 
@@ -76,7 +75,7 @@ sha2 = { version = "0.11", default-features = false }
 taceo-groth16-sol = { version = "0.3.1" }
 taceo-oprf = { version = "0.16", default-features = false }
 taceo-oprf-test-utils = { version = "0.14", default-features = false }
-telemetry-batteries = "0.3"
+telemetry-batteries = "0.2"
 tikv-jemallocator = "0.6"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }
@@ -108,7 +107,6 @@ moka = { version = "0.12.13", features = ["future"] }
 dashmap = { version = "6.1.0" }
 parking_lot = { version = "0.12.5"}
 metrics = "0.24"
-metrics-util = "0.20"
 secrecy = "0.10"
 mockito = "1"
 ciborium = "0.2"
