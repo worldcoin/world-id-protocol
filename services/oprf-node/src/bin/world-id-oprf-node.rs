@@ -11,7 +11,7 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-use std::{net::SocketAddr, process::ExitCode, sync::Arc, time::Duration};
+use std::{net::SocketAddr, process::ExitCode, sync::Arc};
 
 use config::{Config, Environment};
 use eyre::Context;
@@ -25,10 +25,6 @@ struct FullWorldOprfNodeConfig {
     /// The bind addr of the AXUM server
     #[serde(default = "default_bind_addr")]
     pub bind_addr: SocketAddr,
-    /// Max wait time the service waits for its workers during shutdown.
-    #[serde(default = "default_max_wait_shutdown")]
-    #[serde(with = "humantime_serde")]
-    pub max_wait_time_shutdown: Duration,
     /// The OPRF service config
     #[serde(rename = "service")]
     pub node_config: WorldOprfNodeConfig,
@@ -69,10 +65,6 @@ fn default_bind_addr() -> SocketAddr {
     "0.0.0.0:4321".parse().expect("valid SocketAddr")
 }
 
-const fn default_max_wait_shutdown() -> Duration {
-    Duration::from_secs(10)
-}
-
 async fn run(config: FullWorldOprfNodeConfig) -> eyre::Result<()> {
     tracing::info!("{}", taceo_nodes_common::version_info!());
     tracing::info!("starting oprf-node with config: {config:#?}");
@@ -90,7 +82,6 @@ async fn run(config: FullWorldOprfNodeConfig) -> eyre::Result<()> {
 
     // Clone the values we need afterwards
     let bind_addr = config.bind_addr;
-    let max_wait_time_shutdown = config.max_wait_time_shutdown;
 
     let node_information = secret_manager
         .load_node_information()
@@ -105,31 +96,13 @@ async fn run(config: FullWorldOprfNodeConfig) -> eyre::Result<()> {
         cancellation_token.clone(),
     )?;
 
-    let server = tokio::spawn({
-        let cancellation_token = cancellation_token.clone();
-        async move {
-            let _drop_guard = cancellation_token.clone().drop_guard();
-            tracing::info!("starting axum server on {bind_addr}",);
-            let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-            let axum_result = axum::serve(listener, oprf_service_router)
-                .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
-                .await;
-            tracing::info!("axum server shutdown");
-            axum_result
-        }
-    });
-
-    tracing::info!("waiting for shutdown...");
-    cancellation_token.cancelled().await;
-
-    tracing::info!("waiting for shutdown of services (max wait time {max_wait_time_shutdown:?})..");
-    tokio::time::timeout(max_wait_time_shutdown, server)
+    tracing::info!("starting axum server on {bind_addr}",);
+    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+    axum::serve(listener, oprf_service_router)
+        .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
         .await
-        .context("could not finish shutdown in time")?
-        .context("cannot join server task")?
         .context("while serving axum")?;
-
-    tracing::info!("successfully finished graceful shutdown in time");
+    tracing::info!("axum server shutdown");
     Ok(())
 }
 
