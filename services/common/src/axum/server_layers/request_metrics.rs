@@ -21,7 +21,7 @@ pub async fn request_latency_middleware(request: Request, next: Next) -> Respons
         .extensions()
         .get::<MatchedPath>()
         .map(MatchedPath::as_str)
-        .unwrap_or_else(|| request.uri().path())
+        .unwrap_or("UNKNOWN")
         .to_string();
     let started = std::time::Instant::now();
 
@@ -50,13 +50,9 @@ fn record_http_latency_ms(route: &str, method: &str, status: u16, latency_ms: f6
 
     ::metrics::histogram!(
         METRICS_HTTP_LATENCY_MS,
-        "route" => normalize_route(route),
+        "route" => route.to_string(),
         "method" => method.to_string(),
         "status_class" => status_class
     )
     .record(latency_ms);
-}
-
-fn normalize_route(route: &str) -> String {
-    route.replace('{', ":").replace('}', "")
 }
