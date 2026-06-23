@@ -2,35 +2,34 @@ name: Release OPRF Node
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - "world-id-oprf-node-v*"
 
 permissions:
   contents: read
 
 jobs:
-  release:
-    name: Release OPRF Node
+  prepare:
+    name: Prepare release metadata
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
     outputs:
-      released: ${{ steps.release.outputs['services/oprf-node--release_created'] }}
-      version: ${{ steps.release.outputs['services/oprf-node--version'] }}
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
-      - name: Run release-please release
-        id: release
-        uses: googleapis/release-please-action@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+      - name: Resolve version
+        id: v
+        run: |
+          VERSION="${GITHUB_REF_NAME#world-id-oprf-node-}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          fi
 
   build-docker:
     name: Build Docker
-    needs: release
-    if: needs.release.outputs.released == 'true'
+    needs: prepare
     permissions:
       contents: read
       id-token: write
@@ -39,5 +38,36 @@ jobs:
     uses: ./.github/workflows/build-docker.yml
     with:
       service: oprf-node
-      version: v${{ needs.release.outputs.version }}
+      version: ${{ needs.prepare.outputs.version }}
     secrets: inherit
+
+  github-release:
+    name: GitHub Release
+    needs: [prepare, build-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        id: notes
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: services/oprf-node/cliff.toml
+          args: --include-path "services/oprf-node/**" --latest --strip all
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE_FLAG=""
+          if [[ "${{ needs.prepare.outputs.prerelease }}" == "true" ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --title "world-id-oprf-node ${{ needs.prepare.outputs.version }}" \
+            --notes-file "${{ steps.notes.outputs.changelog }}" \
+            $PRERELEASE_FLAG
