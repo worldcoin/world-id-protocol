@@ -1,6 +1,6 @@
 use std::{num::NonZeroUsize, path::Path, time::Duration};
 
-use alloy::{
+use ::alloy::{
     network::EthereumWallet,
     providers::{
         DynProvider, Provider, ProviderBuilder,
@@ -25,7 +25,7 @@ use thiserror::Error;
 use tower::ServiceBuilder;
 use url::Url;
 
-use crate::{
+use crate::alloy::{
     provider_layers::{
         EndpointMetricsLayer, RetryConfig, RetryLayer, ThrottleConfig, ThrottleLayer,
     },

@@ -5,15 +5,9 @@ use std::{
     time::Duration,
 };
 
-use axum::response::IntoResponse;
+use ::axum::response::IntoResponse;
 use http::Request;
-use telemetry_batteries::tracing::middleware::TraceLayer;
 use tower::Layer;
-
-/// Creates a [`TraceLayer`] with method and path on every request span.
-pub fn trace_layer() -> TraceLayer {
-    TraceLayer::default()
-}
 
 /// Tower layer that responds with a caller-supplied structured error when a
 /// request exceeds the configured timeout.
@@ -51,12 +45,12 @@ pub struct StructuredTimeout<S, R> {
 
 impl<S, R, B> tower::Service<Request<B>> for StructuredTimeout<S, R>
 where
-    S: tower::Service<Request<B>, Response = axum::response::Response> + Clone + Send + 'static,
+    S: tower::Service<Request<B>, Response = ::axum::response::Response> + Clone + Send + 'static,
     S::Future: Send,
     R: Clone + IntoResponse + Send + 'static,
     B: Send + 'static,
 {
-    type Response = axum::response::Response;
+    type Response = ::axum::response::Response;
     type Error = S::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
