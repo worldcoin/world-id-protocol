@@ -1,4 +1,4 @@
-use alloy::{
+use ::alloy::{
     network::{Network, TransactionBuilder},
     providers::{
         Provider, SendableTx,
@@ -32,7 +32,7 @@ const GAS_ESTIMATION_MARGIN_DENOMINATOR: u64 = 100;
 ///   surfaced appropriately.
 ///
 /// This filler only sets `gas_limit`, leaving gas price / fee fields to the
-/// standard alloy [`GasFiller`](alloy::providers::fillers::GasFiller).
+/// standard alloy `GasFiller`.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct GasEstimateWithFallbackFiller;
 
@@ -103,7 +103,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use alloy::{
+    use ::alloy::{
         network::{Ethereum, TransactionBuilder},
         providers::{
             ProviderBuilder,
@@ -115,7 +115,7 @@ mod tests {
 
     use super::{GAS_ESTIMATION_FALLBACK, GasEstimateWithFallbackFiller};
 
-    fn gas_limit_of(tx: alloy::providers::SendableTx<Ethereum>) -> u64 {
+    fn gas_limit_of(tx: ::alloy::providers::SendableTx<Ethereum>) -> u64 {
         tx.try_into_request()
             .unwrap()
             .gas
@@ -181,7 +181,7 @@ mod tests {
             .filler(GasEstimateWithFallbackFiller)
             .connect_mocked_client(asserter.clone());
 
-        let result: Result<alloy::providers::SendableTx<Ethereum>, _> =
+        let result: Result<::alloy::providers::SendableTx<Ethereum>, _> =
             provider.fill(TransactionRequest::default()).await;
 
         assert!(

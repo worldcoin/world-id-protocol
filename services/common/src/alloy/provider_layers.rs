@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy::{
+use ::alloy::{
     rpc::json_rpc::{RequestPacket, ResponsePacket},
     transports::{TransportError, TransportErrorKind, TransportFut},
 };
@@ -21,7 +21,7 @@ use governor::{
 use serde::Deserialize;
 use tower::{Layer, Service};
 
-pub use alloy::transports::layers::RetryPolicy;
+pub use ::alloy::transports::layers::RetryPolicy;
 
 mod defaults {
     pub const BURST_SIZE: u32 = 10;
@@ -170,9 +170,9 @@ where
 /// A Tower layer that retries failed RPC requests with exponential backoff
 /// (powered by [`backon::ExponentialBuilder`]).
 ///
-/// The retry decision is delegated to an [`alloy::transports::layers::RetryPolicy`],
+/// The retry decision is delegated to an alloy retry policy,
 /// keeping this layer compatible with alloy's built-in
-/// [`RateLimitRetryPolicy`](alloy::transports::layers::RateLimitRetryPolicy)
+/// `RateLimitRetryPolicy`
 /// and its `.or()` combinator.
 #[derive(Debug, Clone)]
 pub struct RetryLayer<P> {
@@ -222,7 +222,7 @@ impl<S, P> Service<RequestPacket> for RetryService<S, P>
 where
     S: Service<
             RequestPacket,
-            Response = alloy::rpc::json_rpc::ResponsePacket,
+            Response = ::alloy::rpc::json_rpc::ResponsePacket,
             Error = TransportError,
         > + Clone
         + Send
@@ -231,7 +231,7 @@ where
     S::Future: Send,
     P: RetryPolicy + Clone + 'static,
 {
-    type Response = alloy::rpc::json_rpc::ResponsePacket;
+    type Response = ::alloy::rpc::json_rpc::ResponsePacket;
     type Error = TransportError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
