@@ -199,6 +199,9 @@ pub(crate) async fn build_app(
         .route("/openapi.json", get(openapi))
         .with_state(state)
         .layer(from_fn(middleware::request_id_middleware))
+        .layer(from_fn(
+            world_id_services_common::request_latency_middleware,
+        ))
         .layer(world_id_services_common::timeout_layer(
             request_timeout_secs,
             GatewayErrorResponse::request_timeout(request_timeout_secs),
