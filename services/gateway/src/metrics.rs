@@ -30,11 +30,7 @@ pub const METRICS_BATCH_POLICY_TARGET_SIZE: &str = "batch.policy.target_size";
 pub const METRICS_REQUEST_REJECTED: &str = "request.rejected";
 
 pub fn describe_metrics() {
-    ::metrics::describe_histogram!(
-        METRICS_HTTP_LATENCY_MS,
-        ::metrics::Unit::Milliseconds,
-        "Gateway HTTP request latency in milliseconds."
-    );
+    world_id_services_common::describe_http_request_metrics();
 
     ::metrics::describe_counter!(
         METRICS_ROOT_CACHE_HITS,

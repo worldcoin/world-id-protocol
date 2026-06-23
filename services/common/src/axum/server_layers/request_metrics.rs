@@ -6,6 +6,14 @@ use ::axum::{
 
 pub const METRICS_HTTP_LATENCY_MS: &str = "http.latency_ms";
 
+pub fn describe_http_request_metrics() {
+    ::metrics::describe_histogram!(
+        METRICS_HTTP_LATENCY_MS,
+        ::metrics::Unit::Milliseconds,
+        "HTTP request latency in milliseconds, labelled by route, method, and status class."
+    );
+}
+
 /// Records request latency metrics with route, method, and status class tags.
 pub async fn request_latency_middleware(request: Request, next: Next) -> Response {
     let method = request.method().clone();

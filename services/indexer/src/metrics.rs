@@ -50,11 +50,7 @@ pub fn describe_metrics() {
         "Block number of the last DB event synced into the tree."
     );
 
-    ::metrics::describe_histogram!(
-        METRICS_HTTP_LATENCY_MS,
-        ::metrics::Unit::Milliseconds,
-        "HTTP request latency in milliseconds."
-    );
+    world_id_services_common::describe_http_request_metrics();
 
     world_id_services_common::describe_provider_transport_metrics();
 }
