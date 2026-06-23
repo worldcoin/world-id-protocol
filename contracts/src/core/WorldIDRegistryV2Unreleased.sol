@@ -341,6 +341,7 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         _prevRecoveryAgentUpdates[leafIndex] =
             PreviousRecoveryAgentUpdate({prevRecoveryAgent: oldAgent, invalidAfter: invalidAfter});
         _setRecoveryAddressAndBitmap(leafIndex, newRecoveryAgent, _getPubkeyBitmap(leafIndex));
+        delete _pendingRecoveryAgentUpdates[leafIndex];
 
         emit RecoveryAgentUpdated(leafIndex, oldAgent, newRecoveryAgent, invalidAfter);
     }
@@ -388,6 +389,35 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         delete _prevRecoveryAgentUpdates[leafIndex];
 
         emit RecoveryAgentUpdateReverted(leafIndex, prev.prevRecoveryAgent, revertedAgent);
+    }
+
+    /// @inheritdoc IWorldIDRegistryV2
+    /// @dev Migrates the V1 pending-update state into V2 semantics without changing the
+    ///      original `executeAfter` timestamp. If `executeAfter` has already elapsed, the
+    ///      new Recovery Agent becomes effective immediately.
+    function migrateLegacyRecoveryAgentUpdate(uint64 leafIndex) external virtual onlyProxy onlyInitialized {
+        if (leafIndex == 0 || _nextLeafIndex <= leafIndex) {
+            revert AccountDoesNotExist(leafIndex);
+        }
+
+        PendingRecoveryAgentUpdate memory pending = _pendingRecoveryAgentUpdates[leafIndex];
+        if (pending.executeAfter == 0) {
+            revert NoPendingRecoveryAgentUpdate(leafIndex);
+        }
+
+        address oldAgent = _getRecoveryAgent(leafIndex);
+        _setRecoveryAddressAndBitmap(leafIndex, pending.newRecoveryAgent, _getPubkeyBitmap(leafIndex));
+
+        if (block.timestamp < pending.executeAfter) {
+            _prevRecoveryAgentUpdates[leafIndex] =
+                PreviousRecoveryAgentUpdate({prevRecoveryAgent: oldAgent, invalidAfter: pending.executeAfter});
+        } else {
+            delete _prevRecoveryAgentUpdates[leafIndex];
+        }
+
+        delete _pendingRecoveryAgentUpdates[leafIndex];
+
+        emit RecoveryAgentUpdated(leafIndex, oldAgent, pending.newRecoveryAgent, pending.executeAfter);
     }
 
     /// @inheritdoc IWorldIDRegistryV2
@@ -503,6 +533,7 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
             emit RecoveryAgentUpdateReverted(leafIndex, prev.prevRecoveryAgent, revertedAgent);
         }
         delete _prevRecoveryAgentUpdates[leafIndex];
+        delete _pendingRecoveryAgentUpdates[leafIndex];
 
         emit AccountRecovered(
             leafIndex,
