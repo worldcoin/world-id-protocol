@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let cli_run = cli.run().boxed();
 
-    cli_run.wait.panic_on_top_level_error();
+    cli_run.await.panic_on_top_level_error();
 
     Ok(())
 }
