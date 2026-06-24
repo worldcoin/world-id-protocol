@@ -604,8 +604,8 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         if (prev.invalidAfter != 0 && block.timestamp < prev.invalidAfter) {
             return (_getRecoveryAgent(leafIndex), prev.invalidAfter);
         }
-        // Fall back to any un-migrated V1 pending entry. `migrateLegacyRecoveryAgentUpdate`
-        // can still execute it, so callers must be able to discover the live state.
+        // Fall back to any un-migrated V1 pending entry; if none exists, zero-value struct
+        // semantics naturally return (address(0), 0).
         PendingRecoveryAgentUpdate memory pending = _pendingRecoveryAgentUpdates[leafIndex];
         return (pending.newRecoveryAgent, pending.executeAfter);
     }
