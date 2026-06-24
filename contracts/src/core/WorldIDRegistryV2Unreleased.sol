@@ -417,7 +417,10 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
 
         delete _pendingRecoveryAgentUpdates[leafIndex];
 
-        emit RecoveryAgentUpdated(leafIndex, oldAgent, pending.newRecoveryAgent, pending.executeAfter);
+        // If the legacy `executeAfter` has already elapsed, no revert window applies and the new
+        // agent is effective immediately; emit `0` to mirror `getPreviousRecoveryAgentUpdate`.
+        uint256 invalidAfter = block.timestamp < pending.executeAfter ? pending.executeAfter : 0;
+        emit RecoveryAgentUpdated(leafIndex, oldAgent, pending.newRecoveryAgent, invalidAfter);
     }
 
     /// @inheritdoc IWorldIDRegistryV2
@@ -584,7 +587,10 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
 
     /// @inheritdoc IWorldIDRegistry
     /// @custom:override Overrides V1 (WIP-102) to translate V2 active-update state into the
-    /// legacy V1 shape.
+    /// legacy V1 shape. Falls back to the V1 `_pendingRecoveryAgentUpdates` mapping when no V2
+    /// entry is active so that tooling can still observe un-migrated legacy pending updates
+    /// (which remain executable via `migrateLegacyRecoveryAgentUpdate`). The two mappings cannot
+    /// be simultaneously populated for the same leaf after migration, so the fallback is unambiguous.
     function getPendingRecoveryAgentUpdate(uint64 leafIndex)
         external
         view
@@ -595,10 +601,13 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
         returns (address newRecoveryAgent, uint256 validAfter)
     {
         PreviousRecoveryAgentUpdate memory prev = _prevRecoveryAgentUpdates[leafIndex];
-        if (prev.invalidAfter == 0 || block.timestamp >= prev.invalidAfter) {
-            return (address(0), 0);
+        if (prev.invalidAfter != 0 && block.timestamp < prev.invalidAfter) {
+            return (_getRecoveryAgent(leafIndex), prev.invalidAfter);
         }
-        return (_getRecoveryAgent(leafIndex), prev.invalidAfter);
+        // Fall back to any un-migrated V1 pending entry. `migrateLegacyRecoveryAgentUpdate`
+        // can still execute it, so callers must be able to discover the live state.
+        PendingRecoveryAgentUpdate memory pending = _pendingRecoveryAgentUpdates[leafIndex];
+        return (pending.newRecoveryAgent, pending.executeAfter);
     }
 
     ////////////////////////////////////////////////////////////

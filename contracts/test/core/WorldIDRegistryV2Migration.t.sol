@@ -54,12 +54,12 @@ contract WorldIDRegistryV2MigrationTest is Test {
         v1.upgradeToAndCall(address(implementationV2), "");
         WorldIDRegistryV2 v2 = WorldIDRegistryV2(address(proxy));
 
-        // V1 pending-update view now reports V2 active-update state in the legacy tuple shape.
-        // The orphaned V1 entry is correctly invisible: the view reads the V2 mapping and
-        // returns (0, 0), reflecting that no V2-side update is active.
+        // V1 pending-update view falls back to the legacy V1 mapping when there is no V2-side
+        // active update, so off-chain tooling can still discover un-migrated pending entries
+        // (which remain executable via `migrateLegacyRecoveryAgentUpdate`).
         (address orphanedPending, uint256 orphanedValidAfter) = v2.getPendingRecoveryAgentUpdate(leafIndex);
-        assertEq(orphanedPending, address(0));
-        assertEq(orphanedValidAfter, 0);
+        assertEq(orphanedPending, recoveryLegacyPending);
+        assertEq(orphanedValidAfter, legacyExecuteAfter);
 
         // The new V2 flow works on the same leaf without tripping over the orphaned slot.
         // Nonce is now 1 (V1 initiate incremented it).
@@ -119,12 +119,45 @@ contract WorldIDRegistryV2MigrationTest is Test {
         assertGt(block.timestamp, legacyExecuteAfter);
 
         WorldIDRegistryV2 v2 = _upgradeToV2(v1);
+        // Once `executeAfter` has elapsed there is no revert window, so the emitted
+        // `invalidAfter` must be `0` (matching `getPreviousRecoveryAgentUpdate`), not a
+        // stale past-timestamp.
+        vm.expectEmit(true, true, true, true);
+        emit IWorldIDRegistryV2.RecoveryAgentUpdated(leafIndex, recoveryOld, recoveryLegacyPending, 0);
         v2.migrateLegacyRecoveryAgentUpdate(leafIndex);
 
         assertEq(v2.getRecoveryAgent(leafIndex), recoveryLegacyPending);
         (address prev, uint256 invalidAfter) = v2.getPreviousRecoveryAgentUpdate(leafIndex);
         assertEq(prev, address(0));
         assertEq(invalidAfter, 0);
+    }
+
+    /// @dev After upgrade, `getPendingRecoveryAgentUpdate` falls back to the V1 legacy mapping
+    ///      so off-chain tooling can still observe un-migrated pending entries.
+    function test_GetPendingRecoveryAgentUpdate_FallsBackToLegacyMapping() public {
+        address recoveryOld = vm.addr(WIP102_MIGRATION_RECOVERY_OLD_PRIVATE_KEY);
+        address recoveryLegacyPending = address(0xEC0F);
+
+        (WorldIDRegistry v1, uint64 leafIndex, uint256 legacyExecuteAfter) =
+            _deployV1WithPendingUpdate(recoveryOld, recoveryLegacyPending);
+        WorldIDRegistryV2 v2 = _upgradeToV2(v1);
+
+        (address pendingAgent, uint256 validAfter) = v2.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgent, recoveryLegacyPending);
+        assertEq(validAfter, legacyExecuteAfter);
+
+        // After migration the V1 entry is cleared and the V2 active-update state takes over.
+        v2.migrateLegacyRecoveryAgentUpdate(leafIndex);
+        (pendingAgent, validAfter) = v2.getPendingRecoveryAgentUpdate(leafIndex);
+        // During the (preserved) revert window, V2 active-update state is reported.
+        assertEq(pendingAgent, recoveryLegacyPending);
+        assertEq(validAfter, legacyExecuteAfter);
+
+        // Past the revert window, both views return (0, 0).
+        vm.warp(legacyExecuteAfter + 1);
+        (pendingAgent, validAfter) = v2.getPendingRecoveryAgentUpdate(leafIndex);
+        assertEq(pendingAgent, address(0));
+        assertEq(validAfter, 0);
     }
 
     /// @dev Recovering in V2 clears any legacy V1 pending update so it cannot be migrated later.
