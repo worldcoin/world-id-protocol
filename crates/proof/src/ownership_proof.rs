@@ -4,6 +4,9 @@
 //! with the authenticator's EdDSA key, then proving the Noir circuit
 //! via ProveKit.
 
+/// Domain sepawrator for the Ownership Proof Hash Message
+pub const DS_OWNERSHIP_PROOF: &[u8; 6] = b"WIP103";
+
 #[cfg(feature = "zk-ownership-prove")]
 pub use prover::generate_ownership_proof;
 
@@ -218,9 +221,11 @@ mod tests {
         merkle::MerkleInclusionProof, proof::OwnershipProof,
     };
 
+    const LEAF_INDEX: u64 = 1;
+
     fn build_merkle_proof(leaf: ark_bn254::Fr) -> MerkleInclusionProof<TREE_DEPTH> {
         let (siblings, root) = world_id_test_utils::merkle::first_leaf_merkle_path(leaf);
-        MerkleInclusionProof::new(root, 1, siblings)
+        MerkleInclusionProof::new(root, LEAF_INDEX, siblings)
     }
 
     fn generate_valid_ownership_proof_fixture() -> (OwnershipProof, FieldElement, FieldElement) {
@@ -232,8 +237,17 @@ mod tests {
 
         let nonce = FieldElement::from(1234567890u64);
         let commitment_blinder = FieldElement::from(999u64);
-        let commitment = Credential::compute_sub(1, commitment_blinder);
-        let signature = sk.sign(*commitment);
+        let commitment = Credential::compute_sub(LEAF_INDEX, commitment_blinder);
+
+        // The circuit signs `Poseidon2(DS_OWNERSHIP_PROOF, commitment, nonce)`, not the raw
+        // commitment. See `Authenticator::prove_credential_sub`.
+        let mut message = [
+            *FieldElement::from_be_bytes_mod_order(DS_OWNERSHIP_PROOF),
+            *commitment,
+            *nonce,
+        ];
+        poseidon2::bn254::t3::permutation_in_place(&mut message);
+        let signature = sk.sign(message[1]);
 
         let circuit_input = OwnershipProofCircuitInput {
             key_index: 0,
