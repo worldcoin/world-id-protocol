@@ -2630,7 +2630,7 @@ version = "3.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d314cc62af2b6b0c65780555abb4d02a03dd3b799cd42419044f0c38d99738c0"
 dependencies = [
- "darling 0.23.0",
+ "darling 0.21.3",
  "ident_case",
  "prettyplease",
  "proc-macro2",
@@ -7102,7 +7102,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.5.0",
+ "heck 0.4.1",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -10390,14 +10390,13 @@ dependencies = [
 
 [[package]]
 name = "telemetry-batteries"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87b9214761fa0b4c2879a491aa4109a4036dc3c1ac9f47ba42ae15916fba7b23"
+checksum = "f47bb4a5d51f7c46f394e1853046a9aceec3ba64156a3ac0017ad691b259d98e"
 dependencies = [
  "backtrace",
  "bon",
  "chrono",
- "color-eyre",
  "dirs",
  "eyre",
  "http 1.4.0",
