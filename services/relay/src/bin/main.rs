@@ -3,6 +3,8 @@ use eyre::Result;
 use futures_util::FutureExt as _;
 use world_id_relay::cli::Cli;
 
+use telemetry_batteries::TopLevelResultExt;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
@@ -15,10 +17,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let cli_run = cli.run().boxed();
 
-    if let Err(e) = cli_run.await {
-        tracing::error!(error = ?e, "relay terminated with error");
-        std::process::exit(1);
-    }
+    cli_run.wait.panic_on_top_level_error();
 
     Ok(())
 }
