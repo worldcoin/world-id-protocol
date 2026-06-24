@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.11.0...world-id-primitives-v0.12.0) - 2026-06-24
+
+### Added
+
+- introduce issuer version attribute to credential ([#725](https://github.com/worldcoin/world-id-protocol/pull/725))
+- WIP-103 make nonce part of the authenticator sig ([#656](https://github.com/worldcoin/world-id-protocol/pull/656))
+- implement WIP-102 v1 to v2 migration method for legacy pending recovery agent updates ([#807](https://github.com/worldcoin/world-id-protocol/pull/807))
+
+### Other
+
+- *(node)* add retry logic for RPC requests + bump oprf deps ([#764](https://github.com/worldcoin/world-id-protocol/pull/764))
+- *(contracts)* internal `compress` ([#558](https://github.com/worldcoin/world-id-protocol/pull/558))
+
 ## [0.11.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.10.2...world-id-primitives-v0.11.0) - 2026-05-15
 
 ### Added
