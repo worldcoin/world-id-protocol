@@ -417,7 +417,10 @@ contract WorldIDRegistryV2 is IWorldIDRegistryV2, WorldIDRegistry {
 
         delete _pendingRecoveryAgentUpdates[leafIndex];
 
-        emit RecoveryAgentUpdated(leafIndex, oldAgent, pending.newRecoveryAgent, pending.executeAfter);
+        // If the legacy `executeAfter` has already elapsed, no revert window applies and the new
+        // agent is effective immediately; emit `0` to mirror `getPreviousRecoveryAgentUpdate`.
+        uint256 invalidAfter = block.timestamp < pending.executeAfter ? pending.executeAfter : 0;
+        emit RecoveryAgentUpdated(leafIndex, oldAgent, pending.newRecoveryAgent, invalidAfter);
     }
 
     /// @inheritdoc IWorldIDRegistryV2
