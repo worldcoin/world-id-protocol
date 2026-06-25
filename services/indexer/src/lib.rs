@@ -1,7 +1,7 @@
 #![recursion_limit = "256"]
 
 use crate::{
-    blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
+    blockchain::Blockchain,
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
     db::DB,
     events_committer::EventsCommitter,
@@ -30,6 +30,7 @@ mod sanity_check;
 pub mod tree;
 
 static BLOCKCHAIN_RETRY_DELAY: Duration = Duration::from_secs(1);
+static MAX_ROLLBACKS_WITHOUT_PROGRESS: u32 = 3;
 
 /// Initializes the in-memory tree from a cache file if it exists, otherwise builds from DB.
 ///
@@ -132,7 +133,7 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
             let tree_state = unsafe { initialize_tree_with_config(&cfg.tree_cache, &db).await? };
             tracing::info!("tree initialization took {:?}", start_time.elapsed());
 
-            run_indexer_only(
+            run_worker_only(
                 db,
                 http_provider,
                 cfg.registry_address,
@@ -178,8 +179,9 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
     }
 }
 
+/// Runs only the worker part of the indexer (sync chain data and write to DB)
 #[instrument(level = "info", skip_all)]
-async fn run_indexer_only(
+async fn run_worker_only(
     db: DB,
     http_provider: DynProvider,
     registry_address: Address,
@@ -198,6 +200,7 @@ async fn run_indexer_only(
     Ok(())
 }
 
+/// Runs only the HTTP server part of the indexer (serve inclusion proofs and account data)
 #[instrument(level = "info", skip_all)]
 async fn run_http_only(
     db: DB,
@@ -334,14 +337,6 @@ async fn run_both(
     }
 }
 
-pub async fn handle_registry_event<'a>(
-    events_committer: &mut EventsCommitter<'a>,
-    event: BlockchainEvent<RegistryEvent>,
-) -> IndexerResult<()> {
-    events_committer.handle_event(event).await?;
-    Ok(())
-}
-
 /// Stream registry events from the blockchain and process them.
 /// Restart when the pull stream returns an error.
 #[instrument(level = "info", skip_all, fields(start_from))]
@@ -352,9 +347,23 @@ pub async fn process_registry_events(
     db: &DB,
     tree_state: &tree::TreeState,
 ) -> IndexerResult<()> {
-    loop {
-        tracing::info!("starting blockchain pull stream");
+    // We re-start the rpc websocket connection when we then local tree root deviates from the on-chain tree root or
+    // the websocket connection is dropped or we get any other error.
 
+    // We keep track of the highest committed block number across restarts to avoid looping forever in case no progress is made.
+    let mut watermark_block_number = db
+        .world_id_registry_events()
+        .get_latest_block()
+        .await?
+        .unwrap_or(indexer_cfg.start_block);
+
+    let mut rollbacks_without_progress = 0;
+
+    // In-memory tree is rolled back on reorgs
+    let versioned_tree =
+        tree::VersionedTreeState::new(tree_state.clone(), indexer_cfg.tree_max_block_age);
+
+    while rollbacks_without_progress < MAX_ROLLBACKS_WITHOUT_PROGRESS {
         let blockchain = Blockchain::new(http_provider.clone(), registry_address);
 
         let from = match db.world_id_registry_events().get_latest_block().await? {
@@ -362,6 +371,7 @@ pub async fn process_registry_events(
             None => indexer_cfg.start_block,
         };
 
+        tracing::info!("starting streaming blockchain events from block {}", from);
         let mut stream = blockchain.stream_blockchain_events(
             from,
             indexer_cfg.batch_size,
@@ -369,51 +379,50 @@ pub async fn process_registry_events(
             indexer_cfg.max_concurrent_log_requests,
         );
 
-        let versioned_tree =
-            tree::VersionedTreeState::new(tree_state.clone(), indexer_cfg.tree_max_block_age);
         let mut events_committer = EventsCommitter::new(db, versioned_tree.clone());
 
         while let Some(event) = stream.next().await {
             match event {
                 Ok(event) => {
                     let block_number = event.block_number;
-                    match handle_registry_event(&mut events_committer, event).await {
-                        Ok(()) => {
+                    match events_committer.handle_event(event).await {
+                        // Event was root recorded event and batch was committed to DB successfully
+                        Ok(batch_committed) => {
                             crate::metrics::set_chain_processed_block(block_number);
+                            // Only update the watermark block if the committed block number is higher than the current watermark.
+                            // It may be lower if there was a reorg and we rolled back to a previous valid root.
+                            if batch_committed {
+                                if block_number > watermark_block_number {
+                                    watermark_block_number = block_number;
+                                    rollbacks_without_progress = 0;
+                                }
+                            }
                         }
                         Err(IndexerError::ReorgDetected {
                             block_number,
                             reason,
                         }) => {
-                            tracing::warn!(
+                            tracing::error!(
                                 block_number,
                                 reason,
                                 "Reorg detected during event commit, rolling back"
                             );
-                            match rollback_to_last_valid_root(
+                            let Some(target) = rollback_to_last_valid_root(
                                 db,
                                 &http_provider,
                                 registry_address,
                                 &versioned_tree,
                             )
-                            .await
-                            {
-                                Ok(Some(target)) => {
-                                    tracing::info!(?target, "rolled back successfully");
-                                    return Err(IndexerError::ReorgDetected {
-                                        block_number: target.block_number,
-                                        reason: "rolled back to last valid root, restart required"
-                                            .to_string(),
-                                    });
-                                }
-                                Ok(None) => {
-                                    return Err(IndexerError::ReorgDetected {
-                                        block_number,
-                                        reason: "no valid root found during rollback".to_string(),
-                                    });
-                                }
-                                Err(e) => return Err(e),
-                            }
+                            .await?
+                            else {
+                                return Err(IndexerError::ReorgDetected {
+                                    block_number,
+                                    reason: "no valid root found during rollback".to_string(),
+                                });
+                            };
+                            tracing::info!(?target, "rolled back successfully");
+                            rollbacks_without_progress += 1;
+                            break;
                         }
                         Err(e) => return Err(e),
                     }
@@ -428,4 +437,8 @@ pub async fn process_registry_events(
         tracing::warn!("restarting blockchain pull stream");
         tokio::time::sleep(BLOCKCHAIN_RETRY_DELAY).await;
     }
+
+    return Err(IndexerError::NoProgressAfterReorg {
+        highest_block_number: watermark_block_number,
+    });
 }
