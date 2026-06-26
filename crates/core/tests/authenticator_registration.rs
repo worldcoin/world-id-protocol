@@ -4,7 +4,8 @@ use alloy::primitives::U256;
 use backon::{ExponentialBuilder, Retryable};
 use world_id_core::{Authenticator, AuthenticatorError, api_types::GatewayRequestState};
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
+    spawn_gateway_for_tests,
 };
 use world_id_primitives::{Config, ServiceEndpoint};
 use world_id_test_utils::anvil::TestAnvil;
@@ -19,7 +20,7 @@ async fn test_authenticator_registration() {
     let deployer = anvil.signer(0).unwrap();
 
     let registry_address = anvil
-        .deploy_world_id_registry(deployer.clone())
+        .deploy_world_id_registry_v2(deployer.clone())
         .await
         .unwrap();
 
@@ -27,7 +28,7 @@ async fn test_authenticator_registration() {
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
-        registry_version: None,
+        registry_version: RegistryVersion::V2,
         provider: world_id_gateway::ProviderArgs {
             http: Some(vec![anvil.endpoint().parse().unwrap()]),
             signer: Some(signer_args),

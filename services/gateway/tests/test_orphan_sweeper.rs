@@ -10,8 +10,9 @@ use alloy::{
 use redis::{AsyncCommands, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, OrphanSweeperConfig, RequestRecord, RequestTracker, defaults,
-    now_unix_secs, request_tracker::BacklogScope, spawn_gateway_for_tests, sweep_once,
+    BatchPolicyConfig, GatewayConfig, OrphanSweeperConfig, RegistryVersion, RequestRecord,
+    RequestTracker, defaults, now_unix_secs, request_tracker::BacklogScope,
+    spawn_gateway_for_tests, sweep_once,
 };
 use world_id_primitives::api_types::{
     GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
@@ -675,7 +676,7 @@ async fn sweep_submitted_with_real_receipt() {
 
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil.deploy_world_id_registry_v2(deployer).await.unwrap();
     let rpc_url = anvil.endpoint();
 
     let signer = PrivateKeySigner::random();
@@ -684,7 +685,7 @@ async fn sweep_submitted_with_real_receipt() {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
-        registry_version: None,
+        registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),

@@ -6,10 +6,11 @@ use crate::{
     batcher::{
         BatcherHandle, CreateBatcherHandle, CreateBatcherRunner, OpsBatcherHandle, OpsBatcherRunner,
     },
-    config::{BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig},
+    config::{
+        BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig, RegistryVersion,
+    },
     error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
     orphan_sweeper::run_orphan_sweeper,
-    registry_version::RegistryVersion,
     request::GatewayContext,
     request_tracker::RequestTracker,
     routes::{
