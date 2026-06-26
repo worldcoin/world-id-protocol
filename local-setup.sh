@@ -155,7 +155,7 @@ run_indexer_and_gateway() {
     echo "started indexer with PID $indexer_pid"
     wait_for_health 8080 "world-id-indexer" 300
 
-    REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WALLET_PRIVATE_KEY=$PK REDIS_URL=redis://localhost:6379 cargo run --release -p world-id-gateway > logs/world-id-gateway.log 2>&1 &
+    REGISTRY_ADDRESS=$world_id_registry REGISTRY_VERSION=v1 RPC_URL=http://localhost:8545 WALLET_PRIVATE_KEY=$PK REDIS_URL=redis://localhost:6379 cargo run --release -p world-id-gateway > logs/world-id-gateway.log 2>&1 &
     gateway_pid=$!
     echo "started gateway with PID $gateway_pid"
     wait_for_health 8081 "world-id-gateway" 300

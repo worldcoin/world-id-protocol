@@ -6,7 +6,8 @@ use testcontainers_modules::{
     testcontainers::{ContainerAsync, ImageExt as _, runners::AsyncRunner as _},
 };
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, GatewayHandle, SignerArgs, defaults, spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, GatewayHandle, RegistryVersion, SignerArgs, defaults,
+    spawn_gateway_for_tests,
 };
 use world_id_primitives::api_types::{GatewayRequestState, GatewayStatusResponse};
 use world_id_services_common::ProviderArgs;
@@ -58,7 +59,7 @@ pub(crate) async fn spawn_test_gateway(batch_ms: Option<u64>) -> TestGateway {
         .deploy_world_id_registry(deployer)
         .await
         .expect("failed to deploy WorldIDRegistry");
-    spawn_test_gateway_for_registry(anvil, registry_addr, batch_ms).await
+    spawn_test_gateway_for_registry(anvil, registry_addr, RegistryVersion::V1, batch_ms).await
 }
 
 /// Same as [`spawn_test_gateway`] but deploys the V2 (WIP-102) registry —
@@ -71,7 +72,7 @@ pub(crate) async fn spawn_test_gateway_v2(batch_ms: Option<u64>) -> TestGateway 
         .deploy_world_id_registry_v2(deployer)
         .await
         .expect("failed to deploy WorldIDRegistry V2");
-    spawn_test_gateway_for_registry(anvil, registry_addr, batch_ms).await
+    spawn_test_gateway_for_registry(anvil, registry_addr, RegistryVersion::V2, batch_ms).await
 }
 
 /// Spawn the gateway/Redis half of the stack against an already-deployed
@@ -79,6 +80,7 @@ pub(crate) async fn spawn_test_gateway_v2(batch_ms: Option<u64>) -> TestGateway 
 async fn spawn_test_gateway_for_registry(
     anvil: TestAnvil,
     registry_addr: Address,
+    registry_version: RegistryVersion,
     batch_ms: Option<u64>,
 ) -> TestGateway {
     let rpc_url = anvil.endpoint().to_string();
@@ -90,7 +92,7 @@ async fn spawn_test_gateway_for_registry(
     let cfg = match batch_ms {
         None => GatewayConfig {
             registry_addr,
-            registry_version: None,
+            registry_version,
             provider: ProviderArgs {
                 http: Some(vec![rpc_url.parse().unwrap()]),
                 signer: Some(signer_args),
@@ -113,7 +115,7 @@ async fn spawn_test_gateway_for_registry(
             let reeval_ms = ms.min(200);
             GatewayConfig {
                 registry_addr,
-                registry_version: None,
+                registry_version,
                 provider: ProviderArgs {
                     http: Some(vec![rpc_url.parse().unwrap()]),
                     signer: Some(signer_args),

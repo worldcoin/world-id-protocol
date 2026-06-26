@@ -31,7 +31,7 @@ pub struct RegistryTestContext {
 }
 
 impl RegistryTestContext {
-    /// Spawns Anvil, deploys the WorldIDRegistry and CredentialSchemaIssuerRegistry,
+    /// Spawns Anvil, deploys the V2-upgraded WorldIDRegistry and protocol registries,
     /// and registers a random issuer.
     pub async fn new() -> Result<Self> {
         let anvil = TestAnvil::spawn_with_multicall3()
@@ -41,9 +41,9 @@ impl RegistryTestContext {
             .signer(0)
             .wrap_err("failed to acquire default anvil signer")?;
         let world_id_registry = anvil
-            .deploy_world_id_registry(deployer.clone())
+            .deploy_world_id_registry_v2(deployer.clone())
             .await
-            .wrap_err("failed to deploy WorldIDRegistry")?;
+            .wrap_err("failed to deploy WorldIDRegistry V2")?;
         let oprf_key_registry = anvil
             .deploy_oprf_key_registry(deployer.clone())
             .await
@@ -102,9 +102,9 @@ impl RegistryTestContext {
             .signer(0)
             .wrap_err("failed to acquire default anvil signer")?;
         let world_id_registry = anvil
-            .deploy_world_id_registry(deployer.clone())
+            .deploy_world_id_registry_v2(deployer.clone())
             .await
-            .wrap_err("failed to deploy WorldIDRegistry")?;
+            .wrap_err("failed to deploy WorldIDRegistry V2")?;
         let oprf_key_registry = anvil
             .deploy_mock_oprf_key_registry(deployer.clone())
             .await
