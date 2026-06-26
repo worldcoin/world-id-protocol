@@ -28,8 +28,8 @@ impl std::str::FromStr for RegistryVersion {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.to_ascii_lowercase().as_str() {
-            "v1" | "1" => Ok(Self::V1),
-            "v2" | "2" => Ok(Self::V2),
+            "v1" => Ok(Self::V1),
+            "v2" => Ok(Self::V2),
             _ => Err(format!(
                 "invalid registry version: {value}; expected v1 or v2"
             )),
