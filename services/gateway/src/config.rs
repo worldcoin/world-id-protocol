@@ -321,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn registry_version_override_parses() {
+    fn registry_version_parses_v2() {
         let config = GatewayConfig::try_parse_from([
             "test",
             "--registry-addr",

@@ -113,7 +113,10 @@ pub async fn run() -> GatewayResult<()> {
         provider.clone(),
     ));
 
-    tracing::info!("Config is ready. Building app...");
+    tracing::info!(
+        registry_version = ?cfg.registry_version,
+        "Config is ready. Building app..."
+    );
     let app = build_app(
         registry,
         cfg.registry_version,
