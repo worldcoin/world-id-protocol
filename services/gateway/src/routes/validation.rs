@@ -1,6 +1,6 @@
 use tokio::sync::OnceCell;
 
-use crate::error::GatewayErrorResponse;
+use crate::{RegistryVersion, error::GatewayErrorResponse};
 use alloy::{
     primitives::{Address, Bytes, Signature, TxKind, U256},
     providers::Provider,
@@ -20,7 +20,6 @@ use world_id_registries::world_id::{
 };
 
 use crate::{
-    registry_version::RegistryVersion,
     request::{
         GatewayContext, Registry, RevertRecoveryAgentUpdateRequest, UpdateRecoveryAgentV2Request,
     },
