@@ -122,6 +122,13 @@ pub fn start(
         config.rp_cache_config,
     );
 
+    tracing::info!("spawning RpRegistry invalidation loop..");
+    tokio::spawn(
+        rp_registry_watcher
+            .clone()
+            .run_invalidation_loop(config.rp_registry_poll_interval, cancellation_token.clone()),
+    );
+
     let query_vk = serde_json::from_str::<VerificationKey<Bn254>>(QUERY_VERIFICATION_KEY)
         .expect("can deserialize embedded vk");
     let query_vk = Arc::new(ark_groth16::prepare_verifying_key(&query_vk.into()));
