@@ -632,11 +632,13 @@ mod tests {
     };
     use world_id_primitives::api_types::{
         CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest,
+        InsertAuthenticatorRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
         UpdateRecoveryAgentRequest,
     };
     use world_id_registries::world_id::{
         domain as registry_domain, sign_cancel_recovery_agent_update,
-        sign_initiate_recovery_agent_update,
+        sign_initiate_recovery_agent_update, sign_insert_authenticator, sign_remove_authenticator,
+        sign_update_authenticator,
     };
 
     const CHAIN_ID: u64 = 1;
@@ -646,12 +648,141 @@ mod tests {
         registry_domain(CHAIN_ID, CONTRACT)
     }
 
-    const fn pre_flight_context() -> PreFlightContext {
+    const fn pre_flight_context_for(registry_version: RegistryVersion) -> PreFlightContext {
         PreFlightContext {
             chain_id: CHAIN_ID,
             verifying_contract: CONTRACT,
-            registry_version: RegistryVersion::V1,
+            registry_version,
         }
+    }
+
+    const fn pre_flight_context() -> PreFlightContext {
+        pre_flight_context_for(RegistryVersion::V1)
+    }
+
+    const fn pre_flight_v2_context() -> PreFlightContext {
+        pre_flight_context_for(RegistryVersion::V2)
+    }
+
+    // ------------------------------------------------------------------
+    // V2 registry-specific authenticator pre_flight
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn insert_preflight_allows_zero_authenticator_address_only_on_v2() {
+        let signer = PrivateKeySigner::random();
+        let domain = make_domain();
+        let leaf_index = 1u64;
+        let pubkey_id = 1u32;
+        let new_authenticator_pubkey = U256::from(200u64);
+        let new_offchain_signer_commitment = U256::from(2u64);
+        let nonce = U256::ZERO;
+
+        let sig = sign_insert_authenticator(
+            &signer,
+            leaf_index,
+            Address::ZERO,
+            pubkey_id,
+            new_authenticator_pubkey,
+            new_offchain_signer_commitment,
+            nonce,
+            &domain,
+        )
+        .unwrap();
+
+        let req = InsertAuthenticatorRequest {
+            leaf_index,
+            new_authenticator_address: Address::ZERO,
+            old_offchain_signer_commitment: U256::from(1u64),
+            new_offchain_signer_commitment,
+            signature: sig,
+            nonce,
+            pubkey_id,
+            new_authenticator_pubkey,
+        };
+
+        assert!(req.pre_flight(pre_flight_context()).is_err());
+        assert!(req.pre_flight(pre_flight_v2_context()).is_ok());
+    }
+
+    #[test]
+    fn remove_preflight_allows_zero_authenticator_address_only_on_v2() {
+        let signer = PrivateKeySigner::random();
+        let domain = make_domain();
+        let leaf_index = 1u64;
+        let pubkey_id = 1u32;
+        let authenticator_pubkey = U256::from(200u64);
+        let new_offchain_signer_commitment = U256::from(2u64);
+        let nonce = U256::ZERO;
+
+        let sig = sign_remove_authenticator(
+            &signer,
+            leaf_index,
+            Address::ZERO,
+            pubkey_id,
+            authenticator_pubkey,
+            new_offchain_signer_commitment,
+            nonce,
+            &domain,
+        )
+        .unwrap();
+
+        let req = RemoveAuthenticatorRequest {
+            leaf_index,
+            authenticator_address: Address::ZERO,
+            old_offchain_signer_commitment: U256::from(1u64),
+            new_offchain_signer_commitment,
+            signature: sig,
+            nonce,
+            pubkey_id: Some(pubkey_id),
+            authenticator_pubkey: Some(authenticator_pubkey),
+        };
+
+        assert!(req.pre_flight(pre_flight_context()).is_err());
+        assert!(req.pre_flight(pre_flight_v2_context()).is_ok());
+    }
+
+    #[test]
+    fn update_authenticator_preflight_rejects_v2() {
+        let signer = PrivateKeySigner::random();
+        let domain = make_domain();
+        let leaf_index = 1u64;
+        let old_authenticator_address = signer.address();
+        let new_authenticator_address: Address =
+            address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        let pubkey_id = 1u32;
+        let new_authenticator_pubkey = U256::from(200u64);
+        let new_offchain_signer_commitment = U256::from(2u64);
+        let nonce = U256::ZERO;
+
+        let sig = sign_update_authenticator(
+            &signer,
+            leaf_index,
+            old_authenticator_address,
+            new_authenticator_address,
+            pubkey_id,
+            new_authenticator_pubkey,
+            new_offchain_signer_commitment,
+            nonce,
+            &domain,
+        )
+        .unwrap();
+
+        let req = UpdateAuthenticatorRequest {
+            leaf_index,
+            old_authenticator_address,
+            new_authenticator_address,
+            old_offchain_signer_commitment: U256::from(1u64),
+            new_offchain_signer_commitment,
+            signature: sig,
+            nonce,
+            pubkey_id,
+            new_authenticator_pubkey,
+        };
+
+        assert!(req.pre_flight(pre_flight_context()).is_ok());
+        let err = req.pre_flight(pre_flight_v2_context()).unwrap_err();
+        assert!(err.to_string().contains("method_not_available"));
     }
 
     // ------------------------------------------------------------------
