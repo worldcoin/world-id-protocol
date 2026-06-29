@@ -2630,7 +2630,7 @@ version = "3.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d314cc62af2b6b0c65780555abb4d02a03dd3b799cd42419044f0c38d99738c0"
 dependencies = [
- "darling 0.21.3",
+ "darling 0.23.0",
  "ident_case",
  "prettyplease",
  "proc-macro2",
@@ -5315,6 +5315,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7093,7 +7102,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -8139,7 +8148,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower",
- "tower-http",
+ "tower-http 0.6.8",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -8180,7 +8189,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower",
- "tower-http",
+ "tower-http 0.6.8",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -10143,9 +10152,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-nodes-common"
-version = "0.7.3"
+version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f588f7f9a52606e62ec32f75d8a01f8e43b85eca0e1744303503a9dbd21e4969"
+checksum = "15af1a54071def0649b8e55c8d87afff9cd537565345e939264313aeb7031fc1"
 dependencies = [
  "alloy",
  "axum",
@@ -10160,28 +10169,28 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tower",
- "tower-http",
+ "tower-http 0.6.8",
  "tracing",
 ]
 
 [[package]]
 name = "taceo-oprf"
-version = "0.16.0"
+version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b4f49c8462cb704e9a141490e36b9aba424e4b23524331ecd938c3451c50bd9"
+checksum = "c10bf82ba41bbc8a6693362d67738145c77bdcec36345d85d4a86d2fb7dc44dc"
 dependencies = [
  "taceo-oprf-client",
  "taceo-oprf-core",
  "taceo-oprf-dev-client",
  "taceo-oprf-service",
- "taceo-oprf-types",
+ "taceo-oprf-types 0.15.0",
 ]
 
 [[package]]
 name = "taceo-oprf-client"
-version = "0.10.0"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48183803ac1bb90342e06a55b7deca62e9159880395b3d307dca151af05e230d"
+checksum = "3cc6179c5bad58f1210bd8872963960145227e8488dfedb4893538acecc5f8ae"
 dependencies = [
  "ark-ec 0.5.0",
  "ciborium",
@@ -10192,7 +10201,7 @@ dependencies = [
  "serde",
  "taceo-ark-babyjubjub",
  "taceo-oprf-core",
- "taceo-oprf-types",
+ "taceo-oprf-types 0.15.0",
  "taceo-poseidon2",
  "thiserror 2.0.18",
  "tokio",
@@ -10203,15 +10212,15 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-core"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ac9ec6121784fe3d57b25e70e4a19f1ae2f8330addb9c44b5874fb3c6be5195"
+checksum = "be7f117e2bff79209ce40cdf4af6d566501cb1e63d2e1f9be6134a3bd3a3a2a3"
 dependencies = [
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
  "ark-serialize 0.5.0",
  "blake3",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "num-bigint",
  "rand 0.8.5",
  "serde",
@@ -10225,9 +10234,9 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-dev-client"
-version = "0.10.0"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0abe0aca2adc3ac7ec75d6872306639e220ee2fc6c014c30f84dad272697b6e0"
+checksum = "b30f7baef2b02582840721e8e4ce458b6c371f765ac838d1f43732e51f2b7698"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -10236,14 +10245,14 @@ dependencies = [
  "humantime",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
- "reqwest 0.12.28",
+ "reqwest 0.13.2",
  "rustls",
  "secrecy",
  "serde",
  "taceo-ark-babyjubjub",
  "taceo-oprf-client",
  "taceo-oprf-core",
- "taceo-oprf-types",
+ "taceo-oprf-types 0.15.0",
  "tokio",
  "tracing",
  "uuid",
@@ -10252,11 +10261,10 @@ dependencies = [
 
 [[package]]
 name = "taceo-oprf-service"
-version = "0.17.0"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eca77dc6b86cff39a566ed5b83c42b7338bf8c9d62959d63c664f2246965abeb"
+checksum = "537902f741d02186fbe26bae92f9785887c410b3289f621632109ec9169e83ff"
 dependencies = [
- "alloy",
  "ark-serialize 0.5.0",
  "async-trait",
  "axum",
@@ -10278,11 +10286,11 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-nodes-common",
  "taceo-oprf-core",
- "taceo-oprf-types",
+ "taceo-oprf-types 0.15.0",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
- "tower-http",
+ "tower-http 0.7.0",
  "tracing",
  "tungstenite",
  "uuid",
@@ -10308,7 +10316,7 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-nodes-common",
  "taceo-oprf-core",
- "taceo-oprf-types",
+ "taceo-oprf-types 0.14.0",
  "testcontainers-modules",
  "tokio",
  "tokio-util",
@@ -10319,6 +10327,29 @@ name = "taceo-oprf-types"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "244714781d0b350440fff4af252e73f62776174b7932b32bb9e51b81b7f22490"
+dependencies = [
+ "alloy",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "async-trait",
+ "eyre",
+ "http 1.4.0",
+ "ruint",
+ "serde",
+ "sqlx",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat",
+ "taceo-circom-types",
+ "taceo-groth16-sol",
+ "taceo-oprf-core",
+ "uuid",
+]
+
+[[package]]
+name = "taceo-oprf-types"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4b3645c7a7592e8aacdb4ca7270e75da3cca6061ae012521f3cb0dd01ff0b16"
 dependencies = [
  "alloy",
  "ark-ff 0.5.0",
@@ -10993,6 +11024,24 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tower",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "tower-http"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b11f75e912b0c2be01b63d8cf8057b8c3f97cf34abb3d431a3a4c8675498e233"
+dependencies = [
+ "bitflags 2.11.0",
+ "bytes",
+ "http 1.4.0",
+ "http-body 1.0.1",
+ "percent-encoding",
+ "pin-project-lite",
+ "tokio",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -12742,7 +12791,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tower",
- "tower-http",
+ "tower-http 0.6.8",
  "tracing",
  "url",
 ]

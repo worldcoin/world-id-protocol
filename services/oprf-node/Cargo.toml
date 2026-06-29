@@ -34,8 +34,8 @@ rustls = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-taceo-nodes-common = { workspace = true, features = ["postgres"] }
-taceo-oprf = { workspace = true, features = ["core", "service", "types"] }
+taceo-nodes-common = { workspace = true, features = ["postgres", "web3"] }
+taceo-oprf = { workspace = true, features = ["service", "postgres"] }
 thiserror = { workspace = true }
 telemetry-batteries = { workspace = true }
 tokio = { workspace = true, features = [

@@ -29,7 +29,7 @@ rand = { workspace = true }
 ark-ec = { workspace = true }
 taceo-oprf = { workspace = true, features = ["full"] }
 taceo-oprf-test-utils = { workspace = true, features = ["deploy-anvil", "postgres-test-container"] }
-taceo-nodes-common = { workspace = true }
+taceo-nodes-common = { workspace = true, features=["web3"] }
 axum = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync"] }
 tokio-util = { workspace = true }
