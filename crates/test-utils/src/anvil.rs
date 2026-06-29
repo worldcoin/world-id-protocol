@@ -90,7 +90,7 @@ sol!(
     WorldIDRegistryV2,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/WorldIDRegistryV2Unreleased.sol/WorldIDRegistryV2.json"
+        "/../../contracts/out/WorldIDRegistryV2.sol/WorldIDRegistryV2.json"
     )
 );
 
@@ -495,7 +495,7 @@ impl TestAnvil {
         // 3. Deploy V2 implementation linked against the same libraries.
         let v2_json = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../contracts/out/WorldIDRegistryV2Unreleased.sol/WorldIDRegistryV2.json"
+            "/../../contracts/out/WorldIDRegistryV2.sol/WorldIDRegistryV2.json"
         ));
         let v2_impl = Self::deploy_linked_registry_impl(
             provider.clone(),

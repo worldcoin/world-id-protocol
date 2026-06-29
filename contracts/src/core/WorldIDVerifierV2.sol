@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-/// IMPORTANT NOTICE: THIS CONTRACT VERSION IS **NOT** RELEASED. THIS CONTRACT
-/// IS A PREPARATION FOR AN UPCOMING UPDATE.
-
 import {WorldIDVerifier} from "./WorldIDVerifier.sol";
 import {IWorldIDVerifier} from "./interfaces/IWorldIDVerifier.sol";
 
