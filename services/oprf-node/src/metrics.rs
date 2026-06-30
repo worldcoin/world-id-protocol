@@ -59,16 +59,8 @@ pub(crate) mod nonce_history {
         );
     }
 
-    pub(crate) fn reset() {
-        metrics::gauge!(METRICS_ID_NODE_NONCE_HISTORY_SIZE).set(0.0);
-    }
-
-    pub(crate) fn inc() {
-        metrics::gauge!(METRICS_ID_NODE_NONCE_HISTORY_SIZE).increment(1);
-    }
-
-    pub(crate) fn dec() {
-        metrics::gauge!(METRICS_ID_NODE_NONCE_HISTORY_SIZE).decrement(1);
+    pub(crate) fn set(val: u64) {
+        metrics::gauge!(METRICS_ID_NODE_NONCE_HISTORY_SIZE).set(val as f64);
     }
 }
 

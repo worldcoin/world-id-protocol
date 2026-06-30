@@ -67,15 +67,8 @@ impl NonceHistory {
     /// # Arguments
     /// * `max_nonce_age` - Maximum age for nonces before they expire
     pub(crate) fn init(max_nonce_age: Duration) -> Self {
-        metrics::nonce_history::reset();
         NonceHistory {
-            nonces: Cache::builder()
-                .time_to_live(max_nonce_age)
-                .eviction_listener(move |k, (), cause| {
-                    tracing::trace!("removing nonce {k:?} because {cause:?}");
-                    metrics::nonce_history::dec();
-                })
-                .build(),
+            nonces: Cache::builder().time_to_live(max_nonce_age).build(),
         }
     }
 
@@ -105,7 +98,7 @@ impl NonceHistory {
         if !entry.is_fresh() {
             return Err(DuplicateNonce);
         }
-        metrics::nonce_history::inc();
+        metrics::nonce_history::set(self.nonces.entry_count());
         Ok(())
     }
 }
