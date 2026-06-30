@@ -1,0 +1,19 @@
+[package]
+name = "generate-noir-artifacts"
+publish = false
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "generate-noir-artifacts"
+path = "src/main.rs"
+
+[dependencies]
+eyre = { workspace = true }
+provekit-common = { workspace = true }
+provekit-r1cs-compiler = { workspace = true }
