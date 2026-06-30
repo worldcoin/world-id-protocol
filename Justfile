@@ -53,6 +53,10 @@ import 'just/cargo.just'
 import 'just/forge.just'
 import 'just/test.just'
 
+# default recipe to display help information
+default:
+    @just --list
+
 # Internal forwarding helpers used by contracts module recipes.
 _cast-dry-run *args:
     @just contracts::_cast-dry-run {{ args }}
