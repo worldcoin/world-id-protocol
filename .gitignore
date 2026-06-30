@@ -38,3 +38,4 @@ crates/core/contracts/out/*.sol/*.json
 
 # Trusted setup generated media
 docs/world-id-4-trusted-setup/manim/media/
+benchmarks/
