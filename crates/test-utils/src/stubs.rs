@@ -6,8 +6,7 @@ use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, ContextCompat as _, Result};
 use secrecy::SecretString;
 use semver::VersionReq;
-use taceo_nodes_common::postgres::PostgresConfig;
-use taceo_oprf::service::web3::HttpRpcProviderConfig;
+use taceo_nodes_common::{postgres::PostgresConfig, web3::HttpRpcProviderConfig};
 use taceo_oprf_test_utils::{
     OPRF_PEER_PRIVATE_KEY_0, OPRF_PEER_PRIVATE_KEY_1, OPRF_PEER_PRIVATE_KEY_2,
     OPRF_PEER_PRIVATE_KEY_3, OPRF_PEER_PRIVATE_KEY_4,
@@ -224,13 +223,8 @@ async fn spawn_orpf_node(
             .load_node_information()
             .await
             .expect("Can load node information");
-        let router = world_id_oprf_node::start(
-            config,
-            secret_manager,
-            node_information,
-            cancellation_token.clone(),
-        )
-        .expect("Can start");
+        let router = world_id_oprf_node::start(config, secret_manager, &node_information)
+            .expect("Can start");
         let listener = tokio::net::TcpListener::bind(bind_addr)
             .await
             .expect("Can bind listener");

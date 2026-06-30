@@ -25,7 +25,7 @@ ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
 ark-serde-compat = { workspace = true }
 arrayvec = { workspace = true, features = ["serde"] }
-circom-types = { workspace = true, features = ["groth16"] }
+circom-types = { workspace = true, features = ["groth16", "proof", "bn254"] }
 eddsa-babyjubjub = { workspace = true }
 eyre = { workspace = true }
 hex = { workspace = true }

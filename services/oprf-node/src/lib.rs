@@ -35,7 +35,6 @@ use taceo_oprf::{
     service::{OprfServiceBuilder, StartedServices, secret_manager::SecretManagerService},
     types::service::NodeInformation,
 };
-use tokio_util::sync::CancellationToken;
 use world_id_primitives::oprf::OprfModule;
 
 use crate::{
@@ -94,8 +93,7 @@ pub mod metrics;
 pub fn start(
     config: WorldOprfNodeConfig,
     secret_manager: SecretManagerService,
-    node_information: NodeInformation,
-    cancellation_token: CancellationToken,
+    node_information: &NodeInformation,
 ) -> eyre::Result<axum::Router> {
     let node_config = config.node_config;
     let started_services = StartedServices::default();
@@ -174,8 +172,7 @@ pub fn start(
         secret_manager,
         started_services,
         node_information,
-        cancellation_token,
-    )?
+    )
     .module(
         &format!("/{}", OprfModule::Nullifier),
         nullifier_oprf_req_auth_service,
