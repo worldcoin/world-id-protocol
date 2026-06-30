@@ -1,6 +1,7 @@
 [package]
 name = "generate-noir-artifacts"
-publish = false
+description = "Generates Noir ownership proof artifacts for World ID"
+publish = true
 edition.workspace = true
 version.workspace = true
 license.workspace = true

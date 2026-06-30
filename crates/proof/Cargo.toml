@@ -20,18 +20,17 @@ include = [
 
 [features]
 default = ["embed-zkeys"]
-# Embed zkeys into binary
+# Embed Circom zkeys into binary
 embed-zkeys = ["dep:tar"]
 # Compress the embedded zkeys to reduce binary size (ARK point compression)
 compress-zkeys = ["embed-zkeys", "dep:ark-serialize", "dep:circom-types"]
 # Compress the tar archive with zstd
 zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
 
-# Experimental: Feature Flags for Specific Circuits
-# RATIONALE: We feature flag each circuit and based on the proving/verifying action because each require
-# a proving and verifying key that generally is above >1Mb. So selecting circuits optimizes bundle size.
-zk-ownership-prove = ["dep:provekit-prover"]
-zk-ownership-verify = ["dep:provekit-verifier"]
+# Embed Noir ownership proof artifacts into binary
+embed-noir-artifacts = []
+# Build Noir artifacts ad-hoc in build.rs instead of downloading them.
+build-noir-artifacts = ["embed-noir-artifacts", "dep:generate-noir-artifacts"]
 
 [dependencies]
 ark-babyjubjub = { workspace = true }
@@ -47,8 +46,6 @@ tracing = { workspace = true }
 zstd = { workspace = true, optional = true }
 eddsa-babyjubjub = { workspace = true }
 provekit-common = { workspace = true }
-provekit-prover = { workspace = true, optional = true }
-provekit-verifier = { workspace = true, optional = true }
 rand = { workspace = true }
 serde = { workspace = true }
 groth16-material = { workspace = true, features = ["circom"] }
@@ -62,6 +59,10 @@ zeroize = { workspace = true }
 # Internal
 world-id-primitives = { workspace = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+provekit-prover = { workspace = true }
+provekit-verifier = { workspace = true }
+
 [build-dependencies]
 eyre = { workspace = true }
 reqwest = { workspace = true, features = ["blocking"] }
@@ -70,8 +71,7 @@ circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"] }
 rayon = { workspace = true }
 tar = { workspace = true }
 zstd = { workspace = true }
-provekit-r1cs-compiler = { workspace = true }
-provekit-common = { workspace = true }
+generate-noir-artifacts = { workspace = true, optional = true }
 
 [dev-dependencies]
 world-id-test-utils = { workspace = true }
