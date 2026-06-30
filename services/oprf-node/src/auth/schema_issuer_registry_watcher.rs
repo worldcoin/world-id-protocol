@@ -64,10 +64,7 @@ impl SchemaIssuerRegistryWatcher {
     ) -> Self {
         let store_builder = Cache::builder()
             .max_capacity(cache_config.max_cache_size.get())
-            .time_to_live(cache_config.time_to_live)
-            .eviction_listener(move |k, (), cause| {
-                tracing::trace!("removing issuer {k} because: {cause:?}");
-            });
+            .time_to_live(cache_config.time_to_live);
         let issuer_schema_store = if let Some(time_to_idle) = cache_config.time_to_idle {
             store_builder.time_to_idle(time_to_idle).build()
         } else {
@@ -109,7 +106,6 @@ impl SchemaIssuerRegistryWatcher {
             .await?;
 
         if entry.is_fresh() {
-            self.issuer_schema_store.run_pending_tasks().await;
             metrics::schema_issuer_cache::set(self.issuer_schema_store.entry_count());
             metrics::schema_issuer_cache::miss();
             tracing::trace!("issuer {issuer_schema_id} loaded from chain");

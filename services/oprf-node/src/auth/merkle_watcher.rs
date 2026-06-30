@@ -80,10 +80,7 @@ impl MerkleWatcher {
 
         let merkle_root_cache_builder = Cache::builder()
             .max_capacity(cache_config.max_cache_size.get())
-            .time_to_live(cache_config.time_to_live)
-            .eviction_listener(move |root, (), cause| {
-                tracing::trace!("removing merkle-root {root} because: {cause:?}");
-            });
+            .time_to_live(cache_config.time_to_live);
 
         let merkle_root_cache = if let Some(time_to_idle) = cache_config.time_to_idle {
             merkle_root_cache_builder.time_to_idle(time_to_idle).build()
@@ -144,7 +141,6 @@ impl MerkleWatcher {
             .or_try_insert_with(is_valid_root)
             .await?;
         if entry.is_fresh() {
-            self.merkle_root_cache.run_pending_tasks().await;
             metrics::merkle_cache::set(self.merkle_root_cache.entry_count());
             metrics::merkle_cache::miss();
             tracing::trace!("merkle root {root} loaded from chain");

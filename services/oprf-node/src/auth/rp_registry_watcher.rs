@@ -78,10 +78,8 @@ impl RpRegistryWatcher {
     ) -> Self {
         let rp_store_builder = Cache::builder()
             .max_capacity(cache_config.max_cache_size.get())
-            .time_to_live(cache_config.time_to_live)
-            .eviction_listener(move |k, v: RelyingParty, cause| {
-                tracing::trace!("removing rp {k}/{} because: {cause:?}", v.account_type);
-            });
+            .time_to_live(cache_config.time_to_live);
+
         let rp_store = if let Some(time_to_idle) = cache_config.time_to_idle {
             rp_store_builder.time_to_idle(time_to_idle).build()
         } else {
@@ -117,7 +115,6 @@ impl RpRegistryWatcher {
             .await?;
         let rp = if entry.is_fresh() {
             let rp = entry.into_value();
-            self.rp_store.run_pending_tasks().await;
             metrics::rp_registry_cache::set(self.rp_store.entry_count());
             metrics::rp_registry_cache::miss();
             tracing::trace!("rp {rp_id}/{} loaded from chain", rp.account_type);
