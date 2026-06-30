@@ -1,7 +1,9 @@
 mod ethereum_mpt;
+mod op_stack;
 pub mod permissioned;
 
 pub use ethereum_mpt::EthereumMptSatellite;
+pub use op_stack::OpStackSatellite;
 pub use permissioned::{PermissionedSatellite, TempoSatellite};
 use tracing::Instrument;
 
