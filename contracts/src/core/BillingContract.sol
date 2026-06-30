@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {WorldIDBase} from "./abstract/WorldIDBase.sol";
@@ -182,8 +183,30 @@ contract BillingContract is WorldIDBase, IBillingContract {
 
     /// @inheritdoc IBillingContract
     function submitBillingVotes(uint64 epoch, SignedVote[] calldata votes) external virtual onlyProxy onlyInitialized {
-        // Implemented in "Vote submission" + "Event-driven finalization" steps.
-        revert NotImplemented();
+        // The voting window for `epoch` must be currently open.
+        uint64 votingStart = epochEnd(epoch);
+        if (block.timestamp < votingStart) revert VotingWindowNotOpen();
+        if (block.timestamp >= votingStart + _votingWindow) revert VotingWindowClosed();
+
+        // NOTE: an opportunistic bounded finalization flush is wired in here once the
+        // finalization engine exists (next plan step).
+
+        // Snapshot the node count and fee-schedule version on the epoch's first accepted vote, so
+        // quorum/median and pricing stay stable across the voting window even if the live node set
+        // or schedule changes mid-window.
+        if (_nSnapshot[epoch] == 0) {
+            uint16 n = _oprfKeyRegistry.numPeers();
+            if (n == 0) revert NoNodesRegistered();
+            _nSnapshot[epoch] = n;
+            _scheduleVersion[epoch] = _currentScheduleVersion;
+        }
+
+        uint256 voteCount = votes.length;
+        for (uint256 i = 0; i < voteCount; i++) {
+            _recordVote(epoch, votes[i]);
+        }
+
+        emit VotesSubmitted(epoch, voteCount);
     }
 
     /// @inheritdoc IBillingContract
@@ -301,6 +324,50 @@ contract BillingContract is WorldIDBase, IBillingContract {
             if (_oprfKeyRegistry.peerAddresses(i) == who) return true;
         }
         return false;
+    }
+
+    /// @dev Validates, authenticates and records a single node's vote for `epoch`.
+    function _recordVote(uint64 epoch, SignedVote calldata vote) internal {
+        // Validate the counts (strictly ascending rpId, all non-zero) and build the EIP-712
+        // hash of the RpCount[] array in a single pass.
+        bytes32 countsHash = _validateAndHashCounts(vote.counts);
+
+        // Authenticate by recovered signer, not msg.sender — any party may relay the votes.
+        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(BILLING_VOTE_TYPEHASH, epoch, countsHash)));
+        address signer = ECDSA.recover(digest, vote.signature);
+
+        if (!_isNode(signer)) revert NotANode();
+        if (_hasVoted[epoch][signer]) revert AlreadyVoted();
+        _hasVoted[epoch][signer] = true;
+        _epochVoterCount[epoch] += 1;
+
+        uint256 len = vote.counts.length;
+        for (uint256 i = 0; i < len; i++) {
+            uint64 rpId = vote.counts[i].rpId;
+            // First non-zero count seen for this rp in the epoch ⇒ track it in the rp list.
+            if (_epochRpCounts[epoch][rpId].length == 0) {
+                _epochRpList[epoch].push(rpId);
+            }
+            _epochRpCounts[epoch][rpId].push(vote.counts[i].count);
+        }
+    }
+
+    /// @dev Validates a vote's counts and returns the EIP-712 hash of the RpCount[] array.
+    ///      rpIds must be strictly ascending (rejects duplicates and the invalid rpId 0); counts
+    ///      must all be non-zero (zero counts are implicit and must be omitted).
+    function _validateAndHashCounts(RpCount[] calldata counts) internal pure returns (bytes32) {
+        uint256 len = counts.length;
+        bytes32[] memory hashes = new bytes32[](len);
+        uint64 prevRpId = 0;
+        for (uint256 i = 0; i < len; i++) {
+            uint64 rpId = counts[i].rpId;
+            uint64 count = counts[i].count;
+            if (count == 0) revert ZeroCount();
+            if (rpId <= prevRpId) revert CountsNotAscending();
+            prevRpId = rpId;
+            hashes[i] = keccak256(abi.encode(RPCOUNT_TYPEHASH, rpId, count));
+        }
+        return keccak256(abi.encodePacked(hashes));
     }
 
     /// @dev Validates a tier schedule: non-empty, strictly ascending `upTo` ending at max,
