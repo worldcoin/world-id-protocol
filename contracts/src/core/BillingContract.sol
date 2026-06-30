@@ -27,8 +27,9 @@ interface IOprfNodeSet {
  * @dev OPRF nodes count unique RP requests per epoch and submit EIP-712-signed votes. The contract
  *      finalizes the lower-median count across the node set (gated on quorum), prices it through a
  *      tiered WLD fee schedule, accrues per-RP debt, and blocks RPs past their payment window.
- *      Finalization is event-driven: each {submitBillingVotes} flushes now-closed epochs and prunes
- *      their raw vote data, so raw state scales with participants, not time.
+ *      Finalization is permissionless and chunkable ({finalizeEpochs}); {submitBillingVotes} and
+ *      {pay} opportunistically flush a bounded chunk. Finalizing prunes raw vote data, so raw state
+ *      scales with participants, not time, and no single call can be bricked by an oversized epoch.
  * @custom:repo https://github.com/worldcoin/world-id-protocol
  */
 contract BillingContract is WorldIDBase, IBillingContract {
@@ -101,6 +102,10 @@ contract BillingContract is WorldIDBase, IBillingContract {
     /// @dev epoch -> rpId -> the non-zero counts submitted for it.
     mapping(uint64 => mapping(uint64 => uint64[])) internal _epochRpCounts;
 
+    /// @dev Index into `_epochRpList[_nextEpochToFinalize]` of the next RP to finalize, so a
+    ///      single oversized epoch can be finalized across multiple (chunked) calls.
+    uint256 internal _finalizeRpCursor;
+
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
     ////////////////////////////////////////////////////////////
@@ -114,6 +119,11 @@ contract BillingContract is WorldIDBase, IBillingContract {
 
     /// @dev EIP-712 typehash for a single RpCount struct (member of a BillingVote).
     bytes32 public constant RPCOUNT_TYPEHASH = keccak256("RpCount(uint64 rpId,uint64 count)");
+
+    /// @dev Finalization budget for the opportunistic flush done by `submitBillingVotes`/`pay`.
+    ///      One unit per RP finalized and one per epoch closed; permissionless `finalizeEpochs`
+    ///      takes an explicit budget for bulk catch-up.
+    uint256 internal constant DEFAULT_FINALIZE_STEPS = 256;
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
@@ -188,8 +198,9 @@ contract BillingContract is WorldIDBase, IBillingContract {
         if (block.timestamp < votingStart) revert VotingWindowNotOpen();
         if (block.timestamp >= votingStart + _votingWindow) revert VotingWindowClosed();
 
-        // NOTE: an opportunistic bounded finalization flush is wired in here once the
-        // finalization engine exists (next plan step).
+        // Opportunistically finalize a bounded chunk of now-closed epochs so the system
+        // self-drives without a dedicated keeper. Bounded so a large epoch can never brick submit.
+        _finalize(type(uint64).max, DEFAULT_FINALIZE_STEPS);
 
         // Snapshot the node count and fee-schedule version on the epoch's first accepted vote, so
         // quorum/median and pricing stay stable across the voting window even if the live node set
@@ -216,9 +227,8 @@ contract BillingContract is WorldIDBase, IBillingContract {
     }
 
     /// @inheritdoc IBillingContract
-    function finalizeEpochs(uint64) external virtual onlyProxy onlyInitialized {
-        // Implemented in "Event-driven finalization" step.
-        revert NotImplemented();
+    function finalizeEpochs(uint64 uptoEpoch, uint256 maxSteps) external virtual onlyProxy onlyInitialized {
+        _finalize(uptoEpoch, maxSteps);
     }
 
     ////////////////////////////////////////////////////////////
@@ -269,9 +279,16 @@ contract BillingContract is WorldIDBase, IBillingContract {
     }
 
     /// @inheritdoc IBillingContract
-    function epochRequestCount(uint64, uint64) external view virtual onlyProxy onlyInitialized returns (uint64) {
-        // Implemented in "Event-driven finalization" step (median over retained epochs).
-        revert NotImplemented();
+    function epochRequestCount(uint64 epoch, uint64 rpId)
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (uint64)
+    {
+        // Returns 0 for finalized (pruned) epochs, since their snapshot/counts are deleted.
+        return _median(epoch, rpId);
     }
 
     /// @inheritdoc IBillingContract
@@ -324,6 +341,138 @@ contract BillingContract is WorldIDBase, IBillingContract {
             if (_oprfKeyRegistry.peerAddresses(i) == who) return true;
         }
         return false;
+    }
+
+    /// @dev Finalizes closed epochs in global order, up to `uptoEpoch` and at most `maxSteps`
+    ///      units of work (one per RP finalized, one per epoch closed). Resumes mid-epoch via the
+    ///      `(_nextEpochToFinalize, _finalizeRpCursor)` cursor so an oversized epoch can never make
+    ///      a single call exceed the block gas limit.
+    function _finalize(uint64 uptoEpoch, uint256 maxSteps) internal {
+        (bool exists, uint64 closed) = _latestClosedEpoch();
+        if (!exists) return;
+        uint64 target = uptoEpoch < closed ? uptoEpoch : closed;
+
+        uint64 e = _nextEpochToFinalize;
+        uint256 cursor = _finalizeRpCursor;
+        uint256 steps = 0;
+
+        while (e <= target && steps < maxSteps) {
+            uint64[] storage rps = _epochRpList[e];
+            uint256 len = rps.length;
+
+            while (cursor < len && steps < maxSteps) {
+                _finalizeRp(e, rps[cursor]);
+                unchecked {
+                    cursor++;
+                    steps++;
+                }
+            }
+
+            if (cursor >= len) {
+                // Epoch fully finalized: prune its epoch-level transient state and advance.
+                // (No-ops on voteless epochs, which still cost one step so skipping stays bounded.)
+                delete _epochRpList[e];
+                delete _epochVoterCount[e];
+                delete _nSnapshot[e];
+                delete _scheduleVersion[e];
+                cursor = 0;
+                unchecked {
+                    e++;
+                    steps++;
+                }
+            } else {
+                // Budget exhausted mid-epoch; resume here next call.
+                break;
+            }
+        }
+
+        _nextEpochToFinalize = e;
+        _finalizeRpCursor = cursor;
+    }
+
+    /// @dev Finalizes a single (epoch, rp): prices its lower-median count through the epoch's pinned
+    ///      schedule, accrues debt, emits the audit event, and prunes the raw counts.
+    function _finalizeRp(uint64 epoch, uint64 rp) internal {
+        uint64 count = _median(epoch, rp);
+        delete _epochRpCounts[epoch][rp]; // prune raw counts regardless of outcome
+
+        if (count == 0) return; // below quorum or zero median ⇒ nothing billed, no event
+
+        // Rebate-period accounting: reset the running count when crossing a period boundary.
+        uint64 periodIdx = epoch / _rebatePeriodEpochs;
+        if (_periodIndex[rp] != periodIdx) {
+            _periodIndex[rp] = periodIdx;
+            _periodCount[rp] = 0;
+        }
+
+        uint256 base = _periodCount[rp];
+        uint256 fee = _marginalFee(_scheduleVersion[epoch], base, count);
+        _periodCount[rp] = base + count;
+
+        if (fee > 0) {
+            if (_totalOwed[rp] == 0) {
+                // First unpaid epoch sets the block clock; it has the earliest due time since
+                // epochs finalize in ascending order.
+                _oldestUnpaidDue[rp] = _paymentDue(epoch);
+            }
+            _totalOwed[rp] += fee;
+        }
+
+        emit EpochRpFinalized(epoch, rp, count, fee);
+    }
+
+    /// @dev The lower median of an RP's submitted counts for `epoch`, with missing votes counted as
+    ///      zero over the epoch's snapshot voter count, gated on quorum. Returns 0 below quorum or
+    ///      for pruned/unseen epochs.
+    function _median(uint64 epoch, uint64 rp) internal view returns (uint64) {
+        uint16 n = _nSnapshot[epoch];
+        if (n == 0) return 0; // no snapshot ⇒ no votes (or pruned)
+
+        uint64 v = _epochVoterCount[epoch];
+        if (v < _quorum(n)) return 0;
+
+        uint64[] storage stored = _epochRpCounts[epoch][rp];
+        uint256 m = stored.length;
+        // Voters who did not report this rp count as 0.
+        uint256 zeros = uint256(v) - m;
+        // Lower-median index over the v values (0-indexed).
+        uint256 idx = (uint256(v) - 1) / 2;
+        if (idx < zeros) return 0;
+
+        // Copy the reported counts to memory and insertion-sort (m <= n, tiny).
+        uint64[] memory vals = new uint64[](m);
+        for (uint256 i = 0; i < m; i++) {
+            vals[i] = stored[i];
+        }
+        for (uint256 i = 1; i < m; i++) {
+            uint64 key = vals[i];
+            uint256 j = i;
+            while (j > 0 && vals[j - 1] > key) {
+                vals[j] = vals[j - 1];
+                j--;
+            }
+            vals[j] = key;
+        }
+
+        // The sorted full vector is `zeros` zeros followed by the sorted reported values.
+        return vals[idx - zeros];
+    }
+
+    /// @dev The marginal WLD fee for billing `count` additional requests on top of `base` already
+    ///      billed this rebate period, using tier schedule `version` (WIP-107 §6.4 tiered pricing).
+    function _marginalFee(uint32 version, uint256 base, uint256 count) internal view returns (uint256 fee) {
+        Tier[] storage tiers = _tierSchedules[version];
+        uint256 from = base;
+        uint256 to = base + count;
+        uint256 len = tiers.length;
+        for (uint256 i = 0; i < len && from < to; i++) {
+            uint256 boundary = tiers[i].upTo;
+            if (boundary <= from) continue; // tier already fully consumed by `base`
+            uint256 segEnd = boundary < to ? boundary : to;
+            fee += (segEnd - from) * tiers[i].rate;
+            from = segEnd;
+        }
+        // The final tier's `upTo == type(uint256).max` guarantees the loop covers [base, base+count).
     }
 
     /// @dev Validates, authenticates and records a single node's vote for `epoch`.

@@ -134,9 +134,10 @@ interface IBillingContract {
 
     /**
      * @notice Submit one or more OPRF node billing votes for a single epoch.
-     * @dev Before accepting the votes, finalizes every now-closed unfinalized epoch in global order
-     *      and prunes their raw vote data. The epoch's node-count and fee-schedule version are
-     *      snapshotted on the first accepted vote. Authenticates by recovered signer, not msg.sender.
+     * @dev Before accepting the votes, opportunistically finalizes a bounded chunk of now-closed
+     *      epochs (see {finalizeEpochs}) and prunes their raw vote data. The epoch's node-count and
+     *      fee-schedule version are snapshotted on the first accepted vote. Authenticates by
+     *      recovered signer, not msg.sender.
      * @param epoch The epoch the votes are cast for; its voting window must be currently open.
      * @param votes The signed votes to record.
      */
@@ -154,10 +155,12 @@ interface IBillingContract {
     /**
      * @notice Permissionlessly finalize closed epochs up to (and including) `uptoEpoch`.
      * @dev Flushes the tail when node votes have stopped, so debt and `is_blocked` stay current.
-     *      Bounded by the number of closed-but-unfinalized epochs.
+     *      Chunkable: advances the global cursor by at most `maxSteps` units (one per RP finalized,
+     *      one per epoch closed), resuming mid-epoch across calls so a large epoch never bricks.
      * @param uptoEpoch The highest epoch to finalize up to; capped at the latest closed epoch.
+     * @param maxSteps The maximum units of finalization work to perform in this call.
      */
-    function finalizeEpochs(uint64 uptoEpoch) external;
+    function finalizeEpochs(uint64 uptoEpoch, uint256 maxSteps) external;
 
     /**
      * @notice Publish a new tier schedule version. Existing epochs keep their pinned version.
