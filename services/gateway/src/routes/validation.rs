@@ -1,16 +1,17 @@
 use tokio::sync::OnceCell;
 
-use crate::error::GatewayErrorResponse;
+use crate::{RegistryVersion, error::GatewayErrorResponse};
 use alloy::{
     primitives::{Address, Bytes, Signature, TxKind, U256},
     providers::Provider,
     rpc::types::{BlockId, TransactionRequest},
     sol_types::{Eip712Domain, SolStruct, eip712_domain},
 };
+use axum::http::StatusCode;
 use world_id_primitives::api_types::{
     CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
-    InsertAuthenticatorRequest, RecoverAccountRequest, RemoveAuthenticatorRequest,
-    UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
+    GatewayErrorCode, InsertAuthenticatorRequest, RecoverAccountRequest,
+    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
 };
 use world_id_registries::world_id::{
     CancelRecoveryAgentUpdateTypedData, InitiateRecoveryAgentUpdateTypedData,
@@ -19,7 +20,9 @@ use world_id_registries::world_id::{
 };
 
 use crate::{
-    request::{Registry, RevertRecoveryAgentUpdateRequest, UpdateRecoveryAgentV2Request},
+    request::{
+        GatewayContext, Registry, RevertRecoveryAgentUpdateRequest, UpdateRecoveryAgentV2Request,
+    },
     types::MAX_AUTHENTICATORS,
 };
 
@@ -36,6 +39,14 @@ fn eip712_domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain {
     )
 }
 
+/// Inputs available during pre-flight validation.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PreFlightContext {
+    pub(crate) chain_id: u64,
+    pub(crate) verifying_contract: Address,
+    pub(crate) registry_version: RegistryVersion,
+}
+
 /// Trait for validating gateway requests before processing.
 ///
 /// Validation consists of two phases:
@@ -46,11 +57,7 @@ pub(crate) trait RequestValidation: Sized + Sync {
     ///
     /// Checks basic constraints like field lengths, zero values, and verifies
     /// ECDSA signatures using EIP-712 typed data.
-    fn pre_flight(
-        &self,
-        chain_id: u64,
-        verifying_contract: Address,
-    ) -> Result<(), GatewayErrorResponse>;
+    fn pre_flight(&self, ctx: PreFlightContext) -> Result<(), GatewayErrorResponse>;
 
     /// Get the encoded calldata for this request.
     ///
@@ -62,9 +69,10 @@ pub(crate) trait RequestValidation: Sized + Sync {
     /// and returns the already-encoded calldata for submission.
     fn validate_and_calldata(
         &self,
-        registry: &Registry,
+        ctx: &GatewayContext,
     ) -> impl Future<Output = Result<Bytes, GatewayErrorResponse>> + Send {
         async move {
+            let registry = ctx.registry.as_ref();
             let chain_id = *CHAIN_ID
                 .get_or_try_init(|| async {
                     registry
@@ -74,9 +82,13 @@ pub(crate) trait RequestValidation: Sized + Sync {
                         .map_err(|_| GatewayErrorResponse::internal_server_error())
                 })
                 .await?;
-            let verifying_contract = *registry.address();
+            let pre_flight_ctx = PreFlightContext {
+                chain_id,
+                verifying_contract: *registry.address(),
+                registry_version: ctx.registry_version,
+            };
 
-            self.pre_flight(chain_id, verifying_contract)?;
+            self.pre_flight(pre_flight_ctx)?;
             let calldata = self.calldata(registry);
             simulate_calldata(registry, &calldata).await?;
             Ok(calldata)
@@ -125,11 +137,7 @@ fn recover_signer<T: SolStruct>(
 // =============================================================================
 
 impl RequestValidation for CreateAccountRequest {
-    fn pre_flight(
-        &self,
-        _chain_id: u64,
-        _verifying_contract: Address,
-    ) -> Result<(), GatewayErrorResponse> {
+    fn pre_flight(&self, _ctx: PreFlightContext) -> Result<(), GatewayErrorResponse> {
         // CreateAccountRequest has no signature to verify
         if self.authenticator_addresses.len() > MAX_AUTHENTICATORS as usize {
             return Err(GatewayErrorResponse::bad_request_message(format!(
@@ -177,14 +185,10 @@ impl RequestValidation for CreateAccountRequest {
 // =============================================================================
 
 impl RequestValidation for InsertAuthenticatorRequest {
-    fn pre_flight(
-        &self,
-        chain_id: u64,
-        verifying_contract: Address,
-    ) -> Result<(), GatewayErrorResponse> {
-        if self.new_authenticator_address.is_zero() {
+    fn pre_flight(&self, ctx: PreFlightContext) -> Result<(), GatewayErrorResponse> {
+        if self.new_authenticator_address.is_zero() && ctx.registry_version == RegistryVersion::V1 {
             return Err(GatewayErrorResponse::bad_request_message(
-                "new_authenticator_address cannot be zero".to_string(),
+                "new_authenticator_address cannot be zero on V1".to_string(),
             ));
         }
         if self.pubkey_id >= MAX_AUTHENTICATORS {
@@ -214,7 +218,12 @@ impl RequestValidation for InsertAuthenticatorRequest {
             newOffchainSignerCommitment: self.new_offchain_signer_commitment,
             nonce: self.nonce,
         };
-        let _signer = recover_signer(&typed_data, &self.signature, chain_id, verifying_contract)?;
+        let _signer = recover_signer(
+            &typed_data,
+            &self.signature,
+            ctx.chain_id,
+            ctx.verifying_contract,
+        )?;
 
         Ok(())
     }
@@ -241,11 +250,16 @@ impl RequestValidation for InsertAuthenticatorRequest {
 // =============================================================================
 
 impl RequestValidation for UpdateAuthenticatorRequest {
-    fn pre_flight(
-        &self,
-        chain_id: u64,
-        verifying_contract: Address,
-    ) -> Result<(), GatewayErrorResponse> {
+    fn pre_flight(&self, ctx: PreFlightContext) -> Result<(), GatewayErrorResponse> {
+        if ctx.registry_version == RegistryVersion::V2 {
+            return Err(GatewayErrorResponse::new(
+                GatewayErrorCode::MethodNotAvailable,
+                "POST /update-authenticator is not supported on registry V2; use insert/remove instead."
+                    .to_string(),
+                StatusCode::NOT_IMPLEMENTED,
+            ));
+        }
+
         if self.leaf_index == 0 {
             return Err(GatewayErrorResponse::bad_request_message(
                 "leaf_index cannot be zero".to_string(),
@@ -279,7 +293,12 @@ impl RequestValidation for UpdateAuthenticatorRequest {
             newOffchainSignerCommitment: self.new_offchain_signer_commitment,
             nonce: self.nonce,
         };
-        let signer = recover_signer(&typed_data, &self.signature, chain_id, verifying_contract)?;
+        let signer = recover_signer(
+            &typed_data,
+            &self.signature,
+            ctx.chain_id,
+            ctx.verifying_contract,
+        )?;
         if signer != self.old_authenticator_address {
             return Err(GatewayErrorResponse::bad_request_message(
                 "signature must be from the authenticator being replaced".to_string(),
@@ -312,11 +331,7 @@ impl RequestValidation for UpdateAuthenticatorRequest {
 // =============================================================================
 
 impl RequestValidation for RemoveAuthenticatorRequest {
-    fn pre_flight(
-        &self,
-        chain_id: u64,
-        verifying_contract: Address,
-    ) -> Result<(), GatewayErrorResponse> {
+    fn pre_flight(&self, ctx: PreFlightContext) -> Result<(), GatewayErrorResponse> {
         let pubkey_id = self.pubkey_id.unwrap_or(0);
         let authenticator_pubkey = self.authenticator_pubkey.unwrap_or(U256::ZERO);
 
@@ -330,9 +345,9 @@ impl RequestValidation for RemoveAuthenticatorRequest {
                 "pubkey_id must be less than {MAX_AUTHENTICATORS}"
             )));
         }
-        if self.authenticator_address.is_zero() {
+        if self.authenticator_address.is_zero() && ctx.registry_version == RegistryVersion::V1 {
             return Err(GatewayErrorResponse::bad_request_message(
-                "authenticator_address cannot be zero".to_string(),
+                "authenticator_address cannot be zero on V1".to_string(),
             ));
         }
         if self.old_offchain_signer_commitment.is_zero()
@@ -354,7 +369,12 @@ impl RequestValidation for RemoveAuthenticatorRequest {
             newOffchainSignerCommitment: self.new_offchain_signer_commitment,
             nonce: self.nonce,
         };
-        let _signer = recover_signer(&typed_data, &self.signature, chain_id, verifying_contract)?;
+        let _signer = recover_signer(
+            &typed_data,
+            &self.signature,
+            ctx.chain_id,
+            ctx.verifying_contract,
+        )?;
 
         Ok(())
     }
@@ -383,11 +403,7 @@ impl RequestValidation for RemoveAuthenticatorRequest {
 // UpdateRecoveryAgentRequest (initiateRecoveryAgentUpdate)
 // =============================================================================
 impl RequestValidation for UpdateRecoveryAgentRequest {
-    fn pre_flight(
-        &self,
-        chain_id: u64,
-        verifying_contract: Address,
-    ) -> Result<(), GatewayErrorResponse> {
+    fn pre_flight(&self, ctx: PreFlightContext) -> Result<(), GatewayErrorResponse> {
         if self.leaf_index == 0 {
             return Err(GatewayErrorResponse::bad_request_message(
                 "leaf_index cannot be zero".to_string(),
@@ -409,7 +425,12 @@ impl RequestValidation for UpdateRecoveryAgentRequest {
             newRecoveryAgent: self.new_recovery_agent,
             nonce: self.nonce,
         };
-        let _signer = recover_signer(&typed_data, &self.signature, chain_id, verifying_contract)?;
+        let _signer = recover_signer(
+            &typed_data,
+            &self.signature,
+            ctx.chain_id,
+            ctx.verifying_contract,
+        )?;
 
         Ok(())
     }
@@ -431,11 +452,7 @@ impl RequestValidation for UpdateRecoveryAgentRequest {
 // CancelRecoveryAgentUpdateRequest (cancelRecoveryAgentUpdate)
 // =============================================================================
 impl RequestValidation for CancelRecoveryAgentUpdateRequest {
-    fn pre_flight(
-        &self,
-        chain_id: u64,
-        verifying_contract: Address,
-    ) -> Result<(), GatewayErrorResponse> {
+    fn pre_flight(&self, ctx: PreFlightContext) -> Result<(), GatewayErrorResponse> {
         if self.leaf_index == 0 {
             return Err(GatewayErrorResponse::bad_request_message(
                 "leaf_index cannot be zero".to_string(),
@@ -454,7 +471,12 @@ impl RequestValidation for CancelRecoveryAgentUpdateRequest {
             leafIndex: self.leaf_index,
             nonce: self.nonce,
         };
-        let _signer = recover_signer(&typed_data, &self.signature, chain_id, verifying_contract)?;
+        let _signer = recover_signer(
+            &typed_data,
+            &self.signature,
+            ctx.chain_id,
+            ctx.verifying_contract,
+        )?;
 
         Ok(())
     }
@@ -475,11 +497,7 @@ impl RequestValidation for CancelRecoveryAgentUpdateRequest {
 // ExecuteRecoveryAgentUpdateRequest (executeRecoveryAgentUpdate)
 // =============================================================================
 impl RequestValidation for ExecuteRecoveryAgentUpdateRequest {
-    fn pre_flight(
-        &self,
-        _chain_id: u64,
-        _verifying_contract: Address,
-    ) -> Result<(), GatewayErrorResponse> {
+    fn pre_flight(&self, _ctx: PreFlightContext) -> Result<(), GatewayErrorResponse> {
         // executeRecoveryAgentUpdate is permissionless — no signature to verify.
         // The contract enforces cooldown; simulate_calldata will surface
         // RecoveryAgentUpdateStillInCooldown or NoPendingRecoveryAgentUpdate if
@@ -506,12 +524,8 @@ impl RequestValidation for ExecuteRecoveryAgentUpdateRequest {
 // EIP-712 digest are identical — only the contract selector differs.
 // =============================================================================
 impl RequestValidation for UpdateRecoveryAgentV2Request {
-    fn pre_flight(
-        &self,
-        chain_id: u64,
-        verifying_contract: Address,
-    ) -> Result<(), GatewayErrorResponse> {
-        self.0.pre_flight(chain_id, verifying_contract)
+    fn pre_flight(&self, ctx: PreFlightContext) -> Result<(), GatewayErrorResponse> {
+        self.0.pre_flight(ctx)
     }
 
     fn calldata(&self, registry: &Registry) -> Bytes {
@@ -529,12 +543,8 @@ impl RequestValidation for UpdateRecoveryAgentV2Request {
 }
 
 impl RequestValidation for RevertRecoveryAgentUpdateRequest {
-    fn pre_flight(
-        &self,
-        chain_id: u64,
-        verifying_contract: Address,
-    ) -> Result<(), GatewayErrorResponse> {
-        self.0.pre_flight(chain_id, verifying_contract)
+    fn pre_flight(&self, ctx: PreFlightContext) -> Result<(), GatewayErrorResponse> {
+        self.0.pre_flight(ctx)
     }
 
     fn calldata(&self, registry: &Registry) -> Bytes {
@@ -555,11 +565,7 @@ impl RequestValidation for RevertRecoveryAgentUpdateRequest {
 // =============================================================================
 
 impl RequestValidation for RecoverAccountRequest {
-    fn pre_flight(
-        &self,
-        chain_id: u64,
-        verifying_contract: Address,
-    ) -> Result<(), GatewayErrorResponse> {
+    fn pre_flight(&self, ctx: PreFlightContext) -> Result<(), GatewayErrorResponse> {
         let new_pubkey = self.new_authenticator_pubkey.unwrap_or(U256::ZERO);
 
         if self.leaf_index == 0 {
@@ -588,7 +594,12 @@ impl RequestValidation for RecoverAccountRequest {
             newOffchainSignerCommitment: self.new_offchain_signer_commitment,
             nonce: self.nonce,
         };
-        let _signer = recover_signer(&typed_data, &self.signature, chain_id, verifying_contract)?;
+        let _signer = recover_signer(
+            &typed_data,
+            &self.signature,
+            ctx.chain_id,
+            ctx.verifying_contract,
+        )?;
 
         Ok(())
     }
@@ -620,11 +631,13 @@ mod tests {
     };
     use world_id_primitives::api_types::{
         CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest,
+        InsertAuthenticatorRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
         UpdateRecoveryAgentRequest,
     };
     use world_id_registries::world_id::{
         domain as registry_domain, sign_cancel_recovery_agent_update,
-        sign_initiate_recovery_agent_update,
+        sign_initiate_recovery_agent_update, sign_insert_authenticator, sign_remove_authenticator,
+        sign_update_authenticator,
     };
 
     const CHAIN_ID: u64 = 1;
@@ -632,6 +645,143 @@ mod tests {
 
     fn make_domain() -> alloy::sol_types::Eip712Domain {
         registry_domain(CHAIN_ID, CONTRACT)
+    }
+
+    const fn pre_flight_context_for(registry_version: RegistryVersion) -> PreFlightContext {
+        PreFlightContext {
+            chain_id: CHAIN_ID,
+            verifying_contract: CONTRACT,
+            registry_version,
+        }
+    }
+
+    const fn pre_flight_context() -> PreFlightContext {
+        pre_flight_context_for(RegistryVersion::V1)
+    }
+
+    const fn pre_flight_v2_context() -> PreFlightContext {
+        pre_flight_context_for(RegistryVersion::V2)
+    }
+
+    // ------------------------------------------------------------------
+    // V2 registry-specific authenticator pre_flight
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn insert_preflight_allows_zero_authenticator_address_only_on_v2() {
+        let signer = PrivateKeySigner::random();
+        let domain = make_domain();
+        let leaf_index = 1u64;
+        let pubkey_id = 1u32;
+        let new_authenticator_pubkey = U256::from(200u64);
+        let new_offchain_signer_commitment = U256::from(2u64);
+        let nonce = U256::ZERO;
+
+        let sig = sign_insert_authenticator(
+            &signer,
+            leaf_index,
+            Address::ZERO,
+            pubkey_id,
+            new_authenticator_pubkey,
+            new_offchain_signer_commitment,
+            nonce,
+            &domain,
+        )
+        .unwrap();
+
+        let req = InsertAuthenticatorRequest {
+            leaf_index,
+            new_authenticator_address: Address::ZERO,
+            old_offchain_signer_commitment: U256::from(1u64),
+            new_offchain_signer_commitment,
+            signature: sig,
+            nonce,
+            pubkey_id,
+            new_authenticator_pubkey,
+        };
+
+        assert!(req.pre_flight(pre_flight_context()).is_err());
+        assert!(req.pre_flight(pre_flight_v2_context()).is_ok());
+    }
+
+    #[test]
+    fn remove_preflight_allows_zero_authenticator_address_only_on_v2() {
+        let signer = PrivateKeySigner::random();
+        let domain = make_domain();
+        let leaf_index = 1u64;
+        let pubkey_id = 1u32;
+        let authenticator_pubkey = U256::from(200u64);
+        let new_offchain_signer_commitment = U256::from(2u64);
+        let nonce = U256::ZERO;
+
+        let sig = sign_remove_authenticator(
+            &signer,
+            leaf_index,
+            Address::ZERO,
+            pubkey_id,
+            authenticator_pubkey,
+            new_offchain_signer_commitment,
+            nonce,
+            &domain,
+        )
+        .unwrap();
+
+        let req = RemoveAuthenticatorRequest {
+            leaf_index,
+            authenticator_address: Address::ZERO,
+            old_offchain_signer_commitment: U256::from(1u64),
+            new_offchain_signer_commitment,
+            signature: sig,
+            nonce,
+            pubkey_id: Some(pubkey_id),
+            authenticator_pubkey: Some(authenticator_pubkey),
+        };
+
+        assert!(req.pre_flight(pre_flight_context()).is_err());
+        assert!(req.pre_flight(pre_flight_v2_context()).is_ok());
+    }
+
+    #[test]
+    fn update_authenticator_preflight_rejects_v2() {
+        let signer = PrivateKeySigner::random();
+        let domain = make_domain();
+        let leaf_index = 1u64;
+        let old_authenticator_address = signer.address();
+        let new_authenticator_address: Address =
+            address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        let pubkey_id = 1u32;
+        let new_authenticator_pubkey = U256::from(200u64);
+        let new_offchain_signer_commitment = U256::from(2u64);
+        let nonce = U256::ZERO;
+
+        let sig = sign_update_authenticator(
+            &signer,
+            leaf_index,
+            old_authenticator_address,
+            new_authenticator_address,
+            pubkey_id,
+            new_authenticator_pubkey,
+            new_offchain_signer_commitment,
+            nonce,
+            &domain,
+        )
+        .unwrap();
+
+        let req = UpdateAuthenticatorRequest {
+            leaf_index,
+            old_authenticator_address,
+            new_authenticator_address,
+            old_offchain_signer_commitment: U256::from(1u64),
+            new_offchain_signer_commitment,
+            signature: sig,
+            nonce,
+            pubkey_id,
+            new_authenticator_pubkey,
+        };
+
+        assert!(req.pre_flight(pre_flight_context()).is_ok());
+        let err = req.pre_flight(pre_flight_v2_context()).unwrap_err();
+        assert!(err.to_string().contains("method_not_available"));
     }
 
     // ------------------------------------------------------------------
@@ -653,7 +803,7 @@ mod tests {
             signature: sig,
             nonce: U256::ZERO,
         };
-        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+        assert!(req.pre_flight(pre_flight_context()).is_err());
     }
 
     #[test]
@@ -670,7 +820,7 @@ mod tests {
             signature: sig,
             nonce: U256::ZERO,
         };
-        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_ok());
+        assert!(req.pre_flight(pre_flight_context()).is_ok());
     }
 
     #[test]
@@ -696,7 +846,7 @@ mod tests {
             signature: sig,
             nonce,
         };
-        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_ok());
+        assert!(req.pre_flight(pre_flight_context()).is_ok());
     }
 
     #[test]
@@ -707,7 +857,7 @@ mod tests {
             signature: Signature::new(U256::ZERO, U256::ZERO, false),
             nonce: U256::ZERO,
         };
-        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+        assert!(req.pre_flight(pre_flight_context()).is_err());
     }
 
     // ------------------------------------------------------------------
@@ -725,7 +875,7 @@ mod tests {
             signature: sig,
             nonce: U256::ZERO,
         };
-        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+        assert!(req.pre_flight(pre_flight_context()).is_err());
     }
 
     #[test]
@@ -742,7 +892,7 @@ mod tests {
             signature: sig,
             nonce,
         };
-        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_ok());
+        assert!(req.pre_flight(pre_flight_context()).is_ok());
     }
 
     #[test]
@@ -752,7 +902,7 @@ mod tests {
             signature: Signature::new(U256::ZERO, U256::ZERO, false),
             nonce: U256::ZERO,
         };
-        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+        assert!(req.pre_flight(pre_flight_context()).is_err());
     }
 
     // ------------------------------------------------------------------
@@ -762,7 +912,7 @@ mod tests {
     #[test]
     fn execute_preflight_rejects_zero_leaf_index() {
         let req = ExecuteRecoveryAgentUpdateRequest { leaf_index: 0 };
-        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_err());
+        assert!(req.pre_flight(pre_flight_context()).is_err());
     }
 
     #[test]
@@ -770,6 +920,6 @@ mod tests {
         let req = ExecuteRecoveryAgentUpdateRequest { leaf_index: 1 };
         // pre_flight itself passes; simulate_calldata (eth_call) would catch
         // premature calls but we don't exercise that in a pure unit test.
-        assert!(req.pre_flight(CHAIN_ID, CONTRACT).is_ok());
+        assert!(req.pre_flight(pre_flight_context()).is_ok());
     }
 }
