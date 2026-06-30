@@ -58,6 +58,18 @@ pub struct WorldOprfNodeConfig {
         with = "humantime_serde"
     )]
     pub timeout_external_eth_call: Duration,
+
+    /// Poll interval for the `RpRegistry` `RpUpdated` cache-invalidation loop.
+    ///
+    /// On each tick the node scans for `RpUpdated` events and evicts the cached
+    /// signer of any updated RP, so an on-chain signer rotation or deactivation
+    /// takes effect within roughly this interval instead of waiting out the
+    /// cache TTL. The TTL remains the backstop if the loop stalls.
+    #[serde(
+        default = "WorldOprfNodeConfig::default_rp_registry_poll_interval",
+        with = "humantime_serde"
+    )]
+    pub rp_registry_poll_interval: Duration,
 }
 
 /// Cache configuration for a registry watcher.
@@ -176,6 +188,11 @@ impl WorldOprfNodeConfig {
         Duration::from_secs(10)
     }
 
+    /// Default poll interval for the `RpRegistry` invalidation loop.
+    fn default_rp_registry_poll_interval() -> Duration {
+        Duration::from_secs(2)
+    }
+
     /// Initialize with default values for all optional fields.
     #[must_use]
     #[allow(
@@ -200,6 +217,7 @@ impl WorldOprfNodeConfig {
             rpc_provider_config,
             current_time_stamp_max_difference: Self::default_current_time_stamp_max_difference(),
             timeout_external_eth_call: Self::default_timeout_external_eth_call(),
+            rp_registry_poll_interval: Self::default_rp_registry_poll_interval(),
             node_config: OprfNodeServiceConfig::with_default_values(environment, version_req),
             rp_cache_config: WatcherCacheConfig::default(),
             issuer_cache_config: WatcherCacheConfig::default(),
