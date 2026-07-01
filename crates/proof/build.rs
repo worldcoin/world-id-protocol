@@ -6,6 +6,7 @@ use std::{
 
 const GITHUB_REPO: &str = "worldcoin/world-id-protocol";
 const CIRCUIT_ARTIFACT_RELEASE_TAG: &str = "circuit-artifacts-v0.1.0";
+const CIRCUIT_ARTIFACT_RELEASE_TAG_ENV: &str = "WORLD_ID_CIRCUIT_ARTIFACT_RELEASE_TAG";
 
 const CIRCUIT_FILES: &[&str] = &[
     "circom/OPRFQueryGraph.bin",
@@ -19,6 +20,7 @@ const NOIR_ARTIFACT_FILES: &[&str] = &["ownership_proof.pkp", "ownership_proof.p
 
 fn main() -> eyre::Result<()> {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed={CIRCUIT_ARTIFACT_RELEASE_TAG_ENV}");
 
     if std::env::var_os("DOCS_RS").is_some() {
         // Define a cfg only for THIS crate’s compilation.
@@ -105,10 +107,14 @@ fn should_embed_noir_artifacts() -> bool {
         && env::var_os("CARGO_FEATURE_EMBED_NOIR_ARTIFACTS").is_some()
 }
 
+fn circuit_artifact_release_tag() -> String {
+    env::var(CIRCUIT_ARTIFACT_RELEASE_TAG_ENV)
+        .unwrap_or_else(|_| CIRCUIT_ARTIFACT_RELEASE_TAG.to_owned())
+}
+
 fn circuit_artifact_url(file_name: &str) -> String {
-    format!(
-        "https://github.com/{GITHUB_REPO}/releases/download/{CIRCUIT_ARTIFACT_RELEASE_TAG}/{file_name}"
-    )
+    let release_tag = circuit_artifact_release_tag();
+    format!("https://github.com/{GITHUB_REPO}/releases/download/{release_tag}/{file_name}")
 }
 
 fn download_file(url: &str, output_path: &Path) -> eyre::Result<()> {

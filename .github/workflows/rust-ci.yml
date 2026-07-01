@@ -114,7 +114,7 @@ jobs:
       - name: Run clippy
         env:
           CONTRACTS_PREBUILT: "1"
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features --features world-id-proof/build-noir-artifacts -- -D warnings
 
   msrv:
     name: MSRV
@@ -154,7 +154,7 @@ jobs:
         env:
           CONTRACTS_PREBUILT: "1"
         run: |
-          cargo check --all-features
+          cargo check --workspace --all-features --features world-id-proof/build-noir-artifacts
 
   feature-resolution:
     name: Feature Resolution (cargo-hack)
@@ -191,7 +191,7 @@ jobs:
 
       - name: Check Features
         run: |
-          cargo hack check --each-feature --no-dev-deps --exclude world-id-test-utils --exclude generate-solidity-fixtures --exclude world-id-oprf-dev-client --exclude world-id-faux-issuer --exclude world-id-relay --exclude world-id-services-common
+          cargo hack check --each-feature --no-dev-deps --features build-noir-artifacts --ignore-unknown-features --exclude-features embed-noir-artifacts --exclude world-id-test-utils --exclude generate-solidity-fixtures --exclude world-id-oprf-dev-client --exclude world-id-faux-issuer --exclude world-id-relay --exclude world-id-services-common
 
   test:
     name: Tests
@@ -261,8 +261,8 @@ jobs:
           CONTRACTS_PREBUILT: "1"
           TESTS_RPC_FORK_URL: ${{ secrets.TESTS_RPC_FORK_URL }}
         run: |
-          cargo nextest run --profile ci --all-features --workspace
-          cargo test --doc --all-features --workspace
+          cargo nextest run --profile ci --all-features --workspace --features world-id-proof/build-noir-artifacts
+          cargo test --doc --all-features --workspace --features world-id-proof/build-noir-artifacts
 
       - name: Clean up services
         run: |

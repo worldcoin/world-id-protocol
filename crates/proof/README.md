@@ -61,7 +61,8 @@ prover/verifier material loaded from readers or paths, or embedded artifacts whe
 `embed-noir-artifacts` is enabled.
 
 With `embed-noir-artifacts`, `build.rs` downloads these files from the pinned GitHub artifact
-release:
+release. CI/release tooling may override the pinned tag with the
+`WORLD_ID_CIRCUIT_ARTIFACT_RELEASE_TAG` environment variable:
 
 - `ownership_proof.pkp`
 - `ownership_proof.pkv`
