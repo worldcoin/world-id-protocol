@@ -128,16 +128,20 @@ interface IBillingContract {
     /// @param paymentWindow The new payment window in seconds.
     event TimingUpdated(uint64 epochLength, uint64 votingWindow, uint64 paymentWindow);
 
+    /// @notice Emitted when the rebate (volume-discount) period length is updated.
+    /// @param rebatePeriodEpochs The new number of epochs per rebate period.
+    event RebatePeriodUpdated(uint64 rebatePeriodEpochs);
+
     ////////////////////////////////////////////////////////////
     //                   PUBLIC FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
 
     /**
      * @notice Submit one or more OPRF node billing votes for a single epoch.
-     * @dev Before accepting the votes, opportunistically finalizes a bounded chunk of now-closed
-     *      epochs (see {finalizeEpochs}) and prunes their raw vote data. The epoch's node-count and
-     *      fee-schedule version are snapshotted on the first accepted vote. Authenticates by
-     *      recovered signer, not msg.sender.
+     * @dev Records votes only; does not finalize as a side effect (finalization is driven solely by
+     *      {finalizeEpochs}), so a node's vote gas never carries another epoch's finalization cost.
+     *      The epoch's node-count and fee-schedule version are snapshotted on the first accepted
+     *      vote. Authenticates by recovered signer, not msg.sender.
      * @param epoch The epoch the votes are cast for; its voting window must be currently open.
      * @param votes The signed votes to record.
      */
@@ -145,9 +149,10 @@ interface IBillingContract {
 
     /**
      * @notice Settle the full outstanding debt for one or more RPs.
-     * @dev Permissionless; finalizes closed epochs first so debt is current. All-or-nothing per RP:
-     *      pays the full outstanding debt or reverts if it exceeds the RP's `maxAmount` guard. Pulls
-     *      WLD from msg.sender to the fee recipient.
+     * @dev Permissionless; settles the currently-finalized debt and does not finalize as a side
+     *      effect (call {finalizeEpochs} first if closed epochs must be reflected). All-or-nothing
+     *      per RP: pays the full outstanding debt or reverts if it exceeds the RP's `maxAmount`
+     *      guard. Pulls WLD from msg.sender to the fee recipient.
      * @param payments The per-RP payment instructions.
      */
     function pay(RpPayment[] calldata payments) external;
@@ -186,6 +191,14 @@ interface IBillingContract {
      */
     function updateOprfKeyRegistry(address newOprfKeyRegistry) external;
 
+    /**
+     * @notice Update the rebate (volume-discount) period length.
+     * @dev Owner only. Changing the divisor shifts period boundaries, so the running per-RP period
+     *      count resets on each RP's next finalization; coordinate the change at a period boundary.
+     * @param rebatePeriodEpochs The new number of epochs per rebate period (must be non-zero).
+     */
+    function setRebatePeriodEpochs(uint64 rebatePeriodEpochs) external;
+
     ////////////////////////////////////////////////////////////
     //                    VIEW FUNCTIONS                      //
     ////////////////////////////////////////////////////////////
@@ -221,4 +234,23 @@ interface IBillingContract {
 
     /// @notice The EIP-712 typehash for a billing vote.
     function BILLING_VOTE_TYPEHASH() external view returns (bytes32);
+
+    /**
+     * @notice The current (latest) fee-schedule version. New epochs pin this on their first vote.
+     * @return The current schedule version.
+     */
+    function getCurrentScheduleVersion() external view returns (uint32);
+
+    /**
+     * @notice The tier schedule stored at a given version.
+     * @param version The schedule version to read.
+     * @return The ordered tier schedule (empty for an unknown version).
+     */
+    function getTierSchedule(uint32 version) external view returns (Tier[] memory);
+
+    /**
+     * @notice The number of epochs in a rebate (volume-discount) period.
+     * @return The rebate period length in epochs.
+     */
+    function getRebatePeriodEpochs() external view returns (uint64);
 }

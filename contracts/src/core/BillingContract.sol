@@ -27,9 +27,11 @@ interface IOprfNodeSet {
  * @dev OPRF nodes count unique RP requests per epoch and submit EIP-712-signed votes. The contract
  *      finalizes the lower-median count across the node set (gated on quorum), prices it through a
  *      tiered WLD fee schedule, accrues per-RP debt, and blocks RPs past their payment window.
- *      Finalization is permissionless and chunkable ({finalizeEpochs}); {submitBillingVotes} and
- *      {pay} opportunistically flush a bounded chunk. Finalizing prunes raw vote data, so raw state
- *      scales with participants, not time, and no single call can be bricked by an oversized epoch.
+ *      Finalization is permissionless and chunkable ({finalizeEpochs}) — it is the sole driver, so
+ *      a keeper must run it (cadence < paymentWindow keeps {is_blocked} never-late). Neither
+ *      {submitBillingVotes} nor {pay} finalize as a side effect, keeping their gas predictable.
+ *      Finalizing prunes raw vote data, so raw state scales with participants, not time, and no
+ *      single call can be bricked by an oversized epoch.
  * @custom:repo https://github.com/worldcoin/world-id-protocol
  */
 contract BillingContract is WorldIDBase, IBillingContract {
@@ -120,11 +122,6 @@ contract BillingContract is WorldIDBase, IBillingContract {
     /// @dev EIP-712 typehash for a single RpCount struct (member of a BillingVote).
     bytes32 public constant RPCOUNT_TYPEHASH = keccak256("RpCount(uint64 rpId,uint64 count)");
 
-    /// @dev Finalization budget for the opportunistic flush done by `submitBillingVotes`/`pay`.
-    ///      One unit per RP finalized and one per epoch closed; permissionless `finalizeEpochs`
-    ///      takes an explicit budget for bulk catch-up.
-    uint256 internal constant DEFAULT_FINALIZE_STEPS = 256;
-
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
     ////////////////////////////////////////////////////////////
@@ -198,9 +195,9 @@ contract BillingContract is WorldIDBase, IBillingContract {
         if (block.timestamp < votingStart) revert VotingWindowNotOpen();
         if (block.timestamp >= votingStart + _votingWindow) revert VotingWindowClosed();
 
-        // Opportunistically finalize a bounded chunk of now-closed epochs so the system
-        // self-drives without a dedicated keeper. Bounded so a large epoch can never brick submit.
-        _finalize(type(uint64).max, DEFAULT_FINALIZE_STEPS);
+        // No finalization side effect here: submit only records votes. Finalization is driven
+        // solely by the permissionless {finalizeEpochs} (see IBillingContract), so a node's vote
+        // gas is predictable and never carries another epoch's finalization cost.
 
         // Snapshot the node count and fee-schedule version on the epoch's first accepted vote, so
         // quorum/median and pricing stay stable across the voting window even if the live node set
@@ -222,8 +219,23 @@ contract BillingContract is WorldIDBase, IBillingContract {
 
     /// @inheritdoc IBillingContract
     function pay(RpPayment[] calldata payments) external virtual onlyProxy onlyInitialized {
-        // Implemented in "Payment + blocking" step.
-        revert NotImplemented();
+        // Settles currently-finalized debt only; does not finalize (keeper-driven finalizeEpochs
+        // keeps debt current). RPs with no finalized debt are skipped so a batched, permissionless
+        // call is not griefable by a debt that was concurrently settled or never accrued.
+        uint256 len = payments.length;
+        for (uint256 i = 0; i < len; i++) {
+            uint64 rpId = payments[i].rpId;
+            uint256 debt = _totalOwed[rpId];
+            if (debt == 0) continue;
+            if (debt > payments[i].maxAmount) revert DebtExceedsMax();
+
+            // Effects before interaction: clear debt/clock before pulling tokens.
+            _totalOwed[rpId] = 0;
+            _oldestUnpaidDue[rpId] = 0;
+            _feeToken.safeTransferFrom(msg.sender, _feeRecipient, debt);
+
+            emit DebtPaid(rpId, msg.sender, debt);
+        }
     }
 
     /// @inheritdoc IBillingContract
@@ -268,6 +280,13 @@ contract BillingContract is WorldIDBase, IBillingContract {
         emit OprfKeyRegistryUpdated(oldOprfKeyRegistry, newOprfKeyRegistry);
     }
 
+    /// @inheritdoc IBillingContract
+    function setRebatePeriodEpochs(uint64 rebatePeriodEpochs) external virtual onlyOwner onlyProxy onlyInitialized {
+        if (rebatePeriodEpochs == 0) revert InvalidTiming();
+        _rebatePeriodEpochs = rebatePeriodEpochs;
+        emit RebatePeriodUpdated(rebatePeriodEpochs);
+    }
+
     ////////////////////////////////////////////////////////////
     //                    VIEW FUNCTIONS                      //
     ////////////////////////////////////////////////////////////
@@ -309,6 +328,21 @@ contract BillingContract is WorldIDBase, IBillingContract {
     /// @notice The OPRF key registry address the node set is read from.
     function getOprfKeyRegistry() external view virtual onlyProxy onlyInitialized returns (address) {
         return address(_oprfKeyRegistry);
+    }
+
+    /// @inheritdoc IBillingContract
+    function getCurrentScheduleVersion() external view virtual onlyProxy onlyInitialized returns (uint32) {
+        return _currentScheduleVersion;
+    }
+
+    /// @inheritdoc IBillingContract
+    function getTierSchedule(uint32 version) external view virtual onlyProxy onlyInitialized returns (Tier[] memory) {
+        return _tierSchedules[version];
+    }
+
+    /// @inheritdoc IBillingContract
+    function getRebatePeriodEpochs() external view virtual onlyProxy onlyInitialized returns (uint64) {
+        return _rebatePeriodEpochs;
     }
 
     ////////////////////////////////////////////////////////////
@@ -542,11 +576,4 @@ contract BillingContract is WorldIDBase, IBillingContract {
             schedule.push(tiers[i]);
         }
     }
-
-    ////////////////////////////////////////////////////////////
-    //                    UPGRADE / TEMP                      //
-    ////////////////////////////////////////////////////////////
-
-    // TODO(billing-v1): removed once all functions are implemented across the plan's steps.
-    error NotImplemented();
 }
