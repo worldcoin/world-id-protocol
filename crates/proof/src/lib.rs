@@ -24,7 +24,8 @@ use provekit_common::{InputMap, InputValue, NoirElement};
 
 use world_id_primitives::FieldElement;
 
-#[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
+// TODO: Currently ownership proofs are not supported for WASM targets
+#[cfg(not(target_arch = "wasm32"))]
 pub mod ownership_proof;
 
 pub use provekit_common::{NoirProof, WhirR1CSProof};

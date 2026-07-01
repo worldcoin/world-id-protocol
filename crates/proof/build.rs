@@ -4,14 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[cfg(feature = "embed-zkeys")]
-use std::{fs::File, io};
-
-#[cfg(feature = "embed-zkeys")]
 const GITHUB_REPO: &str = "worldcoin/world-id-protocol";
-
-#[cfg(feature = "embed-zkeys")]
 const CIRCUIT_ARTIFACT_RELEASE_TAG: &str = "circuit-artifacts-v0.1.0";
+const CIRCUIT_ARTIFACT_RELEASE_TAG_ENV: &str = "WORLD_ID_CIRCUIT_ARTIFACT_RELEASE_TAG";
 
 const CIRCUIT_FILES: &[&str] = &[
     "circom/OPRFQueryGraph.bin",
@@ -20,8 +15,12 @@ const CIRCUIT_FILES: &[&str] = &[
     "circom/OPRFNullifier.arks.zkey",
 ];
 
+#[cfg(not(feature = "build-noir-artifacts"))]
+const NOIR_ARTIFACT_FILES: &[&str] = &["ownership_proof.pkp", "ownership_proof.pkv"];
+
 fn main() -> eyre::Result<()> {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed={CIRCUIT_ARTIFACT_RELEASE_TAG_ENV}");
 
     if std::env::var_os("DOCS_RS").is_some() {
         // Define a cfg only for THIS crate’s compilation.
@@ -29,7 +28,7 @@ fn main() -> eyre::Result<()> {
         println!("cargo:rustc-check-cfg=cfg(docsrs)");
     }
 
-    // Skip for docs.rs as it doesn't have network access or nargo
+    // Skip for docs.rs as it doesn't have network access or nargo.
     if env::var("DOCS_RS").is_ok() {
         println!("cargo:warning=Building for docs.rs, skipping circuit compilation");
         return Ok(());
@@ -37,9 +36,9 @@ fn main() -> eyre::Result<()> {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
-    // Compile noir ownership proof circuit and generate prover key package
-    #[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
-    compile_noir_ownership_proof(&out_dir)?;
+    if should_embed_noir_artifacts() {
+        setup_noir_ownership_proof(&out_dir)?;
+    }
 
     if env::var("CARGO_FEATURE_EMBED_ZKEYS").is_err() {
         return Ok(());
@@ -102,15 +101,25 @@ fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "embed-zkeys")]
-fn circuit_artifact_url(file_name: &str) -> String {
-    format!(
-        "https://github.com/{GITHUB_REPO}/releases/download/{CIRCUIT_ARTIFACT_RELEASE_TAG}/{file_name}"
-    )
+fn should_embed_noir_artifacts() -> bool {
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").ok();
+    target_arch.as_deref() != Some("wasm32")
+        && env::var_os("CARGO_FEATURE_EMBED_NOIR_ARTIFACTS").is_some()
 }
 
-#[cfg(feature = "embed-zkeys")]
+fn circuit_artifact_release_tag() -> String {
+    env::var(CIRCUIT_ARTIFACT_RELEASE_TAG_ENV)
+        .unwrap_or_else(|_| CIRCUIT_ARTIFACT_RELEASE_TAG.to_owned())
+}
+
+fn circuit_artifact_url(file_name: &str) -> String {
+    let release_tag = circuit_artifact_release_tag();
+    format!("https://github.com/{GITHUB_REPO}/releases/download/{release_tag}/{file_name}")
+}
+
 fn download_file(url: &str, output_path: &Path) -> eyre::Result<()> {
+    use std::{fs::File, io};
+
     let response = reqwest::blocking::get(url)?;
 
     if !response.status().is_success() {
@@ -152,20 +161,14 @@ fn fetch_circuit_file(path: &Path, out_dir: &Path) -> eyre::Result<()> {
 
     // Download from GitHub releases: we need to do this because crates.io enforce a hard limit on
     // the size of a crate upload of ~10MB and the circuit files are heavier than that.
-    #[cfg(feature = "embed-zkeys")]
-    {
-        let file_name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_eyre("invalid path")?;
-        let url = circuit_artifact_url(file_name);
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_eyre("invalid path")?;
+    let url = circuit_artifact_url(file_name);
 
-        download_file(&url, &output_path)?;
-        Ok(())
-    }
-
-    #[cfg(not(feature = "embed-zkeys"))]
-    return Ok(());
+    download_file(&url, &output_path)?;
+    Ok(())
 }
 
 fn is_arks_zkey(path: &Path) -> bool {
@@ -234,15 +237,27 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
     Ok(())
 }
 
-#[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
-fn compile_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
-    use provekit_common::{NoirProofScheme, Prover, Verifier};
-    use provekit_r1cs_compiler::NoirProofSchemeBuilder as _;
+fn setup_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
+    #[cfg(feature = "build-noir-artifacts")]
+    {
+        build_noir_ownership_proof(out_dir)
+    }
+
+    #[cfg(not(feature = "build-noir-artifacts"))]
+    {
+        download_noir_ownership_proof(out_dir)
+    }
+}
+
+#[cfg(feature = "build-noir-artifacts")]
+fn build_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
+    use generate_noir_artifacts::{
+        OwnershipProofArtifactConfig, generate_ownership_proof_artifacts,
+    };
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let circuit_dir = manifest_dir.join("noir/ownership-proof");
 
-    // Watch noir source files for changes
     println!(
         "cargo:rerun-if-changed={}",
         circuit_dir.join("src").display()
@@ -252,31 +267,34 @@ fn compile_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
         circuit_dir.join("Nargo.toml").display()
     );
 
-    let pkp_path = out_dir.join("ownership_proof.pkp");
-    let pkv_path = out_dir.join("ownership_proof.pkv");
+    let config = OwnershipProofArtifactConfig {
+        circuit_dir,
+        artifact_dir: out_dir.to_path_buf(),
+    };
+    generate_ownership_proof_artifacts(&config)?;
 
-    // Run nargo compile
-    let nargo_output = std::process::Command::new("nargo")
-        .arg("compile")
-        .current_dir(&circuit_dir)
-        .output()
-        .map_err(|e| eyre::eyre!("failed to run nargo: {e}"))?;
+    Ok(())
+}
 
-    if !nargo_output.status.success() {
-        let stderr = String::from_utf8_lossy(&nargo_output.stderr);
-        eyre::bail!(
-            "nargo compile failed:\n{stderr}\n\nCheck your Noir version - must be run with v1.0.0-beta.11\ninstall with noirup --version v1.0.0-beta.11"
-        );
+#[cfg(not(feature = "build-noir-artifacts"))]
+fn download_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
+    for file_name in NOIR_ARTIFACT_FILES {
+        fetch_noir_artifact(file_name, out_dir)?;
     }
 
-    let compiled_json = circuit_dir.join("target/ownership_proof.json");
+    Ok(())
+}
 
-    let scheme =
-        NoirProofScheme::from_file(compiled_json).map_err(|e| eyre::eyre!(e.to_string()))?;
-    provekit_common::file::write(&Prover::from_noir_proof_scheme(scheme.clone()), &pkp_path)
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
-    provekit_common::file::write(&Verifier::from_noir_proof_scheme(scheme), &pkv_path)
-        .map_err(|e| eyre::eyre!(e.to_string()))?;
+#[cfg(not(feature = "build-noir-artifacts"))]
+fn fetch_noir_artifact(file_name: &str, out_dir: &Path) -> eyre::Result<()> {
+    let output_path = out_dir.join(file_name);
+    let url = circuit_artifact_url(file_name);
+
+    download_file(&url, &output_path).map_err(|e| {
+        eyre::eyre!(
+            "failed to fetch Noir artifact {file_name}. Enable `build-noir-artifacts` to generate it locally, or publish it at {url}: {e}"
+        )
+    })?;
 
     Ok(())
 }

@@ -19,6 +19,14 @@ Download from github is done as a workaround to circumvent the max crates.io hos
 build.rs will download and compress zkey files from github and include them into the binary.
 At runtime, zkeys are decompressed in memory during initialization.
 
+##### `embed-noir-artifacts`
+
+build.rs will download Noir ownership proof artifacts from GitHub and include them into the binary.
+
+##### `build-noir-artifacts` (implies `embed-noir-artifacts`)
+
+build.rs will build Noir ownership proof artifacts ad-hoc with `nargo` and include them into the binary.
+
 ##### neither `compress-zkeys` or `embed-zkeys`
 
 zkey files are not included in the bin.
@@ -37,18 +45,30 @@ The release tag is intentionally separate from the crate/software version track,
 - `circom/OPRFNullifierGraph.bin`
 - `circom/OPRFQuery.arks.zkey`
 - `circom/OPRFNullifier.arks.zkey`
+- `ownership_proof.pkp`
+- `ownership_proof.pkv`
 
 ### Publishing circuit artifact releases
 
 Releases are created manually via the `Release circuit artifacts` GitHub Actions workflow, with a
 tag like `circuit-artifacts-v0.1.0`. The workflow creates a GitHub release and attaches the
-Circom artifact files listed above.
+Circom and Noir artifact files listed above.
 
 ## Noir ownership proof
 
-The Noir ownership proof circuit is compiled just-in-time by `build.rs` using `nargo` and the
-provekit R1CS compiler. Building this crate with the `zk-ownership-prove` or `zk-ownership-verify`
-features requires `nargo` v1.0.0-beta.11 to be installed:
+The Noir ownership proof APIs are available on native targets. They can either use explicit
+prover/verifier material loaded from readers or paths, or embedded artifacts when
+`embed-noir-artifacts` is enabled.
+
+With `embed-noir-artifacts`, `build.rs` downloads these files from the pinned GitHub artifact
+release. CI/release tooling may override the pinned tag with the
+`WORLD_ID_CIRCUIT_ARTIFACT_RELEASE_TAG` environment variable:
+
+- `ownership_proof.pkp`
+- `ownership_proof.pkv`
+
+With `build-noir-artifacts`, `build.rs` builds those artifacts ad-hoc using `nargo` and the
+provekit R1CS compiler. This requires `nargo` v1.0.0-beta.11:
 
 ```sh
 noirup --version v1.0.0-beta.11
