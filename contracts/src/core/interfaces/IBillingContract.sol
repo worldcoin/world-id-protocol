@@ -77,9 +77,6 @@ interface IBillingContract {
     /// @dev Thrown when a vote includes a zero count (zero counts must be omitted, not encoded).
     error ZeroCount();
 
-    /// @dev Thrown when no OPRF nodes are registered, so quorum cannot be established.
-    error NoNodesRegistered();
-
     /// @dev Thrown when an RP's outstanding debt exceeds the caller-supplied `maxAmount`.
     error DebtExceedsMax();
 
@@ -113,9 +110,8 @@ interface IBillingContract {
     /// @param amount The WLD amount transferred to the fee recipient.
     event DebtPaid(uint64 indexed rpId, address indexed payer, uint256 amount);
 
-    /// @notice Emitted when a new tier schedule version is published.
-    /// @param version The new (current) schedule version.
-    event TierScheduleUpdated(uint32 indexed version);
+    /// @notice Emitted when the tier schedule is replaced.
+    event TierScheduleUpdated();
 
     /// @notice Emitted when the OPRF key registry address is updated.
     /// @param oldOprfKeyRegistry The previous registry address.
@@ -140,8 +136,8 @@ interface IBillingContract {
      * @notice Submit one or more OPRF node billing votes for a single epoch.
      * @dev Records votes only; does not finalize as a side effect (finalization is driven solely by
      *      {finalizeEpochs}), so a node's vote gas never carries another epoch's finalization cost.
-     *      The epoch's node-count and fee-schedule version are snapshotted on the first accepted
-     *      vote. Authenticates by recovered signer, not msg.sender.
+     *      Quorum and pricing are read live at finalization (no per-epoch snapshot). Authenticates
+     *      by recovered signer, not msg.sender.
      * @param epoch The epoch the votes are cast for; its voting window must be currently open.
      * @param votes The signed votes to record.
      */
@@ -168,7 +164,7 @@ interface IBillingContract {
     function finalizeEpochs(uint64 uptoEpoch, uint256 maxSteps) external;
 
     /**
-     * @notice Publish a new tier schedule version. Existing epochs keep their pinned version.
+     * @notice Replace the tier schedule. Applies to every not-yet-finalized epoch (no versioning).
      * @dev Owner only. Rates must be strictly decreasing, `upTo` strictly ascending, last `upTo`
      *      equal to type(uint256).max.
      * @param tiers The new tier schedule.
@@ -236,17 +232,10 @@ interface IBillingContract {
     function BILLING_VOTE_TYPEHASH() external view returns (bytes32);
 
     /**
-     * @notice The current (latest) fee-schedule version. New epochs pin this on their first vote.
-     * @return The current schedule version.
+     * @notice The current tier schedule.
+     * @return The ordered tier schedule.
      */
-    function getCurrentScheduleVersion() external view returns (uint32);
-
-    /**
-     * @notice The tier schedule stored at a given version.
-     * @param version The schedule version to read.
-     * @return The ordered tier schedule (empty for an unknown version).
-     */
-    function getTierSchedule(uint32 version) external view returns (Tier[] memory);
+    function getTierSchedule() external view returns (Tier[] memory);
 
     /**
      * @notice The number of epochs in a rebate (volume-discount) period.

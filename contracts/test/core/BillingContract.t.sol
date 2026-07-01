@@ -214,8 +214,7 @@ contract BillingContractTest is Test {
         assertEq(billing.getFeeRecipient(), feeRecipient);
         assertEq(billing.getFeeToken(), address(feeToken));
         assertEq(billing.getRebatePeriodEpochs(), REBATE);
-        assertEq(billing.getCurrentScheduleVersion(), 0);
-        assertEq(billing.getTierSchedule(0).length, 2);
+        assertEq(billing.getTierSchedule().length, 2);
         assertEq(billing.epochEnd(0), GENESIS + EPOCH_LEN);
     }
 
@@ -256,7 +255,7 @@ contract BillingContractTest is Test {
         emit IBillingContract.VotesSubmitted(0, 2);
         _voteSingle(0, 1, 50, _pks2());
 
-        // Snapshot median visible while retained.
+        // Median visible while the epoch is retained (not yet finalized).
         assertEq(billing.epochRequestCount(0, 1), 50);
     }
 
@@ -316,12 +315,14 @@ contract BillingContractTest is Test {
         billing.submitBillingVotes(0, votes);
     }
 
-    function test_SubmitVotes_revertsNoNodesRegistered() public {
+    function test_SubmitVotes_revertsNoNodes() public {
+        // With no snapshot/NoNodesRegistered guard, an empty node set makes every signer fail the
+        // live NotANode check.
         oprf.setPeers(new address[](0));
         _openVoting(0);
         IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](1);
         votes[0] = _sign(pk1, 0, _one(1, 10));
-        vm.expectRevert(IBillingContract.NoNodesRegistered.selector);
+        vm.expectRevert(IBillingContract.NotANode.selector);
         billing.submitBillingVotes(0, votes);
     }
 
@@ -493,29 +494,31 @@ contract BillingContractTest is Test {
         assertEq(billing.outstandingDebt(1), 1700, "epoch 10 resets rebate period");
     }
 
-    function test_Finalize_scheduleVersionPinning() public {
-        // epoch 0 pins schedule v0 (100@10, rest@5).
+    function test_Finalize_scheduleChangeAppliesToUnfinalized() public {
+        // No versioning: the tier schedule current at finalization prices every unfinalized epoch.
+        // epoch 0 votes while the rate is 10.
         _voteSingle(0, 1, 10, _pks2());
-        // Owner publishes v1 (100@20, rest@10).
+        // Owner replaces the schedule (100@20, rest@10) before either epoch finalizes.
         billing.setTierSchedule(_tiers(100, 20, 10));
-        assertEq(billing.getCurrentScheduleVersion(), 1);
-        // epoch 1 pins v1.
+        // epoch 1 votes.
         _voteSingle(1, 2, 10, _pks2());
         _closeVoting(1);
 
         billing.finalizeEpochs(1, 100);
-        assertEq(billing.outstandingDebt(1), 100, "epoch 0 billed at v0 rate 10");
-        assertEq(billing.outstandingDebt(2), 200, "epoch 1 billed at v1 rate 20");
+        // Both epochs are priced at the current rate 20 — the old rate is not pinned.
+        assertEq(billing.outstandingDebt(1), 200, "epoch 0 re-priced at current rate 20");
+        assertEq(billing.outstandingDebt(2), 200, "epoch 1 at current rate 20");
     }
 
-    function test_PeerRotation_snapshotStableQuorum() public {
-        // First vote (n=3, snapshot quorum=2) from node1.
+    function test_PeerRotation_liveQuorumTracksNodeSet() public {
+        // No snapshot: quorum is read live at finalization from the current node set.
+        // First vote from node1 while n=3 (quorum 2).
         _openVoting(0);
         IBillingContract.SignedVote[] memory v1 = new IBillingContract.SignedVote[](1);
         v1[0] = _sign(pk1, 0, _one(1, 50));
         billing.submitBillingVotes(0, v1);
 
-        // Grow the live set to 5 mid-window; the epoch keeps its snapshot n=3 (quorum 2).
+        // Grow the live set to 5 mid-window; quorum is now 3, computed live.
         address[] memory p = new address[](5);
         p[0] = node1;
         p[1] = node2;
@@ -524,14 +527,14 @@ contract BillingContractTest is Test {
         p[4] = node5;
         oprf.setPeers(p);
 
-        // Second vote reaches snapshot quorum (2), though it would miss a live quorum of 3.
+        // Second vote brings the count to 2, which misses the live quorum of 3.
         IBillingContract.SignedVote[] memory v2 = new IBillingContract.SignedVote[](1);
         v2[0] = _sign(pk2, 0, _one(1, 50));
         billing.submitBillingVotes(0, v2);
 
         _closeVoting(0);
         billing.finalizeEpochs(0, 100);
-        assertEq(billing.outstandingDebt(1), 500, "snapshot quorum should have been met");
+        assertEq(billing.outstandingDebt(1), 0, "2 votes miss the live quorum of 3");
     }
 
     ////////////////////////////////////////////////////////////

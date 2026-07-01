@@ -66,11 +66,8 @@ contract BillingContract is WorldIDBase, IBillingContract {
     /// @dev Number of epochs in a rebate (volume-discount) period.
     uint64 internal _rebatePeriodEpochs;
 
-    /// @dev Current (latest) fee-schedule version. New epochs pin this on their first vote.
-    uint32 internal _currentScheduleVersion;
-
-    /// @dev version -> ordered tier schedule.
-    mapping(uint32 => Tier[]) internal _tierSchedules;
+    /// @dev The single, current ordered tier schedule (no versioning).
+    Tier[] internal _tierSchedule;
 
     /// @dev rpId -> requests already billed in the RP's current rebate period.
     mapping(uint64 => uint256) internal _periodCount;
@@ -91,12 +88,6 @@ contract BillingContract is WorldIDBase, IBillingContract {
 
     /// @dev epoch -> number of distinct nodes that voted (V).
     mapping(uint64 => uint64) internal _epochVoterCount;
-
-    /// @dev epoch -> node count snapshot taken on the epoch's first vote.
-    mapping(uint64 => uint16) internal _nSnapshot;
-
-    /// @dev epoch -> fee-schedule version pinned on the epoch's first vote.
-    mapping(uint64 => uint32) internal _scheduleVersion;
 
     /// @dev epoch -> rpIds that received at least one non-zero count.
     mapping(uint64 => uint64[]) internal _epochRpList;
@@ -178,10 +169,9 @@ contract BillingContract is WorldIDBase, IBillingContract {
         _paymentWindow = paymentWindow;
         _rebatePeriodEpochs = rebatePeriodEpochs;
 
-        // Store the initial schedule at version 0.
         _validateTiers(tiers);
-        _storeTierSchedule(0, tiers);
-        emit TierScheduleUpdated(0);
+        _storeTierSchedule(tiers);
+        emit TierScheduleUpdated();
     }
 
     ////////////////////////////////////////////////////////////
@@ -198,16 +188,10 @@ contract BillingContract is WorldIDBase, IBillingContract {
         // No finalization side effect here: submit only records votes. Finalization is driven
         // solely by the permissionless {finalizeEpochs} (see IBillingContract), so a node's vote
         // gas is predictable and never carries another epoch's finalization cost.
-
-        // Snapshot the node count and fee-schedule version on the epoch's first accepted vote, so
-        // quorum/median and pricing stay stable across the voting window even if the live node set
-        // or schedule changes mid-window.
-        if (_nSnapshot[epoch] == 0) {
-            uint16 n = _oprfKeyRegistry.numPeers();
-            if (n == 0) revert NoNodesRegistered();
-            _nSnapshot[epoch] = n;
-            _scheduleVersion[epoch] = _currentScheduleVersion;
-        }
+        //
+        // No per-epoch snapshot: quorum and pricing are read live at finalization from the current
+        // node set and tier schedule. An empty node set makes every signer fail the {NotANode}
+        // check below, so votes cannot be recorded without registered nodes.
 
         uint256 voteCount = votes.length;
         for (uint256 i = 0; i < voteCount; i++) {
@@ -250,9 +234,8 @@ contract BillingContract is WorldIDBase, IBillingContract {
     /// @inheritdoc IBillingContract
     function setTierSchedule(Tier[] calldata tiers) external virtual onlyOwner onlyProxy onlyInitialized {
         _validateTiers(tiers);
-        uint32 version = ++_currentScheduleVersion;
-        _storeTierSchedule(version, tiers);
-        emit TierScheduleUpdated(version);
+        _storeTierSchedule(tiers);
+        emit TierScheduleUpdated();
     }
 
     /// @inheritdoc IBillingContract
@@ -331,13 +314,8 @@ contract BillingContract is WorldIDBase, IBillingContract {
     }
 
     /// @inheritdoc IBillingContract
-    function getCurrentScheduleVersion() external view virtual onlyProxy onlyInitialized returns (uint32) {
-        return _currentScheduleVersion;
-    }
-
-    /// @inheritdoc IBillingContract
-    function getTierSchedule(uint32 version) external view virtual onlyProxy onlyInitialized returns (Tier[] memory) {
-        return _tierSchedules[version];
+    function getTierSchedule() external view virtual onlyProxy onlyInitialized returns (Tier[] memory) {
+        return _tierSchedule;
     }
 
     /// @inheritdoc IBillingContract
@@ -407,8 +385,6 @@ contract BillingContract is WorldIDBase, IBillingContract {
                 // (No-ops on voteless epochs, which still cost one step so skipping stays bounded.)
                 delete _epochRpList[e];
                 delete _epochVoterCount[e];
-                delete _nSnapshot[e];
-                delete _scheduleVersion[e];
                 cursor = 0;
                 unchecked {
                     e++;
@@ -440,7 +416,7 @@ contract BillingContract is WorldIDBase, IBillingContract {
         }
 
         uint256 base = _periodCount[rp];
-        uint256 fee = _marginalFee(_scheduleVersion[epoch], base, count);
+        uint256 fee = _marginalFee(base, count);
         _periodCount[rp] = base + count;
 
         if (fee > 0) {
@@ -456,13 +432,14 @@ contract BillingContract is WorldIDBase, IBillingContract {
     }
 
     /// @dev The lower median of an RP's submitted counts for `epoch`, with missing votes counted as
-    ///      zero over the epoch's snapshot voter count, gated on quorum. Returns 0 below quorum or
-    ///      for pruned/unseen epochs.
+    ///      zero over the epoch's voter count, gated on quorum. Quorum uses the live node-set size
+    ///      (no per-epoch snapshot). Returns 0 below quorum or for pruned/unseen epochs.
     function _median(uint64 epoch, uint64 rp) internal view returns (uint64) {
-        uint16 n = _nSnapshot[epoch];
-        if (n == 0) return 0; // no snapshot ⇒ no votes (or pruned)
-
         uint64 v = _epochVoterCount[epoch];
+        if (v == 0) return 0; // no votes (or pruned)
+
+        // Quorum is read live from the current node set.
+        uint16 n = _oprfKeyRegistry.numPeers();
         if (v < _quorum(n)) return 0;
 
         uint64[] storage stored = _epochRpCounts[epoch][rp];
@@ -493,9 +470,9 @@ contract BillingContract is WorldIDBase, IBillingContract {
     }
 
     /// @dev The marginal WLD fee for billing `count` additional requests on top of `base` already
-    ///      billed this rebate period, using tier schedule `version` (WIP-107 §6.4 tiered pricing).
-    function _marginalFee(uint32 version, uint256 base, uint256 count) internal view returns (uint256 fee) {
-        Tier[] storage tiers = _tierSchedules[version];
+    ///      billed this rebate period, using the current tier schedule (WIP-107 §6.4 tiered pricing).
+    function _marginalFee(uint256 base, uint256 count) internal view returns (uint256 fee) {
+        Tier[] storage tiers = _tierSchedule;
         uint256 from = base;
         uint256 to = base + count;
         uint256 len = tiers.length;
@@ -568,12 +545,12 @@ contract BillingContract is WorldIDBase, IBillingContract {
         if (tiers[len - 1].upTo != type(uint256).max) revert InvalidTierSchedule();
     }
 
-    /// @dev Stores a validated tier schedule at `version`.
-    function _storeTierSchedule(uint32 version, Tier[] calldata tiers) internal {
-        Tier[] storage schedule = _tierSchedules[version];
+    /// @dev Replaces the current tier schedule with a validated one.
+    function _storeTierSchedule(Tier[] calldata tiers) internal {
+        delete _tierSchedule; // clear any existing schedule before repopulating
         uint256 len = tiers.length;
         for (uint256 i = 0; i < len; i++) {
-            schedule.push(tiers[i]);
+            _tierSchedule.push(tiers[i]);
         }
     }
 }
