@@ -8,6 +8,8 @@ use serde::Deserialize;
 use taceo_nodes_common::web3::{self};
 use taceo_oprf::service::{VersionReq, config::OprfNodeServiceConfig};
 
+pub use crate::request_tracking::RequestTrackingConfig;
+
 /// The configuration for the OPRF node.
 ///
 /// It can be configured via environment variables or command line arguments using `clap`.
@@ -58,6 +60,13 @@ pub struct WorldOprfNodeConfig {
         with = "humantime_serde"
     )]
     pub timeout_external_eth_call: Duration,
+
+    /// Configuration for WIP-107 request tracking (persisting authenticated RP
+    /// requests to a database for billing).
+    ///
+    /// If absent, request tracking is disabled entirely.
+    #[serde(default)]
+    pub request_tracking: Option<RequestTrackingConfig>,
 }
 
 /// Cache configuration for a registry watcher.
@@ -204,6 +213,7 @@ impl WorldOprfNodeConfig {
             rp_cache_config: WatcherCacheConfig::default(),
             issuer_cache_config: WatcherCacheConfig::default(),
             merkle_cache_config: WatcherCacheConfig::default(),
+            request_tracking: None,
         }
     }
 }

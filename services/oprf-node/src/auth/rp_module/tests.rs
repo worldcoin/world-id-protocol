@@ -20,7 +20,7 @@ use crate::{
     QUERY_VERIFICATION_KEY,
     auth::{
         rp_module::{
-            RpModuleAuth, RpModuleKind,
+            RpModuleAuth, RpModuleDeps, RpModuleKind,
             wip101::tests::{
                 NoERC165, NoWIP101, WIP101BrokenERC165, WIP101Correct, WIP101CorrectWhenAuxData,
                 WIP101PlainRevert, WIP101RevertsWithCode, WIP101TimeoutERC165, WIP101TimeoutVerify,
@@ -56,15 +56,16 @@ impl RpModuleTestSetup {
         let vk: VerificationKey<Bn254> =
             serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
 
-        let request_authenticator = RpModuleAuth::new_session(
-            infra.merkle_watcher.clone(),
-            infra.rp_registry_watcher.clone(),
-            infra.nonce_history.clone(),
-            infra.current_time_stamp_max_difference,
-            infra.timeout_external_eth_call,
-            infra.http_rpc_provider.clone(),
-            Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
-        );
+        let request_authenticator = RpModuleAuth::new_session(RpModuleDeps {
+            merkle_watcher: infra.merkle_watcher.clone(),
+            rp_registry_watcher: infra.rp_registry_watcher.clone(),
+            nonce_history: infra.nonce_history.clone(),
+            current_time_stamp_max_difference: infra.current_time_stamp_max_difference,
+            timeout_external_eth_call: infra.timeout_external_eth_call,
+            rpc_provider: infra.http_rpc_provider.clone(),
+            query_vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
+            request_tracker: None,
+        });
 
         // Session action must have the correct prefix byte (0x01 or 0x02)
         let session_action = FieldElement::random_for_session(&mut rng, session_type);
@@ -109,15 +110,16 @@ impl RpModuleTestSetup {
         let vk: VerificationKey<Bn254> =
             serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
 
-        let request_authenticator = RpModuleAuth::new_uniqueness(
-            infra.merkle_watcher.clone(),
-            infra.rp_registry_watcher.clone(),
-            infra.nonce_history.clone(),
-            infra.current_time_stamp_max_difference,
-            infra.timeout_external_eth_call,
-            infra.http_rpc_provider.clone(),
-            Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
-        );
+        let request_authenticator = RpModuleAuth::new_uniqueness(RpModuleDeps {
+            merkle_watcher: infra.merkle_watcher.clone(),
+            rp_registry_watcher: infra.rp_registry_watcher.clone(),
+            nonce_history: infra.nonce_history.clone(),
+            current_time_stamp_max_difference: infra.current_time_stamp_max_difference,
+            timeout_external_eth_call: infra.timeout_external_eth_call,
+            rpc_provider: infra.http_rpc_provider.clone(),
+            query_vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
+            request_tracker: None,
+        });
 
         // Uniqueness uses the fixture's pre-generated action (guaranteed 0x00 MSB)
         // and a signature that includes the action

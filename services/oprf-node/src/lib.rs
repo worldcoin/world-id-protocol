@@ -40,11 +40,14 @@ use world_id_primitives::oprf::OprfModule;
 use crate::{
     auth::{
         credential_blinding_factor::CredentialBlindingFactorModuleAuth,
-        merkle_watcher::MerkleWatcher, nonce_history::NonceHistory, rp_module::RpModuleAuth,
+        merkle_watcher::MerkleWatcher,
+        nonce_history::NonceHistory,
+        rp_module::{RpModuleAuth, RpModuleDeps},
         rp_registry_watcher::RpRegistryWatcher,
         schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
     },
     config::WorldOprfNodeConfig,
+    request_tracking::RequestTracker,
 };
 
 /// The embedded Groth16 verification key for OPRF query proofs.
@@ -53,6 +56,7 @@ const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.
 pub(crate) mod auth;
 pub mod config;
 pub mod metrics;
+pub mod request_tracking;
 
 /// Starts the OPRF node and initializes all required services.
 ///
@@ -90,13 +94,25 @@ pub mod metrics;
     clippy::missing_panics_doc,
     reason = "Can realistically not panic as we embed the key at compile time"
 )]
-pub fn start(
+pub async fn start(
     config: WorldOprfNodeConfig,
     secret_manager: SecretManagerService,
     node_information: &NodeInformation,
 ) -> eyre::Result<axum::Router> {
     let node_config = config.node_config;
     let started_services = StartedServices::default();
+
+    let request_tracker = if let Some(tracking_config) = &config.request_tracking {
+        tracing::info!("init request tracking..");
+        Some(
+            RequestTracker::init(tracking_config)
+                .await
+                .context("while init request tracking")?,
+        )
+    } else {
+        tracing::info!("request tracking is disabled");
+        None
+    };
 
     tracing::info!("connecting to RPC..");
     let http_rpc_provider =
@@ -130,26 +146,22 @@ pub fn start(
     );
 
     tracing::info!("init nullifier oprf request auth service..");
-    let nullifier_oprf_req_auth_service = Arc::new(RpModuleAuth::new_uniqueness(
-        merkle_watcher.clone(),
-        rp_registry_watcher.clone(),
-        nonce_history.clone(),
-        config.current_time_stamp_max_difference,
-        config.timeout_external_eth_call,
-        http_rpc_provider.clone(),
-        Arc::clone(&query_vk),
-    ));
+    let rp_module_deps = RpModuleDeps {
+        merkle_watcher: merkle_watcher.clone(),
+        rp_registry_watcher: rp_registry_watcher.clone(),
+        nonce_history,
+        current_time_stamp_max_difference: config.current_time_stamp_max_difference,
+        timeout_external_eth_call: config.timeout_external_eth_call,
+        rpc_provider: http_rpc_provider.clone(),
+        query_vk: Arc::clone(&query_vk),
+        request_tracker,
+    };
+
+    let nullifier_oprf_req_auth_service =
+        Arc::new(RpModuleAuth::new_uniqueness(rp_module_deps.clone()));
 
     tracing::info!("init session oprf request auth service..");
-    let session_oprf_req_auth_service = Arc::new(RpModuleAuth::new_session(
-        merkle_watcher.clone(),
-        rp_registry_watcher.clone(),
-        nonce_history,
-        config.current_time_stamp_max_difference,
-        config.timeout_external_eth_call,
-        http_rpc_provider.clone(),
-        Arc::clone(&query_vk),
-    ));
+    let session_oprf_req_auth_service = Arc::new(RpModuleAuth::new_session(rp_module_deps));
 
     tracing::info!("init CredentialSchemaIssuerRegistry watcher..");
     let schema_issuer_registry_watcher = SchemaIssuerRegistryWatcher::init(

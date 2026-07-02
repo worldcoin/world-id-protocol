@@ -13,6 +13,7 @@ pub fn describe_metrics() {
     merkle_cache::describe_metrics();
     rp_registry_cache::describe_metrics();
     schema_issuer_cache::describe_metrics();
+    request_tracking::describe_metrics();
 
     taceo_oprf::service::metrics::describe_metrics();
 }
@@ -151,6 +152,45 @@ pub(crate) mod rp_registry_cache {
 
     pub(crate) fn miss() {
         metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
+    }
+}
+
+pub(crate) mod request_tracking {
+
+    /// Number of authenticated RP requests handed to the request tracker.
+    const METRICS_ID_NODE_REQUEST_TRACKING_TRACKED: &str = "taceo.oprf.node.request_tracking.tracked";
+    /// Number of request-tracking records dropped before being persisted.
+    const METRICS_ID_NODE_REQUEST_TRACKING_DROPPED: &str = "taceo.oprf.node.request_tracking.dropped";
+    const METRICS_ATTRID_MODULE: &str = "auth_module";
+    const METRICS_ATTRID_DROP_REASON: &str = "reason";
+
+    /// Drop reason: the in-memory queue to the database writer was full.
+    pub(crate) const DROP_REASON_QUEUE_FULL: &str = "queue_full";
+    /// Drop reason: the batch insert failed after exhausting all retries.
+    pub(crate) const DROP_REASON_DB_ERROR: &str = "db_error";
+
+    pub(super) fn describe_metrics() {
+        metrics::describe_counter!(
+            METRICS_ID_NODE_REQUEST_TRACKING_TRACKED,
+            metrics::Unit::Count,
+            "Number of authenticated RP requests handed to the request tracker."
+        );
+
+        metrics::describe_counter!(
+            METRICS_ID_NODE_REQUEST_TRACKING_DROPPED,
+            metrics::Unit::Count,
+            "Number of request-tracking records dropped before being persisted (by reason)."
+        );
+    }
+
+    pub(crate) fn inc_tracked(module: &'static str) {
+        metrics::counter!(METRICS_ID_NODE_REQUEST_TRACKING_TRACKED, METRICS_ATTRID_MODULE => module)
+            .increment(1);
+    }
+
+    pub(crate) fn inc_dropped(reason: &'static str, count: u64) {
+        metrics::counter!(METRICS_ID_NODE_REQUEST_TRACKING_DROPPED, METRICS_ATTRID_DROP_REASON => reason)
+            .increment(count);
     }
 }
 

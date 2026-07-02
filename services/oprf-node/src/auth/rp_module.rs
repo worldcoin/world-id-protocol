@@ -16,6 +16,7 @@ use crate::{
         rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
     },
     metrics,
+    request_tracking::{RequestTracker, TrackedRequest},
 };
 use alloy::primitives::{Address, U256};
 use ark_bn254::Bn254;
@@ -37,7 +38,7 @@ use world_id_primitives::{
 pub(crate) mod wip101;
 
 /// Distinguishes the two RP-authenticated OPRF modules.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RpModuleKind {
     /// Session module: action MSB must be `0x01` (seed) or `0x02` (action); action is NOT signed.
     Session,
@@ -164,6 +165,20 @@ pub(crate) struct RelyingParty {
     pub(crate) account_type: RpAccountType,
 }
 
+/// Shared dependencies of an [`RpModuleAuth`], independent of the module kind.
+#[derive(Clone)]
+pub(crate) struct RpModuleDeps {
+    pub(crate) merkle_watcher: MerkleWatcher,
+    pub(crate) rp_registry_watcher: RpRegistryWatcher,
+    pub(crate) nonce_history: NonceHistory,
+    pub(crate) current_time_stamp_max_difference: Duration,
+    pub(crate) timeout_external_eth_call: Duration,
+    pub(crate) rpc_provider: web3::HttpRpcProvider,
+    pub(crate) query_vk: Arc<PreparedVerifyingKey<Bn254>>,
+    /// Persists authenticated requests for WIP-107 billing; `None` disables tracking.
+    pub(crate) request_tracker: Option<RequestTracker>,
+}
+
 pub(crate) struct RpModuleAuth {
     kind: RpModuleKind,
     rp_registry_watcher: RpRegistryWatcher,
@@ -173,6 +188,7 @@ pub(crate) struct RpModuleAuth {
     merkle_watcher: MerkleWatcher,
     rpc_provider: web3::HttpRpcProvider,
     query_vk: Arc<PreparedVerifyingKey<Bn254>>,
+    request_tracker: Option<RequestTracker>,
 }
 
 impl RelyingParty {
@@ -237,39 +253,28 @@ impl RelyingParty {
 
 impl RpModuleAuth {
     /// Initializes a session-module authenticator.
-    pub(crate) fn new_session(
-        merkle_watcher: MerkleWatcher,
-        rp_registry_watcher: RpRegistryWatcher,
-        nonce_history: NonceHistory,
-        current_time_stamp_max_difference: Duration,
-        timeout_external_eth_call: Duration,
-        rpc_provider: web3::HttpRpcProvider,
-        query_vk: Arc<PreparedVerifyingKey<Bn254>>,
-    ) -> Self {
-        Self {
-            kind: RpModuleKind::Session,
-            rp_registry_watcher,
-            nonce_history,
-            current_time_stamp_max_difference,
-            timeout_external_eth_call,
-            merkle_watcher,
-            rpc_provider,
-            query_vk,
-        }
+    pub(crate) fn new_session(deps: RpModuleDeps) -> Self {
+        Self::new(RpModuleKind::Session, deps)
     }
 
     /// Initializes a uniqueness-module authenticator.
-    pub(crate) fn new_uniqueness(
-        merkle_watcher: MerkleWatcher,
-        rp_registry_watcher: RpRegistryWatcher,
-        nonce_history: NonceHistory,
-        current_time_stamp_max_difference: Duration,
-        timeout_external_eth_call: Duration,
-        rpc_provider: web3::HttpRpcProvider,
-        query_vk: Arc<PreparedVerifyingKey<Bn254>>,
-    ) -> Self {
+    pub(crate) fn new_uniqueness(deps: RpModuleDeps) -> Self {
+        Self::new(RpModuleKind::Uniqueness, deps)
+    }
+
+    fn new(kind: RpModuleKind, deps: RpModuleDeps) -> Self {
+        let RpModuleDeps {
+            merkle_watcher,
+            rp_registry_watcher,
+            nonce_history,
+            current_time_stamp_max_difference,
+            timeout_external_eth_call,
+            rpc_provider,
+            query_vk,
+            request_tracker,
+        } = deps;
         Self {
-            kind: RpModuleKind::Uniqueness,
+            kind,
             rp_registry_watcher,
             nonce_history,
             current_time_stamp_max_difference,
@@ -277,6 +282,7 @@ impl RpModuleAuth {
             merkle_watcher,
             rpc_provider,
             query_vk,
+            request_tracker,
         }
     }
 
@@ -409,6 +415,11 @@ impl RpModuleAuth {
         );
         if valid {
             tracing::trace!("authentication successful!");
+            // WIP-107: persist the authenticated request for billing. Non-blocking,
+            // never fails the request.
+            if let Some(tracker) = &self.request_tracker {
+                tracker.track(TrackedRequest::from_request(self.kind, request));
+            }
             Ok(oprf_key_id)
         } else {
             Err(RpModuleError::InvalidQueryProof)

@@ -90,7 +90,7 @@ async fn run(config: FullWorldOprfNodeConfig) -> eyre::Result<()> {
 
     tracing::info!("starting world-node service...");
     let oprf_service_router =
-        world_id_oprf_node::start(config.node_config, secret_manager, &node_information)?;
+        world_id_oprf_node::start(config.node_config, secret_manager, &node_information).await?;
 
     tracing::info!("starting axum server on {bind_addr}",);
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;

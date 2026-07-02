@@ -224,6 +224,7 @@ async fn spawn_orpf_node(
             .await
             .expect("Can load node information");
         let router = world_id_oprf_node::start(config, secret_manager, &node_information)
+            .await
             .expect("Can start");
         let listener = tokio::net::TcpListener::bind(bind_addr)
             .await
