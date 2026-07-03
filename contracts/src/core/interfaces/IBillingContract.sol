@@ -7,7 +7,7 @@ pragma solidity ^0.8.13;
  * @notice Interface for the World ID Billing Contract (WIP-107).
  * @dev The Billing Contract settles per-epoch usage fees that a Relying Party (RP) pays to the
  *      protocol for Uniqueness Proofs. OPRF nodes count unique RP requests per epoch, EIP-712-sign
- *      their tally as a {BillingVote}, and submit the votes on-chain. The contract finalizes the
+ *      their tally as one or more {BillingVoteChunk}s, and submit the chunks on-chain. The contract finalizes the
  *      lower-median count across the node set (gated on quorum), prices it through a tiered WLD fee
  *      schedule, and accrues per-RP debt. RPs whose oldest unpaid epoch is past its payment window
  *      are surfaced as blocked so OPRF nodes can refuse further service.
@@ -25,22 +25,30 @@ interface IBillingContract {
         uint64 count;
     }
 
-    /// @notice One OPRF node's signed billing vote for a single epoch.
-    /// @dev The signed payload is the EIP-712 `BillingVote(uint64 epoch, RpCount[] counts)` struct,
-    ///      where `epoch` is supplied as the call argument shared by every vote in the batch.
-    struct SignedVote {
-        // the per-RP counts reported by the node, strictly ascending by rpId, all counts non-zero.
+    /// @notice One chunk of an OPRF node's signed billing vote for a single epoch.
+    /// @dev The signed payload is the EIP-712
+    ///      `BillingVoteChunk(uint32 epoch,uint32 chunkIndex,bool isFinal,RpCount[] counts)` struct,
+    ///      where `epoch` is supplied as the call argument shared by every chunk in the batch.
+    struct SignedVoteChunk {
+        // the zero-based chunk index for this node and epoch. Chunks must be submitted in order.
+        uint32 chunkIndex;
+        // true on the final chunk; the node counts as a voter only after this chunk is accepted.
+        bool isFinal;
+        // the per-RP counts reported by the node, strictly ascending globally across chunks,
+        // all counts non-zero.
         RpCount[] counts;
-        // the node's EIP-712 signature over (epoch, counts). The signer is recovered, not trusted
-        // from msg.sender, so any party may relay the votes.
+        // the node's EIP-712 signature over the chunk. The signer is recovered, not trusted from
+        // msg.sender, so any party may relay the chunks.
         bytes signature;
     }
 
     /// @notice A single RP's payment instruction.
     struct RpPayment {
-        // the Relying Party whose outstanding debt is being settled.
+        // the Relying Party whose finalized debt is being settled.
         uint64 rpId;
-        // slippage guard: revert if the RP's outstanding debt exceeds this amount.
+        // settle this RP's finalized debt up to and including this epoch.
+        uint32 uptoEpoch;
+        // slippage guard: revert if the selected debt exceeds this amount.
         // use type(uint256).max for an unconditional payment.
         uint256 maxAmount;
     }
@@ -65,8 +73,11 @@ interface IBillingContract {
     /// @dev Thrown when submitting votes for an epoch whose voting window has already closed.
     error VotingWindowClosed();
 
-    /// @dev Thrown when a recovered signer has already voted for the epoch.
-    error AlreadyVoted();
+    /// @dev Thrown when a recovered signer has already closed their chunked vote for the epoch.
+    error VoteAlreadyClosed();
+
+    /// @dev Thrown when a chunk does not match the signer's next expected chunk index.
+    error UnexpectedChunkIndex();
 
     /// @dev Thrown when a recovered signer is not part of the live OPRF node set.
     error NotANode();
@@ -86,14 +97,20 @@ interface IBillingContract {
     /// @dev Thrown when timing parameters violate the `votingWindow <= epochLength` invariant or are zero.
     error InvalidTiming();
 
+    /// @dev Thrown when a timestamp-derived epoch exceeds the uint32 epoch domain.
+    error EpochTooLarge();
+
+    /// @dev Thrown when rebate-period accounting cannot fit in the packed period state.
+    error PeriodStateOverflow();
+
     ////////////////////////////////////////////////////////////
     //                        EVENTS                          //
     ////////////////////////////////////////////////////////////
 
     /// @notice Emitted once per `submitBillingVotes` call.
-    /// @param epoch The epoch the votes were cast for.
-    /// @param count The number of votes accepted in the call.
-    event VotesSubmitted(uint64 indexed epoch, uint256 count);
+    /// @param epoch The epoch the vote chunks were cast for.
+    /// @param count The number of chunks accepted in the call.
+    event VoteChunksSubmitted(uint32 indexed epoch, uint256 count);
 
     /// @notice Emitted for every RP that received a non-zero finalized count when an epoch finalizes.
     /// @dev Raw per-epoch vote data is pruned on finalization, so this event is the canonical
@@ -102,13 +119,14 @@ interface IBillingContract {
     /// @param rpId The Relying Party.
     /// @param count The finalized (lower-median) request count.
     /// @param fee The WLD fee accrued for the RP in this epoch.
-    event EpochRpFinalized(uint64 indexed epoch, uint64 indexed rpId, uint64 count, uint256 fee);
+    event EpochRpFinalized(uint32 indexed epoch, uint64 indexed rpId, uint64 count, uint256 fee);
 
     /// @notice Emitted when an RP's outstanding debt is settled.
     /// @param rpId The Relying Party.
     /// @param payer The address that funded the payment.
+    /// @param uptoEpoch The highest epoch the payment attempted to settle.
     /// @param amount The WLD amount transferred to the fee recipient.
-    event DebtPaid(uint64 indexed rpId, address indexed payer, uint256 amount);
+    event DebtPaid(uint64 indexed rpId, address indexed payer, uint32 uptoEpoch, uint256 amount);
 
     /// @notice Emitted when the tier schedule is replaced.
     event TierScheduleUpdated();
@@ -126,29 +144,30 @@ interface IBillingContract {
 
     /// @notice Emitted when the rebate (volume-discount) period length is updated.
     /// @param rebatePeriodEpochs The new number of epochs per rebate period.
-    event RebatePeriodUpdated(uint64 rebatePeriodEpochs);
+    event RebatePeriodUpdated(uint32 rebatePeriodEpochs);
 
     ////////////////////////////////////////////////////////////
     //                   PUBLIC FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
 
     /**
-     * @notice Submit one or more OPRF node billing votes for a single epoch.
+     * @notice Submit one or more OPRF node billing vote chunks for a single epoch.
      * @dev Records votes only; does not finalize as a side effect (finalization is driven solely by
      *      {finalizeEpochs}), so a node's vote gas never carries another epoch's finalization cost.
      *      Quorum and pricing are read live at finalization (no per-epoch snapshot). Authenticates
-     *      by recovered signer, not msg.sender.
-     * @param epoch The epoch the votes are cast for; its voting window must be currently open.
-     * @param votes The signed votes to record.
+     *      by recovered signer, not msg.sender. A node's chunks must be submitted in order and the
+     *      node counts toward quorum only after its final chunk is accepted.
+     * @param epoch The epoch the vote chunks are cast for; its voting window must be currently open.
+     * @param chunks The signed vote chunks to record.
      */
-    function submitBillingVotes(uint64 epoch, SignedVote[] calldata votes) external;
+    function submitBillingVotes(uint32 epoch, SignedVoteChunk[] calldata chunks) external;
 
     /**
-     * @notice Settle the full outstanding debt for one or more RPs.
-     * @dev Permissionless; settles the currently-finalized debt and does not finalize as a side
-     *      effect (call {finalizeEpochs} first if closed epochs must be reflected). All-or-nothing
-     *      per RP: pays the full outstanding debt or reverts if it exceeds the RP's `maxAmount`
-     *      guard. Pulls WLD from msg.sender to the fee recipient.
+     * @notice Settle finalized debt for one or more RPs through caller-selected epochs.
+     * @dev Permissionless; settles currently-finalized debt and does not finalize as a side effect
+     *      (call {finalizeEpochs} first if closed epochs must be reflected). All-or-nothing per
+     *      instruction: pays the debt through `uptoEpoch` or reverts if it exceeds the RP's
+     *      `maxAmount` guard. Pulls WLD from msg.sender to the fee recipient.
      * @param payments The per-RP payment instructions.
      */
     function pay(RpPayment[] calldata payments) external;
@@ -161,7 +180,7 @@ interface IBillingContract {
      * @param uptoEpoch The highest epoch to finalize up to; capped at the latest closed epoch.
      * @param maxSteps The maximum units of finalization work to perform in this call.
      */
-    function finalizeEpochs(uint64 uptoEpoch, uint256 maxSteps) external;
+    function finalizeEpochs(uint32 uptoEpoch, uint256 maxSteps) external;
 
     /**
      * @notice Replace the tier schedule. Applies to every not-yet-finalized epoch (no versioning).
@@ -193,7 +212,7 @@ interface IBillingContract {
      *      count resets on each RP's next finalization; coordinate the change at a period boundary.
      * @param rebatePeriodEpochs The new number of epochs per rebate period (must be non-zero).
      */
-    function setRebatePeriodEpochs(uint64 rebatePeriodEpochs) external;
+    function setRebatePeriodEpochs(uint32 rebatePeriodEpochs) external;
 
     ////////////////////////////////////////////////////////////
     //                    VIEW FUNCTIONS                      //
@@ -216,7 +235,7 @@ interface IBillingContract {
      * @param rpId The Relying Party.
      * @return The lower-median count, or 0 if below quorum / pruned / unseen.
      */
-    function epochRequestCount(uint64 epoch, uint64 rpId) external view returns (uint64);
+    function epochRequestCount(uint32 epoch, uint64 rpId) external view returns (uint64);
 
     /**
      * @notice The current outstanding (finalized) debt for an RP in WLD wei.
@@ -228,8 +247,8 @@ interface IBillingContract {
     /// @notice The EIP-712 domain separator.
     function DOMAIN_SEPARATOR() external view returns (bytes32);
 
-    /// @notice The EIP-712 typehash for a billing vote.
-    function BILLING_VOTE_TYPEHASH() external view returns (bytes32);
+    /// @notice The EIP-712 typehash for a billing vote chunk.
+    function BILLING_VOTE_CHUNK_TYPEHASH() external view returns (bytes32);
 
     /**
      * @notice The current tier schedule.
@@ -241,5 +260,5 @@ interface IBillingContract {
      * @notice The number of epochs in a rebate (volume-discount) period.
      * @return The rebate period length in epochs.
      */
-    function getRebatePeriodEpochs() external view returns (uint64);
+    function getRebatePeriodEpochs() external view returns (uint32);
 }

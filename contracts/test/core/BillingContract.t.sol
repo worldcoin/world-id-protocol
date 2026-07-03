@@ -27,8 +27,9 @@ contract OprfKeyRegistryMock {
 
 contract BillingContractTest is Test {
     // EIP-712 typehashes (mirror the contract constants).
-    bytes32 internal constant BILLING_VOTE_TYPEHASH =
-        keccak256("BillingVote(uint64 epoch,RpCount[] counts)RpCount(uint64 rpId,uint64 count)");
+    bytes32 internal constant BILLING_VOTE_CHUNK_TYPEHASH = keccak256(
+        "BillingVoteChunk(uint32 epoch,uint32 chunkIndex,bool isFinal,RpCount[] counts)RpCount(uint64 rpId,uint64 count)"
+    );
     bytes32 internal constant RPCOUNT_TYPEHASH = keccak256("RpCount(uint64 rpId,uint64 count)");
 
     // Timing config.
@@ -36,7 +37,7 @@ contract BillingContractTest is Test {
     uint64 internal constant EPOCH_LEN = 100;
     uint64 internal constant VOTING = 50;
     uint64 internal constant PAYMENT = 200;
-    uint64 internal constant REBATE = 10;
+    uint32 internal constant REBATE = 10;
 
     BillingContract internal billing;
     ERC20Mock internal feeToken;
@@ -90,7 +91,7 @@ contract BillingContractTest is Test {
         uint64 votingWindow,
         uint64 paymentWindow,
         IBillingContract.Tier[] memory tiers,
-        uint64 rebate
+        uint32 rebate
     ) internal returns (BillingContract) {
         BillingContract impl = new BillingContract();
         bytes memory initData =
@@ -106,7 +107,7 @@ contract BillingContractTest is Test {
         uint64 votingWindow,
         uint64 paymentWindow,
         IBillingContract.Tier[] memory tiers,
-        uint64 rebate
+        uint32 rebate
     ) internal view returns (bytes memory) {
         return abi.encodeWithSelector(
             BillingContract.initialize.selector,
@@ -156,36 +157,51 @@ contract BillingContractTest is Test {
         c[0] = IBillingContract.RpCount({rpId: rpId, count: count});
     }
 
-    function _sign(uint256 pk, uint64 epoch, IBillingContract.RpCount[] memory counts)
+    function _sign(uint256 pk, uint32 epoch, IBillingContract.RpCount[] memory counts)
         internal
         view
-        returns (IBillingContract.SignedVote memory)
+        returns (IBillingContract.SignedVoteChunk memory)
     {
+        return _signChunk(pk, epoch, 0, true, counts);
+    }
+
+    function _signChunk(
+        uint256 pk,
+        uint32 epoch,
+        uint32 chunkIndex,
+        bool isFinal,
+        IBillingContract.RpCount[] memory counts
+    ) internal view returns (IBillingContract.SignedVoteChunk memory) {
         bytes32[] memory hashes = new bytes32[](counts.length);
         for (uint256 i = 0; i < counts.length; i++) {
             hashes[i] = keccak256(abi.encode(RPCOUNT_TYPEHASH, counts[i].rpId, counts[i].count));
         }
         bytes32 countsHash = keccak256(abi.encodePacked(hashes));
-        bytes32 structHash = keccak256(abi.encode(BILLING_VOTE_TYPEHASH, epoch, countsHash));
+        bytes32 structHash = keccak256(abi.encode(BILLING_VOTE_CHUNK_TYPEHASH, epoch, chunkIndex, isFinal, countsHash));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", billing.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
-        return IBillingContract.SignedVote({counts: counts, signature: abi.encodePacked(r, s, v)});
+        return IBillingContract.SignedVoteChunk({
+            chunkIndex: chunkIndex,
+            isFinal: isFinal,
+            counts: counts,
+            signature: abi.encodePacked(r, s, v)
+        });
     }
 
     /// @dev Warp to the start of `epoch`'s voting window.
-    function _openVoting(uint64 epoch) internal {
+    function _openVoting(uint32 epoch) internal {
         vm.warp(billing.epochEnd(epoch));
     }
 
     /// @dev Warp to just after `epoch`'s voting window closes.
-    function _closeVoting(uint64 epoch) internal {
+    function _closeVoting(uint32 epoch) internal {
         vm.warp(billing.epochEnd(epoch) + VOTING);
     }
 
     /// @dev Submit a single-rp vote from each provided key for `epoch` (opens the window first).
-    function _voteSingle(uint64 epoch, uint64 rpId, uint64 count, uint256[] memory pks) internal {
+    function _voteSingle(uint32 epoch, uint64 rpId, uint64 count, uint256[] memory pks) internal {
         _openVoting(epoch);
-        IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](pks.length);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](pks.length);
         for (uint256 i = 0; i < pks.length; i++) {
             votes[i] = _sign(pks[i], epoch, _one(rpId, count));
         }
@@ -252,17 +268,71 @@ contract BillingContractTest is Test {
 
     function test_SubmitVotes_happy() public {
         vm.expectEmit(true, false, false, true, address(billing));
-        emit IBillingContract.VotesSubmitted(0, 2);
+        emit IBillingContract.VoteChunksSubmitted(0, 2);
         _voteSingle(0, 1, 50, _pks2());
 
         // Median visible while the epoch is retained (not yet finalized).
         assertEq(billing.epochRequestCount(0, 1), 50);
     }
 
+    function test_SubmitVotes_chunkedVoteCompletesAcrossChunks() public {
+        _openVoting(0);
+
+        uint64[] memory rpIds = new uint64[](2);
+        rpIds[0] = 1;
+        rpIds[1] = 2;
+        uint64[] memory counts = new uint64[](2);
+        counts[0] = 50;
+        counts[1] = 90;
+
+        IBillingContract.SignedVoteChunk[] memory chunks = new IBillingContract.SignedVoteChunk[](3);
+        chunks[0] = _signChunk(pk1, 0, 0, false, _one(1, 50));
+        chunks[1] = _signChunk(pk1, 0, 1, true, _one(2, 90));
+        chunks[2] = _sign(pk2, 0, _counts(rpIds, counts));
+        billing.submitBillingVotes(0, chunks);
+
+        assertEq(billing.epochRequestCount(0, 1), 50);
+        assertEq(billing.epochRequestCount(0, 2), 90);
+    }
+
+    function test_SubmitVotes_incompleteChunkedVoteDoesNotCountTowardQuorum() public {
+        _openVoting(0);
+
+        IBillingContract.SignedVoteChunk[] memory chunks = new IBillingContract.SignedVoteChunk[](2);
+        chunks[0] = _signChunk(pk1, 0, 0, false, _one(1, 100));
+        chunks[1] = _sign(pk2, 0, _one(1, 10));
+        billing.submitBillingVotes(0, chunks);
+
+        assertEq(billing.epochRequestCount(0, 1), 0, "only one completed voter");
+        _closeVoting(0);
+        billing.finalizeEpochs(0, 100);
+        assertEq(billing.outstandingDebt(1), 0);
+    }
+
+    function test_SubmitVotes_revertsUnexpectedChunkIndex() public {
+        _openVoting(0);
+        IBillingContract.SignedVoteChunk[] memory chunks = new IBillingContract.SignedVoteChunk[](1);
+        chunks[0] = _signChunk(pk1, 0, 1, true, _one(1, 10));
+        vm.expectRevert(IBillingContract.UnexpectedChunkIndex.selector);
+        billing.submitBillingVotes(0, chunks);
+    }
+
+    function test_SubmitVotes_revertsCrossChunkCountsNotAscending() public {
+        _openVoting(0);
+        IBillingContract.SignedVoteChunk[] memory first = new IBillingContract.SignedVoteChunk[](1);
+        first[0] = _signChunk(pk1, 0, 0, false, _one(2, 20));
+        billing.submitBillingVotes(0, first);
+
+        IBillingContract.SignedVoteChunk[] memory second = new IBillingContract.SignedVoteChunk[](1);
+        second[0] = _signChunk(pk1, 0, 1, true, _one(1, 10));
+        vm.expectRevert(IBillingContract.CountsNotAscending.selector);
+        billing.submitBillingVotes(0, second);
+    }
+
     function test_SubmitVotes_revertsBeforeWindow() public {
         // Before epoch 0's voting window opens (still inside the epoch).
         vm.warp(billing.epochEnd(0) - 1);
-        IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](1);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](1);
         votes[0] = _sign(pk1, 0, _one(1, 10));
         vm.expectRevert(IBillingContract.VotingWindowNotOpen.selector);
         billing.submitBillingVotes(0, votes);
@@ -270,7 +340,7 @@ contract BillingContractTest is Test {
 
     function test_SubmitVotes_revertsAfterWindow() public {
         _closeVoting(0);
-        IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](1);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](1);
         votes[0] = _sign(pk1, 0, _one(1, 10));
         vm.expectRevert(IBillingContract.VotingWindowClosed.selector);
         billing.submitBillingVotes(0, votes);
@@ -278,18 +348,18 @@ contract BillingContractTest is Test {
 
     function test_SubmitVotes_revertsNotANode() public {
         _openVoting(0);
-        IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](1);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](1);
         votes[0] = _sign(pkOutsider, 0, _one(1, 10));
         vm.expectRevert(IBillingContract.NotANode.selector);
         billing.submitBillingVotes(0, votes);
     }
 
-    function test_SubmitVotes_revertsAlreadyVoted() public {
+    function test_SubmitVotes_revertsVoteAlreadyClosed() public {
         _openVoting(0);
-        IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](2);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](2);
         votes[0] = _sign(pk1, 0, _one(1, 10));
         votes[1] = _sign(pk1, 0, _one(1, 20));
-        vm.expectRevert(IBillingContract.AlreadyVoted.selector);
+        vm.expectRevert(IBillingContract.VoteAlreadyClosed.selector);
         billing.submitBillingVotes(0, votes);
     }
 
@@ -301,7 +371,7 @@ contract BillingContractTest is Test {
         uint64[] memory cs = new uint64[](2);
         cs[0] = 10;
         cs[1] = 20;
-        IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](1);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](1);
         votes[0] = _sign(pk1, 0, _counts(rpIds, cs));
         vm.expectRevert(IBillingContract.CountsNotAscending.selector);
         billing.submitBillingVotes(0, votes);
@@ -309,7 +379,7 @@ contract BillingContractTest is Test {
 
     function test_SubmitVotes_revertsZeroCount() public {
         _openVoting(0);
-        IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](1);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](1);
         votes[0] = _sign(pk1, 0, _one(1, 0));
         vm.expectRevert(IBillingContract.ZeroCount.selector);
         billing.submitBillingVotes(0, votes);
@@ -320,7 +390,7 @@ contract BillingContractTest is Test {
         // live NotANode check.
         oprf.setPeers(new address[](0));
         _openVoting(0);
-        IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](1);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](1);
         votes[0] = _sign(pk1, 0, _one(1, 10));
         vm.expectRevert(IBillingContract.NotANode.selector);
         billing.submitBillingVotes(0, votes);
@@ -366,7 +436,7 @@ contract BillingContractTest is Test {
     function test_Median_oddV() public {
         // n=3, all 3 vote counts [40, 50, 60] → lower median = 50.
         _openVoting(0);
-        IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](3);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](3);
         votes[0] = _sign(pk1, 0, _one(1, 40));
         votes[1] = _sign(pk2, 0, _one(1, 60));
         votes[2] = _sign(pk3, 0, _one(1, 50));
@@ -384,7 +454,7 @@ contract BillingContractTest is Test {
         oprf.setPeers(p);
 
         _openVoting(0);
-        IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](4);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](4);
         votes[0] = _sign(pk1, 0, _one(1, 70));
         votes[1] = _sign(pk2, 0, _one(1, 40));
         votes[2] = _sign(pk3, 0, _one(1, 60));
@@ -397,7 +467,7 @@ contract BillingContractTest is Test {
         // n=3, all 3 vote but only 2 report rp 1 (counts 5, 9); third omits → 0.
         // Full sorted [0,5,9], lower-median idx (3-1)/2=1 → 5.
         _openVoting(0);
-        IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](3);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](3);
         votes[0] = _sign(pk1, 0, _one(1, 5));
         votes[1] = _sign(pk2, 0, _one(1, 9));
         votes[2] = _sign(pk3, 0, _one(2, 7)); // reports a different rp, so rp 1 gets a zero
@@ -416,7 +486,7 @@ contract BillingContractTest is Test {
         oprf.setPeers(p);
 
         _openVoting(0);
-        IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](5);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](5);
         votes[0] = _sign(pk1, 0, _one(1, 5));
         votes[1] = _sign(pk2, 0, _one(1, 9));
         votes[2] = _sign(pk3, 0, _one(2, 7));
@@ -437,7 +507,7 @@ contract BillingContractTest is Test {
         cs[0] = 10;
         cs[1] = 10;
         cs[2] = 10;
-        IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](2);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](2);
         votes[0] = _sign(pk1, 0, _counts(rpIds, cs));
         votes[1] = _sign(pk2, 0, _counts(rpIds, cs));
         billing.submitBillingVotes(0, votes);
@@ -460,9 +530,13 @@ contract BillingContractTest is Test {
         _voteSingle(2, 1, 10, _pks2());
         _closeVoting(2);
 
-        // maxSteps=1: finalizes epoch 0 (rp1 + close).
+        // maxSteps=1: finalizes epoch 0's rp1.
         billing.finalizeEpochs(2, 1);
         assertEq(billing.outstandingDebt(1), 100);
+
+        // maxSteps=1: closes epoch 0, no new debt.
+        billing.finalizeEpochs(2, 1);
+        assertEq(billing.outstandingDebt(1), 100, "epoch 0 close should not accrue");
 
         // maxSteps=1: skips voteless epoch 1 (one close step), no new debt.
         billing.finalizeEpochs(2, 1);
@@ -471,6 +545,14 @@ contract BillingContractTest is Test {
         // maxSteps=1: finalizes epoch 2's rp1.
         billing.finalizeEpochs(2, 1);
         assertEq(billing.outstandingDebt(1), 200);
+    }
+
+    function test_Finalize_revertsLatestClosedEpochTooLarge() public {
+        billing = _deploy(0, 1, 1, PAYMENT, _tiers(100, 10, 5), REBATE);
+        vm.warp(uint256(type(uint32).max) + 3);
+
+        vm.expectRevert(IBillingContract.EpochTooLarge.selector);
+        billing.finalizeEpochs(type(uint32).max, 100);
     }
 
     function test_Finalize_tierAcrossRebateBoundaryAndReset() public {
@@ -514,7 +596,7 @@ contract BillingContractTest is Test {
         // No snapshot: quorum is read live at finalization from the current node set.
         // First vote from node1 while n=3 (quorum 2).
         _openVoting(0);
-        IBillingContract.SignedVote[] memory v1 = new IBillingContract.SignedVote[](1);
+        IBillingContract.SignedVoteChunk[] memory v1 = new IBillingContract.SignedVoteChunk[](1);
         v1[0] = _sign(pk1, 0, _one(1, 50));
         billing.submitBillingVotes(0, v1);
 
@@ -528,7 +610,7 @@ contract BillingContractTest is Test {
         oprf.setPeers(p);
 
         // Second vote brings the count to 2, which misses the live quorum of 3.
-        IBillingContract.SignedVote[] memory v2 = new IBillingContract.SignedVote[](1);
+        IBillingContract.SignedVoteChunk[] memory v2 = new IBillingContract.SignedVoteChunk[](1);
         v2[0] = _sign(pk2, 0, _one(1, 50));
         billing.submitBillingVotes(0, v2);
 
@@ -559,10 +641,10 @@ contract BillingContractTest is Test {
         _fundPayer(debt);
 
         IBillingContract.RpPayment[] memory ps = new IBillingContract.RpPayment[](1);
-        ps[0] = IBillingContract.RpPayment({rpId: 1, maxAmount: type(uint256).max});
+        ps[0] = IBillingContract.RpPayment({rpId: 1, uptoEpoch: 0, maxAmount: type(uint256).max});
 
         vm.expectEmit(true, true, false, true, address(billing));
-        emit IBillingContract.DebtPaid(1, payer, debt);
+        emit IBillingContract.DebtPaid(1, payer, 0, debt);
         vm.prank(payer);
         billing.pay(ps);
 
@@ -575,7 +657,7 @@ contract BillingContractTest is Test {
         _fundPayer(debt);
 
         IBillingContract.RpPayment[] memory ps = new IBillingContract.RpPayment[](1);
-        ps[0] = IBillingContract.RpPayment({rpId: 1, maxAmount: debt - 1});
+        ps[0] = IBillingContract.RpPayment({rpId: 1, uptoEpoch: 0, maxAmount: debt - 1});
         vm.prank(payer);
         vm.expectRevert(IBillingContract.DebtExceedsMax.selector);
         billing.pay(ps);
@@ -584,7 +666,7 @@ contract BillingContractTest is Test {
     function test_Pay_skipsZeroDebt() public {
         // No finalized debt for rp 1; pay must be a no-op (idempotent, no revert).
         IBillingContract.RpPayment[] memory ps = new IBillingContract.RpPayment[](1);
-        ps[0] = IBillingContract.RpPayment({rpId: 1, maxAmount: type(uint256).max});
+        ps[0] = IBillingContract.RpPayment({rpId: 1, uptoEpoch: type(uint32).max, maxAmount: type(uint256).max});
         vm.prank(payer);
         billing.pay(ps);
         assertEq(feeToken.balanceOf(feeRecipient), 0);
@@ -599,7 +681,7 @@ contract BillingContractTest is Test {
         uint64[] memory cs = new uint64[](2);
         cs[0] = 10;
         cs[1] = 20;
-        IBillingContract.SignedVote[] memory votes = new IBillingContract.SignedVote[](2);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](2);
         votes[0] = _sign(pk1, 0, _counts(rpIds, cs));
         votes[1] = _sign(pk2, 0, _counts(rpIds, cs));
         billing.submitBillingVotes(0, votes);
@@ -613,8 +695,8 @@ contract BillingContractTest is Test {
         _fundPayer(debt1 + debt2);
 
         IBillingContract.RpPayment[] memory ps = new IBillingContract.RpPayment[](2);
-        ps[0] = IBillingContract.RpPayment({rpId: 1, maxAmount: type(uint256).max});
-        ps[1] = IBillingContract.RpPayment({rpId: 2, maxAmount: type(uint256).max});
+        ps[0] = IBillingContract.RpPayment({rpId: 1, uptoEpoch: 0, maxAmount: type(uint256).max});
+        ps[1] = IBillingContract.RpPayment({rpId: 2, uptoEpoch: 0, maxAmount: type(uint256).max});
         vm.prank(payer);
         billing.pay(ps);
 
@@ -629,7 +711,7 @@ contract BillingContractTest is Test {
         _closeVoting(0);
         // Deliberately do not finalize.
         IBillingContract.RpPayment[] memory ps = new IBillingContract.RpPayment[](1);
-        ps[0] = IBillingContract.RpPayment({rpId: 1, maxAmount: type(uint256).max});
+        ps[0] = IBillingContract.RpPayment({rpId: 1, uptoEpoch: 0, maxAmount: type(uint256).max});
         vm.prank(payer);
         billing.pay(ps);
         assertEq(feeToken.balanceOf(feeRecipient), 0, "pay should not have finalized/charged");
@@ -650,10 +732,38 @@ contract BillingContractTest is Test {
         // Pay clears the block.
         _fundPayer(debt);
         IBillingContract.RpPayment[] memory ps = new IBillingContract.RpPayment[](1);
-        ps[0] = IBillingContract.RpPayment({rpId: 1, maxAmount: type(uint256).max});
+        ps[0] = IBillingContract.RpPayment({rpId: 1, uptoEpoch: 0, maxAmount: type(uint256).max});
         vm.prank(payer);
         billing.pay(ps);
         assertFalse(billing.is_blocked(1));
+    }
+
+    function test_IsBlocked_advancesToNextUnpaidEpochAfterPartialPayment() public {
+        _voteSingle(0, 1, 50, _pks2());
+        _voteSingle(1, 1, 50, _pks2());
+        _closeVoting(1);
+        billing.finalizeEpochs(1, 100);
+
+        uint256 epoch0Debt = 500;
+        uint256 epoch1Debt = 500;
+        assertEq(billing.outstandingDebt(1), epoch0Debt + epoch1Debt);
+
+        uint64 epoch0Due = billing.epochEnd(0) + VOTING + PAYMENT;
+        uint64 epoch1Due = billing.epochEnd(1) + VOTING + PAYMENT;
+        vm.warp(epoch0Due + 1);
+        assertTrue(billing.is_blocked(1), "epoch 0 is overdue");
+
+        _fundPayer(epoch0Debt);
+        IBillingContract.RpPayment[] memory ps = new IBillingContract.RpPayment[](1);
+        ps[0] = IBillingContract.RpPayment({rpId: 1, uptoEpoch: 0, maxAmount: epoch0Debt});
+        vm.prank(payer);
+        billing.pay(ps);
+
+        assertEq(billing.outstandingDebt(1), epoch1Debt);
+        assertFalse(billing.is_blocked(1), "epoch 1 is unpaid but not due yet");
+
+        vm.warp(epoch1Due + 1);
+        assertTrue(billing.is_blocked(1), "epoch 1 becomes the blocking epoch");
     }
 
     function test_IsBlocked_falseWithoutDebt() public view {

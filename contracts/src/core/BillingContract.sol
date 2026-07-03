@@ -24,18 +24,25 @@ interface IOprfNodeSet {
  * @title BillingContract (World ID)
  * @author World Contributors
  * @notice World ID. On-chain billing for Uniqueness Proofs per WIP-107.
- * @dev OPRF nodes count unique RP requests per epoch and submit EIP-712-signed votes. The contract
+ * @dev OPRF nodes count unique RP requests per epoch and submit EIP-712-signed vote chunks. The contract
  *      finalizes the lower-median count across the node set (gated on quorum), prices it through a
  *      tiered WLD fee schedule, accrues per-RP debt, and blocks RPs past their payment window.
- *      Finalization is permissionless and chunkable ({finalizeEpochs}) — it is the sole driver, so
- *      a keeper must run it (cadence < paymentWindow keeps {is_blocked} never-late). Neither
- *      {submitBillingVotes} nor {pay} finalize as a side effect, keeping their gas predictable.
- *      Finalizing prunes raw vote data, so raw state scales with participants, not time, and no
- *      single call can be bricked by an oversized epoch.
+ *      Finalization is permissionless and chunkable ({finalizeEpochs}), and must be driven by a third party.
+ *
  * @custom:repo https://github.com/worldcoin/world-id-protocol
  */
 contract BillingContract is WorldIDBase, IBillingContract {
     using SafeERC20 for IERC20;
+
+    ////////////////////////////////////////////////////////////
+    //                        Structs                         //
+    ////////////////////////////////////////////////////////////
+
+    /// @dev Packed per-RP rebate-period state. `uint32 + uint224` fills one storage slot.
+    struct PeriodState {
+        uint32 index;
+        uint224 count;
+    }
 
     ////////////////////////////////////////////////////////////
     //                        Members                         //
@@ -61,41 +68,53 @@ contract BillingContract is WorldIDBase, IBillingContract {
     uint64 internal _paymentWindow;
 
     /// @dev Lowest epoch not yet finalized (global finalization cursor).
-    uint64 internal _nextEpochToFinalize;
+    uint32 internal _nextEpochToFinalize;
 
     /// @dev Number of epochs in a rebate (volume-discount) period.
-    uint64 internal _rebatePeriodEpochs;
+    uint32 internal _rebatePeriodEpochs;
 
     /// @dev The single, current ordered tier schedule (no versioning).
     Tier[] internal _tierSchedule;
 
-    /// @dev rpId -> requests already billed in the RP's current rebate period.
-    mapping(uint64 => uint256) internal _periodCount;
+    /// @dev rpId -> rebate-period index plus requests already billed in that period.
+    mapping(uint64 => PeriodState) internal _periodState;
 
-    /// @dev rpId -> the rebate-period index `_periodCount` is scoped to.
-    mapping(uint64 => uint64) internal _periodIndex;
+    /// @dev epoch -> rpId -> outstanding finalized debt for that epoch in WLD wei.
+    mapping(uint32 => mapping(uint64 => uint256)) internal _epochOwed;
 
-    /// @dev rpId -> outstanding finalized debt in WLD wei.
-    mapping(uint64 => uint256) internal _totalOwed;
+    /// @dev rpId -> finalized epochs with non-zero debt, in ascending finalization order.
+    mapping(uint64 => uint32[]) internal _unpaidEpochs;
 
-    /// @dev rpId -> payment-due timestamp of the oldest unpaid billable epoch (0 when debt-free).
-    mapping(uint64 => uint64) internal _oldestUnpaidDue;
+    /// @dev rpId -> cursor into `_unpaidEpochs[rpId]` for the oldest not-yet-paid epoch.
+    mapping(uint64 => uint256) internal _unpaidEpochCursor;
 
     // --- Transient per-epoch state (pruned when the epoch finalizes) ---
 
-    /// @dev epoch -> signer -> whether the signer already voted.
-    mapping(uint64 => mapping(address => bool)) internal _hasVoted;
+    /// @dev epoch -> signer -> whether the signer already closed its chunked vote.
+    mapping(uint32 => mapping(address => bool)) internal _hasVoted;
 
-    /// @dev epoch -> number of distinct nodes that voted (V).
-    mapping(uint64 => uint64) internal _epochVoterCount;
+    /// @dev epoch -> signer -> next chunk index expected from the signer.
+    mapping(uint32 => mapping(address => uint32)) internal _nextChunkIndex;
 
-    /// @dev epoch -> rpIds that received at least one non-zero count.
-    mapping(uint64 => uint64[]) internal _epochRpList;
+    /// @dev epoch -> signer -> last rpId accepted from the signer, enforcing global ordering.
+    mapping(uint32 => mapping(address => uint64)) internal _lastChunkRpId;
 
-    /// @dev epoch -> rpId -> the non-zero counts submitted for it.
-    mapping(uint64 => mapping(uint64 => uint64[])) internal _epochRpCounts;
+    /// @dev epoch -> all signers that submitted at least one chunk, completed or not.
+    mapping(uint32 => address[]) internal _epochSubmitters;
 
-    /// @dev Index into `_epochRpList[_nextEpochToFinalize]` of the next RP to finalize, so a
+    /// @dev epoch -> signers whose chunked votes are complete and count toward quorum/medians.
+    mapping(uint32 => address[]) internal _epochVoters;
+
+    /// @dev epoch -> rpIds that received at least one non-zero count and need finalization.
+    mapping(uint32 => uint64[]) internal _epochRpsToFinalize;
+
+    /// @dev epoch -> rpId -> whether the rp is already in `_epochRpsToFinalize[epoch]`.
+    mapping(uint32 => mapping(uint64 => bool)) internal _epochRpsToFinalizeSet;
+
+    /// @dev epoch -> signer -> rpId -> the non-zero count submitted by the signer for the rp.
+    mapping(uint32 => mapping(address => mapping(uint64 => uint64))) internal _epochVoteCounts;
+
+    /// @dev Index into `_epochRpsToFinalize[_nextEpochToFinalize]` of the next RP to finalize, so a
     ///      single oversized epoch can be finalized across multiple (chunked) calls.
     uint256 internal _finalizeRpCursor;
 
@@ -107,10 +126,11 @@ contract BillingContract is WorldIDBase, IBillingContract {
     string public constant EIP712_VERSION = "1.0";
 
     /// @inheritdoc IBillingContract
-    bytes32 public constant BILLING_VOTE_TYPEHASH =
-        keccak256("BillingVote(uint64 epoch,RpCount[] counts)RpCount(uint64 rpId,uint64 count)");
+    bytes32 public constant BILLING_VOTE_CHUNK_TYPEHASH = keccak256(
+        "BillingVoteChunk(uint32 epoch,uint32 chunkIndex,bool isFinal,RpCount[] counts)RpCount(uint64 rpId,uint64 count)"
+    );
 
-    /// @dev EIP-712 typehash for a single RpCount struct (member of a BillingVote).
+    /// @dev EIP-712 typehash for a single RpCount struct (member of a BillingVoteChunk).
     bytes32 public constant RPCOUNT_TYPEHASH = keccak256("RpCount(uint64 rpId,uint64 count)");
 
     ////////////////////////////////////////////////////////////
@@ -147,7 +167,7 @@ contract BillingContract is WorldIDBase, IBillingContract {
         uint64 votingWindow,
         uint64 paymentWindow,
         Tier[] calldata tiers,
-        uint64 rebatePeriodEpochs
+        uint32 rebatePeriodEpochs
     ) public virtual initializer {
         if (oprfKeyRegistry == address(0) || feeToken == address(0) || feeRecipient == address(0)) {
             revert ZeroAddress();
@@ -157,7 +177,7 @@ contract BillingContract is WorldIDBase, IBillingContract {
         __BaseUpgradeable_init(EIP712_NAME, EIP712_VERSION, feeRecipient, feeToken, 0);
 
         _oprfKeyRegistry = IOprfNodeSet(oprfKeyRegistry);
-
+        // We require voting window to be less than epoch length to prevent overlapping voting windows.
         if (epochLength == 0 || votingWindow == 0 || paymentWindow == 0 || votingWindow > epochLength) {
             revert InvalidTiming();
         }
@@ -179,52 +199,79 @@ contract BillingContract is WorldIDBase, IBillingContract {
     ////////////////////////////////////////////////////////////
 
     /// @inheritdoc IBillingContract
-    function submitBillingVotes(uint64 epoch, SignedVote[] calldata votes) external virtual onlyProxy onlyInitialized {
+    function submitBillingVotes(uint32 epoch, SignedVoteChunk[] calldata chunks)
+        external
+        virtual
+        onlyProxy
+        onlyInitialized
+    {
         // The voting window for `epoch` must be currently open.
         uint64 votingStart = epochEnd(epoch);
         if (block.timestamp < votingStart) revert VotingWindowNotOpen();
         if (block.timestamp >= votingStart + _votingWindow) revert VotingWindowClosed();
 
-        // No finalization side effect here: submit only records votes. Finalization is driven
-        // solely by the permissionless {finalizeEpochs} (see IBillingContract), so a node's vote
-        // gas is predictable and never carries another epoch's finalization cost.
-        //
-        // No per-epoch snapshot: quorum and pricing are read live at finalization from the current
-        // node set and tier schedule. An empty node set makes every signer fail the {NotANode}
-        // check below, so votes cannot be recorded without registered nodes.
-
-        uint256 voteCount = votes.length;
-        for (uint256 i = 0; i < voteCount; i++) {
-            _recordVote(epoch, votes[i]);
+        uint256 chunkCount = chunks.length;
+        for (uint256 i = 0; i < chunkCount; i++) {
+            _recordVoteChunk(epoch, chunks[i]);
         }
 
-        emit VotesSubmitted(epoch, voteCount);
+        emit VoteChunksSubmitted(epoch, chunkCount);
     }
 
     /// @inheritdoc IBillingContract
     function pay(RpPayment[] calldata payments) external virtual onlyProxy onlyInitialized {
-        // Settles currently-finalized debt only; does not finalize (keeper-driven finalizeEpochs
-        // keeps debt current). RPs with no finalized debt are skipped so a batched, permissionless
-        // call is not griefable by a debt that was concurrently settled or never accrued.
+        // Settles currently-finalized debt only. RPs with no selected debt are skipped so a batched, permissionless
+        // call is not griefable by debt that was concurrently settled or never accrued.
         uint256 len = payments.length;
         for (uint256 i = 0; i < len; i++) {
             uint64 rpId = payments[i].rpId;
-            uint256 debt = _totalOwed[rpId];
-            if (debt == 0) continue;
-            if (debt > payments[i].maxAmount) revert DebtExceedsMax();
+            uint32 uptoEpoch = payments[i].uptoEpoch;
+            uint256 amount = _clearDebtThrough(rpId, uptoEpoch);
+            if (amount == 0) continue;
+            if (amount > payments[i].maxAmount) revert DebtExceedsMax();
 
-            // Effects before interaction: clear debt/clock before pulling tokens.
-            _totalOwed[rpId] = 0;
-            _oldestUnpaidDue[rpId] = 0;
-            _feeToken.safeTransferFrom(msg.sender, _feeRecipient, debt);
+            // Effects happen in {_clearDebtThrough}; pull tokens after state is updated.
+            _feeToken.safeTransferFrom(msg.sender, _feeRecipient, amount);
 
-            emit DebtPaid(rpId, msg.sender, debt);
+            emit DebtPaid(rpId, msg.sender, uptoEpoch, amount);
         }
     }
 
     /// @inheritdoc IBillingContract
-    function finalizeEpochs(uint64 uptoEpoch, uint256 maxSteps) external virtual onlyProxy onlyInitialized {
-        _finalize(uptoEpoch, maxSteps);
+    function finalizeEpochs(uint32 uptoEpoch, uint256 maxSteps) external virtual onlyProxy onlyInitialized {
+        (bool exists, uint32 closed) = _latestClosedEpoch();
+        if (!exists) return;
+        uint32 target = uptoEpoch < closed ? uptoEpoch : closed;
+
+        uint32 e = _nextEpochToFinalize;
+        uint256 cursor = _finalizeRpCursor;
+        // Steps are either a single finalizeRp call or a pruneFinalizedEpoch call
+        uint256 steps = 0;
+
+        while (e <= target && steps < maxSteps) {
+            uint64[] storage rps = _epochRpsToFinalize[e];
+            uint256 len = rps.length;
+
+            while (cursor < len && steps < maxSteps) {
+                _finalizeRp(e, rps[cursor]);
+                unchecked {
+                    cursor++;
+                    steps++;
+                }
+            }
+            // Only prune if we haven't exhausted the step budget
+            if (steps < maxSteps) {
+                _pruneFinalizedEpoch(e);
+                cursor = 0;
+                e++;
+                unchecked {
+                    steps++;
+                }
+            }
+        }
+
+        _nextEpochToFinalize = e;
+        _finalizeRpCursor = cursor;
     }
 
     ////////////////////////////////////////////////////////////
@@ -264,7 +311,7 @@ contract BillingContract is WorldIDBase, IBillingContract {
     }
 
     /// @inheritdoc IBillingContract
-    function setRebatePeriodEpochs(uint64 rebatePeriodEpochs) external virtual onlyOwner onlyProxy onlyInitialized {
+    function setRebatePeriodEpochs(uint32 rebatePeriodEpochs) external virtual onlyOwner onlyProxy onlyInitialized {
         if (rebatePeriodEpochs == 0) revert InvalidTiming();
         _rebatePeriodEpochs = rebatePeriodEpochs;
         emit RebatePeriodUpdated(rebatePeriodEpochs);
@@ -276,12 +323,16 @@ contract BillingContract is WorldIDBase, IBillingContract {
 
     /// @inheritdoc IBillingContract
     function is_blocked(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (bool) {
-        uint64 due = _oldestUnpaidDue[rpId];
-        return _totalOwed[rpId] > 0 && due != 0 && block.timestamp > due;
+        uint256 cursor = _unpaidEpochCursor[rpId];
+        uint32[] storage epochs = _unpaidEpochs[rpId];
+        // No unpaid epochs remain once the cursor reaches the end, so nothing can be overdue.
+        // This also guards the indexed read below against an out-of-bounds access.
+        if (cursor >= epochs.length) return false;
+        return block.timestamp > _paymentDue(epochs[cursor]);
     }
 
     /// @inheritdoc IBillingContract
-    function epochRequestCount(uint64 epoch, uint64 rpId)
+    function epochRequestCount(uint32 epoch, uint64 rpId)
         external
         view
         virtual
@@ -294,8 +345,12 @@ contract BillingContract is WorldIDBase, IBillingContract {
     }
 
     /// @inheritdoc IBillingContract
-    function outstandingDebt(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (uint256) {
-        return _totalOwed[rpId];
+    function outstandingDebt(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (uint256 amount) {
+        uint32[] storage epochs = _unpaidEpochs[rpId];
+        uint256 len = epochs.length;
+        for (uint256 cursor = _unpaidEpochCursor[rpId]; cursor < len; cursor++) {
+            amount += _epochOwed[epochs[cursor]][rpId];
+        }
     }
 
     /// @inheritdoc IBillingContract
@@ -304,8 +359,8 @@ contract BillingContract is WorldIDBase, IBillingContract {
     }
 
     /// @notice The timestamp at which epoch `epoch` ends (and its voting window opens).
-    function epochEnd(uint64 epoch) public view virtual returns (uint64) {
-        return _genesis + (epoch + 1) * _epochLength;
+    function epochEnd(uint32 epoch) public view virtual returns (uint64) {
+        return _genesis + (uint64(epoch) + 1) * _epochLength;
     }
 
     /// @notice The OPRF key registry address the node set is read from.
@@ -319,7 +374,7 @@ contract BillingContract is WorldIDBase, IBillingContract {
     }
 
     /// @inheritdoc IBillingContract
-    function getRebatePeriodEpochs() external view virtual onlyProxy onlyInitialized returns (uint64) {
+    function getRebatePeriodEpochs() external view virtual onlyProxy onlyInitialized returns (uint32) {
         return _rebatePeriodEpochs;
     }
 
@@ -328,17 +383,47 @@ contract BillingContract is WorldIDBase, IBillingContract {
     ////////////////////////////////////////////////////////////
 
     /// @dev The payment-due timestamp for `epoch`: end of its voting window plus the payment window.
-    function _paymentDue(uint64 epoch) internal view returns (uint64) {
+    function _paymentDue(uint32 epoch) internal view returns (uint64) {
         return epochEnd(epoch) + _votingWindow + _paymentWindow;
     }
 
+    /// @dev Clears `rp`'s finalized debt through `uptoEpoch`, then advances its unpaid-epoch cursor.
+    function _clearDebtThrough(uint64 rp, uint32 uptoEpoch) internal returns (uint256 amount) {
+        uint256 cursor = _unpaidEpochCursor[rp];
+
+        while (cursor < _unpaidEpochs[rp].length) {
+            uint32 epoch = _unpaidEpochs[rp][cursor];
+            if (epoch > uptoEpoch) break;
+
+            uint256 debt = _epochOwed[epoch][rp];
+            if (debt != 0) {
+                amount += debt;
+                delete _epochOwed[epoch][rp];
+            }
+
+            delete _unpaidEpochs[rp][cursor];
+
+            unchecked {
+                cursor++;
+            }
+        }
+
+        // The cursor advances monotonically and is never reset: paid slots are already zeroed
+        // above, so live storage stays bounded by the outstanding backlog without an O(n) array
+        // delete on the clearing payment. When fully paid, `cursor == _unpaidEpochs[rp].length`,
+        // which `is_blocked` and `outstandingDebt` treat as "no outstanding debt".
+        _unpaidEpochCursor[rp] = cursor;
+    }
+
     /// @dev The latest epoch whose voting window has fully closed, if any.
-    function _latestClosedEpoch() internal view returns (bool exists, uint64 epoch) {
+    function _latestClosedEpoch() internal view returns (bool exists, uint32 epoch) {
         uint64 minTime = _genesis + _epochLength + _votingWindow; // epochEnd(0) + votingWindow
         if (block.timestamp < minTime) return (false, 0);
         // k = e + 1 for the largest closed epoch e.
-        uint64 k = (uint64(block.timestamp) - _genesis - _votingWindow) / _epochLength;
-        return (true, k - 1);
+        uint256 k = (block.timestamp - _genesis - _votingWindow) / _epochLength;
+        uint256 latest = k - 1;
+        if (latest > type(uint32).max) revert EpochTooLarge();
+        return (true, uint32(latest));
     }
 
     /// @dev The billing quorum for a node set of size `n`: a strict majority, floor(n/2)+1.
@@ -355,167 +440,173 @@ contract BillingContract is WorldIDBase, IBillingContract {
         return false;
     }
 
-    /// @dev Finalizes closed epochs in global order, up to `uptoEpoch` and at most `maxSteps`
-    ///      units of work (one per RP finalized, one per epoch closed). Resumes mid-epoch via the
-    ///      `(_nextEpochToFinalize, _finalizeRpCursor)` cursor so an oversized epoch can never make
-    ///      a single call exceed the block gas limit.
-    function _finalize(uint64 uptoEpoch, uint256 maxSteps) internal {
-        (bool exists, uint64 closed) = _latestClosedEpoch();
-        if (!exists) return;
-        uint64 target = uptoEpoch < closed ? uptoEpoch : closed;
-
-        uint64 e = _nextEpochToFinalize;
-        uint256 cursor = _finalizeRpCursor;
-        uint256 steps = 0;
-
-        while (e <= target && steps < maxSteps) {
-            uint64[] storage rps = _epochRpList[e];
-            uint256 len = rps.length;
-
-            while (cursor < len && steps < maxSteps) {
-                _finalizeRp(e, rps[cursor]);
-                unchecked {
-                    cursor++;
-                    steps++;
-                }
-            }
-
-            if (cursor >= len) {
-                // Epoch fully finalized: prune its epoch-level transient state and advance.
-                // (No-ops on voteless epochs, which still cost one step so skipping stays bounded.)
-                delete _epochRpList[e];
-                delete _epochVoterCount[e];
-                cursor = 0;
-                unchecked {
-                    e++;
-                    steps++;
-                }
-            } else {
-                // Budget exhausted mid-epoch; resume here next call.
-                break;
-            }
+    /// @dev Whether `signer` has submitted any chunk for `epoch`.
+    function _isSubmitter(uint32 epoch, address signer) internal view returns (bool) {
+        address[] storage submitters = _epochSubmitters[epoch];
+        uint256 submitterCount = submitters.length;
+        for (uint256 i = 0; i < submitterCount; i++) {
+            if (submitters[i] == signer) return true;
         }
-
-        _nextEpochToFinalize = e;
-        _finalizeRpCursor = cursor;
+        return false;
     }
 
-    /// @dev Finalizes a single (epoch, rp): prices its lower-median count through the epoch's pinned
-    ///      schedule, accrues debt, emits the audit event, and prunes the raw counts.
-    function _finalizeRp(uint64 epoch, uint64 rp) internal {
-        uint64 count = _median(epoch, rp);
-        delete _epochRpCounts[epoch][rp]; // prune raw counts regardless of outcome
-
-        if (count == 0) return; // below quorum or zero median ⇒ nothing billed, no event
-
-        // Rebate-period accounting: reset the running count when crossing a period boundary.
-        uint64 periodIdx = epoch / _rebatePeriodEpochs;
-        if (_periodIndex[rp] != periodIdx) {
-            _periodIndex[rp] = periodIdx;
-            _periodCount[rp] = 0;
+    /// @dev Prunes epoch-level transient state after all queued RPs for `epoch` are finalized.
+    function _pruneFinalizedEpoch(uint32 epoch) internal {
+        address[] storage submitters = _epochSubmitters[epoch];
+        uint256 submitterCount = submitters.length;
+        for (uint256 i = 0; i < submitterCount; i++) {
+            address signer = submitters[i];
+            delete _hasVoted[epoch][signer];
+            delete _nextChunkIndex[epoch][signer];
+            delete _lastChunkRpId[epoch][signer];
         }
+        delete _epochSubmitters[epoch];
+        delete _epochVoters[epoch];
+        delete _epochRpsToFinalize[epoch];
+    }
 
-        uint256 base = _periodCount[rp];
-        uint256 fee = _marginalFee(base, count);
-        _periodCount[rp] = base + count;
+    /// @dev Finalizes a single (epoch, rp): prices its lower-median count through the current
+    ///      schedule, accrues debt, emits the audit event, and prunes the raw counts.
+    function _finalizeRp(uint32 epoch, uint64 rp) internal {
+        uint64 median_count = _median(epoch, rp);
+        // Prune counts for all submitters; deleting a missing rp count keeps default zero
+        address[] storage submitters = _epochSubmitters[epoch];
+        uint256 submitterCount = submitters.length;
+        for (uint256 i = 0; i < submitterCount; i++) {
+            delete _epochVoteCounts[epoch][submitters[i]][rp];
+        }
+        delete _epochRpsToFinalizeSet[epoch][rp]; // prune finalization queue membership
+
+        if (median_count == 0) return; // below quorum or zero median nothing billed, no event
+
+        uint256 base = _updatePeriodCountAndReturnBase(rp, epoch, median_count);
+        uint256 fee = _calculateTieredFee(base, median_count);
 
         if (fee > 0) {
-            if (_totalOwed[rp] == 0) {
-                // First unpaid epoch sets the block clock; it has the earliest due time since
-                // epochs finalize in ascending order.
-                _oldestUnpaidDue[rp] = _paymentDue(epoch);
-            }
-            _totalOwed[rp] += fee;
+            _epochOwed[epoch][rp] = fee;
+            _unpaidEpochs[rp].push(epoch);
         }
 
-        emit EpochRpFinalized(epoch, rp, count, fee);
+        emit EpochRpFinalized(epoch, rp, median_count, fee);
+    }
+
+    /// @dev Updates an RP's running rebate-period count and returns the count before this epoch.
+    function _updatePeriodCountAndReturnBase(uint64 rp, uint32 epoch, uint64 epoch_count)
+        internal
+        returns (uint256 base)
+    {
+        // Check if the epoch is a new period boundary and reset the period count if so
+        uint32 periodIdx = epoch / _rebatePeriodEpochs;
+        PeriodState storage period = _periodState[rp];
+        if (period.index != periodIdx) {
+            period.index = periodIdx;
+            period.count = 0;
+        }
+
+        // Return the previous period count
+        base = period.count;
+        uint256 newPeriodCount = base + epoch_count;
+        if (newPeriodCount > type(uint224).max) revert PeriodStateOverflow();
+        period.count = uint224(newPeriodCount);
     }
 
     /// @dev The lower median of an RP's submitted counts for `epoch`, with missing votes counted as
-    ///      zero over the epoch's voter count, gated on quorum. Quorum uses the live node-set size
-    ///      (no per-epoch snapshot). Returns 0 below quorum or for pruned/unseen epochs.
-    function _median(uint64 epoch, uint64 rp) internal view returns (uint64) {
-        uint64 v = _epochVoterCount[epoch];
-        if (v == 0) return 0; // no votes (or pruned)
+    ///      zero over the epoch's voters, gated on quorum. Returns 0 below quorum or for pruned/unvoted epochs.
+    function _median(uint32 epoch, uint64 rp) internal view returns (uint64) {
+        address[] storage voters = _epochVoters[epoch];
+        uint256 voterCount = voters.length;
+        if (voterCount == 0) return 0; // no votes (or pruned)
 
         // Quorum is read live from the current node set.
         uint16 n = _oprfKeyRegistry.numPeers();
-        if (v < _quorum(n)) return 0;
+        if (voterCount < _quorum(n)) return 0;
 
-        uint64[] storage stored = _epochRpCounts[epoch][rp];
-        uint256 m = stored.length;
-        // Voters who did not report this rp count as 0.
-        uint256 zeros = uint256(v) - m;
-        // Lower-median index over the v values (0-indexed).
-        uint256 idx = (uint256(v) - 1) / 2;
-        if (idx < zeros) return 0;
+        uint64[] memory vals = new uint64[](voterCount);
+        for (uint256 i = 0; i < voterCount; i++) {
+            // Missing rp reports read as the mapping default zero and count in the median.
+            uint64 count = _epochVoteCounts[epoch][voters[i]][rp];
 
-        // Copy the reported counts to memory and insertion-sort (m <= n, tiny).
-        uint64[] memory vals = new uint64[](m);
-        for (uint256 i = 0; i < m; i++) {
-            vals[i] = stored[i];
-        }
-        for (uint256 i = 1; i < m; i++) {
-            uint64 key = vals[i];
             uint256 j = i;
-            while (j > 0 && vals[j - 1] > key) {
+            while (j > 0 && count < vals[j - 1]) {
                 vals[j] = vals[j - 1];
-                j--;
+                unchecked {
+                    j--;
+                }
             }
-            vals[j] = key;
+            vals[j] = count;
         }
 
-        // The sorted full vector is `zeros` zeros followed by the sorted reported values.
-        return vals[idx - zeros];
+        // Lower-median index over the v values (0-indexed).
+        return vals[(voterCount - 1) / 2];
     }
 
     /// @dev The marginal WLD fee for billing `count` additional requests on top of `base` already
     ///      billed this rebate period, using the current tier schedule (WIP-107 §6.4 tiered pricing).
-    function _marginalFee(uint256 base, uint256 count) internal view returns (uint256 fee) {
+    function _calculateTieredFee(uint256 base, uint256 count) internal view returns (uint256 fee) {
         Tier[] storage tiers = _tierSchedule;
         uint256 from = base;
         uint256 to = base + count;
         uint256 len = tiers.length;
         for (uint256 i = 0; i < len && from < to; i++) {
+            // Note: For the last tier, upTo is type(uint256).max
             uint256 boundary = tiers[i].upTo;
             if (boundary <= from) continue; // tier already fully consumed by `base`
             uint256 segEnd = boundary < to ? boundary : to;
             fee += (segEnd - from) * tiers[i].rate;
             from = segEnd;
         }
-        // The final tier's `upTo == type(uint256).max` guarantees the loop covers [base, base+count).
     }
 
-    /// @dev Validates, authenticates and records a single node's vote for `epoch`.
-    function _recordVote(uint64 epoch, SignedVote calldata vote) internal {
+    /// @dev Validates, authenticates and records a single node's vote chunk for `epoch`.
+    function _recordVoteChunk(uint32 epoch, SignedVoteChunk calldata chunk) internal {
         // Validate the counts (strictly ascending rpId, all non-zero) and build the EIP-712
-        // hash of the RpCount[] array in a single pass.
-        bytes32 countsHash = _validateAndHashCounts(vote.counts);
-
-        // Authenticate by recovered signer, not msg.sender — any party may relay the votes.
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(BILLING_VOTE_TYPEHASH, epoch, countsHash)));
-        address signer = ECDSA.recover(digest, vote.signature);
+        // hash of the RpCount[] array in a single pass
+        (bytes32 countsHash, uint64 lastRpId) = _validateAndHashCounts(chunk.counts);
+        // Authenticate by recovered signer, not msg.sender — any party may relay the votes
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(abi.encode(BILLING_VOTE_CHUNK_TYPEHASH, epoch, chunk.chunkIndex, chunk.isFinal, countsHash))
+        );
+        address signer = ECDSA.recover(digest, chunk.signature);
 
         if (!_isNode(signer)) revert NotANode();
-        if (_hasVoted[epoch][signer]) revert AlreadyVoted();
-        _hasVoted[epoch][signer] = true;
-        _epochVoterCount[epoch] += 1;
+        if (_hasVoted[epoch][signer]) revert VoteAlreadyClosed();
 
-        uint256 len = vote.counts.length;
+        uint32 expectedChunkIndex = _nextChunkIndex[epoch][signer];
+        if (chunk.chunkIndex != expectedChunkIndex) revert UnexpectedChunkIndex();
+        // Check if RP id is ascending
+        uint64 previousRpId = _lastChunkRpId[epoch][signer];
+        if (chunk.counts.length != 0) {
+            uint64 firstRpId = chunk.counts[0].rpId;
+            if (firstRpId <= previousRpId) revert CountsNotAscending();
+            _lastChunkRpId[epoch][signer] = lastRpId;
+        }
+        // Push signer to submitters if this is their first chunk for the epoch
+        if (!_isSubmitter(epoch, signer)) {
+            _epochSubmitters[epoch].push(signer);
+        }
+        _nextChunkIndex[epoch][signer] = expectedChunkIndex + 1;
+        // Update vote counts for each RP in the chunk
+        uint256 len = chunk.counts.length;
         for (uint256 i = 0; i < len; i++) {
-            uint64 rpId = vote.counts[i].rpId;
-            // First non-zero count seen for this rp in the epoch ⇒ track it in the rp list.
-            if (_epochRpCounts[epoch][rpId].length == 0) {
-                _epochRpList[epoch].push(rpId);
+            uint64 rpId = chunk.counts[i].rpId;
+            // Queue RP for finalization if this is the first non-zero count seen for this rp in the epoch
+            if (!_epochRpsToFinalizeSet[epoch][rpId]) {
+                _epochRpsToFinalizeSet[epoch][rpId] = true;
+                _epochRpsToFinalize[epoch].push(rpId);
             }
-            _epochRpCounts[epoch][rpId].push(vote.counts[i].count);
+            _epochVoteCounts[epoch][signer][rpId] = chunk.counts[i].count;
+        }
+        // If this is the final chunk for the epoch, mark the signer as voted
+        if (chunk.isFinal) {
+            _hasVoted[epoch][signer] = true;
+            _epochVoters[epoch].push(signer);
         }
     }
 
     /// @dev Validates a vote's counts and returns the EIP-712 hash of the RpCount[] array.
     ///      rpIds must be strictly ascending (rejects duplicates and the invalid rpId 0); counts
     ///      must all be non-zero (zero counts are implicit and must be omitted).
-    function _validateAndHashCounts(RpCount[] calldata counts) internal pure returns (bytes32) {
+    function _validateAndHashCounts(RpCount[] calldata counts) internal pure returns (bytes32, uint64 lastRpId) {
         uint256 len = counts.length;
         bytes32[] memory hashes = new bytes32[](len);
         uint64 prevRpId = 0;
@@ -527,7 +618,7 @@ contract BillingContract is WorldIDBase, IBillingContract {
             prevRpId = rpId;
             hashes[i] = keccak256(abi.encode(RPCOUNT_TYPEHASH, rpId, count));
         }
-        return keccak256(abi.encodePacked(hashes));
+        return (keccak256(abi.encodePacked(hashes)), prevRpId);
     }
 
     /// @dev Validates a tier schedule: non-empty, strictly ascending `upTo` ending at max,
