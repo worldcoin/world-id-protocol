@@ -16,6 +16,7 @@ members = [
   "services/faux-issuer",
   "tools/generate-solidity-fixtures",
   "tools/generate-noir-artifacts",
+  "tools/legacy-recovery-migration",
   "services/relay",
 ]
 
