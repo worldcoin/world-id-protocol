@@ -35,7 +35,7 @@ contract BillingContractTest is Test {
     // Timing config.
     uint64 internal constant GENESIS = 1_000_000;
     uint64 internal constant EPOCH_LEN = 100;
-    uint64 internal constant VOTING = 50;
+    uint64 internal constant VOTING = 100;
     uint64 internal constant PAYMENT = 200;
     uint32 internal constant REBATE = 10;
 
