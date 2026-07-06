@@ -1,6 +1,6 @@
 [package]
 name = "world-id-oprf-node"
-version = "1.2.1"
+version = "1.2.2"
 edition.workspace = true
 rust-version.workspace = true
 homepage.workspace = true
@@ -35,9 +35,9 @@ secrecy = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 taceo-nodes-common = { workspace = true, features = ["postgres", "web3"] }
-taceo-oprf = { workspace = true, features = ["service", "postgres"] }
-thiserror = { workspace = true }
+taceo-oprf = { workspace = true, features = ["postgres", "service"] }
 telemetry-batteries = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = [
   "net",
   "rt-multi-thread",
@@ -52,12 +52,12 @@ uuid = { workspace = true, features = ["serde", "v4"] }
 world-id-primitives = { workspace = true }
 world-id-registries = { workspace = true }
 
-[target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = { workspace = true }
-
 [dev-dependencies]
 ark-serialize.workspace = true
-rand.workspace = true
 eddsa-babyjubjub = { workspace = true }
+rand.workspace = true
 world-id-proof = { workspace = true, features = ["embed-zkeys"] }
 world-id-test-utils = { workspace = true }
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = { workspace = true }
