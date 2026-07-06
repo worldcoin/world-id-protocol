@@ -12596,6 +12596,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-id-oprf-accountant"
+version = "0.1.0"
+dependencies = [
+ "ark-serialize 0.5.0",
+ "axum",
+ "backon",
+ "config",
+ "eyre",
+ "humantime-serde",
+ "metrics",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "taceo-ark-babyjubjub",
+ "taceo-ark-serde-compat",
+ "taceo-nodes-common",
+ "telemetry-batteries",
+ "thiserror 2.0.18",
+ "tikv-jemallocator",
+ "tokio",
+ "tracing",
+ "world-id-primitives",
+]
+
+[[package]]
 name = "world-id-oprf-dev-client"
 version = "0.1.0"
 dependencies = [
