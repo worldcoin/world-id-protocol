@@ -350,7 +350,7 @@ contract BillingContract is WorldIDBase, IBillingContract {
     ////////////////////////////////////////////////////////////
 
     /// @inheritdoc IBillingContract
-    function is_blocked(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (bool) {
+    function isBlocked(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (bool) {
         uint256 cursor = _unpaidEpochCursor[rpId];
         uint32[] storage epochs = _unpaidEpochs[rpId];
         // No unpaid epochs remain once the cursor reaches the end, so nothing can be overdue.
