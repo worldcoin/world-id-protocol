@@ -9,8 +9,6 @@ use taceo_nodes_common::web3::{self};
 use taceo_oprf::service::{VersionReq, config::OprfNodeServiceConfig};
 
 /// The configuration for the OPRF node.
-///
-/// It can be configured via environment variables or command line arguments using `clap`.
 #[derive(Clone, Debug, Deserialize)]
 #[non_exhaustive]
 pub struct WorldOprfNodeConfig {

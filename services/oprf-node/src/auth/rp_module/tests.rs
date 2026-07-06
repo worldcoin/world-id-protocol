@@ -1,14 +1,12 @@
 #![allow(clippy::large_futures, reason = "Is ok in tests")]
 
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use alloy::{
     primitives::Address,
     signers::{SignerSync as _, local::LocalSigner},
 };
-use ark_bn254::Bn254;
 use ark_ff::PrimeField as _;
-use circom_types::groth16::VerificationKey;
 use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
 use uuid::Uuid;
 use world_id_primitives::{
@@ -17,7 +15,7 @@ use world_id_primitives::{
 };
 
 use crate::{
-    QUERY_VERIFICATION_KEY,
+    accountant_batcher::{self, AccountantBatcherHandle},
     auth::{
         rp_module::{
             RpModuleAuth, RpModuleKind,
@@ -45,7 +43,7 @@ impl RpModuleTestSetup {
     pub(crate) async fn new(kind: RpModuleKind) -> eyre::Result<Self> {
         match kind {
             RpModuleKind::Session => Self::new_session(SessionFeType::OprfSeed).await,
-            RpModuleKind::Uniqueness => Self::new_uniqueness().await,
+            RpModuleKind::Uniqueness(handle) => Self::new_uniqueness(handle).await,
         }
     }
 
@@ -53,18 +51,8 @@ impl RpModuleTestSetup {
     pub(crate) async fn new_session(session_type: SessionFeType) -> eyre::Result<Self> {
         let mut rng = rand::thread_rng();
         let infra = AuthModulesTestSetup::new().await?;
-        let vk: VerificationKey<Bn254> =
-            serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
 
-        let request_authenticator = RpModuleAuth::new_session(
-            infra.merkle_watcher.clone(),
-            infra.rp_registry_watcher.clone(),
-            infra.nonce_history.clone(),
-            infra.current_time_stamp_max_difference,
-            infra.timeout_external_eth_call,
-            infra.http_rpc_provider.clone(),
-            Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
-        );
+        let request_authenticator = RpModuleAuth::new_session(infra.rp_module_args());
 
         // Session action must have the correct prefix byte (0x01 or 0x02)
         let session_action = FieldElement::random_for_session(&mut rng, session_type);
@@ -104,20 +92,10 @@ impl RpModuleTestSetup {
         })
     }
 
-    async fn new_uniqueness() -> eyre::Result<Self> {
+    async fn new_uniqueness(accountant_batcher: AccountantBatcherHandle) -> eyre::Result<Self> {
         let infra = AuthModulesTestSetup::new().await?;
-        let vk: VerificationKey<Bn254> =
-            serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
-
-        let request_authenticator = RpModuleAuth::new_uniqueness(
-            infra.merkle_watcher.clone(),
-            infra.rp_registry_watcher.clone(),
-            infra.nonce_history.clone(),
-            infra.current_time_stamp_max_difference,
-            infra.timeout_external_eth_call,
-            infra.http_rpc_provider.clone(),
-            Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
-        );
+        let request_authenticator =
+            RpModuleAuth::new_uniqueness(infra.rp_module_args(), accountant_batcher);
 
         // Uniqueness uses the fixture's pre-generated action (guaranteed 0x00 MSB)
         // and a signature that includes the action
@@ -744,9 +722,7 @@ async fn check_wip101_aux_data_on_eoa(kind: RpModuleKind) -> eyre::Result<()> {
     Ok(())
 }
 
-async fn check_wip101_verification_timeout(kind: RpModuleKind) -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new(kind).await?;
-
+async fn check_wip101_verification_timeout(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
     let wip101_instance =
         WIP101TimeoutVerify::deploy(setup.request_authenticator.rpc_provider.inner())
             .await
@@ -878,12 +854,13 @@ async fn test_session_invalid_action_random_prefix() -> eyre::Result<()> {
 
 #[tokio::test]
 async fn test_uniqueness_success() -> eyre::Result<()> {
-    check_success(RpModuleKind::Uniqueness).await
+    check_success(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_invalid_action() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new(RpModuleKind::Uniqueness).await?;
+    let mut setup =
+        RpModuleTestSetup::new(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await?;
     // MSB = 0x01 is a session prefix, which is invalid for uniqueness
     let mut bytes = rand::random::<[u8; 32]>();
     bytes[0] = 0x01;
@@ -903,7 +880,8 @@ async fn test_uniqueness_invalid_action() -> eyre::Result<()> {
 
 #[tokio::test]
 async fn test_uniqueness_invalid_action_session_prefix() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new(RpModuleKind::Uniqueness).await?;
+    let mut setup =
+        RpModuleTestSetup::new(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await?;
     // MSB = 0x02 is the session Action prefix, invalid for uniqueness
     let mut bytes = rand::random::<[u8; 32]>();
     bytes[0] = 0x02;
@@ -1082,155 +1060,161 @@ async fn test_session_wip101_account_check_timeout() -> eyre::Result<()> {
 
 #[tokio::test]
 async fn test_uniqueness_expired_timestamp() -> eyre::Result<()> {
-    check_expired_timestamp(RpModuleKind::Uniqueness).await
+    check_expired_timestamp(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_invalid_merkle_root() -> eyre::Result<()> {
-    check_invalid_merkle_root(RpModuleKind::Uniqueness).await
+    check_invalid_merkle_root(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_invalid_rp_id() -> eyre::Result<()> {
-    check_invalid_rp_id(RpModuleKind::Uniqueness).await
+    check_invalid_rp_id(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_invalid_signer() -> eyre::Result<()> {
-    check_invalid_signer(RpModuleKind::Uniqueness).await
+    check_invalid_signer(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_invalid_proof() -> eyre::Result<()> {
-    check_invalid_query_proof(RpModuleKind::Uniqueness).await
+    check_invalid_query_proof(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_replay() -> eyre::Result<()> {
-    check_replay(RpModuleKind::Uniqueness).await
+    check_replay(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_inactive_rp() -> eyre::Result<()> {
-    check_inactive_rp(RpModuleKind::Uniqueness).await
+    check_inactive_rp(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_tampered_blinded_query() -> eyre::Result<()> {
-    check_tampered_blinded_query(RpModuleKind::Uniqueness).await
+    check_tampered_blinded_query(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_tampered_expiration_timestamp() -> eyre::Result<()> {
-    check_tampered_expiration_timestamp(RpModuleKind::Uniqueness).await
+    check_tampered_expiration_timestamp(RpModuleKind::Uniqueness(accountant_batcher::dev_null()))
+        .await
 }
 
 #[tokio::test]
 async fn test_uniqueness_timestamp_zero() -> eyre::Result<()> {
-    check_timestamp_zero(RpModuleKind::Uniqueness).await
+    check_timestamp_zero(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_invalid_query_proof() -> eyre::Result<()> {
-    check_invalid_query_proof(RpModuleKind::Uniqueness).await
+    check_invalid_query_proof(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_expired_rp_signature() -> eyre::Result<()> {
-    check_expired_rp_signature(RpModuleKind::Uniqueness).await
+    check_expired_rp_signature(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_corrupt_signature() -> eyre::Result<()> {
-    check_corrupt_signature(RpModuleKind::Uniqueness).await
+    check_corrupt_signature(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_corrupt_timestamp() -> eyre::Result<()> {
-    check_invalid_timestamp(RpModuleKind::Uniqueness).await
+    check_invalid_timestamp(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_check_future_timestamp() -> eyre::Result<()> {
-    check_future_timestamp(RpModuleKind::Uniqueness).await
+    check_future_timestamp(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_missing_signature_eoa() -> eyre::Result<()> {
-    check_missing_signature_eoa(RpModuleKind::Uniqueness).await
+    check_missing_signature_eoa(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_success() -> eyre::Result<()> {
-    check_wip101_success(RpModuleKind::Uniqueness).await
+    check_wip101_success(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_success_max_data() -> eyre::Result<()> {
-    check_wip101_with_max_data_success(RpModuleKind::Uniqueness).await
+    check_wip101_with_max_data_success(RpModuleKind::Uniqueness(accountant_batcher::dev_null()))
+        .await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_wrong_magic() -> eyre::Result<()> {
-    check_wip101_wrong_magic(RpModuleKind::Uniqueness).await
+    check_wip101_wrong_magic(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_reverts_with_code() -> eyre::Result<()> {
-    check_wip101_reverts_with_code(RpModuleKind::Uniqueness).await
+    check_wip101_reverts_with_code(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_plain_revert() -> eyre::Result<()> {
-    check_wip101_plain_revert(RpModuleKind::Uniqueness).await
+    check_wip101_plain_revert(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_broken_erc165() -> eyre::Result<()> {
-    check_wip101_broken_erc165(RpModuleKind::Uniqueness).await
+    check_wip101_broken_erc165(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_no_erc165() -> eyre::Result<()> {
-    check_wip101_no_erc165(RpModuleKind::Uniqueness).await
+    check_wip101_no_erc165(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_no_verify_rp_request() -> eyre::Result<()> {
-    check_wip101_no_verify_rp_request(RpModuleKind::Uniqueness).await
+    check_wip101_no_verify_rp_request(RpModuleKind::Uniqueness(accountant_batcher::dev_null()))
+        .await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_wrong_method_signature() -> eyre::Result<()> {
-    check_wip101_wrong_method_signature(RpModuleKind::Uniqueness).await
+    check_wip101_wrong_method_signature(RpModuleKind::Uniqueness(accountant_batcher::dev_null()))
+        .await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_success_if_data() -> eyre::Result<()> {
-    check_wip101_success_if_data(RpModuleKind::Uniqueness).await
+    check_wip101_success_if_data(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_no_data_failure() -> eyre::Result<()> {
-    check_wip101_no_data_failure(RpModuleKind::Uniqueness).await
+    check_wip101_no_data_failure(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_aux_data_on_eoa() -> eyre::Result<()> {
-    check_wip101_aux_data_on_eoa(RpModuleKind::Uniqueness).await
+    check_wip101_aux_data_on_eoa(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_aux_data_too_large() -> eyre::Result<()> {
-    check_wip101_aux_data_too_large(RpModuleKind::Uniqueness).await
+    check_wip101_aux_data_too_large(RpModuleKind::Uniqueness(accountant_batcher::dev_null())).await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_verification_timeout() -> eyre::Result<()> {
-    check_wip101_verification_timeout(RpModuleKind::Uniqueness).await
+    check_wip101_verification_timeout(RpModuleKind::Uniqueness(accountant_batcher::dev_null()))
+        .await
 }
 
 #[tokio::test]
 async fn test_uniqueness_wip101_account_check_timeout() -> eyre::Result<()> {
-    check_wip101_account_check_timeout(RpModuleKind::Uniqueness).await
+    check_wip101_account_check_timeout(RpModuleKind::Uniqueness(accountant_batcher::dev_null()))
+        .await
 }

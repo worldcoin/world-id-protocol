@@ -153,6 +153,7 @@ tempo-alloy = "1.6"
 tower = "0.5.3"
 
 # Internal
+oprf-accountant = { package="world-id-oprf-accountant", path = "services/oprf-accountant/" }
 world-id-core = { version = "0.12.0", default-features = false, path = "crates/core" }
 world-id-issuer = { version = "0.12.0", path = "crates/issuer" }
 world-id-proof = { version = "0.12.0", path = "crates/proof" }

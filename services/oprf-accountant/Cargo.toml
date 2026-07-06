@@ -8,6 +8,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+alloy-primitives.workspace = true
 ark-babyjubjub = { workspace = true }
 ark-serde-compat = { workspace = true }
 ark-serialize = { workspace = true }
@@ -16,6 +17,7 @@ backon = { workspace = true, features = ["std", "tokio-sleep"] }
 config.workspace = true
 eyre = { workspace = true }
 humantime-serde = { workspace = true }
+itertools.workspace = true
 metrics = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

@@ -1,0 +1,53 @@
+use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::post};
+use serde::{Deserialize, Serialize};
+use world_id_primitives::{oprf::NullifierOprfRequestAuthV1, rp::RpId};
+
+use crate::{AppState, postgres::PostgresDb};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BillableRpRequest {
+    pub rp_id: RpId,
+    #[serde(with = "ark_serde_compat::field")]
+    pub nonce: ark_babyjubjub::Fq,
+    pub created_at: u64,
+    pub expires_at: u64,
+    #[serde(with = "ark_serde_compat::field")]
+    pub action: ark_babyjubjub::Fq,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<alloy_primitives::Signature>,
+}
+
+impl From<&NullifierOprfRequestAuthV1> for BillableRpRequest {
+    fn from(value: &NullifierOprfRequestAuthV1) -> Self {
+        let NullifierOprfRequestAuthV1 {
+            action,
+            nonce,
+            current_time_stamp,
+            expiration_timestamp,
+            signature,
+            rp_id,
+            ..
+        } = value;
+        Self {
+            rp_id: *rp_id,
+            nonce: *nonce,
+            action: *action,
+            expires_at: *expiration_timestamp,
+            created_at: *current_time_stamp,
+            signature: *signature,
+        }
+    }
+}
+
+async fn post_request(
+    State(db): State<PostgresDb>,
+    Json(rp_requests): Json<Vec<BillableRpRequest>>,
+) -> impl IntoResponse {
+    // TODO get the epochs for the RpVote from the contract
+    let _ = db.store_request_batch(rp_requests).await;
+    StatusCode::OK
+}
+
+pub(crate) fn routes() -> Router<AppState> {
+    Router::new().route("/req", post(post_request))
+}
