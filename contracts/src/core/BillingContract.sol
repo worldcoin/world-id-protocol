@@ -55,17 +55,11 @@ contract BillingContract is WorldIDBase, IBillingContract {
     /// @dev OPRF key registry the live node set (n, peer addresses) is read from.
     IOprfNodeSet internal _oprfKeyRegistry;
 
-    /// @dev Unix timestamp of epoch 0's start. Epoch boundaries derive from this.
-    uint64 internal _genesis;
-
-    /// @dev Length of one epoch in seconds.
-    uint64 internal _epochLength;
-
-    /// @dev Seconds after an epoch ends during which nodes may submit votes for it.
-    uint64 internal _votingWindow;
-
-    /// @dev Seconds after voting closes during which an RP must pay before it is blocked.
-    uint64 internal _paymentWindow;
+    /// @dev Append-only history of timing eras; the last entry is the current era. Every epoch
+    ///      that ever existed keeps its true boundaries and windows: epoch `e` is governed by the
+    ///      newest era with `startEpoch <= e`, so timing changes never affect existing epochs.
+    ///      Grows by one entry per {setTiming} call (rare, owner-only), never per epoch.
+    TimingEra[] internal _timingEras;
 
     /// @dev Lowest epoch not yet finalized (global finalization cursor).
     uint32 internal _nextEpochToFinalize;
@@ -183,10 +177,15 @@ contract BillingContract is WorldIDBase, IBillingContract {
         }
         if (rebatePeriodEpochs == 0) revert InvalidTiming();
 
-        _genesis = genesis;
-        _epochLength = epochLength;
-        _votingWindow = votingWindow;
-        _paymentWindow = paymentWindow;
+        _timingEras.push(
+            TimingEra({
+                startEpoch: 0,
+                startTime: genesis,
+                epochLength: epochLength,
+                votingWindow: votingWindow,
+                paymentWindow: paymentWindow
+            })
+        );
         _rebatePeriodEpochs = rebatePeriodEpochs;
 
         _validateTiers(tiers);
@@ -205,10 +204,12 @@ contract BillingContract is WorldIDBase, IBillingContract {
         onlyProxy
         onlyInitialized
     {
-        // The voting window for `epoch` must be currently open.
+        // The voting window for `epoch` must be currently open. Window parameters come from the
+        // era in which the window opens, so windows of past-era epochs close at their true,
+        // historic times regardless of later timing changes.
         uint64 votingStart = epochEnd(epoch);
         if (block.timestamp < votingStart) revert VotingWindowNotOpen();
-        if (block.timestamp >= votingStart + _votingWindow) revert VotingWindowClosed();
+        if (block.timestamp >= votingStart + _windowEra(epoch).votingWindow) revert VotingWindowClosed();
 
         uint256 chunkCount = chunks.length;
         for (uint256 i = 0; i < chunkCount; i++) {
@@ -296,10 +297,37 @@ contract BillingContract is WorldIDBase, IBillingContract {
         if (epochLength == 0 || votingWindow == 0 || paymentWindow == 0 || votingWindow > epochLength) {
             revert InvalidTiming();
         }
-        _epochLength = epochLength;
-        _votingWindow = votingWindow;
-        _paymentWindow = paymentWindow;
-        emit TimingUpdated(epochLength, votingWindow, paymentWindow);
+
+        TimingEra storage current = _timingEras[_timingEras.length - 1];
+
+        // If the current era has not started yet (repeated change within one epoch, or a genesis
+        // that has not started), no epoch is governed by it: update its parameters in place.
+        if (block.timestamp < current.startTime) {
+            current.epochLength = epochLength;
+            current.votingWindow = votingWindow;
+            current.paymentWindow = paymentWindow;
+            emit TimingUpdated(epochLength, votingWindow, paymentWindow, current.startEpoch, current.startTime);
+            return;
+        }
+
+        // Otherwise append a new era starting after the in-flight epoch. Existing epochs are
+        // never affected: their boundaries, voting windows, and payment deadlines stay defined
+        // by the eras they belong to; the new parameters govern later epochs only.
+        uint64 d = uint64(block.timestamp) - current.startTime;
+        uint256 eCur = uint256(current.startEpoch) + d / current.epochLength; // the in-flight epoch
+        if (eCur + 1 > type(uint32).max) revert EpochTooLarge();
+        uint64 startTime = epochEnd(uint32(eCur));
+
+        _timingEras.push(
+            TimingEra({
+                startEpoch: uint32(eCur) + 1,
+                startTime: startTime,
+                epochLength: epochLength,
+                votingWindow: votingWindow,
+                paymentWindow: paymentWindow
+            })
+        );
+        emit TimingUpdated(epochLength, votingWindow, paymentWindow, uint32(eCur) + 1, startTime);
     }
 
     /// @inheritdoc IBillingContract
@@ -359,8 +387,13 @@ contract BillingContract is WorldIDBase, IBillingContract {
     }
 
     /// @notice The timestamp at which epoch `epoch` ends (and its voting window opens).
+    /// @dev Defined for every epoch, past or future: the boundary derives from the era the epoch
+    ///      belongs to, so timing changes never move it.
     function epochEnd(uint32 epoch) public view virtual returns (uint64) {
-        return _genesis + (uint64(epoch) + 1) * _epochLength;
+        TimingEra storage era = _eraOf(epoch);
+        uint256 end = uint256(era.startTime) + (uint256(epoch) + 1 - era.startEpoch) * era.epochLength;
+        if (end > type(uint64).max) revert EpochTooLarge();
+        return uint64(end);
     }
 
     /// @notice The OPRF key registry address the node set is read from.
@@ -378,13 +411,63 @@ contract BillingContract is WorldIDBase, IBillingContract {
         return _rebatePeriodEpochs;
     }
 
+    /// @inheritdoc IBillingContract
+    function getTiming()
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (
+            uint64 epochLength,
+            uint64 votingWindow,
+            uint64 paymentWindow,
+            uint32 eraStartEpoch,
+            uint64 eraStartTime
+        )
+    {
+        TimingEra storage era = _timingEras[_timingEras.length - 1];
+        return (era.epochLength, era.votingWindow, era.paymentWindow, era.startEpoch, era.startTime);
+    }
+
+    /// @inheritdoc IBillingContract
+    function getEras() external view virtual onlyProxy onlyInitialized returns (TimingEra[] memory) {
+        return _timingEras;
+    }
+
     ////////////////////////////////////////////////////////////
     //                   INTERNAL FUNCTIONS                   //
     ////////////////////////////////////////////////////////////
 
-    /// @dev The payment-due timestamp for `epoch`: end of its voting window plus the payment window.
+    /// @dev The era governing epoch `epoch`: the newest era with `startEpoch <= epoch`. The walk
+    ///      starts at the current era (the common case), and era 0 (`startEpoch == 0`) matches any
+    ///      epoch, so the lookup always resolves.
+    function _eraOf(uint256 epoch) internal view returns (TimingEra storage) {
+        uint256 i = _timingEras.length - 1;
+        while (i > 0 && epoch < _timingEras[i].startEpoch) {
+            unchecked {
+                i--;
+            }
+        }
+        return _timingEras[i];
+    }
+
+    /// @dev The era an epoch's voting window (and payment window) is governed by. An era's
+    ///      parameters govern its timespan, and the window opens at `epochEnd(epoch)` — the start
+    ///      of epoch `epoch + 1` — so it is governed by that epoch's era. This keeps window
+    ///      closes monotone in epoch number across era changes (given the per-era
+    ///      `votingWindow <= epochLength` invariant), which {_latestClosedEpoch} and sequential
+    ///      finalization rely on. See {IBillingContract.TimingEra} for a worked example.
+    function _windowEra(uint32 epoch) internal view returns (TimingEra storage) {
+        return _eraOf(uint256(epoch) + 1);
+    }
+
+    /// @dev The payment-due timestamp for `epoch`: end of its voting window plus the payment
+    ///      window, both from the epoch's own window era — historic deadlines never move when
+    ///      timing parameters change.
     function _paymentDue(uint32 epoch) internal view returns (uint64) {
-        return epochEnd(epoch) + _votingWindow + _paymentWindow;
+        TimingEra storage era = _windowEra(epoch);
+        return epochEnd(epoch) + era.votingWindow + era.paymentWindow;
     }
 
     /// @dev Clears `rp`'s finalized debt through `uptoEpoch`, then advances its unpaid-epoch cursor.
@@ -415,15 +498,34 @@ contract BillingContract is WorldIDBase, IBillingContract {
         _unpaidEpochCursor[rp] = cursor;
     }
 
-    /// @dev The latest epoch whose voting window has fully closed, if any.
+    /// @dev The latest epoch whose voting window has fully closed, if any — exact across eras.
+    ///      An era's window regime covers epochs `startEpoch - 1` through `nextEra.startEpoch - 2`,
+    ///      closing at `startTime + k * epochLength + votingWindow`. The walk finds the newest era
+    ///      whose first close has passed; the result is capped at the era's own regime, since the
+    ///      next regime's first window may still be open. All windows of older regimes close by
+    ///      their regime's end (`votingWindow <= epochLength`), so everything below is closed too.
     function _latestClosedEpoch() internal view returns (bool exists, uint32 epoch) {
-        uint64 minTime = _genesis + _epochLength + _votingWindow; // epochEnd(0) + votingWindow
-        if (block.timestamp < minTime) return (false, 0);
-        // k = e + 1 for the largest closed epoch e.
-        uint256 k = (block.timestamp - _genesis - _votingWindow) / _epochLength;
-        uint256 latest = k - 1;
-        if (latest > type(uint32).max) revert EpochTooLarge();
-        return (true, uint32(latest));
+        uint256 i = _timingEras.length;
+        while (i > 0) {
+            unchecked {
+                i--;
+            }
+            TimingEra storage era = _timingEras[i];
+            uint256 firstClose = uint256(era.startTime) + era.votingWindow;
+            if (block.timestamp < firstClose) continue; // no window of this regime has closed yet
+
+            uint256 k = (block.timestamp - firstClose) / era.epochLength;
+            // The largest closed epoch of this regime is `startEpoch + k - 1`.
+            uint256 latestPlusOne = uint256(era.startEpoch) + k;
+            if (i + 1 < _timingEras.length) {
+                uint256 regimeEndPlusOne = _timingEras[i + 1].startEpoch - 1;
+                if (latestPlusOne > regimeEndPlusOne) latestPlusOne = regimeEndPlusOne;
+            }
+            if (latestPlusOne == 0) return (false, 0); // fresh deployment: epoch 0 has not closed yet
+            if (latestPlusOne - 1 > type(uint32).max) revert EpochTooLarge();
+            return (true, uint32(latestPlusOne - 1));
+        }
+        return (false, 0);
     }
 
     /// @dev The billing quorum for a node set of size `n`: a strict majority, floor(n/2)+1.

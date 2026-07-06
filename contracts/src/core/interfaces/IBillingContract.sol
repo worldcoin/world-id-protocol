@@ -53,6 +53,42 @@ interface IBillingContract {
         uint256 maxAmount;
     }
 
+    /// @notice One timing era: the epoch parameters in force from `startEpoch` on.
+    /// @dev Eras are kept as an append-only history (one entry per timing change), so every epoch
+    ///      that ever existed keeps its true boundaries, voting window, and payment deadline.
+    ///
+    ///      An era's parameters govern its *timespan* `[startTime, nextEra.startTime)`: epoch
+    ///      spans lying in it use its `epochLength`; voting windows *opening* in it use its
+    ///      `votingWindow` and `paymentWindow`. Since votes for an epoch are cast after it ends,
+    ///      the window of the last epoch before an era change opens exactly at the era boundary
+    ///      and is thus governed by the new era — this keeps window closes monotone in epoch
+    ///      number across changes (given `votingWindow <= epochLength`), which finalization
+    ///      relies on.
+    ///
+    ///      Example: era 0 = `{startEpoch: 0, startTime: 1000, len: 100, vote: 80, pay: 200}`,
+    ///      and `setTiming(50, 40, 100)` is called at t=1250 (inside epoch 2), appending
+    ///      era 1 = `{startEpoch: 3, startTime: 1300, len: 50, vote: 40, pay: 100}`:
+    ///
+    ///        epoch 1 [1100, 1200) | window [1200, 1280) | due 1480   era-0 span, era-0 window
+    ///        epoch 2 [1200, 1300) | window [1300, 1340) | due 1440   era-0 span, era-1 window
+    ///        epoch 3 [1300, 1350) | window [1350, 1390) | due 1490   era-1 span, era-1 window
+    ///
+    ///      Epoch 2 keeps its old length (its span lies in era 0), while its window — opening at
+    ///      the boundary — uses the new parameters. Epoch 1's window, already open at the change,
+    ///      is untouched and closes at its historic time.
+    struct TimingEra {
+        // the first epoch governed by this era's parameters.
+        uint32 startEpoch;
+        // the timestamp the era starts at: the end of epoch `startEpoch - 1` (genesis for era 0).
+        uint64 startTime;
+        // the epoch length in seconds.
+        uint64 epochLength;
+        // the voting window in seconds (<= epochLength).
+        uint64 votingWindow;
+        // the payment window in seconds.
+        uint64 paymentWindow;
+    }
+
     /// @notice A single tier in the marginal fee schedule.
     /// @dev Tiers are ordered by ascending `upTo`; the final tier MUST use `type(uint256).max`.
     ///      Rates are strictly decreasing (volume discount). `rate` is WLD wei per request.
@@ -97,7 +133,8 @@ interface IBillingContract {
     /// @dev Thrown when timing parameters violate the `votingWindow <= epochLength` invariant or are zero.
     error InvalidTiming();
 
-    /// @dev Thrown when a timestamp-derived epoch exceeds the uint32 epoch domain.
+    /// @dev Thrown when a timestamp-derived epoch exceeds the uint32 epoch domain, or an epoch's
+    ///      end exceeds the uint64 timestamp domain.
     error EpochTooLarge();
 
     /// @dev Thrown when rebate-period accounting cannot fit in the packed period state.
@@ -137,10 +174,17 @@ interface IBillingContract {
     event OprfKeyRegistryUpdated(address oldOprfKeyRegistry, address newOprfKeyRegistry);
 
     /// @notice Emitted when the epoch timing parameters are updated.
+    /// @dev OPRF nodes must re-derive their vote schedule from the new era: epoch boundaries from
+    ///      `eraStartEpoch` on are `eraStartTime + (epoch + 1 - eraStartEpoch) * epochLength`.
+    ///      Existing epochs are unaffected; their windows close at their original times.
     /// @param epochLength The new epoch length in seconds.
     /// @param votingWindow The new voting window in seconds.
     /// @param paymentWindow The new payment window in seconds.
-    event TimingUpdated(uint64 epochLength, uint64 votingWindow, uint64 paymentWindow);
+    /// @param eraStartEpoch The first epoch governed by the new parameters.
+    /// @param eraStartTime The era start: end of epoch `eraStartEpoch - 1`, unchanged by the update.
+    event TimingUpdated(
+        uint64 epochLength, uint64 votingWindow, uint64 paymentWindow, uint32 eraStartEpoch, uint64 eraStartTime
+    );
 
     /// @notice Emitted when the rebate (volume-discount) period length is updated.
     /// @param rebatePeriodEpochs The new number of epochs per rebate period.
@@ -192,7 +236,12 @@ interface IBillingContract {
 
     /**
      * @notice Update the epoch timing parameters.
-     * @dev Owner only. Re-checks the `votingWindow <= epochLength` invariant.
+     * @dev Owner only. Re-checks the `votingWindow <= epochLength` invariant. Starts a new era at
+     *      the end of the in-flight epoch: the new parameters govern later epochs only, and no
+     *      existing epoch is affected in any way — boundaries, open voting windows, and payment
+     *      deadlines all keep their original, era-true values (the full era history is retained).
+     *      If the previous change's era has not started yet, its parameters are updated in place
+     *      instead. Closed-but-unfinalized epochs finalize normally; a change never delays them.
      * @param epochLength The epoch length in seconds.
      * @param votingWindow The voting window in seconds.
      * @param paymentWindow The payment window in seconds.
@@ -222,7 +271,10 @@ interface IBillingContract {
      * @notice Whether an RP is blocked for non-payment.
      * @dev O(1). True when the RP has outstanding finalized debt whose oldest unpaid epoch is past
      *      its payment window. Reflects finalized state only; tail epochs become billable after a
-     *      `finalizeEpochs`/`pay`/`submitBillingVotes` call advances finalization.
+     *      `finalizeEpochs`/`pay`/`submitBillingVotes` call advances finalization. Deadlines are
+     *      era-true and permanent: each epoch's payment deadline derives from the parameters of
+     *      the era its voting window belongs to, so timing changes never move any existing
+     *      deadline in either direction.
      * @param rpId The Relying Party.
      * @return Whether the RP is currently blocked.
      */
@@ -261,4 +313,31 @@ interface IBillingContract {
      * @return The rebate period length in epochs.
      */
     function getRebatePeriodEpochs() external view returns (uint32);
+
+    /**
+     * @notice The current era's timing parameters and start.
+     * @dev Epoch boundaries from `eraStartEpoch` on are
+     *      `eraStartTime + (epoch + 1 - eraStartEpoch) * epochLength`.
+     * @return epochLength The epoch length in seconds.
+     * @return votingWindow The voting window in seconds.
+     * @return paymentWindow The payment window in seconds.
+     * @return eraStartEpoch The first epoch governed by the current parameters.
+     * @return eraStartTime The era start: end of epoch `eraStartEpoch - 1`.
+     */
+    function getTiming()
+        external
+        view
+        returns (
+            uint64 epochLength,
+            uint64 votingWindow,
+            uint64 paymentWindow,
+            uint32 eraStartEpoch,
+            uint64 eraStartTime
+        );
+
+    /**
+     * @notice The full timing-era history, oldest first; the last entry is the current era.
+     * @return The eras.
+     */
+    function getEras() external view returns (TimingEra[] memory);
 }

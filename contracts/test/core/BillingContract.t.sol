@@ -803,6 +803,172 @@ contract BillingContractTest is Test {
         billing.setTiming(EPOCH_LEN, VOTING, PAYMENT);
     }
 
+    ////////////////////////////////////////////////////////////
+    //               Timing changes (era history)             //
+    ////////////////////////////////////////////////////////////
+
+    function test_GetTiming_initialEra() public view {
+        (uint64 len, uint64 vw, uint64 pw, uint32 eraStartEpoch, uint64 eraStartTime) = billing.getTiming();
+        assertEq(len, EPOCH_LEN);
+        assertEq(vw, VOTING);
+        assertEq(pw, PAYMENT);
+        assertEq(eraStartEpoch, 0);
+        assertEq(eraStartTime, GENESIS);
+        assertEq(billing.getEras().length, 1);
+    }
+
+    function test_SetTiming_backlogFinalizesAfterChange() public {
+        // Epoch 0 is closed but not finalized; epoch 1's window is open with votes in flight.
+        _voteSingle(0, 1, 50, _pks2());
+        _voteSingle(1, 1, 50, _pks2()); // warps to epochEnd(1): epoch 0 is now closed
+
+        // The change succeeds despite the backlog; the new era starts at epoch 3.
+        billing.setTiming(EPOCH_LEN, VOTING, PAYMENT);
+        (,,, uint32 eraStartEpoch, uint64 eraStartTime) = billing.getTiming();
+        assertEq(eraStartEpoch, 3);
+        assertEq(eraStartTime, GENESIS + 300);
+
+        // Epoch 0 was already closed at the change: it finalizes immediately, undelayed.
+        billing.finalizeEpochs(type(uint32).max, 100);
+        assertEq(billing.outstandingDebt(1), 500, "closed backlog finalizes right away");
+
+        // Epoch 1 finalizes at its exact historic close, before the first new-era window closes.
+        vm.warp(eraStartTime);
+        billing.finalizeEpochs(type(uint32).max, 100);
+        assertEq(billing.outstandingDebt(1), 1000, "epoch 0 (500) + epoch 1 (500)");
+
+        // Epoch 0's deadline is its historic one (GENESIS + 400), unmoved by the change.
+        vm.warp(GENESIS + 400);
+        assertFalse(billing.is_blocked(1)); // exactly at the deadline
+        vm.warp(GENESIS + 401);
+        assertTrue(billing.is_blocked(1), "historic deadline unchanged by the change");
+    }
+
+    function test_SetTiming_openWindowUnaffectedByChange() public {
+        // Epoch 0's window is open (continuous voting) with no votes in yet; the change needs no
+        // precondition and does not touch the window.
+        vm.warp(GENESIS + 150);
+        billing.setTiming(200, 150, 300); // new era from epoch 2 (GENESIS + 200)
+
+        // Nodes still vote for epoch 0 as if nothing happened...
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](2);
+        votes[0] = _sign(pk1, 0, _one(1, 50));
+        votes[1] = _sign(pk2, 0, _one(1, 50));
+        billing.submitBillingVotes(0, votes);
+
+        // ...and the window closes at its historic time (era-0 votingWindow), not the new one.
+        vm.warp(GENESIS + 200);
+        IBillingContract.SignedVoteChunk[] memory late = new IBillingContract.SignedVoteChunk[](1);
+        late[0] = _sign(pk3, 0, _one(1, 70));
+        vm.expectRevert(IBillingContract.VotingWindowClosed.selector);
+        billing.submitBillingVotes(0, late);
+    }
+
+    function test_SetTiming_atGenesisStartsEraAtEpochOne() public {
+        // At genesis, epoch 0 is in flight: the new era starts right after it.
+        billing.setTiming(200, 100, PAYMENT);
+        (,,, uint32 eraStartEpoch, uint64 eraStartTime) = billing.getTiming();
+        assertEq(eraStartEpoch, 1);
+        assertEq(eraStartTime, GENESIS + EPOCH_LEN); // in-flight epoch 0 keeps its boundary
+        assertEq(billing.epochEnd(1), GENESIS + EPOCH_LEN + 200);
+    }
+
+    function test_SetTiming_pendingEraIsUpdatedInPlace() public {
+        billing.setTiming(200, 100, PAYMENT); // era from epoch 1 (GENESIS + EPOCH_LEN)
+        // The pending era has not started: a second change updates it in place.
+        billing.setTiming(300, 200, PAYMENT);
+        (uint64 len, uint64 vw,, uint32 eraStartEpoch, uint64 eraStartTime) = billing.getTiming();
+        assertEq(len, 300);
+        assertEq(vw, 200);
+        assertEq(eraStartEpoch, 1);
+        assertEq(eraStartTime, GENESIS + EPOCH_LEN);
+        assertEq(billing.epochEnd(1), GENESIS + EPOCH_LEN + 300);
+        assertEq(billing.getEras().length, 2, "no third era for an in-place update");
+    }
+
+    function test_SetTiming_lateVotesSurviveEraChange() public {
+        // Two of three nodes voted for epoch 0; laggard node3 has not.
+        _voteSingle(0, 1, 50, _pks2()); // now = GENESIS + 100
+
+        vm.expectEmit(false, false, false, true, address(billing));
+        emit IBillingContract.TimingUpdated(200, 150, 300, 2, GENESIS + 200);
+        billing.setTiming(200, 150, 300);
+
+        // Historic and new boundaries: epoch 0 and the in-flight epoch 1 keep theirs; epoch 2 on
+        // uses the new length.
+        assertEq(billing.epochEnd(0), GENESIS + 100);
+        assertEq(billing.epochEnd(1), GENESIS + 200);
+        assertEq(billing.epochEnd(2), GENESIS + 400);
+
+        // The laggard's vote still lands: epoch 0's window is open until its historic close.
+        vm.warp(GENESIS + 199);
+        IBillingContract.SignedVoteChunk[] memory late = new IBillingContract.SignedVoteChunk[](1);
+        late[0] = _sign(pk3, 0, _one(1, 80));
+        billing.submitBillingVotes(0, late);
+
+        // Epoch 1's window opens at the preserved boundary, governed by the new votingWindow.
+        _voteSingle(1, 1, 50, _pks2()); // warps to GENESIS + 200
+        vm.warp(GENESIS + 200 + 150);
+
+        // Epoch 0 finalizes over all three votes [50, 50, 80] -> median 50; nothing was lost.
+        billing.finalizeEpochs(type(uint32).max, 100);
+        assertEq(billing.outstandingDebt(1), 1000, "epoch 0 (500) + epoch 1 (500)");
+    }
+
+    function test_SetTiming_preservesHistoricDeadlines() public {
+        _finalizeEpoch0Debt(); // due at epochEnd(0) + VOTING + PAYMENT = GENESIS + 400
+        vm.warp(GENESIS + 401);
+        assertTrue(billing.is_blocked(1), "epoch 0 debt is overdue");
+
+        // The change starts a new era but moves no existing deadline: the RP stays blocked.
+        billing.setTiming(200, 150, 300);
+        assertTrue(billing.is_blocked(1), "historic deadline is not affected by the change");
+    }
+
+    function test_LatestClosed_capsAtRegimeBoundary() public {
+        // Fresh deployment with a short voting window (40 < epoch length 100), then a change to a
+        // wider window (90): between the old close cadence and the new regime's first close, the
+        // boundary epoch's window is still open and must not be reported closed.
+        billing = _deploy(GENESIS, 100, 40, PAYMENT, _tiers(100, 10, 5), REBATE);
+        vm.warp(GENESIS + 250); // inside epoch 2, no window open
+        billing.setTiming(100, 90, PAYMENT); // era 1 from epoch 3 (GENESIS + 300)
+
+        // Epoch 2's window opens at GENESIS + 300 and closes at +390 (new-era votingWindow).
+        vm.warp(GENESIS + 340);
+        IBillingContract.SignedVoteChunk[] memory votes = new IBillingContract.SignedVoteChunk[](2);
+        votes[0] = _sign(pk1, 2, _one(1, 50));
+        votes[1] = _sign(pk2, 2, _one(1, 50));
+        billing.submitBillingVotes(2, votes);
+
+        // The old-era close cadence alone would report epoch 2 closed at +340; the regime cap
+        // keeps it open, so finalization must not consume it mid-window.
+        billing.finalizeEpochs(type(uint32).max, 100);
+        assertEq(billing.outstandingDebt(1), 0, "epoch 2 must not finalize mid-window");
+
+        vm.warp(GENESIS + 390);
+        billing.finalizeEpochs(type(uint32).max, 100);
+        assertEq(billing.outstandingDebt(1), 500, "epoch 2 finalizes at its true close");
+    }
+
+    function test_EpochEnd_historicAcrossEras() public {
+        vm.warp(GENESIS + 150);
+        billing.setTiming(200, 150, 300); // era 1 from epoch 2 (GENESIS + 200)
+        vm.warp(GENESIS + 450); // inside epoch 3 (era 1)
+        billing.setTiming(400, 300, 500); // era 2 from epoch 4 (GENESIS + 600)
+
+        // Every epoch keeps the boundary of the era it belongs to.
+        assertEq(billing.epochEnd(0), GENESIS + 100); // era 0
+        assertEq(billing.epochEnd(1), GENESIS + 200); // era 0 (its last epoch)
+        assertEq(billing.epochEnd(2), GENESIS + 400); // era 1
+        assertEq(billing.epochEnd(3), GENESIS + 600); // era 1 (its last epoch)
+        assertEq(billing.epochEnd(4), GENESIS + 1000); // era 2
+
+        IBillingContract.TimingEra[] memory eras = billing.getEras();
+        assertEq(eras.length, 3);
+        assertEq(eras[1].startEpoch, 2);
+        assertEq(eras[2].startTime, GENESIS + 600);
+    }
+
     function test_SetRebatePeriodEpochs() public {
         billing.setRebatePeriodEpochs(20);
         assertEq(billing.getRebatePeriodEpochs(), 20);
