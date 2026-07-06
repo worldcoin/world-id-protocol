@@ -53,6 +53,10 @@ import 'just/cargo.just'
 import 'just/forge.just'
 import 'just/test.just'
 
+# default recipe to display help information
+default:
+    @just --list
+
 # Internal forwarding helpers used by contracts module recipes.
 _cast-dry-run *args:
     @just contracts::_cast-dry-run {{ args }}
@@ -62,6 +66,10 @@ _cast-send *args:
 
 _xc-rpc *args:
     @just contracts::_xc-rpc {{ args }}
+
+[group('circuits')]
+build-noir-artifacts:
+    cargo run -p generate-noir-artifacts
 
 [group('ci')]
 ci: cargo-lint fmt-check all
