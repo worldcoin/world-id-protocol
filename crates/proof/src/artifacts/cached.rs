@@ -1,4 +1,6 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
+
+use once_cell::sync::OnceCell;
 
 use crate::{
     OwnershipProver, OwnershipVerifier,
@@ -9,10 +11,10 @@ use crate::{
 /// Caching layer over another [`ZkArtifactSource`].
 pub struct CachedZkArtifactSource {
     inner: Arc<dyn ZkArtifactSource>,
-    query: OnceLock<Arc<CircomGroth16Material>>,
-    nullifier: OnceLock<Arc<CircomGroth16Material>>,
-    ownership_prover: OnceLock<OwnershipProver>,
-    ownership_verifier: OnceLock<OwnershipVerifier>,
+    query: OnceCell<Arc<CircomGroth16Material>>,
+    nullifier: OnceCell<Arc<CircomGroth16Material>>,
+    ownership_prover: OnceCell<OwnershipProver>,
+    ownership_verifier: OnceCell<OwnershipVerifier>,
 }
 
 impl CachedZkArtifactSource {
@@ -27,52 +29,36 @@ impl CachedZkArtifactSource {
     pub fn from_arc(inner: Arc<dyn ZkArtifactSource>) -> Self {
         Self {
             inner,
-            query: OnceLock::new(),
-            nullifier: OnceLock::new(),
-            ownership_prover: OnceLock::new(),
-            ownership_verifier: OnceLock::new(),
+            query: OnceCell::new(),
+            nullifier: OnceCell::new(),
+            ownership_prover: OnceCell::new(),
+            ownership_verifier: OnceCell::new(),
         }
     }
 }
 
 impl ZkArtifactSource for CachedZkArtifactSource {
     fn query_material(&self) -> Result<Arc<CircomGroth16Material>, ZkArtifactError> {
-        if let Some(material) = self.query.get() {
-            return Ok(Arc::clone(material));
-        }
-
-        let material = self.inner.query_material()?;
-        let _ = self.query.set(Arc::clone(&material));
-        Ok(self.query.get().map_or(material, Arc::clone))
+        self.query
+            .get_or_try_init(|| self.inner.query_material())
+            .map(Arc::clone)
     }
 
     fn nullifier_material(&self) -> Result<Arc<CircomGroth16Material>, ZkArtifactError> {
-        if let Some(material) = self.nullifier.get() {
-            return Ok(Arc::clone(material));
-        }
-
-        let material = self.inner.nullifier_material()?;
-        let _ = self.nullifier.set(Arc::clone(&material));
-        Ok(self.nullifier.get().map_or(material, Arc::clone))
+        self.nullifier
+            .get_or_try_init(|| self.inner.nullifier_material())
+            .map(Arc::clone)
     }
 
     fn ownership_prover(&self) -> Result<OwnershipProver, ZkArtifactError> {
-        if let Some(prover) = self.ownership_prover.get() {
-            return Ok(prover.clone());
-        }
-
-        let prover = self.inner.ownership_prover()?;
-        let _ = self.ownership_prover.set(prover.clone());
-        Ok(self.ownership_prover.get().cloned().unwrap_or(prover))
+        self.ownership_prover
+            .get_or_try_init(|| self.inner.ownership_prover())
+            .cloned()
     }
 
     fn ownership_verifier(&self) -> Result<OwnershipVerifier, ZkArtifactError> {
-        if let Some(verifier) = self.ownership_verifier.get() {
-            return Ok(verifier.clone());
-        }
-
-        let verifier = self.inner.ownership_verifier()?;
-        let _ = self.ownership_verifier.set(verifier.clone());
-        Ok(self.ownership_verifier.get().cloned().unwrap_or(verifier))
+        self.ownership_verifier
+            .get_or_try_init(|| self.inner.ownership_verifier())
+            .cloned()
     }
 }
