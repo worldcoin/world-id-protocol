@@ -54,8 +54,9 @@ contract E2ETest is Test {
         WorldIDSource sourceImpl = new WorldIDSource(address(registry), address(issuerRegistry), address(oprfRegistry));
 
         address[] memory emptyGws = new address[](0);
-        IStateBridge.InitConfig memory srcCfg =
-            IStateBridge.InitConfig({name: "World ID Source", version: "1", owner: owner, authorizedGateways: emptyGws});
+        IStateBridge.InitConfig memory srcCfg = IStateBridge.InitConfig({
+            name: "World ID Source", version: "1", owner: owner, authorizedGateways: emptyGws
+        });
 
         sourceProxy = address(new ERC1967Proxy(address(sourceImpl), abi.encodeCall(WorldIDSource.initialize, (srcCfg))));
 
@@ -64,8 +65,9 @@ contract E2ETest is Test {
         WorldIDSatellite satImpl =
             new WorldIDSatellite(address(verifier), ROOT_VALIDITY_WINDOW, TREE_DEPTH, MIN_EXPIRATION);
 
-        IStateBridge.InitConfig memory dstCfg =
-            IStateBridge.InitConfig({name: "World ID Bridge", version: "1", owner: owner, authorizedGateways: emptyGws});
+        IStateBridge.InitConfig memory dstCfg = IStateBridge.InitConfig({
+            name: "World ID Bridge", version: "1", owner: owner, authorizedGateways: emptyGws
+        });
 
         satelliteProxy =
             address(new ERC1967Proxy(address(satImpl), abi.encodeCall(WorldIDSatellite.initialize, (dstCfg))));
@@ -119,8 +121,7 @@ contract E2ETest is Test {
         // Root
         if (root != WorldIDSource(sourceProxy).LATEST_ROOT()) {
             commits[idx++] = Lib.Commitment({
-                blockHash: blockHash,
-                data: abi.encodeWithSelector(UPDATE_ROOT_SELECTOR, root, block.timestamp, proofId)
+                blockHash: blockHash, data: abi.encodeWithSelector(UPDATE_ROOT_SELECTOR, root, block.timestamp, proofId)
             });
         }
 

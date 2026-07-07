@@ -313,11 +313,7 @@ library FullStorageBinaryIMT {
 
     /// @dev Get the inclusion proof (sibling nodes) for a leaf.
     ///      Useful for off-chain consumers that still need proofs.
-    function getProof(FullBinaryIMTData storage self, uint256 index)
-        internal
-        view
-        returns (uint256[] memory siblings)
-    {
+    function getProof(FullBinaryIMTData storage self, uint256 index) internal view returns (uint256[] memory siblings) {
         uint256 depth = self.depth;
         uint256 numLeaves = self.numberOfLeaves;
         if (index >= numLeaves) revert LeafIndexOutOfRange();

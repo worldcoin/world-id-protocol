@@ -31,11 +31,7 @@ abstract contract WorldIDRegistryV2TestBase is Test {
         registry = WorldIDRegistryV2(address(proxy));
     }
 
-    function _eip712Sign(bytes32 typeHash, bytes memory data, uint256 privateKey)
-        internal
-        view
-        returns (bytes memory)
-    {
+    function _eip712Sign(bytes32 typeHash, bytes memory data, uint256 privateKey) internal view returns (bytes memory) {
         bytes32 structHash = keccak256(abi.encodePacked(typeHash, data));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", registry.domainSeparatorV4(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);

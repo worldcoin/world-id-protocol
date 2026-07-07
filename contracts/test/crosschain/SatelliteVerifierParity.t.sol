@@ -144,8 +144,7 @@ contract SatelliteVerifierParityTest is Test {
         bytes32 blockHash = bytes32(uint256(0x1234));
 
         commits[0] = Lib.Commitment({
-            blockHash: blockHash,
-            data: abi.encodeWithSelector(UPDATE_ROOT_SELECTOR, ROOT, block.timestamp, proofId)
+            blockHash: blockHash, data: abi.encodeWithSelector(UPDATE_ROOT_SELECTOR, ROOT, block.timestamp, proofId)
         });
         commits[1] = Lib.Commitment({
             blockHash: blockHash,
@@ -176,8 +175,7 @@ contract SatelliteVerifierParityTest is Test {
         bytes32 blockHash = bytes32(uint256(0x5678));
 
         commits[0] = Lib.Commitment({
-            blockHash: blockHash,
-            data: abi.encodeWithSelector(UPDATE_ROOT_SELECTOR, ROOT, block.timestamp, proofId)
+            blockHash: blockHash, data: abi.encodeWithSelector(UPDATE_ROOT_SELECTOR, ROOT, block.timestamp, proofId)
         });
         commits[1] = Lib.Commitment({
             blockHash: blockHash,

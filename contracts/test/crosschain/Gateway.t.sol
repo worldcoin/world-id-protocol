@@ -69,8 +69,9 @@ contract GatewayTest is Test {
         source = new WorldIDSource(address(registry), address(issuerRegistry), address(oprfRegistry));
 
         address[] memory emptyGws = new address[](0);
-        IStateBridge.InitConfig memory srcCfg =
-            IStateBridge.InitConfig({name: "World ID Source", version: "1", owner: owner, authorizedGateways: emptyGws});
+        IStateBridge.InitConfig memory srcCfg = IStateBridge.InitConfig({
+            name: "World ID Source", version: "1", owner: owner, authorizedGateways: emptyGws
+        });
 
         sourceProxy = address(new ERC1967Proxy(address(source), abi.encodeCall(WorldIDSource.initialize, (srcCfg))));
 
@@ -78,8 +79,9 @@ contract GatewayTest is Test {
         verifier = new Verifier();
         satellite = new WorldIDSatellite(address(verifier), ROOT_VALIDITY_WINDOW, TREE_DEPTH, MIN_EXPIRATION);
 
-        IStateBridge.InitConfig memory dstCfg =
-            IStateBridge.InitConfig({name: "World ID Bridge", version: "1", owner: owner, authorizedGateways: emptyGws});
+        IStateBridge.InitConfig memory dstCfg = IStateBridge.InitConfig({
+            name: "World ID Bridge", version: "1", owner: owner, authorizedGateways: emptyGws
+        });
 
         satelliteProxy =
             address(new ERC1967Proxy(address(satellite), abi.encodeCall(WorldIDSatellite.initialize, (dstCfg))));
@@ -118,7 +120,9 @@ contract GatewayTest is Test {
         // issuer pubkey commit
         commits[1] = Lib.Commitment({
             blockHash: blockHash,
-            data: abi.encodeWithSelector(SET_ISSUER_PUBKEY_SELECTOR, ISSUER_SCHEMA_ID, uint256(111), uint256(222), proofId)
+            data: abi.encodeWithSelector(
+                SET_ISSUER_PUBKEY_SELECTOR, ISSUER_SCHEMA_ID, uint256(111), uint256(222), proofId
+            )
         });
 
         // oprf key commit
