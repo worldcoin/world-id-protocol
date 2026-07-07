@@ -79,7 +79,7 @@ struct FetchArgs {
     to_block: Option<u64>,
 
     /// Max block range per `eth_getLogs` request.
-    #[arg(long, default_value_t = 5_000)]
+    #[arg(long, default_value_t = 5_000, value_parser = clap::value_parser!(u64).range(1..))]
     chunk_size: u64,
 
     /// Output JSON file.
