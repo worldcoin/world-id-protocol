@@ -70,11 +70,6 @@ pub fn load_ownership_verifier_from_path(
     provekit_common::file::read(path.as_ref()).map_err(|e| eyre::eyre!(e.to_string()))
 }
 
-#[cfg(feature = "embed-noir-artifacts")]
-pub use crate::artifacts::embedded::{
-    load_embedded_ownership_prover, load_embedded_ownership_verifier,
-};
-
 /// Generates an ownership proof using artifacts from the provided source.
 ///
 /// # Errors

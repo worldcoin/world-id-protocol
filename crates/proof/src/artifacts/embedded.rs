@@ -277,3 +277,59 @@ const PKV_BYTES: &[u8] = &[];
 pub fn load_embedded_ownership_verifier() -> eyre::Result<OwnershipVerifier> {
     crate::ownership_proof::load_ownership_verifier_from_reader(PKV_BYTES)
 }
+
+#[cfg(all(test, feature = "embed-zkeys"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loads_embedded_circuit_files() {
+        let files = load_embedded_circuit_files().unwrap();
+        assert!(!files.query_graph.is_empty());
+        assert!(!files.nullifier_graph.is_empty());
+        assert!(!files.query_zkey.is_empty());
+        assert!(!files.nullifier_zkey.is_empty());
+    }
+
+    #[test]
+    fn builds_materials_from_embedded_readers() {
+        let files = load_embedded_circuit_files().unwrap();
+        crate::proof::load_query_material_from_reader(
+            files.query_zkey.as_slice(),
+            files.query_graph.as_slice(),
+        )
+        .unwrap();
+        crate::proof::load_nullifier_material_from_reader(
+            files.nullifier_zkey.as_slice(),
+            files.nullifier_graph.as_slice(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn convenience_embedded_material_loaders_work() {
+        load_embedded_query_material().unwrap();
+        load_embedded_nullifier_material().unwrap();
+    }
+
+    #[cfg(feature = "compress-zkeys")]
+    #[test]
+    fn ark_decompress_zkey_roundtrip() {
+        use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
+        use circom_types::{ark_bn254::Bn254, groth16::ArkZkey};
+
+        let files = load_embedded_circuit_files().unwrap();
+        let zkey = ArkZkey::<Bn254>::deserialize_with_mode(
+            files.query_zkey.as_slice(),
+            Compress::No,
+            Validate::Yes,
+        )
+        .unwrap();
+        let mut compressed = Vec::new();
+        zkey.serialize_with_mode(&mut compressed, Compress::Yes)
+            .unwrap();
+
+        let decompressed = ark_decompress_zkey(&compressed).unwrap();
+        assert_eq!(decompressed, files.query_zkey);
+    }
+}
