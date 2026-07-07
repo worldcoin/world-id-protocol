@@ -24,6 +24,7 @@ use crate::{
         BacklogUrgencyStats, BaseFeeCache, BatchPolicyEngine, DecisionReason, record_policy_metrics,
     },
     config::BatchPolicyConfig,
+    contract_errors::DecodedRegistryError,
     error::parse_contract_error,
     metrics,
     request_tracker::BacklogScope,
@@ -234,9 +235,14 @@ where
                     send_latency_ms,
                     "{batch_type} batch failed to submit to RPC node"
                 );
-                let code = parse_contract_error(&error_str);
+                // Prefer structured ABI decoding of any revert data; fall
+                // back to the legacy string-based selector scan.
+                let (code, message) = match DecodedRegistryError::from_contract_error(&err) {
+                    Some(decoded) => (decoded.to_error_code(), decoded.human_message()),
+                    None => (parse_contract_error(&error_str), error_str),
+                };
                 self.tracker
-                    .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
+                    .set_status_batch(&ids, GatewayRequestState::failed(message, Some(code)))
                     .await;
             }
         }

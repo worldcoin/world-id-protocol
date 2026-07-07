@@ -112,7 +112,7 @@ async fn simulate_calldata(
         .block(BlockId::default())
         .await
         .map(|_| ())
-        .map_err(GatewayErrorResponse::from_simulation_error)
+        .map_err(|e| GatewayErrorResponse::from_rpc_error(&e))
 }
 
 /// Recover the signer address from an EIP-712 typed data hash and signature.

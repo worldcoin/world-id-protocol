@@ -52,7 +52,7 @@ async fn cache_policy_for_root(
         .getRootTimestamp(root)
         .call()
         .await
-        .map_err(|e| GatewayErrorResponse::from_simulation_error(e.to_string()))?;
+        .map_err(|e| GatewayErrorResponse::from_contract_error(&e))?;
     if ts == U256::ZERO {
         // Unknown roots can become valid later; don't cache.
         return Ok(CachePolicy::Skip);
@@ -62,7 +62,7 @@ async fn cache_policy_for_root(
         .getRootValidityWindow()
         .call()
         .await
-        .map_err(|e| GatewayErrorResponse::from_simulation_error(e.to_string()))?;
+        .map_err(|e| GatewayErrorResponse::from_contract_error(&e))?;
 
     // Subtract a small skew allowance to avoid serving expired roots if local time lags chain time.
     let expiration = ts
@@ -97,7 +97,7 @@ pub(crate) async fn is_valid_root(
         .isValidRoot(root)
         .call()
         .await
-        .map_err(|e| GatewayErrorResponse::from_simulation_error(e.to_string()))?;
+        .map_err(|e| GatewayErrorResponse::from_contract_error(&e))?;
     if valid {
         // Cache only valid roots to avoid serving stale negatives indefinitely.
         match cache_policy_for_root(state.ctx.registry.clone(), root, now).await {

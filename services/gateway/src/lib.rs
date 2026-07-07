@@ -16,6 +16,7 @@ use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 mod batch_policy;
 mod batcher;
 mod config;
+mod contract_errors;
 mod error;
 pub mod metrics;
 pub mod orphan_sweeper;
