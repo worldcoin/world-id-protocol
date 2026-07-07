@@ -4,6 +4,7 @@ use alloy::{
 };
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use reqwest::StatusCode;
+use std::sync::Arc;
 use world_id_authenticator::{Authenticator, AuthenticatorError, OnchainKeyRepresentable};
 use world_id_primitives::{
     Config, ServiceEndpoint, TREE_DEPTH,
@@ -12,8 +13,9 @@ use world_id_primitives::{
     },
     merkle::AccountInclusionProof,
 };
-use world_id_registries::world_id::{domain as ag_domain, sign_recover_account};
 
+use world_id_authenticator::proof::artifacts::{ZkArtifactSource, dummy::DummyZkArtifactSource};
+use world_id_registries::world_id::{domain as ag_domain, sign_recover_account};
 use world_id_test_utils::{
     fixtures::{MerkleFixture, single_leaf_merkle_fixture},
     stubs::MutableIndexerStub,
@@ -87,7 +89,7 @@ async fn register_and_init(
 
     let (pubkey, _) = derive_keys_from_seed(seed);
     let tmp_config = make_config(gw, "http://127.0.0.1:0");
-    let auth = Authenticator::init(&seed, tmp_config)
+    let auth = Authenticator::init(&seed, tmp_config, dummy_zk_source())
         .await
         .expect("init failed after register");
 
@@ -98,7 +100,7 @@ async fn register_and_init(
         .expect("failed to spawn indexer stub");
 
     let config = make_config(gw, &stub.url);
-    let auth = Authenticator::init(&seed, config)
+    let auth = Authenticator::init(&seed, config, dummy_zk_source())
         .await
         .expect("init with indexer stub failed");
 
@@ -254,6 +256,10 @@ fn assert_duplicate_in_flight(err: AuthenticatorError, ctx: &str) {
 // ===========================================================================
 // Tests: Redis lock lifecycle
 // ===========================================================================
+
+fn dummy_zk_source() -> Arc<dyn ZkArtifactSource> {
+    Arc::new(DummyZkArtifactSource)
+}
 
 /// After submitting a request (with a long batch window so it stays in-flight),
 /// the corresponding Redis lock key must exist.

@@ -19,8 +19,13 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use world_id_core::{
     Authenticator, AuthenticatorError, CredentialInput, EdDSAPrivateKey,
+    artifacts::{ZkArtifactSource, ZkArtifactSourceExt as _},
     requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
 };
+
+fn zk_artifact_source() -> Arc<dyn ZkArtifactSource> {
+    Arc::new(world_id_core::artifacts::embedded::EmbeddedZkArtifacts.cached())
+}
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
     spawn_gateway_for_tests,
@@ -42,15 +47,6 @@ fn init_test_tracing() {
         .with_env_filter(EnvFilter::from_default_env())
         .with_test_writer()
         .try_init();
-}
-
-fn load_embedded_materials() -> (
-    Arc<world_id_core::proof::CircomGroth16Material>,
-    Arc<world_id_core::proof::CircomGroth16Material>,
-) {
-    let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
-    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material().unwrap();
-    (Arc::new(query_material), Arc::new(nullifier_material))
 }
 
 /// Generates an entire end-to-end Uniqueness Proof Generator
@@ -132,7 +128,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .unwrap();
     // World ID should not yet exist.
-    let init_result = Authenticator::init(&seed, creation_config.clone()).await;
+    let init_result =
+        Authenticator::init(&seed, creation_config.clone(), zk_artifact_source()).await;
     assert!(
         matches!(init_result, Err(AuthenticatorError::AccountDoesNotExist)),
         "expected missing account error before creation"
@@ -140,10 +137,14 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // Create the account via the gateway, blocking until confirmed.
     let start = SystemTime::now();
-    let authenticator =
-        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
-            .await
-            .unwrap();
+    let authenticator = Authenticator::init_or_register(
+        &seed,
+        creation_config.clone(),
+        Some(recovery_address),
+        zk_artifact_source(),
+    )
+    .await
+    .unwrap();
     info!(
         elapsed_ms = SystemTime::now().duration_since(start).unwrap().as_millis(),
         "authenticator account creation finished"
@@ -153,7 +154,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);
 
     // Re-initialize to ensure account metadata is persisted.
-    let authenticator = Authenticator::init(&seed, creation_config)
+    let authenticator = Authenticator::init(&seed, creation_config, zk_artifact_source())
         .await
         .wrap_err("expected authenticator to initialize after account creation")?;
     assert_eq!(authenticator.leaf_index(), 1);
@@ -265,11 +266,9 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     )
     .unwrap();
 
-    let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator = Authenticator::init(&seed, proof_config)
+    let authenticator = Authenticator::init(&seed, proof_config, zk_artifact_source())
         .await
-        .wrap_err("failed to reinitialize authenticator with proof config")?
-        .with_proof_materials(query_material, nullifier_material);
+        .wrap_err("failed to reinitialize authenticator with proof config")?;
     assert_eq!(authenticator.leaf_index(), 1);
 
     let leaf_index = authenticator.leaf_index();
