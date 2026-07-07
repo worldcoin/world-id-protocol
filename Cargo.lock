@@ -4293,15 +4293,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "generate-noir-artifacts"
-version = "0.12.0"
-dependencies = [
- "eyre",
- "provekit-common",
- "provekit-r1cs-compiler",
-]
-
-[[package]]
 name = "generate-solidity-fixtures"
 version = "0.12.0"
 dependencies = [
@@ -12764,6 +12755,7 @@ dependencies = [
  "reqwest 0.12.28",
  "ruint",
  "serde",
+ "sha2 0.11.0",
  "taceo-ark-babyjubjub",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
