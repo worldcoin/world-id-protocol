@@ -229,7 +229,7 @@ contract BillingContract is WorldIDBase, IBillingContract {
         for (uint256 i = 0; i < len; i++) {
             uint64 rpId = payments[i].rpId;
             uint32 uptoEpoch = payments[i].uptoEpoch;
-            uint256 amount = _clearDebtThrough(rpId, uptoEpoch);
+            uint256 amount = _clearDebtUpToEpoch(rpId, uptoEpoch);
             if (amount == 0) continue;
             if (amount > payments[i].maxAmount) revert DebtExceedsMax();
 
@@ -469,7 +469,7 @@ contract BillingContract is WorldIDBase, IBillingContract {
     }
 
     /// @dev Clears `rp`'s finalized debt through `uptoEpoch`, then advances its unpaid-epoch cursor.
-    function _clearDebtThrough(uint64 rp, uint32 uptoEpoch) internal returns (uint256 amount) {
+    function _clearDebtUpToEpoch(uint64 rp, uint32 uptoEpoch) internal returns (uint256 amount) {
         RpState storage state = _rpState[rp];
         UnpaidEpoch[] storage unpaid = state.unpaidEpochs;
         uint256 cursor = state.unpaidCursor;
