@@ -54,7 +54,7 @@ impl ZkArtifactSource for EmbeddedZkArtifacts {
 
         #[cfg(all(not(target_arch = "wasm32"), feature = "embed-noir-artifacts"))]
         {
-            load_embedded_ownership_prover()
+            noir::load_embedded_ownership_prover()
                 .map_err(|e| ZkArtifactError::load(ZkArtifactKind::OwnershipProver, e))
         }
 
@@ -76,7 +76,7 @@ impl ZkArtifactSource for EmbeddedZkArtifacts {
 
         #[cfg(all(not(target_arch = "wasm32"), feature = "embed-noir-artifacts"))]
         {
-            load_embedded_ownership_verifier()
+            noir::load_embedded_ownership_verifier()
                 .map_err(|e| ZkArtifactError::load(ZkArtifactKind::OwnershipVerifier, e))
         }
 
@@ -249,51 +249,46 @@ pub mod zkeys {
     }
 }
 
-#[cfg(all(
-    feature = "embed-noir-artifacts",
-    not(target_arch = "wasm32"),
-    not(docsrs)
-))]
-const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
-
-#[cfg(all(feature = "embed-noir-artifacts", not(target_arch = "wasm32"), docsrs))]
-const PKP_BYTES: &[u8] = &[];
-
-/// Loads the embedded ownership proof prover.
-///
-/// # Errors
-/// Returns an error if embedded Noir artifacts are missing or invalid.
 #[cfg(all(feature = "embed-noir-artifacts", not(target_arch = "wasm32")))]
-pub fn load_embedded_ownership_prover() -> eyre::Result<OwnershipProver> {
-    crate::ownership_proof::load_ownership_prover_from_reader(PKP_BYTES)
-}
+pub mod noir {
+    use crate::{OwnershipProver, OwnershipVerifier};
 
-#[cfg(all(
-    feature = "embed-noir-artifacts",
-    not(target_arch = "wasm32"),
-    not(docsrs)
-))]
-const PKV_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkv"));
+    #[cfg(not(docsrs))]
+    const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
 
-#[cfg(all(feature = "embed-noir-artifacts", not(target_arch = "wasm32"), docsrs))]
-const PKV_BYTES: &[u8] = &[];
+    #[cfg(docsrs)]
+    const PKP_BYTES: &[u8] = &[];
 
-/// Loads the embedded ownership proof verifier.
-///
-/// # Errors
-/// Returns an error if embedded Noir artifacts are missing or invalid.
-#[cfg(all(feature = "embed-noir-artifacts", not(target_arch = "wasm32")))]
-pub fn load_embedded_ownership_verifier() -> eyre::Result<OwnershipVerifier> {
-    crate::ownership_proof::load_ownership_verifier_from_reader(PKV_BYTES)
+    /// Loads the embedded ownership proof prover.
+    ///
+    /// # Errors
+    /// Returns an error if embedded Noir artifacts are missing or invalid.
+    pub fn load_embedded_ownership_prover() -> eyre::Result<OwnershipProver> {
+        crate::ownership_proof::load_ownership_prover_from_reader(PKP_BYTES)
+    }
+
+    #[cfg(not(docsrs))]
+    const PKV_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkv"));
+
+    #[cfg(docsrs)]
+    const PKV_BYTES: &[u8] = &[];
+
+    /// Loads the embedded ownership proof verifier.
+    ///
+    /// # Errors
+    /// Returns an error if embedded Noir artifacts are missing or invalid.
+    pub fn load_embedded_ownership_verifier() -> eyre::Result<OwnershipVerifier> {
+        crate::ownership_proof::load_ownership_verifier_from_reader(PKV_BYTES)
+    }
 }
 
 #[cfg(all(test, feature = "embed-zkeys"))]
 mod tests {
-    use super::*;
+    use super::zkeys;
 
     #[test]
     fn loads_embedded_circuit_files() {
-        let files = load_embedded_circuit_files().unwrap();
+        let files = zkeys::load_embedded_circuit_files().unwrap();
         assert!(!files.query_graph.is_empty());
         assert!(!files.nullifier_graph.is_empty());
         assert!(!files.query_zkey.is_empty());
@@ -302,7 +297,7 @@ mod tests {
 
     #[test]
     fn builds_materials_from_embedded_readers() {
-        let files = load_embedded_circuit_files().unwrap();
+        let files = zkeys::load_embedded_circuit_files().unwrap();
         crate::proof::load_query_material_from_reader(
             files.query_zkey.as_slice(),
             files.query_graph.as_slice(),
@@ -317,8 +312,8 @@ mod tests {
 
     #[test]
     fn convenience_embedded_material_loaders_work() {
-        load_embedded_query_material().unwrap();
-        load_embedded_nullifier_material().unwrap();
+        zkeys::load_embedded_query_material().unwrap();
+        zkeys::load_embedded_nullifier_material().unwrap();
     }
 
     #[cfg(feature = "compress-zkeys")]
@@ -327,7 +322,7 @@ mod tests {
         use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
         use circom_types::{ark_bn254::Bn254, groth16::ArkZkey};
 
-        let files = load_embedded_circuit_files().unwrap();
+        let files = zkeys::load_embedded_circuit_files().unwrap();
         let zkey = ArkZkey::<Bn254>::deserialize_with_mode(
             files.query_zkey.as_slice(),
             Compress::No,
@@ -338,7 +333,7 @@ mod tests {
         zkey.serialize_with_mode(&mut compressed, Compress::Yes)
             .unwrap();
 
-        let decompressed = ark_decompress_zkey(&compressed).unwrap();
+        let decompressed = zkeys::ark_decompress_zkey(&compressed).unwrap();
         assert_eq!(decompressed, files.query_zkey);
     }
 }
