@@ -58,8 +58,7 @@ The release tag is intentionally separate from the crate/software version track,
 - `circom/OPRFNullifier.arks.zkey`
 
 Material loaders verify artifacts against the SHA-256 fingerprints pinned in
-`src/proof.rs`. The pinned tag can be overridden with the
-`WORLD_ID_CIRCUIT_ARTIFACT_RELEASE_TAG` environment variable for development.
+`src/proof.rs`.
 
 ### Publishing circuit artifact releases
 
