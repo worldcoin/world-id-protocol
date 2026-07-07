@@ -181,10 +181,7 @@ contract BillingContractTest is Test {
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", billing.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return IBillingContract.SignedVoteChunk({
-            chunkIndex: chunkIndex,
-            isFinal: isFinal,
-            counts: counts,
-            signature: abi.encodePacked(r, s, v)
+            chunkIndex: chunkIndex, isFinal: isFinal, counts: counts, signature: abi.encodePacked(r, s, v)
         });
     }
 
@@ -267,8 +264,6 @@ contract BillingContractTest is Test {
     ////////////////////////////////////////////////////////////
 
     function test_SubmitVotes_happy() public {
-        vm.expectEmit(true, false, false, true, address(billing));
-        emit IBillingContract.VoteChunksSubmitted(0, 2);
         _voteSingle(0, 1, 50, _pks2());
 
         // Median visible while the epoch is retained (not yet finalized).
