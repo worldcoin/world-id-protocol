@@ -84,7 +84,10 @@ abstract contract WorldIDGateway is IGateway {
     /// @param payload The commit payload (ABI-encoded Commitment[]).
     /// @param proof Gateway-specific proof/auth data.
     /// @return chainHead The verified keccak chain head.
-    function _verifyAndExtract(bytes calldata payload, bytes memory proof) internal virtual returns (bytes32 chainHead);
+    function _verifyAndExtract(bytes calldata payload, bytes memory proof)
+        internal
+        virtual
+        returns (bytes32 chainHead);
 
     /// @dev Validates that the required attributes are present and correctly formatted for this gateway.
     function validateAttributes(bytes[] calldata attributes) internal view virtual returns (bytes memory) {

@@ -187,7 +187,14 @@ contract RpRegistry is WorldIDBase, IRpRegistry {
     }
 
     /// @inheritdoc IRpRegistry
-    function getRpUnchecked(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (RelyingParty memory) {
+    function getRpUnchecked(uint64 rpId)
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (RelyingParty memory)
+    {
         if (!_relyingParties[rpId].initialized) revert RpIdDoesNotExist();
 
         return _relyingParties[rpId];

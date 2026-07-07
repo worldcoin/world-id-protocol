@@ -221,7 +221,7 @@ interface IBillingContract {
 
     /**
      * @notice Permissionlessly finalize closed epochs up to (and including) `uptoEpoch`.
-     * @dev Flushes the tail when node votes have stopped, so debt and `is_blocked` stay current.
+     * @dev Flushes the tail when node votes have stopped, so debt and `isBlocked` stay current.
      *      Chunkable: advances the global cursor by at most `maxSteps` units (one per RP finalized,
      *      one per epoch closed), resuming mid-epoch across calls so a large epoch never bricks.
      * @param uptoEpoch The highest epoch to finalize up to; capped at the latest closed epoch.
@@ -281,7 +281,7 @@ interface IBillingContract {
      * @param rpId The Relying Party.
      * @return Whether the RP is currently blocked.
      */
-    function is_blocked(uint64 rpId) external view returns (bool);
+    function isBlocked(uint64 rpId) external view returns (bool);
 
     /**
      * @notice The lower-median request count for an RP in a retained (not-yet-finalized) epoch.

@@ -181,7 +181,10 @@ contract BillingContractTest is Test {
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", billing.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return IBillingContract.SignedVoteChunk({
-            chunkIndex: chunkIndex, isFinal: isFinal, counts: counts, signature: abi.encodePacked(r, s, v)
+            chunkIndex: chunkIndex,
+            isFinal: isFinal,
+            counts: counts,
+            signature: abi.encodePacked(r, s, v)
         });
     }
 
@@ -720,11 +723,11 @@ contract BillingContractTest is Test {
 
         // Within the payment window: not blocked.
         vm.warp(due);
-        assertFalse(billing.is_blocked(1));
+        assertFalse(billing.isBlocked(1));
 
         // Past the payment window: blocked.
         vm.warp(due + 1);
-        assertTrue(billing.is_blocked(1));
+        assertTrue(billing.isBlocked(1));
 
         // Pay clears the block.
         _fundPayer(debt);
@@ -732,7 +735,7 @@ contract BillingContractTest is Test {
         ps[0] = IBillingContract.RpPayment({rpId: 1, uptoEpoch: 0, maxAmount: type(uint256).max});
         vm.prank(payer);
         billing.pay(ps);
-        assertFalse(billing.is_blocked(1));
+        assertFalse(billing.isBlocked(1));
     }
 
     function test_IsBlocked_advancesToNextUnpaidEpochAfterPartialPayment() public {
@@ -748,7 +751,7 @@ contract BillingContractTest is Test {
         uint64 epoch0Due = billing.epochEnd(0) + VOTING + PAYMENT;
         uint64 epoch1Due = billing.epochEnd(1) + VOTING + PAYMENT;
         vm.warp(epoch0Due + 1);
-        assertTrue(billing.is_blocked(1), "epoch 0 is overdue");
+        assertTrue(billing.isBlocked(1), "epoch 0 is overdue");
 
         _fundPayer(epoch0Debt);
         IBillingContract.RpPayment[] memory ps = new IBillingContract.RpPayment[](1);
@@ -757,14 +760,14 @@ contract BillingContractTest is Test {
         billing.pay(ps);
 
         assertEq(billing.outstandingDebt(1), epoch1Debt);
-        assertFalse(billing.is_blocked(1), "epoch 1 is unpaid but not due yet");
+        assertFalse(billing.isBlocked(1), "epoch 1 is unpaid but not due yet");
 
         vm.warp(epoch1Due + 1);
-        assertTrue(billing.is_blocked(1), "epoch 1 becomes the blocking epoch");
+        assertTrue(billing.isBlocked(1), "epoch 1 becomes the blocking epoch");
     }
 
     function test_IsBlocked_falseWithoutDebt() public view {
-        assertFalse(billing.is_blocked(999));
+        assertFalse(billing.isBlocked(999));
     }
 
     ////////////////////////////////////////////////////////////
@@ -839,9 +842,9 @@ contract BillingContractTest is Test {
 
         // Epoch 0's deadline is its historic one (GENESIS + 400), unmoved by the change.
         vm.warp(GENESIS + 400);
-        assertFalse(billing.is_blocked(1)); // exactly at the deadline
+        assertFalse(billing.isBlocked(1)); // exactly at the deadline
         vm.warp(GENESIS + 401);
-        assertTrue(billing.is_blocked(1), "historic deadline unchanged by the change");
+        assertTrue(billing.isBlocked(1), "historic deadline unchanged by the change");
     }
 
     function test_SetTiming_openWindowUnaffectedByChange() public {
@@ -918,11 +921,11 @@ contract BillingContractTest is Test {
     function test_SetTiming_preservesHistoricDeadlines() public {
         _finalizeEpoch0Debt(); // due at epochEnd(0) + VOTING + PAYMENT = GENESIS + 400
         vm.warp(GENESIS + 401);
-        assertTrue(billing.is_blocked(1), "epoch 0 debt is overdue");
+        assertTrue(billing.isBlocked(1), "epoch 0 debt is overdue");
 
         // The change starts a new era but moves no existing deadline: the RP stays blocked.
         billing.setTiming(200, 150, 300);
-        assertTrue(billing.is_blocked(1), "historic deadline is not affected by the change");
+        assertTrue(billing.isBlocked(1), "historic deadline is not affected by the change");
     }
 
     function test_LatestClosed_capsAtRegimeBoundary() public {

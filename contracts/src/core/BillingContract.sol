@@ -490,7 +490,7 @@ contract BillingContract is WorldIDBase, IBillingContract {
         // The cursor advances monotonically and is never reset: paid slots are already zeroed
         // above, so live storage stays bounded by the outstanding backlog without an O(n) array
         // delete on the clearing payment. When fully paid, `cursor == unpaidEpochs.length`,
-        // which `is_blocked` and `outstandingDebt` treat as "no outstanding debt".
+        // which `isBlocked` and `outstandingDebt` treat as "no outstanding debt".
         state.unpaidCursor = uint64(cursor);
     }
 

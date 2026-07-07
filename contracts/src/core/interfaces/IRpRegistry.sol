@@ -138,7 +138,8 @@ interface IRpRegistry {
      * @param signer The address authorized to sign proof requests for the relying party.
      * @param unverifiedWellKnownDomain The FQDN where the well-known metadata file is published (e.g., "world.org").
      */
-    function register(uint64 rpId, address manager, address signer, string calldata unverifiedWellKnownDomain) external;
+    function register(uint64 rpId, address manager, address signer, string calldata unverifiedWellKnownDomain)
+        external;
 
     /**
      * @dev Registers multiple new relying parties at once.
