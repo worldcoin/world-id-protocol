@@ -11,7 +11,6 @@ use crate::{
     },
 };
 
-#[cfg(not(target_arch = "wasm32"))]
 use crate::ownership_proof::{load_ownership_prover_from_path, load_ownership_verifier_from_path};
 
 /// ZK artifacts loaded from files on disk.
@@ -148,46 +147,22 @@ impl ZkArtifactSource for FileSystemZkArtifacts {
 
     fn ownership_prover(&self) -> Result<OwnershipProver, ZkArtifactError> {
         let kind = ZkArtifactKind::OwnershipProver;
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            load_ownership_prover_from_path(required_path(
-                &self.ownership_prover_path,
-                kind,
-                "ownership prover path not set",
-            )?)
-            .map_err(|e| ZkArtifactError::load(kind, e))
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            Err(ZkArtifactError::Unavailable {
-                kind,
-                reason: "not supported on wasm32",
-            })
-        }
+        load_ownership_prover_from_path(required_path(
+            &self.ownership_prover_path,
+            kind,
+            "ownership prover path not set",
+        )?)
+        .map_err(|e| ZkArtifactError::load(kind, e))
     }
 
     fn ownership_verifier(&self) -> Result<OwnershipVerifier, ZkArtifactError> {
         let kind = ZkArtifactKind::OwnershipVerifier;
-
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            load_ownership_verifier_from_path(required_path(
-                &self.ownership_verifier_path,
-                kind,
-                "ownership verifier path not set",
-            )?)
-            .map_err(|e| ZkArtifactError::load(kind, e))
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            Err(ZkArtifactError::Unavailable {
-                kind,
-                reason: "not supported on wasm32",
-            })
-        }
+        load_ownership_verifier_from_path(required_path(
+            &self.ownership_verifier_path,
+            kind,
+            "ownership verifier path not set",
+        )?)
+        .map_err(|e| ZkArtifactError::load(kind, e))
     }
 }
 

@@ -8,6 +8,7 @@ pub mod cached;
 pub mod dummy;
 #[cfg(feature = "embed-zkeys")]
 pub mod embedded;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod filesystem;
 
 /// Identifies one of the ZK artifacts a [`ZkArtifactSource`] can provide.
@@ -71,7 +72,7 @@ impl ZkArtifactError {
     }
 
     /// Wraps an underlying load failure, preserving its full error chain in the message.
-    pub(crate) fn load(kind: ZkArtifactKind, error: impl Into<eyre::Report>) -> Self {
+    pub fn load(kind: ZkArtifactKind, error: impl Into<eyre::Report>) -> Self {
         Self::Load {
             kind,
             message: format!("{:#}", error.into()),
