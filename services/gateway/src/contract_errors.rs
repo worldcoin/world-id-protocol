@@ -243,11 +243,11 @@ pub(crate) fn selector_hex<E: SolError>() -> String {
 mod tests {
     use super::*;
     use alloy::sol_types::SolError;
-    use world_id_registries::world_id::WorldIdRegistry::{
-        AuthenticatorAddressAlreadyInUse, MismatchedSignatureNonce, PubkeyIdOutOfBounds,
-    };
-    use world_id_registries::world_id::WorldIdRegistryV2::{
-        RecoveryAgentUpdateStillInCooldown, RecoveryAgentUpdateWindowExpired,
+    use world_id_registries::world_id::{
+        WorldIdRegistry::{
+            AuthenticatorAddressAlreadyInUse, MismatchedSignatureNonce, PubkeyIdOutOfBounds,
+        },
+        WorldIdRegistryV2::{RecoveryAgentUpdateStillInCooldown, RecoveryAgentUpdateWindowExpired},
     };
 
     fn selector_of<E: SolError>() -> [u8; 4] {
