@@ -15,29 +15,6 @@ const CIRCUIT_FILES: &[&str] = &[
     "circom/OPRFNullifier.arks.zkey",
 ];
 
-/// SHA-256 digests of the files published under [`CIRCUIT_ARTIFACT_RELEASE_TAG`].
-/// Downloaded bytes are verified against these; local files (development) are
-/// exempt, and overriding the release tag via the env var skips verification
-/// with a warning.
-const CIRCUIT_FILE_SHA256: &[(&str, &str)] = &[
-    (
-        "OPRFQueryGraph.bin",
-        "6b0cb90304c510f9142a555fe2b7cf31b9f68f6f37286f4471fd5d03e91da311",
-    ),
-    (
-        "OPRFNullifierGraph.bin",
-        "c1d951716e3b74b72e4ea0429986849cadc43cccc630a7ee44a56a6199a66b9a",
-    ),
-    (
-        "OPRFQuery.arks.zkey",
-        "616c98c6ba024b5a4015d3ebfd20f6cab12e1e33486080c5167a4bcfac111798",
-    ),
-    (
-        "OPRFNullifier.arks.zkey",
-        "4247e6bfe1af211e72d3657346802e1af00e6071fb32429a200f9fc0a25a36f9",
-    ),
-];
-
 fn main() -> eyre::Result<()> {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed={CIRCUIT_ARTIFACT_RELEASE_TAG_ENV}");
@@ -190,50 +167,7 @@ fn fetch_circuit_file(path: &Path, out_dir: &Path) -> eyre::Result<()> {
     let url = circuit_artifact_url(file_name);
 
     download_file(&url, &output_path)?;
-    verify_downloaded_circuit_file(file_name, &output_path)?;
     Ok(())
-}
-
-/// Verifies downloaded artifact bytes against the digests pinned for the
-/// default release tag. Key material must not depend on trusting the host
-/// serving it. Overriding the tag via the env var disables verification —
-/// that is a development escape hatch, so warn loudly.
-fn verify_downloaded_circuit_file(file_name: &str, path: &Path) -> eyre::Result<()> {
-    if env::var(CIRCUIT_ARTIFACT_RELEASE_TAG_ENV).is_ok() {
-        println!(
-            "cargo:warning={CIRCUIT_ARTIFACT_RELEASE_TAG_ENV} is set; skipping checksum verification for {file_name}"
-        );
-        return Ok(());
-    }
-
-    let expected = CIRCUIT_FILE_SHA256
-        .iter()
-        .find(|(name, _)| *name == file_name)
-        .map(|(_, digest)| *digest)
-        .ok_or_eyre(format!("no pinned SHA-256 digest for {file_name}"))?;
-
-    let actual = sha256_hex(path)?;
-    if actual != expected {
-        eyre::bail!(
-            "SHA-256 mismatch for {file_name} downloaded from release {}: expected {expected}, got {actual}",
-            circuit_artifact_release_tag()
-        );
-    }
-
-    Ok(())
-}
-
-fn sha256_hex(path: &Path) -> eyre::Result<String> {
-    use sha2::{Digest, Sha256};
-
-    let mut hasher = Sha256::new();
-    hasher.update(fs::read(path)?);
-
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
 }
 
 fn is_arks_zkey(path: &Path) -> bool {

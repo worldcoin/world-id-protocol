@@ -12,8 +12,8 @@ Each ZK artifact type has exactly one way of being obtained:
 
 - **Circom artifacts** (zkeys, witness graphs) are trusted-setup outputs and cannot be
   rebuilt. `build.rs` uses files committed in this repository when present (development),
-  and otherwise downloads them from the GitHub release tag pinned in `build.rs`, verifying
-  them against SHA-256 digests pinned in `build.rs`.
+  and otherwise downloads them from the GitHub release tag pinned in `build.rs`.
+  Material loaders verify them against SHA-256 fingerprints pinned in `src/proof.rs`.
 - **Noir ownership proof artifacts** (`ownership_proof.pkp` / `.pkv`) are always built
   ad-hoc by `build.rs` from the checked-in circuit source using `nargo`. The required
   `nargo` version is pinned (see `flake.nix` and `REQUIRED_NARGO_VERSION` in `build.rs`); the build
@@ -57,18 +57,17 @@ The release tag is intentionally separate from the crate/software version track,
 - `circom/OPRFQuery.arks.zkey`
 - `circom/OPRFNullifier.arks.zkey`
 
-Downloaded files are verified against the SHA-256 digests pinned in `build.rs`. The pinned
-tag can be overridden with the `WORLD_ID_CIRCUIT_ARTIFACT_RELEASE_TAG` environment
-variable for development — this skips checksum verification with a warning, since the
-pinned digests only apply to the pinned tag.
+Material loaders verify artifacts against the SHA-256 fingerprints pinned in
+`src/proof.rs`. The pinned tag can be overridden with the
+`WORLD_ID_CIRCUIT_ARTIFACT_RELEASE_TAG` environment variable for development.
 
 ### Publishing circuit artifact releases
 
 Releases are created manually via the `Release circuit artifacts` GitHub Actions workflow,
 with a tag like `circuit-artifacts-v0.1.0`. The workflow creates a GitHub release and
 attaches the Circom artifact files listed above (committed in this repository). When
-publishing a new tag, update both the pinned tag and the pinned SHA-256 digests in
-`build.rs`.
+publishing a new tag, update both the pinned tag in `build.rs` and the pinned SHA-256
+fingerprints in `src/proof.rs`.
 
 ## Noir ownership proof
 

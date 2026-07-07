@@ -65,7 +65,6 @@ provekit-verifier = { workspace = true }
 [build-dependencies]
 eyre = { workspace = true }
 reqwest = { workspace = true, features = ["blocking"] }
-sha2 = { workspace = true }
 ark-serialize = { workspace = true }
 circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"] }
 rayon = { workspace = true }
