@@ -17,8 +17,6 @@ include = [
 ]
 
 [features]
-# By default nothing is embedded: ZK artifacts are provided at runtime
-# through a `ZkArtifactSource`. Embedding is an explicit opt-in.
 default = []
 embed-zkeys = ["world-id-proof/embed-zkeys"]
 # Compress the embedded zkeys to reduce binary size (ARK point compression)

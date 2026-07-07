@@ -19,8 +19,6 @@ include = [
 ]
 
 [features]
-# By default nothing is embedded: artifacts are provided at runtime through a
-# `ZkArtifactSource`. Embedding is an explicit opt-in per artifact.
 default = []
 
 # Embed Circom zkeys (query + nullifier proof material) into the binary
@@ -30,10 +28,6 @@ compress-zkeys = ["embed-zkeys", "dep:ark-serialize", "dep:circom-types"]
 # Compress the tar archive with zstd
 zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
 
-# Embed the Noir ownership proof prover/verifier into the binary. The
-# artifacts are built ad-hoc in build.rs with `nargo` (see the pinned version
-# in `flake.nix`). The prover is multi-MB; verifying-only consumers should
-# enable just the verifier.
 embed-ownership-prover = ["dep:provekit-r1cs-compiler"]
 embed-ownership-verifier = ["dep:provekit-r1cs-compiler"]
 embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]

@@ -78,5 +78,5 @@ fingerprints in `src/proof.rs`.
 ## Noir ownership proof
 
 The Noir ownership proof APIs are available on native targets. They can either use explicit
-prover/verifier material loaded from readers or paths, or embedded artifacts when
-`embed-noir-artifacts` is enabled.
+prover/verifier material loaded from readers or paths, or embedded artifacts when the
+corresponding `embed-ownership-prover` / `embed-ownership-verifier` feature is enabled.
