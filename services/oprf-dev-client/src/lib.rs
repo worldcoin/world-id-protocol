@@ -164,7 +164,7 @@ pub async fn init_shared_components(
     config: &WorldDevClientConfig,
 ) -> eyre::Result<SharedDevClientComponents> {
     let query_material = Arc::new(
-        world_id_core::artifacts::embedded::load_embedded_query_material()
+        world_id_core::artifacts::embedded::zkeys::load_embedded_query_material()
             .context("while loading query material")?,
     );
     let (authenticator, authenticator_private_key) = init_authenticator(

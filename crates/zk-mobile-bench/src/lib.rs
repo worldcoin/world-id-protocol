@@ -27,7 +27,7 @@ use world_id_primitives::{
     AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, authenticator::oprf_query_digest,
 };
 use world_id_proof::{
-    artifacts::embedded,
+    artifacts::embedded::zkeys,
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
 };
 
@@ -52,7 +52,7 @@ fn generate_query_input() -> (
 
     // Load embedded proving material
     let query_material =
-        embedded::load_embedded_query_material().expect("failed to load query material");
+        zkeys::load_embedded_query_material().expect("failed to load query material");
 
     // Create user keys
     let user_sk = EdDSAPrivateKey::random(&mut rng);
@@ -108,9 +108,9 @@ fn generate_nullifier_input() -> (
 
     // Load embedded proving materials
     let query_material =
-        embedded::load_embedded_query_material().expect("failed to load query material");
+        zkeys::load_embedded_query_material().expect("failed to load query material");
     let nullifier_material =
-        embedded::load_embedded_nullifier_material().expect("failed to load nullifier material");
+        zkeys::load_embedded_nullifier_material().expect("failed to load nullifier material");
 
     // Create user keys
     let user_sk = EdDSAPrivateKey::random(&mut rng);
