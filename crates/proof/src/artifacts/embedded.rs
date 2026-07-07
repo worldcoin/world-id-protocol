@@ -26,6 +26,12 @@ impl ZkArtifactSource for EmbeddedZkArtifacts {
     }
 
     fn ownership_prover(&self) -> Result<OwnershipProver, ZkArtifactError> {
+        // NOTE: Relying on wasm32 as a gate might seem weird here
+        //       but it's because the relevant code from provekit that allows
+        //       deserializing ProveKit artifacts has io/fs dependencies (and some C-based
+        //       libraries) - once that's resolved we should only rely on the embed-noir-artifacts
+        //       feature gate only
+
         #[cfg(all(not(target_arch = "wasm32"), feature = "embed-noir-artifacts"))]
         {
             crate::ownership_proof::load_embedded_ownership_prover()
@@ -42,6 +48,12 @@ impl ZkArtifactSource for EmbeddedZkArtifacts {
     }
 
     fn ownership_verifier(&self) -> Result<OwnershipVerifier, ZkArtifactError> {
+        // NOTE: Relying on wasm32 as a gate might seem weird here
+        //       but it's because the relevant code from provekit that allows
+        //       deserializing ProveKit artifacts has io/fs dependencies (and some C-based
+        //       libraries) - once that's resolved we should only rely on the embed-noir-artifacts
+        //       feature gate only
+
         #[cfg(all(not(target_arch = "wasm32"), feature = "embed-noir-artifacts"))]
         {
             crate::ownership_proof::load_embedded_ownership_verifier()
