@@ -61,7 +61,7 @@ interface IBillingContract {
     ///      spans lying in it use its `epochLength`; voting windows *opening* in it use its
     ///      `votingWindow` and `paymentWindow`. Since votes for an epoch are cast after it ends,
     ///      the window of the last epoch before an era change opens exactly at the era boundary
-    ///      and is thus governed by the new era — this keeps window closes monotone in epoch
+    ///      and is thus governed by the new era, this keeps window closes monotone in epoch
     ///      number across changes (given `votingWindow <= epochLength`), which finalization
     ///      relies on.
     ///
