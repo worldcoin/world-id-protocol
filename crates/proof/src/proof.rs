@@ -75,10 +75,6 @@ pub struct EmbeddedCircuitFiles {
     pub nullifier_zkey: Vec<u8>,
 }
 
-#[cfg(feature = "embed-zkeys")]
-static CIRCUIT_FILES: std::sync::OnceLock<Result<EmbeddedCircuitFiles, String>> =
-    std::sync::OnceLock::new();
-
 // ============================================================================
 // Circuit Material Loaders
 // ============================================================================
@@ -160,17 +156,7 @@ pub fn load_query_material_from_paths(
 
 #[cfg(feature = "embed-zkeys")]
 pub fn load_embedded_circuit_files() -> eyre::Result<EmbeddedCircuitFiles> {
-    let files = get_circuit_files()?;
-    Ok(files.clone())
-}
-
-#[cfg(feature = "embed-zkeys")]
-fn get_circuit_files() -> eyre::Result<&'static EmbeddedCircuitFiles> {
-    let files = CIRCUIT_FILES.get_or_init(|| init_circuit_files().map_err(|e| e.to_string()));
-    match files {
-        Ok(files) => Ok(files),
-        Err(err) => Err(eyre::eyre!(err.clone())),
-    }
+    init_circuit_files()
 }
 
 #[cfg(feature = "embed-zkeys")]
