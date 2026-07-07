@@ -154,7 +154,7 @@ jobs:
         env:
           CONTRACTS_PREBUILT: "1"
         run: |
-          cargo check --all-features
+          cargo check --workspace --all-features
 
   feature-resolution:
     name: Feature Resolution (cargo-hack)
