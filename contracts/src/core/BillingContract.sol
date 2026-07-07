@@ -38,10 +38,32 @@ contract BillingContract is WorldIDBase, IBillingContract {
     //                        Structs                         //
     ////////////////////////////////////////////////////////////
 
-    /// @dev Packed per-RP rebate-period state. `uint32 + uint224` fills one storage slot.
-    struct PeriodState {
-        uint32 index;
-        uint224 count;
+    /// @dev One finalized epoch with outstanding debt. `uint32 + uint224` fills one storage slot.
+    struct UnpaidEpoch {
+        uint32 epoch;
+        uint224 amount;
+    }
+
+    /// @dev All per-RP billing state. `periodIndex + periodCount` pack into one storage slot.
+    struct RpState {
+        // rebate-period index the running count belongs to.
+        uint32 periodIndex;
+        // requests already billed in that rebate period.
+        uint224 periodCount;
+        // cursor into `unpaidEpochs` for the oldest not-yet-paid epoch.
+        uint64 unpaidCursor;
+        // finalized epochs with non-zero debt, in ascending finalization order.
+        UnpaidEpoch[] unpaidEpochs;
+    }
+
+    /// @dev Per-(epoch, signer) chunked-vote progress. Packed into one storage slot.
+    struct SubmitterState {
+        // next chunk index expected from the signer; non-zero iff the signer has submitted.
+        uint32 nextChunkIndex;
+        // last rpId accepted from the signer, enforcing global ordering across chunks.
+        uint64 lastChunkRpId;
+        // whether the signer already closed its chunked vote.
+        bool hasVoted;
     }
 
     ////////////////////////////////////////////////////////////
@@ -55,10 +77,7 @@ contract BillingContract is WorldIDBase, IBillingContract {
     /// @dev OPRF key registry the live node set (n, peer addresses) is read from.
     IOprfNodeSet internal _oprfKeyRegistry;
 
-    /// @dev Append-only history of timing eras; the last entry is the current era. Every epoch
-    ///      that ever existed keeps its true boundaries and windows: epoch `e` is governed by the
-    ///      newest era with `startEpoch <= e`, so timing changes never affect existing epochs.
-    ///      Grows by one entry per {setTiming} call (rare, owner-only), never per epoch.
+    /// @dev Append-only history of timing eras; the last entry is the current era.
     TimingEra[] internal _timingEras;
 
     /// @dev Lowest epoch not yet finalized (global finalization cursor).
@@ -70,28 +89,13 @@ contract BillingContract is WorldIDBase, IBillingContract {
     /// @dev The single, current ordered tier schedule (no versioning).
     Tier[] internal _tierSchedule;
 
-    /// @dev rpId -> rebate-period index plus requests already billed in that period.
-    mapping(uint64 => PeriodState) internal _periodState;
-
-    /// @dev epoch -> rpId -> outstanding finalized debt for that epoch in WLD wei.
-    mapping(uint32 => mapping(uint64 => uint256)) internal _epochOwed;
-
-    /// @dev rpId -> finalized epochs with non-zero debt, in ascending finalization order.
-    mapping(uint64 => uint32[]) internal _unpaidEpochs;
-
-    /// @dev rpId -> cursor into `_unpaidEpochs[rpId]` for the oldest not-yet-paid epoch.
-    mapping(uint64 => uint256) internal _unpaidEpochCursor;
+    /// @dev rpId -> all per-RP billing state (rebate period, unpaid-epoch debt list and cursor).
+    mapping(uint64 => RpState) internal _rpState;
 
     // --- Transient per-epoch state (pruned when the epoch finalizes) ---
 
-    /// @dev epoch -> signer -> whether the signer already closed its chunked vote.
-    mapping(uint32 => mapping(address => bool)) internal _hasVoted;
-
-    /// @dev epoch -> signer -> next chunk index expected from the signer.
-    mapping(uint32 => mapping(address => uint32)) internal _nextChunkIndex;
-
-    /// @dev epoch -> signer -> last rpId accepted from the signer, enforcing global ordering.
-    mapping(uint32 => mapping(address => uint64)) internal _lastChunkRpId;
+    /// @dev epoch -> signer -> chunked-vote progress (chunk cursor, rpId ordering, voted flag).
+    mapping(uint32 => mapping(address => SubmitterState)) internal _submitterState;
 
     /// @dev epoch -> all signers that submitted at least one chunk, completed or not.
     mapping(uint32 => address[]) internal _epochSubmitters;
@@ -204,12 +208,10 @@ contract BillingContract is WorldIDBase, IBillingContract {
         onlyProxy
         onlyInitialized
     {
-        // The voting window for `epoch` must be currently open. Window parameters come from the
-        // era in which the window opens, so windows of past-era epochs close at their true,
-        // historic times regardless of later timing changes.
+        // The voting window for `epoch` must be currently open.
         uint64 votingStart = epochEnd(epoch);
         if (block.timestamp < votingStart) revert VotingWindowNotOpen();
-        if (block.timestamp >= votingStart + _windowEra(epoch).votingWindow) revert VotingWindowClosed();
+        if (block.timestamp >= votingStart + _votingWindowEraOf(epoch).votingWindow) revert VotingWindowClosed();
 
         uint256 chunkCount = chunks.length;
         for (uint256 i = 0; i < chunkCount; i++) {
@@ -301,7 +303,7 @@ contract BillingContract is WorldIDBase, IBillingContract {
         TimingEra storage current = _timingEras[_timingEras.length - 1];
 
         // If the current era has not started yet (repeated change within one epoch, or a genesis
-        // that has not started), no epoch is governed by it: update its parameters in place.
+        // that has not started), update its parameters in place.
         if (block.timestamp < current.startTime) {
             current.epochLength = epochLength;
             current.votingWindow = votingWindow;
@@ -351,12 +353,13 @@ contract BillingContract is WorldIDBase, IBillingContract {
 
     /// @inheritdoc IBillingContract
     function isBlocked(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (bool) {
-        uint256 cursor = _unpaidEpochCursor[rpId];
-        uint32[] storage epochs = _unpaidEpochs[rpId];
+        RpState storage state = _rpState[rpId];
+        uint256 cursor = state.unpaidCursor;
+        UnpaidEpoch[] storage unpaid = state.unpaidEpochs;
         // No unpaid epochs remain once the cursor reaches the end, so nothing can be overdue.
         // This also guards the indexed read below against an out-of-bounds access.
-        if (cursor >= epochs.length) return false;
-        return block.timestamp > _paymentDue(epochs[cursor]);
+        if (cursor >= unpaid.length) return false;
+        return block.timestamp > _paymentDue(unpaid[cursor].epoch);
     }
 
     /// @inheritdoc IBillingContract
@@ -374,10 +377,11 @@ contract BillingContract is WorldIDBase, IBillingContract {
 
     /// @inheritdoc IBillingContract
     function outstandingDebt(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (uint256 amount) {
-        uint32[] storage epochs = _unpaidEpochs[rpId];
-        uint256 len = epochs.length;
-        for (uint256 cursor = _unpaidEpochCursor[rpId]; cursor < len; cursor++) {
-            amount += _epochOwed[epochs[cursor]][rpId];
+        RpState storage state = _rpState[rpId];
+        UnpaidEpoch[] storage unpaid = state.unpaidEpochs;
+        uint256 len = unpaid.length;
+        for (uint256 cursor = state.unpaidCursor; cursor < len; cursor++) {
+            amount += unpaid[cursor].amount;
         }
     }
 
@@ -439,10 +443,10 @@ contract BillingContract is WorldIDBase, IBillingContract {
     //                   INTERNAL FUNCTIONS                   //
     ////////////////////////////////////////////////////////////
 
-    /// @dev The era governing epoch `epoch`: the newest era with `startEpoch <= epoch`. The walk
+    /// @dev The TimingEra governing epoch `epoch`: the newest era with `startEpoch <= epoch`. The walk
     ///      starts at the current era (the common case), and era 0 (`startEpoch == 0`) matches any
     ///      epoch, so the lookup always resolves.
-    function _eraOf(uint256 epoch) internal view returns (TimingEra storage) {
+    function _eraOf(uint32 epoch) internal view returns (TimingEra storage) {
         uint256 i = _timingEras.length - 1;
         while (i > 0 && epoch < _timingEras[i].startEpoch) {
             unchecked {
@@ -452,39 +456,31 @@ contract BillingContract is WorldIDBase, IBillingContract {
         return _timingEras[i];
     }
 
-    /// @dev The era an epoch's voting window (and payment window) is governed by. An era's
-    ///      parameters govern its timespan, and the window opens at `epochEnd(epoch)` — the start
-    ///      of epoch `epoch + 1` — so it is governed by that epoch's era. This keeps window
-    ///      closes monotone in epoch number across era changes (given the per-era
-    ///      `votingWindow <= epochLength` invariant), which {_latestClosedEpoch} and sequential
-    ///      finalization rely on. See {IBillingContract.TimingEra} for a worked example.
-    function _windowEra(uint32 epoch) internal view returns (TimingEra storage) {
-        return _eraOf(uint256(epoch) + 1);
+    /// @dev The TimingEra an epoch's voting window (and payment window) is governed by.
+    //       On the last epoch of an era, the size of the voting window is governed by the next era to prevent overlapping voting windows.
+    function _votingWindowEraOf(uint32 epoch) internal view returns (TimingEra storage) {
+        return _eraOf(epoch + 1);
     }
 
-    /// @dev The payment-due timestamp for `epoch`: end of its voting window plus the payment
-    ///      window, both from the epoch's own window era — historic deadlines never move when
-    ///      timing parameters change.
+    /// @dev The payment-due timestamp for `epoch`: end of its voting window plus the payment window from the voting window era.
     function _paymentDue(uint32 epoch) internal view returns (uint64) {
-        TimingEra storage era = _windowEra(epoch);
+        TimingEra storage era = _votingWindowEraOf(epoch);
         return epochEnd(epoch) + era.votingWindow + era.paymentWindow;
     }
 
     /// @dev Clears `rp`'s finalized debt through `uptoEpoch`, then advances its unpaid-epoch cursor.
     function _clearDebtThrough(uint64 rp, uint32 uptoEpoch) internal returns (uint256 amount) {
-        uint256 cursor = _unpaidEpochCursor[rp];
+        RpState storage state = _rpState[rp];
+        UnpaidEpoch[] storage unpaid = state.unpaidEpochs;
+        uint256 cursor = state.unpaidCursor;
 
-        while (cursor < _unpaidEpochs[rp].length) {
-            uint32 epoch = _unpaidEpochs[rp][cursor];
+        while (cursor < unpaid.length) {
+            UnpaidEpoch storage entry = unpaid[cursor];
+            uint32 epoch = entry.epoch;
             if (epoch > uptoEpoch) break;
 
-            uint256 debt = _epochOwed[epoch][rp];
-            if (debt != 0) {
-                amount += debt;
-                delete _epochOwed[epoch][rp];
-            }
-
-            delete _unpaidEpochs[rp][cursor];
+            amount += entry.amount;
+            delete unpaid[cursor];
 
             unchecked {
                 cursor++;
@@ -493,9 +489,9 @@ contract BillingContract is WorldIDBase, IBillingContract {
 
         // The cursor advances monotonically and is never reset: paid slots are already zeroed
         // above, so live storage stays bounded by the outstanding backlog without an O(n) array
-        // delete on the clearing payment. When fully paid, `cursor == _unpaidEpochs[rp].length`,
+        // delete on the clearing payment. When fully paid, `cursor == unpaidEpochs.length`,
         // which `is_blocked` and `outstandingDebt` treat as "no outstanding debt".
-        _unpaidEpochCursor[rp] = cursor;
+        state.unpaidCursor = uint64(cursor);
     }
 
     /// @dev The latest epoch whose voting window has fully closed, if any — exact across eras.
@@ -542,25 +538,12 @@ contract BillingContract is WorldIDBase, IBillingContract {
         return false;
     }
 
-    /// @dev Whether `signer` has submitted any chunk for `epoch`.
-    function _isSubmitter(uint32 epoch, address signer) internal view returns (bool) {
-        address[] storage submitters = _epochSubmitters[epoch];
-        uint256 submitterCount = submitters.length;
-        for (uint256 i = 0; i < submitterCount; i++) {
-            if (submitters[i] == signer) return true;
-        }
-        return false;
-    }
-
     /// @dev Prunes epoch-level transient state after all queued RPs for `epoch` are finalized.
     function _pruneFinalizedEpoch(uint32 epoch) internal {
         address[] storage submitters = _epochSubmitters[epoch];
         uint256 submitterCount = submitters.length;
         for (uint256 i = 0; i < submitterCount; i++) {
-            address signer = submitters[i];
-            delete _hasVoted[epoch][signer];
-            delete _nextChunkIndex[epoch][signer];
-            delete _lastChunkRpId[epoch][signer];
+            delete _submitterState[epoch][submitters[i]];
         }
         delete _epochSubmitters[epoch];
         delete _epochVoters[epoch];
@@ -585,8 +568,8 @@ contract BillingContract is WorldIDBase, IBillingContract {
         uint256 fee = _calculateTieredFee(base, median_count);
 
         if (fee > 0) {
-            _epochOwed[epoch][rp] = fee;
-            _unpaidEpochs[rp].push(epoch);
+            if (fee > type(uint224).max) revert FeeOverflow();
+            _rpState[rp].unpaidEpochs.push(UnpaidEpoch({epoch: epoch, amount: uint224(fee)}));
         }
 
         emit EpochRpFinalized(epoch, rp, median_count, fee);
@@ -599,17 +582,17 @@ contract BillingContract is WorldIDBase, IBillingContract {
     {
         // Check if the epoch is a new period boundary and reset the period count if so
         uint32 periodIdx = epoch / _rebatePeriodEpochs;
-        PeriodState storage period = _periodState[rp];
-        if (period.index != periodIdx) {
-            period.index = periodIdx;
-            period.count = 0;
+        RpState storage state = _rpState[rp];
+        if (state.periodIndex != periodIdx) {
+            state.periodIndex = periodIdx;
+            state.periodCount = 0;
         }
 
         // Return the previous period count
-        base = period.count;
+        base = state.periodCount;
         uint256 newPeriodCount = base + epoch_count;
         if (newPeriodCount > type(uint224).max) revert PeriodStateOverflow();
-        period.count = uint224(newPeriodCount);
+        state.periodCount = uint224(newPeriodCount);
     }
 
     /// @dev The lower median of an RP's submitted counts for `epoch`, with missing votes counted as
@@ -671,22 +654,23 @@ contract BillingContract is WorldIDBase, IBillingContract {
         address signer = ECDSA.recover(digest, chunk.signature);
 
         if (!_isNode(signer)) revert NotANode();
-        if (_hasVoted[epoch][signer]) revert VoteAlreadyClosed();
 
-        uint32 expectedChunkIndex = _nextChunkIndex[epoch][signer];
+        SubmitterState storage sub = _submitterState[epoch][signer];
+        if (sub.hasVoted) revert VoteAlreadyClosed();
+
+        uint32 expectedChunkIndex = sub.nextChunkIndex;
         if (chunk.chunkIndex != expectedChunkIndex) revert UnexpectedChunkIndex();
         // Check if RP id is ascending
-        uint64 previousRpId = _lastChunkRpId[epoch][signer];
         if (chunk.counts.length != 0) {
             uint64 firstRpId = chunk.counts[0].rpId;
-            if (firstRpId <= previousRpId) revert CountsNotAscending();
-            _lastChunkRpId[epoch][signer] = lastRpId;
+            if (firstRpId <= sub.lastChunkRpId) revert CountsNotAscending();
+            sub.lastChunkRpId = lastRpId;
         }
-        // Push signer to submitters if this is their first chunk for the epoch
-        if (!_isSubmitter(epoch, signer)) {
+        // A zero chunk cursor means this is the signer's first chunk for the epoch
+        if (expectedChunkIndex == 0) {
             _epochSubmitters[epoch].push(signer);
         }
-        _nextChunkIndex[epoch][signer] = expectedChunkIndex + 1;
+        sub.nextChunkIndex = expectedChunkIndex + 1;
         // Update vote counts for each RP in the chunk
         uint256 len = chunk.counts.length;
         for (uint256 i = 0; i < len; i++) {
@@ -700,7 +684,7 @@ contract BillingContract is WorldIDBase, IBillingContract {
         }
         // If this is the final chunk for the epoch, mark the signer as voted
         if (chunk.isFinal) {
-            _hasVoted[epoch][signer] = true;
+            sub.hasVoted = true;
             _epochVoters[epoch].push(signer);
         }
     }

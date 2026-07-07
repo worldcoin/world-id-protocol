@@ -140,6 +140,9 @@ interface IBillingContract {
     /// @dev Thrown when rebate-period accounting cannot fit in the packed period state.
     error PeriodStateOverflow();
 
+    /// @dev Thrown when a finalized epoch fee cannot fit in the packed unpaid-epoch state.
+    error FeeOverflow();
+
     ////////////////////////////////////////////////////////////
     //                        EVENTS                          //
     ////////////////////////////////////////////////////////////
