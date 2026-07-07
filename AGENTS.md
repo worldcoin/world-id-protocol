@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## Knowledge graph (Experimental)
+
+This project MAY have a knowledge graph at `graph/`. If it does, look at the `graph/AGENTS.md` file first for instructions and you can ignore the rest of this file.
+
 ## Repo Overview
 - Rust workspace + Solidity contracts + Circom circuits + deployable services.
 - See `README.md` for global status and prerequisites.
