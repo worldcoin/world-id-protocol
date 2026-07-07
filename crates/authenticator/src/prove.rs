@@ -616,20 +616,13 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg(feature = "embed-zkeys")]
+    #[cfg(all(feature = "embed-zkeys", feature = "embed-ownership-prover"))]
     async fn test_prove_credential_sub_succeeds_with_correct_sub() {
         use world_id_primitives::Credential;
         use world_id_proof::artifacts::{ZkArtifactSourceExt as _, embedded::EmbeddedZkArtifacts};
 
         let leaf_index = 1u64;
         let zk_artifact_source = EmbeddedZkArtifacts.cached();
-        if let Err(err) = zk_artifact_source.ownership_prover() {
-            if err.to_string().contains("enable `embed-noir-artifacts`") {
-                eprintln!("skipping ownership proof generation test: {err}");
-                return;
-            }
-            panic!("failed to load ownership prover: {err:?}");
-        }
         let (authenticator, inclusion_proof) =
             build_test_authenticator(&[42u8; 32], leaf_index, Arc::new(zk_artifact_source));
 

@@ -44,6 +44,6 @@
 - `crates/core/`: Top-level integration layer that exposes full protocol functionality.
 - `crates/issuer/`: Issuer functionality for World ID.
 - `crates/primitives/`: Foundational raw types with minimal dependencies.
-- `crates/proof/`: Proof generation/verification; optional `embed-zkeys`/`compress-zkeys` features.
+- `crates/proof/`: Proof generation/verification; ZK artifacts provided at runtime via `ZkArtifactSource`, with opt-in embed features (`embed-zkeys`, `embed-ownership-prover`/`-verifier`, umbrella `embed-zk-artifacts`); nothing is embedded by default.
 - `crates/test-utils/`: Shared test helpers for integration/e2e tests across crates and services.
 - `crates/zk-mobile-bench/`: Mobile benchmarks for World ID ZK proof generation, used by CI via mobench.
