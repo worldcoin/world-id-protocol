@@ -70,35 +70,10 @@ pub fn load_ownership_verifier_from_path(
     provekit_common::file::read(path.as_ref()).map_err(|e| eyre::eyre!(e.to_string()))
 }
 
-#[cfg(all(feature = "embed-noir-artifacts", not(docsrs)))]
-const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
-
-#[cfg(all(feature = "embed-noir-artifacts", docsrs))]
-const PKP_BYTES: &[u8] = &[];
-
-/// Loads the embedded ownership proof prover.
-///
-/// # Errors
-/// Returns an error if embedded Noir artifacts are missing or invalid.
 #[cfg(feature = "embed-noir-artifacts")]
-pub fn load_embedded_ownership_prover() -> eyre::Result<provekit_common::Prover> {
-    load_ownership_prover_from_reader(PKP_BYTES)
-}
-
-#[cfg(all(feature = "embed-noir-artifacts", not(docsrs)))]
-const PKV_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkv"));
-
-#[cfg(all(feature = "embed-noir-artifacts", docsrs))]
-const PKV_BYTES: &[u8] = &[];
-
-/// Loads the embedded ownership proof verifier.
-///
-/// # Errors
-/// Returns an error if embedded Noir artifacts are missing or invalid.
-#[cfg(feature = "embed-noir-artifacts")]
-pub fn load_embedded_ownership_verifier() -> eyre::Result<provekit_common::Verifier> {
-    load_ownership_verifier_from_reader(PKV_BYTES)
-}
+pub use crate::artifacts::embedded::{
+    load_embedded_ownership_prover, load_embedded_ownership_verifier,
+};
 
 /// Generates an ownership proof using artifacts from the provided source.
 ///
@@ -254,13 +229,8 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
 
 #[cfg(all(test, feature = "embed-noir-artifacts"))]
 mod tests {
-    use std::sync::Arc;
-
     use crate::{
-        OwnershipProver, OwnershipVerifier,
-        artifacts::{ZkArtifactError, ZkArtifactKind},
-        circuit_inputs::OwnershipProofCircuitInput,
-        proof::CircomGroth16Material,
+        artifacts::embedded::EmbeddedZkArtifacts, circuit_inputs::OwnershipProofCircuitInput,
     };
 
     use super::*;
@@ -271,34 +241,6 @@ mod tests {
     };
 
     const LEAF_INDEX: u64 = 1;
-
-    struct EmbeddedOwnershipArtifacts;
-
-    impl crate::artifacts::ZkArtifactSource for EmbeddedOwnershipArtifacts {
-        fn query_material(&self) -> Result<Arc<CircomGroth16Material>, ZkArtifactError> {
-            Err(ZkArtifactError::NotProvided {
-                kind: ZkArtifactKind::QueryMaterial,
-                detail: Some("unused by ownership proof tests".to_owned()),
-            })
-        }
-
-        fn nullifier_material(&self) -> Result<Arc<CircomGroth16Material>, ZkArtifactError> {
-            Err(ZkArtifactError::NotProvided {
-                kind: ZkArtifactKind::NullifierMaterial,
-                detail: Some("unused by ownership proof tests".to_owned()),
-            })
-        }
-
-        fn ownership_prover(&self) -> Result<OwnershipProver, ZkArtifactError> {
-            load_embedded_ownership_prover()
-                .map_err(|e| ZkArtifactError::load(ZkArtifactKind::OwnershipProver, e))
-        }
-
-        fn ownership_verifier(&self) -> Result<OwnershipVerifier, ZkArtifactError> {
-            load_embedded_ownership_verifier()
-                .map_err(|e| ZkArtifactError::load(ZkArtifactKind::OwnershipVerifier, e))
-        }
-    }
 
     fn build_merkle_proof(leaf: ark_bn254::Fr) -> MerkleInclusionProof<TREE_DEPTH> {
         let (siblings, root) = world_id_test_utils::merkle::first_leaf_merkle_path(leaf);
@@ -335,7 +277,7 @@ mod tests {
             commitment_blinder,
         };
 
-        let artifacts = EmbeddedOwnershipArtifacts;
+        let artifacts = EmbeddedZkArtifacts;
         let proof = generate_ownership_proof(circuit_input, &artifacts).unwrap();
 
         // Public input: merkle root is directly accessible
@@ -351,7 +293,7 @@ mod tests {
 
         // Verification succeeds with correct public inputs. Depth is currently hardcoded in the
         // verification call.
-        let artifacts = EmbeddedOwnershipArtifacts;
+        let artifacts = EmbeddedZkArtifacts;
         verify_ownership_proof(&proof, nonce, commitment, &artifacts)
             .expect("ownership proof verifies");
 
@@ -380,7 +322,7 @@ mod tests {
         merkle_root_bytes[31] ^= 0x01;
         tampered_proof.merkle_root = FieldElement::from_be_bytes(&merkle_root_bytes).unwrap();
 
-        let artifacts = EmbeddedOwnershipArtifacts;
+        let artifacts = EmbeddedZkArtifacts;
         let err =
             verify_ownership_proof(&tampered_proof, nonce, commitment, &artifacts).unwrap_err();
         assert!(matches!(err, ProofError::Verification(_)));
@@ -393,7 +335,7 @@ mod tests {
         let mut tampered_proof = proof.clone();
         tampered_proof.proof.narg_string[0] ^= 0x01;
 
-        let artifacts = EmbeddedOwnershipArtifacts;
+        let artifacts = EmbeddedZkArtifacts;
         let err =
             verify_ownership_proof(&tampered_proof, nonce, commitment, &artifacts).unwrap_err();
         assert!(matches!(err, ProofError::Verification(_)));

@@ -47,68 +47,17 @@ pub const QUERY_GRAPH_FINGERPRINT: &str =
 pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
     "c1d951716e3b74b72e4ea0429986849cadc43cccc630a7ee44a56a6199a66b9a";
 
-#[cfg(all(feature = "embed-zkeys", not(docsrs)))]
-const CIRCUIT_ARCHIVE: &[u8] = {
-    #[cfg(feature = "zstd-compress-zkeys")]
-    {
-        include_bytes!(concat!(env!("OUT_DIR"), "/circuit_files.tar.zst"))
-    }
-    #[cfg(not(feature = "zstd-compress-zkeys"))]
-    {
-        include_bytes!(concat!(env!("OUT_DIR"), "/circuit_files.tar"))
-    }
-};
-
-#[cfg(all(feature = "embed-zkeys", docsrs))]
-const CIRCUIT_ARCHIVE: &[u8] = &[];
-
-#[cfg(feature = "embed-zkeys")]
-#[derive(Clone, Debug)]
-pub struct EmbeddedCircuitFiles {
-    /// Embedded query witness graph bytes.
-    pub query_graph: Vec<u8>,
-    /// Embedded nullifier witness graph bytes.
-    pub nullifier_graph: Vec<u8>,
-    /// Embedded query zkey bytes (decompressed if `compress-zkeys` is enabled).
-    pub query_zkey: Vec<u8>,
-    /// Embedded nullifier zkey bytes (decompressed if `compress-zkeys` is enabled).
-    pub nullifier_zkey: Vec<u8>,
-}
-
 // ============================================================================
 // Circuit Material Loaders
 // ============================================================================
 
-/// Loads the [`CircomGroth16Material`] for the uniqueness proof (internally also nullifier proof)
-/// from the embedded keys in the binary without caching.
-///
-/// # Returns
-/// The nullifier material.
-///
-/// # Errors
-/// Will return an error if the zkey file cannot be loaded.
+#[cfg(feature = "compress-zkeys")]
+pub use crate::artifacts::embedded::ark_decompress_zkey;
 #[cfg(feature = "embed-zkeys")]
-pub fn load_embedded_nullifier_material() -> eyre::Result<CircomGroth16Material> {
-    let files = load_embedded_circuit_files()?;
-    load_nullifier_material_from_reader(
-        files.nullifier_zkey.as_slice(),
-        files.nullifier_graph.as_slice(),
-    )
-}
-
-/// Loads the [`CircomGroth16Material`] for the uniqueness proof (internally also query proof)
-/// from the optional zkey file or from embedded keys in the binary.
-///
-/// # Returns
-/// The query material
-///
-/// # Errors
-/// Will return an error if the zkey file cannot be loaded.
-#[cfg(feature = "embed-zkeys")]
-pub fn load_embedded_query_material() -> eyre::Result<CircomGroth16Material> {
-    let files = load_embedded_circuit_files()?;
-    load_query_material_from_reader(files.query_zkey.as_slice(), files.query_graph.as_slice())
-}
+pub use crate::artifacts::embedded::{
+    EmbeddedCircuitFiles, load_embedded_circuit_files, load_embedded_nullifier_material,
+    load_embedded_query_material,
+};
 
 /// Loads the [`CircomGroth16Material`] for the nullifier proof from the provided reader.
 ///
@@ -152,100 +101,6 @@ pub fn load_query_material_from_paths(
     graph: impl AsRef<Path>,
 ) -> eyre::Result<CircomGroth16Material> {
     Ok(build_query_builder().build_from_paths(zkey, graph)?)
-}
-
-#[cfg(feature = "embed-zkeys")]
-pub fn load_embedded_circuit_files() -> eyre::Result<EmbeddedCircuitFiles> {
-    init_circuit_files()
-}
-
-#[cfg(feature = "embed-zkeys")]
-fn init_circuit_files() -> eyre::Result<EmbeddedCircuitFiles> {
-    use std::io::Read as _;
-
-    use eyre::ContextCompat;
-
-    // Step 1: Decode archive bytes (optional zstd decompression)
-    let tar_bytes: Vec<u8> = {
-        #[cfg(feature = "zstd-compress-zkeys")]
-        {
-            zstd::stream::decode_all(CIRCUIT_ARCHIVE)?
-        }
-        #[cfg(not(feature = "zstd-compress-zkeys"))]
-        {
-            CIRCUIT_ARCHIVE.to_vec()
-        }
-    };
-
-    // Step 2: Untar — extract 4 entries by filename
-    let mut query_graph = None;
-    let mut nullifier_graph = None;
-    let mut query_zkey = None;
-    let mut nullifier_zkey = None;
-
-    let mut archive = tar::Archive::new(tar_bytes.as_slice());
-    for entry in archive.entries()? {
-        let mut entry = entry?;
-        let path = entry.path()?.to_path_buf();
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default();
-
-        let mut buf = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut buf)?;
-
-        match name {
-            "OPRFQueryGraph.bin" => query_graph = Some(buf),
-            "OPRFNullifierGraph.bin" => nullifier_graph = Some(buf),
-            "OPRFQuery.arks.zkey" => query_zkey = Some(buf),
-            "OPRFNullifier.arks.zkey" => nullifier_zkey = Some(buf),
-            _ => {}
-        }
-    }
-
-    let query_graph = query_graph.context("OPRFQueryGraph.bin not found in archive")?;
-    let nullifier_graph = nullifier_graph.context("OPRFNullifierGraph.bin not found in archive")?;
-    #[allow(unused_mut)]
-    let mut query_zkey = query_zkey.context("OPRFQuery zkey not found in archive")?;
-    #[allow(unused_mut)]
-    let mut nullifier_zkey = nullifier_zkey.context("OPRFNullifier zkey not found in archive")?;
-
-    // Step 3: ARK decompress zkeys if compress-zkeys is active
-    #[cfg(feature = "compress-zkeys")]
-    {
-        if let Ok(decompressed) = ark_decompress_zkey(&query_zkey) {
-            query_zkey = decompressed;
-        }
-        if let Ok(decompressed) = ark_decompress_zkey(&nullifier_zkey) {
-            nullifier_zkey = decompressed;
-        }
-    }
-
-    Ok(EmbeddedCircuitFiles {
-        query_graph,
-        nullifier_graph,
-        query_zkey,
-        nullifier_zkey,
-    })
-}
-
-/// ARK-decompresses a zkey.
-#[cfg(feature = "compress-zkeys")]
-pub fn ark_decompress_zkey(compressed: &[u8]) -> eyre::Result<Vec<u8>> {
-    let zkey = <circom_types::groth16::ArkZkey<Bn254> as ark_serialize::CanonicalDeserialize>::deserialize_with_mode(
-        compressed,
-        ark_serialize::Compress::Yes,
-        ark_serialize::Validate::Yes,
-    )?;
-
-    let mut uncompressed = Vec::new();
-    ark_serialize::CanonicalSerialize::serialize_with_mode(
-        &zkey,
-        &mut uncompressed,
-        ark_serialize::Compress::No,
-    )?;
-    Ok(uncompressed)
 }
 
 fn build_nullifier_builder() -> CircomGroth16MaterialBuilder {
