@@ -5548,6 +5548,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
+name = "legacy-recovery-migration"
+version = "0.12.0"
+dependencies = [
+ "alloy",
+ "clap",
+ "eyre",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber 0.3.22",
+ "world-id-registries",
+]
+
+[[package]]
 name = "libaes"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
