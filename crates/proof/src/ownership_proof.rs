@@ -222,7 +222,11 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
     }
 }
 
-#[cfg(all(test, feature = "embed-noir-artifacts"))]
+#[cfg(all(
+    test,
+    feature = "embed-ownership-prover",
+    feature = "embed-ownership-verifier"
+))]
 mod tests {
     use crate::{
         artifacts::embedded::EmbeddedZkArtifacts, circuit_inputs::OwnershipProofCircuitInput,

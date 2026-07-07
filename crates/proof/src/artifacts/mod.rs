@@ -33,7 +33,11 @@ pub trait ZkArtifactSource: Send + Sync {
 
 pub mod cached;
 pub mod dummy;
-#[cfg(any(feature = "embed-zkeys", feature = "embed-noir-artifacts"))]
+#[cfg(any(
+    feature = "embed-zkeys",
+    feature = "embed-ownership-prover",
+    feature = "embed-ownership-verifier"
+))]
 pub mod embedded;
 pub mod error;
 #[cfg(not(target_arch = "wasm32"))]
