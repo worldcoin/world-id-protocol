@@ -6,7 +6,11 @@ use crate::{OwnershipProver, OwnershipVerifier, proof::CircomGroth16Material};
 
 pub mod cached;
 pub mod dummy;
-#[cfg(feature = "embed-zkeys")]
+#[cfg(any(
+    feature = "embed-zkeys",
+    feature = "embed-ownership-prover",
+    feature = "embed-ownership-verifier"
+))]
 pub mod embedded;
 pub mod filesystem;
 

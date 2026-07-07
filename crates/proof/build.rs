@@ -56,7 +56,10 @@ fn main() -> eyre::Result<()> {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
-    #[cfg(feature = "embed-noir-artifacts")]
+    #[cfg(any(
+        feature = "embed-ownership-prover",
+        feature = "embed-ownership-verifier"
+    ))]
     if should_embed_noir_artifacts() {
         setup_noir_ownership_proof(&out_dir)?;
     }
@@ -122,11 +125,13 @@ fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "embed-noir-artifacts")]
+#[cfg(any(
+    feature = "embed-ownership-prover",
+    feature = "embed-ownership-verifier"
+))]
 fn should_embed_noir_artifacts() -> bool {
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").ok();
-    target_arch.as_deref() != Some("wasm32")
-        && env::var_os("CARGO_FEATURE_EMBED_NOIR_ARTIFACTS").is_some()
+    // Ownership proof artifacts are not supported on wasm32.
+    env::var("CARGO_CFG_TARGET_ARCH").as_deref() != Ok("wasm32")
 }
 
 fn circuit_artifact_release_tag() -> String {
@@ -305,7 +310,10 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
 /// The exact nargo version required to produce artifacts byte-identical to
 /// every other builder's. Must match the pin in `flake.nix` (`nix/nargo.nix`)
 /// and what provekit expects (see https://github.com/worldfnd/provekit).
-#[cfg(feature = "embed-noir-artifacts")]
+#[cfg(any(
+    feature = "embed-ownership-prover",
+    feature = "embed-ownership-verifier"
+))]
 const REQUIRED_NARGO_VERSION: &str = "1.0.0-beta.11";
 
 /// Checks that `nargo` is on PATH and is exactly [`REQUIRED_NARGO_VERSION`].
@@ -313,7 +321,10 @@ const REQUIRED_NARGO_VERSION: &str = "1.0.0-beta.11";
 /// A different version may produce proving/verifying keys that are not
 /// byte-identical to everyone else's, causing proofs that other parties
 /// reject — so this fails hard instead of proceeding.
-#[cfg(feature = "embed-noir-artifacts")]
+#[cfg(any(
+    feature = "embed-ownership-prover",
+    feature = "embed-ownership-verifier"
+))]
 fn check_nargo() -> eyre::Result<()> {
     use std::process::Command;
 
@@ -349,7 +360,10 @@ fn check_nargo() -> eyre::Result<()> {
 /// proving/verifying keys must come from the checked-in circuit source, built
 /// with the pinned nargo toolchain (see `flake.nix`), so every builder
 /// produces identical bytes.
-#[cfg(feature = "embed-noir-artifacts")]
+#[cfg(any(
+    feature = "embed-ownership-prover",
+    feature = "embed-ownership-verifier"
+))]
 fn setup_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
     use std::process::Command;
 

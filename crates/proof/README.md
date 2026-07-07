@@ -22,10 +22,15 @@ Each ZK artifact type has exactly one way of being obtained:
 
 ### Features
 
+By default **nothing is embedded**: ZK artifacts are provided at runtime through a
+`ZkArtifactSource` (embedded, filesystem, or a client-provided implementation).
+Embedding artifacts into the binary is an explicit opt-in per artifact:
+
 ##### `embed-zkeys`
 
-build.rs will include the Circom zkey files into the binary (committed files when building
-in-repo, otherwise downloaded from the pinned GitHub release).
+build.rs will include the Circom zkey files (query + nullifier proof material) into the
+binary (committed files when building in-repo, otherwise downloaded from the pinned GitHub
+release).
 
 Download from github is done as a workaround to circumvent the max crates.io hosting limit.
 
@@ -34,18 +39,20 @@ Download from github is done as a workaround to circumvent the max crates.io hos
 build.rs will additionally compress the zkey files before embedding them.
 At runtime, zkeys are decompressed in memory during initialization.
 
-##### `embed-noir-artifacts`
+##### `embed-ownership-prover` / `embed-ownership-verifier`
 
-build.rs will build the Noir ownership proof artifacts with `nargo` and include them into
-the binary. Requires `nargo` on PATH at the pinned version — use `nix develop` or:
+build.rs will build the Noir ownership proof artifacts with `nargo` and embed the selected
+one(s) into the binary. The prover is multi-MB; verifying-only consumers should enable just
+the verifier. Requires `nargo` on PATH at the pinned version — use `nix develop` or:
 
 ```sh
 noirup --version v1.0.0-beta.11
 ```
 
-##### neither `compress-zkeys` or `embed-zkeys`
+##### Umbrellas
 
-zkey files are not included in the bin.
+- `embed-noir-artifacts` = ownership prover + verifier
+- `embed-zk-artifacts` = everything
 
 ## Circom circuit artifacts
 

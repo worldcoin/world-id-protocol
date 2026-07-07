@@ -70,32 +70,32 @@ pub fn load_ownership_verifier_from_path(
     provekit_common::file::read(path.as_ref()).map_err(|e| eyre::eyre!(e.to_string()))
 }
 
-#[cfg(all(feature = "embed-noir-artifacts", not(docsrs)))]
+#[cfg(all(feature = "embed-ownership-prover", not(docsrs)))]
 const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
 
-#[cfg(all(feature = "embed-noir-artifacts", docsrs))]
+#[cfg(all(feature = "embed-ownership-prover", docsrs))]
 const PKP_BYTES: &[u8] = &[];
 
 /// Loads the embedded ownership proof prover.
 ///
 /// # Errors
 /// Returns an error if embedded Noir artifacts are missing or invalid.
-#[cfg(feature = "embed-noir-artifacts")]
+#[cfg(feature = "embed-ownership-prover")]
 pub fn load_embedded_ownership_prover() -> eyre::Result<provekit_common::Prover> {
     load_ownership_prover_from_reader(PKP_BYTES)
 }
 
-#[cfg(all(feature = "embed-noir-artifacts", not(docsrs)))]
+#[cfg(all(feature = "embed-ownership-verifier", not(docsrs)))]
 const PKV_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkv"));
 
-#[cfg(all(feature = "embed-noir-artifacts", docsrs))]
+#[cfg(all(feature = "embed-ownership-verifier", docsrs))]
 const PKV_BYTES: &[u8] = &[];
 
 /// Loads the embedded ownership proof verifier.
 ///
 /// # Errors
 /// Returns an error if embedded Noir artifacts are missing or invalid.
-#[cfg(feature = "embed-noir-artifacts")]
+#[cfg(feature = "embed-ownership-verifier")]
 pub fn load_embedded_ownership_verifier() -> eyre::Result<provekit_common::Verifier> {
     load_ownership_verifier_from_reader(PKV_BYTES)
 }
@@ -252,7 +252,11 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
     }
 }
 
-#[cfg(all(test, feature = "embed-noir-artifacts"))]
+#[cfg(all(
+    test,
+    feature = "embed-ownership-prover",
+    feature = "embed-ownership-verifier"
+))]
 mod tests {
     use std::sync::Arc;
 
