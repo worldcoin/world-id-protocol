@@ -32,8 +32,8 @@ fn main() -> eyre::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
     #[cfg(feature = "embed-noir-artifacts")]
-    if should_embed_noir_artifacts() {
-        setup_noir_ownership_proof(&out_dir)?;
+    if noir_artifacts::should_embed() {
+        noir_artifacts::setup(&out_dir)?;
     }
 
     if env::var("CARGO_FEATURE_EMBED_ZKEYS").is_err() {
@@ -95,13 +95,6 @@ fn main() -> eyre::Result<()> {
     }
 
     Ok(())
-}
-
-#[cfg(feature = "embed-noir-artifacts")]
-fn should_embed_noir_artifacts() -> bool {
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").ok();
-    target_arch.as_deref() != Some("wasm32")
-        && env::var_os("CARGO_FEATURE_EMBED_NOIR_ARTIFACTS").is_some()
 }
 
 fn circuit_artifact_url(file_name: &str) -> String {
@@ -230,101 +223,106 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
     Ok(())
 }
 
-/// The exact nargo version required to produce artifacts byte-identical to
-/// every other builder's. Must match the pin in `flake.nix` (`nix/nargo.nix`)
-/// and what provekit expects (see https://github.com/worldfnd/provekit).
 #[cfg(feature = "embed-noir-artifacts")]
-const REQUIRED_NARGO_VERSION: &str = "1.0.0-beta.11";
-
-/// Checks that `nargo` is on PATH and is exactly [`REQUIRED_NARGO_VERSION`].
-///
-/// A different version may produce proving/verifying keys that are not
-/// byte-identical to everyone else's, causing proofs that other parties
-/// reject — so this fails hard instead of proceeding.
-#[cfg(feature = "embed-noir-artifacts")]
-fn check_nargo() -> eyre::Result<()> {
+mod noir_artifacts {
     use std::process::Command;
 
-    let output = Command::new("nargo")
-        .arg("--version")
-        .output()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                eyre::eyre!(
-                    "`nargo` was not found on PATH. It is required to build the Noir ownership \
-                     proof artifacts. Install it with `nix develop` (the repo flake pins the \
-                     right version) or `noirup --version v{REQUIRED_NARGO_VERSION}`"
-                )
-            } else {
-                eyre::eyre!("failed to run `nargo --version`: {e}")
-            }
-        })?;
-
-    let version_output = String::from_utf8_lossy(&output.stdout);
-    if !version_output.contains(REQUIRED_NARGO_VERSION) {
-        eyre::bail!(
-            "wrong nargo version: need exactly {REQUIRED_NARGO_VERSION} to produce artifacts \
-             byte-identical to other builders'. `nargo --version` reported:\n{version_output}\n\
-             Install the pinned version with `nix develop` or `noirup --version v{REQUIRED_NARGO_VERSION}`"
-        );
-    }
-
-    Ok(())
-}
-
-/// Builds the Noir ownership proof artifacts ad-hoc with `nargo` and the
-/// provekit R1CS compiler. This is the only way to obtain them: the
-/// proving/verifying keys must come from the checked-in circuit source, built
-/// with the pinned nargo toolchain (see `flake.nix`), so every builder
-/// produces identical bytes.
-#[cfg(feature = "embed-noir-artifacts")]
-fn setup_noir_ownership_proof(out_dir: &Path) -> eyre::Result<()> {
-    use std::process::Command;
-
+    use super::*;
     use provekit_common::{NoirProofScheme, Prover, Verifier};
     use provekit_r1cs_compiler::NoirProofSchemeBuilder as _;
 
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let circuit_dir = manifest_dir.join("noir/ownership-proof");
+    /// The exact nargo version required to produce artifacts byte-identical to
+    /// every other builder's. Must match the pin in `flake.nix` (`nix/nargo.nix`)
+    /// and what provekit expects (see https://github.com/worldfnd/provekit).
+    const REQUIRED_NARGO_VERSION: &str = "1.0.0-beta.11";
 
-    println!(
-        "cargo:rerun-if-changed={}",
-        circuit_dir.join("src").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        circuit_dir.join("Nargo.toml").display()
-    );
-
-    check_nargo()?;
-
-    let nargo_output = Command::new("nargo")
-        .arg("compile")
-        .current_dir(&circuit_dir)
-        .output()
-        .map_err(|e| eyre::eyre!("failed to run nargo: {e}"))?;
-
-    if !nargo_output.status.success() {
-        let stderr = String::from_utf8_lossy(&nargo_output.stderr);
-        eyre::bail!("nargo compile failed:\n{stderr}");
+    pub(super) fn should_embed() -> bool {
+        let target_arch = env::var("CARGO_CFG_TARGET_ARCH").ok();
+        target_arch.as_deref() != Some("wasm32")
+            && env::var_os("CARGO_FEATURE_EMBED_NOIR_ARTIFACTS").is_some()
     }
 
-    let scheme = NoirProofScheme::from_file(circuit_dir.join("target/ownership_proof.json"))
+    /// Checks that `nargo` is on PATH and is exactly [`REQUIRED_NARGO_VERSION`].
+    ///
+    /// A different version may produce proving/verifying keys that are not
+    /// byte-identical to everyone else's, causing proofs that other parties
+    /// reject — so this fails hard instead of proceeding.
+    fn check_nargo() -> eyre::Result<()> {
+        let output = Command::new("nargo")
+            .arg("--version")
+            .output()
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    eyre::eyre!(
+                        "`nargo` was not found on PATH. It is required to build the Noir ownership \
+                         proof artifacts. Install it with `nix develop` (the repo flake pins the \
+                         right version) or `noirup --version v{REQUIRED_NARGO_VERSION}`"
+                    )
+                } else {
+                    eyre::eyre!("failed to run `nargo --version`: {e}")
+                }
+            })?;
+
+        let version_output = String::from_utf8_lossy(&output.stdout);
+        if !version_output.contains(REQUIRED_NARGO_VERSION) {
+            eyre::bail!(
+                "wrong nargo version: need exactly {REQUIRED_NARGO_VERSION} to produce artifacts \
+                 byte-identical to other builders'. `nargo --version` reported:\n{version_output}\n\
+                 Install the pinned version with `nix develop` or `noirup --version v{REQUIRED_NARGO_VERSION}`"
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Builds the Noir ownership proof artifacts ad-hoc with `nargo` and the
+    /// provekit R1CS compiler. This is the only way to obtain them: the
+    /// proving/verifying keys must come from the checked-in circuit source, built
+    /// with the pinned nargo toolchain (see `flake.nix`), so every builder
+    /// produces identical bytes.
+    pub(super) fn setup(out_dir: &Path) -> eyre::Result<()> {
+        let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+        let circuit_dir = manifest_dir.join("noir/ownership-proof");
+
+        println!(
+            "cargo:rerun-if-changed={}",
+            circuit_dir.join("src").display()
+        );
+        println!(
+            "cargo:rerun-if-changed={}",
+            circuit_dir.join("Nargo.toml").display()
+        );
+
+        check_nargo()?;
+
+        let nargo_output = Command::new("nargo")
+            .arg("compile")
+            .current_dir(&circuit_dir)
+            .output()
+            .map_err(|e| eyre::eyre!("failed to run nargo: {e}"))?;
+
+        if !nargo_output.status.success() {
+            let stderr = String::from_utf8_lossy(&nargo_output.stderr);
+            eyre::bail!("nargo compile failed:\n{stderr}");
+        }
+
+        let scheme = NoirProofScheme::from_file(circuit_dir.join("target/ownership_proof.json"))
+            .map_err(|e| eyre::eyre!(e.to_string()))?;
+
+        provekit_common::file::write(
+            &Prover::from_noir_proof_scheme(scheme.clone()),
+            &out_dir.join("ownership_proof.pkp"),
+        )
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
-    provekit_common::file::write(
-        &Prover::from_noir_proof_scheme(scheme.clone()),
-        &out_dir.join("ownership_proof.pkp"),
-    )
-    .map_err(|e| eyre::eyre!(e.to_string()))?;
+        provekit_common::file::write(
+            &Verifier::from_noir_proof_scheme(scheme),
+            &out_dir.join("ownership_proof.pkv"),
+        )
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
 
-    provekit_common::file::write(
-        &Verifier::from_noir_proof_scheme(scheme),
-        &out_dir.join("ownership_proof.pkv"),
-    )
-    .map_err(|e| eyre::eyre!(e.to_string()))?;
-
-    Ok(())
+        Ok(())
+    }
 }
 
 fn compress_zkey(input: &Path, output: &Path) -> eyre::Result<()> {
