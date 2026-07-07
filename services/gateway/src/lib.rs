@@ -16,6 +16,7 @@ mod batch_policy;
 mod batch_type;
 mod batcher;
 mod config;
+mod contract_errors;
 mod error;
 pub mod metrics;
 mod request;
