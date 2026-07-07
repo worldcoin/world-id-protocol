@@ -87,6 +87,10 @@ pub enum AuthenticatorError {
     #[error(transparent)]
     ProofError(#[from] ProofError),
 
+    /// Error loading ZK artifacts.
+    #[error(transparent)]
+    ZkArtifactError(#[from] world_id_proof::artifacts::ZkArtifactError),
+
     /// Indexer returned an authenticator key slot that exceeds supported key capacity.
     #[error(
         "Invalid indexer authenticator pubkey slot {slot_index}; max supported slot is {max_supported_slot}"
@@ -123,10 +127,6 @@ pub enum AuthenticatorError {
     /// The assembled proof response failed self-validation against the request.
     #[error(transparent)]
     ResponseValidationError(#[from] ValidationError),
-
-    /// Proof materials not loaded. Call `with_proof_materials` before generating proofs.
-    #[error("Proof materials not loaded. Call `with_proof_materials` before generating proofs.")]
-    ProofMaterialsNotLoaded,
 
     /// The session ID computed for this proof does not match the expected session ID from the proof request.
     ///
