@@ -17,14 +17,20 @@ include = [
 ]
 
 [features]
-default = ["embed-zkeys"]
+# By default nothing is embedded: ZK artifacts are provided at runtime
+# through a `ZkArtifactSource`. Embedding is an explicit opt-in.
+default = []
 embed-zkeys = ["world-id-proof/embed-zkeys"]
-# Embed Noir ownership proof artifacts into binary
-embed-noir-artifacts = ["world-id-proof/embed-noir-artifacts"]
 # Compress the embedded zkeys to reduce binary size (ARK point compression)
 compress-zkeys = ["embed-zkeys", "world-id-proof/compress-zkeys"]
 # Compress the tar archive with zstd
 zstd-compress-zkeys = ["embed-zkeys", "world-id-proof/zstd-compress-zkeys"]
+# Embed the Noir ownership prover/verifier (built ad-hoc with nargo)
+embed-ownership-prover = ["world-id-proof/embed-ownership-prover"]
+embed-ownership-verifier = ["world-id-proof/embed-ownership-verifier"]
+embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
+# Embed everything
+embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
 
 [dependencies]
 # Use WASM-safe base features only
