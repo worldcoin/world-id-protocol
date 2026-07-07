@@ -217,8 +217,6 @@ contract BillingContract is WorldIDBase, IBillingContract {
         for (uint256 i = 0; i < chunkCount; i++) {
             _recordVoteChunk(epoch, chunks[i]);
         }
-
-        emit VoteChunksSubmitted(epoch, chunkCount);
     }
 
     /// @inheritdoc IBillingContract

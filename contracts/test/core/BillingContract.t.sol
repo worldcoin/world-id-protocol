@@ -267,8 +267,6 @@ contract BillingContractTest is Test {
     ////////////////////////////////////////////////////////////
 
     function test_SubmitVotes_happy() public {
-        vm.expectEmit(true, false, false, true, address(billing));
-        emit IBillingContract.VoteChunksSubmitted(0, 2);
         _voteSingle(0, 1, 50, _pks2());
 
         // Median visible while the epoch is retained (not yet finalized).

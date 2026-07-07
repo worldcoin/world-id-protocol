@@ -147,11 +147,6 @@ interface IBillingContract {
     //                        EVENTS                          //
     ////////////////////////////////////////////////////////////
 
-    /// @notice Emitted once per `submitBillingVotes` call.
-    /// @param epoch The epoch the vote chunks were cast for.
-    /// @param count The number of chunks accepted in the call.
-    event VoteChunksSubmitted(uint32 indexed epoch, uint256 count);
-
     /// @notice Emitted for every RP that received a non-zero finalized count when an epoch finalizes.
     /// @dev Raw per-epoch vote data is pruned on finalization, so this event is the canonical
     ///      off-chain record of finalized counts for audit/indexing.
