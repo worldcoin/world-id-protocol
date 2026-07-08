@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.12.0...world-id-primitives-v0.12.1) - 2026-07-08
+
+### Added
+
+- Remove probing of registry version ([#818](https://github.com/worldcoin/world-id-protocol/pull/818))
+- distribute noir artifacts via GH release artifacts ([#827](https://github.com/worldcoin/world-id-protocol/pull/827))
+
+### Other
+
+- *(deps)* bump oprf to version 0.17.2 ([#826](https://github.com/worldcoin/world-id-protocol/pull/826))
+- granular embed features, no-embed defaults ([#833](https://github.com/worldcoin/world-id-protocol/pull/833))
+- introduce ZkArtifactSource abstraction ([#831](https://github.com/worldcoin/world-id-protocol/pull/831))
+- *(proof)* single provenance per ZK artifact type ([#828](https://github.com/worldcoin/world-id-protocol/pull/828))
+
 ## [0.12.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.11.0...world-id-primitives-v0.12.0) - 2026-06-24
 
 ### Added
