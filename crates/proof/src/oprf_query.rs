@@ -25,7 +25,7 @@ use crate::circuit_inputs::QueryProofCircuitInput;
 
 use crate::{
     AuthenticatorProofInput, ProofError,
-    proof::{OPRF_PROOF_DS, errors},
+    nullifier_proof::{OPRF_PROOF_DS, errors},
 };
 
 #[expect(unused_imports, reason = "used for docs")]

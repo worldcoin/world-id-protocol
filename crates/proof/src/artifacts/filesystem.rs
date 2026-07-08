@@ -6,7 +6,7 @@ use std::{
 use crate::{
     OwnershipProver, OwnershipVerifier,
     artifacts::{ZkArtifactError, ZkArtifactKind, ZkArtifactSource},
-    proof::{
+    nullifier_proof::{
         CircomGroth16Material, load_nullifier_material_from_paths, load_query_material_from_paths,
     },
 };
