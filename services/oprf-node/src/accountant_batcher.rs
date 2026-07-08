@@ -28,12 +28,14 @@ pub struct AccountantBatcherConfig {
     /// The max capacity of the internal buffer.
     ///
     /// If the buffer reaches this capacity, the worker will `POST` the buffer to the configured endpoint.
-    #[serde(default = "AccountantBatcherConfig::default_buffer_size")]
-    pub buffer_size: NonZeroUsize,
+    #[serde(default = "AccountantBatcherConfig::default_buffer_capacity")]
+    pub buffer_capacity: NonZeroUsize,
 
     /// The flush interval of the worker.
     ///
     /// In this interval, the worker will `POST` the buffer to the configured endpoint, irrelevant of the current buffer size.
+    ///
+    /// _Note_: this flush interval must be chosen with the `voting_window` of the contract in mind. If the `flush_interval` is too large we might miss requests at the accountant.
     #[serde(
         default = "AccountantBatcherConfig::default_flush_interval",
         with = "humantime_serde"
@@ -71,7 +73,7 @@ pub struct AccountantBatcherConfig {
 }
 
 impl AccountantBatcherConfig {
-    const fn default_buffer_size() -> NonZeroUsize {
+    const fn default_buffer_capacity() -> NonZeroUsize {
         NonZeroUsize::new(1024).expect("1024 is non zero")
     }
 
@@ -96,7 +98,7 @@ impl AccountantBatcherConfig {
     pub fn with_default_values(endpoint: reqwest::Url) -> Self {
         Self {
             endpoint,
-            buffer_size: Self::default_buffer_size(),
+            buffer_capacity: Self::default_buffer_capacity(),
             flush_interval: Self::default_flush_interval(),
             request_min_delay: Self::default_request_min_delay(),
             request_max_delay: Self::default_request_max_delay(),
@@ -223,8 +225,8 @@ impl AccountantBatcher {
             accountant_endpoint: config.endpoint.clone(),
             client,
             rx,
-            buffer: Vec::with_capacity(config.buffer_size.get()),
-            buffer_size: config.buffer_size.get(),
+            buffer: Vec::with_capacity(config.buffer_capacity.get()),
+            buffer_size: config.buffer_capacity.get(),
             backoff,
             flush_task,
         }
