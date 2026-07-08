@@ -2,7 +2,17 @@
 
 use alloy::primitives::U256;
 use backon::{ExponentialBuilder, Retryable};
-use world_id_core::{Authenticator, AuthenticatorError, api_types::GatewayRequestState};
+use std::sync::Arc;
+
+use world_id_core::{
+    Authenticator, AuthenticatorError,
+    api_types::GatewayRequestState,
+    artifacts::{ZkArtifactSource, dummy::DummyZkArtifactSource},
+};
+
+fn dummy_zk_source() -> Arc<dyn ZkArtifactSource> {
+    Arc::new(DummyZkArtifactSource)
+}
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
     spawn_gateway_for_tests,
@@ -67,7 +77,7 @@ async fn test_authenticator_registration() {
     let seed = [1u8; 32];
     let recovery_address = anvil.signer(1).unwrap().address();
     // Account doesn't exist, so init will error
-    let result = Authenticator::init(&seed, config.clone()).await;
+    let result = Authenticator::init(&seed, config.clone(), dummy_zk_source()).await;
     assert!(matches!(
         result,
         Err(AuthenticatorError::AccountDoesNotExist)
@@ -93,13 +103,17 @@ async fn test_authenticator_registration() {
         .await
         .unwrap();
 
-    let authenticator = Authenticator::init(&seed, config.clone()).await.unwrap();
+    let authenticator = Authenticator::init(&seed, config.clone(), dummy_zk_source())
+        .await
+        .unwrap();
     let elapsed = start.elapsed();
     tracing::info!("Account creation successful in {elapsed:?}");
     assert_eq!(authenticator.leaf_index(), 1);
     assert_eq!(authenticator.recovery_counter(), U256::from(0));
 
     // If we initialize again, it will work
-    let authenticator = Authenticator::init(&seed, config).await.unwrap();
+    let authenticator = Authenticator::init(&seed, config, dummy_zk_source())
+        .await
+        .unwrap();
     assert_eq!(authenticator.leaf_index(), 1);
 }

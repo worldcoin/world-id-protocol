@@ -30,6 +30,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use world_id_core::{
     Authenticator, CredentialInput, EdDSAPrivateKey,
+    artifacts::{ZkArtifactSource, ZkArtifactSourceExt as _},
     requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
 };
 use world_id_gateway::{
@@ -49,13 +50,8 @@ use world_id_test_utils::{
     stubs::spawn_indexer_stub,
 };
 
-fn load_embedded_materials() -> (
-    Arc<world_id_core::proof::CircomGroth16Material>,
-    Arc<world_id_core::proof::CircomGroth16Material>,
-) {
-    let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
-    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material().unwrap();
-    (Arc::new(query_material), Arc::new(nullifier_material))
+fn zk_artifact_source() -> Arc<dyn ZkArtifactSource> {
+    Arc::new(world_id_core::artifacts::embedded::EmbeddedZkArtifacts.cached())
 }
 
 #[tokio::main]
@@ -127,12 +123,16 @@ async fn main() -> Result<()> {
         3,
     )
     .unwrap();
-    let _authenticator =
-        Authenticator::init_or_register(&seed, creation_config.clone(), Some(recovery_address))
-            .await
-            .unwrap();
+    let _authenticator = Authenticator::init_or_register(
+        &seed,
+        creation_config.clone(),
+        Some(recovery_address),
+        zk_artifact_source(),
+    )
+    .await
+    .unwrap();
 
-    let authenticator = Authenticator::init(&seed, creation_config)
+    let authenticator = Authenticator::init(&seed, creation_config, zk_artifact_source())
         .await
         .wrap_err("expected authenticator to initialize after account creation")?;
 
@@ -233,11 +233,9 @@ async fn main() -> Result<()> {
     )
     .unwrap();
 
-    let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator = Authenticator::init(&seed, proof_config)
+    let authenticator = Authenticator::init(&seed, proof_config, zk_artifact_source())
         .await
-        .wrap_err("failed to reinitialize authenticator with proof config")?
-        .with_proof_materials(query_material, nullifier_material);
+        .wrap_err("failed to reinitialize authenticator with proof config")?;
 
     let credential_sub_blinding_factor = authenticator
         .generate_credential_blinding_factor(issuer_schema_id)

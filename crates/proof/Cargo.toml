@@ -53,6 +53,7 @@ poseidon2 = { workspace = true }
 taceo-groth16-sol = { workspace = true }
 taceo-oprf = { workspace = true, features = ["client", "core"] }
 eyre = { workspace = true }
+once_cell = { workspace = true }
 zeroize = { workspace = true }
 
 # Internal

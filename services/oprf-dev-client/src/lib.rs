@@ -12,6 +12,7 @@ use secrecy::ExposeSecret as _;
 use taceo_oprf::{core::oprf::BlindingFactor, dev_client::DevClientConfig};
 use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSASignature, FieldElement,
+    artifacts::ZkArtifactSourceExt as _,
     proof::{CircomGroth16Material, errors},
 };
 use world_id_primitives::{AuthenticatorPublicKeySet, TREE_DEPTH, merkle::MerkleInclusionProof};
@@ -163,7 +164,7 @@ pub async fn init_shared_components(
     config: &WorldDevClientConfig,
 ) -> eyre::Result<SharedDevClientComponents> {
     let query_material = Arc::new(
-        world_id_core::proof::load_embedded_query_material()
+        world_id_core::artifacts::embedded::zkeys::load_embedded_query_material()
             .context("while loading query material")?,
     );
     let (authenticator, authenticator_private_key) = init_authenticator(
@@ -172,7 +173,6 @@ pub async fn init_shared_components(
         config.world_id_registry_contract,
         &config.config,
         config.anvil,
-        Arc::clone(&query_material),
     )
     .await?;
 
@@ -199,7 +199,6 @@ pub async fn init_authenticator(
     world_id_registry_contract: Address,
     config: &DevClientConfig,
     anvil: bool,
-    query_material: Arc<CircomGroth16Material>,
 ) -> eyre::Result<(Authenticator, EdDSAPrivateKey)> {
     let world_config = world_id_primitives::Config::new(
         Some(config.chain_rpc_url.expose_secret().to_string()),
@@ -212,14 +211,15 @@ pub async fn init_authenticator(
     )
     .context("while creating world config")?;
 
-    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material()
-        .context("while loading query material")?;
-
     tracing::info!("creating account..");
     let seed = [7u8; 32];
-    let authenticator = Authenticator::init_or_register(&seed, world_config, None)
-        .await?
-        .with_proof_materials(query_material, Arc::new(nullifier_material));
+    let authenticator = Authenticator::init_or_register(
+        &seed,
+        world_config,
+        None,
+        Arc::new(world_id_core::artifacts::embedded::EmbeddedZkArtifacts.cached()),
+    )
+    .await?;
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);
     Ok((authenticator, authenticator_private_key))
 }

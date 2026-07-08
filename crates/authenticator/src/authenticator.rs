@@ -26,13 +26,13 @@ use alloy::{
 };
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::EdDSAPublicKey;
-use groth16_material::circom::CircomGroth16Material;
 use ruint::{aliases::U256, uint};
 use taceo_oprf::client::Connector;
 use world_id_primitives::{
     AuthenticatorPublicKeySet, PrimitiveError, SparseAuthenticatorPubkeysError,
 };
 pub use world_id_primitives::{Config, ServiceEndpoint, TREE_DEPTH, authenticator::ProtocolSigner};
+use world_id_proof::artifacts::ZkArtifactSource;
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 #[expect(unused_imports, reason = "used for docs")]
@@ -90,8 +90,7 @@ pub struct Authenticator {
     pub(crate) indexer_client: ServiceClient,
     pub(crate) gateway_client: ServiceClient,
     pub(crate) ws_connector: Connector,
-    pub(crate) query_material: Option<Arc<CircomGroth16Material>>,
-    pub(crate) nullifier_material: Option<Arc<CircomGroth16Material>>,
+    pub(crate) zk_artifact_source: Arc<dyn ZkArtifactSource>,
 }
 
 impl std::fmt::Debug for Authenticator {
@@ -104,7 +103,11 @@ impl std::fmt::Debug for Authenticator {
 }
 
 impl Authenticator {
-    /// Initialize an Authenticator from a seed and config.
+    /// Initialize an Authenticator from a seed, config, and a source of ZK artifacts.
+    ///
+    /// The artifact source supplies the proving material for all proof generation. Use
+    /// [`world_id_proof::artifacts::dummy::DummyZkArtifactSource`] in tests or code paths
+    /// that never generate proofs.
     ///
     /// This method requires the authenticator address derived from `seed` to already be present
     /// on-chain in the `WorldIDRegistry`.
@@ -126,7 +129,11 @@ impl Authenticator {
     /// - Will return [`AuthenticatorError::AccountDoesNotExist`] if the authenticator address
     ///   derived from `seed` is not currently registered on-chain, whether permanently or because a
     ///   relevant on-chain operation has not finalized yet.
-    pub async fn init(seed: &[u8], config: Config) -> Result<Self, AuthenticatorError> {
+    pub async fn init(
+        seed: &[u8],
+        config: Config,
+        zk_artifact_source: Arc<dyn ZkArtifactSource>,
+    ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
 
         let registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>> =
@@ -177,26 +184,8 @@ impl Authenticator {
             indexer_client,
             gateway_client,
             ws_connector,
-            query_material: None,
-            nullifier_material: None,
+            zk_artifact_source,
         })
-    }
-
-    /// Sets the proof materials for the Authenticator, returning a new instance.
-    ///
-    /// Proof materials are required for proof generation, blinding factors and starting
-    /// sessions. Given the proof circuits are large, this may be loaded only when necessary.
-    #[must_use]
-    pub fn with_proof_materials(
-        self,
-        query_material: Arc<CircomGroth16Material>,
-        nullifier_material: Arc<CircomGroth16Material>,
-    ) -> Self {
-        Self {
-            query_material: Some(query_material),
-            nullifier_material: Some(nullifier_material),
-            ..self
-        }
     }
 
     /// Registers a new World ID in the `WorldIDRegistry`.
@@ -235,8 +224,9 @@ impl Authenticator {
         seed: &[u8],
         config: Config,
         recovery_address: Option<Address>,
+        zk_artifact_source: Arc<dyn ZkArtifactSource>,
     ) -> Result<Self, AuthenticatorError> {
-        match Self::init(seed, config.clone()).await {
+        match Self::init(seed, config.clone(), Arc::clone(&zk_artifact_source)).await {
             Ok(authenticator) => Ok(authenticator),
             Err(AuthenticatorError::AccountDoesNotExist) => {
                 let gateway_client = ServiceClient::new(
@@ -281,13 +271,17 @@ impl Authenticator {
                     };
 
                     match result {
-                        Ok(()) => match Self::init(seed, config.clone()).await {
-                            Ok(auth) => Ok(auth),
-                            Err(AuthenticatorError::AccountDoesNotExist) => {
-                                Err(PollResult::Retryable)
+                        Ok(()) => {
+                            match Self::init(seed, config.clone(), Arc::clone(&zk_artifact_source))
+                                .await
+                            {
+                                Ok(auth) => Ok(auth),
+                                Err(AuthenticatorError::AccountDoesNotExist) => {
+                                    Err(PollResult::Retryable)
+                                }
+                                Err(e) => Err(PollResult::TerminalError(e)),
                             }
-                            Err(e) => Err(PollResult::TerminalError(e)),
-                        },
+                        }
                         Err(e) => Err(e),
                     }
                 };
@@ -579,6 +573,10 @@ mod tests {
         test_pubkey(seed_byte).to_ethereum_representation().unwrap()
     }
 
+    fn dummy_zk_artifact_source() -> Arc<dyn ZkArtifactSource> {
+        Arc::new(world_id_proof::artifacts::dummy::DummyZkArtifactSource)
+    }
+
     #[test]
     fn test_insert_or_reuse_authenticator_key_reuses_empty_slot() {
         let mut key_set =
@@ -777,8 +775,7 @@ mod tests {
             gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
                 .unwrap(),
             ws_connector: Connector::Plain,
-            query_material: None,
-            nullifier_material: None,
+            zk_artifact_source: dummy_zk_artifact_source(),
         };
         let nonce = authenticator.signing_nonce().await.unwrap();
         assert_eq!(nonce, expected_nonce);
@@ -813,8 +810,7 @@ mod tests {
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
             ws_connector: Connector::Plain,
-            query_material: None,
-            nullifier_material: None,
+            zk_artifact_source: dummy_zk_artifact_source(),
         };
         let challenge = b"test challenge";
         let signature = authenticator.danger_sign_challenge(challenge).unwrap();
@@ -851,8 +847,7 @@ mod tests {
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
             ws_connector: Connector::Plain,
-            query_material: None,
-            nullifier_material: None,
+            zk_artifact_source: dummy_zk_artifact_source(),
         };
         let sig_a = authenticator.danger_sign_challenge(b"challenge A").unwrap();
         let sig_b = authenticator.danger_sign_challenge(b"challenge B").unwrap();
@@ -886,8 +881,7 @@ mod tests {
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
             ws_connector: Connector::Plain,
-            query_material: None,
-            nullifier_material: None,
+            zk_artifact_source: dummy_zk_artifact_source(),
         };
         let challenge = b"deterministic test";
         let sig1 = authenticator.danger_sign_challenge(challenge).unwrap();
@@ -933,8 +927,7 @@ mod tests {
             gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
                 .unwrap(),
             ws_connector: Connector::Plain,
-            query_material: None,
-            nullifier_material: None,
+            zk_artifact_source: dummy_zk_artifact_source(),
         };
         let result = authenticator.signing_nonce().await;
         assert!(matches!(

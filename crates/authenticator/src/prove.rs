@@ -5,7 +5,7 @@ use world_id_primitives::{
 };
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofCompression,
-    proof::generate_nullifier_proof,
+    proof::{CircomGroth16Material, generate_nullifier_proof},
 };
 
 use crate::{
@@ -18,7 +18,8 @@ use world_id_primitives::OwnershipProof;
 use world_id_primitives::TREE_DEPTH;
 #[cfg(not(target_arch = "wasm32"))]
 use world_id_proof::{
-    circuit_inputs::OwnershipProofCircuitInput, ownership_proof::generate_ownership_proof,
+    circuit_inputs::OwnershipProofCircuitInput,
+    ownership_proof::generate_ownership_proof_with_prover,
 };
 
 #[expect(unused_imports, reason = "used for docs")]
@@ -35,10 +36,11 @@ impl Authenticator {
     /// - Will return an error if there are no OPRF Nodes configured or if the threshold is invalid.
     /// - Will return an error if proof materials are not loaded.
     /// - Will return an error if there are issues fetching an inclusion proof.
-    async fn get_oprf_entrypoint(
-        &self,
+    async fn get_oprf_entrypoint<'a>(
+        &'a self,
+        query_material: &'a CircomGroth16Material,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
-    ) -> Result<OprfEntrypoint<'_>, AuthenticatorError> {
+    ) -> Result<OprfEntrypoint<'a>, AuthenticatorError> {
         // Check OPRF Config
         let services = self.config.nullifier_oracle_urls();
         if services.is_empty() {
@@ -54,11 +56,6 @@ impl Authenticator {
             });
         }
         let threshold = requested_threshold.min(services.len());
-
-        let query_material = self
-            .query_material
-            .as_ref()
-            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
 
         let authenticator_input = self
             .prepare_authenticator_input(account_inclusion_proof)
@@ -137,7 +134,13 @@ impl Authenticator {
         proof_request.validate_proof_type()?;
         let mut rng = rand::rngs::OsRng;
 
-        let oprf_entrypoint = self.get_oprf_entrypoint(account_inclusion_proof).await?;
+        let query_material = self
+            .zk_artifact_source
+            .query_material()
+            .map_err(AuthenticatorError::ZkArtifactError)?;
+        let oprf_entrypoint = self
+            .get_oprf_entrypoint(&query_material, account_inclusion_proof)
+            .await?;
 
         Ok(oprf_entrypoint
             .gen_nullifier(&mut rng, proof_request)
@@ -161,7 +164,11 @@ impl Authenticator {
         let mut rng = rand::rngs::OsRng;
 
         // This is called sporadic enough that fetching fresh is reasonable
-        let oprf_entrypoint = self.get_oprf_entrypoint(None).await?;
+        let query_material = self
+            .zk_artifact_source
+            .query_material()
+            .map_err(AuthenticatorError::ZkArtifactError)?;
+        let oprf_entrypoint = self.get_oprf_entrypoint(&query_material, None).await?;
 
         let (blinding_factor, _share_epoch) = oprf_entrypoint
             .gen_credential_blinding_factor(&mut rng, issuer_schema_id)
@@ -220,7 +227,13 @@ impl Authenticator {
         let resolved_session_id_r_seed = match session_id_r_seed {
             Some(seed) => seed,
             None => {
-                let entrypoint = self.get_oprf_entrypoint(account_inclusion_proof).await?;
+                let query_material = self
+                    .zk_artifact_source
+                    .query_material()
+                    .map_err(AuthenticatorError::ZkArtifactError)?;
+                let entrypoint = self
+                    .get_oprf_entrypoint(&query_material, account_inclusion_proof)
+                    .await?;
                 let oprf_output = entrypoint
                     .derive_session_id_r_seed(&mut rng, proof_request, oprf_seed)
                     .await?;
@@ -327,6 +340,11 @@ impl Authenticator {
             }
         };
 
+        let nullifier_material = self
+            .zk_artifact_source
+            .nullifier_material()
+            .map_err(AuthenticatorError::ZkArtifactError)?;
+
         // 3. Generate per-credential proofs for the selected items
         let creds_by_schema: std::collections::HashMap<u64, &CredentialInput> = credentials
             .iter()
@@ -338,6 +356,7 @@ impl Authenticator {
             let cred_input = creds_by_schema[&request_item.issuer_schema_id];
 
             let response_item = self.generate_credential_proof(
+                &nullifier_material,
                 nullifier.clone(),
                 request_item,
                 &cred_input.credential,
@@ -393,6 +412,7 @@ impl Authenticator {
     #[expect(clippy::too_many_arguments)]
     fn generate_credential_proof(
         &self,
+        nullifier_material: &CircomGroth16Material,
         oprf_nullifier: FullOprfOutput,
         request_item: &RequestItem,
         credential: &Credential,
@@ -402,11 +422,6 @@ impl Authenticator {
         request_timestamp: u64,
     ) -> Result<ResponseItem, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
-
-        let nullifier_material = self
-            .nullifier_material
-            .as_ref()
-            .ok_or(AuthenticatorError::ProofMaterialsNotLoaded)?;
 
         let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
         let action_from_query: FieldElement = oprf_nullifier.query_proof_input.action.into();
@@ -505,7 +520,12 @@ impl Authenticator {
             commitment_blinder: credential_blinding_factor,
         };
 
-        Ok(generate_ownership_proof(input)?)
+        let prover = self
+            .zk_artifact_source
+            .ownership_prover()
+            .map_err(AuthenticatorError::ZkArtifactError)?;
+
+        Ok(generate_ownership_proof_with_prover(input, prover)?)
     }
 }
 
@@ -518,16 +538,18 @@ mod tests {
     };
     use alloy::primitives::address;
     use ruint::aliases::U256;
+    use std::sync::Arc;
     use taceo_oprf::client::Connector;
     use world_id_primitives::{
-        Config, Credential, FieldElement, ServiceEndpoint, Signer, TREE_DEPTH,
-        merkle::AccountInclusionProof,
+        Config, FieldElement, ServiceEndpoint, Signer, TREE_DEPTH, merkle::AccountInclusionProof,
     };
+    use world_id_proof::artifacts::{ZkArtifactSource, dummy::DummyZkArtifactSource};
     use world_id_test_utils::fixtures::single_leaf_merkle_fixture;
 
     fn build_test_authenticator(
         seed: &[u8; 32],
         leaf_index: u64,
+        zk_artifact_source: Arc<dyn ZkArtifactSource>,
     ) -> (Authenticator, AccountInclusionProof<TREE_DEPTH>) {
         let signer = Signer::from_seed_bytes(seed).expect("valid seed");
         let pubkey = signer.offchain_signer_pubkey();
@@ -563,8 +585,7 @@ mod tests {
             gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
                 .expect("valid gateway client"),
             ws_connector: Connector::Plain,
-            query_material: None,
-            nullifier_material: None,
+            zk_artifact_source,
         };
 
         (authenticator, account_inclusion_proof)
@@ -573,7 +594,8 @@ mod tests {
     #[tokio::test]
     async fn test_prove_credential_sub_rejects_wrong_sub() {
         let leaf_index = 1u64;
-        let (authenticator, inclusion_proof) = build_test_authenticator(&[42u8; 32], leaf_index);
+        let (authenticator, inclusion_proof) =
+            build_test_authenticator(&[42u8; 32], leaf_index, Arc::new(DummyZkArtifactSource));
 
         let blinding_factor = FieldElement::from(999u64);
         let wrong_sub = FieldElement::from(123u64);
@@ -594,9 +616,19 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(all(
+        not(target_arch = "wasm32"),
+        feature = "embed-zkeys",
+        feature = "embed-noir-artifacts"
+    ))]
     async fn test_prove_credential_sub_succeeds_with_correct_sub() {
+        use world_id_primitives::Credential;
+        use world_id_proof::artifacts::{ZkArtifactSourceExt as _, embedded::EmbeddedZkArtifacts};
+
         let leaf_index = 1u64;
-        let (authenticator, inclusion_proof) = build_test_authenticator(&[42u8; 32], leaf_index);
+        let zk_artifact_source = EmbeddedZkArtifacts.cached();
+        let (authenticator, inclusion_proof) =
+            build_test_authenticator(&[42u8; 32], leaf_index, Arc::new(zk_artifact_source));
 
         let blinding_factor = FieldElement::from(999u64);
         let correct_sub = Credential::compute_sub(leaf_index, blinding_factor);

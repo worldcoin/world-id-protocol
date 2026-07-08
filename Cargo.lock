@@ -12735,6 +12735,7 @@ dependencies = [
  "ark-groth16 0.5.0",
  "ark-serialize 0.5.0",
  "eyre",
+ "once_cell",
  "provekit-common",
  "provekit-prover",
  "provekit-r1cs-compiler",
