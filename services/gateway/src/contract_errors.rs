@@ -1,12 +1,12 @@
 //! ABI-aware decoding of on-chain revert data returned by the WorldID
-//! registries (V1 and V2).
+//! registry.
 //!
 //! The gateway's RPC layer receives revert data as ABI-encoded custom errors
 //! (a 4-byte selector followed by the ABI-encoded arguments). Without
 //! decoding, this surfaces to API callers as an opaque hex blob buried in a
 //! JSON-RPC error message. This module extracts that revert data from an
-//! alloy transport / contract error, looks up the selector against the V1/V2
-//! registry ABIs, and maps it to:
+//! alloy transport / contract error, looks up the selector against the registry
+//! ABI, and maps it to:
 //!
 //!   * a [`GatewayErrorCode`] for programmatic handling by callers, and
 //!   * a stable human-readable message safe to include in the API response.
@@ -23,17 +23,10 @@ use alloy::{
     transports::{RpcError, TransportErrorKind},
 };
 use world_id_primitives::api_types::GatewayErrorCode;
-use world_id_registries::world_id::{
-    WorldIdRegistry::WorldIdRegistryErrors, WorldIdRegistryV2::WorldIdRegistryV2Errors,
-};
+use world_id_registries::world_id::WorldIdRegistryV2::WorldIdRegistryV2Errors;
 
-/// A revert whose 4-byte selector was recognised as belonging to one of the
-/// registry ABIs.
-///
-/// The V2 ABI is a strict superset of V1 for the errors the gateway cares
-/// about, so lookup is tried V2 → V1 to prefer the richer V2-only variants
-/// (e.g. `RecoveryAgentUpdateWindowExpired`) when a shared selector matches
-/// both.
+/// A revert whose 4-byte selector was recognised as belonging to the registry
+/// ABI.
 ///
 /// We deliberately don't ABI-decode the *arguments* of the error. Doing so
 /// would require constructing every concrete `sol!`-generated error type,
@@ -43,13 +36,6 @@ use world_id_registries::world_id::{
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct DecodedRegistryError {
     variant_name: &'static str,
-    source: RegistrySource,
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-enum RegistrySource {
-    V1,
-    V2,
 }
 
 impl DecodedRegistryError {
@@ -57,29 +43,17 @@ impl DecodedRegistryError {
     /// error arguments) into one of the known registry error variants.
     ///
     /// Returns `None` if the data is empty, shorter than a selector, or the
-    /// selector is unknown to both registry ABIs.
+    /// selector is unknown to the registry ABI.
     #[must_use]
     pub fn decode(data: &[u8]) -> Option<Self> {
         let selector: [u8; 4] = data.get(..4)?.try_into().ok()?;
         Self::from_selector(selector)
     }
 
-    /// Decode a bare 4-byte selector against the known registry ABIs.
+    /// Decode a bare 4-byte selector against the known registry ABI.
     #[must_use]
     pub fn from_selector(selector: [u8; 4]) -> Option<Self> {
-        if let Some(name) = WorldIdRegistryV2Errors::name_by_selector(selector) {
-            return Some(Self {
-                variant_name: name,
-                source: RegistrySource::V2,
-            });
-        }
-        if let Some(name) = WorldIdRegistryErrors::name_by_selector(selector) {
-            return Some(Self {
-                variant_name: name,
-                source: RegistrySource::V1,
-            });
-        }
-        None
+        WorldIdRegistryV2Errors::name_by_selector(selector).map(|name| Self { variant_name: name })
     }
 
     /// Extract revert data from an alloy transport error (typically returned
@@ -137,11 +111,6 @@ impl DecodedRegistryError {
             b"MethodUnsupported" => GatewayErrorCode::MethodNotAvailable,
             _ => GatewayErrorCode::BadRequest,
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn is_v2(&self) -> bool {
-        matches!(self.source, RegistrySource::V2)
     }
 }
 
@@ -243,11 +212,9 @@ pub(crate) fn selector_hex<E: SolError>() -> String {
 mod tests {
     use super::*;
     use alloy::sol_types::SolError;
-    use world_id_registries::world_id::{
-        WorldIdRegistry::{
-            AuthenticatorAddressAlreadyInUse, MismatchedSignatureNonce, PubkeyIdOutOfBounds,
-        },
-        WorldIdRegistryV2::{RecoveryAgentUpdateStillInCooldown, RecoveryAgentUpdateWindowExpired},
+    use world_id_registries::world_id::WorldIdRegistryV2::{
+        AuthenticatorAddressAlreadyInUse, MismatchedSignatureNonce, PubkeyIdOutOfBounds,
+        RecoveryAgentUpdateWindowExpired,
     };
 
     fn selector_of<E: SolError>() -> [u8; 4] {
@@ -255,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn decodes_v1_authenticator_already_in_use() {
+    fn decodes_authenticator_already_in_use() {
         let decoded =
             DecodedRegistryError::from_selector(selector_of::<AuthenticatorAddressAlreadyInUse>())
                 .expect("selector known");
@@ -278,19 +245,7 @@ mod tests {
             DecodedRegistryError::from_selector(selector_of::<RecoveryAgentUpdateWindowExpired>())
                 .expect("selector known");
         assert_eq!(decoded.variant_name(), "RecoveryAgentUpdateWindowExpired");
-        assert!(decoded.is_v2());
         assert!(decoded.human_message().contains("window has expired"));
-    }
-
-    #[test]
-    fn decodes_shared_variant_prefers_v2() {
-        // `RecoveryAgentUpdateStillInCooldown` exists in both V1 and V2.
-        let decoded = DecodedRegistryError::from_selector(selector_of::<
-            RecoveryAgentUpdateStillInCooldown,
-        >())
-        .expect("selector known");
-        assert!(decoded.is_v2());
-        assert_eq!(decoded.variant_name(), "RecoveryAgentUpdateStillInCooldown");
     }
 
     #[test]
