@@ -12,9 +12,11 @@ use backon::{ExponentialBuilder, Retryable};
 use oprf_accountant::api::BillableRpRequest;
 use reqwest::{StatusCode, Url};
 use serde::Deserialize;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
+
+use crate::metrics;
 
 /// The configuration for the worker.
 #[derive(Clone, Debug, Deserialize)]
@@ -24,6 +26,12 @@ pub struct AccountantBatcherConfig {
     ///
     /// The worker will send `POST` requests to this `URL`.
     pub endpoint: reqwest::Url,
+
+    /// The channel size of the worker.
+    ///
+    /// Should be reasonably large to not drop requests in case the worker can't keep up.
+    #[serde(default = "AccountantBatcherConfig::default_channel_size")]
+    pub channel_size: NonZeroUsize,
 
     /// The max capacity of the internal buffer.
     ///
@@ -73,6 +81,15 @@ pub struct AccountantBatcherConfig {
 }
 
 impl AccountantBatcherConfig {
+    // TODO finalize the size here. We are bound by the wip 101 aux data with is 1KB. So this channel is upper bound by ~10kb (which is nothing).
+    //
+    // With 5 req/s we would take 30 minutes to fill the buffer. We could increase by a factor of 10 even, which results in 100kb and would need 5h to fill the buffer with 5req/s.
+    //
+    // The voting window is somewhere between 1h and 1d. When we have the finalized numbers we can set the remainding parameters.
+    const fn default_channel_size() -> NonZeroUsize {
+        NonZeroUsize::new(10240).expect("10240 is non zero")
+    }
+
     const fn default_buffer_capacity() -> NonZeroUsize {
         NonZeroUsize::new(1024).expect("1024 is non zero")
     }
@@ -98,6 +115,7 @@ impl AccountantBatcherConfig {
     pub fn with_default_values(endpoint: reqwest::Url) -> Self {
         Self {
             endpoint,
+            channel_size: Self::default_channel_size(),
             buffer_capacity: Self::default_buffer_capacity(),
             flush_interval: Self::default_flush_interval(),
             request_min_delay: Self::default_request_min_delay(),
@@ -128,7 +146,7 @@ struct AccountantBatcher {
     backoff: backon::ExponentialBuilder,
     buffer: Vec<BillableRpRequest>,
     buffer_size: usize,
-    rx: mpsc::UnboundedReceiver<AccountantBatcherJob>,
+    rx: mpsc::Receiver<AccountantBatcherJob>,
     flush_task: tokio::task::JoinHandle<()>,
 }
 
@@ -136,7 +154,7 @@ struct AccountantBatcher {
 ///
 /// To initially create a worker with an associated handle, see [`init`]. The handle can be cheaply cloned to get access to the underlying worker. Usually you only want to call `init` once per process.
 #[derive(Debug, Clone)]
-pub struct AccountantBatcherHandle(mpsc::UnboundedSender<AccountantBatcherJob>);
+pub struct AccountantBatcherHandle(mpsc::Sender<AccountantBatcherJob>);
 
 /// Creates a worker with an associated handle that is cheaply cloneable and can be used to communicate with the worker. Usually this only needs to be called only once within the process lifetime.
 ///
@@ -153,7 +171,7 @@ pub fn init(
     cancellation_token: CancellationToken,
 ) -> (AccountantBatcherHandle, tokio::task::JoinHandle<()>) {
     tracing::info!("starting accountant batcher worker...");
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx) = mpsc::channel(config.channel_size.get());
     let batcher = AccountantBatcher::new(config, client, tx.clone(), rx);
     let batcher_task = tokio::task::spawn(async move {
         batcher.run().await;
@@ -166,16 +184,25 @@ pub fn init(
 impl AccountantBatcherHandle {
     /// Records a [`BillableRpRequest`] and sends it to the worker.
     pub fn record_request(&self, request: BillableRpRequest) {
-        if self.0.send(AccountantBatcherJob::Put(request)).is_err() {
-            tracing::warn!("trying to record request but batcher already gone");
+        let nonce = request.nonce;
+        match self.0.try_send(AccountantBatcherJob::Put(request)) {
+            Ok(()) => tracing::trace!("successfully send request with {nonce} to batcher"),
+            Err(TrySendError::Full(_)) => {
+                tracing::trace!("worker channel is full: dropping request with nonce {nonce}");
+                metrics::accountant_batcher::inc_request_dropped_full();
+            }
+            Err(TrySendError::Closed(_)) => {
+                // we log this as warning because this should no be possible
+                tracing::warn!("trying to record request but batcher already gone");
+            }
         }
     }
 
     /// Initiates a graceful shutdown of the worker.
     ///
     /// The worker will try to handle all requests sent before this request, but will ignore all jobs afterwards.
-    pub fn close(self) {
-        if self.0.send(AccountantBatcherJob::Close).is_err() {
+    pub async fn close(self) {
+        if self.0.send(AccountantBatcherJob::Close).await.is_err() {
             tracing::warn!("trying to close batcher but already gone");
         }
     }
@@ -188,19 +215,21 @@ impl AccountantBatcher {
     fn new(
         config: &AccountantBatcherConfig,
         client: reqwest::Client,
-        tx: mpsc::UnboundedSender<AccountantBatcherJob>,
-        rx: mpsc::UnboundedReceiver<AccountantBatcherJob>,
+        tx: mpsc::Sender<AccountantBatcherJob>,
+        rx: mpsc::Receiver<AccountantBatcherJob>,
     ) -> Self {
         // The worker during close will abort the flush task and wait until it is closed.
         let flush_task = tokio::task::spawn({
             let mut interval = tokio::time::interval(config.flush_interval);
+            // set missed tick behavior to delay - in case we block during sending flush and we miss a tick, we want to send exactly one flush task and continue sleeping from that period again
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             async move {
                 // first tick resolves immediately
                 interval.tick().await;
                 loop {
                     interval.tick().await;
                     tracing::trace!("sending account batch flush..");
-                    if tx.send(AccountantBatcherJob::Flush).is_err() {
+                    if tx.send(AccountantBatcherJob::Flush).await.is_err() {
                         tracing::error!(
                             "could not send flush to accountant batcher - already closed (this should never happen)"
                         );
@@ -346,7 +375,7 @@ fn is_retryable(e: &reqwest::Error) -> bool {
 /// Spawns a task that drains the channel so that recording requests does not log warnings.
 #[must_use]
 pub fn dev_null() -> AccountantBatcherHandle {
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tx, mut rx) = mpsc::channel(1024);
     tokio::task::spawn(async move { while rx.recv().await.is_some() {} });
     AccountantBatcherHandle(tx)
 }
