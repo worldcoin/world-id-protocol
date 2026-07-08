@@ -18,6 +18,9 @@ pub struct WorldOprfNodeConfig {
     /// The address of the `RpRegistry` smart contract
     pub rp_registry_contract: Address,
 
+    /// The address of the `Billing` smart contract
+    pub billing_contract: Address,
+
     /// The address of the `CredentialSchemaIssuerRegistry` smart contract
     pub credential_schema_issuer_registry_contract: Address,
 
@@ -189,11 +192,13 @@ impl WorldOprfNodeConfig {
         let WorldIdNodeContracts {
             world_id_registry_contract,
             rp_registry_contract,
+            billing_contract,
             credential_schema_issuer_registry_contract,
         } = contracts;
         Self {
             world_id_registry_contract,
             rp_registry_contract,
+            billing_contract,
             credential_schema_issuer_registry_contract,
             rpc_provider_config,
             current_time_stamp_max_difference: Self::default_current_time_stamp_max_difference(),
@@ -218,6 +223,8 @@ pub struct WorldIdNodeContracts {
     pub world_id_registry_contract: Address,
     /// Address of the `RpRegistry` contract.
     pub rp_registry_contract: Address,
+    /// Address of the `Billing` contract.
+    pub billing_contract: Address,
     /// Address of the `CredentialSchemaIssuerRegistry` contract.
     pub credential_schema_issuer_registry_contract: Address,
 }

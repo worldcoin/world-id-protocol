@@ -112,6 +112,15 @@ mod tests {
         pub(crate) signer: Signer,
     }
 
+    alloy::sol!(
+        #[sol(rpc, bytecode = "60808060405234601357608b908160188239f35b5f80fdfe60808060405260043610156011575f80fd5b5f3560e01c6375298c75146023575f80fd5b3460515760203660031901126051576004359067ffffffffffffffff8216809203605157602a602092148152f35b5f80fdfea2646970667358221220bfb7611c967593ea8addfd14d3e723982bc72dfd2448df1cdcf1563b09adbc4164736f6c634300081e0033")]
+        contract BillingContractMock {
+            function isBlocked(uint64 rpId) external pure returns (bool) {
+                return rpId == 42;
+            }
+        }
+    );
+
     pub(crate) fn build_http_provider(anvil: &AnvilInstance) -> web3::HttpRpcProvider {
         HttpRpcProviderBuilder::with_default_values([anvil.endpoint_url()])
             .expect("Can build http provider")
@@ -242,6 +251,10 @@ mod tests {
 
             let http_rpc_provider = build_http_provider(&setup.anvil.instance);
 
+            let billing_contract_mock = BillingContractMock::deploy(http_rpc_provider.inner())
+                .await
+                .expect("Should be able to deploy mock billing");
+
             let merkle_watcher = MerkleWatcher::init(
                 setup.world_id_registry,
                 &http_rpc_provider,
@@ -250,6 +263,7 @@ mod tests {
 
             let rp_registry_watcher = RpRegistryWatcher::init(
                 setup.rp_registry,
+                *billing_contract_mock.address(),
                 http_rpc_provider.clone(),
                 timeout_external_eth_call,
                 WatcherCacheConfig::default(),

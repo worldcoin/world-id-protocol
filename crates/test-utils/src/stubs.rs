@@ -206,6 +206,7 @@ async fn spawn_orpf_node(
     let bind_addr = format!("0.0.0.0:1{id:04}");
     let contracts = WorldIdNodeContracts {
         world_id_registry_contract,
+        billing_contract: world_id_registry_contract, // TODO fix me
         rp_registry_contract,
         credential_schema_issuer_registry_contract,
     };

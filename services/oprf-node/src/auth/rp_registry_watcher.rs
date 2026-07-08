@@ -3,12 +3,18 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     auth::{
         rp_module::{RelyingParty, wip101},
-        rp_registry_watcher::RpRegistry::RpRegistryInstance,
+        rp_registry_watcher::{
+            BillingContract::BillingContractInstance, RpRegistry::RpRegistryInstance,
+        },
     },
     config::WatcherCacheConfig,
     metrics,
 };
-use alloy::{primitives::Address, providers::DynProvider};
+use alloy::sol_types::SolError;
+use alloy::{
+    primitives::{Address, U256},
+    providers::{CallItemBuilder, DynProvider, Failure, Provider},
+};
 use backon::Retryable as _;
 use eyre::Context;
 use moka::future::Cache;
@@ -17,25 +23,60 @@ use taceo_oprf::types::OprfKeyId;
 use tracing::instrument;
 use world_id_primitives::{oprf::WorldIdRequestAuthError, rp::RpId};
 
+// Copied from IRpRegistry.sol/IBillingContract.sol.
+//
+// For brevity we only copy the methods that are relevant for the watcher
 alloy::sol! {
-    #[allow(missing_docs, clippy::too_many_arguments, reason="Get this errors from sol macro")]
     #[sol(rpc)]
-    RpRegistry,
-    "abi/RpRegistryAbi.json"
+    interface RpRegistry {
+        struct RelyingParty {
+            bool initialized;
+            bool active;
+            address manager;
+            address signer;
+            uint160 oprfKeyId;
+            string unverifiedWellKnownDomain;
+        }
+
+        error RpIdDoesNotExist();
+        error RpIdInactive();
+
+        function getRp(uint64 rpId) external view returns (RelyingParty memory);
+    }
+
+    #[sol(rpc)]
+    interface BillingContract {
+        function isBlocked(uint64 rpId) external view returns (bool);
+    }
 }
 
 /// Error returned by the [`RpRegistryWatcher`] implementation.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RpRegistryWatcherError {
     /// Unknown RP.
-    #[error("unknown rp: {0}")]
-    UnknownRp(RpId),
+    #[error("unknown rp: {rp} at block #{block} with timestamp: {timestamp}")]
+    UnknownRp {
+        rp: RpId,
+        block: U256,
+        timestamp: U256,
+    },
     /// Timeout while doing wip101 check
     #[error("timeout during wip101 account check for: {0}")]
     Timeout(RpId),
     /// Inactive RP.
-    #[error("inactive rp: {0}")]
-    InactiveRp(RpId),
+    #[error("inactive rp: {rp} at block #{block} with timestamp: {timestamp}")]
+    InactiveRp {
+        rp: RpId,
+        block: U256,
+        timestamp: U256,
+    },
+    /// Rp is blocked
+    #[error("rp is blocked: {rp} at block #{block} with timestamp: {timestamp}")]
+    BlockedRp {
+        rp: RpId,
+        block: U256,
+        timestamp: U256,
+    },
     /// Internal Error
     #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
@@ -44,9 +85,10 @@ pub(crate) enum RpRegistryWatcherError {
 impl From<&RpRegistryWatcherError> for WorldIdRequestAuthError {
     fn from(value: &RpRegistryWatcherError) -> Self {
         match value {
-            RpRegistryWatcherError::UnknownRp(_) => Self::UnknownRp,
-            RpRegistryWatcherError::InactiveRp(_) => Self::InactiveRp,
+            RpRegistryWatcherError::UnknownRp { .. } => Self::UnknownRp,
+            RpRegistryWatcherError::InactiveRp { .. } => Self::InactiveRp,
             RpRegistryWatcherError::Timeout(_) => Self::Wip101AccountCheckTimeout,
+            RpRegistryWatcherError::BlockedRp { .. } => Self::BlockedRp,
             RpRegistryWatcherError::Internal(_) => Self::Internal,
         }
     }
@@ -62,7 +104,8 @@ impl From<&RpRegistryWatcherError> for WorldIdRequestAuthError {
 #[derive(Clone)]
 pub(crate) struct RpRegistryWatcher {
     rp_store: Cache<RpId, RelyingParty>,
-    contract: RpRegistryInstance<DynProvider>,
+    rp_registry_contract: RpRegistryInstance<DynProvider>,
+    billing_contract: BillingContractInstance<DynProvider>,
     timeout_external_eth_call: Duration,
     http_rpc_provider: web3::HttpRpcProvider,
     cache_config: WatcherCacheConfig,
@@ -71,7 +114,8 @@ pub(crate) struct RpRegistryWatcher {
 impl RpRegistryWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) fn init(
-        contract_address: Address,
+        rp_registry_address: Address,
+        billing_contract_address: Address,
         http_rpc_provider: web3::HttpRpcProvider,
         timeout_external_eth_call: Duration,
         cache_config: WatcherCacheConfig,
@@ -88,7 +132,11 @@ impl RpRegistryWatcher {
 
         Self {
             rp_store,
-            contract: RpRegistry::new(contract_address, http_rpc_provider.inner()),
+            rp_registry_contract: RpRegistry::new(rp_registry_address, http_rpc_provider.inner()),
+            billing_contract: BillingContract::new(
+                billing_contract_address,
+                http_rpc_provider.inner(),
+            ),
             timeout_external_eth_call,
             http_rpc_provider,
             cache_config,
@@ -103,7 +151,7 @@ impl RpRegistryWatcher {
         let backon_fetch_rp = (|| async { self.fetch_rp_from_chain(*rp_id).await })
             .retry(self.cache_config.backoff_strategy())
             .sleep(tokio::time::sleep)
-            .when(|e| matches!(e, RpRegistryWatcherError::UnknownRp(_)))
+            .when(|e| matches!(e, RpRegistryWatcherError::UnknownRp { .. }))
             .notify(|err, duration| {
                 tracing::warn!(%err, "fetch rp from chain will retry after {duration:?}");
             });
@@ -134,21 +182,54 @@ impl RpRegistryWatcher {
         rp_id: RpId,
     ) -> Result<RelyingParty, RpRegistryWatcherError> {
         tracing::trace!("rp {rp_id} not found in store, querying RpRegistry...");
-        let rp = match self.contract.getRp(rp_id.into_inner()).call().await {
+        let rp_id_u64 = rp_id.into_inner();
+        let get_rp_call =
+            CallItemBuilder::new(self.rp_registry_contract.getRp(rp_id_u64)).allow_failure(true);
+        let (get_rp_result, is_blocked, current_block, timestamp) = self
+            .rp_registry_contract
+            .provider()
+            .multicall()
+            .add_call(get_rp_call)
+            .add(self.billing_contract.isBlocked(rp_id_u64))
+            .get_block_number()
+            .get_current_block_timestamp()
+            .aggregate3()
+            .await
+            .context("while doing fetch-rp multi-call")?;
+
+        let is_blocked = is_blocked.context("is_blocked failed but allow-failure=false")?;
+        let current_block = current_block.context("block_number failed but allow-failure=false")?;
+        let timestamp = timestamp.context("timestamp_block failed but allow-failure=false")?;
+
+        let rp = match get_rp_result {
             Ok(rp) => rp,
-            Err(err) => {
-                if let Some(RpRegistry::RpIdDoesNotExist) =
-                    err.as_decoded_error::<RpRegistry::RpIdDoesNotExist>()
-                {
-                    return Err(RpRegistryWatcherError::UnknownRp(rp_id));
-                } else if let Some(RpRegistry::RpIdInactive) =
-                    err.as_decoded_error::<RpRegistry::RpIdInactive>()
-                {
-                    return Err(RpRegistryWatcherError::InactiveRp(rp_id));
+            Err(Failure { return_data, .. }) => {
+                if RpRegistry::RpIdDoesNotExist::abi_decode(&return_data).is_ok() {
+                    return Err(RpRegistryWatcherError::UnknownRp {
+                        rp: rp_id,
+                        block: current_block,
+                        timestamp,
+                    });
                 }
-                return Err(RpRegistryWatcherError::Internal(eyre::Report::from(err)));
+                if RpRegistry::RpIdInactive::abi_decode(&return_data).is_ok() {
+                    return Err(RpRegistryWatcherError::InactiveRp {
+                        rp: rp_id,
+                        block: current_block,
+                        timestamp,
+                    });
+                }
+                return Err(RpRegistryWatcherError::Internal(eyre::eyre!(
+                    "unknown error selector from get_rp: {return_data:#?}"
+                )));
             }
         };
+        if is_blocked {
+            return Err(RpRegistryWatcherError::BlockedRp {
+                rp: rp_id,
+                block: current_block,
+                timestamp,
+            });
+        }
 
         tracing::trace!("checking if RP is EOA or smart contract..");
 
@@ -187,6 +268,7 @@ mod tests {
         fixtures::{self, RegistryTestContext},
     };
 
+    use crate::auth::tests::BillingContractMock;
     use crate::{auth::tests::build_http_provider, config::WatcherCacheConfig};
 
     async fn setup_with_rp()
@@ -215,10 +297,14 @@ mod tests {
                 "test.domain".to_string(),
             )
             .await?;
-
         let http_rpc_provider = build_http_provider(&anvil.instance);
+        let billing_contract_mock = BillingContractMock::deploy(http_rpc_provider.inner())
+            .await
+            .expect("Should be able to deploy mock billing");
+
         let watcher = RpRegistryWatcher::init(
             rp_registry,
+            *billing_contract_mock.address(),
             http_rpc_provider,
             Duration::from_secs(10),
             WatcherCacheConfig {
@@ -260,7 +346,7 @@ mod tests {
             .await
             .expect_err("unknown RP should be rejected");
         assert!(
-            matches!(err.as_ref(), RpRegistryWatcherError::UnknownRp(is_id) if *is_id == unknown_id),
+            matches!(err.as_ref(), RpRegistryWatcherError::UnknownRp{ rp:is_id,..} if *is_id == unknown_id),
             "expected UnknownRp, got: {err:?}"
         );
         assert!(
@@ -296,7 +382,7 @@ mod tests {
             .await
             .expect_err("inactive RP should be rejected");
         assert!(
-            matches!(err.as_ref(), RpRegistryWatcherError::InactiveRp(inactive) if *inactive == rp_fixture.world_rp_id),
+            matches!(err.as_ref(), RpRegistryWatcherError::InactiveRp{rp:inactive,..} if *inactive == rp_fixture.world_rp_id),
             "expected InactiveRp, got: {err:?}"
         );
 
@@ -332,10 +418,15 @@ mod tests {
     async fn test_contract_call_failure_returns_internal() -> eyre::Result<()> {
         let RegistryTestContext { anvil, .. } =
             RegistryTestContext::new_with_mock_oprf_key_registry().await?;
+
         let http_rpc_provider = build_http_provider(&anvil.instance);
+        let billing_contract_mock = BillingContractMock::deploy(http_rpc_provider.inner())
+            .await
+            .expect("Should be able to deploy mock billing");
         // Address with no contract bytecode — getRp() response cannot be ABI-decoded
         let watcher = RpRegistryWatcher::init(
             Address::with_last_byte(42),
+            *billing_contract_mock.address(),
             http_rpc_provider,
             Duration::from_secs(10),
             WatcherCacheConfig::default(),
