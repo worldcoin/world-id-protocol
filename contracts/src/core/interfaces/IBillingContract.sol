@@ -294,6 +294,25 @@ interface IBillingContract {
      */
     function outstandingDebt(uint64 rpId) external view returns (uint256);
 
+    /**
+     * @notice The latest epoch that has been fully finalized, if any.
+     * @dev Finalization work is pending whenever this trails {latestClosedEpoch} (including the case
+     *      where nothing is finalized yet but some epoch has closed). Off-chain keepers poll this
+     *      together with {latestClosedEpoch} to decide whether {finalizeEpochs} needs to be called,
+     *      instead of blind-firing transactions.
+     * @return exists Whether any epoch has been finalized yet.
+     * @return epoch The latest finalized epoch; only meaningful when `exists` is true.
+     */
+    function latestFinalizedEpoch() external view returns (bool exists, uint32 epoch);
+
+    /**
+     * @notice The latest epoch whose voting window has fully closed, if any.
+     * @dev Closed epochs are exactly the ones {finalizeEpochs} can finalize.
+     * @return exists Whether any epoch's voting window has closed yet.
+     * @return epoch The latest closed epoch; only meaningful when `exists` is true.
+     */
+    function latestClosedEpoch() external view returns (bool exists, uint32 epoch);
+
     /// @notice The EIP-712 domain separator.
     function DOMAIN_SEPARATOR() external view returns (bytes32);
 

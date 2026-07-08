@@ -384,6 +384,25 @@ contract BillingContract is WorldIDBase, IBillingContract {
     }
 
     /// @inheritdoc IBillingContract
+    function latestFinalizedEpoch()
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (bool exists, uint32 epoch)
+    {
+        uint32 next = _nextEpochToFinalize;
+        if (next == 0) return (false, 0);
+        return (true, next - 1);
+    }
+
+    /// @inheritdoc IBillingContract
+    function latestClosedEpoch() external view virtual onlyProxy onlyInitialized returns (bool exists, uint32 epoch) {
+        return _latestClosedEpoch();
+    }
+
+    /// @inheritdoc IBillingContract
     function DOMAIN_SEPARATOR() external view virtual onlyProxy onlyInitialized returns (bytes32) {
         return _domainSeparatorV4();
     }
