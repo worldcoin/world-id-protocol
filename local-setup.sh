@@ -147,6 +147,7 @@ start_node() {
     TACEO_OPRF_NODE__SERVICE__RPC__CHAIN_ID=31337 \
     TACEO_OPRF_NODE__POSTGRES__CONNECTION_STRING=$db_conn \
     TACEO_OPRF_NODE__POSTGRES__SCHEMA=oprf$i \
+    TACEO_OPRF_NODE__BATCHER__ENDPOINT=http://127.0.0.1:4242 \
     ./target/${BUILD_TARGET_DIR}/world-id-oprf-node > logs/node$i.log 2>&1 &
     pid=$!
     echo "started world-id-oprf-node $i with PID $pid"

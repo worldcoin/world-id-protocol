@@ -10,6 +10,7 @@
 //! state and branches on the kind at runtime.
 
 use crate::{
+    accountant_batcher::AccountantBatcherHandle,
     auth::{
         merkle_watcher::{MerkleWatcher, MerkleWatcherError},
         nonce_history::{DuplicateNonce, NonceHistory, NonceScope},
@@ -22,6 +23,7 @@ use ark_bn254::Bn254;
 use ark_groth16::PreparedVerifyingKey;
 use async_trait::async_trait;
 use chrono::Utc;
+use oprf_accountant::api::BillableRpRequest;
 use std::{fmt, sync::Arc, time::Duration};
 use taceo_nodes_common::web3;
 use taceo_oprf::types::{
@@ -37,30 +39,39 @@ use world_id_primitives::{
 pub(crate) mod wip101;
 
 /// Distinguishes the two RP-authenticated OPRF modules.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone)]
 pub(crate) enum RpModuleKind {
     /// Session module: action MSB must be `0x01` (seed) or `0x02` (action); action is NOT signed.
     Session,
     /// Uniqueness module: action MSB must be `0x00`; action IS signed.
-    Uniqueness,
+    Uniqueness(AccountantBatcherHandle),
+}
+
+impl fmt::Debug for RpModuleKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Session => write!(f, "Session"),
+            Self::Uniqueness(_) => write!(f, "Uniqueness"),
+        }
+    }
 }
 
 impl fmt::Display for RpModuleKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RpModuleKind::Session => write!(f, "session (action MSB must be 0x01 or 0x02)"),
-            RpModuleKind::Uniqueness => write!(f, "uniqueness (action MSB must be 0x00)"),
+            RpModuleKind::Uniqueness(_) => write!(f, "uniqueness (action MSB must be 0x00)"),
         }
     }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RpModuleError {
-    #[error("Invalid action for {kind}: {action}")]
-    InvalidAction {
-        kind: RpModuleKind,
-        action: FieldElement,
-    },
+    #[error("Invalid action for session (action MSB must be 0x01 or 0x02): {action}")]
+    InvalidActionSession { action: FieldElement },
+
+    #[error("Invalid action for uniqueness (action MSB must be 0x00): {action}")]
+    InvalidActionUniqueness { action: FieldElement },
     #[error("Could not verify query proof")]
     InvalidQueryProof,
     #[error(transparent)]
@@ -113,10 +124,8 @@ pub(crate) enum RpModuleError {
 impl From<&RpModuleError> for WorldIdRequestAuthError {
     fn from(value: &RpModuleError) -> Self {
         match value {
-            RpModuleError::InvalidAction { kind, .. } => match kind {
-                RpModuleKind::Session => Self::InvalidActionSession,
-                RpModuleKind::Uniqueness => Self::InvalidActionNullifier,
-            },
+            RpModuleError::InvalidActionSession { .. } => Self::InvalidActionSession,
+            RpModuleError::InvalidActionUniqueness { .. } => Self::InvalidActionNullifier,
             RpModuleError::InvalidQueryProof => Self::InvalidQueryProof,
             RpModuleError::MerkleWatcher(e) => e.as_ref().into(),
             RpModuleError::RpRegistry(e) => e.as_ref().into(),
@@ -206,7 +215,7 @@ impl RelyingParty {
 
     async fn ensure_signature_valid(
         &self,
-        kind: RpModuleKind,
+        kind: &RpModuleKind,
         action: ark_babyjubjub::Fq,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
         wip101_timeout: Duration,
@@ -216,7 +225,7 @@ impl RelyingParty {
             RpAccountType::Eoa => {
                 tracing::trace!("RP signer is EOA");
                 let action = match kind {
-                    RpModuleKind::Uniqueness => Some(action),
+                    RpModuleKind::Uniqueness(_) => Some(action),
                     RpModuleKind::Session => None,
                 };
                 self.verify_eoa(action, request)
@@ -235,17 +244,29 @@ impl RelyingParty {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct RpModuleAuthArgs {
+    pub(crate) merkle_watcher: MerkleWatcher,
+    pub(crate) rp_registry_watcher: RpRegistryWatcher,
+    pub(crate) nonce_history: NonceHistory,
+    pub(crate) current_time_stamp_max_difference: Duration,
+    pub(crate) timeout_external_eth_call: Duration,
+    pub(crate) rpc_provider: web3::HttpRpcProvider,
+    pub(crate) query_vk: Arc<PreparedVerifyingKey<Bn254>>,
+}
+
 impl RpModuleAuth {
     /// Initializes a session-module authenticator.
-    pub(crate) fn new_session(
-        merkle_watcher: MerkleWatcher,
-        rp_registry_watcher: RpRegistryWatcher,
-        nonce_history: NonceHistory,
-        current_time_stamp_max_difference: Duration,
-        timeout_external_eth_call: Duration,
-        rpc_provider: web3::HttpRpcProvider,
-        query_vk: Arc<PreparedVerifyingKey<Bn254>>,
-    ) -> Self {
+    pub(crate) fn new_session(args: RpModuleAuthArgs) -> Self {
+        let RpModuleAuthArgs {
+            merkle_watcher,
+            rp_registry_watcher,
+            nonce_history,
+            current_time_stamp_max_difference,
+            timeout_external_eth_call,
+            rpc_provider,
+            query_vk,
+        } = args;
         Self {
             kind: RpModuleKind::Session,
             rp_registry_watcher,
@@ -260,16 +281,20 @@ impl RpModuleAuth {
 
     /// Initializes a uniqueness-module authenticator.
     pub(crate) fn new_uniqueness(
-        merkle_watcher: MerkleWatcher,
-        rp_registry_watcher: RpRegistryWatcher,
-        nonce_history: NonceHistory,
-        current_time_stamp_max_difference: Duration,
-        timeout_external_eth_call: Duration,
-        rpc_provider: web3::HttpRpcProvider,
-        query_vk: Arc<PreparedVerifyingKey<Bn254>>,
+        args: RpModuleAuthArgs,
+        accountant_batcher: AccountantBatcherHandle,
     ) -> Self {
+        let RpModuleAuthArgs {
+            merkle_watcher,
+            rp_registry_watcher,
+            nonce_history,
+            current_time_stamp_max_difference,
+            timeout_external_eth_call,
+            rpc_provider,
+            query_vk,
+        } = args;
         Self {
-            kind: RpModuleKind::Uniqueness,
+            kind: RpModuleKind::Uniqueness(accountant_batcher),
             rp_registry_watcher,
             nonce_history,
             current_time_stamp_max_difference,
@@ -325,7 +350,7 @@ impl RpModuleAuth {
         let rp = self.rp_registry_watcher.get_rp(&request.auth.rp_id).await?;
 
         rp.ensure_signature_valid(
-            self.kind,
+            &self.kind,
             action,
             request,
             self.timeout_external_eth_call,
@@ -336,7 +361,7 @@ impl RpModuleAuth {
         tracing::trace!("add nonce to store...");
         // Add nonce to history to check if the nonce was only used once in this scope.
         let nonce_scope = match self.kind {
-            RpModuleKind::Uniqueness => NonceScope::Uniqueness,
+            RpModuleKind::Uniqueness(_) => NonceScope::Uniqueness,
             RpModuleKind::Session => {
                 let action = FieldElement::from(action);
                 if action.is_valid_for_session(SessionFeType::OprfSeed) {
@@ -344,10 +369,7 @@ impl RpModuleAuth {
                 } else if action.is_valid_for_session(SessionFeType::Action) {
                     NonceScope::SessionAction
                 } else {
-                    return Err(RpModuleError::InvalidAction {
-                        kind: self.kind,
-                        action,
-                    });
+                    return Err(RpModuleError::InvalidActionSession { action });
                 }
             }
         };
@@ -372,19 +394,13 @@ impl RpModuleAuth {
                 if !action.is_valid_for_session(SessionFeType::OprfSeed)
                     && !action.is_valid_for_session(SessionFeType::Action)
                 {
-                    return Err(RpModuleError::InvalidAction {
-                        kind: self.kind,
-                        action,
-                    });
+                    return Err(RpModuleError::InvalidActionSession { action });
                 }
             }
-            RpModuleKind::Uniqueness => {
+            RpModuleKind::Uniqueness(_) => {
                 metrics::auth_module::inc_nullifier();
                 if action.to_be_bytes()[0] != 0 {
-                    return Err(RpModuleError::InvalidAction {
-                        kind: self.kind,
-                        action,
-                    });
+                    return Err(RpModuleError::InvalidActionUniqueness { action });
                 }
             }
         }
@@ -434,6 +450,11 @@ impl OprfRequestAuthenticator for RpModuleAuth {
     ) -> Result<OprfKeyId, OprfRequestAuthenticatorError> {
         Ok(Box::pin(self.authenticate_inner(request))
             .await
+            .inspect(|_| {
+                if let RpModuleKind::Uniqueness(handle) = &self.kind {
+                    handle.record_request(BillableRpRequest::from(&request.auth));
+                }
+            })
             .map_err(|err| {
                 let mapped = WorldIdRequestAuthError::from(&err);
                 super::log_auth_module_error(&err, mapped, "RP-module");

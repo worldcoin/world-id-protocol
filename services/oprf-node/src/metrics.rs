@@ -13,8 +13,27 @@ pub fn describe_metrics() {
     merkle_cache::describe_metrics();
     rp_registry_cache::describe_metrics();
     schema_issuer_cache::describe_metrics();
+    accountant_batcher::describe_metrics();
 
     taceo_oprf::service::metrics::describe_metrics();
+}
+
+pub(crate) mod accountant_batcher {
+
+    const METRICS_ID_ACCOUNTANT_BATCHER_DROPPED_REQUESTS: &str =
+        "taceo.oprf.node.batcher.requests.dropped.full";
+
+    pub(super) fn describe_metrics() {
+        metrics::describe_counter!(
+            METRICS_ID_ACCOUNTANT_BATCHER_DROPPED_REQUESTS,
+            metrics::Unit::Count,
+            "Number of requests that were dropped because the channel is full."
+        );
+    }
+
+    pub(crate) fn inc_request_dropped_full() {
+        metrics::counter!(METRICS_ID_ACCOUNTANT_BATCHER_DROPPED_REQUESTS).increment(1);
+    }
 }
 
 pub(crate) mod auth_module {

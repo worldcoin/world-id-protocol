@@ -64,14 +64,16 @@ pub(crate) fn verify_query_proof(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
 
     use alloy::{
         node_bindings::AnvilInstance,
         primitives::{Address, U256},
         signers::local::LocalSigner,
     };
+    use ark_bn254::Bn254;
     use ark_serialize::CanonicalSerialize;
+    use circom_types::groth16::VerificationKey;
     use eddsa_babyjubjub::EdDSAPrivateKey;
     use rand::Rng;
     use secrecy::ExposeSecret as _;
@@ -88,9 +90,10 @@ mod tests {
     };
 
     use crate::{
+        QUERY_VERIFICATION_KEY,
         auth::{
             merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
-            rp_registry_watcher::RpRegistryWatcher,
+            rp_module::RpModuleAuthArgs, rp_registry_watcher::RpRegistryWatcher,
             schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
         },
         config::WatcherCacheConfig,
@@ -270,6 +273,20 @@ mod tests {
                 timeout_external_eth_call,
                 http_rpc_provider,
             })
+        }
+
+        pub(crate) fn rp_module_args(&self) -> RpModuleAuthArgs {
+            let vk: VerificationKey<Bn254> =
+                serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
+            RpModuleAuthArgs {
+                merkle_watcher: self.merkle_watcher.clone(),
+                rp_registry_watcher: self.rp_registry_watcher.clone(),
+                nonce_history: self.nonce_history.clone(),
+                current_time_stamp_max_difference: self.current_time_stamp_max_difference,
+                timeout_external_eth_call: self.timeout_external_eth_call,
+                rpc_provider: self.http_rpc_provider.clone(),
+                query_vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
+            }
         }
 
         /// Generates a valid ZK query proof and blinds the query for use in OPRF
