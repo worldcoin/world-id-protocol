@@ -19,17 +19,21 @@ include = [
 ]
 
 [features]
-default = ["embed-zkeys"]
-# Embed Circom zkeys into binary
+default = []
+
+# Embed Circom zkeys (query + nullifier proof material) into the binary
 embed-zkeys = ["dep:tar"]
 # Compress the embedded zkeys to reduce binary size (ARK point compression)
 compress-zkeys = ["embed-zkeys", "dep:ark-serialize", "dep:circom-types"]
 # Compress the tar archive with zstd
 zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
 
-# Embed Noir ownership proof artifacts into binary. The artifacts are built
-# ad-hoc in build.rs with `nargo` (see the pinned version in `flake.nix`).
-embed-noir-artifacts = ["dep:provekit-r1cs-compiler"]
+embed-ownership-prover = ["dep:provekit-r1cs-compiler"]
+embed-ownership-verifier = ["dep:provekit-r1cs-compiler"]
+embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
+
+# Embed everything
+embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
 
 [dependencies]
 ark-babyjubjub = { workspace = true }

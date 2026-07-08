@@ -619,7 +619,7 @@ mod tests {
     #[cfg(all(
         not(target_arch = "wasm32"),
         feature = "embed-zkeys",
-        feature = "embed-noir-artifacts"
+        feature = "embed-ownership-prover"
     ))]
     async fn test_prove_credential_sub_succeeds_with_correct_sub() {
         use world_id_primitives::Credential;

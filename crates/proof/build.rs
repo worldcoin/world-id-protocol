@@ -31,7 +31,10 @@ fn main() -> eyre::Result<()> {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
-    #[cfg(feature = "embed-noir-artifacts")]
+    #[cfg(any(
+        feature = "embed-ownership-prover",
+        feature = "embed-ownership-verifier"
+    ))]
     if noir_artifacts::should_embed() {
         noir_artifacts::setup(&out_dir)?;
     }
@@ -223,7 +226,10 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "embed-noir-artifacts")]
+#[cfg(any(
+    feature = "embed-ownership-prover",
+    feature = "embed-ownership-verifier"
+))]
 mod noir_artifacts {
     use std::process::Command;
 
@@ -239,7 +245,8 @@ mod noir_artifacts {
     pub(super) fn should_embed() -> bool {
         let target_arch = env::var("CARGO_CFG_TARGET_ARCH").ok();
         target_arch.as_deref() != Some("wasm32")
-            && env::var_os("CARGO_FEATURE_EMBED_NOIR_ARTIFACTS").is_some()
+            && (env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_PROVER").is_some()
+                || env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_VERIFIER").is_some())
     }
 
     /// Checks that `nargo` is on PATH and is exactly [`REQUIRED_NARGO_VERSION`].

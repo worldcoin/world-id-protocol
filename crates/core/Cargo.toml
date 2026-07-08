@@ -12,7 +12,7 @@ repository.workspace = true
 include = ["src/**/*", "bin/**/*", "tests/**/*", "Cargo.toml", "README.md"]
 
 [features]
-default = ["authenticator", "embed-zkeys"]
+default = ["authenticator"]
 
 authenticator = [
     "dep:world-id-proof",
@@ -25,6 +25,12 @@ embed-zkeys = ["authenticator", "world-id-proof/embed-zkeys"]
 compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/compress-zkeys"]
 # Compress the tar archive with zstd
 zstd-compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/zstd-compress-zkeys"]
+# Embed the Noir ownership prover/verifier (built ad-hoc with nargo)
+embed-ownership-prover = ["authenticator", "world-id-proof/embed-ownership-prover"]
+embed-ownership-verifier = ["authenticator", "world-id-proof/embed-ownership-verifier"]
+embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
+# Embed everything
+embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
 
 issuer = [
     "dep:world-id-issuer",
@@ -41,6 +47,11 @@ world-id-proof = { workspace = true, optional = true }
 world-id-authenticator = { workspace = true, optional = true }
 world-id-primitives = { workspace = true }
 world-id-registries = { workspace = true }
+
+# Integration tests that generate real proofs need embedded artifacts.
+[[test]]
+name = "generate_proof"
+required-features = ["embed-zkeys"]
 
 [dev-dependencies]
 alloy = { workspace = true }
