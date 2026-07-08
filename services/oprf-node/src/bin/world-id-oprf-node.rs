@@ -127,7 +127,7 @@ async fn run(config: FullWorldOprfNodeConfig) -> eyre::Result<()> {
         .await;
     tracing::info!("axum server shutdown");
     tracing::info!("waiting for accountant batcher to finish processing...");
-    accountant_batcher.close();
+    accountant_batcher.close().await;
     accountant_batcher_task.await?;
     serve_result.context("while serving axum")?;
     Ok(())

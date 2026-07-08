@@ -85,7 +85,7 @@ impl AccountantBatcherConfig {
     //
     // With 5 req/s we would take 30 minutes to fill the buffer. We could increase by a factor of 10 even, which results in 100kb and would need 5h to fill the buffer with 5req/s.
     //
-    // The voting window is somewhere between 1h and 1d. When we have the finalized numbers we can set the remainding parameters.
+    // The voting window is somewhere between 1h and 1d. When we have the finalized numbers we can set the remaining parameters.
     const fn default_channel_size() -> NonZeroUsize {
         NonZeroUsize::new(10240).expect("10240 is non zero")
     }
