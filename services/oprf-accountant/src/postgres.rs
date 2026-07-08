@@ -1,9 +1,12 @@
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use backon::{ConstantBuilder, Retryable as _};
 use eyre::Context as _;
+use itertools::Itertools;
 use sqlx::PgPool;
 use taceo_nodes_common::postgres::{CreateSchema, PostgresConfig};
 use tracing::instrument;
+
+use crate::api::BillableRpRequest;
 
 type Result<T> = std::result::Result<T, PostgresDbError>;
 
@@ -48,19 +51,33 @@ impl PostgresDb {
         })
     }
 
-    pub(crate) async fn store_request_batch(self, rp_requests: Vec<crate::RpVote>) -> Result<()> {
-        let rp_ids: Vec<i64> = rp_requests
+    pub(crate) async fn store_request_batch(
+        self,
+        rp_requests: Vec<BillableRpRequest>,
+    ) -> Result<()> {
+        let rp_ids = rp_requests
             .iter()
             .map(|r| r.rp_id.into_inner() as i64)
-            .collect();
-        let epochs: Vec<i64> = rp_requests.iter().map(|r| r.epoch).collect();
-        let nonces: Vec<Vec<u8>> = rp_requests
+            .collect_vec();
+        // let epochs: Vec<i64> = rp_requests.iter().map(|r| r.epoch).collect();
+        // TODO get epochs
+        let epochs: Vec<i64> = Vec::new();
+        let nonces = rp_requests
             .iter()
             .map(|r| to_db_ark_serialize_uncompressed(&r.nonce))
-            .collect();
-        let created_ats: Vec<i64> = rp_requests.iter().map(|r| r.created_at as i64).collect();
-        let expires_ats: Vec<i64> = rp_requests.iter().map(|r| r.expires_at as i64).collect();
-        let signatures: Vec<Vec<u8>> = rp_requests.iter().map(|r| r.signature.clone()).collect();
+            .collect_vec();
+        let created_ats = rp_requests
+            .iter()
+            .map(|r| r.created_at as i64)
+            .collect_vec();
+        let expires_ats = rp_requests
+            .iter()
+            .map(|r| r.expires_at as i64)
+            .collect_vec();
+        let signatures = rp_requests
+            .iter()
+            .map(|r| r.signature.map(Vec::<u8>::from))
+            .collect_vec();
 
         let batch_insert = || async {
             Ok(sqlx::query(
