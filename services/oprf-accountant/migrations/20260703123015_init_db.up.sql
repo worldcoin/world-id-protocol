@@ -1,5 +1,5 @@
 -- Stores RP (relying party) signatures over proof requests so they can be verified later.
-create table if not exists rp_signatures (
+CREATE TABLE IF NOT EXISTS rp_signatures (
     id BIGINT GENERATED ALWAYS AS identity PRIMARY KEY,
     rp_id BIGINT NOT NULL,
     epoch BIGINT NOT NULL,
@@ -21,7 +21,7 @@ create table if not exists rp_signatures (
 -- Singleton table holding the last epoch the accountant has fully processed (i.e. voted
 -- on). `id` is pinned to `true` so there can only ever be one row. Seeded at -1 (no epoch
 -- processed yet) so the first tick starts from epoch 0.
-create table if not exists epoch_cursor (
+CREATE TABLE IF NOT EXISTS epoch_cursor (
     id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
     epoch BIGINT NOT NULL
 );

@@ -6,10 +6,7 @@ use sqlx::PgPool;
 use taceo_nodes_common::postgres::{CreateSchema, PostgresConfig};
 use tracing::instrument;
 
-use crate::{
-    accountant_service::{RpCount, TimingEra, epoch_for_timestamp},
-    api::BillableRpRequest,
-};
+use crate::{accountant_service::RpCount, api::BillableRpRequest};
 
 type Result<T> = std::result::Result<T, PostgresDbError>;
 
@@ -56,17 +53,17 @@ impl PostgresDb {
 
     pub(crate) async fn store_request_batch(
         &self,
-        timing_eras: &[TimingEra],
+        epochs: Vec<u32>,
         rp_requests: Vec<BillableRpRequest>,
     ) -> Result<()> {
+        if epochs.len() != rp_requests.len() {
+            return Err(eyre::eyre!("epochs and rp_requests must have the same length").into());
+        }
         let rp_ids = rp_requests
             .iter()
             .map(|r| r.rp_id.into_inner() as i64)
             .collect_vec();
-        let epochs = rp_requests
-            .iter()
-            .map(|r| i64::from(epoch_for_timestamp(timing_eras, r.expires_at)))
-            .collect_vec();
+        let epochs = epochs.iter().map(|e| *e as i64).collect_vec();
         let nonces = rp_requests
             .iter()
             .map(|r| to_db_ark_serialize_uncompressed(&r.nonce))

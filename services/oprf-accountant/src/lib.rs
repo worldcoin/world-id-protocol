@@ -24,6 +24,7 @@
 use alloy::{providers::Provider, signers::local::PrivateKeySigner};
 use axum::{Router, extract::FromRef};
 use secrecy::ExposeSecret as _;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -42,14 +43,7 @@ pub mod timing_watcher;
 
 #[derive(Clone)]
 struct AppState {
-    db: PostgresDb,
     accountant: OprfAccountantService,
-}
-
-impl FromRef<AppState> for PostgresDb {
-    fn from_ref(input: &AppState) -> Self {
-        input.db.clone()
-    }
 }
 
 impl FromRef<AppState> for OprfAccountantService {
@@ -58,18 +52,35 @@ impl FromRef<AppState> for OprfAccountantService {
     }
 }
 
+pub struct OprfAccountantTasks {
+    pub timing_watcher: JoinHandle<eyre::Result<()>>,
+    pub accountant_task: JoinHandle<()>,
+}
+
+impl OprfAccountantTasks {
+    /// Consumes the task by joining every registered `JoinHandle`.
+    ///
+    /// # Errors
+    /// Returns the error from the inner tasks or an error if the task panicked.
+    pub async fn join(self) -> eyre::Result<()> {
+        self.timing_watcher.await??;
+        self.accountant_task.await?;
+        Ok(())
+    }
+}
+
 pub async fn start(
     config: &OprfAccountantConfig,
     db: PostgresDb,
     cancellation_token: CancellationToken,
-) -> eyre::Result<Router> {
+) -> eyre::Result<(Router, OprfAccountantTasks)> {
     let provider =
         taceo_nodes_common::web3::HttpRpcProviderBuilder::with_config(&config.rpc_provider_config)
             .build()?
             .inner();
     let signer: PrivateKeySigner = config.wallet_private_key.expose_secret().parse()?;
 
-    let timing_eras = TimingWatcher::init(
+    let (timing_watcher, timing_eras) = TimingWatcher::init(
         config.billing_contract,
         provider.clone(),
         config.ws_rpc_url.clone(),
@@ -85,13 +96,13 @@ pub async fn start(
         signer,
         db: db.clone(),
         timing_eras,
-        submit_interval: config.submit_interval,
+        submit_interval: config.tick_interval,
         voting_window_offset: config.voting_window_offset,
         cancellation_token: cancellation_token.clone(),
     })
     .await?;
 
-    tokio::spawn({
+    let accountant_task = tokio::spawn({
         let accountant = accountant.clone();
         async move {
             let _guard = cancellation_token.drop_guard_ref();
@@ -99,7 +110,15 @@ pub async fn start(
         }
     });
 
-    let app_state = AppState { db, accountant };
+    let app_state = AppState { accountant };
 
-    Ok(Router::new().merge(api::routes()).with_state(app_state))
+    let router = Router::new().merge(api::routes()).with_state(app_state);
+
+    Ok((
+        router,
+        OprfAccountantTasks {
+            timing_watcher,
+            accountant_task,
+        },
+    ))
 }

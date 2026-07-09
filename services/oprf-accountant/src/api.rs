@@ -40,7 +40,7 @@ impl From<&NullifierOprfRequestAuthV1> for BillableRpRequest {
     }
 }
 
-#[instrument(level = "trace", skip_all)]
+#[instrument(level = "info", skip_all)]
 async fn post_request(
     State(accountant): State<OprfAccountantService>,
     Json(rp_requests): Json<Vec<BillableRpRequest>>,

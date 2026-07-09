@@ -19,6 +19,7 @@ use std::{
 
 use alloy::{primitives::Address, providers::DynProvider, signers::local::PrivateKeySigner, sol};
 use eyre::Context;
+use itertools::Itertools as _;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
@@ -131,7 +132,7 @@ enum VoteWindowResult {
     dead_code,
     reason = "unused fields are used in the future implementation of vote submission"
 )]
-pub struct OprfAccountantService {
+pub(crate) struct OprfAccountantService {
     contract: IBillingContractInstance<DynProvider>,
     billing_contract: Address,
     chain_id: u64,
@@ -144,29 +145,29 @@ pub struct OprfAccountantService {
 }
 
 /// Construction parameters for [`OprfAccountantService::new`].
-pub struct OprfAccountantServiceArgs {
+pub(crate) struct OprfAccountantServiceArgs {
     /// Provider used to call and sign transactions against the `BillingContract`.
-    pub provider: DynProvider,
+    pub(crate) provider: DynProvider,
     /// Chain id `provider` is connected to.
-    pub chain_id: u64,
+    pub(crate) chain_id: u64,
     /// Address of the `BillingContract`.
-    pub billing_contract: Address,
+    pub(crate) billing_contract: Address,
     /// Signer this node uses to sign its billing votes.
-    pub signer: PrivateKeySigner,
+    pub(crate) signer: PrivateKeySigner,
     /// Database storing recorded RP requests and the epoch cursor.
-    pub db: PostgresDb,
+    pub(crate) db: PostgresDb,
     /// Live, shared snapshot of the `BillingContract`'s timing-era history (see
     /// `timing_watcher::TimingEras`).
-    pub timing_eras: Arc<Mutex<Vec<TimingEra>>>,
+    pub(crate) timing_eras: Arc<Mutex<Vec<TimingEra>>>,
     /// How often [`OprfAccountantService::run`] calls [`OprfAccountantService::tick`]. Must be
     /// less than the current era's `epochLength` and `votingWindow` (see [`validate_timing`]).
-    pub submit_interval: Duration,
+    pub(crate) submit_interval: Duration,
     /// Extra delay after an epoch's voting window opens before we aggregate and vote for it,
     /// giving OPRF nodes time to flush their batched requests to us. Must be less than the
     /// current era's `votingWindow` (see [`validate_timing`]).
-    pub voting_window_offset: Duration,
+    pub(crate) voting_window_offset: Duration,
     /// Signals [`OprfAccountantService::run`] to stop.
-    pub cancellation_token: CancellationToken,
+    pub(crate) cancellation_token: CancellationToken,
 }
 
 impl OprfAccountantService {
@@ -175,7 +176,10 @@ impl OprfAccountantService {
     ///
     /// # Errors
     /// Returns an error if the current era's timing parameters fail [`validate_timing`].
-    pub async fn new(
+    ///
+    /// # Panics
+    /// Panics if `timing_eras` is empty.
+    pub(crate) async fn new(
         OprfAccountantServiceArgs {
             provider,
             chain_id,
@@ -222,7 +226,7 @@ impl OprfAccountantService {
         skip_all,
         name = "accountant_service::record_rp_request_batch"
     )]
-    pub async fn record_rp_request_batch(
+    pub(crate) async fn record_rp_request_batch(
         &self,
         rp_requests: Vec<BillableRpRequest>,
     ) -> eyre::Result<()> {
@@ -230,9 +234,15 @@ impl OprfAccountantService {
             num_requests = rp_requests.len(),
             "recording RP request batch"
         );
-        let timing_eras = self.timing_eras.lock().expect("not poisoned").clone();
+        let epochs = {
+            let timing_eras = self.timing_eras.lock().expect("not poisoned");
+            rp_requests
+                .iter()
+                .map(|r| epoch_for_timestamp(&timing_eras, r.expires_at))
+                .collect_vec()
+        };
         self.db
-            .store_request_batch(&timing_eras, rp_requests)
+            .store_request_batch(epochs, rp_requests)
             .await
             .context("while storing request batch")
     }
@@ -243,7 +253,7 @@ impl OprfAccountantService {
     /// A tick that returns an error is logged and retried on the next tick rather than stopping
     /// the loop, since a transient failure (e.g. a dropped DB connection) shouldn't prevent
     /// later epochs from being voted on.
-    pub async fn run(&self) {
+    pub(crate) async fn run(&self) {
         tracing::info!("starting OprfAccountant worker");
 
         let mut interval = tokio::time::interval(self.submit_interval);
@@ -351,7 +361,7 @@ impl OprfAccountantService {
     /// Returns an error if checking the vote window, submitting the vote, or updating the epoch
     /// cursor fails.
     #[instrument(level = "info", skip_all, name = "accountant_service::tick")]
-    pub async fn tick(&self) -> eyre::Result<()> {
+    pub(crate) async fn tick(&self) -> eyre::Result<()> {
         let now = now_unix_timestamp();
         match self.get_votes_for_current_vote_window(now).await? {
             VoteWindowResult::NotOpen | VoteWindowResult::AlreadyClosed => return Ok(()),
@@ -383,17 +393,16 @@ impl OprfAccountantService {
     }
 }
 
-/// Validates `submit_interval` and `voting_window_offset` against `era`'s timing parameters.
+/// Validates `tick_interval` and `voting_window_offset` against `era`'s timing parameters.
 ///
 /// # Errors
 /// Returns an error if `era.votingWindow` is not at most `era.epochLength` (consecutive epochs'
 /// voting windows could overlap), if `voting_window_offset` is not less than `era.votingWindow`
-/// (votes would never be submitted), or if `submit_interval` is not less than `era.epochLength`
-/// (a tick can skip whole epochs) or `era.votingWindow` (a tick can walk straight past an
-/// epoch's voting window).
+/// (votes would never be submitted), or if `tick_interval` is not less than `era.votingWindow`
+/// (a tick can walk straight past an epoch's voting window).
 fn validate_timing(
     era: &TimingEra,
-    submit_interval: Duration,
+    tick_interval: Duration,
     voting_window_offset: Duration,
 ) -> eyre::Result<()> {
     eyre::ensure!(
@@ -410,14 +419,8 @@ fn validate_timing(
         era.votingWindow
     );
     eyre::ensure!(
-        submit_interval.as_secs() < era.epochLength,
-        "submit_interval ({submit_interval:?}) must be less than the current epoch length \
-         ({}s), or a tick can skip whole epochs",
-        era.epochLength
-    );
-    eyre::ensure!(
-        submit_interval.as_secs() < era.votingWindow,
-        "submit_interval ({submit_interval:?}) must be less than the current voting window \
+        tick_interval.as_secs() < era.votingWindow,
+        "tick_interval ({tick_interval:?}) must be less than the current voting window \
          ({}s), or a tick can walk straight past an epoch's voting window",
         era.votingWindow
     );

@@ -20,21 +20,21 @@ pub struct OprfAccountantConfig {
     /// The address of the `BillingContract` smart contract
     pub billing_contract: Address,
 
-    /// The `BillingContract` submit interval.
+    /// The interval in which to check if we can submit votes to the `BillingContract`.
     ///
-    /// Must be at most half the smallest `votingWindow` (and `epochLength`) the contract is
-    /// configured with, otherwise the accountant may miss an epoch's voting window entirely.
+    /// Must less than the `votingWindow` the contract is configured with,
+    /// otherwise the accountant may miss an epoch's voting window entirely.
     #[serde(
         default = "OprfAccountantConfig::default_submit_interval",
         with = "humantime_serde"
     )]
-    pub submit_interval: Duration,
+    pub tick_interval: Duration,
 
     /// A additional offset to be added to the start of the voting window.
     ///
     /// This is used to ensure that the OPRF nodes have enough time to send their requests
     /// to the accountant before the voting window starts.
-    /// The offset should be ~2x the flush interval of the `AccountantBatcher`.
+    /// The offset should be at least be 2x the flush interval of the `AccountantBatcher`.
     pub voting_window_offset: Duration,
 
     /// The blockchain RPC config

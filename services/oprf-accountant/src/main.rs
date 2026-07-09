@@ -12,7 +12,7 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-use std::{net::SocketAddr, process::ExitCode};
+use std::{net::SocketAddr, process::ExitCode, time::Duration};
 
 use config::{Config, Environment};
 use eyre::Context;
@@ -24,6 +24,12 @@ struct FullOprfAccountantConfig {
     /// The bind addr of the AXUM server
     #[serde(default = "default_bind_addr")]
     pub bind_addr: SocketAddr,
+
+    /// Max wait time the service waits for its workers during shutdown.
+    #[serde(default = "default_max_wait_shutdown")]
+    #[serde(with = "humantime_serde")]
+    pub max_wait_time_shutdown: Duration,
+
     /// The OPRF accountant service config
     #[serde(rename = "service")]
     pub service_config: OprfAccountantConfig,
@@ -59,6 +65,10 @@ fn default_bind_addr() -> SocketAddr {
     "0.0.0.0:4322".parse().expect("valid SocketAddr")
 }
 
+fn default_max_wait_shutdown() -> Duration {
+    Duration::from_secs(10)
+}
+
 async fn run(config: FullOprfAccountantConfig) -> eyre::Result<()> {
     tracing::info!("{}", taceo_nodes_common::version_info!());
     tracing::info!("starting oprf-accountant with config: {config:#?}");
@@ -69,8 +79,9 @@ async fn run(config: FullOprfAccountantConfig) -> eyre::Result<()> {
     let db = PostgresDb::init(&config.service_config.postgres_config).await?;
     // Clone the values we need afterwards
     let bind_addr = config.bind_addr;
+    let max_wait_time_shutdown = config.max_wait_time_shutdown;
 
-    let accountant_router =
+    let (accountant_router, accountant_tasks) =
         world_id_oprf_accountant::start(&config.service_config, db, cancellation_token.clone())
             .await?;
 
@@ -79,14 +90,50 @@ async fn run(config: FullOprfAccountantConfig) -> eyre::Result<()> {
             taceo_nodes_common::version_info!(),
         ))
         .merge(accountant_router);
-    tracing::info!("starting axum server on {bind_addr}",);
-    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-    axum::serve(listener, router)
-        .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
-        .await
-        .context("while serving axum")?;
-    tracing::info!("axum server shutdown");
-    Ok(())
+
+    let server = tokio::spawn({
+        let cancellation_token = cancellation_token.clone();
+        async move {
+            // we cancel the token if this task closes for some reason
+            let _drop_guard = cancellation_token.drop_guard_ref();
+            tracing::info!("starting axum server on to {bind_addr}");
+            let tcp_listener = tokio::net::TcpListener::bind(bind_addr)
+                .await
+                .context("while binding tcp-listener")?;
+            let axum_result = axum::serve(tcp_listener, router)
+                .with_graceful_shutdown({
+                    let cancellation_token = cancellation_token.clone();
+                    async move { cancellation_token.cancelled().await }
+                })
+                .await
+                .context("while running axum");
+            tracing::info!("axum server shutdown");
+            axum_result
+        }
+    });
+
+    tracing::info!("everything started successfully - now waiting for shutdown...");
+    cancellation_token.cancelled().await;
+
+    tracing::info!("waiting for shutdown of services (max wait time {max_wait_time_shutdown:?})..");
+
+    match tokio::time::timeout(max_wait_time_shutdown, async move {
+        let (axum_result, accountant_result) = tokio::join!(server, accountant_tasks.join());
+        axum_result??;
+        accountant_result?;
+        eyre::Ok(())
+    })
+    .await
+    {
+        Ok(Ok(_)) => {
+            tracing::info!("successfully finished shutdown in time");
+            Ok(())
+        }
+        Ok(Err(err)) => Err(err),
+        Err(_) => {
+            eyre::bail!("could not finish shutdown in time");
+        }
+    }
 }
 
 fn main() -> ExitCode {

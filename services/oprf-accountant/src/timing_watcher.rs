@@ -15,12 +15,10 @@ use alloy::{
 use eyre::Context as _;
 use futures_util::StreamExt as _;
 use secrecy::{ExposeSecret as _, SecretString};
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::accountant_service::{
-    IBillingContract::{IBillingContractInstance, TimingUpdated},
-    TimingEra,
-};
+use crate::accountant_service::{IBillingContract::IBillingContractInstance, TimingEra};
 
 /// Shared, mutex-guarded snapshot of the `BillingContract`'s timing-era history (oldest first),
 /// kept live by [`TimingWatcher`].
@@ -35,8 +33,7 @@ pub(crate) type TimingEras = Arc<Mutex<Vec<TimingEra>>>;
 pub(crate) struct TimingWatcher;
 
 impl TimingWatcher {
-    /// Fetches the current era history via `http_provider`, then spawns a background task that
-    /// appends new eras as `TimingUpdated` events arrive over a websocket at `ws_rpc_url`.
+    /// Spawns a background task that appends new eras as `TimingUpdated` events arrive over a websocket at `ws_rpc_url`.
     ///
     /// The returned [`TimingEras`] is updated in place by the spawned task, so callers should
     /// keep using the same handle to see live updates. The task keeps running until
@@ -55,7 +52,7 @@ impl TimingWatcher {
         http_provider: DynProvider,
         ws_rpc_url: SecretString,
         cancellation_token: CancellationToken,
-    ) -> eyre::Result<TimingEras> {
+    ) -> eyre::Result<(JoinHandle<eyre::Result<()>>, TimingEras)> {
         let http_contract = IBillingContractInstance::new(contract_address, http_provider);
         let timing_eras = Arc::new(Mutex::new(Vec::new()));
 
@@ -82,7 +79,7 @@ impl TimingWatcher {
 
         // Appends each decoded `TimingUpdated` event to `timing_eras` as it arrives, until
         // cancelled or the event stream ends.
-        tokio::spawn({
+        let handle = tokio::spawn({
             let timing_eras = timing_eras.clone();
             async move {
                 let _guard = cancellation_token.drop_guard_ref();
@@ -90,46 +87,25 @@ impl TimingWatcher {
                 loop {
                     tokio::select! {
                         event = events.next() => {
-                            let Some(event) = event else {
-                                tracing::warn!(
-                                    "TimingUpdated event stream ended; new eras will no longer be picked up live"
-                                );
-                                break;
+                            let Some(log) = event else {
+                                tracing::info!("subscribe stream closed, stopping TimingUpdated watcher");
+                                return Ok(());
                             };
+                            let (event, _log) = log.context("while fetching event from subscription")?;
+                            tracing::info!("received TimingUpdated event; appending to timing eras");
 
-                            match event {
-                                Ok((
-                                    TimingUpdated {
-                                        epochLength,
-                                        votingWindow,
-                                        paymentWindow,
-                                        eraStartEpoch,
-                                        eraStartTime,
-                                    },
-                                    _log,
-                                )) => {
-                                    let era = TimingEra {
-                                        startEpoch: eraStartEpoch,
-                                        startTime: eraStartTime,
-                                        epochLength,
-                                        votingWindow,
-                                        paymentWindow,
-                                    };
-                                    tracing::trace!(?era, "received TimingUpdated event; appending to timing eras");
-                                    let mut timing_eras = timing_eras.lock().expect("not poisoned");
-                                    // we could get a event for a new TimingEra that we already have in our list if the event happened right after we fetch them initially or when we fetch them all in try_reconnect.
-                                    if timing_eras.last().is_some_and(|last| last.startEpoch >= era.startEpoch) {
-                                        tracing::warn!(
-                                            "received TimingUpdated event with non-increasing startEpoch; skipping"
-                                        );
-                                    } else {
-                                        timing_eras.push(era);
-                                    }
-
-                                }
-                                Err(err) => {
-                                    tracing::warn!(error = ?err, "failed to decode TimingUpdated event; skipping");
-                                }
+                            let era = TimingEra {
+                                startEpoch: event.eraStartEpoch,
+                                startTime: event.eraStartTime,
+                                epochLength: event.epochLength,
+                                votingWindow: event.votingWindow,
+                                paymentWindow: event.paymentWindow,
+                            };
+                            tracing::trace!(?era, "received TimingUpdated event; appending to timing eras");
+                            let mut timing_eras = timing_eras.lock().expect("not poisoned");
+                            // we could get a event for a new TimingEra that we already have in our list if the event happened right after we fetch them initially or when we fetch them all in try_reconnect.
+                            if timing_eras.last().is_none_or(|last| last.startEpoch < era.startEpoch) {
+                                timing_eras.push(era);
                             }
                         }
                         () = cancellation_token.cancelled() => {
@@ -138,10 +114,11 @@ impl TimingWatcher {
                         }
                     }
                 }
+                Ok(())
             }
         });
 
-        Ok(timing_eras)
+        Ok((handle, timing_eras))
     }
 }
 
@@ -163,6 +140,9 @@ impl PubSubConnect for TimingWatcherWsConnect {
         self.ws_connect.connect().await
     }
 
+    /// # Note
+    /// This tries to prevent missing an event while the coonnection is down by re-fetching the full era history on reconnect, so we don't miss any eras that were appended while we were disconnected.
+    /// The http and ws provider could be connected to different nodes, so we could still miss an era if the http provider is behind the ws provider, but this is unlikely to happen in practice.
     async fn try_reconnect(&self) -> TransportResult<ConnectionHandle> {
         let handle = self.ws_connect.connect().await?;
         let eras = self
