@@ -8,12 +8,18 @@ use crate::{
     config::WatcherCacheConfig,
     metrics,
 };
-use alloy::{primitives::Address, providers::DynProvider};
+use alloy::{
+    primitives::Address,
+    providers::{DynProvider, Provider},
+    rpc::types::Filter,
+    sol_types::SolEvent,
+};
 use backon::Retryable as _;
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
 use taceo_oprf::types::OprfKeyId;
+use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 use world_id_primitives::{oprf::WorldIdRequestAuthError, rp::RpId};
 
@@ -167,6 +173,108 @@ impl RpRegistryWatcher {
         };
 
         Ok(relying_party)
+    }
+
+    /// Polls the `RpRegistry` for `RpUpdated` events and invalidates the cached
+    /// entry of every RP whose record changed.
+    ///
+    /// This collapses the propagation time of an on-chain signer rotation or
+    /// deactivation from the full cache TTL down to roughly one poll interval,
+    /// which is what makes prompt revocation of a compromised signer possible.
+    ///
+    /// Design notes:
+    /// - Over-invalidation is safe: the worst case of dropping an entry we did
+    ///   not strictly need to is a single `getRp` refetch on the next request.
+    ///   We therefore ignore reorgs and simply re-fetch logs for any range that
+    ///   failed, rather than tracking chain state precisely.
+    /// - Fail-safe: any RPC error is logged and the same block range is retried
+    ///   on the next tick. The loop only terminates on cancellation. The cache
+    ///   TTL remains the backstop if this loop stalls — see [`Self`] docs.
+    /// - We start watching from the current head: on startup the cache is empty,
+    ///   so there is nothing stale to invalidate for past updates, and entries
+    ///   loaded afterwards are at most one TTL old regardless.
+    pub(crate) async fn run_invalidation_loop(
+        self,
+        poll_interval: Duration,
+        cancellation_token: CancellationToken,
+    ) {
+        let provider = self.contract.provider().clone();
+        let address = *self.contract.address();
+
+        // Establish the starting block (current head + 1), retrying on failure.
+        let mut from_block = loop {
+            tokio::select! {
+                () = cancellation_token.cancelled() => return,
+                res = provider.get_block_number() => match res {
+                    Ok(n) => break n.saturating_add(1),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "rp invalidation: failed to fetch initial block number, retrying");
+                        tokio::select! {
+                            () = cancellation_token.cancelled() => return,
+                            () = tokio::time::sleep(poll_interval) => {}
+                        }
+                    }
+                }
+            }
+        };
+
+        tracing::info!(
+            from_block,
+            ?poll_interval,
+            "rp registry invalidation loop started"
+        );
+
+        loop {
+            tokio::select! {
+                () = cancellation_token.cancelled() => {
+                    tracing::info!("rp registry invalidation loop shutting down");
+                    return;
+                }
+                () = tokio::time::sleep(poll_interval) => {}
+            }
+
+            let latest = match provider.get_block_number().await {
+                Ok(n) => n,
+                Err(e) => {
+                    tracing::warn!(error = %e, "rp invalidation: failed to fetch block number, retrying");
+                    continue;
+                }
+            };
+            if latest < from_block {
+                continue;
+            }
+
+            let filter = Filter::new()
+                .address(address)
+                .event_signature(RpRegistry::RpUpdated::SIGNATURE_HASH)
+                .from_block(from_block)
+                .to_block(latest);
+
+            match provider.get_logs(&filter).await {
+                Ok(logs) => {
+                    for log in logs {
+                        match log.log_decode::<RpRegistry::RpUpdated>() {
+                            Ok(decoded) => {
+                                let rp_id = RpId::new(decoded.inner.data.rpId);
+                                self.rp_store.invalidate(&rp_id).await;
+                                metrics::rp_registry_cache::invalidation();
+                                tracing::info!(%rp_id, "invalidated cached RP after on-chain RpUpdated");
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "rp invalidation: failed to decode RpUpdated log");
+                            }
+                        }
+                    }
+                    from_block = latest.saturating_add(1);
+                    // Heartbeat: alert if this stops advancing (stalled poller).
+                    metrics::rp_registry_cache::set_last_polled_block(latest);
+                }
+                Err(e) => {
+                    // Keep `from_block` to retry this range; over-invalidation is safe.
+                    tracing::warn!(error = %e, from_block, to_block = latest, "rp invalidation: get_logs failed, will retry range");
+                }
+            }
+        }
     }
 
     #[allow(dead_code, reason = "is only used in tests")]
@@ -325,6 +433,74 @@ mod tests {
         let rp2 = watcher.get_rp(&rp_fixture.world_rp_id).await?;
         assert_eq!(rp1.signer, rp2.signer);
         assert_eq!(rp1.oprf_key_id, rp2.oprf_key_id);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_event_driven_invalidation() -> eyre::Result<()> {
+        // Long TTL so that any eviction we observe is caused by the event-driven
+        // invalidation loop, not by TTL expiry.
+        let (watcher, anvil, rp_fixture, rp_registry) =
+            setup_with_rp_with_ttl(Duration::from_secs(600)).await?;
+
+        // Prime the cache.
+        watcher.get_rp(&rp_fixture.world_rp_id).await?;
+        assert!(
+            watcher.rp_store.contains_key(&rp_fixture.world_rp_id),
+            "RP should be cached after first fetch"
+        );
+
+        // Start the invalidation loop. The clone shares the same moka store, so
+        // evictions it performs are visible on `watcher`.
+        let cancel = CancellationToken::new();
+        let handle = tokio::spawn(
+            watcher
+                .clone()
+                .run_invalidation_loop(Duration::from_millis(200), cancel.clone()),
+        );
+
+        // Trigger an on-chain RpUpdated by rotating the signer to a fresh key.
+        let deployer = anvil.signer(0)?;
+        let manager = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
+        let new_signer = LocalSigner::random().address();
+        anvil
+            .update_rp(
+                rp_registry,
+                deployer,
+                manager.clone(),
+                rp_fixture.world_rp_id,
+                false, // keep active
+                manager.address(),
+                new_signer,
+                "test.domain".to_string(),
+            )
+            .await?;
+
+        // The loop should evict the stale entry within a few poll intervals.
+        let mut invalidated = false;
+        for _ in 0..50 {
+            if !watcher.rp_store.contains_key(&rp_fixture.world_rp_id) {
+                invalidated = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        cancel.cancel();
+        handle
+            .await
+            .expect("invalidation loop task should not panic");
+
+        assert!(
+            invalidated,
+            "cache entry should be invalidated after the RpUpdated event"
+        );
+
+        // A subsequent fetch reflects the rotated signer.
+        let rp = watcher.get_rp(&rp_fixture.world_rp_id).await?;
+        assert_eq!(
+            rp.signer, new_signer,
+            "refetched RP should carry the rotated signer"
+        );
         Ok(())
     }
 

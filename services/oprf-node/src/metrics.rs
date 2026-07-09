@@ -139,6 +139,12 @@ pub(crate) mod rp_registry_cache {
     /// Number of hits in the `rp_registry_watcher` cache.
     const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS: &str =
         "taceo.oprf.node.rp_registry_watcher_cache.hits";
+    /// Number of event-driven invalidations of the `rp_registry_watcher` cache.
+    const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_INVALIDATIONS: &str =
+        "taceo.oprf.node.rp_registry_watcher_cache.invalidations";
+    /// Highest block scanned by the `RpUpdated` invalidation poller.
+    const METRICS_ID_NODE_RP_REGISTRY_WATCHER_LAST_POLLED_BLOCK: &str =
+        "taceo.oprf.node.rp_registry_watcher_cache.last_polled_block";
 
     pub(super) fn describe_metrics() {
         metrics::describe_gauge!(
@@ -158,6 +164,18 @@ pub(crate) mod rp_registry_cache {
             metrics::Unit::Count,
             "Number of hits in the rp_registry_watcher cache."
         );
+
+        metrics::describe_counter!(
+            METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_INVALIDATIONS,
+            metrics::Unit::Count,
+            "Number of cache entries invalidated in response to on-chain RpUpdated events."
+        );
+
+        metrics::describe_gauge!(
+            METRICS_ID_NODE_RP_REGISTRY_WATCHER_LAST_POLLED_BLOCK,
+            metrics::Unit::Count,
+            "Highest block scanned by the RpUpdated invalidation poller. Alert if this stops advancing."
+        );
     }
 
     pub(crate) fn set(val: u64) {
@@ -170,6 +188,14 @@ pub(crate) mod rp_registry_cache {
 
     pub(crate) fn miss() {
         metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
+    }
+
+    pub(crate) fn invalidation() {
+        metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_INVALIDATIONS).increment(1);
+    }
+
+    pub(crate) fn set_last_polled_block(block: u64) {
+        metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_LAST_POLLED_BLOCK).set(block as f64);
     }
 }
 
