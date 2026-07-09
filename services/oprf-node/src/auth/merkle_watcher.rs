@@ -59,7 +59,6 @@ impl From<&MerkleWatcherError> for WorldIdRequestAuthError {
 pub(crate) struct MerkleWatcher {
     merkle_root_cache: Cache<FieldElement, ()>,
     contract: WorldIdRegistryInstance<DynProvider>,
-    cache_config: WatcherCacheConfig,
 }
 
 impl MerkleWatcher {
@@ -90,7 +89,6 @@ impl MerkleWatcher {
         Self {
             merkle_root_cache,
             contract,
-            cache_config,
         }
     }
 
@@ -99,7 +97,7 @@ impl MerkleWatcher {
         &self,
         root: FieldElement,
     ) -> Result<(), Arc<MerkleWatcherError>> {
-        let is_valid_root = || async {
+        let is_valid_root = async {
             let (valid, root_time_stamp, current_block, timestamp_block) = self
                 .contract
                 .provider()
@@ -131,7 +129,7 @@ impl MerkleWatcher {
         let entry = self
             .merkle_root_cache
             .entry(root)
-            .or_try_insert_with(is_valid_root())
+            .or_try_insert_with(is_valid_root)
             .await?;
         if entry.is_fresh() {
             metrics::merkle_cache::set(self.merkle_root_cache.entry_count());

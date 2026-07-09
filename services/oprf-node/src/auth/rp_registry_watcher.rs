@@ -69,13 +69,6 @@ pub(crate) enum RpRegistryWatcherError {
         block: U256,
         timestamp: U256,
     },
-    /// Rp is blocked
-    #[error("rp is blocked: {rp} at block #{block} with timestamp: {timestamp}")]
-    BlockedRp {
-        rp: RpId,
-        block: U256,
-        timestamp: U256,
-    },
     /// Internal Error
     #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
@@ -87,7 +80,6 @@ impl From<&RpRegistryWatcherError> for WorldIdRequestAuthError {
             RpRegistryWatcherError::UnknownRp { .. } => Self::UnknownRp,
             RpRegistryWatcherError::InactiveRp { .. } => Self::InactiveRp,
             RpRegistryWatcherError::Timeout(_) => Self::Wip101AccountCheckTimeout,
-            RpRegistryWatcherError::BlockedRp { .. } => Self::BlockedRp,
             RpRegistryWatcherError::Internal(_) => Self::Internal,
         }
     }
@@ -179,6 +171,7 @@ impl RpRegistryWatcher {
             .provider()
             .multicall()
             .add_call(get_rp_call)
+            // we expect that isBlocked cannot revert
             .add(self.billing_contract.isBlocked(rp_id_u64))
             .get_block_number()
             .get_current_block_timestamp()
@@ -212,13 +205,6 @@ impl RpRegistryWatcher {
                 )));
             }
         };
-        if is_blocked {
-            return Err(RpRegistryWatcherError::BlockedRp {
-                rp: rp_id,
-                block: current_block,
-                timestamp,
-            });
-        }
 
         tracing::trace!("checking if RP is EOA or smart contract..");
 
@@ -234,6 +220,9 @@ impl RpRegistryWatcher {
             signer: rp.signer,
             oprf_key_id: OprfKeyId::new(rp.oprfKeyId),
             account_type,
+            is_blocked,
+            fetched_at_block: current_block,
+            fetched_at_timestamp: timestamp,
         };
 
         Ok(relying_party)
@@ -323,6 +312,7 @@ mod tests {
             LocalSigner::from_signing_key(rp_fixture.signing_key.clone()).address();
         assert_eq!(rp.signer, expected_signer);
 
+        assert!(!rp.is_blocked, "RP should not be blocked");
         assert!(
             watcher.rp_store.contains_key(&rp_fixture.world_rp_id),
             "Cache should have stored RP"
@@ -331,24 +321,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_blocked_rp_rejected() -> eyre::Result<()> {
+    async fn test_blocked_rp_cached() -> eyre::Result<()> {
         let (watcher, _anvil, _, _) = setup(Duration::from_secs(10)).await?;
         let blocked_rp = RpId::new(42);
 
         // 42 is blocked on the mock contract
-        let err = watcher
+        let rp = watcher
             .get_rp(blocked_rp)
             .await
-            .expect_err("RP should be blocked");
+            .expect("getRp should succeed and cache the RP");
+
+        assert!(rp.is_blocked, "RP should be blocked");
 
         assert!(
-            matches!(err.as_ref(), RpRegistryWatcherError::BlockedRp { rp, .. } if *rp ==blocked_rp),
-            "expect BlockedRp with id 42, got {err}"
-        );
-
-        assert!(
-            !watcher.rp_store.contains_key(&blocked_rp),
-            "Cache should not have stored RP"
+            watcher.rp_store.contains_key(&blocked_rp),
+            "Cache should have stored RP"
         );
         Ok(())
     }

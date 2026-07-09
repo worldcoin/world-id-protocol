@@ -101,7 +101,7 @@ pub enum WorldIdRequestAuthError {
     /// request proofs. If you are the RP, call `updateRp` to re-activate.
     #[error("inactive_rp")]
     InactiveRp,
-    /// Blocked RP. The RP is marked as blocked in the billing contract.Blocked RPs cannot request proofs. If you are the RP, call `pay` at the billing contract to re-activate.
+    /// Blocked RP. The RP is marked as blocked in the billing contract. Blocked RPs cannot request proofs. If you are the RP, call `pay` at the billing contract to re-activate.
     #[error("blocked_rp")]
     BlockedRp,
     /// **Only valid for Credential Blinding Factor generation**.

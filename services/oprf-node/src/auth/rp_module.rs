@@ -34,6 +34,7 @@ use tracing::instrument;
 use world_id_primitives::{
     FieldElement, SessionFeType, SessionFieldElement as _,
     oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
+    rp::RpId,
 };
 
 pub(crate) mod wip101;
@@ -78,6 +79,13 @@ pub(crate) enum RpModuleError {
     MerkleWatcher(#[from] Arc<MerkleWatcherError>),
     #[error(transparent)]
     RpRegistry(#[from] Arc<RpRegistryWatcherError>),
+    /// Rp is blocked
+    #[error("rp is blocked: {rp} at block #{block} with timestamp: {timestamp}")]
+    BlockedRp {
+        rp: RpId,
+        block: U256,
+        timestamp: U256,
+    },
     #[error("Current Timestamp in request too old, timestamp={timestamp:?}, current={current:?}")]
     TimestampTooOld {
         timestamp: chrono::DateTime<Utc>,
@@ -134,6 +142,7 @@ impl From<&RpModuleError> for WorldIdRequestAuthError {
             RpModuleError::RpSignatureExpired { .. } => Self::RpSignatureExpired,
             RpModuleError::InvalidTimestamp(_) => Self::InvalidTimestamp,
             RpModuleError::RpSignatureMissing => Self::RpSignatureMissing,
+            RpModuleError::BlockedRp { .. } => Self::BlockedRp,
             RpModuleError::CorruptSignature(_) | RpModuleError::InvalidSignature => {
                 Self::InvalidRpSignature
             }
@@ -171,6 +180,9 @@ pub(crate) struct RelyingParty {
     pub(crate) signer: Address,
     pub(crate) oprf_key_id: OprfKeyId,
     pub(crate) account_type: RpAccountType,
+    pub(crate) is_blocked: bool,
+    pub(crate) fetched_at_block: U256,
+    pub(crate) fetched_at_timestamp: U256,
 }
 
 pub(crate) struct RpModuleAuth {
@@ -348,6 +360,14 @@ impl RpModuleAuth {
         tracing::trace!("fetching RP info...");
         // fetch the RP info
         let rp = self.rp_registry_watcher.get_rp(request.auth.rp_id).await?;
+
+        if rp.is_blocked {
+            return Err(RpModuleError::BlockedRp {
+                rp: request.auth.rp_id,
+                block: rp.fetched_at_block,
+                timestamp: rp.fetched_at_timestamp,
+            });
+        }
 
         rp.ensure_signature_valid(
             &self.kind,
