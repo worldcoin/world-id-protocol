@@ -156,7 +156,7 @@ mod tests {
         QUERY_VERIFICATION_KEY,
         auth::{
             credential_blinding_factor::CredentialBlindingFactorModuleAuth,
-            tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup},
+            tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup, SetupKind},
         },
     };
 
@@ -168,7 +168,7 @@ mod tests {
 
     impl CredentialBlindingFactorOprfRequestAuthTestSetup {
         pub(crate) async fn new() -> eyre::Result<Self> {
-            let infra = AuthModulesTestSetup::new().await?;
+            let infra = AuthModulesTestSetup::new(SetupKind::CredentialIssuer).await?;
             let vk: VerificationKey<Bn254> =
                 serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
 

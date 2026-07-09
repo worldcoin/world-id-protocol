@@ -303,6 +303,32 @@ impl TestAnvil {
         Ok(anvil)
     }
 
+    /// Spawns a fresh `anvil` instance with auto-mining: a block is mined instantly for every
+    /// transaction instead of the 1-second interval used by [`Self::spawn`]. Prefer this for
+    /// tests that only need transactions included and don't depend on periodic block production.
+    pub fn spawn_auto_mine() -> Result<Self> {
+        let instance = Anvil::new()
+            .mnemonic(Self::MNEMONIC)
+            .try_spawn()
+            .context("failed to start anvil")?;
+
+        let rpc_url = instance.endpoint().to_string();
+        let ws_url = instance.ws_endpoint();
+
+        Ok(Self {
+            instance,
+            rpc_url,
+            ws_url,
+        })
+    }
+
+    /// Auto-mining variant of [`Self::spawn_with_multicall3`].
+    pub async fn spawn_auto_mine_with_multicall3() -> Result<Self> {
+        let anvil = Self::spawn_auto_mine()?;
+        anvil.deploy_multicall3().await?;
+        Ok(anvil)
+    }
+
     /// Deploys Multicall3 bytecode at the canonical address using `anvil_setCode`.
     async fn deploy_multicall3(&self) -> Result<()> {
         let provider = ProviderBuilder::new()

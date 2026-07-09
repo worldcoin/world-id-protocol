@@ -147,20 +147,24 @@ mod tests {
 
     use eddsa_babyjubjub::EdDSAPrivateKey;
     use rand::Rng;
-    use world_id_test_utils::{anvil::TestAnvil, fixtures::RegistryTestContext};
+    use world_id_test_utils::anvil::TestAnvil;
 
     use crate::{auth::tests::build_http_provider, config::WatcherCacheConfig};
 
-    async fn setup_with_issuer()
-    -> eyre::Result<(SchemaIssuerRegistryWatcher, TestAnvil, u64, Address)> {
+    /// Deploys only what the watcher needs (credential registry) and registers one issuer.
+    async fn setup_with_issuer(
+        cache_config: WatcherCacheConfig,
+    ) -> eyre::Result<(SchemaIssuerRegistryWatcher, TestAnvil, u64, Address)> {
         let mut rng = rand::thread_rng();
-        let RegistryTestContext {
-            anvil,
-            credential_registry,
-            ..
-        } = RegistryTestContext::new_with_mock_oprf_key_registry().await?;
-
+        let anvil = TestAnvil::spawn_auto_mine_with_multicall3().await?;
         let deployer = anvil.signer(0)?;
+        let oprf_key_registry = anvil
+            .deploy_mock_oprf_key_registry(deployer.clone())
+            .await?;
+        let credential_registry = anvil
+            .deploy_credential_schema_issuer_registry(deployer.clone(), oprf_key_registry)
+            .await?;
+
         let issuer_schema_id: u64 = rng.r#gen();
         let issuer_sk = EdDSAPrivateKey::random(&mut rng);
 
@@ -173,11 +177,10 @@ mod tests {
             )
             .await?;
 
-        let http_rpc_provider = build_http_provider(&anvil.instance);
         let watcher = SchemaIssuerRegistryWatcher::init(
             credential_registry,
-            &http_rpc_provider,
-            WatcherCacheConfig::default(),
+            &build_http_provider(&anvil.instance),
+            cache_config,
         );
 
         Ok((watcher, anvil, issuer_schema_id, credential_registry))
@@ -185,7 +188,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_valid_issuer_accepted() -> eyre::Result<()> {
-        let (watcher, _anvil, issuer_schema_id, _) = setup_with_issuer().await?;
+        let (watcher, _anvil, issuer_schema_id, _) =
+            setup_with_issuer(WatcherCacheConfig::default()).await?;
 
         watcher
             .is_valid_issuer(issuer_schema_id)
@@ -200,7 +204,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unknown_issuer_rejected() -> eyre::Result<()> {
-        let (watcher, _anvil, _, _) = setup_with_issuer().await?;
+        let (watcher, _anvil, _, _) = setup_with_issuer(WatcherCacheConfig::default()).await?;
 
         let unknown_id = 99999u64;
         let err = watcher
@@ -219,42 +223,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_removed_issuer_rejected_after_ttl() -> eyre::Result<()> {
-        let mut rng = rand::thread_rng();
-        let RegistryTestContext {
-            anvil,
-            credential_registry,
-            ..
-        } = RegistryTestContext::new_with_mock_oprf_key_registry().await?;
-
-        let deployer = anvil.signer(0)?;
-        let issuer_schema_id = 42;
-        let issuer_sk = EdDSAPrivateKey::random(&mut rng);
-
-        anvil
-            .register_issuer(
-                credential_registry,
-                deployer.clone(),
-                issuer_schema_id,
-                issuer_sk.public(),
-            )
+        let (watcher, anvil, issuer_schema_id, credential_registry) =
+            setup_with_issuer(WatcherCacheConfig {
+                time_to_live: Duration::from_millis(100),
+                ..Default::default()
+            })
             .await?;
-
-        let http_rpc_provider = build_http_provider(&anvil.instance);
-        let cache_config = WatcherCacheConfig {
-            time_to_live: Duration::from_secs(1),
-            ..Default::default()
-        };
-        let watcher = SchemaIssuerRegistryWatcher::init(
-            credential_registry,
-            &http_rpc_provider,
-            cache_config,
-        );
 
         watcher
             .is_valid_issuer(issuer_schema_id)
             .await
             .expect("should be valid before removal");
 
+        let deployer = anvil.signer(0)?;
         anvil
             .remove_issuer(
                 credential_registry,
@@ -264,7 +245,7 @@ mod tests {
             )
             .await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         let err = watcher
             .is_valid_issuer(issuer_schema_id)
@@ -286,7 +267,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_error_not_cached() -> eyre::Result<()> {
-        let (watcher, _anvil, _, _) = setup_with_issuer().await?;
+        let (watcher, _anvil, _, _) = setup_with_issuer(WatcherCacheConfig::default()).await?;
 
         let unknown_id = 99999;
         watcher
@@ -310,8 +291,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_contract_call_failure_returns_internal() -> eyre::Result<()> {
-        let RegistryTestContext { anvil, .. } =
-            RegistryTestContext::new_with_mock_oprf_key_registry().await?;
+        let anvil = TestAnvil::spawn_auto_mine_with_multicall3().await?;
         let http_rpc_provider = build_http_provider(&anvil.instance);
         // Address with no contract bytecode — getSignerForIssuerSchemaId() call will fail
         let watcher = SchemaIssuerRegistryWatcher::init(

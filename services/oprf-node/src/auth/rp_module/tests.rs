@@ -26,7 +26,7 @@ use crate::{
                 WIP101WrongMagic, WrongSignature,
             },
         },
-        tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup},
+        tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup, SetupKind},
     },
 };
 
@@ -46,7 +46,7 @@ impl RpModuleTestSetup {
         session_type: SessionFeType,
     ) -> eyre::Result<Self> {
         let mut rng = rand::thread_rng();
-        let infra = AuthModulesTestSetup::new().await?;
+        let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
 
         let request_authenticator = RpModuleAuth::new_session(infra.rp_module_args());
 
@@ -89,7 +89,7 @@ impl RpModuleTestSetup {
     }
 
     async fn new_uniqueness() -> eyre::Result<Self> {
-        let infra = AuthModulesTestSetup::new().await?;
+        let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
         let request_authenticator =
             RpModuleAuth::new_uniqueness(infra.rp_module_args(), accountant_batcher::dev_null());
 
@@ -200,7 +200,35 @@ async fn check_success(setup: RpModuleTestSetup) -> eyre::Result<()> {
     setup.assert_auth_ok().await
 }
 
-async fn check_expired_timestamp(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+/// Shared assertion for the WIP101-incompatible-signer checks below: the
+/// message string appears once here instead of four times.
+async fn assert_wip101_incompatible(
+    mut setup: RpModuleTestSetup,
+    addr: Address,
+) -> eyre::Result<()> {
+    setup.set_contract_signer(addr, None).await;
+    setup
+        .assert_auth_err(
+            error_codes::WIP101_INCOMPATIBLE_RP_SIGNER,
+            "RP has a contract backed signer but doesn't conform to WIP101",
+        )
+        .await
+}
+
+// ── Session tests ────────────────────────────────────────────────────────
+//
+// Each check below is run once against a session authenticator. The checked
+// code paths are variant-agnostic; the uniqueness happy path and the
+// variant-specific action rules are covered by the standalone tests below.
+
+#[tokio::test]
+async fn test_session_success() -> eyre::Result<()> {
+    check_success(RpModuleTestSetup::new_session().await?).await
+}
+
+#[tokio::test]
+async fn test_session_expired_timestamp() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.current_time_stamp -= setup
         .request_authenticator
         .current_time_stamp_max_difference
@@ -214,7 +242,9 @@ async fn check_expired_timestamp(mut setup: RpModuleTestSetup) -> eyre::Result<(
         .await
 }
 
-async fn check_future_timestamp(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_future_timestamp() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.current_time_stamp += setup
         .request_authenticator
         .current_time_stamp_max_difference
@@ -228,7 +258,9 @@ async fn check_future_timestamp(mut setup: RpModuleTestSetup) -> eyre::Result<()
         .await
 }
 
-async fn check_timestamp_zero(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_timestamp_zero() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.current_time_stamp = 0;
     setup
         .assert_auth_err(
@@ -238,7 +270,9 @@ async fn check_timestamp_zero(mut setup: RpModuleTestSetup) -> eyre::Result<()> 
         .await
 }
 
-async fn check_invalid_timestamp(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_invalid_timestamp() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.current_time_stamp = u64::MAX;
     setup
         .assert_auth_err(
@@ -248,7 +282,9 @@ async fn check_invalid_timestamp(mut setup: RpModuleTestSetup) -> eyre::Result<(
         .await
 }
 
-async fn check_invalid_query_proof(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_invalid_query_proof() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.proof.pi_a = rand::random();
     setup
         .assert_auth_err(
@@ -258,7 +294,9 @@ async fn check_invalid_query_proof(mut setup: RpModuleTestSetup) -> eyre::Result
         .await
 }
 
-async fn check_tampered_blinded_query(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_tampered_blinded_query() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.blinded_query = rand::random();
     setup
         .assert_auth_err(
@@ -268,21 +306,27 @@ async fn check_tampered_blinded_query(mut setup: RpModuleTestSetup) -> eyre::Res
         .await
 }
 
-async fn check_invalid_merkle_root(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_invalid_merkle_root() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.merkle_root = rand::random();
     setup
         .assert_auth_err(error_codes::INVALID_MERKLE_ROOT, "invalid merkle root")
         .await
 }
 
-async fn check_invalid_rp_id(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_invalid_rp_id() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.rp_id = RpId::new(rand::random());
     setup
         .assert_auth_err(error_codes::UNKNOWN_RP, "unknown RP")
         .await
 }
 
-async fn check_invalid_signer(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_invalid_signer() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.nonce = rand::random();
     setup
         .assert_auth_err(
@@ -292,7 +336,9 @@ async fn check_invalid_signer(mut setup: RpModuleTestSetup) -> eyre::Result<()> 
         .await
 }
 
-async fn check_corrupt_signature(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_corrupt_signature() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     // r=0, s=0 produces an unrecoverable signature, triggering CorruptSignature (not InvalidSignature)
     setup.request.auth.signature = Some(alloy::primitives::Signature::new(
         alloy::primitives::U256::ZERO,
@@ -307,7 +353,43 @@ async fn check_corrupt_signature(mut setup: RpModuleTestSetup) -> eyre::Result<(
         .await
 }
 
-async fn check_replay(setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_tampered_expiration_timestamp() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
+    setup.request.auth.expiration_timestamp += 1;
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_SIGNATURE,
+            "signature from RP cannot be verified",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_session_expired_rp_signature() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
+    setup.request.auth.expiration_timestamp = 0;
+    setup
+        .assert_auth_err(error_codes::RP_SIGNATURE_EXPIRED, "RP signature expired")
+        .await
+}
+
+#[tokio::test]
+async fn test_session_missing_signature_eoa() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
+    // The signer is an EOA (default setup). Setting signature to None should fail.
+    setup.request.auth.signature = None;
+    setup
+        .assert_auth_err(
+            error_codes::RP_SIGNATURE_MISSING,
+            "RP signature missing but signer is an EOA",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_session_replay() -> eyre::Result<()> {
+    let setup = RpModuleTestSetup::new_session().await?;
     setup
         .request_authenticator
         .authenticate(&setup.request)
@@ -317,7 +399,9 @@ async fn check_replay(setup: RpModuleTestSetup) -> eyre::Result<()> {
         .await
 }
 
-async fn check_inactive_rp(setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_inactive_rp() -> eyre::Result<()> {
+    let setup = RpModuleTestSetup::new_session().await?;
     let rp_fixture = setup.setup.rp_fixture.clone();
     let deployer = setup.setup.anvil.signer(0)?;
     let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
@@ -340,41 +424,17 @@ async fn check_inactive_rp(setup: RpModuleTestSetup) -> eyre::Result<()> {
         .await
 }
 
-async fn check_tampered_expiration_timestamp(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
-    setup.request.auth.expiration_timestamp += 1;
-    setup
-        .assert_auth_err(
-            error_codes::INVALID_RP_SIGNATURE,
-            "signature from RP cannot be verified",
-        )
-        .await
-}
-
-async fn check_expired_rp_signature(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
-    setup.request.auth.expiration_timestamp = 0;
-    setup
-        .assert_auth_err(error_codes::RP_SIGNATURE_EXPIRED, "RP signature expired")
-        .await
-}
-
-async fn check_missing_signature_eoa(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
-    // The signer is an EOA (default setup). Setting signature to None should fail.
-    setup.request.auth.signature = None;
-    setup
-        .assert_auth_err(
-            error_codes::RP_SIGNATURE_MISSING,
-            "RP signature missing but signer is an EOA",
-        )
-        .await
-}
-
-async fn check_wip101_success(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_success() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     let addr = deploy!(WIP101Correct, setup);
     setup.set_contract_signer(addr, None).await;
     setup.assert_auth_ok().await
 }
 
-async fn check_wip101_with_max_data_success(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_success_max_data() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     let addr = deploy!(WIP101Correct, setup);
     // should still work
     setup
@@ -383,7 +443,9 @@ async fn check_wip101_with_max_data_success(mut setup: RpModuleTestSetup) -> eyr
     setup.assert_auth_ok().await
 }
 
-async fn check_wip101_success_if_data(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_success_if_data() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     let addr = deploy!(WIP101CorrectWhenAuxData, setup);
     setup
         .set_contract_signer(addr, Some(vec![0xC0, 0xFF, 0xEE]))
@@ -391,7 +453,9 @@ async fn check_wip101_success_if_data(mut setup: RpModuleTestSetup) -> eyre::Res
     setup.assert_auth_ok().await
 }
 
-async fn check_wip101_no_data_failure(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_no_data_failure() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     let addr = deploy!(WIP101CorrectWhenAuxData, setup);
     setup.set_contract_signer(addr, None).await;
     // this should be the custom error as hex
@@ -400,7 +464,9 @@ async fn check_wip101_no_data_failure(mut setup: RpModuleTestSetup) -> eyre::Res
         .await
 }
 
-async fn check_wip101_wrong_magic(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_wrong_magic() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     let addr = deploy!(WIP101WrongMagic, setup);
     setup.set_contract_signer(addr, None).await;
     setup
@@ -408,7 +474,9 @@ async fn check_wip101_wrong_magic(mut setup: RpModuleTestSetup) -> eyre::Result<
         .await
 }
 
-async fn check_wip101_reverts_with_code(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_reverts_with_code() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     let addr = deploy!(WIP101RevertsWithCode, setup);
     setup.set_contract_signer(addr, None).await;
     // this should be the custom error as hex
@@ -417,7 +485,9 @@ async fn check_wip101_reverts_with_code(mut setup: RpModuleTestSetup) -> eyre::R
         .await
 }
 
-async fn check_wip101_plain_revert(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_plain_revert() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     let addr = deploy!(WIP101PlainRevert, setup);
     setup.set_contract_signer(addr, None).await;
     setup
@@ -428,43 +498,38 @@ async fn check_wip101_plain_revert(mut setup: RpModuleTestSetup) -> eyre::Result
         .await
 }
 
-/// Shared assertion for the WIP101-incompatible-signer checks below: the
-/// message string appears once here instead of four times.
-async fn assert_wip101_incompatible(
-    mut setup: RpModuleTestSetup,
-    addr: Address,
-) -> eyre::Result<()> {
-    setup.set_contract_signer(addr, None).await;
-    setup
-        .assert_auth_err(
-            error_codes::WIP101_INCOMPATIBLE_RP_SIGNER,
-            "RP has a contract backed signer but doesn't conform to WIP101",
-        )
-        .await
-}
-
-async fn check_wip101_broken_erc165(setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_broken_erc165() -> eyre::Result<()> {
+    let setup = RpModuleTestSetup::new_session().await?;
     let addr = deploy!(WIP101BrokenERC165, setup);
     // whether the contract calls confirm to WIP101 as reported by ERC165 is irrelevant here
     assert_wip101_incompatible(setup, addr).await
 }
 
-async fn check_wip101_no_erc165(setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_no_erc165() -> eyre::Result<()> {
+    let setup = RpModuleTestSetup::new_session().await?;
     let addr = deploy!(NoERC165, setup);
     assert_wip101_incompatible(setup, addr).await
 }
 
-async fn check_wip101_no_verify_rp_request(setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_no_verify_rp_request() -> eyre::Result<()> {
+    let setup = RpModuleTestSetup::new_session().await?;
     let addr = deploy!(NoWIP101, setup);
     assert_wip101_incompatible(setup, addr).await
 }
 
-async fn check_wip101_wrong_method_signature(setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_wrong_method_signature() -> eyre::Result<()> {
+    let setup = RpModuleTestSetup::new_session().await?;
     let addr = deploy!(WrongSignature, setup);
     assert_wip101_incompatible(setup, addr).await
 }
 
-async fn check_wip101_aux_data_on_eoa(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_aux_data_on_eoa() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     // EOA signer (default). Setting aux data should be rejected before any contract call.
     setup.request.auth.wip101_data = Some(vec![0x01, 0x02, 0x03]);
     setup
@@ -475,7 +540,9 @@ async fn check_wip101_aux_data_on_eoa(mut setup: RpModuleTestSetup) -> eyre::Res
         .await
 }
 
-async fn check_wip101_aux_data_too_large(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_aux_data_too_large() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     let addr = deploy!(WIP101Correct, setup);
     // 1025 bytes exceeds MAX_AUX_DATA_SIZE (1024)
     setup
@@ -489,7 +556,9 @@ async fn check_wip101_aux_data_too_large(mut setup: RpModuleTestSetup) -> eyre::
         .await
 }
 
-async fn check_wip101_verification_timeout(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_verification_timeout() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     let addr = deploy!(WIP101TimeoutVerify, setup);
     setup.set_contract_signer(addr, None).await;
     // set timeout to 0
@@ -502,7 +571,9 @@ async fn check_wip101_verification_timeout(mut setup: RpModuleTestSetup) -> eyre
         .await
 }
 
-async fn check_wip101_account_check_timeout(mut setup: RpModuleTestSetup) -> eyre::Result<()> {
+#[tokio::test]
+async fn test_session_wip101_account_check_timeout() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
     // set timeout to 0
     setup
         .request_authenticator
@@ -516,67 +587,6 @@ async fn check_wip101_account_check_timeout(mut setup: RpModuleTestSetup) -> eyr
             "Ran into timeout while doing WIP101/ERC165 check on RP's signer",
         )
         .await
-}
-
-// ── Test-generating macro ────────────────────────────────────────────────
-
-/// Generates the same test once against a session authenticator and once
-/// against a uniqueness authenticator.
-macro_rules! rp_module_tests {
-    ($($name:ident => $check:ident),* $(,)?) => {
-        mod session {
-            use super::*;
-            $(
-                #[tokio::test]
-                async fn $name() -> eyre::Result<()> {
-                    $check(RpModuleTestSetup::new_session().await?).await
-                }
-            )*
-        }
-        mod uniqueness {
-            use super::*;
-            $(
-                #[tokio::test]
-                async fn $name() -> eyre::Result<()> {
-                    $check(RpModuleTestSetup::new_uniqueness().await?).await
-                }
-            )*
-        }
-    };
-}
-
-rp_module_tests! {
-    success => check_success,
-    expired_timestamp => check_expired_timestamp,
-    future_timestamp => check_future_timestamp,
-    timestamp_zero => check_timestamp_zero,
-    invalid_timestamp => check_invalid_timestamp,
-    invalid_query_proof => check_invalid_query_proof,
-    tampered_blinded_query => check_tampered_blinded_query,
-    invalid_merkle_root => check_invalid_merkle_root,
-    invalid_rp_id => check_invalid_rp_id,
-    invalid_signer => check_invalid_signer,
-    corrupt_signature => check_corrupt_signature,
-    tampered_expiration_timestamp => check_tampered_expiration_timestamp,
-    expired_rp_signature => check_expired_rp_signature,
-    missing_signature_eoa => check_missing_signature_eoa,
-    replay => check_replay,
-    inactive_rp => check_inactive_rp,
-    wip101_success => check_wip101_success,
-    wip101_success_max_data => check_wip101_with_max_data_success,
-    wip101_success_if_data => check_wip101_success_if_data,
-    wip101_no_data_failure => check_wip101_no_data_failure,
-    wip101_wrong_magic => check_wip101_wrong_magic,
-    wip101_reverts_with_code => check_wip101_reverts_with_code,
-    wip101_plain_revert => check_wip101_plain_revert,
-    wip101_broken_erc165 => check_wip101_broken_erc165,
-    wip101_no_erc165 => check_wip101_no_erc165,
-    wip101_no_verify_rp_request => check_wip101_no_verify_rp_request,
-    wip101_wrong_method_signature => check_wip101_wrong_method_signature,
-    wip101_aux_data_on_eoa => check_wip101_aux_data_on_eoa,
-    wip101_aux_data_too_large => check_wip101_aux_data_too_large,
-    wip101_verification_timeout => check_wip101_verification_timeout,
-    wip101_account_check_timeout => check_wip101_account_check_timeout,
 }
 
 // ── Session-specific tests ───────────────────────────────────────────────
@@ -614,6 +624,11 @@ async fn test_session_invalid_action_random_prefix() -> eyre::Result<()> {
 }
 
 // ── Uniqueness-specific tests ────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_uniqueness_success() -> eyre::Result<()> {
+    check_success(RpModuleTestSetup::new_uniqueness().await?).await
+}
 
 #[tokio::test]
 async fn test_uniqueness_invalid_action() -> eyre::Result<()> {

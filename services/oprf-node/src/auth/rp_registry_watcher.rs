@@ -10,10 +10,10 @@ use crate::{
     config::WatcherCacheConfig,
     metrics,
 };
-use alloy::sol_types::SolError;
 use alloy::{
     primitives::{Address, U256},
     providers::{CallItemBuilder, DynProvider, Failure, Provider},
+    sol_types::SolError,
 };
 use backon::Retryable as _;
 use eyre::Context;
@@ -146,9 +146,9 @@ impl RpRegistryWatcher {
     #[instrument(level = "debug", skip_all, fields(rp_id=%rp_id))]
     pub(crate) async fn get_rp(
         &self,
-        rp_id: &RpId,
+        rp_id: RpId,
     ) -> Result<RelyingParty, Arc<RpRegistryWatcherError>> {
-        let backon_fetch_rp = (|| async { self.fetch_rp_from_chain(*rp_id).await })
+        let backon_fetch_rp = (|| async { self.fetch_rp_from_chain(rp_id).await })
             .retry(self.cache_config.backoff_strategy())
             .sleep(tokio::time::sleep)
             .when(|e| matches!(e, RpRegistryWatcherError::UnknownRp { .. }))
@@ -158,7 +158,7 @@ impl RpRegistryWatcher {
 
         let entry = self
             .rp_store
-            .entry(*rp_id)
+            .entry(rp_id)
             .or_try_insert_with(backon_fetch_rp)
             .await?;
         let rp = if entry.is_fresh() {
@@ -263,27 +263,26 @@ mod tests {
     use alloy::signers::local::LocalSigner;
     use rand::Rng;
     use world_id_primitives::rp::RpId;
-    use world_id_test_utils::{
-        anvil::TestAnvil,
-        fixtures::{self, RegistryTestContext},
+    use world_id_test_utils::{anvil::TestAnvil, fixtures};
+
+    use crate::{
+        auth::tests::{BillingContractMock, build_http_provider},
+        config::WatcherCacheConfig,
     };
 
-    use crate::auth::tests::BillingContractMock;
-    use crate::{auth::tests::build_http_provider, config::WatcherCacheConfig};
-
-    async fn setup_with_rp()
-    -> eyre::Result<(RpRegistryWatcher, TestAnvil, fixtures::RpFixture, Address)> {
-        setup_with_rp_with_ttl(Duration::from_secs(10)).await
-    }
-
-    async fn setup_with_rp_with_ttl(
+    /// Deploys only what the watcher needs (RP registry + billing mock) and registers one RP.
+    async fn setup(
         ttl: Duration,
     ) -> eyre::Result<(RpRegistryWatcher, TestAnvil, fixtures::RpFixture, Address)> {
-        let RegistryTestContext {
-            anvil, rp_registry, ..
-        } = RegistryTestContext::new_with_mock_oprf_key_registry().await?;
-
+        let anvil = TestAnvil::spawn_auto_mine_with_multicall3().await?;
         let deployer = anvil.signer(0)?;
+        let oprf_key_registry = anvil
+            .deploy_mock_oprf_key_registry(deployer.clone())
+            .await?;
+        let rp_registry = anvil
+            .deploy_rp_registry(deployer.clone(), oprf_key_registry)
+            .await?;
+
         let rp_fixture = fixtures::generate_rp_fixture();
         let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
 
@@ -318,10 +317,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_known_rp_returned() -> eyre::Result<()> {
-        let (watcher, _anvil, rp_fixture, _) = setup_with_rp().await?;
+        let (watcher, _anvil, rp_fixture, _) = setup(Duration::from_secs(10)).await?;
 
         let rp = watcher
-            .get_rp(&rp_fixture.world_rp_id)
+            .get_rp(rp_fixture.world_rp_id)
             .await
             .expect("known RP should be returned");
 
@@ -337,12 +336,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_blocked_rp() -> eyre::Result<()> {
+        let (watcher, _anvil, _, _) = setup(Duration::from_secs(10)).await?;
+        let blocked_rp = RpId::new(42);
+
+        // 42 is blocked on the mock contract
+        let err = watcher
+            .get_rp(blocked_rp)
+            .await
+            .expect_err("RP should be blocked");
+
+        assert!(
+            matches!(err.as_ref(), RpRegistryWatcherError::BlockedRp { rp, .. } if *rp ==blocked_rp),
+            "expect BlockedRp with id 42, got {err}"
+        );
+
+        assert!(
+            !watcher.rp_store.contains_key(&blocked_rp),
+            "Cache should not have stored RP"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_unknown_rp_rejected() -> eyre::Result<()> {
-        let (watcher, _anvil, _, _) = setup_with_rp().await?;
+        let (watcher, _anvil, _, _) = setup(Duration::from_secs(10)).await?;
 
         let unknown_id = RpId::new(rand::thread_rng().r#gen::<u64>());
         let err = watcher
-            .get_rp(&unknown_id)
+            .get_rp(unknown_id)
             .await
             .expect_err("unknown RP should be rejected");
         assert!(
@@ -358,7 +380,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_inactive_rp_rejected() -> eyre::Result<()> {
-        let (watcher, anvil, rp_fixture, rp_registry) = setup_with_rp().await?;
+        let (watcher, anvil, rp_fixture, rp_registry) = setup(Duration::from_secs(10)).await?;
 
         let deployer = anvil.signer(0)?;
         let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
@@ -378,7 +400,7 @@ mod tests {
             .await?;
 
         let err = watcher
-            .get_rp(&rp_fixture.world_rp_id)
+            .get_rp(rp_fixture.world_rp_id)
             .await
             .expect_err("inactive RP should be rejected");
         assert!(
@@ -395,20 +417,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_ttl_expiry() -> eyre::Result<()> {
-        let (watcher, _anvil, rp_fixture, _) =
-            setup_with_rp_with_ttl(Duration::from_secs(1)).await?;
+        let (watcher, _anvil, rp_fixture, _) = setup(Duration::from_millis(100)).await?;
 
-        let rp1 = watcher.get_rp(&rp_fixture.world_rp_id).await?;
+        let rp1 = watcher.get_rp(rp_fixture.world_rp_id).await?;
         assert!(
             watcher.rp_store.contains_key(&rp_fixture.world_rp_id),
             "RP should be in cache"
         );
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
         assert!(
             !watcher.rp_store.contains_key(&rp_fixture.world_rp_id),
             "RP should NOT be in cache anymore"
         );
-        let rp2 = watcher.get_rp(&rp_fixture.world_rp_id).await?;
+        let rp2 = watcher.get_rp(rp_fixture.world_rp_id).await?;
         assert_eq!(rp1.signer, rp2.signer);
         assert_eq!(rp1.oprf_key_id, rp2.oprf_key_id);
         Ok(())
@@ -416,8 +437,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_contract_call_failure_returns_internal() -> eyre::Result<()> {
-        let RegistryTestContext { anvil, .. } =
-            RegistryTestContext::new_with_mock_oprf_key_registry().await?;
+        let anvil = TestAnvil::spawn_auto_mine_with_multicall3().await?;
 
         let http_rpc_provider = build_http_provider(&anvil.instance);
         let billing_contract_mock = BillingContractMock::deploy(http_rpc_provider.inner())
@@ -434,7 +454,7 @@ mod tests {
 
         let rp_id = RpId::new(rand::thread_rng().r#gen::<u64>());
         let err = watcher
-            .get_rp(&rp_id)
+            .get_rp(rp_id)
             .await
             .expect_err("call to non-existent contract should fail");
         assert!(
