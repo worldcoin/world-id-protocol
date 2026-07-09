@@ -19,6 +19,7 @@ members = [
   "tools/generate-noir-artifacts",
   "tools/legacy-recovery-migration",
   "services/relay",
+  "services/billing",
 ]
 
 resolver = "2"

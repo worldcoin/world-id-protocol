@@ -31,6 +31,11 @@
 - Binary: `world-id-relay` (see `services/relay/src/bin/main.rs`).
 - See `services/relay/README.md`.
 
+## Billing Service
+- Code: `services/billing/`
+- Binary: `world-id-billing` (see `services/billing/src/main.rs`).
+- Off-chain operator for WIP-107 transactional fees; runs two `--role`-selected workers (`finalizer`, `payer`) against the on-chain Billing Contract. See `services/billing/README.md`. The `finalizer` (permissionless `finalizeEpochs` keeper) is implemented; the `payer` is a stub.
+
 ## Other Services
 - `services/common/`: Shared middleware, server layers, and provider utilities used across services.
 - `services/faux-issuer/`: Fake issuer for local development/testing (see `services/faux-issuer/src/main.rs`).
