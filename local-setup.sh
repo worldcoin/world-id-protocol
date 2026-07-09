@@ -106,9 +106,9 @@ deploy_contracts() {
 
     # FIXME: temporary BillingContractMock (isBlocked() returns true only for rpId == 42).
     # Replace this with a real deploy of the billing contract once that contract is done.
-    billing_contract=$(cast send --create \
-        0x60808060405234601357608b908160188239f35b5f80fdfe60808060405260043610156011575f80fd5b5f3560e01c6375298c75146023575f80fd5b3460515760203660031901126051576004359067ffffffffffffffff8216809203605157602a602092148152f35b5f80fdfea2646970667358221220bfb7611c967593ea8addfd14d3e723982bc72dfd2448df1cdcf1563b09adbc4164736f6c634300081e0033 \
-        --private-key $PK --rpc-url http://127.0.0.1:8545 --json | jq -r '.contractAddress')
+    billing_contract=$(cast send --private-key $PK --rpc-url http://127.0.0.1:8545 --json --create \
+    0x60808060405234601357608b908160188239f35b5f80fdfe60808060405260043610156011575f80fd5b5f3560e01c6375298c75146023575f80fd5b3460515760203660031901126051576004359067ffffffffffffffff8216809203605157602a602092148152f35b5f80fdfea2646970667358221220bfb7611c967593ea8addfd14d3e723982bc72dfd2448df1cdcf1563b09adbc4164736f6c634300081e0033 \
+    | jq -r '.contractAddress')
     echo "BillingContractMock: $billing_contract"
 
     # register RpRegistry and CredentialSchemaIssuerRegistry as OPRF key-gen admins
