@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.12.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.12.0...world-id-primitives-v0.12.1) - 2026-07-08
+## [0.13.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.12.0...world-id-primitives-v0.13.0) - 2026-07-08
 
 ### Added
 
