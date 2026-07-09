@@ -250,6 +250,7 @@ impl From<u16> for WorldIdRequestAuthError {
     fn from(value: u16) -> Self {
         match value {
             error_codes::UNKNOWN_RP => Self::UnknownRp,
+            error_codes::BLOCKED_RP => Self::BlockedRp,
             error_codes::INACTIVE_RP => Self::InactiveRp,
             error_codes::TIMESTAMP_TOO_OLD => Self::TimestampTooOld,
             error_codes::INVALID_RP_SIGNATURE => Self::InvalidRpSignature,

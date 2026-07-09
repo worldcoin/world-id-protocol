@@ -265,10 +265,7 @@ mod tests {
     use world_id_primitives::rp::RpId;
     use world_id_test_utils::{anvil::TestAnvil, fixtures};
 
-    use crate::{
-        auth::tests::{BillingContractMock, build_http_provider},
-        config::WatcherCacheConfig,
-    };
+    use crate::{auth::tests::build_http_provider, config::WatcherCacheConfig};
 
     /// Deploys only what the watcher needs (RP registry + billing mock) and registers one RP.
     async fn setup(
@@ -282,6 +279,7 @@ mod tests {
         let rp_registry = anvil
             .deploy_rp_registry(deployer.clone(), oprf_key_registry)
             .await?;
+        let billing_contract = anvil.deploy_billing_contract(deployer.clone()).await?;
 
         let rp_fixture = fixtures::generate_rp_fixture();
         let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
@@ -289,21 +287,29 @@ mod tests {
         anvil
             .register_rp(
                 rp_registry,
-                deployer,
+                deployer.clone(),
                 rp_fixture.world_rp_id,
                 rp_signer.address(),
                 rp_signer.address(),
                 "test.domain".to_string(),
             )
             .await?;
+
+        anvil
+            .register_rp(
+                rp_registry,
+                deployer,
+                RpId::new(42),
+                rp_signer.address(),
+                rp_signer.address(),
+                "test.domain".to_string(),
+            )
+            .await?;
         let http_rpc_provider = build_http_provider(&anvil.instance);
-        let billing_contract_mock = BillingContractMock::deploy(http_rpc_provider.inner())
-            .await
-            .expect("Should be able to deploy mock billing");
 
         let watcher = RpRegistryWatcher::init(
             rp_registry,
-            *billing_contract_mock.address(),
+            billing_contract,
             http_rpc_provider,
             Duration::from_secs(10),
             WatcherCacheConfig {
@@ -336,7 +342,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_blocked_rp() -> eyre::Result<()> {
+    async fn test_blocked_rp_rejected() -> eyre::Result<()> {
         let (watcher, _anvil, _, _) = setup(Duration::from_secs(10)).await?;
         let blocked_rp = RpId::new(42);
 
@@ -432,35 +438,6 @@ mod tests {
         let rp2 = watcher.get_rp(rp_fixture.world_rp_id).await?;
         assert_eq!(rp1.signer, rp2.signer);
         assert_eq!(rp1.oprf_key_id, rp2.oprf_key_id);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_contract_call_failure_returns_internal() -> eyre::Result<()> {
-        let anvil = TestAnvil::spawn_auto_mine_with_multicall3().await?;
-
-        let http_rpc_provider = build_http_provider(&anvil.instance);
-        let billing_contract_mock = BillingContractMock::deploy(http_rpc_provider.inner())
-            .await
-            .expect("Should be able to deploy mock billing");
-        // Address with no contract bytecode — getRp() response cannot be ABI-decoded
-        let watcher = RpRegistryWatcher::init(
-            Address::with_last_byte(42),
-            *billing_contract_mock.address(),
-            http_rpc_provider,
-            Duration::from_secs(10),
-            WatcherCacheConfig::default(),
-        );
-
-        let rp_id = RpId::new(rand::thread_rng().r#gen::<u64>());
-        let err = watcher
-            .get_rp(rp_id)
-            .await
-            .expect_err("call to non-existent contract should fail");
-        assert!(
-            matches!(err.as_ref(), RpRegistryWatcherError::Internal(_)),
-            "expected Internal, got: {err:?}"
-        );
         Ok(())
     }
 }

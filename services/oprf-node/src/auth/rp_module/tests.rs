@@ -325,6 +325,16 @@ async fn test_session_invalid_rp_id() -> eyre::Result<()> {
 }
 
 #[tokio::test]
+async fn test_session_blocked_rp_id() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
+    // 42 is the blocked RP in the mock
+    setup.request.auth.rp_id = setup.setup.blocked_rp;
+    setup
+        .assert_auth_err(error_codes::BLOCKED_RP, "blocked RP by billing contract")
+        .await
+}
+
+#[tokio::test]
 async fn test_session_invalid_signer() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.nonce = rand::random();

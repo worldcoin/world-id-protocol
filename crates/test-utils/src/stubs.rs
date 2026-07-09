@@ -200,13 +200,14 @@ async fn spawn_orpf_node(
     secret_manager: taceo_oprf::service::secret_manager::SecretManagerService,
     world_id_registry_contract: Address,
     rp_registry_contract: Address,
+    billing_contract: Address,
     credential_schema_issuer_registry_contract: Address,
 ) -> String {
     let url = format!("http://localhost:1{id:04}"); // set port based on id, e.g. 10001 for id 1
     let bind_addr = format!("0.0.0.0:1{id:04}");
     let contracts = WorldIdNodeContracts {
         world_id_registry_contract,
-        billing_contract: world_id_registry_contract, // TODO fix me
+        billing_contract,
         rp_registry_contract,
         credential_schema_issuer_registry_contract,
     };
@@ -265,6 +266,7 @@ pub async fn spawn_oprf_nodes(
     ]: [taceo_oprf::service::secret_manager::SecretManagerService; 5],
     world_id_registry_contract: Address,
     rp_registry_contract: Address,
+    billing_contract: Address,
     credential_schema_issuer_registry_contract: Address,
 ) -> [String; 5] {
     tokio::join!(
@@ -274,6 +276,7 @@ pub async fn spawn_oprf_nodes(
             secret_manager0,
             world_id_registry_contract,
             rp_registry_contract,
+            billing_contract,
             credential_schema_issuer_registry_contract,
         ),
         spawn_orpf_node(
@@ -282,6 +285,7 @@ pub async fn spawn_oprf_nodes(
             secret_manager1,
             world_id_registry_contract,
             rp_registry_contract,
+            billing_contract,
             credential_schema_issuer_registry_contract,
         ),
         spawn_orpf_node(
@@ -290,6 +294,7 @@ pub async fn spawn_oprf_nodes(
             secret_manager2,
             world_id_registry_contract,
             rp_registry_contract,
+            billing_contract,
             credential_schema_issuer_registry_contract,
         ),
         spawn_orpf_node(
@@ -298,6 +303,7 @@ pub async fn spawn_oprf_nodes(
             secret_manager3,
             world_id_registry_contract,
             rp_registry_contract,
+            billing_contract,
             credential_schema_issuer_registry_contract,
         ),
         spawn_orpf_node(
@@ -306,6 +312,7 @@ pub async fn spawn_oprf_nodes(
             secret_manager4,
             world_id_registry_contract,
             rp_registry_contract,
+            billing_contract,
             credential_schema_issuer_registry_contract,
         ),
     )

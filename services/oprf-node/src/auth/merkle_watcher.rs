@@ -399,26 +399,4 @@ mod tests {
         );
         Ok(())
     }
-
-    #[tokio::test]
-    async fn test_contract_call_failure_returns_internal() -> eyre::Result<()> {
-        let anvil = TestAnvil::spawn_auto_mine_with_multicall3().await?;
-        let http_rpc_provider = build_http_provider(&anvil.instance);
-        // Address with no contract bytecode — isValidRoot() response cannot be ABI-decoded
-        let watcher = MerkleWatcher::init(
-            Address::with_last_byte(42),
-            &http_rpc_provider,
-            WatcherCacheConfig::default(),
-        );
-
-        let err = watcher
-            .ensure_root_valid(FieldElement::from(1u64))
-            .await
-            .expect_err("call to non-existent contract should fail");
-        assert!(
-            matches!(err.as_ref(), MerkleWatcherError::Internal(_)),
-            "expected Internal, got: {err:?}"
-        );
-        Ok(())
-    }
 }

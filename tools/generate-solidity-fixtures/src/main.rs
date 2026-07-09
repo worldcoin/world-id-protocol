@@ -72,6 +72,7 @@ async fn main() -> Result<()> {
         oprf_key_registry,
         world_id_verifier,
         credential_registry,
+        billing_contract,
     } = RegistryTestContext::new().await?;
 
     let deployer = anvil
@@ -168,6 +169,7 @@ async fn main() -> Result<()> {
         node_secret_managers,
         world_id_registry,
         rp_registry,
+        billing_contract,
         credential_registry,
     )
     .await;
