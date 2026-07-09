@@ -330,7 +330,7 @@ async fn test_session_blocked_rp_id() -> eyre::Result<()> {
     // 42 is the blocked RP in the mock
     setup.request.auth.rp_id = setup.setup.blocked_rp;
     setup
-        .assert_auth_err(error_codes::BLOCKED_RP, "blocked RP by billing contract")
+        .assert_auth_err(error_codes::BLOCKED_RP, "RP blocked by billing contract")
         .await
 }
 
