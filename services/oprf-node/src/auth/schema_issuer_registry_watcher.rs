@@ -214,7 +214,7 @@ mod tests {
         assert!(
             matches!(
                 err.as_ref(),
-                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId{issuer,..} if *issuer == unknown_id
+                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId{ issuer , ..} if *issuer == unknown_id
             ),
             "expected UnknownSchemaIssuerId({unknown_id}), got: {err:?}"
         );

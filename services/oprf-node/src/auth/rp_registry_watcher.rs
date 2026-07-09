@@ -350,7 +350,7 @@ mod tests {
             .await
             .expect_err("unknown RP should be rejected");
         assert!(
-            matches!(err.as_ref(), RpRegistryWatcherError::UnknownRp{ rp:is_id,..} if *is_id == unknown_id),
+            matches!(err.as_ref(), RpRegistryWatcherError::UnknownRp{ rp : is_id, ..} if *is_id == unknown_id),
             "expected UnknownRp, got: {err:?}"
         );
         assert!(
