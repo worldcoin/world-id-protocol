@@ -74,21 +74,9 @@ impl MerkleWatcher {
         http_rpc_provider: &web3::HttpRpcProvider,
         cache_config: WatcherCacheConfig,
     ) -> Self {
-        let contract = WorldIdRegistry::new(contract_address, http_rpc_provider.inner());
-
-        let merkle_root_cache_builder = Cache::builder()
-            .max_capacity(cache_config.max_cache_size.get())
-            .time_to_live(cache_config.time_to_live);
-
-        let merkle_root_cache = if let Some(time_to_idle) = cache_config.time_to_idle {
-            merkle_root_cache_builder.time_to_idle(time_to_idle).build()
-        } else {
-            merkle_root_cache_builder.build()
-        };
-
         Self {
-            merkle_root_cache,
-            contract,
+            merkle_root_cache: cache_config.build_cache(),
+            contract: WorldIdRegistry::new(contract_address, http_rpc_provider.inner()),
         }
     }
 

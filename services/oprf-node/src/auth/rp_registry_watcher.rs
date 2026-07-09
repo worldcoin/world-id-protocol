@@ -110,18 +110,8 @@ impl RpRegistryWatcher {
         timeout_external_eth_call: Duration,
         cache_config: WatcherCacheConfig,
     ) -> Self {
-        let rp_store_builder = Cache::builder()
-            .max_capacity(cache_config.max_cache_size.get())
-            .time_to_live(cache_config.time_to_live);
-
-        let rp_store = if let Some(time_to_idle) = cache_config.time_to_idle {
-            rp_store_builder.time_to_idle(time_to_idle).build()
-        } else {
-            rp_store_builder.build()
-        };
-
         Self {
-            rp_store,
+            rp_store: cache_config.build_cache(),
             rp_registry_contract: RpRegistry::new(rp_registry_address, http_rpc_provider.inner()),
             billing_contract: BillingContract::new(
                 billing_contract_address,
