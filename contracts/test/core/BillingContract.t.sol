@@ -589,6 +589,37 @@ contract BillingContractTest is Test {
         assertEq(epoch, 0);
     }
 
+    function test_WindowEnds_deriveFromEpochBoundaries() public view {
+        // Voting opens at epochEnd and closes `votingWindow` later; payment closes `paymentWindow` after that.
+        assertEq(billing.votingWindowEnd(0), billing.epochEnd(0) + VOTING);
+        assertEq(billing.votingWindowEnd(0), GENESIS + EPOCH_LEN + VOTING);
+        assertEq(billing.paymentWindowEnd(0), billing.epochEnd(0) + VOTING + PAYMENT);
+        assertEq(billing.paymentWindowEnd(0), GENESIS + EPOCH_LEN + VOTING + PAYMENT);
+
+        // Holds for later epochs too.
+        assertEq(billing.votingWindowEnd(3), billing.epochEnd(3) + VOTING);
+        assertEq(billing.paymentWindowEnd(3), billing.epochEnd(3) + VOTING + PAYMENT);
+    }
+
+    function test_WindowEnds_governedByNextEraAtEraBoundary() public {
+        // A new era from epoch 1 with different window sizes. Epoch 0 is the last epoch of era 0, but
+        // its windows are governed by era 1 (_votingWindowEraOf(0) == _eraOf(1)), so the ends must use
+        // era 1's sizes even though epoch 0's boundary itself stays in era 0.
+        uint64 newVoting = VOTING - 50;
+        uint64 newPayment = PAYMENT + 50;
+        billing.setTiming(EPOCH_LEN, newVoting, newPayment); // era 1 starts at epoch 1
+
+        assertEq(billing.epochEnd(0), GENESIS + EPOCH_LEN, "epoch 0 keeps its historic boundary");
+        assertEq(billing.votingWindowEnd(0), GENESIS + EPOCH_LEN + newVoting, "voting window uses next era");
+        assertEq(
+            billing.paymentWindowEnd(0), GENESIS + EPOCH_LEN + newVoting + newPayment, "payment window uses next era"
+        );
+
+        // Fully inside era 1, the ends derive off era-1 boundaries with era-1 sizes.
+        assertEq(billing.votingWindowEnd(1), billing.epochEnd(1) + newVoting);
+        assertEq(billing.paymentWindowEnd(1), billing.epochEnd(1) + newVoting + newPayment);
+    }
+
     function test_Finalize_tierAcrossRebateBoundaryAndReset() public {
         // Tiers: first 100 @10, rest @5. Rebate period = 10 epochs.
         // epoch 0 (period 0): count 60 → 60*10 = 600. periodCount=60.

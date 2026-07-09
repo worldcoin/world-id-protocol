@@ -417,6 +417,20 @@ contract BillingContract is WorldIDBase, IBillingContract {
         return uint64(end);
     }
 
+    /// @notice The timestamp at which epoch `epoch`'s voting window closes.
+    /// @dev Voting is open over `[epochEnd(epoch), votingWindowEnd(epoch))`. The window size is
+    ///      governed by the era of epoch `epoch + 1` (see {_votingWindowEraOf}), so this stays exact
+    ///      across timing changes rather than relying on the current era.
+    function votingWindowEnd(uint32 epoch) public view virtual returns (uint64) {
+        return epochEnd(epoch) + _votingWindowEraOf(epoch).votingWindow;
+    }
+
+    /// @notice The timestamp at which epoch `epoch`'s payment window closes; payment is overdue after it.
+    /// @dev End of the voting window plus the payment window, both governed by the era of epoch `epoch + 1`.
+    function paymentWindowEnd(uint32 epoch) public view virtual returns (uint64) {
+        return _paymentDue(epoch);
+    }
+
     /// @notice The OPRF key registry address the node set is read from.
     function getOprfKeyRegistry() external view virtual onlyProxy onlyInitialized returns (address) {
         return address(_oprfKeyRegistry);
