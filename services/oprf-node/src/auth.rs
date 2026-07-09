@@ -342,7 +342,8 @@ mod tests {
             let mut rng = rand::thread_rng();
 
             let query_material = QUERY_MATERIAL.get_or_init(|| {
-                world_id_proof::load_embedded_query_material().expect("Can load query material")
+                world_id_proof::artifacts::embedded::zkeys::load_embedded_query_material()
+                    .expect("Can load query material")
             });
 
             let query_blinding_factor = BlindingFactor::rand(&mut rng);

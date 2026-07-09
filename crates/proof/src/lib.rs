@@ -9,6 +9,9 @@ use world_id_primitives::{
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+/// ZK artifact source abstractions.
+pub mod artifacts;
+
 /// Circuit input types for Circom/Groth16 circuits (query, nullifier, ownership proofs).
 pub mod circuit_inputs;
 
@@ -24,10 +27,13 @@ use provekit_common::{InputMap, InputValue, NoirElement};
 
 use world_id_primitives::FieldElement;
 
-#[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
+// TODO: Currently ownership proofs are not supported for WASM targets
+#[cfg(not(target_arch = "wasm32"))]
 pub mod ownership_proof;
 
-pub use provekit_common::{NoirProof, WhirR1CSProof};
+pub use provekit_common::{
+    NoirProof, Prover as OwnershipProver, Verifier as OwnershipVerifier, WhirR1CSProof,
+};
 
 /// Error type for OPRF operations and proof generation.
 #[derive(Debug, thiserror::Error)]
@@ -44,6 +50,9 @@ pub enum ProofError {
     /// Errors originating from Groth16 proof generation or verification.
     #[error(transparent)]
     ZkError(#[from] Groth16Error),
+    /// Error loading ZK artifacts from a [`artifacts::ZkArtifactSource`].
+    #[error(transparent)]
+    ZkArtifact(#[from] artifacts::ZkArtifactError),
     /// Error generating a Noir Proof with ProveKit
     #[error("proof generation error: {0}")]
     GenerationError(String),
