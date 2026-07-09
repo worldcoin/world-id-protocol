@@ -12,11 +12,14 @@ use taceo_nodes_common::web3;
 use tracing::instrument;
 use world_id_primitives::oprf::WorldIdRequestAuthError;
 
+// Copied from I.ICredentialSchemaIssuerRegistry.sol.
+//
+// For brevity we only copy the methods that are relevant for the watcher
 alloy::sol! {
-    #[allow(missing_docs, clippy::too_many_arguments, reason="Get this errors from sol macro")]
     #[sol(rpc)]
-    CredentialSchemaIssuerRegistry,
-    "abi/CredentialSchemaIssuerRegistryAbi.json"
+    interface CredentialSchemaIssuerRegistry {
+        function getSignerForIssuerSchemaId(uint64 issuerSchemaId) returns (address);
+    }
 }
 
 /// Error returned by the [`SchemaIssuerRegistryWatcher`] implementation.
