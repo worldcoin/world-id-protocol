@@ -120,6 +120,7 @@ pub fn start(
     tracing::info!("init RpRegistry watcher..");
     let rp_registry_watcher = RpRegistryWatcher::init(
         config.rp_registry_contract,
+        config.billing_contract,
         http_rpc_provider.clone(),
         config.timeout_external_eth_call,
         config.rp_cache_config,

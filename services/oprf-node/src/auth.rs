@@ -81,11 +81,12 @@ mod tests {
     use taceo_oprf::core::oprf::BlindingFactor;
     use world_id_primitives::{
         AuthenticatorPublicKeySet, FieldElement, Signer, TREE_DEPTH, merkle::MerkleInclusionProof,
+        rp::RpId,
     };
     use world_id_proof::{circuit_inputs::QueryProofCircuitInput, errors};
     use world_id_test_utils::{
         anvil::TestAnvil,
-        fixtures::{self, RegistryTestContext, RpFixture},
+        fixtures::{self, RpFixture},
         merkle::first_leaf_merkle_path,
     };
 
@@ -99,12 +100,23 @@ mod tests {
         config::WatcherCacheConfig,
     };
 
+    /// Selects which registry (besides the World ID registry) a test setup deploys.
+    #[derive(Clone, Copy)]
+    pub(crate) enum SetupKind {
+        /// Deploys the RP registry and registers an RP.
+        RpModule,
+        /// Deploys the credential schema issuer registry and registers an issuer.
+        CredentialIssuer,
+    }
+
     pub(crate) struct OprfRequestAuthTestSetup {
         pub(crate) anvil: TestAnvil,
         pub(crate) world_id_registry: Address,
         pub(crate) rp_registry: Address,
+        pub(crate) billing_contract: Address,
         pub(crate) credential_schema_issuer_registry: Address,
         pub(crate) issuer_schema_id: u64,
+        pub(crate) blocked_rp: RpId,
         pub(crate) rp_fixture: RpFixture,
         pub(crate) merkle_inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
         pub(crate) key_index: u64,
@@ -123,45 +135,72 @@ mod tests {
     }
 
     impl OprfRequestAuthTestSetup {
-        pub(crate) async fn new() -> eyre::Result<Self> {
+        #[expect(clippy::too_many_lines, reason = "doesn't matter in test")]
+        pub(crate) async fn new(kind: SetupKind) -> eyre::Result<Self> {
             let mut rng = rand::thread_rng();
-            let RegistryTestContext {
-                anvil,
-                world_id_registry,
-                rp_registry,
-                credential_registry: credential_schema_issuer_registry,
-                ..
-            } = RegistryTestContext::new_with_mock_oprf_key_registry().await?;
-
+            let anvil = TestAnvil::spawn_auto_mine_with_multicall3().await?;
             let deployer = anvil.signer(0)?;
+            let world_id_registry = anvil.deploy_world_id_registry_v2(deployer.clone()).await?;
+            let oprf_key_registry = anvil
+                .deploy_mock_oprf_key_registry(deployer.clone())
+                .await?;
 
             let rp_fixture = fixtures::generate_rp_fixture();
-
-            // Register the RP which also triggers a OPRF key-gen.
-            let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
-            anvil
-                .register_rp(
-                    rp_registry,
-                    deployer.clone(),
-                    rp_fixture.world_rp_id,
-                    rp_signer.address(),
-                    rp_signer.address(),
-                    "taceo.oprf".to_string(),
-                )
-                .await?;
-
-            // Register an issuer which also triggers a OPRF key-gen.
             let issuer_schema_id = rng.r#gen::<u64>();
-            let issuer_sk = EdDSAPrivateKey::random(&mut rng);
-            let issuer_public_key = issuer_sk.public();
-            anvil
-                .register_issuer(
-                    credential_schema_issuer_registry,
-                    deployer.clone(),
-                    issuer_schema_id,
-                    issuer_public_key.clone(),
-                )
-                .await?;
+            let blocked_rp = RpId::new(42);
+
+            let mut rp_registry = Address::ZERO;
+            let mut credential_schema_issuer_registry = Address::ZERO;
+            let mut billing_contract = Address::ZERO;
+            match kind {
+                SetupKind::RpModule => {
+                    rp_registry = anvil
+                        .deploy_rp_registry(deployer.clone(), oprf_key_registry)
+                        .await?;
+                    billing_contract = anvil.deploy_billing_contract(deployer.clone()).await?;
+                    // Register the RP which also triggers a OPRF key-gen.
+                    let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
+                    anvil
+                        .register_rp(
+                            rp_registry,
+                            deployer.clone(),
+                            rp_fixture.world_rp_id,
+                            rp_signer.address(),
+                            rp_signer.address(),
+                            "taceo.oprf".to_string(),
+                        )
+                        .await?;
+
+                    anvil
+                        .register_rp(
+                            rp_registry,
+                            deployer.clone(),
+                            blocked_rp,
+                            rp_signer.address(),
+                            rp_signer.address(),
+                            "taceo.blocked".to_string(),
+                        )
+                        .await?;
+                }
+                SetupKind::CredentialIssuer => {
+                    credential_schema_issuer_registry = anvil
+                        .deploy_credential_schema_issuer_registry(
+                            deployer.clone(),
+                            oprf_key_registry,
+                        )
+                        .await?;
+                    // Register an issuer which also triggers a OPRF key-gen.
+                    let issuer_sk = EdDSAPrivateKey::random(&mut rng);
+                    anvil
+                        .register_issuer(
+                            credential_schema_issuer_registry,
+                            deployer.clone(),
+                            issuer_schema_id,
+                            issuer_sk.public(),
+                        )
+                        .await?;
+                }
+            }
 
             let signer =
                 Signer::from_seed_bytes(&rng.r#gen::<[u8; 32]>()).expect("Can build from seed");
@@ -202,6 +241,8 @@ mod tests {
                 anvil,
                 world_id_registry,
                 rp_registry,
+                billing_contract,
+                blocked_rp,
                 credential_schema_issuer_registry,
                 issuer_schema_id,
                 rp_fixture,
@@ -234,8 +275,8 @@ mod tests {
     }
 
     impl AuthModulesTestSetup {
-        pub(crate) async fn new() -> eyre::Result<Self> {
-            let setup = OprfRequestAuthTestSetup::new().await?;
+        pub(crate) async fn new(kind: SetupKind) -> eyre::Result<Self> {
+            let setup = OprfRequestAuthTestSetup::new(kind).await?;
 
             let current_time_stamp_max_difference = Duration::from_secs(1800);
             let timeout_external_eth_call = Duration::from_secs(10);
@@ -250,6 +291,7 @@ mod tests {
 
             let rp_registry_watcher = RpRegistryWatcher::init(
                 setup.rp_registry,
+                setup.billing_contract,
                 http_rpc_provider.clone(),
                 timeout_external_eth_call,
                 WatcherCacheConfig::default(),
@@ -300,11 +342,16 @@ mod tests {
             action: FieldElement,
             query_origin_id: FieldElement,
         ) -> eyre::Result<QueryProofBundle> {
+            // Parsing the embedded zkey is expensive; do it once per test process.
+            static QUERY_MATERIAL: std::sync::OnceLock<world_id_proof::CircomGroth16Material> =
+                std::sync::OnceLock::new();
+
             let mut rng = rand::thread_rng();
 
-            let query_material =
+            let query_material = QUERY_MATERIAL.get_or_init(|| {
                 world_id_proof::artifacts::embedded::zkeys::load_embedded_query_material()
-                    .expect("Can load query material");
+                    .expect("Can load query material")
+            });
 
             let query_blinding_factor = BlindingFactor::rand(&mut rng);
 

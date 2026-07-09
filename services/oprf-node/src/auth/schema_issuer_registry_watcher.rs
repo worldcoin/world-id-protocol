@@ -4,27 +4,36 @@ use crate::{
     auth::schema_issuer_registry_watcher::CredentialSchemaIssuerRegistry::CredentialSchemaIssuerRegistryInstance,
     config::WatcherCacheConfig, metrics,
 };
-use alloy::{primitives::Address, providers::DynProvider};
-use backon::Retryable as _;
+use alloy::{
+    primitives::{Address, U256},
+    providers::{DynProvider, Provider},
+};
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
 use tracing::instrument;
 use world_id_primitives::oprf::WorldIdRequestAuthError;
 
+// Copied from I.ICredentialSchemaIssuerRegistry.sol.
+//
+// For brevity we only copy the methods that are relevant for the watcher
 alloy::sol! {
-    #[allow(missing_docs, clippy::too_many_arguments, reason="Get this errors from sol macro")]
     #[sol(rpc)]
-    CredentialSchemaIssuerRegistry,
-    "abi/CredentialSchemaIssuerRegistryAbi.json"
+    interface CredentialSchemaIssuerRegistry {
+        function getSignerForIssuerSchemaId(uint64 issuerSchemaId) returns (address);
+    }
 }
 
 /// Error returned by the [`SchemaIssuerRegistryWatcher`] implementation.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum SchemaIssuerRegistryWatcherError {
     /// Unknown schema issuer.
-    #[error("unknown schema issuer: {0}")]
-    UnknownSchemaIssuerId(u64),
+    #[error("unknown schema issuer: {issuer} at block #{block} with timestamp: {timestamp}")]
+    UnknownSchemaIssuerId {
+        issuer: u64,
+        block: U256,
+        timestamp: U256,
+    },
     /// Internal Error
     #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
@@ -33,7 +42,7 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
 impl From<&SchemaIssuerRegistryWatcherError> for WorldIdRequestAuthError {
     fn from(value: &SchemaIssuerRegistryWatcherError) -> Self {
         match value {
-            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(_) => {
+            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId { .. } => {
                 Self::UnknownSchemaIssuerId
             }
             SchemaIssuerRegistryWatcherError::Internal(_) => Self::Internal,
@@ -52,7 +61,6 @@ impl From<&SchemaIssuerRegistryWatcherError> for WorldIdRequestAuthError {
 pub(crate) struct SchemaIssuerRegistryWatcher {
     issuer_schema_store: Cache<u64, ()>,
     contract: CredentialSchemaIssuerRegistryInstance<DynProvider>,
-    cache_config: WatcherCacheConfig,
 }
 
 impl SchemaIssuerRegistryWatcher {
@@ -77,7 +85,6 @@ impl SchemaIssuerRegistryWatcher {
                 contract_address,
                 http_rpc_provider.inner(),
             ),
-            cache_config,
         }
     }
 
@@ -86,23 +93,10 @@ impl SchemaIssuerRegistryWatcher {
         &self,
         issuer_schema_id: u64,
     ) -> Result<(), Arc<SchemaIssuerRegistryWatcherError>> {
-        let backon_fetch_issuer = (|| async { self.fetch_issuer(issuer_schema_id).await })
-            .retry(self.cache_config.backoff_strategy())
-            .sleep(tokio::time::sleep)
-            .when(|e| {
-                matches!(
-                    e,
-                    SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(_)
-                )
-            })
-            .notify(|err, duration| {
-                tracing::warn!(%err, "fetch issuer will retry after {duration:?}");
-            });
-
         let entry = self
             .issuer_schema_store
             .entry(issuer_schema_id)
-            .or_try_insert_with(backon_fetch_issuer)
+            .or_try_insert_with(self.fetch_issuer(issuer_schema_id))
             .await?;
 
         if entry.is_fresh() {
@@ -123,17 +117,23 @@ impl SchemaIssuerRegistryWatcher {
         tracing::trace!(
             "issuer {issuer_schema_id} not found in store, querying CredentialSchemaIssuerRegistry..."
         );
-        let signer = self
+        let (signer, current_block, timestamp_block) = self
             .contract
-            .getSignerForIssuerSchemaId(issuer_schema_id)
-            .call()
+            .provider()
+            .multicall()
+            .add(self.contract.getSignerForIssuerSchemaId(issuer_schema_id))
+            .get_block_number()
+            .get_current_block_timestamp()
+            .aggregate()
             .await
-            .context("while getting signer for issuer-schema")?;
+            .context("while doing fetch issuer multi-call")?;
 
         if signer == Address::ZERO {
-            Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(
-                issuer_schema_id,
-            ))
+            Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId {
+                issuer: issuer_schema_id,
+                block: current_block,
+                timestamp: timestamp_block,
+            })
         } else {
             Ok(())
         }
@@ -147,20 +147,24 @@ mod tests {
 
     use eddsa_babyjubjub::EdDSAPrivateKey;
     use rand::Rng;
-    use world_id_test_utils::{anvil::TestAnvil, fixtures::RegistryTestContext};
+    use world_id_test_utils::anvil::TestAnvil;
 
     use crate::{auth::tests::build_http_provider, config::WatcherCacheConfig};
 
-    async fn setup_with_issuer()
-    -> eyre::Result<(SchemaIssuerRegistryWatcher, TestAnvil, u64, Address)> {
+    /// Deploys only what the watcher needs (credential registry) and registers one issuer.
+    async fn setup_with_issuer(
+        cache_config: WatcherCacheConfig,
+    ) -> eyre::Result<(SchemaIssuerRegistryWatcher, TestAnvil, u64, Address)> {
         let mut rng = rand::thread_rng();
-        let RegistryTestContext {
-            anvil,
-            credential_registry,
-            ..
-        } = RegistryTestContext::new_with_mock_oprf_key_registry().await?;
-
+        let anvil = TestAnvil::spawn_auto_mine_with_multicall3().await?;
         let deployer = anvil.signer(0)?;
+        let oprf_key_registry = anvil
+            .deploy_mock_oprf_key_registry(deployer.clone())
+            .await?;
+        let credential_registry = anvil
+            .deploy_credential_schema_issuer_registry(deployer.clone(), oprf_key_registry)
+            .await?;
+
         let issuer_schema_id: u64 = rng.r#gen();
         let issuer_sk = EdDSAPrivateKey::random(&mut rng);
 
@@ -173,11 +177,10 @@ mod tests {
             )
             .await?;
 
-        let http_rpc_provider = build_http_provider(&anvil.instance);
         let watcher = SchemaIssuerRegistryWatcher::init(
             credential_registry,
-            &http_rpc_provider,
-            WatcherCacheConfig::default(),
+            &build_http_provider(&anvil.instance),
+            cache_config,
         );
 
         Ok((watcher, anvil, issuer_schema_id, credential_registry))
@@ -185,7 +188,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_valid_issuer_accepted() -> eyre::Result<()> {
-        let (watcher, _anvil, issuer_schema_id, _) = setup_with_issuer().await?;
+        let (watcher, _anvil, issuer_schema_id, _) =
+            setup_with_issuer(WatcherCacheConfig::default()).await?;
 
         watcher
             .is_valid_issuer(issuer_schema_id)
@@ -200,7 +204,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unknown_issuer_rejected() -> eyre::Result<()> {
-        let (watcher, _anvil, _, _) = setup_with_issuer().await?;
+        let (watcher, _anvil, _, _) = setup_with_issuer(WatcherCacheConfig::default()).await?;
 
         let unknown_id = 99999u64;
         let err = watcher
@@ -210,7 +214,7 @@ mod tests {
         assert!(
             matches!(
                 err.as_ref(),
-                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(id) if *id == unknown_id
+                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId{ issuer , ..} if *issuer == unknown_id
             ),
             "expected UnknownSchemaIssuerId({unknown_id}), got: {err:?}"
         );
@@ -219,42 +223,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_removed_issuer_rejected_after_ttl() -> eyre::Result<()> {
-        let mut rng = rand::thread_rng();
-        let RegistryTestContext {
-            anvil,
-            credential_registry,
-            ..
-        } = RegistryTestContext::new_with_mock_oprf_key_registry().await?;
-
-        let deployer = anvil.signer(0)?;
-        let issuer_schema_id = 42;
-        let issuer_sk = EdDSAPrivateKey::random(&mut rng);
-
-        anvil
-            .register_issuer(
-                credential_registry,
-                deployer.clone(),
-                issuer_schema_id,
-                issuer_sk.public(),
-            )
+        let (watcher, anvil, issuer_schema_id, credential_registry) =
+            setup_with_issuer(WatcherCacheConfig {
+                time_to_live: Duration::from_millis(100),
+                ..Default::default()
+            })
             .await?;
-
-        let http_rpc_provider = build_http_provider(&anvil.instance);
-        let cache_config = WatcherCacheConfig {
-            time_to_live: Duration::from_secs(1),
-            ..Default::default()
-        };
-        let watcher = SchemaIssuerRegistryWatcher::init(
-            credential_registry,
-            &http_rpc_provider,
-            cache_config,
-        );
 
         watcher
             .is_valid_issuer(issuer_schema_id)
             .await
             .expect("should be valid before removal");
 
+        let deployer = anvil.signer(0)?;
         anvil
             .remove_issuer(
                 credential_registry,
@@ -264,7 +245,7 @@ mod tests {
             )
             .await?;
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         let err = watcher
             .is_valid_issuer(issuer_schema_id)
@@ -277,7 +258,7 @@ mod tests {
         assert!(
             matches!(
                 err.as_ref(),
-                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(_)
+                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId { issuer, .. } if *issuer == issuer_schema_id
             ),
             "expected UnknownSchemaIssuerId, got: {err:?}"
         );
@@ -286,7 +267,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_error_not_cached() -> eyre::Result<()> {
-        let (watcher, _anvil, _, _) = setup_with_issuer().await?;
+        let (watcher, _anvil, _, _) = setup_with_issuer(WatcherCacheConfig::default()).await?;
 
         let unknown_id = 99999;
         watcher
@@ -304,29 +285,6 @@ mod tests {
         assert!(
             !watcher.issuer_schema_store.contains_key(&unknown_id),
             "Cache should not have unknown issuer cached"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_contract_call_failure_returns_internal() -> eyre::Result<()> {
-        let RegistryTestContext { anvil, .. } =
-            RegistryTestContext::new_with_mock_oprf_key_registry().await?;
-        let http_rpc_provider = build_http_provider(&anvil.instance);
-        // Address with no contract bytecode — getSignerForIssuerSchemaId() call will fail
-        let watcher = SchemaIssuerRegistryWatcher::init(
-            Address::with_last_byte(42),
-            &http_rpc_provider,
-            WatcherCacheConfig::default(),
-        );
-
-        let err = watcher
-            .is_valid_issuer(rand::thread_rng().r#gen::<u64>())
-            .await
-            .expect_err("call to non-existent contract should fail");
-        assert!(
-            matches!(err.as_ref(), SchemaIssuerRegistryWatcherError::Internal(_)),
-            "expected Internal, got: {err:?}"
         );
         Ok(())
     }

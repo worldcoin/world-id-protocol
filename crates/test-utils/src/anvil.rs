@@ -159,6 +159,16 @@ sol!(
     )
 );
 
+// FIXME replace me with the actual billing contract as soon as it is done.
+alloy::sol!(
+    #[sol(rpc, bytecode = "60808060405234601357608b908160188239f35b5f80fdfe60808060405260043610156011575f80fd5b5f3560e01c6375298c75146023575f80fd5b3460515760203660031901126051576004359067ffffffffffffffff8216809203605157602a602092148152f35b5f80fdfea2646970667358221220bfb7611c967593ea8addfd14d3e723982bc72dfd2448df1cdcf1563b09adbc4164736f6c634300081e0033")]
+    contract BillingContractMock {
+        function isBlocked(uint64 rpId) external pure returns (bool) {
+            return rpId == 42;
+        }
+    }
+);
+
 // ── State bridge contract bindings ────────────────────────────────────────
 // Each lives in its own module to avoid name collisions on shared internal
 // types (BabyJubJub, IStateBridge, Lib, …).
@@ -299,6 +309,32 @@ impl TestAnvil {
     /// This avoids the need to fork from mainnet just to get Multicall3.
     pub async fn spawn_with_multicall3() -> Result<Self> {
         let anvil = Self::spawn()?;
+        anvil.deploy_multicall3().await?;
+        Ok(anvil)
+    }
+
+    /// Spawns a fresh `anvil` instance with auto-mining: a block is mined instantly for every
+    /// transaction instead of the 1-second interval used by [`Self::spawn`]. Prefer this for
+    /// tests that only need transactions included and don't depend on periodic block production.
+    pub fn spawn_auto_mine() -> Result<Self> {
+        let instance = Anvil::new()
+            .mnemonic(Self::MNEMONIC)
+            .try_spawn()
+            .context("failed to start anvil")?;
+
+        let rpc_url = instance.endpoint().to_string();
+        let ws_url = instance.ws_endpoint();
+
+        Ok(Self {
+            instance,
+            rpc_url,
+            ws_url,
+        })
+    }
+
+    /// Auto-mining variant of [`Self::spawn_with_multicall3`].
+    pub async fn spawn_auto_mine_with_multicall3() -> Result<Self> {
+        let anvil = Self::spawn_auto_mine()?;
         anvil.deploy_multicall3().await?;
         Ok(anvil)
     }
@@ -609,6 +645,17 @@ impl TestAnvil {
             .context("failed to deploy RpRegistry proxy")?;
 
         Ok(*proxy.address())
+    }
+
+    // FIXME replace me with real billing contract once merged
+    pub async fn deploy_billing_contract(&self, signer: PrivateKeySigner) -> eyre::Result<Address> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+        let billing_contract_mock = BillingContractMock::deploy(provider.clone())
+            .await
+            .context("failed to deploy billing contract")?;
+        Ok(*billing_contract_mock.address())
     }
 
     /// Deploys the `OprfKeyRegistry` contract using the supplied signer.

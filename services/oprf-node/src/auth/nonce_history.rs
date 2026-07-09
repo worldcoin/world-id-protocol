@@ -204,7 +204,7 @@ mod tests {
     #[tokio::test]
     async fn test_nonce_history_ttl_expiration() {
         let nonce = FieldElement::random(&mut rand::thread_rng());
-        let max_nonce_age = Duration::from_secs(1);
+        let max_nonce_age = Duration::from_millis(100);
         let nonce_history = NonceHistory::init(max_nonce_age);
 
         // Add nonce — should succeed
@@ -220,7 +220,7 @@ mod tests {
             .expect_err("duplicate should fail");
 
         // Wait for TTL + maintenance to expire it
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         // After TTL expiration - should succeed again
         nonce_history
