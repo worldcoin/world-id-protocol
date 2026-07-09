@@ -64,6 +64,7 @@ ark-serialize = "0.5"
 backon = "1"
 base64 = "0.22"
 circom-types = { package = "taceo-circom-types", version = "0.2", default-features = false }
+coset = "0.4.2"
 eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5.5" }
 eyre = "0.6"
 futures = "0.3"
@@ -145,11 +146,12 @@ testcontainers-modules = { version = "0.15", features = ["redis"] }
 sqlx = "0.8"
 take_mut = "0.2.2"
 tar = "0.4"
-taceo-nodes-common = { version = "0.7.4", default-features=false }
+taceo-nodes-common = { version = "0.7.4", default-features = false }
 tempfile = "3"
 tokio-util = "0.7"
 tempo-alloy = "1.6"
 tower = "0.5.3"
+p256 = { version = "0.13.2", default-features = false }
 
 # Internal
 oprf-accountant = { package="world-id-oprf-accountant", path = "services/oprf-accountant/" }

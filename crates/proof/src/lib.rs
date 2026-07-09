@@ -23,6 +23,9 @@ pub use oprf_query::{FullOprfOutput, OprfEntrypoint};
 pub mod proof;
 pub use proof::*;
 
+/// Authenticator Attestations (WIP-106): Root of Trust Token generation.
+pub mod authenticator_attestation;
+
 use provekit_common::{InputMap, InputValue, NoirElement};
 
 use world_id_primitives::FieldElement;
