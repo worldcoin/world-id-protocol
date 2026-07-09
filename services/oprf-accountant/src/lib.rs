@@ -21,24 +21,85 @@
 //!
 //! It provides an Axum based HTTP server.
 
+use alloy::{providers::Provider, signers::local::PrivateKeySigner};
 use axum::{Router, extract::FromRef};
+use secrecy::ExposeSecret as _;
+use tokio_util::sync::CancellationToken;
 
-use crate::{config::OprfAccountantConfig, postgres::PostgresDb};
+use crate::{
+    accountant_service::{OprfAccountantService, OprfAccountantServiceArgs},
+    config::OprfAccountantConfig,
+    postgres::PostgresDb,
+    timing_watcher::TimingWatcher,
+};
 
+pub mod accountant_service;
 pub mod api;
 pub mod config;
 pub mod metrics;
 pub mod postgres;
+pub mod timing_watcher;
 
 #[derive(Clone)]
-struct AppState(PostgresDb);
+struct AppState {
+    db: PostgresDb,
+    accountant: OprfAccountantService,
+}
 
 impl FromRef<AppState> for PostgresDb {
     fn from_ref(input: &AppState) -> Self {
-        input.0.clone()
+        input.db.clone()
     }
 }
 
-pub async fn start(_config: &OprfAccountantConfig, db: PostgresDb) -> Router {
-    Router::new().merge(api::routes()).with_state(AppState(db))
+impl FromRef<AppState> for OprfAccountantService {
+    fn from_ref(input: &AppState) -> Self {
+        input.accountant.clone()
+    }
+}
+
+pub async fn start(
+    config: &OprfAccountantConfig,
+    db: PostgresDb,
+    cancellation_token: CancellationToken,
+) -> eyre::Result<Router> {
+    let provider =
+        taceo_nodes_common::web3::HttpRpcProviderBuilder::with_config(&config.rpc_provider_config)
+            .build()?
+            .inner();
+    let signer: PrivateKeySigner = config.wallet_private_key.expose_secret().parse()?;
+
+    let timing_eras = TimingWatcher::init(
+        config.billing_contract,
+        provider.clone(),
+        config.ws_rpc_url.clone(),
+        cancellation_token.clone(),
+    )
+    .await?;
+
+    let chain_id = provider.get_chain_id().await?;
+    let accountant = OprfAccountantService::new(OprfAccountantServiceArgs {
+        provider,
+        chain_id,
+        billing_contract: config.billing_contract,
+        signer,
+        db: db.clone(),
+        timing_eras,
+        submit_interval: config.submit_interval,
+        voting_window_offset: config.voting_window_offset,
+        cancellation_token: cancellation_token.clone(),
+    })
+    .await?;
+
+    tokio::spawn({
+        let accountant = accountant.clone();
+        async move {
+            let _guard = cancellation_token.drop_guard_ref();
+            accountant.run().await
+        }
+    });
+
+    let app_state = AppState { db, accountant };
+
+    Ok(Router::new().merge(api::routes()).with_state(app_state))
 }

@@ -6,7 +6,10 @@ use sqlx::PgPool;
 use taceo_nodes_common::postgres::{CreateSchema, PostgresConfig};
 use tracing::instrument;
 
-use crate::api::BillableRpRequest;
+use crate::{
+    accountant_service::{RpCount, TimingEra, epoch_for_timestamp},
+    api::BillableRpRequest,
+};
 
 type Result<T> = std::result::Result<T, PostgresDbError>;
 
@@ -52,16 +55,18 @@ impl PostgresDb {
     }
 
     pub(crate) async fn store_request_batch(
-        self,
+        &self,
+        timing_eras: &[TimingEra],
         rp_requests: Vec<BillableRpRequest>,
     ) -> Result<()> {
         let rp_ids = rp_requests
             .iter()
             .map(|r| r.rp_id.into_inner() as i64)
             .collect_vec();
-        // let epochs: Vec<i64> = rp_requests.iter().map(|r| r.epoch).collect();
-        // TODO get epochs
-        let epochs: Vec<i64> = Vec::new();
+        let epochs = rp_requests
+            .iter()
+            .map(|r| i64::from(epoch_for_timestamp(timing_eras, r.expires_at)))
+            .collect_vec();
         let nonces = rp_requests
             .iter()
             .map(|r| to_db_ark_serialize_uncompressed(&r.nonce))
@@ -109,6 +114,65 @@ impl PostgresDb {
         let _rows_affected = self.with_retry("store-request-batch", batch_insert).await?;
 
         Ok(())
+    }
+
+    /// Returns the epoch the accountant last finished processing (submitted votes for), if any.
+    ///
+    /// Starts at -1 if no epoch has been processed yet.
+    pub(crate) async fn get_epoch_cursor(&self) -> Result<i64> {
+        let query = || async {
+            Ok(
+                sqlx::query_scalar::<_, i64>("SELECT epoch FROM epoch_cursor WHERE id")
+                    .fetch_one(&self.pool)
+                    .await?,
+            )
+        };
+        self.with_retry("get-epoch-cursor", query).await
+    }
+
+    /// Records `epoch` as the last epoch the accountant finished processing.
+    pub(crate) async fn set_epoch_cursor(&self, epoch: u32) -> Result<()> {
+        let epoch = i64::from(epoch);
+        let query = || async {
+            Ok(sqlx::query(
+                "
+                INSERT INTO epoch_cursor (id, epoch) VALUES (TRUE, $1)
+                ON CONFLICT (id) DO UPDATE SET epoch = EXCLUDED.epoch
+            ",
+            )
+            .bind(epoch)
+            .execute(&self.pool)
+            .await?)
+        };
+        self.with_retry("set-epoch-cursor", query).await?;
+        Ok(())
+    }
+
+    /// Returns the number of requests observed per RP for `epoch`, ascending by `rp_id` (as
+    /// required by `submitBillingVotes`).
+    pub(crate) async fn rp_counts_for_epoch(&self, epoch: u32) -> Result<Vec<RpCount>> {
+        let epoch = i64::from(epoch);
+        let query = || async {
+            Ok(sqlx::query_as::<_, (i64, i64)>(
+                "
+                SELECT rp_id, COUNT(*) FROM rp_signatures
+                WHERE epoch = $1
+                GROUP BY rp_id
+                ORDER BY rp_id
+            ",
+            )
+            .bind(epoch)
+            .fetch_all(&self.pool)
+            .await?)
+        };
+        let rows = self.with_retry("rp-counts-for-epoch", query).await?;
+        Ok(rows
+            .into_iter()
+            .map(|(rp_id, count)| RpCount {
+                rpId: rp_id as u64,
+                count: count as u64,
+            })
+            .collect())
     }
 
     async fn with_retry<F, Fut, T>(&self, op_name: &str, f: F) -> Result<T>

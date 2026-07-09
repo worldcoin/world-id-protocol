@@ -70,7 +70,9 @@ async fn run(config: FullOprfAccountantConfig) -> eyre::Result<()> {
     // Clone the values we need afterwards
     let bind_addr = config.bind_addr;
 
-    let accountant_router = world_id_oprf_accountant::start(&config.service_config, db).await;
+    let accountant_router =
+        world_id_oprf_accountant::start(&config.service_config, db, cancellation_token.clone())
+            .await?;
 
     let router = Router::new()
         .merge(taceo_nodes_common::api::routes(

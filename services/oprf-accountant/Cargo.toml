@@ -8,7 +8,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-alloy-primitives.workspace = true
+alloy = { workspace = true, features = ["full", "rpc", "rpc-client-ws"] }
 ark-babyjubjub = { workspace = true }
 ark-serde-compat = { workspace = true }
 ark-serialize = { workspace = true }
@@ -16,14 +16,16 @@ axum = { workspace = true, features = ["json", "macros"] }
 backon = { workspace = true, features = ["std", "tokio-sleep"] }
 config.workspace = true
 eyre = { workspace = true }
+futures-util = { workspace = true }
 humantime-serde = { workspace = true }
 itertools.workspace = true
 metrics = { workspace = true }
 rustls = { workspace = true }
+secrecy = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio-rustls"] }
-taceo-nodes-common = { workspace = true, features = ["api", "postgres"] }
+taceo-nodes-common = { workspace = true, features = ["api", "postgres", "web3"] }
 telemetry-batteries = { workspace = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = [
@@ -34,8 +36,15 @@ tokio = { workspace = true, features = [
   "time",
   "tokio-macros",
 ] }
+tokio-util = { workspace = true }
 tracing = { workspace = true, features = ["release_max_level_debug"] }
 world-id-primitives = { workspace = true }
+
+[dev-dependencies]
+taceo-nodes-common = { workspace = true, features = [
+  "postgres",
+  "test-utils",
+] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { workspace = true }

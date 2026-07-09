@@ -1,8 +1,10 @@
+use alloy::signers::Signature;
 use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::post};
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 use world_id_primitives::{oprf::NullifierOprfRequestAuthV1, rp::RpId};
 
-use crate::{AppState, postgres::PostgresDb};
+use crate::{AppState, accountant_service::OprfAccountantService};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BillableRpRequest {
@@ -13,8 +15,7 @@ pub struct BillableRpRequest {
     pub expires_at: u64,
     #[serde(with = "ark_serde_compat::field")]
     pub action: ark_babyjubjub::Fq,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signature: Option<alloy_primitives::Signature>,
+    pub signature: Option<Signature>,
 }
 
 impl From<&NullifierOprfRequestAuthV1> for BillableRpRequest {
@@ -39,13 +40,21 @@ impl From<&NullifierOprfRequestAuthV1> for BillableRpRequest {
     }
 }
 
+#[instrument(level = "trace", skip_all)]
 async fn post_request(
-    State(db): State<PostgresDb>,
+    State(accountant): State<OprfAccountantService>,
     Json(rp_requests): Json<Vec<BillableRpRequest>>,
 ) -> impl IntoResponse {
-    // TODO get the epochs for the RpVote from the contract
-    let _ = db.store_request_batch(rp_requests).await;
-    StatusCode::OK
+    match accountant.record_rp_request_batch(rp_requests).await {
+        Ok(()) => {
+            tracing::trace!("Successfully recorded RP request batch");
+            StatusCode::OK
+        }
+        Err(err) => {
+            tracing::error!(?err, "Failed to record RP request batch: {err}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
 }
 
 pub(crate) fn routes() -> Router<AppState> {

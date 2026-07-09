@@ -10,10 +10,21 @@ create table if not exists rp_signatures (
     signed_created_at BIGINT NOT NULL,
     signed_expires_at BIGINT NOT NULL,
     -- RP ECDSA (secp256k1) signature over the message (alloy Signature, 65 bytes)
-    signature BYTEA NOT NULL,
+    signature BYTEA,
     -- Record insertion timestamp (bookkeeping)
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     -- A given nonce should be signed at most once per RP (replay protection)
     constraint uq_rp_signatures_rp_id_nonce unique (rp_id, nonce, epoch)
 );
+
+-- Singleton table holding the last epoch the accountant has fully processed (i.e. voted
+-- on). `id` is pinned to `true` so there can only ever be one row. Seeded at -1 (no epoch
+-- processed yet) so the first tick starts from epoch 0.
+create table if not exists epoch_cursor (
+    id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+    epoch BIGINT NOT NULL
+);
+
+INSERT INTO epoch_cursor (epoch)
+VALUES (-1);
