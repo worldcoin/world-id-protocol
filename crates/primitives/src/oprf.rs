@@ -385,7 +385,7 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
                 taceo_oprf::types::close_frame_message!("unknown RP")
             }
             WorldIdRequestAuthError::BlockedRp => {
-                taceo_oprf::types::close_frame_message!("blocked RP by billing contract")
+                taceo_oprf::types::close_frame_message!("RP blocked by billing contract")
             }
             WorldIdRequestAuthError::TimestampTooOld => {
                 taceo_oprf::types::close_frame_message!("timestamp in request too old")
