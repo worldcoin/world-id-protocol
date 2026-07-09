@@ -15,7 +15,6 @@ use alloy::{
     providers::{CallItemBuilder, DynProvider, Failure, Provider},
     sol_types::SolError,
 };
-use backon::Retryable as _;
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
@@ -108,7 +107,6 @@ pub(crate) struct RpRegistryWatcher {
     billing_contract: BillingContractInstance<DynProvider>,
     timeout_external_eth_call: Duration,
     http_rpc_provider: web3::HttpRpcProvider,
-    cache_config: WatcherCacheConfig,
 }
 
 impl RpRegistryWatcher {
@@ -139,7 +137,6 @@ impl RpRegistryWatcher {
             ),
             timeout_external_eth_call,
             http_rpc_provider,
-            cache_config,
         }
     }
 
@@ -148,18 +145,10 @@ impl RpRegistryWatcher {
         &self,
         rp_id: RpId,
     ) -> Result<RelyingParty, Arc<RpRegistryWatcherError>> {
-        let backon_fetch_rp = (|| async { self.fetch_rp_from_chain(rp_id).await })
-            .retry(self.cache_config.backoff_strategy())
-            .sleep(tokio::time::sleep)
-            .when(|e| matches!(e, RpRegistryWatcherError::UnknownRp { .. }))
-            .notify(|err, duration| {
-                tracing::warn!(%err, "fetch rp from chain will retry after {duration:?}");
-            });
-
         let entry = self
             .rp_store
             .entry(rp_id)
-            .or_try_insert_with(backon_fetch_rp)
+            .or_try_insert_with(self.fetch_rp_from_chain(rp_id))
             .await?;
         let rp = if entry.is_fresh() {
             let rp = entry.into_value();

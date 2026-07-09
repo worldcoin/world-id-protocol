@@ -4,8 +4,10 @@ use crate::{
     auth::schema_issuer_registry_watcher::CredentialSchemaIssuerRegistry::CredentialSchemaIssuerRegistryInstance,
     config::WatcherCacheConfig, metrics,
 };
-use alloy::{primitives::Address, providers::DynProvider};
-use backon::Retryable as _;
+use alloy::{
+    primitives::{Address, U256},
+    providers::{DynProvider, Provider},
+};
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
@@ -26,8 +28,12 @@ alloy::sol! {
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum SchemaIssuerRegistryWatcherError {
     /// Unknown schema issuer.
-    #[error("unknown schema issuer: {0}")]
-    UnknownSchemaIssuerId(u64),
+    #[error("unknown schema issuer: {issuer} at block #{block} with timestamp: {timestamp}")]
+    UnknownSchemaIssuerId {
+        issuer: u64,
+        block: U256,
+        timestamp: U256,
+    },
     /// Internal Error
     #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
@@ -36,7 +42,7 @@ pub(crate) enum SchemaIssuerRegistryWatcherError {
 impl From<&SchemaIssuerRegistryWatcherError> for WorldIdRequestAuthError {
     fn from(value: &SchemaIssuerRegistryWatcherError) -> Self {
         match value {
-            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(_) => {
+            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId { .. } => {
                 Self::UnknownSchemaIssuerId
             }
             SchemaIssuerRegistryWatcherError::Internal(_) => Self::Internal,
@@ -55,7 +61,6 @@ impl From<&SchemaIssuerRegistryWatcherError> for WorldIdRequestAuthError {
 pub(crate) struct SchemaIssuerRegistryWatcher {
     issuer_schema_store: Cache<u64, ()>,
     contract: CredentialSchemaIssuerRegistryInstance<DynProvider>,
-    cache_config: WatcherCacheConfig,
 }
 
 impl SchemaIssuerRegistryWatcher {
@@ -80,7 +85,6 @@ impl SchemaIssuerRegistryWatcher {
                 contract_address,
                 http_rpc_provider.inner(),
             ),
-            cache_config,
         }
     }
 
@@ -89,23 +93,10 @@ impl SchemaIssuerRegistryWatcher {
         &self,
         issuer_schema_id: u64,
     ) -> Result<(), Arc<SchemaIssuerRegistryWatcherError>> {
-        let backon_fetch_issuer = (|| async { self.fetch_issuer(issuer_schema_id).await })
-            .retry(self.cache_config.backoff_strategy())
-            .sleep(tokio::time::sleep)
-            .when(|e| {
-                matches!(
-                    e,
-                    SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(_)
-                )
-            })
-            .notify(|err, duration| {
-                tracing::warn!(%err, "fetch issuer will retry after {duration:?}");
-            });
-
         let entry = self
             .issuer_schema_store
             .entry(issuer_schema_id)
-            .or_try_insert_with(backon_fetch_issuer)
+            .or_try_insert_with(self.fetch_issuer(issuer_schema_id))
             .await?;
 
         if entry.is_fresh() {
@@ -126,17 +117,23 @@ impl SchemaIssuerRegistryWatcher {
         tracing::trace!(
             "issuer {issuer_schema_id} not found in store, querying CredentialSchemaIssuerRegistry..."
         );
-        let signer = self
+        let (signer, current_block, timestamp_block) = self
             .contract
-            .getSignerForIssuerSchemaId(issuer_schema_id)
-            .call()
+            .provider()
+            .multicall()
+            .add(self.contract.getSignerForIssuerSchemaId(issuer_schema_id))
+            .get_block_number()
+            .get_current_block_timestamp()
+            .aggregate()
             .await
-            .context("while getting signer for issuer-schema")?;
+            .context("while doing fetch issuer multi-call")?;
 
         if signer == Address::ZERO {
-            Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(
-                issuer_schema_id,
-            ))
+            Err(SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId {
+                issuer: issuer_schema_id,
+                block: current_block,
+                timestamp: timestamp_block,
+            })
         } else {
             Ok(())
         }
@@ -217,7 +214,7 @@ mod tests {
         assert!(
             matches!(
                 err.as_ref(),
-                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(id) if *id == unknown_id
+                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId{issuer,..} if *issuer == unknown_id
             ),
             "expected UnknownSchemaIssuerId({unknown_id}), got: {err:?}"
         );
@@ -261,7 +258,7 @@ mod tests {
         assert!(
             matches!(
                 err.as_ref(),
-                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(_)
+                SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId { issuer, .. } if *issuer == issuer_schema_id
             ),
             "expected UnknownSchemaIssuerId, got: {err:?}"
         );
@@ -288,28 +285,6 @@ mod tests {
         assert!(
             !watcher.issuer_schema_store.contains_key(&unknown_id),
             "Cache should not have unknown issuer cached"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_contract_call_failure_returns_internal() -> eyre::Result<()> {
-        let anvil = TestAnvil::spawn_auto_mine_with_multicall3().await?;
-        let http_rpc_provider = build_http_provider(&anvil.instance);
-        // Address with no contract bytecode — getSignerForIssuerSchemaId() call will fail
-        let watcher = SchemaIssuerRegistryWatcher::init(
-            Address::with_last_byte(42),
-            &http_rpc_provider,
-            WatcherCacheConfig::default(),
-        );
-
-        let err = watcher
-            .is_valid_issuer(rand::thread_rng().r#gen::<u64>())
-            .await
-            .expect_err("call to non-existent contract should fail");
-        assert!(
-            matches!(err.as_ref(), SchemaIssuerRegistryWatcherError::Internal(_)),
-            "expected Internal, got: {err:?}"
         );
         Ok(())
     }

@@ -14,7 +14,6 @@ use alloy::{
     primitives::{Address, U256},
     providers::{DynProvider, Provider},
 };
-use backon::Retryable as _;
 use eyre::Context;
 use moka::future::Cache;
 use taceo_nodes_common::web3;
@@ -100,7 +99,7 @@ impl MerkleWatcher {
         &self,
         root: FieldElement,
     ) -> Result<(), Arc<MerkleWatcherError>> {
-        let is_valid_root = (|| async {
+        let is_valid_root = || async {
             let (valid, root_time_stamp, current_block, timestamp_block) = self
                 .contract
                 .provider()
@@ -127,18 +126,12 @@ impl MerkleWatcher {
                     root_time_stamp,
                 })
             }
-        })
-        .retry(self.cache_config.backoff_strategy())
-        .sleep(tokio::time::sleep)
-        .when(|e| matches!(e, MerkleWatcherError::UnknownMerkleRoot { .. }))
-        .notify(|err, duration| {
-            tracing::warn!(%err, "Ensure root valid will retry after {duration:?}");
-        });
+        };
 
         let entry = self
             .merkle_root_cache
             .entry(root)
-            .or_try_insert_with(is_valid_root)
+            .or_try_insert_with(is_valid_root())
             .await?;
         if entry.is_fresh() {
             metrics::merkle_cache::set(self.merkle_root_cache.entry_count());
