@@ -70,17 +70,8 @@ impl SchemaIssuerRegistryWatcher {
         http_rpc_provider: &web3::HttpRpcProvider,
         cache_config: WatcherCacheConfig,
     ) -> Self {
-        let store_builder = Cache::builder()
-            .max_capacity(cache_config.max_cache_size.get())
-            .time_to_live(cache_config.time_to_live);
-        let issuer_schema_store = if let Some(time_to_idle) = cache_config.time_to_idle {
-            store_builder.time_to_idle(time_to_idle).build()
-        } else {
-            store_builder.build()
-        };
-
         Self {
-            issuer_schema_store,
+            issuer_schema_store: cache_config.build_cache(),
             contract: CredentialSchemaIssuerRegistryInstance::new(
                 contract_address,
                 http_rpc_provider.inner(),
