@@ -182,7 +182,7 @@ impl Credential {
     /// Note default fields occupy a sentinel value of `BaseField::zero()`
     #[must_use]
     pub fn new() -> Self {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         Self {
             id: rng.r#gen(),
             version: CredentialVersion::V1,
@@ -586,7 +586,7 @@ mod tests {
         let tampered_hash = tampered.hash().unwrap();
         assert_ne!(original_hash, tampered_hash);
 
-        let signer = EdDSAPrivateKey::random(&mut rand::thread_rng());
+        let signer = EdDSAPrivateKey::random(&mut rand::rng());
         let signed = credential.sign(&signer).unwrap();
         let issuer_pubkey = signer.public();
 

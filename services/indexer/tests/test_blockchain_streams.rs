@@ -19,7 +19,7 @@ use world_id_test_utils::anvil::TestAnvil;
 const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
 
 fn random_pubkey() -> U256 {
-    let sk = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let sk = EdDSAPrivateKey::random(&mut rand::rng());
     U256::from_le_slice(&sk.public().to_compressed_bytes().unwrap())
 }
 

@@ -16,7 +16,7 @@ use world_id_services_common::ProviderArgs;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_get_recovery_agent_endpoint() {
     let setup = TestSetup::new().await;
-    let sk = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let sk = EdDSAPrivateKey::random(&mut rand::rng());
     let pk = sk.public().to_compressed_bytes().unwrap();
     let pk = U256::from_le_slice(&pk);
 

@@ -45,7 +45,7 @@ impl RpModuleTestSetup {
     pub(crate) async fn new_session_with_fe_type(
         session_type: SessionFeType,
     ) -> eyre::Result<Self> {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
 
         let request_authenticator = RpModuleAuth::new_session(infra.rp_module_args());

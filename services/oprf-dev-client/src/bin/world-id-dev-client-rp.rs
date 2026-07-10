@@ -107,7 +107,7 @@ impl DevClient for WorldIdRpDevClient {
         setup: Self::Setup,
         _: Connector,
     ) -> eyre::Result<ShareEpoch> {
-        let mut rng = rand_chacha::ChaCha12Rng::from_rng(rand::thread_rng())?;
+        let mut rng = rand_chacha::ChaCha12Rng::from_rng(&mut rand::rng());
         let proof_request_uniqueness = create_proof_request(
             &setup,
             &self.components.signer,

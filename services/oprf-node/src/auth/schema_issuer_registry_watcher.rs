@@ -146,7 +146,7 @@ mod tests {
     async fn setup_with_issuer(
         cache_config: WatcherCacheConfig,
     ) -> eyre::Result<(SchemaIssuerRegistryWatcher, TestAnvil, u64, Address)> {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let anvil = TestAnvil::spawn_auto_mine_with_multicall3().await?;
         let deployer = anvil.signer(0)?;
         let oprf_key_registry = anvil

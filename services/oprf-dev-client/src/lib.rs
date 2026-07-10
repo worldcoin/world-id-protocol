@@ -65,7 +65,7 @@ pub fn create_query_proof(args: CreateQueryProofArgs<'_>) -> eyre::Result<Proof<
     let _ = errors::check_query_input_validity(&query_proof_input)?;
 
     let (proof, public_inputs) =
-        query_material.generate_proof(&query_proof_input, &mut rand::thread_rng())?;
+        query_material.generate_proof(&query_proof_input, &mut rand::rng())?;
     query_material
         .verify_proof(&proof, &public_inputs)
         .expect("proof verifies");

@@ -99,7 +99,7 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
         setup: Self::Setup,
         connector: Connector,
     ) -> eyre::Result<ShareEpoch> {
-        let mut rng = rand_chacha::ChaCha12Rng::from_rng(rand::thread_rng())?;
+        let mut rng = rand_chacha::ChaCha12Rng::from_rng(&mut rand::rng());
 
         let authenticator_input = AuthenticatorProofInput::new(
             setup.key_set.clone(),

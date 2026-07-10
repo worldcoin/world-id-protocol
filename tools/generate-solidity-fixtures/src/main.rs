@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .ok(); // may already be installed

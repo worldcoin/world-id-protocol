@@ -140,7 +140,7 @@ mod tests {
     impl OprfRequestAuthTestSetup {
         #[expect(clippy::too_many_lines, reason = "doesn't matter in test")]
         pub(crate) async fn new(kind: SetupKind) -> eyre::Result<Self> {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             let anvil = TestAnvil::spawn_auto_mine_with_multicall3().await?;
             let deployer = anvil.signer(0)?;
             let world_id_registry = anvil.deploy_world_id_registry_v2(deployer.clone()).await?;
@@ -349,7 +349,7 @@ mod tests {
             static QUERY_MATERIAL: std::sync::OnceLock<world_id_proof::CircomGroth16Material> =
                 std::sync::OnceLock::new();
 
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
 
             let query_material = QUERY_MATERIAL.get_or_init(|| {
                 world_id_proof::artifacts::embedded::zkeys::load_embedded_query_material()

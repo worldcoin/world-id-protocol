@@ -111,7 +111,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_nonce_history_duplicate_detection() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let max_nonce_age = Duration::from_secs(60);
         let nonce_history = NonceHistory::init(max_nonce_age);
 
@@ -160,7 +160,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_nonce_history_allows_distinct_scopes() {
-        let nonce = FieldElement::random(&mut rand::thread_rng());
+        let nonce = FieldElement::random(&mut rand::rng());
         let nonce_history = NonceHistory::init(Duration::from_secs(60));
 
         nonce_history
@@ -183,7 +183,7 @@ mod tests {
         let history1 = NonceHistory::init(max_nonce_age);
         let history2 = history1.clone();
 
-        let shared = FieldElement::random(&mut rand::thread_rng());
+        let shared = FieldElement::random(&mut rand::rng());
 
         // Add nonce via first handle
         history1
@@ -203,7 +203,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_nonce_history_ttl_expiration() {
-        let nonce = FieldElement::random(&mut rand::thread_rng());
+        let nonce = FieldElement::random(&mut rand::rng());
         let max_nonce_age = Duration::from_millis(100);
         let nonce_history = NonceHistory::init(max_nonce_age);
 
@@ -233,7 +233,7 @@ mod tests {
     async fn test_concurrent_nonce_insertion() {
         const TASKS: usize = 1000;
 
-        let nonce = FieldElement::random(&mut rand::thread_rng());
+        let nonce = FieldElement::random(&mut rand::rng());
         let history = NonceHistory::init(Duration::from_secs(60));
 
         // Barrier ensures all tasks attempt add_nonce as simultaneously as possible.

@@ -19,10 +19,10 @@ async fn test_backfill_and_live_sync() {
     let setup = TestSetup::new_with_tree_depth(6).await;
 
     // Generate valid EdDSA public keys
-    let sk1 = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let sk1 = EdDSAPrivateKey::random(&mut rand::rng());
     let pk1 = U256::from_le_slice(&sk1.public().to_compressed_bytes().unwrap());
 
-    let sk2 = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let sk2 = EdDSAPrivateKey::random(&mut rand::rng());
     let pk2 = U256::from_le_slice(&sk2.public().to_compressed_bytes().unwrap());
 
     setup
@@ -87,10 +87,10 @@ async fn test_backfill_and_live_sync() {
     }
 
     // Generate more valid EdDSA public keys for live sync test
-    let sk3 = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let sk3 = EdDSAPrivateKey::random(&mut rand::rng());
     let pk3 = U256::from_le_slice(&sk3.public().to_compressed_bytes().unwrap());
 
-    let sk4 = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let sk4 = EdDSAPrivateKey::random(&mut rand::rng());
     let pk4 = U256::from_le_slice(&sk4.public().to_compressed_bytes().unwrap());
 
     setup
@@ -160,7 +160,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
 
     // Create an account on-chain using the test helper
     // This properly creates the account through the WorldIdRegistry contract
-    let sk = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let sk = EdDSAPrivateKey::random(&mut rand::rng());
     let pk = U256::from_le_slice(&sk.public().to_compressed_bytes().unwrap());
 
     setup

@@ -29,7 +29,7 @@ async fn test_get_pending_recovery_agent_endpoint() {
         .signer(1)
         .expect("failed to obtain funded signer");
     let auth_addr: Address = signer.address();
-    let sk = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let sk = EdDSAPrivateKey::random(&mut rand::rng());
     let pk = sk.public().to_compressed_bytes().unwrap();
     let pk = U256::from_le_slice(&pk);
 

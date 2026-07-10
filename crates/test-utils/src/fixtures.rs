@@ -10,7 +10,7 @@ use ark_ff::UniformRand;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::{Context as _, Result};
 use k256::ecdsa::SigningKey;
-use rand::{Rng, thread_rng};
+use rand::Rng;
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 use taceo_oprf_test_utils::PEER_ADDRESSES;
 use world_id_primitives::{
@@ -157,7 +157,7 @@ pub struct RpFixture {
 
 /// Generates RP identifiers, signatures, and ancillary inputs shared across tests.
 pub fn generate_rp_fixture() -> RpFixture {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     let rp_id_value: u64 = rng.r#gen();
     // Atm we use the same value for both WorldRpId and OprfKeyId, this is also done line this in the RpRegistry contract
     let world_rp_id = WorldRpId::new(rp_id_value);

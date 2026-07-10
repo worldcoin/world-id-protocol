@@ -334,7 +334,7 @@ mod tests {
     async fn test_unknown_rp_rejected() -> eyre::Result<()> {
         let (watcher, _anvil, _, _) = setup(Duration::from_secs(10)).await?;
 
-        let unknown_id = RpId::new(rand::thread_rng().r#gen::<u64>());
+        let unknown_id = RpId::new(rand::rng().r#gen::<u64>());
         let err = watcher
             .get_rp(unknown_id)
             .await

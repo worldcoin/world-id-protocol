@@ -241,7 +241,7 @@ async fn e2e_authenticator_insert_update_remove() {
         .await
         .unwrap();
 
-    let updated_pubkey = EdDSAPrivateKey::random(&mut rand::thread_rng()).public();
+    let updated_pubkey = EdDSAPrivateKey::random(&mut rand::rng()).public();
     let updated_address = anvil.signer(3).unwrap().address();
     let primary_address = auth.onchain_address();
 

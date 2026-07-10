@@ -55,7 +55,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     init_test_tracing();
     info!("starting e2e_authenticator_generate_proof");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .unwrap();
