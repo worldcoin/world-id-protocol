@@ -283,7 +283,7 @@ rp->>rp: verify proof (checking sessionId == C' in verifier contract)
 
 - A Uniqueness Proof request may include an existing `sessionId`. The proof then carries the session's commitment `C` as its `id_commitment` public signal, proving in-circuit that the session and the nullifier belong to the same World ID.
 - The Authenticator requires the cached `r` for this; re-deriving `r` is only possible through a session-type request.
-- Verifiers MUST check the proof against the session's commitment — with the signal at `0` the proof is valid but unbound. On-chain this requires a dedicated entry point; the existing `verify()` pins the signal to `0` and rejects bound proofs.
+- Verifiers MUST check the proof against the session's commitment — with the signal at `0` the proof is valid but unbound. On-chain, `verifyProofAndSignals` accepts the commitment as the `sessionId` signal; the convenience `verify()` entry point pins the signal to `0` and rejects bound proofs.
 - Binding one `sessionId` to Uniqueness Proofs under different actions intentionally links those actions to the same World ID; Authenticators MUST clearly surface this to users.
 
 ### Web-based Authenticator Provider
