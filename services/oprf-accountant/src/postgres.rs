@@ -113,7 +113,7 @@ impl PostgresDb {
         Ok(())
     }
 
-    /// Returns the epoch the accountant last finished processing (submitted votes for), if any.
+    /// Returns the last epoch the accountant submitted votes for, if any.
     ///
     /// Starts at -1 if no epoch has been processed yet.
     pub(crate) async fn get_epoch_cursor(&self) -> Result<i64> {
@@ -127,7 +127,7 @@ impl PostgresDb {
         self.with_retry("get-epoch-cursor", query).await
     }
 
-    /// Records `epoch` as the last epoch the accountant finished processing.
+    /// Records `epoch` as the last epoch the accountant voted for.
     pub(crate) async fn set_epoch_cursor(&self, epoch: u32) -> Result<()> {
         let epoch = i64::from(epoch);
         let query = || async {

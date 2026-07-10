@@ -218,6 +218,13 @@ impl OprfAccountantService {
     /// Persists a batch of [`BillableRpRequest`]s, bucketed into the epoch each request's
     /// `expires_at` falls into.
     ///
+    /// This reads `timing_eras` from the shared cache rather than fetching it fresh, so there's
+    /// a brief window — up to one `submit_interval` — after a `TimingUpdated` event where a
+    /// request landing right at the new era's boundary could be bucketed using the stale era.
+    /// This is fine: the cache is refreshed at least once per voting window (see
+    /// [`OprfAccountantService::tick`]), so it self-corrects on the very next tick, and
+    /// `TimingUpdated` (an owner-only, operational change) is expected to be rare.
+    ///
     /// # Errors
     /// Returns an error if the underlying database write fails.
     #[instrument(
@@ -388,7 +395,12 @@ impl OprfAccountantService {
         }
 
         match self.get_votes_for_current_vote_window(now).await? {
-            VoteWindowResult::NotOpen | VoteWindowResult::AlreadyClosed => return Ok(()),
+            VoteWindowResult::NotOpen => {
+                tracing::trace!("voting window not open yet");
+            }
+            VoteWindowResult::AlreadyClosed => {
+                tracing::warn!("voting window already closed");
+            }
             VoteWindowResult::Vote { epoch, counts } => {
                 let epoch_cursor = self.db.get_epoch_cursor().await?;
                 if (epoch as i64).abs_diff(epoch_cursor) > 1 {
@@ -404,11 +416,7 @@ impl OprfAccountantService {
                     tracing::info!(epoch, "successfully submitted billing vote for epoch");
                     self.db.set_epoch_cursor(epoch).await?;
                 } else {
-                    tracing::trace!(
-                        epoch,
-                        epoch_cursor,
-                        "already processed this epoch; skipping"
-                    );
+                    tracing::trace!(epoch, epoch_cursor, "already voted for this epoch");
                 }
             }
         }
