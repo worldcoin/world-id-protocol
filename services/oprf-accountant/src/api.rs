@@ -1,8 +1,20 @@
-use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::post};
+use axum::{
+    Json, Router,
+    extract::{Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    routing::post,
+};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 use world_id_primitives::{oprf::NullifierOprfRequestAuthV1, rp::RpId};
 
 use crate::{AppState, postgres::PostgresDb};
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct PostRequestQuery {
+    pub id: Uuid,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BillableRpRequest {
@@ -15,6 +27,9 @@ pub struct BillableRpRequest {
     pub action: ark_babyjubjub::Fq,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<alloy_primitives::Signature>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "world_id_primitives::serde_utils::hex_bytes_opt")]
+    pub wip101_data: Option<Vec<u8>>,
 }
 
 impl From<&NullifierOprfRequestAuthV1> for BillableRpRequest {
@@ -26,6 +41,7 @@ impl From<&NullifierOprfRequestAuthV1> for BillableRpRequest {
             expires_at,
             signature,
             rp_id,
+            wip101_data,
             ..
         } = value;
         Self {
@@ -35,12 +51,15 @@ impl From<&NullifierOprfRequestAuthV1> for BillableRpRequest {
             expires_at: *expires_at,
             created_at: *created_at,
             signature: *signature,
+            wip101_data: wip101_data.clone(),
         }
     }
 }
 
+// TODO add id to span
 async fn post_request(
     State(db): State<PostgresDb>,
+    Query(PostRequestQuery { id: _ }): Query<PostRequestQuery>,
     Json(rp_requests): Json<Vec<BillableRpRequest>>,
 ) -> impl IntoResponse {
     // TODO get the epochs for the RpVote from the contract
