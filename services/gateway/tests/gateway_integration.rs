@@ -446,18 +446,10 @@ async fn test_authenticator_already_exists_error_code() {
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
     let error_body: serde_json::Value = resp.json().await.unwrap();
-    // Check string response, or message/code field for the error
-    let error_msg = error_body
-        .as_str()
-        .or_else(|| error_body.get("message").and_then(|e| e.as_str()))
-        .or_else(|| error_body.get("code").and_then(|e| e.as_str()))
-        .unwrap_or("");
-    assert!(
-        error_msg
-            .to_lowercase()
-            .replace('_', " ")
-            .contains("authenticator already exists"),
-        "Error should indicate 'authenticator already exists', got: {error_msg}"
+    assert_eq!(
+        error_body.get("code").and_then(serde_json::Value::as_str),
+        Some("authenticator_already_exists"),
+        "unexpected error response: {error_body}"
     );
 }
 
