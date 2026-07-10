@@ -9,8 +9,11 @@
 //! progress so a restart resumes from where it left off instead of re-voting for
 //! already-processed epochs.
 //!
-//! The `timing_eras` history the service is constructed with is not fetched here; it is kept
-//! live elsewhere (see `timing_watcher`) and shared with this service via `Arc<Mutex<..>>`.
+//! `timing_eras` is seeded once from `getEras()` when the service is constructed (passed to
+//! [`OprfAccountantService::new`]), then kept up to date by [`OprfAccountantService::tick`],
+//! which re-fetches `getEras()` on every tick and refreshes the shared `Arc<Mutex<..>>` if it
+//! changed. Since a tick runs at least once per voting window, no `TimingUpdated` change is
+//! ever missed.
 
 use std::{
     sync::{Arc, Mutex},
@@ -31,7 +34,7 @@ use crate::{
 
 // TODO replace with abi
 sol! {
-    #[derive(Debug, Copy)]
+    #[derive(Debug, Copy, PartialEq, Eq)]
     struct TimingEra {
         // the first epoch governed by this era's parameters.
         uint32 startEpoch;
@@ -46,7 +49,7 @@ sol! {
     }
 
     /// @notice A single (rpId, count) entry inside a node's billing vote.
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Eq)]
     struct RpCount {
         // the Relying Party the count is reported for.
         uint64 rpId;
@@ -156,9 +159,9 @@ pub(crate) struct OprfAccountantServiceArgs {
     pub(crate) signer: PrivateKeySigner,
     /// Database storing recorded RP requests and the epoch cursor.
     pub(crate) db: PostgresDb,
-    /// Live, shared snapshot of the `BillingContract`'s timing-era history (see
-    /// `timing_watcher::TimingEras`).
-    pub(crate) timing_eras: Arc<Mutex<Vec<TimingEra>>>,
+    /// Initial `TimingEra` history of the `BillingContract`.
+    /// Must have at least one entry (the `BillingContract` adds its first `TimingEra` on initialization).
+    pub(crate) timing_eras: Vec<TimingEra>,
     /// How often [`OprfAccountantService::run`] calls [`OprfAccountantService::tick`]. Must be
     /// less than the current era's `epochLength` and `votingWindow` (see [`validate_timing`]).
     pub(crate) submit_interval: Duration,
@@ -194,11 +197,7 @@ impl OprfAccountantService {
     ) -> eyre::Result<Self> {
         let contract = IBillingContract::new(billing_contract, provider);
         validate_timing(
-            timing_eras
-                .lock()
-                .expect("not poisoned")
-                .last()
-                .expect("at least one timing era"),
+            timing_eras.last().expect("at least one timing era"),
             submit_interval,
             voting_window_offset,
         )?;
@@ -209,7 +208,7 @@ impl OprfAccountantService {
             chain_id,
             signer,
             db,
-            timing_eras,
+            timing_eras: Arc::new(Mutex::new(timing_eras)),
             submit_interval,
             voting_window_offset,
             cancellation_token,
@@ -349,7 +348,8 @@ impl OprfAccountantService {
         Ok(())
     }
 
-    /// One iteration of the accounting loop: checks whether the most recently closed epoch's
+    /// One iteration of the accounting loop: refreshes the local timing-era cache from the
+    /// contract (see the module docs), then checks whether the most recently closed epoch's
     /// voting window is open (see [`Self::get_votes_for_current_vote_window`]) and, if so and we
     /// haven't already voted for it, submits the vote and advances the epoch cursor.
     ///
@@ -358,11 +358,35 @@ impl OprfAccountantService {
     /// voting window).
     ///
     /// # Errors
-    /// Returns an error if checking the vote window, submitting the vote, or updating the epoch
-    /// cursor fails.
+    /// Returns an error if fetching the timing eras, checking the vote window, submitting the
+    /// vote, or updating the epoch cursor fails.
     #[instrument(level = "info", skip_all, name = "accountant_service::tick")]
     pub(crate) async fn tick(&self) -> eyre::Result<()> {
         let now = now_unix_timestamp();
+
+        // Fetch the latest timing eras from the contract and update our local copy if it has changed.
+        // This ensures that we always have the most up-to-date timing information for determining voting windows.
+        // Current epoch is not affected by timing changes, new parameters affect later epochs only.
+        // Ticks should happen at least once per `voting_window` (which is guaranteed to be at most `epochLength`),
+        // so we should never miss a timing update.
+        let timing_eras = self
+            .contract
+            .getEras()
+            .call()
+            .await
+            .context("while fetching initial timing eras")?;
+        {
+            let mut current_timing_eras = self.timing_eras.lock().expect("not poisoned");
+            if timing_eras != *current_timing_eras {
+                tracing::info!(
+                    ?timing_eras,
+                    ?current_timing_eras,
+                    "timing eras changed; updating"
+                );
+                *current_timing_eras = timing_eras;
+            }
+        }
+
         match self.get_votes_for_current_vote_window(now).await? {
             VoteWindowResult::NotOpen | VoteWindowResult::AlreadyClosed => return Ok(()),
             VoteWindowResult::Vote { epoch, counts } => {
@@ -456,8 +480,8 @@ fn era_for_epoch(eras: &[TimingEra], epoch: u32) -> &TimingEra {
 
 /// Returns the epoch a timestamp falls into, given the full timing-era history (oldest first,
 /// as returned by [`IBillingContract::getEras`]): the epoch `e` such that
-/// `epoch_start(e) <= timestamp < epoch_end(e)`, per the boundary formula documented on
-/// [`IBillingContract::getTiming`].
+/// `epoch_start(e) <= timestamp < epoch_end(e)`, per the boundary formula documented on the
+/// `BillingContract`'s `epochEnd` function.
 ///
 /// # Panics
 /// Panics if `eras` is empty.
@@ -495,11 +519,7 @@ fn now_unix_timestamp() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        num::NonZeroU32,
-        sync::{Arc, Mutex},
-        time::Duration,
-    };
+    use std::{num::NonZeroU32, time::Duration};
 
     use alloy::{
         primitives::Address,
@@ -647,7 +667,7 @@ mod tests {
 
     /// Builds an [`OprfAccountantService`] backed by `eras`, a chain-less mock provider, and a
     /// fresh Postgres schema in the shared testcontainer.
-    async fn setup_service(eras: Vec<TimingEra>) -> OprfAccountantService {
+    async fn setup_service(timing_eras: Vec<TimingEra>) -> OprfAccountantService {
         let connection_string = shared_postgres_testcontainer()
             .await
             .expect("shared postgres testcontainer starts");
@@ -668,7 +688,7 @@ mod tests {
             billing_contract: Address::ZERO,
             signer: PrivateKeySigner::random(),
             db,
-            timing_eras: Arc::new(Mutex::new(eras)),
+            timing_eras,
             submit_interval: Duration::from_secs(1),
             voting_window_offset: Duration::from_secs(5),
             cancellation_token: CancellationToken::new(),

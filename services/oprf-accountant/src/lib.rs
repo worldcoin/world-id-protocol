@@ -28,10 +28,9 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    accountant_service::{OprfAccountantService, OprfAccountantServiceArgs},
+    accountant_service::{IBillingContract, OprfAccountantService, OprfAccountantServiceArgs},
     config::OprfAccountantConfig,
     postgres::PostgresDb,
-    timing_watcher::TimingWatcher,
 };
 
 pub mod accountant_service;
@@ -39,7 +38,6 @@ pub mod api;
 pub mod config;
 pub mod metrics;
 pub mod postgres;
-pub mod timing_watcher;
 
 #[derive(Clone)]
 struct AppState {
@@ -52,43 +50,21 @@ impl FromRef<AppState> for OprfAccountantService {
     }
 }
 
-pub struct OprfAccountantTasks {
-    pub timing_watcher: JoinHandle<eyre::Result<()>>,
-    pub accountant_task: JoinHandle<()>,
-}
-
-impl OprfAccountantTasks {
-    /// Consumes the task by joining every registered `JoinHandle`.
-    ///
-    /// # Errors
-    /// Returns the error from the inner tasks or an error if the task panicked.
-    pub async fn join(self) -> eyre::Result<()> {
-        self.timing_watcher.await??;
-        self.accountant_task.await?;
-        Ok(())
-    }
-}
-
 pub async fn start(
     config: &OprfAccountantConfig,
     db: PostgresDb,
     cancellation_token: CancellationToken,
-) -> eyre::Result<(Router, OprfAccountantTasks)> {
+) -> eyre::Result<(Router, JoinHandle<()>)> {
     let provider =
         taceo_nodes_common::web3::HttpRpcProviderBuilder::with_config(&config.rpc_provider_config)
             .build()?
             .inner();
     let signer: PrivateKeySigner = config.wallet_private_key.expose_secret().parse()?;
 
-    let (timing_watcher, timing_eras) = TimingWatcher::init(
-        config.billing_contract,
-        provider.clone(),
-        config.ws_rpc_url.clone(),
-        cancellation_token.clone(),
-    )
-    .await?;
-
+    let contract = IBillingContract::new(config.billing_contract, provider.clone());
+    let timing_eras = contract.getEras().call().await?;
     let chain_id = provider.get_chain_id().await?;
+
     let accountant = OprfAccountantService::new(OprfAccountantServiceArgs {
         provider,
         chain_id,
@@ -114,11 +90,5 @@ pub async fn start(
 
     let router = Router::new().merge(api::routes()).with_state(app_state);
 
-    Ok((
-        router,
-        OprfAccountantTasks {
-            timing_watcher,
-            accountant_task,
-        },
-    ))
+    Ok((router, accountant_task))
 }

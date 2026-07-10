@@ -81,7 +81,7 @@ async fn run(config: FullOprfAccountantConfig) -> eyre::Result<()> {
     let bind_addr = config.bind_addr;
     let max_wait_time_shutdown = config.max_wait_time_shutdown;
 
-    let (accountant_router, accountant_tasks) =
+    let (accountant_router, accountant_task) =
         world_id_oprf_accountant::start(&config.service_config, db, cancellation_token.clone())
             .await?;
 
@@ -118,7 +118,7 @@ async fn run(config: FullOprfAccountantConfig) -> eyre::Result<()> {
     tracing::info!("waiting for shutdown of services (max wait time {max_wait_time_shutdown:?})..");
 
     match tokio::time::timeout(max_wait_time_shutdown, async move {
-        let (axum_result, accountant_result) = tokio::join!(server, accountant_tasks.join());
+        let (axum_result, accountant_result) = tokio::join!(server, accountant_task);
         axum_result??;
         accountant_result?;
         eyre::Ok(())

@@ -41,9 +41,6 @@ pub struct OprfAccountantConfig {
     #[serde(rename = "rpc")]
     pub rpc_provider_config: web3::HttpRpcProviderConfig,
 
-    /// The blockchain RPC URL for the websocket connection.
-    pub ws_rpc_url: SecretString,
-
     // TODO split into 1 for the EIP-712 signature and 1 for the transaction signing.
     /// The private key used to sign billing vote chunks and to submit `submitBillingVotes`
     /// transactions.
