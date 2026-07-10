@@ -9,12 +9,13 @@
 use std::{num::NonZeroUsize, time::Duration};
 
 use backon::{ExponentialBuilder, Retryable};
-use oprf_accountant::api::BillableRpRequest;
+use oprf_accountant::api::{BillableRpRequest, PostRequestQuery};
 use reqwest::{StatusCode, Url};
 use serde::Deserialize;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
+use uuid::Uuid;
 
 use crate::metrics;
 
@@ -224,8 +225,6 @@ impl AccountantBatcher {
             // set missed tick behavior to delay - in case we block during sending flush and we miss a tick, we want to send exactly one flush task and continue sleeping from that period again
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             async move {
-                // first tick resolves immediately
-                interval.tick().await;
                 loop {
                     interval.tick().await;
                     tracing::trace!("sending account batch flush..");
@@ -268,12 +267,15 @@ impl AccountantBatcher {
         while let Some(job) = self.rx.recv().await {
             match job {
                 AccountantBatcherJob::Put(request) => self.put(request).await,
-                AccountantBatcherJob::Flush => self.flush().await,
+                AccountantBatcherJob::Flush => self.flush(Uuid::new_v4()).await,
                 AccountantBatcherJob::Close => {
                     self.close().await;
                     return;
                 }
             }
+            let channel_size = self.rx.len();
+            metrics::accountant_batcher::set_job_queue(channel_size);
+            tracing::trace!("still have {channel_size} jobs in channel");
         }
         tracing::error!("all handles dropped but there should be the flush task?");
     }
@@ -289,24 +291,26 @@ impl AccountantBatcher {
             self.buffer.len()
         );
         if self.buffer.len() >= self.buffer_size {
-            self.flush().await;
+            self.flush(Uuid::new_v4()).await;
         }
     }
 
     /// Flushes the buffer if buffer is not empty.
     ///
     /// Empties the buffer and attempts to send it to the endpoint.
-    #[instrument(level = "info", skip_all, name = "accountant_batcher::flush")]
-    async fn flush(&mut self) {
+    #[instrument(level = "info", skip_all, name = "accountant_batcher::flush", fields(%flush_id))]
+    async fn flush(&mut self, flush_id: Uuid) {
         tracing::trace!("attempting to flush the buffer");
         let batch = std::mem::replace(&mut self.buffer, Vec::with_capacity(self.buffer_size));
         if batch.is_empty() {
             tracing::trace!("buffer empty - no flush");
         } else {
             tracing::trace!("attempting to flush buffer with size {}", batch.len());
+            let query = PostRequestQuery { id: flush_id };
             let result = (|| async {
                 self.client
                     .post(self.accountant_endpoint.clone())
+                    .query(&[query.clone().into_query_strings()])
                     .json(&batch)
                     .send()
                     .await?
@@ -346,7 +350,7 @@ impl AccountantBatcher {
         {
             tracing::warn!(?err, "Got error during close from flush task");
         }
-        self.flush().await;
+        self.flush(Uuid::new_v4()).await;
     }
 }
 
