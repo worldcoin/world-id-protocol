@@ -12446,6 +12446,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-id-billing"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "alloy-primitives",
+ "backon",
+ "clap",
+ "dotenvy",
+ "eyre",
+ "metrics",
+ "serde_json",
+ "telemetry-batteries",
+ "tokio",
+ "tracing",
+ "world-id-services-common",
+ "world-id-test-utils",
+]
+
+[[package]]
 name = "world-id-core"
 version = "0.12.0"
 dependencies = [
