@@ -1,13 +1,9 @@
 use std::backtrace::Backtrace;
 use thiserror::Error;
 use world_id_primitives::api_types::{GatewayErrorCode, ServiceApiError};
-use world_id_registries::world_id::WorldIdRegistry::{
-    AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
-    AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
-};
 use world_id_services_common::ProviderError;
 
-use crate::contract_errors::{DecodedRegistryError, selector_hex};
+use crate::contract_errors::DecodedRegistryError;
 use alloy::transports::{RpcError, TransportErrorKind};
 use axum::{http::StatusCode, response::IntoResponse};
 
@@ -191,43 +187,25 @@ impl GatewayErrorResponse {
     }
 
     /// Build an error response from a raw alloy RPC error returned by
-    /// `provider.call(...)`. Attempts ABI decoding of any revert data first,
-    /// then falls back to the legacy string-matching path.
+    /// `provider.call(...)`. Valid registry reverts are ABI-decoded; all other
+    /// errors retain their original message as a generic bad request.
     #[must_use]
     pub fn from_rpc_error(err: &RpcError<TransportErrorKind>) -> Self {
-        if let Some(decoded) = DecodedRegistryError::from_transport_error(err) {
-            return Self::from_decoded_revert(&decoded);
-        }
-        Self::from_simulation_error(err)
+        DecodedRegistryError::from_transport_error(err).map_or_else(
+            || Self::bad_request_message(err.to_string()),
+            |decoded| Self::from_decoded_revert(&decoded),
+        )
     }
 
     /// Build an error response from a raw alloy contract error returned by
-    /// `sol!`-generated call builders. Attempts ABI decoding of any revert
-    /// data first, then falls back to the legacy string-matching path.
+    /// `sol!`-generated call builders. Valid registry reverts are ABI-decoded;
+    /// all other errors retain their original message as a generic bad request.
     #[must_use]
     pub fn from_contract_error(err: &alloy::contract::Error) -> Self {
-        if let Some(decoded) = DecodedRegistryError::from_contract_error(err) {
-            return Self::from_decoded_revert(&decoded);
-        }
-        Self::from_simulation_error(err)
-    }
-
-    /// Legacy string-matching fallback: builds an error response from any
-    /// displayable error, matching hex-encoded selectors within the string.
-    ///
-    /// Prefer [`Self::from_rpc_error`] or [`Self::from_contract_error`] when
-    /// the structured alloy error is available — they produce richer,
-    /// ABI-decoded messages.
-    #[must_use]
-    pub fn from_simulation_error(e: impl std::fmt::Display) -> Self {
-        let error_str = e.to_string();
-        let code = parse_contract_error(&error_str);
-        let message = if matches!(code, GatewayErrorCode::BadRequest) {
-            error_str
-        } else {
-            code.to_string()
-        };
-        Self::new(code, message, StatusCode::BAD_REQUEST)
+        DecodedRegistryError::from_contract_error(err).map_or_else(
+            || Self::bad_request_message(err.to_string()),
+            |decoded| Self::from_decoded_revert(&decoded),
+        )
     }
 }
 
@@ -249,58 +227,12 @@ impl IntoResponse for GatewayErrorResponse {
     }
 }
 
-/// Legacy fallback: scan a stringified error for known custom-error selectors.
-///
-/// Used when we don't have structured revert data (e.g. the batcher path,
-/// which only sees the stringified error from `send_batch`).
-#[must_use]
-pub fn parse_contract_error(error: &str) -> GatewayErrorCode {
-    if error.contains(&selector_hex::<AuthenticatorAddressAlreadyInUse>()) {
-        return GatewayErrorCode::AuthenticatorAlreadyExists;
-    }
-    if error.contains(&selector_hex::<AuthenticatorDoesNotExist>()) {
-        return GatewayErrorCode::AuthenticatorDoesNotExist;
-    }
-    if error.contains(&selector_hex::<MismatchedSignatureNonce>()) {
-        return GatewayErrorCode::MismatchedSignatureNonce;
-    }
-    if error.contains(&selector_hex::<PubkeyIdInUse>()) {
-        return GatewayErrorCode::PubkeyIdInUse;
-    }
-    if error.contains(&selector_hex::<PubkeyIdOutOfBounds>()) {
-        return GatewayErrorCode::PubkeyIdOutOfBounds;
-    }
-    if error.contains(&selector_hex::<AuthenticatorDoesNotBelongToAccount>()) {
-        return GatewayErrorCode::AuthenticatorDoesNotBelongToAccount;
-    }
-
-    GatewayErrorCode::BadRequest
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use alloy::{primitives::Address, sol_types::SolError};
+    use world_id_registries::world_id::WorldIdRegistryV2::AuthenticatorAddressAlreadyInUse;
 
-    #[test]
-    fn parse_contract_error_matches_selectors_in_message() {
-        // Any string containing the hex-encoded selector of a known error
-        // should map to the matching code, regardless of surrounding noise.
-        let sel = selector_hex::<PubkeyIdOutOfBounds>();
-        let msg = format!("execution reverted: {sel}0000");
-        assert!(matches!(
-            parse_contract_error(&msg),
-            GatewayErrorCode::PubkeyIdOutOfBounds
-        ));
-    }
-
-    #[test]
-    fn parse_contract_error_falls_back_to_bad_request() {
-        assert!(matches!(
-            parse_contract_error("something else entirely"),
-            GatewayErrorCode::BadRequest
-        ));
-    }
+    use super::*;
 
     #[test]
     fn from_decoded_revert_produces_human_message() {
@@ -319,18 +251,5 @@ mod tests {
             "expected human message, got {:?}",
             resp.error.message
         );
-    }
-
-    #[test]
-    fn from_simulation_error_matches_selector_substring() {
-        // Simulate an alloy error rendered as a string that happens to
-        // contain the hex selector — the legacy path should still classify.
-        let sel = selector_hex::<MismatchedSignatureNonce>();
-        let simulated = format!("server returned an error response: execution reverted: {sel}");
-        let resp = GatewayErrorResponse::from_simulation_error(simulated);
-        assert!(matches!(
-            resp.error.code,
-            GatewayErrorCode::MismatchedSignatureNonce
-        ));
     }
 }

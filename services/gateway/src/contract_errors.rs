@@ -14,12 +14,11 @@
 //! Callers can also decode raw revert bytes directly via
 //! [`DecodedRegistryError::decode`], which is convenient for testing.
 //!
-//! When decoding fails (unknown selector, malformed data, non-revert error,
-//! etc.) callers should fall back to the legacy string-matching path in
-//! [`crate::error::parse_contract_error`].
+//! Unknown selectors, malformed data, and non-revert errors are left
+//! undecoded so callers can preserve the original error message.
 
 use alloy::{
-    sol_types::{SolError, SolInterface},
+    sol_types::SolInterface,
     transports::{RpcError, TransportErrorKind},
 };
 use world_id_primitives::api_types::GatewayErrorCode;
@@ -208,13 +207,6 @@ fn describe(error: &RegistryError) -> &'static str {
     }
 }
 
-/// Return the 4-byte selector of a known [`SolError`] as a lowercase
-/// `0x`-prefixed hex string. Used by the legacy string-matching fallback in
-/// [`crate::error::parse_contract_error`].
-pub(crate) fn selector_hex<E: SolError>() -> String {
-    format!("0x{}", hex::encode(E::SELECTOR))
-}
-
 #[cfg(test)]
 mod tests {
     use std::mem::discriminant;
@@ -299,12 +291,5 @@ mod tests {
     #[test_case(truncated_signature_nonce_error(); "truncated arguments")]
     fn rejects_invalid_error(data: Vec<u8>) {
         assert!(DecodedRegistryError::decode(&data).is_none());
-    }
-
-    #[test]
-    fn selector_hex_prefixes_with_0x() {
-        let s = selector_hex::<PubkeyIdOutOfBounds>();
-        assert!(s.starts_with("0x"));
-        assert_eq!(s.len(), 2 + 8);
     }
 }
