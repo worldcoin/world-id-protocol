@@ -449,6 +449,28 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     );
     info!("session-bound proof correctly rejected by the sessionId=0 entry point");
 
+    // `verifyWithSession` checks the sessionId signal against the session's commitment
+    world_id_verifier
+        .verifyWithSession(
+            bound_nullifier.into(),
+            rp_fixture.action.into(),
+            rp_fixture.world_rp_id.into_inner(),
+            rp_fixture.nonce.into(),
+            request_item.signal_hash().into(),
+            bound_item.expires_at_min,
+            issuer_schema_id,
+            request_item
+                .genesis_issued_at_min
+                .unwrap_or_default()
+                .try_into()
+                .expect("u64 fits into U256"),
+            session_id.commitment.into(),
+            bound_item.proof.as_ethereum_representation(),
+        )
+        .call()
+        .await?;
+    info!("session-bound proof verified via verifyWithSession");
+
     indexer_handle.abort();
     info!("e2e_authenticator_generate_proof finished successfully");
     Ok(())
