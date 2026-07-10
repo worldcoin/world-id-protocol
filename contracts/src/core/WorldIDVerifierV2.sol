@@ -20,6 +20,12 @@ contract WorldIDVerifierV2 is WorldIDVerifier {
      */
     error InvalidAction();
 
+    /**
+     * @dev Thrown when a session-bound verification is attempted with `sessionId == 0`,
+     *  which would silently degrade to unbound `verify` semantics.
+     */
+    error InvalidSessionId();
+
     /// @inheritdoc IWorldIDVerifier
     function verify(
         uint256 nullifier,
@@ -48,6 +54,40 @@ contract WorldIDVerifierV2 is WorldIDVerifier {
             // For Uniqueness Proofs, the `session_id` is not used, hence the constraint defaults to 0
             // To verify a Session Proof use `verifySession` instead.
             0,
+            zeroKnowledgeProof
+        );
+    }
+
+    /// @inheritdoc IWorldIDVerifier
+    function verifyWithSession(
+        uint256 nullifier,
+        uint256 action,
+        uint64 rpId,
+        uint256 nonce,
+        uint256 signalHash,
+        uint64 expiresAtMin,
+        uint64 issuerSchemaId,
+        uint256 credentialGenesisIssuedAtMin,
+        uint256 sessionId,
+        uint256[5] calldata zeroKnowledgeProof
+    ) external view virtual override onlyProxy onlyInitialized {
+        if (uint8(action >> 248) != uint8(0)) {
+            revert InvalidAction();
+        }
+        if (sessionId == 0) {
+            revert InvalidSessionId();
+        }
+
+        verifyProofAndSignals(
+            nullifier,
+            action,
+            rpId,
+            nonce,
+            signalHash,
+            expiresAtMin,
+            issuerSchemaId,
+            credentialGenesisIssuedAtMin,
+            sessionId,
             zeroKnowledgeProof
         );
     }
