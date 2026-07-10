@@ -295,23 +295,22 @@ interface IBillingContract {
     function outstandingDebt(uint64 rpId) external view returns (uint256);
 
     /**
-     * @notice The latest epoch that has been fully finalized, if any.
-     * @dev Finalization work is pending whenever this trails {latestClosedEpoch} (including the case
-     *      where nothing is finalized yet but some epoch has closed). Off-chain keepers poll this
-     *      together with {latestClosedEpoch} to decide whether {finalizeEpochs} needs to be called,
-     *      instead of blind-firing transactions.
-     * @return exists Whether any epoch has been finalized yet.
-     * @return epoch The latest finalized epoch; only meaningful when `exists` is true.
+     * @notice The latest finalized and latest closed epoch watermarks, read together in one call.
+     * @dev Both watermarks are derived from the same block, so callers get a consistent snapshot
+     *      (no read skew between two separate calls). Finalization work is pending whenever the
+     *      finalized watermark trails the closed one (including the case where nothing is finalized
+     *      yet but some epoch has closed): closed epochs are exactly the ones {finalizeEpochs} can
+     *      finalize. Off-chain keepers poll this to decide whether {finalizeEpochs} needs to be
+     *      called, instead of blind-firing transactions.
+     * @return finalizedExists Whether any epoch has been finalized yet.
+     * @return finalizedEpoch The latest finalized epoch; only meaningful when `finalizedExists` is true.
+     * @return closedExists Whether any epoch's voting window has closed yet.
+     * @return closedEpoch The latest closed epoch; only meaningful when `closedExists` is true.
      */
-    function latestFinalizedEpoch() external view returns (bool exists, uint32 epoch);
-
-    /**
-     * @notice The latest epoch whose voting window has fully closed, if any.
-     * @dev Closed epochs are exactly the ones {finalizeEpochs} can finalize.
-     * @return exists Whether any epoch's voting window has closed yet.
-     * @return epoch The latest closed epoch; only meaningful when `exists` is true.
-     */
-    function latestClosedEpoch() external view returns (bool exists, uint32 epoch);
+    function epochWatermarks()
+        external
+        view
+        returns (bool finalizedExists, uint32 finalizedEpoch, bool closedExists, uint32 closedEpoch);
 
     /// @notice The EIP-712 domain separator.
     function DOMAIN_SEPARATOR() external view returns (bytes32);

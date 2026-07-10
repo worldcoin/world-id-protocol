@@ -384,22 +384,20 @@ contract BillingContract is WorldIDBase, IBillingContract {
     }
 
     /// @inheritdoc IBillingContract
-    function latestFinalizedEpoch()
+    function epochWatermarks()
         external
         view
         virtual
         onlyProxy
         onlyInitialized
-        returns (bool exists, uint32 epoch)
+        returns (bool finalizedExists, uint32 finalizedEpoch, bool closedExists, uint32 closedEpoch)
     {
         uint32 next = _nextEpochToFinalize;
-        if (next == 0) return (false, 0);
-        return (true, next - 1);
-    }
-
-    /// @inheritdoc IBillingContract
-    function latestClosedEpoch() external view virtual onlyProxy onlyInitialized returns (bool exists, uint32 epoch) {
-        return _latestClosedEpoch();
+        if (next != 0) {
+            finalizedExists = true;
+            finalizedEpoch = next - 1;
+        }
+        (closedExists, closedEpoch) = _latestClosedEpoch();
     }
 
     /// @inheritdoc IBillingContract

@@ -552,39 +552,39 @@ contract BillingContractTest is Test {
 
     function test_LatestClosedEpoch_progression() public {
         // Before epoch 0's voting window closes, no epoch is closed.
-        (bool exists, uint32 epoch) = billing.latestClosedEpoch();
+        (,, bool exists, uint32 epoch) = billing.epochWatermarks();
         assertFalse(exists);
 
         // One second before epoch 0's voting window closes: still open.
         vm.warp(GENESIS + EPOCH_LEN + VOTING - 1);
-        (exists,) = billing.latestClosedEpoch();
+        (,, exists,) = billing.epochWatermarks();
         assertFalse(exists);
 
         // Exactly at close: epoch 0 is the latest closed epoch.
         vm.warp(GENESIS + EPOCH_LEN + VOTING);
-        (exists, epoch) = billing.latestClosedEpoch();
+        (,, exists, epoch) = billing.epochWatermarks();
         assertTrue(exists);
         assertEq(epoch, 0);
 
         // Advances with wall-clock time.
         vm.warp(GENESIS + 5 * EPOCH_LEN + VOTING);
-        (exists, epoch) = billing.latestClosedEpoch();
+        (,, exists, epoch) = billing.epochWatermarks();
         assertTrue(exists);
         assertEq(epoch, 4);
     }
 
     function test_LatestFinalizedEpoch_tracksCursor() public {
         // Nothing finalized yet.
-        (bool exists, uint32 epoch) = billing.latestFinalizedEpoch();
+        (bool exists, uint32 epoch,,) = billing.epochWatermarks();
         assertFalse(exists);
 
         _voteSingle(0, 1, 10, _pks2());
         _closeVoting(0);
-        (exists,) = billing.latestFinalizedEpoch();
+        (exists,,,) = billing.epochWatermarks();
         assertFalse(exists, "watermark only moves via finalizeEpochs");
 
         billing.finalizeEpochs(0, 100);
-        (exists, epoch) = billing.latestFinalizedEpoch();
+        (exists, epoch,,) = billing.epochWatermarks();
         assertTrue(exists);
         assertEq(epoch, 0);
     }
