@@ -12,7 +12,7 @@ use std::{collections::VecDeque, sync::Arc, time::Duration};
 use alloy::{primitives::Bytes, providers::DynProvider, rpc::types::TransactionRequest};
 use tokio::{sync::mpsc, time::Instant};
 use uuid::Uuid;
-use world_id_primitives::api_types::{CreateAccountRequest, GatewayRequestState};
+use world_id_primitives::api_types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState};
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::{
@@ -21,7 +21,6 @@ use crate::{
     },
     batch_type::BatchType,
     config::BatchPolicyConfig,
-    error::parse_contract_error,
     metrics,
     transaction_submitter::TransactionSubmitter,
 };
@@ -173,7 +172,7 @@ where
                     &ids,
                     GatewayRequestState::failed(
                         error.to_string(),
-                        Some(parse_contract_error(&error.to_string())),
+                        Some(GatewayErrorCode::BadRequest),
                     ),
                 )
                 .await;

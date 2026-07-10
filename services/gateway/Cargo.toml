@@ -28,7 +28,6 @@ clap = { workspace = true, features = ["derive", "env"] }
 world-id-primitives = { workspace = true, features = ["openapi"] }
 world-id-registries = { workspace = true }
 dotenvy = { workspace = true }
-hex = { workspace = true }
 moka = { workspace = true }
 once_cell = { workspace = true }
 redis = { workspace = true, features = ["tokio-comp", "connection-manager"] }
