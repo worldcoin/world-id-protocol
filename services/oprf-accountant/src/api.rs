@@ -11,15 +11,9 @@ use world_id_primitives::{oprf::NullifierOprfRequestAuthV1, rp::RpId};
 
 use crate::{AppState, postgres::PostgresDb};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct PostRequestQuery {
     pub id: Uuid,
-}
-
-impl PostRequestQuery {
-    pub fn into_query_strings(self) -> (String, String) {
-        (String::from("id"), self.id.to_string())
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

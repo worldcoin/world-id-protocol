@@ -35,7 +35,7 @@ pub(crate) mod accountant_batcher {
         metrics::describe_gauge!(
             METRICS_ID_ACCOUNTANT_BATCHER_JOB_QUEUE,
             metrics::Unit::Count,
-            "Gauge for the job queue/channel size of the batcher. If this starts to to increase we have a back pressure problem"
+            "Gauge for the job queue/channel size of the batcher. If this starts to increase we have a back pressure problem"
         );
     }
 

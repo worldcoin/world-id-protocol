@@ -310,7 +310,7 @@ impl AccountantBatcher {
             let result = (|| async {
                 self.client
                     .post(self.accountant_endpoint.clone())
-                    .query(&[query.clone().into_query_strings()])
+                    .query(&query)
                     .json(&batch)
                     .send()
                     .await?
