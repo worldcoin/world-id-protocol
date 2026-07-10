@@ -108,8 +108,8 @@ impl RelyingParty {
         let wip101_call = iwip101.verifyRpRequest(
             RequestVersion::V1 as u8,
             auth.nonce.into(),
-            auth.current_time_stamp,
-            auth.expiration_timestamp,
+            auth.created_at,
+            auth.expires_at,
             action.into(),
             auxiliary_data,
         );

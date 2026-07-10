@@ -22,8 +22,8 @@ impl From<&NullifierOprfRequestAuthV1> for BillableRpRequest {
         let NullifierOprfRequestAuthV1 {
             action,
             nonce,
-            current_time_stamp,
-            expiration_timestamp,
+            created_at,
+            expires_at,
             signature,
             rp_id,
             ..
@@ -32,8 +32,8 @@ impl From<&NullifierOprfRequestAuthV1> for BillableRpRequest {
             rp_id: *rp_id,
             nonce: *nonce,
             action: *action,
-            expires_at: *expiration_timestamp,
-            created_at: *current_time_stamp,
+            expires_at: *expires_at,
+            created_at: *created_at,
             signature: *signature,
         }
     }
