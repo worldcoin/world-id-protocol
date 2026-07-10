@@ -280,7 +280,7 @@ pub fn parse_contract_error(error: &str) -> GatewayErrorCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::sol_types::SolError;
+    use alloy::{primitives::Address, sol_types::SolError};
 
     #[test]
     fn parse_contract_error_matches_selectors_in_message() {
@@ -304,9 +304,10 @@ mod tests {
 
     #[test]
     fn from_decoded_revert_produces_human_message() {
-        let decoded =
-            DecodedRegistryError::from_selector(AuthenticatorAddressAlreadyInUse::SELECTOR)
-                .expect("known selector");
+        let revert = AuthenticatorAddressAlreadyInUse {
+            authenticatorAddress: Address::ZERO,
+        };
+        let decoded = DecodedRegistryError::decode(&revert.abi_encode()).expect("valid revert");
         let resp = GatewayErrorResponse::from_decoded_revert(&decoded);
         assert_eq!(resp.status, StatusCode::BAD_REQUEST);
         assert!(matches!(
