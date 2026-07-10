@@ -25,18 +25,21 @@ pub(crate) mod rp_module;
 pub(crate) mod rp_registry_watcher;
 pub(crate) mod schema_issuer_registry_watcher;
 
-/// Logs an auth-module error: `error!` for internal errors, `warn!` (with
-/// `auth_error=true`) for client-attributable auth failures.
-pub(crate) fn log_auth_module_error(
-    err: &(impl std::fmt::Debug + std::fmt::Display),
-    mapped: WorldIdRequestAuthError,
-    module: &str,
-) {
+/// Maps an auth-module error to its [`WorldIdRequestAuthError`] and logs it:
+/// `error!` for internal errors, `warn!` (with `auth_error=true`) for
+/// client-attributable auth failures.
+pub(crate) fn auth_module_error<E>(err: E, module: &str) -> WorldIdRequestAuthError
+where
+    E: std::fmt::Debug + std::fmt::Display,
+    for<'a> WorldIdRequestAuthError: From<&'a E>,
+{
+    let mapped = WorldIdRequestAuthError::from(&err);
     if matches!(mapped, WorldIdRequestAuthError::Internal) {
         tracing::error!(?err, "Internal error in {module}");
     } else {
         tracing::warn!(auth_error = true, ?err, "Error in {module}: {err}");
     }
+    mapped
 }
 
 pub(crate) fn verify_query_proof(

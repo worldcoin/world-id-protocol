@@ -104,6 +104,22 @@ impl WatcherCacheConfig {
             time_to_idle: None,
         }
     }
+
+    /// Builds a [`moka::future::Cache`] with this configuration.
+    pub(crate) fn build_cache<K, V>(&self) -> moka::future::Cache<K, V>
+    where
+        K: std::hash::Hash + Eq + Send + Sync + 'static,
+        V: Clone + Send + Sync + 'static,
+    {
+        let builder = moka::future::Cache::builder()
+            .max_capacity(self.max_cache_size.get())
+            .time_to_live(self.time_to_live);
+        if let Some(time_to_idle) = self.time_to_idle {
+            builder.time_to_idle(time_to_idle).build()
+        } else {
+            builder.build()
+        }
+    }
 }
 
 impl Default for WatcherCacheConfig {
