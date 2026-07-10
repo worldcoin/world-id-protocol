@@ -244,10 +244,8 @@ impl Authenticator {
         let session_id =
             SessionId::from_r_seed(self.leaf_index(), resolved_session_id_r_seed, oprf_seed)?;
 
-        if let Some(request_session_id) = proof_request.session_id
-            && request_session_id != session_id
-        {
-            return Err(AuthenticatorError::SessionIdMismatch);
+        if let Some(request_session_id) = proof_request.session_id {
+            self.validate_cached_session_r_seed(resolved_session_id_r_seed, request_session_id)?;
         }
 
         Ok((session_id, resolved_session_id_r_seed))
@@ -311,16 +309,10 @@ impl Authenticator {
         // 2. Resolve session seed
         let (resolved_session_id, resolved_session_seed) = match proof_request.proof_type {
             ProofType::Uniqueness => match proof_request.session_id {
-                // Bind the proof to the existing session. Requires the cached `r`:
-                // re-deriving it needs a session-type OPRF query the RP signature
-                // of this request cannot authorize.
+                // Bind the proof to the existing session. Requires the cached `r`.
                 Some(session_id) => {
                     let seed = session_id_r_seed.ok_or(AuthenticatorError::SessionSeedRequired)?;
-                    let computed =
-                        SessionId::from_r_seed(self.leaf_index(), seed, session_id.oprf_seed)?;
-                    if computed != session_id {
-                        return Err(AuthenticatorError::SessionIdMismatch);
-                    }
+                    self.validate_cached_session_r_seed(seed, session_id)?;
                     (Some(session_id), Some(seed))
                 }
                 None => (None, None),
@@ -336,13 +328,7 @@ impl Authenticator {
                     .session_id
                     .expect("session proof must have session_id");
                 if let Some(seed) = session_id_r_seed {
-                    // Validate the cached seed produces the expected session ID
-                    let computed =
-                        SessionId::from_r_seed(self.leaf_index(), seed, session_id.oprf_seed)?;
-
-                    if computed != session_id {
-                        return Err(AuthenticatorError::SessionIdMismatch);
-                    }
+                    self.validate_cached_session_r_seed(seed, session_id)?;
                     (Some(session_id), Some(seed))
                 } else {
                     // Re-derive the same `r` from the existing session's `oprf_seed` when the
@@ -545,6 +531,19 @@ impl Authenticator {
             .map_err(AuthenticatorError::ZkArtifactError)?;
 
         Ok(generate_ownership_proof_with_prover(input, prover)?)
+    }
+
+    fn validate_cached_session_r_seed(
+        &self,
+        seed: FieldElement,
+        session_id: SessionId,
+    ) -> Result<(), AuthenticatorError> {
+        let computed = SessionId::from_r_seed(self.leaf_index(), seed, session_id.oprf_seed)
+            .map_err(AuthenticatorError::from)?;
+        if computed.commitment != session_id.commitment {
+            return Err(AuthenticatorError::SessionIdMismatch);
+        }
+        Ok(())
     }
 }
 

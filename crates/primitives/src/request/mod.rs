@@ -60,9 +60,9 @@ pub enum ProofType {
     /// see [`ProofRequest::binds_session`].
     #[default]
     Uniqueness = 0x00,
-    /// Create a new RP-scoped session identifier and prove it in the same response.
+    /// Create a new RP-scoped `session_id` and prove it in the same response.
     CreateSession = 0x01,
-    /// Prove ownership of an existing RP-scoped session identifier.
+    /// Prove ownership of an existing RP-scoped `session_id`.
     Session = 0x02,
 }
 

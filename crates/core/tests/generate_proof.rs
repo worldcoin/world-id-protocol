@@ -366,6 +366,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     info!("on-chain proof verification succeeded");
 
     // ── SESSION-BOUND UNIQUENESS PROOF ──
+    // Note: We mock a cached r here. This would be initially obtained from an OPRF query.
     let session_id_r_seed = FieldElement::random(&mut rng);
     let session_id = SessionId::from_r_seed(
         leaf_index,
