@@ -21,7 +21,7 @@ pub const METRICS_FINALIZER_CONFIRM_RETRIES: &str = "billing.finalizer.confirm_r
 pub const LABEL_OUTCOME: &str = "outcome";
 
 /// Shared outcome labels — kept in one place so cardinality stays bounded.
-pub mod outcome {
+pub mod tx_outcome {
     pub const SUCCESS: &str = "success";
     pub const REVERT_ON_CHAIN: &str = "revert_on_chain";
     pub const RPC_ERROR: &str = "rpc_error";

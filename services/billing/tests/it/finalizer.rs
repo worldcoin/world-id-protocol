@@ -250,7 +250,7 @@ async fn tick_is_noop_before_first_voting_window_closes() -> Result<()> {
         "no transaction should be sent while nothing is finalizable"
     );
     assert!(
-        !billing.latestFinalizedEpoch().call().await?.exists,
+        !billing.epochWatermarks().call().await?.finalizedExists,
         "nothing should be finalized yet"
     );
     Ok(())
@@ -265,16 +265,16 @@ async fn tick_advances_cursor_over_voteless_epochs() -> Result<()> {
     setup
         .warp_to(setup.genesis + 3 * EPOCH_LEN + VOTING)
         .await?;
-    let closed = billing.latestClosedEpoch().call().await?;
-    assert!(closed.exists);
-    assert_eq!(closed.epoch, 2);
+    let closed = billing.epochWatermarks().call().await?;
+    assert!(closed.closedExists);
+    assert_eq!(closed.closedEpoch, 2);
 
     setup.finalizer(500).tick().await?;
 
-    let finalized = billing.latestFinalizedEpoch().call().await?;
-    assert!(finalized.exists);
+    let finalized = billing.epochWatermarks().call().await?;
+    assert!(finalized.finalizedExists);
     assert_eq!(
-        finalized.epoch, 2,
+        finalized.finalizedEpoch, 2,
         "cursor should advance past all closed vote-less epochs (latest finalized = 2)"
     );
     Ok(())
@@ -298,9 +298,9 @@ async fn tick_finalizes_voted_epoch_and_accrues_debt() -> Result<()> {
         "the RP's lower-median count should be priced and accrued as debt"
     );
     let billing = KeeperBindings::new(setup.billing, setup.provider.clone());
-    let finalized = billing.latestFinalizedEpoch().call().await?;
-    assert!(finalized.exists);
-    assert_eq!(finalized.epoch, 0);
+    let finalized = billing.epochWatermarks().call().await?;
+    assert!(finalized.finalizedExists);
+    assert_eq!(finalized.finalizedEpoch, 0);
     Ok(())
 }
 
@@ -318,21 +318,22 @@ async fn tick_drains_full_backlog_in_one_call() -> Result<()> {
 
     setup.finalizer(1).tick().await?;
 
-    let finalized = billing.latestFinalizedEpoch().call().await?;
-    assert!(finalized.exists);
+    let finalized = billing.epochWatermarks().call().await?;
+    assert!(finalized.finalizedExists);
     assert_eq!(
-        finalized.epoch, 3,
+        finalized.finalizedEpoch, 3,
         "a single tick() call should fully drain the backlog (latest finalized = 3)"
     );
     Ok(())
 }
 
 #[tokio::test]
-async fn next_deadline_matches_epoch_end_plus_voting_window() -> Result<()> {
+async fn next_deadline_matches_voting_window_end() -> Result<()> {
     let setup = TestSetup::new().await?;
     let finalizer = setup.finalizer(500);
 
-    // Epoch 0's voting window closes at its epoch-end plus the voting window.
+    // next_deadline reads the contract's votingWindowEnd; for epoch 0 that is its
+    // epoch-end plus the voting window.
     let expected = setup.genesis + EPOCH_LEN + VOTING;
     assert_eq!(finalizer.next_deadline(0).await?, expected);
     Ok(())

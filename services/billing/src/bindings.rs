@@ -1,9 +1,4 @@
 //! Contract bindings for the on-chain Billing Contract.
-//!
-//! Hand-written subset of `IBillingContract` limited to what the billing
-//! workers call; see `contracts/src/core/interfaces/IBillingContract.sol` for
-//! the full interface and documentation.
-
 use alloy::sol;
 
 sol! {
@@ -13,25 +8,16 @@ sol! {
         /// performing at most `maxSteps` units of finalization work.
         function finalizeEpochs(uint32 uptoEpoch, uint256 maxSteps) external;
 
-        /// The latest epoch that has been fully finalized, if any.
-        /// `epoch` is only meaningful when `exists` is true.
-        function latestFinalizedEpoch() external view returns (bool exists, uint32 epoch);
+        /// The latest finalized and latest closed epoch watermarks, read together in one call
+        /// (consistent snapshot from a single block, avoiding read skew between two calls).
+        /// Each `epoch` is only meaningful when its corresponding `exists` flag is true.
+        function epochWatermarks()
+            external
+            view
+            returns (bool finalizedExists, uint32 finalizedEpoch, bool closedExists, uint32 closedEpoch);
 
-        /// The latest epoch whose voting window has fully closed, if any.
-        /// `epoch` is only meaningful when `exists` is true.
-        function latestClosedEpoch() external view returns (bool exists, uint32 epoch);
-
-        /// The timestamp at which `epoch` ends (and its voting window opens).
-        function epochEnd(uint32 epoch) external view returns (uint64);
-
-        /// The current timing era's parameters (epoch length, voting window,
-        /// payment window, and the era's start epoch/timestamp).
-        function getTiming() external view returns (
-            uint64 epochLength,
-            uint64 votingWindow,
-            uint64 paymentWindow,
-            uint32 eraStartEpoch,
-            uint64 eraStartTime
-        );
+        /// The timestamp at which `epoch`'s voting window closes (i.e. when it
+        /// becomes eligible to finalize). Exact across timing-era boundaries.
+        function votingWindowEnd(uint32 epoch) external view returns (uint64);
     }
 }

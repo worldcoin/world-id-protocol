@@ -12,8 +12,8 @@ selected via `--role`:
   purely by wall-clock time (once its voting window closes) — no event signals
   it, and vote-less epochs emit no events at all but still need the cursor
   advanced past them. Rather than polling on a fixed interval, the worker
-  computes the exact moment the current cursor's voting window closes
-  (`epochEnd` + `votingWindow`, both exposed by the contract) and sleeps to
+  reads the exact moment the current cursor's voting window closes
+  (`votingWindowEnd`, exposed by the contract) and sleeps to
   it; after waking it briefly confirms the chain reflects the close (bridging
   RPC lag / clock drift) before draining via bounded `finalizeEpochs`
   transactions. (Vote submission is out of scope: OPRF nodes' EIP-712 signed
