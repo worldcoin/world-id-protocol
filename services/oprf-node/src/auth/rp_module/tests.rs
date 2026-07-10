@@ -1,4 +1,5 @@
 #![allow(clippy::large_futures, reason = "Is ok in tests")]
+#![allow(clippy::cast_sign_loss, reason = "Is ok in tests")]
 
 use std::time::Duration;
 
@@ -70,8 +71,8 @@ impl RpModuleTestSetup {
             action: *session_action,
             nonce: bundle.nonce,
             merkle_root: *infra.setup.merkle_inclusion_proof.root,
-            current_time_stamp: infra.setup.rp_fixture.current_timestamp,
-            expiration_timestamp: infra.setup.rp_fixture.expiration_timestamp,
+            created_at: infra.setup.rp_fixture.current_timestamp,
+            expires_at: infra.setup.rp_fixture.expiration_timestamp,
             signature: Some(signature),
             rp_id: infra.setup.rp_fixture.world_rp_id,
             wip101_data: None,
@@ -105,8 +106,8 @@ impl RpModuleTestSetup {
             action: infra.setup.rp_fixture.action,
             nonce: bundle.nonce,
             merkle_root: *infra.setup.merkle_inclusion_proof.root,
-            current_time_stamp: infra.setup.rp_fixture.current_timestamp,
-            expiration_timestamp: infra.setup.rp_fixture.expiration_timestamp,
+            created_at: infra.setup.rp_fixture.current_timestamp,
+            expires_at: infra.setup.rp_fixture.expiration_timestamp,
             signature: Some(infra.setup.rp_fixture.signature),
             rp_id: infra.setup.rp_fixture.world_rp_id,
             wip101_data: None,
@@ -229,31 +230,43 @@ async fn test_session_success() -> eyre::Result<()> {
 #[tokio::test]
 async fn test_session_expired_timestamp() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
-    setup.request.auth.current_time_stamp -= setup
+    setup.request.auth.created_at -= setup
         .request_authenticator
-        .current_time_stamp_max_difference
-        .as_secs()
+        .created_at_max_difference
+        .num_seconds() as u64
         + 100;
     setup
-        .assert_auth_err(
-            error_codes::TIMESTAMP_TOO_OLD,
-            "timestamp in request too old",
-        )
+        .assert_auth_err(error_codes::CREATED_AT_TOO_OLD, "created_at too old")
         .await
 }
 
 #[tokio::test]
 async fn test_session_future_timestamp() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
-    setup.request.auth.current_time_stamp += setup
+    setup.request.auth.created_at += setup
         .request_authenticator
-        .current_time_stamp_max_difference
-        .as_secs()
+        .created_at_max_difference
+        .num_seconds() as u64
         + 100;
     setup
         .assert_auth_err(
-            error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE,
-            "timestamp too far in future",
+            error_codes::CREATED_AT_TOO_FAR_IN_FUTURE,
+            "created_at too far in future",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_session_expires_at_too_far() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
+    setup.request.auth.expires_at += setup
+        .request_authenticator
+        .expires_at_max_difference
+        .num_seconds() as u64;
+    setup
+        .assert_auth_err(
+            error_codes::EXPIRES_AT_TOO_FAR_IN_FUTURE,
+            "expires_at too far in the future",
         )
         .await
 }
@@ -261,19 +274,16 @@ async fn test_session_future_timestamp() -> eyre::Result<()> {
 #[tokio::test]
 async fn test_session_timestamp_zero() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
-    setup.request.auth.current_time_stamp = 0;
+    setup.request.auth.created_at = 0;
     setup
-        .assert_auth_err(
-            error_codes::TIMESTAMP_TOO_OLD,
-            "timestamp in request too old",
-        )
+        .assert_auth_err(error_codes::CREATED_AT_TOO_OLD, "created_at too old")
         .await
 }
 
 #[tokio::test]
 async fn test_session_invalid_timestamp() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
-    setup.request.auth.current_time_stamp = u64::MAX;
+    setup.request.auth.created_at = u64::MAX;
     setup
         .assert_auth_err(
             error_codes::INVALID_TIMESTAMP,
@@ -366,7 +376,7 @@ async fn test_session_corrupt_signature() -> eyre::Result<()> {
 #[tokio::test]
 async fn test_session_tampered_expiration_timestamp() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
-    setup.request.auth.expiration_timestamp += 1;
+    setup.request.auth.expires_at += 1;
     setup
         .assert_auth_err(
             error_codes::INVALID_RP_SIGNATURE,
@@ -378,7 +388,7 @@ async fn test_session_tampered_expiration_timestamp() -> eyre::Result<()> {
 #[tokio::test]
 async fn test_session_expired_rp_signature() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
-    setup.request.auth.expiration_timestamp = 0;
+    setup.request.auth.expires_at = 0;
     setup
         .assert_auth_err(error_codes::RP_SIGNATURE_EXPIRED, "RP signature expired")
         .await

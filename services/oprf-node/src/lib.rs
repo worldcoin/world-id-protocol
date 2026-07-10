@@ -132,7 +132,7 @@ pub fn start(
 
     let nonce_history = NonceHistory::init(
         // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
-        config.current_time_stamp_max_difference * 2,
+        config.created_at_max_difference * 2,
     );
 
     tracing::info!("init nullifier oprf request auth service..");
@@ -140,7 +140,10 @@ pub fn start(
         merkle_watcher: merkle_watcher.clone(),
         rp_registry_watcher,
         nonce_history,
-        current_time_stamp_max_difference: config.current_time_stamp_max_difference,
+        created_at_max_difference: chrono::Duration::from_std(config.created_at_max_difference)
+            .context("while building created_at_max_difference")?,
+        expires_at_max_difference: chrono::Duration::from_std(config.expires_at_max_difference)
+            .context("while building expires_at_max_difference")?,
         timeout_external_eth_call: config.timeout_external_eth_call,
         rpc_provider: http_rpc_provider.clone(),
         query_vk: Arc::clone(&query_vk),

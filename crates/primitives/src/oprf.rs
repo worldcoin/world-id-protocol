@@ -46,9 +46,11 @@ pub struct NullifierOprfRequestAuthV1 {
     #[serde(with = "ark_serde_compat::field")]
     pub merkle_root: ark_babyjubjub::Fq,
     /// The current time stamp (unix secs)
-    pub current_time_stamp: u64,
+    #[serde(alias = "current_time_stamp")]
+    pub created_at: u64,
     /// Expiration timestamp of the request (unix secs)
-    pub expiration_timestamp: u64,
+    #[serde(alias = "expiration_timestamp")]
+    pub expires_at: u64,
     /// The RP's signature on the request, see `compute_rp_signature_msg` for details.
     ///
     /// Can be `None` if the RP is a WIP101 conform contract.
@@ -114,11 +116,15 @@ pub enum WorldIdRequestAuthError {
     /// The request timestamp is too old. If you are the RP please sign a request with
     /// a fresh timestamp.
     #[error("timestamp_too_old")]
-    TimestampTooOld,
+    CreatedAtTooOld,
     /// The request timestamp is too far in the future. If you are the RP please sign a request with
     /// a fresh timestamp.
     #[error("timestamp_too_far_in_future")]
-    TimestampTooFarInFuture,
+    CreatedAtTooFarInFuture,
+    /// The expires_at timestamp is too far in the future. If you are the RP please sign a new request with
+    /// a new expires at.
+    #[error("expires_at_too_far_in_future")]
+    ExpiresAtTooFarInFuture,
     /// The timestamp cannot be parsed as it was not a valid unix epoch timestamp.
     #[error("invalid_timestamp")]
     InvalidTimestamp,
@@ -221,8 +227,9 @@ impl WorldIdRequestAuthError {
             Self::UnknownRp
             | Self::InactiveRp
             | Self::BlockedRp
-            | Self::TimestampTooOld
-            | Self::TimestampTooFarInFuture
+            | Self::CreatedAtTooOld
+            | Self::CreatedAtTooFarInFuture
+            | Self::ExpiresAtTooFarInFuture
             | Self::InvalidTimestamp
             | Self::RpSignatureExpired
             | Self::InvalidRpSignature
@@ -252,7 +259,7 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::UNKNOWN_RP => Self::UnknownRp,
             error_codes::BLOCKED_RP => Self::BlockedRp,
             error_codes::INACTIVE_RP => Self::InactiveRp,
-            error_codes::TIMESTAMP_TOO_OLD => Self::TimestampTooOld,
+            error_codes::CREATED_AT_TOO_OLD => Self::CreatedAtTooOld,
             error_codes::INVALID_RP_SIGNATURE => Self::InvalidRpSignature,
             error_codes::DUPLICATE_NONCE => Self::DuplicateNonce,
             error_codes::INVALID_MERKLE_ROOT => Self::InvalidMerkleRoot,
@@ -264,7 +271,8 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::RP_SIGNATURE_EXPIRED => Self::RpSignatureExpired,
             error_codes::RP_SIGNATURE_MISSING => Self::RpSignatureMissing,
             error_codes::INVALID_TIMESTAMP => Self::InvalidTimestamp,
-            error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE => Self::TimestampTooFarInFuture,
+            error_codes::CREATED_AT_TOO_FAR_IN_FUTURE => Self::CreatedAtTooFarInFuture,
+            error_codes::EXPIRES_AT_TOO_FAR_IN_FUTURE => Self::ExpiresAtTooFarInFuture,
             error_codes::WIP101_INCOMPATIBLE_RP_SIGNER => Self::Wip101IncompatibleRpSigner,
             error_codes::WIP101_VERIFICATION_TIMEOUT => Self::Wip101VerificationTimeout,
             error_codes::WIP101_ACCOUNT_CHECK_TIMEOUT => Self::Wip101AccountCheckTimeout,
@@ -283,7 +291,10 @@ impl From<WorldIdRequestAuthError> for u16 {
             WorldIdRequestAuthError::UnknownRp => error_codes::UNKNOWN_RP,
             WorldIdRequestAuthError::BlockedRp => error_codes::BLOCKED_RP,
             WorldIdRequestAuthError::InactiveRp => error_codes::INACTIVE_RP,
-            WorldIdRequestAuthError::TimestampTooOld => error_codes::TIMESTAMP_TOO_OLD,
+            WorldIdRequestAuthError::CreatedAtTooOld => error_codes::CREATED_AT_TOO_OLD,
+            WorldIdRequestAuthError::ExpiresAtTooFarInFuture => {
+                error_codes::EXPIRES_AT_TOO_FAR_IN_FUTURE
+            }
             WorldIdRequestAuthError::InvalidTimestamp => error_codes::INVALID_TIMESTAMP,
             WorldIdRequestAuthError::InvalidRpSignature => error_codes::INVALID_RP_SIGNATURE,
             WorldIdRequestAuthError::RpSignatureMissing => error_codes::RP_SIGNATURE_MISSING,
@@ -299,8 +310,8 @@ impl From<WorldIdRequestAuthError> for u16 {
             }
             WorldIdRequestAuthError::InvalidActionSession => error_codes::INVALID_ACTION_SESSION,
             WorldIdRequestAuthError::RpSignatureExpired => error_codes::RP_SIGNATURE_EXPIRED,
-            WorldIdRequestAuthError::TimestampTooFarInFuture => {
-                error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE
+            WorldIdRequestAuthError::CreatedAtTooFarInFuture => {
+                error_codes::CREATED_AT_TOO_FAR_IN_FUTURE
             }
             WorldIdRequestAuthError::Wip101IncompatibleRpSigner => {
                 error_codes::WIP101_INCOMPATIBLE_RP_SIGNER
@@ -329,8 +340,8 @@ impl From<WorldIdRequestAuthError> for u16 {
 pub mod error_codes {
     /// Error code for [`super::WorldIdRequestAuthError::UnknownRp`].
     pub const UNKNOWN_RP: u16 = 4500;
-    /// Error code for [`super::WorldIdRequestAuthError::TimestampTooOld`].
-    pub const TIMESTAMP_TOO_OLD: u16 = 4501;
+    /// Error code for [`super::WorldIdRequestAuthError::CreatedAtTooOld`].
+    pub const CREATED_AT_TOO_OLD: u16 = 4501;
     /// Error code for [`super::WorldIdRequestAuthError::InvalidRpSignature`].
     pub const INVALID_RP_SIGNATURE: u16 = 4502;
     /// Error code for [`super::WorldIdRequestAuthError::DuplicateNonce`].
@@ -353,8 +364,8 @@ pub mod error_codes {
     pub const RP_SIGNATURE_EXPIRED: u16 = 4511;
     /// Error code for [`super::WorldIdRequestAuthError::InvalidTimestamp`].
     pub const INVALID_TIMESTAMP: u16 = 4512;
-    /// Error code for [`super::WorldIdRequestAuthError::TimestampTooFarInFuture`].
-    pub const TIMESTAMP_TOO_FAR_IN_FUTURE: u16 = 4513;
+    /// Error code for [`super::WorldIdRequestAuthError::CreatedAtTooFarInFuture`].
+    pub const CREATED_AT_TOO_FAR_IN_FUTURE: u16 = 4513;
     /// Error code for [`super::WorldIdRequestAuthError::Wip101IncompatibleRpSigner`].
     pub const WIP101_INCOMPATIBLE_RP_SIGNER: u16 = 4514;
     /// Error code for [`super::WorldIdRequestAuthError::Wip101VerificationFailed`].
@@ -373,6 +384,8 @@ pub mod error_codes {
     pub const WIP101_ACCOUNT_CHECK_TIMEOUT: u16 = 4521;
     /// Error code for [`super::WorldIdRequestAuthError::BlockedRp`].
     pub const BLOCKED_RP: u16 = 4522;
+    /// Error code for [`super::WorldIdRequestAuthError::ExpiresAtTooFarInFuture`].
+    pub const EXPIRES_AT_TOO_FAR_IN_FUTURE: u16 = 4523;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
     pub const INTERNAL: u16 = 1011;
 }
@@ -387,11 +400,14 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             WorldIdRequestAuthError::BlockedRp => {
                 taceo_oprf::types::close_frame_message!("RP blocked by billing contract")
             }
-            WorldIdRequestAuthError::TimestampTooOld => {
-                taceo_oprf::types::close_frame_message!("timestamp in request too old")
+            WorldIdRequestAuthError::CreatedAtTooOld => {
+                taceo_oprf::types::close_frame_message!("created_at too old")
             }
-            WorldIdRequestAuthError::TimestampTooFarInFuture => {
-                taceo_oprf::types::close_frame_message!("timestamp too far in future")
+            WorldIdRequestAuthError::CreatedAtTooFarInFuture => {
+                taceo_oprf::types::close_frame_message!("created_at too far in future")
+            }
+            WorldIdRequestAuthError::ExpiresAtTooFarInFuture => {
+                taceo_oprf::types::close_frame_message!("expires_at too far in the future")
             }
             WorldIdRequestAuthError::InvalidRpSignature => {
                 taceo_oprf::types::close_frame_message!("signature from RP cannot be verified")
@@ -485,8 +501,8 @@ mod tests {
         let codes: &[u16] = &[
             error_codes::UNKNOWN_RP,
             error_codes::BLOCKED_RP,
-            error_codes::TIMESTAMP_TOO_OLD,
-            error_codes::TIMESTAMP_TOO_FAR_IN_FUTURE,
+            error_codes::CREATED_AT_TOO_OLD,
+            error_codes::CREATED_AT_TOO_FAR_IN_FUTURE,
             error_codes::INVALID_RP_SIGNATURE,
             error_codes::DUPLICATE_NONCE,
             error_codes::INVALID_MERKLE_ROOT,
