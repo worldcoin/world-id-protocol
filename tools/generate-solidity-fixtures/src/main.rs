@@ -19,7 +19,7 @@ use std::{
 
 use alloy::{
     primitives::{U160, U256},
-    signers::local::LocalSigner,
+    signers::{SignerSync as _, local::LocalSigner},
 };
 use eyre::{Context as _, Result, eyre};
 use taceo_oprf::{
@@ -298,9 +298,6 @@ async fn main() -> Result<()> {
         .generate_nullifier(&uniqueness_request, None)
         .await?;
 
-    // Clone the nullifier data before it's consumed — we reuse it for the session proof.
-    let nullifier_data_for_session = nullifier_data.clone();
-
     let uniqueness_result = authenticator
         .generate_proof(
             &uniqueness_request,
@@ -348,18 +345,32 @@ async fn main() -> Result<()> {
     )
     .unwrap();
 
-    // ── SESSION PROOF (reuse cloned OPRF data with a session_id on the request) ──
+    // ── SESSION PROOF (own OPRF round: session queries use an internal random action
+    //    generated at query time, and the RP signature does not cover an action) ──
+    let session_msg = world_id_primitives::rp::compute_rp_signature_msg(
+        rp_fixture.nonce,
+        rp_fixture.current_timestamp,
+        rp_fixture.expiration_timestamp,
+        None,
+    );
+    let session_signature = LocalSigner::from_signing_key(rp_fixture.signing_key.clone())
+        .sign_message_sync(&session_msg)?;
     let session_request = ProofRequest {
         proof_type: ProofType::Session,
         session_id: Some(session_id),
-        action: None, // session proofs use an internal random action
+        action: None,
+        signature: session_signature,
         ..uniqueness_request.clone()
     };
+
+    let session_nullifier_data = authenticator
+        .generate_nullifier(&session_request, None)
+        .await?;
 
     let session_result = authenticator
         .generate_proof(
             &session_request,
-            nullifier_data_for_session,
+            session_nullifier_data,
             &credentials,
             None,
             Some(session_id_r_seed),
