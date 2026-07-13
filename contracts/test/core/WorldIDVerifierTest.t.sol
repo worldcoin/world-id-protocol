@@ -13,7 +13,7 @@ import {ICredentialSchemaIssuerRegistry} from "../../src/core/interfaces/ICreden
 uint64 constant credentialIssuerIdCorrect = 1;
 uint64 constant credentialIssuerIdWrong = 2;
 
-uint64 constant rpIdCorrect = 0x1a6ccf8f70e5de68;
+uint64 constant rpIdCorrect = 0x387df34f862cd4e;
 uint64 constant rpIdWrong = 2;
 
 uint256 constant rootCorrect = 0xaf727d9412a9d5c73b685fd09dc39e727064e65b8269b233009edfc105f9853;
@@ -24,8 +24,8 @@ contract OprfKeyRegistryMock {
         // TODO update for mapping of rpId to oprfKeyId
         if (oprfKeyId == rpIdCorrect) {
             return BabyJubJub.Affine({
-                x: 0xac79da013272129ddceae6d20c0f579abd04b0a00160ed2be2151bf4014e8d,
-                y: 0x187ce5ac507fe0760e95d1893cc6ebf3a115eb9adeaa355c14cc52722a2275be
+                x: 0x24a3480be33ae5a83f68fbefe658e65053cbe99ee442c178859070a23372a4d4,
+                y: 0x2fc70cc380d5bb9d8537a8fd82e98fb29eb837ff3943f5704ec3957f444ec6cd
             });
         } else {
             return BabyJubJub.Affine({
@@ -57,8 +57,8 @@ contract CredentialSchemaIssuerRegistryMock {
     {
         if (issuerSchemaId == credentialIssuerIdCorrect) {
             return ICredentialSchemaIssuerRegistry.Pubkey({
-                x: 0x252c8234509649bb469ecb7a7e758f306b41415f2d80d4d67967902d6f589a81,
-                y: 0x230e4f93a5f1187639314dd25e595db06dc18de219cfaeb8cfdf81d4afe910d5
+                x: 0xf178f8128469f6be2f108a02b2a3f96d107d9466c4f95460ed7d4e8f10384b3,
+                y: 0x21b8a276d0b75460b075f4a4cc1961938e62f4964bcca87cffce8ada4d6e11d5
             });
         } else {
             return ICredentialSchemaIssuerRegistry.Pubkey({
@@ -76,27 +76,35 @@ contract ProofVerifier is Test {
 
     uint256 public minExpirationThreshold;
 
-    uint256 nullifier = 0x1bae01b23e5f0ee96151331fffb0550351c52e5ee0ced452c762e120723ae702;
-    uint64 expiresAtMin = 0x699cfa47;
-    uint256 action = 0x15d4b66e5417cb9875f6a2b5be9814dca80651d7c74b3b21685fdd494566e79f;
+    uint256 nullifier = 0x5968cd4d3c50bfd2305671d1092bee10ccb679b93db3ca779b6477e4885e476;
+    uint64 expiresAtMin = 0x6a54cd68;
+    uint256 action = 0x978cc65f06353d8543971b65da8751833ff1253a192f58bed14f2739c0a345;
     uint256 signalHash = 0x1578ed0de47522ad0b38e87031739c6a65caecc39ce3410bf3799e756a220f;
-    uint256 nonce = 0x18e3ab3d5fedc6eaa5e0d06a3a6f3dd5e0bf2d17b18b797a1cc6ff4706169d1e;
-    uint256 sessionId = 0x2025d8e786806a895f7e50ce403f7d6e33e501772b28116908ad6fa5108172f8;
+    uint256 nonce = 0x38ed3d4d95deac6e369dde48890d5b14b49a2d26a0b2e8854d429ff7c52cf99;
+    uint256 sessionId = 0x2018a266d26fbc1cd41743cc3126321302b8f0af39c367fe5718eeafb341d494;
+    uint256 sessionNonce = 0xa138dc568a2548155f3991625ddec3b466d2a49b19d6ff26a94ba0310cdf5ba;
 
     uint256[5] proof = [
-        0x4906f4e17b969ef2cfc44bd96520f01a3f5c32972bca2e10b70e05e03e3d9f13,
-        0xd6d9a3456e9af7d8f6f78eb3380deb8c93505c062f62fa18b8ef8a2ccb55db8,
-        0xa92a48edeb327b190048648788de9a8eff0abed5dc93bee8881387da40571278,
-        0x38f52985c393efb732be8f54b5f00f7f25370ac5945de84e0d8d2f2d298866b8,
+        0x2a184f5930f2b6a0f367f649a80757e081b3fb28b76fffcfe325d82df87395b3,
+        0xf6849ab589365a7537beeb70014958ae261fe2dd7fdbf5c4823c6b527aefa34,
+        0xac5ee090f2ee180619c5c9825f22cee8873fc0d4764b7b0c5ffd7802d8f2e0f9,
+        0x4a221ef1d3b5522ac95f38db43afda6863d34836f7a8cff0b50aa9c8ca52e727,
         rootCorrect
     ];
 
     uint256[5] sessionProof = [
-        0x4533f8d38447da676c8eac8ec01ce031af1cc140d8397f3baf792be414c28790,
-        0xe05c9ada0f2a3ebb5863f0a3412aa852cea67099ce26bb46c44b264af5b6927,
-        0x178bbfe59fc10b5ec4359ecb21b9f42fb8afef08e90cd3dec903fdd45cddc930,
-        0x409b8908726ca9151d021fcecc882a3f5e93ba35f6043ad0bd51258b55e5018b,
+        0x4930872a26a12446d943042e1958e65d4b3eecca9bf2b80c6bdba2dd24f37467,
+        0x15bba2773377d7ef96c76ede7d8d12bc5725441961de9f1b330484e1f24a19a8,
+        0x86dc81c5fccb1de6766036f308db3b6e1e6eb0fa7d780096d701cc97fb4a20f1,
+        0x3d4279efe1806d0c7747915b9852ade3738e8ffd87604e01034ca78e8cb81c54,
         rootCorrect
+    ];
+
+    // [nullifier, action] tuple of the session proof; the action is randomly generated
+    // at OPRF-query time and carries the 0x02 session prefix.
+    uint256[2] sessionNullifier = [
+        0x8ce710377b04b2605fd6c5545f15f638527bd0315f223b8c2c070a4ac0a62d0,
+        0x2b6b35cb561c84d7a137fbc715c9df67152fa28c1b81042a4c0e80d1ba01b00
     ];
 
     function setUp() public {
@@ -132,13 +140,13 @@ contract ProofVerifier is Test {
         vm.warp(expiresAtMin + 1 hours);
         worldIDVerifier.verifySession(
             rpIdCorrect,
-            nonce,
+            sessionNonce,
             signalHash,
             expiresAtMin,
             credentialIssuerIdCorrect,
             0,
             sessionId,
-            [nullifier, action],
+            sessionNullifier,
             sessionProof
         );
     }
@@ -223,13 +231,13 @@ contract ProofVerifier is Test {
         vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
         worldIDVerifier.verifySession(
             rpIdWrong, // NOTE incorrect rp id
-            nonce,
+            sessionNonce,
             signalHash,
             expiresAtMin,
             credentialIssuerIdCorrect,
             0,
             sessionId,
-            [nullifier, action],
+            sessionNullifier,
             sessionProof
         );
     }
@@ -239,13 +247,13 @@ contract ProofVerifier is Test {
         vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
         worldIDVerifier.verifySession(
             rpIdCorrect,
-            nonce,
+            sessionNonce,
             signalHash,
             expiresAtMin,
             credentialIssuerIdWrong, // NOTE incorrect credential issuer id
             0,
             sessionId,
-            [nullifier, action],
+            sessionNullifier,
             sessionProof
         );
     }
@@ -262,13 +270,13 @@ contract ProofVerifier is Test {
         vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
         worldIDVerifier.verifySession(
             rpIdCorrect,
-            nonce,
+            sessionNonce,
             signalHash,
             expiresAtMin,
             credentialIssuerIdCorrect,
             0,
             sessionId,
-            [nullifier, action],
+            sessionNullifier,
             brokenProof
         );
     }
@@ -282,13 +290,13 @@ contract ProofVerifier is Test {
 
         worldIDVerifier.verifySession(
             rpIdCorrect,
-            nonce,
+            sessionNonce,
             signalHash,
             expiresAtMin,
             credentialIssuerIdCorrect,
             0,
             sessionId,
-            [nullifier, action],
+            sessionNullifier,
             invalidRootProof
         );
     }
@@ -298,13 +306,13 @@ contract ProofVerifier is Test {
         vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifier.ExpirationTooOld.selector));
         worldIDVerifier.verifySession(
             rpIdCorrect,
-            nonce,
+            sessionNonce,
             signalHash,
             expiresAtMin,
             credentialIssuerIdCorrect,
             0,
             sessionId,
-            [nullifier, action],
+            sessionNullifier,
             sessionProof
         );
     }

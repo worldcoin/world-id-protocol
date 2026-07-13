@@ -34,7 +34,7 @@ use world_id_primitives::{
     Config, FieldElement, ServiceEndpoint, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
-    anvil::WorldIDVerifier,
+    anvil::WorldIDVerifierV2,
     fixtures::{
         MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
         single_leaf_merkle_fixture,
@@ -340,8 +340,9 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // verify proof with verifier contract
     let request_item = &proof_request.requests[0];
-    let world_id_verifier: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =
-        WorldIDVerifier::new(world_id_verifier, anvil.provider()?);
+    let world_id_verifier: WorldIDVerifierV2::WorldIDVerifierV2Instance<
+        alloy::providers::DynProvider,
+    > = WorldIDVerifierV2::new(world_id_verifier, anvil.provider()?);
     world_id_verifier
         .verify(
             response_item
@@ -448,6 +449,28 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         "bound proof must not verify with sessionId = 0"
     );
     info!("session-bound proof correctly rejected by the sessionId=0 entry point");
+
+    // `verifyWithSession` checks the sessionId signal against the session's commitment
+    world_id_verifier
+        .verifyWithSession(
+            bound_nullifier.into(),
+            rp_fixture.action.into(),
+            rp_fixture.world_rp_id.into_inner(),
+            rp_fixture.nonce.into(),
+            request_item.signal_hash().into(),
+            bound_item.expires_at_min,
+            issuer_schema_id,
+            request_item
+                .genesis_issued_at_min
+                .unwrap_or_default()
+                .try_into()
+                .expect("u64 fits into U256"),
+            session_id.commitment.into(),
+            bound_item.proof.as_ethereum_representation(),
+        )
+        .call()
+        .await?;
+    info!("session-bound proof verified via verifyWithSession");
 
     indexer_handle.abort();
     info!("e2e_authenticator_generate_proof finished successfully");
