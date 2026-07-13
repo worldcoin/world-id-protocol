@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {WorldIDVerifierV2} from "../../src/core/WorldIDVerifierV2.sol";
 import {WorldIDVerifier} from "../../src/core/WorldIDVerifier.sol";
 import {IWorldIDVerifier} from "../../src/core/interfaces/IWorldIDVerifier.sol";
+import {IWorldIDVerifierV2} from "../../src/core/interfaces/IWorldIDVerifierV2.sol";
 import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
 import {Verifier} from "../../src/core/Verifier.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -60,7 +61,7 @@ contract WorldIDVerifierV2Test is Test {
         uint256 action = 0x15d4b66e5417cb9875f6a2b5be9814dca80651d7c74b3b21685fdd494566e79f;
 
         vm.warp(expiresAtMin + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(WorldIDVerifierV2.InvalidAction.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifierV2.InvalidAction.selector));
         verifier.verify(
             nullifier, action, rpIdCorrect, nonce, signalHash, expiresAtMin, credentialIssuerIdCorrect, 0, proof
         );
@@ -71,7 +72,7 @@ contract WorldIDVerifierV2Test is Test {
         vm.assume(uint8(action >> 248) != 0);
 
         vm.warp(expiresAtMin + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(WorldIDVerifierV2.InvalidAction.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifierV2.InvalidAction.selector));
         verifier.verify(
             nullifier, action, rpIdCorrect, nonce, signalHash, expiresAtMin, credentialIssuerIdCorrect, 0, proof
         );
@@ -83,7 +84,7 @@ contract WorldIDVerifierV2Test is Test {
         uint256 sessionId = 1;
 
         vm.warp(expiresAtMin + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(WorldIDVerifierV2.InvalidAction.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifierV2.InvalidAction.selector));
         verifier.verifySession(
             rpIdCorrect,
             nonce,
@@ -102,7 +103,7 @@ contract WorldIDVerifierV2Test is Test {
         uint256 sessionId = 1;
 
         vm.warp(expiresAtMin + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(WorldIDVerifierV2.InvalidAction.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifierV2.InvalidAction.selector));
         verifier.verifySession(
             rpIdCorrect,
             nonce,
