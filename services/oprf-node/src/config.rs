@@ -43,12 +43,21 @@ pub struct WorldOprfNodeConfig {
     #[serde(default)]
     pub issuer_cache_config: WatcherCacheConfig,
 
-    /// Maximum delta between the received `current_time_stamp` and the node's `current_time_stamp`
+    /// Maximum delta between the received `created_at` and the node's local time.
     #[serde(
-        default = "WorldOprfNodeConfig::default_current_time_stamp_max_difference",
+        default = "WorldOprfNodeConfig::default_created_at_max_difference",
         with = "humantime_serde"
     )]
-    pub current_time_stamp_max_difference: Duration,
+    pub created_at_max_difference: Duration,
+
+    /// Maximum allowed delta between `expires_at` and `created_at` on RP signatures.
+    ///
+    /// According to WIP107 §3.1 nodes must check that the difference of the `expires_at` and the `created_at` on RP signatures must not be larger than `expires_at_max_difference`.
+    #[serde(
+        default = "WorldOprfNodeConfig::default_expires_at_max_difference",
+        with = "humantime_serde"
+    )]
+    pub expires_at_max_difference: Duration,
 
     /// Max time for an `eth_call` to an unknown contract.
     ///
@@ -130,12 +139,17 @@ impl Default for WatcherCacheConfig {
 
 impl WorldOprfNodeConfig {
     /// Default maximum allowed difference between received and node timestamp
-    fn default_current_time_stamp_max_difference() -> Duration {
+    const fn default_created_at_max_difference() -> Duration {
         Duration::from_mins(5)
     }
 
+    /// Default difference for `expires_at` and `created_at` on RP signatures. Difference must not be larger than this value.
+    const fn default_expires_at_max_difference() -> Duration {
+        Duration::from_mins(30)
+    }
+
     /// Default timeout for an `eth_call` to an unknown contract.
-    fn default_timeout_external_eth_call() -> Duration {
+    const fn default_timeout_external_eth_call() -> Duration {
         Duration::from_secs(10)
     }
 
@@ -163,7 +177,8 @@ impl WorldOprfNodeConfig {
             billing_contract,
             credential_schema_issuer_registry_contract,
             rpc_provider_config,
-            current_time_stamp_max_difference: Self::default_current_time_stamp_max_difference(),
+            created_at_max_difference: Self::default_created_at_max_difference(),
+            expires_at_max_difference: Self::default_expires_at_max_difference(),
             timeout_external_eth_call: Self::default_timeout_external_eth_call(),
             node_config: OprfNodeServiceConfig::with_default_values(environment, version_req),
             rp_cache_config: WatcherCacheConfig::default(),

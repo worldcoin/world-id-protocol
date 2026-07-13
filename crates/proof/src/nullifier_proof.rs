@@ -1,12 +1,11 @@
 //! Internal proof generation for the World ID Protocol.
 //!
-//! Provides functionality for generating ZKPs (zero-knowledge proofs), including
-//! Uniqueness Proofs (internally also called Nullifier Proofs `π2`) and Session Proofs. It
-//! also contains internal proof computation such as Query Proofs `π1`.
+//! Provides functionality for generating Uniqueness Proofs (internally also called
+//! Nullifier Proofs `π2`) and Session Proofs.
 //!
 //! The proof generation workflow for Uniqueness Proofs consists of:
 //! 1. Loading circuit proving material (zkeys and witness graphs)
-//! 2. Signing OPRF queries and generating a Query Proof `π1`
+//! 2. Signing OPRF queries and generating a Query Proof `π1` (see [`crate::oprf_query`])
 //! 3. Interacting with OPRF services to obtain challenge responses
 //! 4. Verifying `DLog` equality proofs from OPRF nodes
 //! 5. Generating the final Uniqueness Proof `π2`
@@ -33,16 +32,10 @@ pub mod errors;
 
 pub(crate) const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
 
-/// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
-pub const QUERY_ZKEY_FINGERPRINT: &str =
-    "616c98c6ba024b5a4015d3ebfd20f6cab12e1e33486080c5167a4bcfac111798";
 /// The SHA-256 fingerprint of the `OPRFNullifier` `ZKey`.
 pub const NULLIFIER_ZKEY_FINGERPRINT: &str =
     "4247e6bfe1af211e72d3657346802e1af00e6071fb32429a200f9fc0a25a36f9";
 
-/// The SHA-256 fingerprint of the `OPRFQuery` witness graph.
-pub const QUERY_GRAPH_FINGERPRINT: &str =
-    "6b0cb90304c510f9142a555fe2b7cf31b9f68f6f37286f4471fd5d03e91da311";
 /// The SHA-256 fingerprint of the `OPRFNullifier` witness graph.
 pub const NULLIFIER_GRAPH_FINGERPRINT: &str =
     "c1d951716e3b74b72e4ea0429986849cadc43cccc630a7ee44a56a6199a66b9a";
@@ -62,17 +55,6 @@ pub fn load_nullifier_material_from_reader(
     Ok(build_nullifier_builder().build_from_reader(zkey, graph)?)
 }
 
-/// Loads the [`CircomGroth16Material`] for the query proof from the provided reader.
-///
-/// # Errors
-/// Will return an error if the material cannot be loaded or verified.
-pub fn load_query_material_from_reader(
-    zkey: impl Read,
-    graph: impl Read,
-) -> eyre::Result<CircomGroth16Material> {
-    Ok(build_query_builder().build_from_reader(zkey, graph)?)
-}
-
 /// Loads the [`CircomGroth16Material`] for the nullifier proof from the provided paths.
 ///
 /// # Errors
@@ -84,32 +66,10 @@ pub fn load_nullifier_material_from_paths(
     Ok(build_nullifier_builder().build_from_paths(zkey, graph)?)
 }
 
-/// Loads the [`CircomGroth16Material`] for the query proof from the provided paths.
-///
-/// # Errors
-/// Will return an error if the material cannot be loaded or verified.
-pub fn load_query_material_from_paths(
-    zkey: impl AsRef<Path>,
-    graph: impl AsRef<Path>,
-) -> eyre::Result<CircomGroth16Material> {
-    Ok(build_query_builder().build_from_paths(zkey, graph)?)
-}
-
 fn build_nullifier_builder() -> CircomGroth16MaterialBuilder {
     CircomGroth16MaterialBuilder::new()
         .fingerprint_zkey(NULLIFIER_ZKEY_FINGERPRINT.into())
         .fingerprint_graph(NULLIFIER_GRAPH_FINGERPRINT.into())
-        .bbf_num_2_bits_helper()
-        .bbf_inv()
-        .bbf_legendre()
-        .bbf_sqrt_input()
-        .bbf_sqrt_unchecked()
-}
-
-fn build_query_builder() -> CircomGroth16MaterialBuilder {
-    CircomGroth16MaterialBuilder::new()
-        .fingerprint_zkey(QUERY_ZKEY_FINGERPRINT.into())
-        .fingerprint_graph(QUERY_GRAPH_FINGERPRINT.into())
         .bbf_num_2_bits_helper()
         .bbf_inv()
         .bbf_legendre()
