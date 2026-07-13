@@ -86,16 +86,23 @@ pub(crate) enum RpModuleError {
         block: U256,
         timestamp: U256,
     },
-    #[error("Current Timestamp in request too old, timestamp={timestamp:?}, current={current:?}")]
+    #[error("created_at in request too old, created_at={created_at:?}, current={current:?}")]
     TimestampTooOld {
-        timestamp: chrono::DateTime<Utc>,
+        created_at: chrono::DateTime<Utc>,
         current: chrono::DateTime<Utc>,
     },
     #[error(
-        "Current Timestamp in request too far in future, timestamp={timestamp:?}, current={current:?}"
+        "expires_at in request too far in future, created_at={created_at:?}, expires_at={expires_at:?}"
+    )]
+    ExpiresAtTooFarInFuture {
+        expires_at: chrono::DateTime<Utc>,
+        created_at: chrono::DateTime<Utc>,
+    },
+    #[error(
+        "created_at in request too far in future, created_at={created_at:?}, current={current:?}"
     )]
     TimestampTooFarInFuture {
-        timestamp: chrono::DateTime<Utc>,
+        created_at: chrono::DateTime<Utc>,
         current: chrono::DateTime<Utc>,
     },
     #[error("RP signature expired at {expired_timestamp:?}, current={current:?}")]
@@ -127,8 +134,9 @@ impl From<&RpModuleError> for WorldIdRequestAuthError {
             RpModuleError::InvalidQueryProof => Self::InvalidQueryProof,
             RpModuleError::MerkleWatcher(e) => Self::from(e.as_ref()),
             RpModuleError::RpRegistry(e) => Self::from(e.as_ref()),
-            RpModuleError::TimestampTooOld { .. } => Self::TimestampTooOld,
-            RpModuleError::TimestampTooFarInFuture { .. } => Self::TimestampTooFarInFuture,
+            RpModuleError::TimestampTooOld { .. } => Self::CreatedAtTooOld,
+            RpModuleError::TimestampTooFarInFuture { .. } => Self::CreatedAtTooFarInFuture,
+            RpModuleError::ExpiresAtTooFarInFuture { .. } => Self::ExpiresAtTooFarInFuture,
             RpModuleError::RpSignatureExpired { .. } => Self::RpSignatureExpired,
             RpModuleError::InvalidTimestamp(_) => Self::InvalidTimestamp,
             RpModuleError::RpSignatureMissing => Self::RpSignatureMissing,
@@ -174,7 +182,8 @@ pub(crate) struct RpModuleAuth {
     kind: RpModuleKind,
     rp_registry_watcher: RpRegistryWatcher,
     nonce_history: NonceHistory,
-    current_time_stamp_max_difference: Duration,
+    created_at_max_difference: chrono::Duration,
+    expires_at_max_difference: chrono::Duration,
     timeout_external_eth_call: Duration,
     merkle_watcher: MerkleWatcher,
     rpc_provider: web3::HttpRpcProvider,
@@ -197,8 +206,8 @@ impl RelyingParty {
         // check the RP nonce signature
         let msg = world_id_primitives::rp::compute_rp_signature_msg(
             request.auth.nonce,
-            request.auth.current_time_stamp,
-            request.auth.expiration_timestamp,
+            request.auth.created_at,
+            request.auth.expires_at,
             action,
         );
 
@@ -216,7 +225,8 @@ pub(crate) struct RpModuleAuthArgs {
     pub(crate) merkle_watcher: MerkleWatcher,
     pub(crate) rp_registry_watcher: RpRegistryWatcher,
     pub(crate) nonce_history: NonceHistory,
-    pub(crate) current_time_stamp_max_difference: Duration,
+    pub(crate) created_at_max_difference: chrono::Duration,
+    pub(crate) expires_at_max_difference: chrono::Duration,
     pub(crate) timeout_external_eth_call: Duration,
     pub(crate) rpc_provider: web3::HttpRpcProvider,
     pub(crate) query_vk: Arc<PreparedVerifyingKey<Bn254>>,
@@ -241,7 +251,8 @@ impl RpModuleAuth {
             merkle_watcher,
             rp_registry_watcher,
             nonce_history,
-            current_time_stamp_max_difference,
+            created_at_max_difference,
+            expires_at_max_difference,
             timeout_external_eth_call,
             rpc_provider,
             query_vk,
@@ -250,7 +261,8 @@ impl RpModuleAuth {
             kind,
             rp_registry_watcher,
             nonce_history,
-            current_time_stamp_max_difference,
+            created_at_max_difference,
+            expires_at_max_difference,
             timeout_external_eth_call,
             merkle_watcher,
             rpc_provider,
@@ -264,28 +276,35 @@ impl RpModuleAuth {
         let current_time = Utc::now();
 
         tracing::trace!("checking expiration timestamp on signature...");
-        let expiration_time_stamp = parse_timestamp(auth.expiration_timestamp)?;
-        if expiration_time_stamp <= current_time {
+        let expires_at = parse_timestamp(auth.expires_at)?;
+        if expires_at <= current_time {
             return Err(RpModuleError::RpSignatureExpired {
                 current: current_time,
-                expired_timestamp: expiration_time_stamp,
+                expired_timestamp: expires_at,
             });
         }
 
         tracing::trace!("checking timestamp on signature...");
-        let timestamp = parse_timestamp(auth.current_time_stamp)?;
-        let max_difference = chrono::Duration::from_std(self.current_time_stamp_max_difference)
-            .expect("configured max difference fits into chrono::Duration");
-        if timestamp > current_time + max_difference {
+        let created_at = parse_timestamp(auth.created_at)?;
+        if created_at > current_time + self.created_at_max_difference {
             return Err(RpModuleError::TimestampTooFarInFuture {
-                timestamp,
+                created_at,
                 current: current_time,
             });
         }
-        if timestamp < current_time - max_difference {
+        if created_at < current_time - self.created_at_max_difference {
             return Err(RpModuleError::TimestampTooOld {
-                timestamp,
+                created_at,
                 current: current_time,
+            });
+        }
+
+        tracing::trace!("checking delta between created at and expires_at...");
+        let max_expires_at = created_at + self.expires_at_max_difference;
+        if expires_at > max_expires_at {
+            return Err(RpModuleError::ExpiresAtTooFarInFuture {
+                expires_at,
+                created_at,
             });
         }
         Ok(())

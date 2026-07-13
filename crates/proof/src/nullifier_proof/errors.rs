@@ -436,7 +436,9 @@ mod tests {
     use ark_ec::twisted_edwards::Affine;
     use std::str::FromStr;
 
-    use crate::proof::errors::{check_nullifier_input_validity, check_query_input_validity};
+    use crate::nullifier_proof::errors::{
+        check_nullifier_input_validity, check_query_input_validity,
+    };
 
     // gotten these values by `dbg`-ing the struct in the e2e_authenticator_generate test
     fn get_valid_query_proof_input() -> QueryProofCircuitInput<30> {
