@@ -272,7 +272,8 @@ mod tests {
         pub(crate) rp_registry_watcher: RpRegistryWatcher,
         pub(crate) schema_issuer_registry_watcher: SchemaIssuerRegistryWatcher,
         pub(crate) nonce_history: NonceHistory,
-        pub(crate) current_time_stamp_max_difference: Duration,
+        pub(crate) created_at_max_difference: chrono::Duration,
+        pub(crate) expires_at_max_difference: chrono::Duration,
         pub(crate) timeout_external_eth_call: Duration,
         pub(crate) http_rpc_provider: web3::HttpRpcProvider,
     }
@@ -281,7 +282,8 @@ mod tests {
         pub(crate) async fn new(kind: SetupKind) -> eyre::Result<Self> {
             let setup = OprfRequestAuthTestSetup::new(kind).await?;
 
-            let current_time_stamp_max_difference = Duration::from_secs(1800);
+            let created_at_max_difference = chrono::Duration::seconds(1800);
+            let expires_at_max_difference = chrono::Duration::seconds(1800);
             let timeout_external_eth_call = Duration::from_secs(10);
 
             let http_rpc_provider = build_http_provider(&setup.anvil.instance);
@@ -306,7 +308,12 @@ mod tests {
                 WatcherCacheConfig::default(),
             );
 
-            let nonce_history = NonceHistory::init(current_time_stamp_max_difference * 2);
+            let nonce_history = NonceHistory::init(
+                created_at_max_difference
+                    .to_std()
+                    .expect("can convert to std")
+                    * 2,
+            );
 
             Ok(Self {
                 setup,
@@ -314,7 +321,8 @@ mod tests {
                 rp_registry_watcher,
                 schema_issuer_registry_watcher,
                 nonce_history,
-                current_time_stamp_max_difference,
+                created_at_max_difference,
+                expires_at_max_difference,
                 timeout_external_eth_call,
                 http_rpc_provider,
             })
@@ -327,7 +335,8 @@ mod tests {
                 merkle_watcher: self.merkle_watcher.clone(),
                 rp_registry_watcher: self.rp_registry_watcher.clone(),
                 nonce_history: self.nonce_history.clone(),
-                current_time_stamp_max_difference: self.current_time_stamp_max_difference,
+                created_at_max_difference: self.created_at_max_difference,
+                expires_at_max_difference: self.expires_at_max_difference,
                 timeout_external_eth_call: self.timeout_external_eth_call,
                 rpc_provider: self.http_rpc_provider.clone(),
                 query_vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),

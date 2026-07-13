@@ -18,10 +18,13 @@ pub mod circuit_inputs;
 pub mod compress;
 pub use compress::ProofCompression;
 pub(crate) mod oprf_query;
-pub use oprf_query::{FullOprfOutput, OprfEntrypoint};
+pub use oprf_query::{
+    FullOprfOutput, OprfEntrypoint, QUERY_GRAPH_FINGERPRINT, QUERY_ZKEY_FINGERPRINT,
+    load_query_material_from_paths, load_query_material_from_reader,
+};
 
-pub mod proof;
-pub use proof::*;
+pub mod nullifier_proof;
+pub use nullifier_proof::*;
 
 use provekit_common::{InputMap, InputValue, NoirElement};
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     OwnershipProver, OwnershipVerifier,
     artifacts::{ZkArtifactError, ZkArtifactKind, ZkArtifactSource},
-    proof::CircomGroth16Material,
+    nullifier_proof::CircomGroth16Material,
 };
 
 /// ZK artifact source that intentionally provides no artifacts.
