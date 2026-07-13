@@ -37,7 +37,7 @@ interface IWorldIDVerifierV2 is IWorldIDVerifier {
      * @notice Verifies a Uniqueness Proof that is bound to an existing session.
      * @dev Same as `verify`, except the proof's `session_id` public signal is checked against the
      *   provided session commitment instead of being pinned to 0. Bound proofs are rejected by
-     *   `verify` and unbound proofs are rejected here — binding is explicit in both directions.
+     *   `verify` and unbound proofs are rejected here. Hence, binding is explicit in both directions.
      * @dev Public inputs refer to the ZK-circuit public inputs.
      * @param nullifier Public output. A unique, one-time identifier derived from (user, rpId, action) that
      *   lets RPs detect duplicate actions without learning who the user is.

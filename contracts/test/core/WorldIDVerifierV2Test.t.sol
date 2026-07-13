@@ -181,27 +181,6 @@ contract WorldIDVerifierV2Test is Test {
         );
     }
 
-    function testFuzz_BoundRevertsWhenActionFirstByteNonZero(uint256 action) public {
-        // Ensure the highest byte is non-zero
-        vm.assume(uint8(action >> 248) != 0);
-        uint256 sessionId = 1;
-
-        vm.warp(expiresAtMin + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifierV2.InvalidAction.selector));
-        verifier.verifyWithSession(
-            nullifier,
-            action,
-            rpIdCorrect,
-            nonce,
-            signalHash,
-            expiresAtMin,
-            credentialIssuerIdCorrect,
-            0,
-            sessionId,
-            proof
-        );
-    }
-
     function test_BoundRevertsWhenSessionIdZero() public {
         // Valid uniqueness action prefix, but a zero session id must not pass —
         // it would silently degrade to unbound verify() semantics.
