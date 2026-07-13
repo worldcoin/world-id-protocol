@@ -122,33 +122,6 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         );
     }
 
-    /// @inheritdoc IWorldIDVerifier
-    function verifyWithSession(
-        uint256 nullifier,
-        uint256 action,
-        uint64 rpId,
-        uint256 nonce,
-        uint256 signalHash,
-        uint64 expiresAtMin,
-        uint64 issuerSchemaId,
-        uint256 credentialGenesisIssuedAtMin,
-        uint256 sessionId,
-        uint256[5] calldata zeroKnowledgeProof
-    ) external view virtual onlyProxy onlyInitialized {
-        verifyProofAndSignals(
-            nullifier,
-            action,
-            rpId,
-            nonce,
-            signalHash,
-            expiresAtMin,
-            issuerSchemaId,
-            credentialGenesisIssuedAtMin,
-            sessionId,
-            zeroKnowledgeProof
-        );
-    }
-
     function verifySession(
         uint64 rpId,
         uint256 nonce,

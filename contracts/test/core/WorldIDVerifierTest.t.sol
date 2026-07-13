@@ -107,16 +107,6 @@ contract ProofVerifier is Test {
         0x2b6b35cb561c84d7a137fbc715c9df67152fa28c1b81042a4c0e80d1ba01b00
     ];
 
-    // Uniqueness proof over the same request as `proof`, bound to `sessionId`
-    // (the session commitment is its `session_id` public signal).
-    uint256[5] boundProof = [
-        0x3de969d8cdd738c55fd10ccbd127b8cb41d21dc9f827b83e0063e3dcb84e8d3c,
-        0x16861d8a24289d3b35f3939bc11162379e7ba20afed09cd2ac87a0bd4bff5194,
-        0x94ec109be9e4e3a6a3199ecde261bf300f9f04ccfee6401ebf3689272ed907d,
-        0x42010c88d24d3cb7ef95c32b49ccee40acdc083f8d8b3c3a26164bff52dfb699,
-        rootCorrect
-    ];
-
     function setUp() public {
         address oprfKeyRegistry = address(new OprfKeyRegistryMock());
         address worldIDRegistryMock = address(new WorldIDRegistryMock());
@@ -324,68 +314,6 @@ contract ProofVerifier is Test {
             sessionId,
             sessionNullifier,
             sessionProof
-        );
-    }
-
-    // Session-bound Uniqueness Proof Tests
-
-    function test_BoundSuccess() public {
-        vm.warp(expiresAtMin + 1 hours);
-        worldIDVerifier.verifyWithSession(
-            nullifier,
-            action,
-            rpIdCorrect,
-            nonce,
-            signalHash,
-            expiresAtMin,
-            credentialIssuerIdCorrect,
-            0,
-            sessionId,
-            boundProof
-        );
-    }
-
-    function test_BoundRejectedByVerify() public {
-        // The bound proof commits to the session id, while verify() pins the signal to 0
-        vm.warp(expiresAtMin + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
-        worldIDVerifier.verify(
-            nullifier, action, rpIdCorrect, nonce, signalHash, expiresAtMin, credentialIssuerIdCorrect, 0, boundProof
-        );
-    }
-
-    function test_UnboundRejectedByVerifyWithSession() public {
-        // The unbound proof commits to a session id of 0
-        vm.warp(expiresAtMin + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
-        worldIDVerifier.verifyWithSession(
-            nullifier,
-            action,
-            rpIdCorrect,
-            nonce,
-            signalHash,
-            expiresAtMin,
-            credentialIssuerIdCorrect,
-            0,
-            sessionId,
-            proof
-        );
-    }
-
-    function test_BoundWrongSessionId() public {
-        vm.warp(expiresAtMin + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
-        worldIDVerifier.verifyWithSession(
-            nullifier,
-            action,
-            rpIdCorrect,
-            nonce,
-            signalHash,
-            expiresAtMin,
-            credentialIssuerIdCorrect,
-            0,
-            sessionId + 1, // NOTE incorrect session id
-            boundProof
         );
     }
 

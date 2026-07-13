@@ -34,7 +34,7 @@ use world_id_primitives::{
     Config, FieldElement, ServiceEndpoint, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
-    anvil::WorldIDVerifier,
+    anvil::WorldIDVerifierV2,
     fixtures::{
         MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
         single_leaf_merkle_fixture,
@@ -340,8 +340,9 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // verify proof with verifier contract
     let request_item = &proof_request.requests[0];
-    let world_id_verifier: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =
-        WorldIDVerifier::new(world_id_verifier, anvil.provider()?);
+    let world_id_verifier: WorldIDVerifierV2::WorldIDVerifierV2Instance<
+        alloy::providers::DynProvider,
+    > = WorldIDVerifierV2::new(world_id_verifier, anvil.provider()?);
     world_id_verifier
         .verify(
             response_item

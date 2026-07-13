@@ -42,7 +42,7 @@ use world_id_primitives::{
     merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
-    anvil::WorldIDVerifier,
+    anvil::WorldIDVerifierV2,
     fixtures::{
         MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
         single_leaf_merkle_fixture,
@@ -316,8 +316,9 @@ async fn main() -> Result<()> {
 
     // Verify on-chain.
     info!("Verifying uniqueness proof on-chain...");
-    let verifier_instance: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =
-        WorldIDVerifier::new(world_id_verifier, anvil.provider()?);
+    let verifier_instance: WorldIDVerifierV2::WorldIDVerifierV2Instance<
+        alloy::providers::DynProvider,
+    > = WorldIDVerifierV2::new(world_id_verifier, anvil.provider()?);
     verifier_instance
         .verify(
             uniqueness_response
