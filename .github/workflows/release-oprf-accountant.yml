@@ -1,0 +1,73 @@
+name: Release OPRF Accountant
+
+on:
+  push:
+    tags:
+      - "world-id-oprf-accountant-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - name: Resolve version
+        id: v
+        run: |
+          VERSION="${GITHUB_REF_NAME#world-id-oprf-accountant-}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-docker:
+    name: Build Docker
+    needs: prepare
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      attestations: write
+    uses: ./.github/workflows/build-docker.yml
+    with:
+      service: oprf-accountant
+      version: ${{ needs.prepare.outputs.version }}
+    secrets: inherit
+
+  github-release:
+    name: GitHub Release
+    needs: [prepare, build-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        id: notes
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: services/oprf-accountant/cliff.toml
+          args: --include-path "services/oprf-accountant/**" --latest --strip all
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE_FLAG=""
+          if [[ "${{ needs.prepare.outputs.prerelease }}" == "true" ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --title "world-id-oprf-accountant ${{ needs.prepare.outputs.version }}" \
+            --notes-file "${{ steps.notes.outputs.changelog }}" \
+            $PRERELEASE_FLAG
