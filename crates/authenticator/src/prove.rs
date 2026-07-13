@@ -5,7 +5,7 @@ use world_id_primitives::{
 };
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofCompression,
-    proof::{CircomGroth16Material, generate_nullifier_proof},
+    nullifier_proof::{CircomGroth16Material, generate_nullifier_proof},
 };
 
 use crate::{

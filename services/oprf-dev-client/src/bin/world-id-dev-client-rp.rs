@@ -17,7 +17,8 @@ use taceo_oprf::{
 };
 use uuid::Uuid;
 use world_id_core::{
-    EdDSASignature, FieldElement, api_types::AccountInclusionProof, proof::CircomGroth16Material,
+    EdDSASignature, FieldElement, api_types::AccountInclusionProof,
+    nullifier_proof::CircomGroth16Material,
 };
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{

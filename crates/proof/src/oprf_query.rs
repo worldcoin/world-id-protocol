@@ -1,13 +1,17 @@
 //! Shared helpers for generating query proofs and executing
 //! distributed generic OPRF computations.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    io::Read,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use ark_bn254::Bn254;
 use ark_ff::PrimeField;
 use ark_groth16::Proof;
 use eyre::Context;
-use groth16_material::circom::CircomGroth16Material;
+use groth16_material::circom::{CircomGroth16Material, CircomGroth16MaterialBuilder};
 use serde::Serialize;
 
 use taceo_oprf::{
@@ -25,11 +29,51 @@ use crate::circuit_inputs::QueryProofCircuitInput;
 
 use crate::{
     AuthenticatorProofInput, ProofError,
-    proof::{OPRF_PROOF_DS, errors},
+    nullifier_proof::{OPRF_PROOF_DS, errors},
 };
 
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::SessionNullifier;
+
+/// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
+pub const QUERY_ZKEY_FINGERPRINT: &str =
+    "616c98c6ba024b5a4015d3ebfd20f6cab12e1e33486080c5167a4bcfac111798";
+/// The SHA-256 fingerprint of the `OPRFQuery` witness graph.
+pub const QUERY_GRAPH_FINGERPRINT: &str =
+    "6b0cb90304c510f9142a555fe2b7cf31b9f68f6f37286f4471fd5d03e91da311";
+
+/// Loads the [`CircomGroth16Material`] for the query proof from the provided reader.
+///
+/// # Errors
+/// Will return an error if the material cannot be loaded or verified.
+pub fn load_query_material_from_reader(
+    zkey: impl Read,
+    graph: impl Read,
+) -> eyre::Result<CircomGroth16Material> {
+    Ok(build_query_builder().build_from_reader(zkey, graph)?)
+}
+
+/// Loads the [`CircomGroth16Material`] for the query proof from the provided paths.
+///
+/// # Errors
+/// Will return an error if the material cannot be loaded or verified.
+pub fn load_query_material_from_paths(
+    zkey: impl AsRef<Path>,
+    graph: impl AsRef<Path>,
+) -> eyre::Result<CircomGroth16Material> {
+    Ok(build_query_builder().build_from_paths(zkey, graph)?)
+}
+
+fn build_query_builder() -> CircomGroth16MaterialBuilder {
+    CircomGroth16MaterialBuilder::new()
+        .fingerprint_zkey(QUERY_ZKEY_FINGERPRINT.into())
+        .fingerprint_graph(QUERY_GRAPH_FINGERPRINT.into())
+        .bbf_num_2_bits_helper()
+        .bbf_inv()
+        .bbf_legendre()
+        .bbf_sqrt_input()
+        .bbf_sqrt_unchecked()
+}
 
 /// The main entry point to execute OPRF computations using the
 /// OPRF nodes.

@@ -5,7 +5,7 @@ use once_cell::sync::OnceCell;
 use crate::{
     OwnershipProver, OwnershipVerifier,
     artifacts::{ZkArtifactError, ZkArtifactSource},
-    proof::CircomGroth16Material,
+    nullifier_proof::CircomGroth16Material,
 };
 
 /// Caching layer over another [`ZkArtifactSource`].
