@@ -75,6 +75,8 @@ pub async fn start(
         billing_contract: config.billing_contract,
         signer,
         db: db.clone(),
+        tick_interval: config.tick_interval,
+        vote_timeout: config.vote_timeout,
         voting_window_offset: config.voting_window_offset,
         billing_vote_chunk_size: config.billing_vote_chunk_size,
         cancellation_token: cancellation_token.clone(),

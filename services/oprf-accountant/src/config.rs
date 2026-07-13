@@ -20,6 +20,29 @@ pub struct OprfAccountantConfig {
     /// The address of the `BillingContract` smart contract
     pub billing_contract: Address,
 
+    /// How often the accountant checks the `BillingContract` for an epoch to vote on.
+    ///
+    /// Needs to be smaller than the current era's `votingWindow`, or the accountant risks waking
+    /// up after an epoch's voting window has already closed and missing the vote entirely.
+    #[serde(
+        default = "OprfAccountantConfig::default_tick_interval",
+        with = "humantime_serde"
+    )]
+    pub tick_interval: Duration,
+
+    /// The maximum time to wait for a `submitBillingVotes` transaction to be confirmed before
+    /// giving up on voting for an epoch.
+    ///
+    /// Should be kept well below the current era's `votingWindow`: once the voting window opens,
+    /// only whatever time remains until `votingWindowEnd` is available to submit the vote, so too
+    /// large a timeout can let a vote attempt run past the window close instead of failing fast
+    /// enough to retry.
+    #[serde(
+        default = "OprfAccountantConfig::default_vote_timeout",
+        with = "humantime_serde"
+    )]
+    pub vote_timeout: Duration,
+
     /// A additional offset to be added to the start of the voting window.
     ///
     /// This is used to ensure that the OPRF nodes have enough time to send their requests
@@ -45,5 +68,15 @@ impl OprfAccountantConfig {
     /// Default billing vote chunk size
     fn default_billing_vote_chunk_size() -> NonZeroUsize {
         NonZeroUsize::new(128).expect("non-zero")
+    }
+
+    /// Default tick interval
+    fn default_tick_interval() -> Duration {
+        Duration::from_secs(60)
+    }
+
+    /// Default vote timeout
+    fn default_vote_timeout() -> Duration {
+        Duration::from_mins(5)
     }
 }

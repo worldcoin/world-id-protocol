@@ -58,14 +58,12 @@ impl From<&NullifierOprfRequestAuthV1> for BillableRpRequest {
     }
 }
 
-// TODO add id to span
-#[instrument(level = "info", skip_all)]
+#[instrument(level = "info", skip_all, fields(%id))]
 async fn post_request(
     State(db): State<PostgresDb>,
-    Query(PostRequestQuery { id: _ }): Query<PostRequestQuery>,
+    Query(PostRequestQuery { id }): Query<PostRequestQuery>,
     Json(rp_requests): Json<Vec<BillableRpRequest>>,
 ) -> impl IntoResponse {
-    // TODO check if requests are Uniqueness Proofs (first byte is 0x00)?
     match db.store_request_batch(rp_requests).await {
         Ok(()) => {
             tracing::trace!("Successfully recorded RP request batch");
