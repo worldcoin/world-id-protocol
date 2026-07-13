@@ -145,7 +145,7 @@ pub mod zkeys {
     /// Will return an error if the embedded material cannot be loaded or verified.
     pub fn load_embedded_query_material() -> eyre::Result<CircomGroth16Material> {
         let files = load_embedded_circuit_files()?;
-        crate::nullifier_proof::load_query_material_from_reader(
+        crate::oprf_query::load_query_material_from_reader(
             files.query_zkey.as_slice(),
             files.query_graph.as_slice(),
         )
@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn builds_materials_from_embedded_readers() {
         let files = zkeys::load_embedded_circuit_files().unwrap();
-        crate::nullifier_proof::load_query_material_from_reader(
+        crate::oprf_query::load_query_material_from_reader(
             files.query_zkey.as_slice(),
             files.query_graph.as_slice(),
         )
