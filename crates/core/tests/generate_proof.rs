@@ -8,7 +8,7 @@ use std::{
 
 use alloy::{
     primitives::{U160, U256},
-    signers::local::LocalSigner,
+    signers::{SignerSync as _, local::LocalSigner},
 };
 use eyre::{Context as _, Result, eyre};
 use taceo_oprf::{
@@ -367,7 +367,98 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .await?;
     info!("on-chain proof verification succeeded");
 
-    // ── SESSION-BOUND UNIQUENESS PROOF ──
+    // ── UNIQUENESS + CREATE (atomic session mint and bound uniqueness proof) ──
+    let mut rng = rand::thread_rng();
+    let create_nonce = FieldElement::random(&mut rng);
+    let create_msg = world_id_primitives::rp::compute_rp_signature_msg(
+        *create_nonce,
+        rp_fixture.current_timestamp,
+        rp_fixture.expiration_timestamp,
+        Some(rp_fixture.action),
+    );
+    let create_signature = LocalSigner::from_signing_key(rp_fixture.signing_key.clone())
+        .sign_message_sync(&create_msg)?;
+    let create_request = ProofRequest {
+        id: "test_uniqueness_create".to_string(),
+        session_id: SessionRef::Create,
+        action: Some(rp_fixture.action.into()),
+        nonce: create_nonce,
+        signature: create_signature,
+        ..proof_request.clone()
+    };
+    let create_nullifier = authenticator
+        .generate_nullifier(&create_request, None)
+        .await?;
+    let create_result = authenticator
+        .generate_proof(&create_request, create_nullifier, &credentials, None, None)
+        .await?;
+    let created_session_id = create_result
+        .proof_response
+        .session_id
+        .expect("uniqueness create must mint a session id");
+    let created_session_seed = create_result
+        .session_id_r_seed
+        .expect("uniqueness create must return session seed");
+    let create_item = &create_result.proof_response.responses[0];
+    assert!(create_item.nullifier.is_some());
+    assert!(create_item.session_nullifier.is_none());
+    assert_eq!(
+        SessionId::from_r_seed(
+            leaf_index,
+            created_session_seed,
+            created_session_id.oprf_seed
+        )?,
+        created_session_id
+    );
+
+    let create_nullifier = create_item
+        .nullifier
+        .expect("create uniqueness proof should have nullifier");
+    let unbound_verify = world_id_verifier
+        .verify(
+            create_nullifier.into(),
+            rp_fixture.action.into(),
+            rp_fixture.world_rp_id.into_inner(),
+            create_nonce.into(),
+            request_item.signal_hash().into(),
+            create_item.expires_at_min,
+            issuer_schema_id,
+            request_item
+                .genesis_issued_at_min
+                .unwrap_or_default()
+                .try_into()
+                .expect("u64 fits into U256"),
+            create_item.proof.as_ethereum_representation(),
+        )
+        .call()
+        .await;
+    assert!(
+        unbound_verify.is_err(),
+        "create-bound proof must not verify with sessionId = 0"
+    );
+
+    world_id_verifier
+        .verifyWithSession(
+            create_nullifier.into(),
+            rp_fixture.action.into(),
+            rp_fixture.world_rp_id.into_inner(),
+            create_nonce.into(),
+            request_item.signal_hash().into(),
+            create_item.expires_at_min,
+            issuer_schema_id,
+            request_item
+                .genesis_issued_at_min
+                .unwrap_or_default()
+                .try_into()
+                .expect("u64 fits into U256"),
+            created_session_id.commitment.into(),
+            create_item.proof.as_ethereum_representation(),
+        )
+        .call()
+        .await?;
+    info!("uniqueness create proof verified via verifyWithSession");
+
+    // ── SESSION-BOUND UNIQUENESS PROOF (existing session) ──
     // Note: We mock a cached r here. This would be initially obtained from an OPRF query.
     let session_id_r_seed = FieldElement::random(&mut rng);
     let session_id = SessionId::from_r_seed(

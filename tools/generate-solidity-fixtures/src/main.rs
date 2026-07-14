@@ -298,10 +298,6 @@ async fn main() -> Result<()> {
         .generate_nullifier(&uniqueness_request, None)
         .await?;
 
-    // Clone the nullifier data before it's consumed — we reuse it for the
-    // session-bound uniqueness proof.
-    let nullifier_data_for_bound = nullifier_data.clone();
-
     let uniqueness_result = authenticator
         .generate_proof(
             &uniqueness_request,
@@ -341,14 +337,78 @@ async fn main() -> Result<()> {
         .await?;
     info!("Uniqueness proof verified ✓");
 
-    //  ── CREATE SESSION
-    let session_id_r_seed = FieldElement::random(&mut rng); // TODO: Create through OPRF
-    let session_id = SessionId::from_r_seed(
-        leaf_index,
-        session_id_r_seed,
-        FieldElement::random_for_session(&mut rng, world_id_primitives::SessionFeType::OprfSeed),
-    )
-    .unwrap();
+    // ── UNIQUENESS + CREATE (atomic session mint and bound uniqueness proof) ──
+    let create_nonce = FieldElement::random(&mut rng);
+    let create_msg = world_id_primitives::rp::compute_rp_signature_msg(
+        *create_nonce,
+        rp_fixture.current_timestamp,
+        rp_fixture.expiration_timestamp,
+        Some(rp_fixture.action),
+    );
+    let create_signature = LocalSigner::from_signing_key(rp_fixture.signing_key.clone())
+        .sign_message_sync(&create_msg)?;
+    let bound_create_request = ProofRequest {
+        id: "fixture_uniqueness_create".to_string(),
+        proof_type: ProofType::Uniqueness,
+        session_id: SessionRef::Create,
+        action: Some(rp_fixture.action.into()),
+        nonce: create_nonce,
+        signature: create_signature,
+        ..uniqueness_request.clone()
+    };
+
+    let bound_create_nullifier = authenticator
+        .generate_nullifier(&bound_create_request, None)
+        .await?;
+
+    let bound_create_result = authenticator
+        .generate_proof(
+            &bound_create_request,
+            bound_create_nullifier,
+            &credentials,
+            None,
+            None,
+        )
+        .await?;
+    let session_id = bound_create_result
+        .proof_response
+        .session_id
+        .expect("uniqueness create must mint a session id");
+    let session_id_r_seed = bound_create_result
+        .session_id_r_seed
+        .expect("uniqueness create must return session seed");
+    let bound_response = &bound_create_result.proof_response.responses[0];
+    let bound_nullifier = bound_response
+        .nullifier
+        .expect("bound uniqueness proof should have nullifier");
+    assert_ne!(
+        bound_nullifier,
+        uniqueness_response
+            .nullifier
+            .expect("uniqueness proof has nullifier")
+    );
+
+    info!("Verifying session-bound uniqueness proof on-chain...");
+    verifier_instance
+        .verifyWithSession(
+            bound_nullifier.into(),
+            rp_fixture.action.into(),
+            rp_fixture.world_rp_id.into_inner(),
+            create_nonce.into(),
+            request_item.signal_hash().into(),
+            bound_response.expires_at_min,
+            issuer_schema_id,
+            request_item
+                .genesis_issued_at_min
+                .unwrap_or_default()
+                .try_into()
+                .expect("u64 fits into U256"),
+            session_id.commitment.into(),
+            bound_response.proof.as_ethereum_representation(),
+        )
+        .call()
+        .await?;
+    info!("Session-bound uniqueness proof verified ✓");
 
     // ── SESSION PROOF (own OPRF round: session queries use an internal random action
     //    generated at query time, and the RP signature does not cover an action) ──
@@ -410,57 +470,6 @@ async fn main() -> Result<()> {
         .call()
         .await?;
     info!("Session proof verified ✓");
-
-    // ── SESSION-BOUND UNIQUENESS PROOF (same action, bound to the session above) ──
-    let bound_request = ProofRequest {
-        proof_type: ProofType::Uniqueness,
-        session_id: SessionRef::Existing(session_id),
-        ..uniqueness_request.clone()
-    };
-
-    let bound_result = authenticator
-        .generate_proof(
-            &bound_request,
-            nullifier_data_for_bound,
-            &credentials,
-            None,
-            Some(session_id_r_seed),
-        )
-        .await?;
-    let bound_response = &bound_result.proof_response.responses[0];
-    let bound_nullifier = bound_response
-        .nullifier
-        .expect("bound uniqueness proof should have nullifier");
-    // Same RP/action => same deterministic nullifier as the unbound proof.
-    assert_eq!(
-        bound_nullifier,
-        uniqueness_response
-            .nullifier
-            .expect("uniqueness proof has nullifier")
-    );
-
-    // Verify bound proof on-chain.
-    info!("Verifying session-bound uniqueness proof on-chain...");
-    verifier_instance
-        .verifyWithSession(
-            bound_nullifier.into(),
-            rp_fixture.action.into(),
-            rp_fixture.world_rp_id.into_inner(),
-            rp_fixture.nonce.into(),
-            request_item.signal_hash().into(),
-            bound_response.expires_at_min,
-            issuer_schema_id,
-            request_item
-                .genesis_issued_at_min
-                .unwrap_or_default()
-                .try_into()
-                .expect("u64 fits into U256"),
-            session_id.commitment.into(),
-            bound_response.proof.as_ethereum_representation(),
-        )
-        .call()
-        .await?;
-    info!("Session-bound uniqueness proof verified ✓");
 
     // ── PRINT SOLIDITY FIXTURE ──
     let u_proof = uniqueness_response.proof.as_ethereum_representation();
