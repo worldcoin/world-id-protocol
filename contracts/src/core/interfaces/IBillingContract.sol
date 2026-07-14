@@ -356,4 +356,47 @@ interface IBillingContract {
      * @return The eras.
      */
     function getEras() external view returns (TimingEra[] memory);
+
+    /**
+     * @notice The latest epoch whose own span has fully elapsed, if any, together with that span
+     *         (`[epochStart, epochEnd)`), the timestamp its voting window closes at, whether
+     *         `signer` already voted for it, and the current block timestamp.
+     * @dev Mirrors {epochWatermarks}'s era walk, but keys off each era's span start rather than
+     *      its voting-window close. Bundles the `hasVoted` check for `signer` and `block.timestamp`
+     *      so a caller (e.g. an OPRF node's billing accountant) can decide off a single call
+     *      whether/when to vote, without a second contract read or a separate
+     *      `eth_getBlockByNumber` to learn the chain's current time.
+     *
+     *      `exists` is false only before epoch 0 itself has elapsed (protocol genesis, i.e. epoch
+     *      0 is still in progress); every other return value is then meaningless except
+     *      `blockTime`, which is always meaningful. This always reports the latest epoch that has
+     *      *elapsed* by wall-clock time — independent of {epochWatermarks}/{finalizeEpochs} — so
+     *      the reported epoch's voting window may already be closed (`blockTime >= votingWindowEnd`)
+     *      or the epoch may already be finalized.
+     *
+     *      `alreadyVoted` reflects live submitter state, not a permanent record: {finalizeEpochs}
+     *      prunes it when the epoch finalizes, so `alreadyVoted` reverts to false for a finalized
+     *      epoch even if `signer` did vote for it — by then the vote is no longer actionable, so
+     *      this only matters while the reported epoch is still open for voting.
+     * @param signer The address to check `alreadyVoted` for (typically an OPRF node's vote signer).
+     * @return exists Whether any epoch has fully elapsed yet (false only while epoch 0 is in progress).
+     * @return epoch The latest fully-elapsed epoch; only meaningful when `exists` is true.
+     * @return epochStart The start of `epoch`'s span; only meaningful when `exists` is true.
+     * @return epochEnd The end of `epoch`'s span (i.e. `epochEnd(epoch)`); only meaningful when `exists` is true.
+     * @return votingWindowEnd The timestamp `epoch`'s voting window closes at; only meaningful when `exists` is true.
+     * @return alreadyVoted Whether `signer` already voted for `epoch`; only meaningful when `exists` is true.
+     * @return blockTime The current block timestamp; always meaningful, regardless of `exists`.
+     */
+    function currentVoteEpoch(address signer)
+        external
+        view
+        returns (
+            bool exists,
+            uint32 epoch,
+            uint64 epochStart,
+            uint64 epochEnd,
+            uint64 votingWindowEnd,
+            bool alreadyVoted,
+            uint64 blockTime
+        );
 }

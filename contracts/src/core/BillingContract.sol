@@ -468,6 +468,52 @@ contract BillingContract is WorldIDBase, IBillingContract {
         return _timingEras;
     }
 
+    /// @inheritdoc IBillingContract
+    function currentVoteEpoch(address signer)
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (
+            bool exists,
+            uint32 epoch,
+            uint64 epochStart,
+            uint64 epochEnd,
+            uint64 votingWindowEnd,
+            bool alreadyVoted,
+            uint64 blockTime
+        )
+    {
+        blockTime = uint64(block.timestamp);
+        uint256 i = _timingEras.length;
+        while (i > 0) {
+            unchecked {
+                i--;
+            }
+            TimingEra storage era = _timingEras[i];
+            if (block.timestamp < era.startTime) continue; // this era hasn't started yet
+
+            uint256 k = (block.timestamp - era.startTime) / era.epochLength;
+            uint256 e = uint256(era.startEpoch) + k; // the in-progress epoch
+
+            if (i + 1 < _timingEras.length) {
+                uint256 regimeLastEpoch = _timingEras[i + 1].startEpoch - 1;
+                if (e > regimeLastEpoch) e = regimeLastEpoch; // clamp into this era's own regime
+            }
+
+            if (e == 0) return (false, 0, 0, 0, 0, false, blockTime); // epoch 0 still in progress: nothing elapsed yet
+            if (e - 1 > type(uint32).max) revert EpochTooLarge();
+            epoch = uint32(e - 1); // the latest fully-elapsed epoch
+            epochStart = epoch >= 1 ? this.epochEnd(epoch - 1) : _timingEras[0].startTime; // get epoch 0 start from _timingEras
+            epochEnd = this.epochEnd(epoch);
+            votingWindowEnd = this.votingWindowEnd(epoch);
+            alreadyVoted = _submitterState[epoch][signer].hasVoted;
+            return (true, epoch, epochStart, epochEnd, votingWindowEnd, alreadyVoted, blockTime);
+        }
+        return (false, 0, 0, 0, 0, false, blockTime); // fresh deployment: epoch 0 still in progress
+    }
+
     ////////////////////////////////////////////////////////////
     //                   INTERNAL FUNCTIONS                   //
     ////////////////////////////////////////////////////////////
