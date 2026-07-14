@@ -258,6 +258,7 @@ impl<'a> OprfEntrypoint<'a> {
             signature: Some(proof_request.signature),
             rp_id: proof_request.rp_id,
             wip101_data: None,
+            signed_action: None,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(
@@ -311,6 +312,7 @@ impl<'a> OprfEntrypoint<'a> {
             signature: Some(proof_request.signature),
             rp_id: proof_request.rp_id,
             wip101_data: None,
+            signed_action: None,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(
