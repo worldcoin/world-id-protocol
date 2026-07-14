@@ -240,10 +240,10 @@ Session Proofs use the same zero-knowledge circuits as Uniqueness Proofs, but au
 
 Session Proofs work in the following manner:
 
-- An RP requests an authenticator to create a session.
+- An RP requests an authenticator to create a session. On the wire this is a proof request with `"proof_type": "session"` and `"session_id": "create"`; the session is created and proven in the same response.
 - The authenticator provides a `sessionId`. A unique identifier bound to the user's World ID for that RP.
 - The RP stores this `sessionId` alongside their account for the user.
-- For subsequent interactions, the RP includes the `sessionId` in proof requests. The user can then generate a Session Proof to prove they have the same World ID. Different proofs over time with the same `sessionId` may use different credentials.
+- For subsequent interactions, the RP includes the stored `sessionId` (a `session_`-prefixed string) as `session_id` in proof requests with `"proof_type": "session"`. The user can then generate a Session Proof to prove they have the same World ID. Different proofs over time with the same `sessionId` may use different credentials.
 - The `sessionId` is generated as outlined below, where `r` is computationally indistinguishable from random.
 
 ```mermaid

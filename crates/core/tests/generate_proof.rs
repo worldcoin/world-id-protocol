@@ -31,7 +31,8 @@ use world_id_gateway::{
     spawn_gateway_for_tests,
 };
 use world_id_primitives::{
-    Config, FieldElement, ServiceEndpoint, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
+    Config, FieldElement, ServiceEndpoint, SessionId, SessionRef, TREE_DEPTH,
+    merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
     anvil::WorldIDVerifierV2,
@@ -305,7 +306,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,
         oprf_key_id: rp_fixture.oprf_key_id,
-        session_id: None,
+        session_id: SessionRef::None,
         action: Some(rp_fixture.action.into()),
         signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
@@ -375,7 +376,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         SessionId::generate_oprf_seed(&mut rng),
     )?;
     let bound_request = ProofRequest {
-        session_id: Some(session_id),
+        session_id: SessionRef::Existing(session_id),
         ..proof_request.clone()
     };
 

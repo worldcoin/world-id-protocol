@@ -288,7 +288,7 @@ impl<'a> OprfEntrypoint<'a> {
             .map_err(|err| ProofError::GenerationError(err.to_string()))?;
         if !proof_request.is_session_proof() {
             return Err(ProofError::GenerationError(
-                "proof_type must be create_session or prove_session".to_string(),
+                "proof_type must be session".to_string(),
             ));
         }
 

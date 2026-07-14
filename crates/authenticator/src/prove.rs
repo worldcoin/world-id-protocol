@@ -1,7 +1,7 @@
 use secrecy::ExposeSecret;
 use world_id_primitives::{
     Credential, FieldElement, ProofRequest, ProofResponse, ProofType, RequestItem, ResponseItem,
-    SessionId, SessionNullifier, ZeroKnowledgeProof,
+    SessionId, SessionNullifier, SessionRef, ZeroKnowledgeProof,
 };
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofCompression,
@@ -212,7 +212,7 @@ impl Authenticator {
             return Err(AuthenticatorError::PrimitiveError(
                 world_id_primitives::PrimitiveError::InvalidInput {
                     attribute: "proof_type".to_string(),
-                    reason: "must be create_session or session".to_string(),
+                    reason: "session ids can only be built for session proof requests".to_string(),
                 },
             ));
         }
@@ -220,8 +220,8 @@ impl Authenticator {
         let mut rng = rand::rngs::OsRng;
 
         let oprf_seed = match proof_request.session_id {
-            Some(session_id) => session_id.oprf_seed,
-            None => SessionId::generate_oprf_seed(&mut rng),
+            SessionRef::Existing(session_id) => session_id.oprf_seed,
+            SessionRef::Create | SessionRef::None => SessionId::generate_oprf_seed(&mut rng),
         };
 
         let resolved_session_id_r_seed = match session_id_r_seed {
@@ -244,7 +244,7 @@ impl Authenticator {
         let session_id =
             SessionId::from_r_seed(self.leaf_index(), resolved_session_id_r_seed, oprf_seed)?;
 
-        if let Some(request_session_id) = proof_request.session_id {
+        if let SessionRef::Existing(request_session_id) = proof_request.session_id {
             self.validate_cached_session_r_seed(resolved_session_id_r_seed, request_session_id)?;
         }
 
@@ -307,39 +307,45 @@ impl Authenticator {
             .ok_or(AuthenticatorError::UnfullfilableRequest)?;
 
         // 2. Resolve session seed
-        let (resolved_session_id, resolved_session_seed) = match proof_request.proof_type {
-            ProofType::Uniqueness => match proof_request.session_id {
+        let (resolved_session_id, resolved_session_seed) =
+            match (proof_request.proof_type, proof_request.session_id) {
+                (ProofType::Uniqueness, SessionRef::None) => (None, None),
                 // Bind the proof to the existing session. Requires the cached `r`.
-                Some(session_id) => {
+                (ProofType::Uniqueness, SessionRef::Existing(session_id)) => {
                     let seed = session_id_r_seed.ok_or(AuthenticatorError::SessionSeedRequired)?;
                     self.validate_cached_session_r_seed(seed, session_id)?;
                     (Some(session_id), Some(seed))
                 }
-                None => (None, None),
-            },
-            ProofType::CreateSession => {
-                let (session_id, seed) = self
-                    .build_session_id(proof_request, None, account_inclusion_proof)
-                    .await?;
-                (Some(session_id), Some(seed))
-            }
-            ProofType::Session => {
-                let session_id = proof_request
-                    .session_id
-                    .expect("session proof must have session_id");
-                if let Some(seed) = session_id_r_seed {
-                    self.validate_cached_session_r_seed(seed, session_id)?;
-                    (Some(session_id), Some(seed))
-                } else {
-                    // Re-derive the same `r` from the existing session's `oprf_seed` when the
-                    // caller did not provide a cached seed.
-                    let (_session_id, seed) = self
+                (ProofType::Session, SessionRef::Create) => {
+                    let (session_id, seed) = self
                         .build_session_id(proof_request, None, account_inclusion_proof)
                         .await?;
                     (Some(session_id), Some(seed))
                 }
-            }
-        };
+                (ProofType::Session, SessionRef::Existing(session_id)) => {
+                    if let Some(seed) = session_id_r_seed {
+                        self.validate_cached_session_r_seed(seed, session_id)?;
+                        (Some(session_id), Some(seed))
+                    } else {
+                        // Re-derive the same `r` from the existing session's `oprf_seed` when the
+                        // caller did not provide a cached seed.
+                        let (_session_id, seed) = self
+                            .build_session_id(proof_request, None, account_inclusion_proof)
+                            .await?;
+                        (Some(session_id), Some(seed))
+                    }
+                }
+                // Rejected by validate_proof_type() above; kept explicit to stay exhaustive.
+                (ProofType::Uniqueness, SessionRef::Create)
+                | (ProofType::Session, SessionRef::None) => {
+                    return Err(AuthenticatorError::PrimitiveError(
+                        world_id_primitives::PrimitiveError::InvalidInput {
+                            attribute: "session_id".to_string(),
+                            reason: "invalid proof_type/session_id combination".to_string(),
+                        },
+                    ));
+                }
+            };
 
         let nullifier_material = self
             .zk_artifact_source

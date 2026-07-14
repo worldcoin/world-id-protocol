@@ -23,7 +23,7 @@ use world_id_core::{
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
     AuthenticatorPublicKeySet, ProofRequest, ProofType, RequestItem, RequestVersion, SessionFeType,
-    SessionFieldElement as _, SessionId, TREE_DEPTH,
+    SessionFieldElement as _, SessionId, SessionRef, TREE_DEPTH,
     merkle::MerkleInclusionProof,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
     rp::RpId,
@@ -275,7 +275,7 @@ fn create_proof_request<R: Rng + CryptoRng>(
             rng.fill(&mut bytes[1..]);
             bytes[0] = 0x00;
             let a = FieldElement::from_be_bytes(&bytes).expect("Works");
-            (ProofType::Uniqueness, Some(*a), None)
+            (ProofType::Uniqueness, Some(*a), SessionRef::None)
         }
         OprfModule::Session => {
             // Session RP signature does NOT include action
@@ -285,7 +285,7 @@ fn create_proof_request<R: Rng + CryptoRng>(
                 FieldElement::random_for_session(rng, SessionFeType::OprfSeed),
             )
             .context("while building SessionId")?;
-            (ProofType::Session, None, Some(session_id))
+            (ProofType::Session, None, SessionRef::Existing(session_id))
         }
         _ => unreachable!("only have session and nullifier modules here"),
     };

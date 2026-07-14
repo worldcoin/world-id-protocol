@@ -245,6 +245,135 @@ impl<'de> Deserialize<'de> for SessionId {
     }
 }
 
+/// How a proof request refers to a session.
+///
+/// Wire encoding (the request's `session_id` field): absent or `null` → [`Self::None`],
+/// `"create"` → [`Self::Create`], a `"session_"`-prefixed id → [`Self::Existing`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum SessionRef {
+    /// No session involvement.
+    #[default]
+    None,
+    /// Mint a fresh session and prove it in the same response.
+    Create,
+    /// Refer to an existing session.
+    Existing(SessionId),
+}
+
+impl SessionRef {
+    const CREATE_TOKEN: &str = "create";
+
+    /// Returns true if the request involves no session.
+    #[must_use]
+    pub const fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    /// Returns true if the request asks to mint a fresh session.
+    #[must_use]
+    pub const fn is_create(&self) -> bool {
+        matches!(self, Self::Create)
+    }
+
+    /// Returns the referenced existing session id, if any.
+    #[must_use]
+    pub const fn existing(&self) -> Option<SessionId> {
+        match self {
+            Self::Existing(id) => Some(*id),
+            _ => None,
+        }
+    }
+}
+
+impl From<SessionId> for SessionRef {
+    fn from(id: SessionId) -> Self {
+        Self::Existing(id)
+    }
+}
+
+impl Serialize for SessionRef {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::None => serializer.serialize_none(),
+            Self::Create => {
+                if serializer.is_human_readable() {
+                    serializer.serialize_str(Self::CREATE_TOKEN)
+                } else {
+                    // Binary: 6-byte token, cannot collide with the 64-byte `SessionId` encoding
+                    serializer.serialize_bytes(Self::CREATE_TOKEN.as_bytes())
+                }
+            }
+            Self::Existing(id) => id.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SessionRef {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct SessionRefVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for SessionRefVisitor {
+            type Value = SessionRef;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(
+                    formatter,
+                    "null, \"{}\", or a '{}'-prefixed session id",
+                    SessionRef::CREATE_TOKEN,
+                    SessionId::JSON_PREFIX
+                )
+            }
+
+            fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(SessionRef::None)
+            }
+
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(SessionRef::None)
+            }
+
+            fn visit_some<D2>(self, deserializer: D2) -> Result<Self::Value, D2::Error>
+            where
+                D2: Deserializer<'de>,
+            {
+                if deserializer.is_human_readable() {
+                    let value = String::deserialize(deserializer)?;
+                    if value == SessionRef::CREATE_TOKEN {
+                        return Ok(SessionRef::Create);
+                    }
+                    let hex_str = value.strip_prefix(SessionId::JSON_PREFIX).ok_or_else(|| {
+                        D2::Error::custom(format!(
+                            "session_id must be \"{}\" or start with '{}'",
+                            SessionRef::CREATE_TOKEN,
+                            SessionId::JSON_PREFIX
+                        ))
+                    })?;
+                    let bytes = hex::decode(hex_str).map_err(D2::Error::custom)?;
+                    SessionId::from_compressed_bytes(&bytes)
+                        .map(SessionRef::Existing)
+                        .map_err(D2::Error::custom)
+                } else {
+                    let bytes = Vec::<u8>::deserialize(deserializer)?;
+                    if bytes == SessionRef::CREATE_TOKEN.as_bytes() {
+                        return Ok(SessionRef::Create);
+                    }
+                    SessionId::from_compressed_bytes(&bytes)
+                        .map(SessionRef::Existing)
+                        .map_err(D2::Error::custom)
+                }
+            }
+        }
+
+        deserializer.deserialize_option(SessionRefVisitor)
+    }
+}
+
 /// A session nullifier for World ID Session proofs. It is analogous to a request nonce,
 /// it **does NOT guarantee uniqueness of a World ID** as a `Nullifier` does.
 ///
@@ -568,6 +697,103 @@ mod session_id_tests {
             expected,
             "commitment snapashot for session commitment changed"
         );
+    }
+}
+
+#[cfg(test)]
+mod session_ref_tests {
+    use super::*;
+    use ruint::uint;
+
+    fn test_session_id() -> SessionId {
+        let oprf_seed = U256::from(42u64)
+            | uint!(0x0100000000000000000000000000000000000000000000000000000000000000_U256);
+        SessionId::new(
+            FieldElement::from(1001u64),
+            FieldElement::try_from(oprf_seed).expect("test value fits in field"),
+        )
+        .expect("valid session id")
+    }
+
+    #[test]
+    fn test_default_is_none() {
+        assert_eq!(SessionRef::default(), SessionRef::None);
+        assert!(SessionRef::None.is_none());
+        assert!(SessionRef::Create.is_create());
+        assert_eq!(
+            SessionRef::Existing(test_session_id()).existing(),
+            Some(test_session_id())
+        );
+        assert_eq!(
+            SessionRef::from(test_session_id()).existing(),
+            Some(test_session_id())
+        );
+    }
+
+    #[test]
+    fn test_deserialize_create_token() {
+        let parsed: SessionRef = serde_json::from_str("\"create\"").unwrap();
+        assert_eq!(parsed, SessionRef::Create);
+    }
+
+    #[test]
+    fn test_deserialize_existing_matches_session_id_parse() {
+        let id = test_session_id();
+        let json = serde_json::to_string(&id).unwrap();
+        let parsed: SessionRef = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, SessionRef::Existing(id));
+    }
+
+    #[test]
+    fn test_deserialize_null_is_none() {
+        let parsed: SessionRef = serde_json::from_str("null").unwrap();
+        assert_eq!(parsed, SessionRef::None);
+    }
+
+    #[test]
+    fn test_rejects_unknown_strings() {
+        for input in ["\"Create\"", "\"creat\"", "\"snil_00\"", "\"\""] {
+            let result = serde_json::from_str::<SessionRef>(input);
+            let err = result.expect_err(input).to_string();
+            assert!(
+                err.contains("create") || err.contains("session_"),
+                "error for {input} should name the accepted forms: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_json_roundtrip_all_states() {
+        let cases = [
+            (SessionRef::None, "null"),
+            (SessionRef::Create, "\"create\""),
+        ];
+        for (state, expected_json) in cases {
+            let json = serde_json::to_string(&state).unwrap();
+            assert_eq!(json, expected_json);
+            let parsed: SessionRef = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, state);
+        }
+
+        let existing = SessionRef::Existing(test_session_id());
+        let json = serde_json::to_string(&existing).unwrap();
+        assert!(json.starts_with("\"session_"));
+        let parsed: SessionRef = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, existing);
+    }
+
+    #[test]
+    fn test_cbor_roundtrip_all_states() {
+        for state in [
+            SessionRef::None,
+            SessionRef::Create,
+            SessionRef::Existing(test_session_id()),
+        ] {
+            let mut buffer = Vec::new();
+            ciborium::into_writer(&state, &mut buffer).unwrap();
+            let decoded: SessionRef = ciborium::from_reader(&buffer[..]).unwrap();
+            assert_eq!(state, decoded);
+        }
     }
 }
 

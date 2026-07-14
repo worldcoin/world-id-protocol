@@ -53,7 +53,7 @@ pub use nullifier::Nullifier;
 
 /// Contains types relevant for Session Proofs.
 mod session;
-pub use session::{SessionFeType, SessionFieldElement, SessionId, SessionNullifier};
+pub use session::{SessionFeType, SessionFieldElement, SessionId, SessionNullifier, SessionRef};
 
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;

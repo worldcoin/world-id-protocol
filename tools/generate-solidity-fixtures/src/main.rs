@@ -38,7 +38,7 @@ use world_id_gateway::{
     spawn_gateway_for_tests,
 };
 use world_id_primitives::{
-    Config, FieldElement, ServiceEndpoint, SessionFieldElement, SessionId, TREE_DEPTH,
+    Config, FieldElement, ServiceEndpoint, SessionFieldElement, SessionId, SessionRef, TREE_DEPTH,
     merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
@@ -272,7 +272,7 @@ async fn main() -> Result<()> {
         expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,
         oprf_key_id: rp_fixture.oprf_key_id,
-        session_id: None,
+        session_id: SessionRef::None,
         action: Some(rp_fixture.action.into()),
         signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
@@ -363,7 +363,7 @@ async fn main() -> Result<()> {
         .sign_message_sync(&session_msg)?;
     let session_request = ProofRequest {
         proof_type: ProofType::Session,
-        session_id: Some(session_id),
+        session_id: SessionRef::Existing(session_id),
         action: None,
         nonce: session_nonce,
         signature: session_signature,
@@ -414,7 +414,7 @@ async fn main() -> Result<()> {
     // ── SESSION-BOUND UNIQUENESS PROOF (same action, bound to the session above) ──
     let bound_request = ProofRequest {
         proof_type: ProofType::Uniqueness,
-        session_id: Some(session_id),
+        session_id: SessionRef::Existing(session_id),
         ..uniqueness_request.clone()
     };
 
