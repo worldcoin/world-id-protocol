@@ -360,6 +360,7 @@ fn generate_oprf_auth_request(
         signature: Some(proof_request.signature),
         rp_id: proof_request.rp_id,
         wip101_data: None,
+        signed_action: None,
     };
 
     Ok(auth)

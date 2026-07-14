@@ -21,7 +21,8 @@ use taceo_oprf::{
 };
 
 use world_id_primitives::{
-    FieldElement, ProofRequest, SessionFeType, SessionFieldElement, TREE_DEPTH,
+    FieldElement, ProofRequest, ProofType, SessionFeType, SessionFieldElement, SessionRef,
+    TREE_DEPTH,
     oprf::{CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule},
 };
 
@@ -258,6 +259,7 @@ impl<'a> OprfEntrypoint<'a> {
             signature: Some(proof_request.signature),
             rp_id: proof_request.rp_id,
             wip101_data: None,
+            signed_action: None,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(
@@ -286,9 +288,15 @@ impl<'a> OprfEntrypoint<'a> {
         proof_request
             .validate_proof_type()
             .map_err(|err| ProofError::GenerationError(err.to_string()))?;
-        if !proof_request.is_session_proof() {
+        if !proof_request.is_session_proof()
+            && !matches!(
+                (proof_request.proof_type, proof_request.session_id),
+                (ProofType::Uniqueness, SessionRef::Create)
+            )
+        {
             return Err(ProofError::GenerationError(
-                "proof_type must be session".to_string(),
+                "session randomness can only be derived for session proofs or uniqueness session creation"
+                    .to_string(),
             ));
         }
 
@@ -301,6 +309,11 @@ impl<'a> OprfEntrypoint<'a> {
             rng,
         )?;
 
+        let signed_action = match (proof_request.proof_type, proof_request.session_id) {
+            (ProofType::Uniqueness, SessionRef::Create) => proof_request.action,
+            _ => None,
+        };
+
         let auth = NullifierOprfRequestAuthV1 {
             proof: result.proof.into(),
             action: *oprf_seed,
@@ -311,6 +324,7 @@ impl<'a> OprfEntrypoint<'a> {
             signature: Some(proof_request.signature),
             rp_id: proof_request.rp_id,
             wip101_data: None,
+            signed_action,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(

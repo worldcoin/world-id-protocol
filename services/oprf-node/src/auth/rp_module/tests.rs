@@ -76,6 +76,45 @@ impl RpModuleTestSetup {
             signature: Some(signature),
             rp_id: infra.setup.rp_fixture.world_rp_id,
             wip101_data: None,
+            signed_action: None,
+        };
+
+        Ok(Self {
+            setup: infra.setup,
+            request_authenticator,
+            request: OprfRequest {
+                request_id: Uuid::new_v4(),
+                blinded_query: bundle.blinded_query,
+                auth,
+            },
+        })
+    }
+
+    /// Constructs a valid session-seed test setup whose RP signature covers the
+    /// fixture's uniqueness action, carried in `signed_action` (create-and-bind).
+    pub(crate) async fn new_session_bound_seed() -> eyre::Result<Self> {
+        let mut rng = rand::thread_rng();
+        let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
+
+        let request_authenticator = RpModuleAuth::new_session(infra.rp_module_args());
+
+        let session_action = FieldElement::random_for_session(&mut rng, SessionFeType::OprfSeed);
+        let bundle = infra
+            .generate_query_proof(session_action, infra.setup.rp_fixture.world_rp_id.into())?;
+
+        // The fixture signature is computed over the action-inclusive message, matching
+        // the `signed_action` below.
+        let auth = NullifierOprfRequestAuthV1 {
+            proof: bundle.proof,
+            action: *session_action,
+            nonce: bundle.nonce,
+            merkle_root: *infra.setup.merkle_inclusion_proof.root,
+            created_at: infra.setup.rp_fixture.current_timestamp,
+            expires_at: infra.setup.rp_fixture.expiration_timestamp,
+            signature: Some(infra.setup.rp_fixture.signature),
+            rp_id: infra.setup.rp_fixture.world_rp_id,
+            wip101_data: None,
+            signed_action: Some(infra.setup.rp_fixture.action.into()),
         };
 
         Ok(Self {
@@ -111,6 +150,7 @@ impl RpModuleTestSetup {
             signature: Some(infra.setup.rp_fixture.signature),
             rp_id: infra.setup.rp_fixture.world_rp_id,
             wip101_data: None,
+            signed_action: None,
         };
 
         Ok(Self {
@@ -639,6 +679,112 @@ async fn test_session_invalid_action_random_prefix() -> eyre::Result<()> {
         .assert_auth_err(
             error_codes::INVALID_ACTION_SESSION,
             "invalid action for session proofs",
+        )
+        .await
+}
+
+// ── Signed-action (create-and-bind) tests ────────────────────────────────
+//
+// A session-seed query may carry a `signed_action` covered by the RP signature.
+// The happy path verifies the action-inclusive message; everything else must
+// fail loudly — most importantly the two signature/field mismatch directions,
+// which are exactly what an old node (ignoring the field) would hit.
+
+#[tokio::test]
+async fn test_session_seed_signed_action_success() -> eyre::Result<()> {
+    check_success(RpModuleTestSetup::new_session_bound_seed().await?).await
+}
+
+#[tokio::test]
+async fn test_session_seed_signed_action_missing_field() -> eyre::Result<()> {
+    // Old-node simulation: the signature covers the action, but the field is absent,
+    // so the node reconstructs the action-less message. Must fail closed.
+    let mut setup = RpModuleTestSetup::new_session_bound_seed().await?;
+    setup.request.auth.signed_action = None;
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_SIGNATURE,
+            "signature from RP cannot be verified",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_session_seed_signed_action_actionless_signature() -> eyre::Result<()> {
+    // Inverse mismatch: field present, but the signature was made over the
+    // action-less message.
+    let mut setup = RpModuleTestSetup::new_session().await?;
+    setup.request.auth.signed_action = Some(setup.setup.rp_fixture.action.into());
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_SIGNATURE,
+            "signature from RP cannot be verified",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_session_seed_signed_action_tampered() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session_bound_seed().await?;
+    setup.request.auth.signed_action = Some(action_with_msb(0x00).into());
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_SIGNATURE,
+            "signature from RP cannot be verified",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_session_seed_signed_action_invalid_prefix() -> eyre::Result<()> {
+    // A signed action must be a nullifier action (MSB 0x00); session prefixes are invalid.
+    let mut setup = RpModuleTestSetup::new_session_bound_seed().await?;
+    setup.request.auth.signed_action = Some(action_with_msb(0x01).into());
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_SIGNED_ACTION,
+            "Invalid signed action - must be a valid nullifier action (MSB 0x00)",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_session_action_query_rejects_signed_action() -> eyre::Result<()> {
+    // Only seed queries (0x01) may carry a signed action, not session-action queries (0x02).
+    let mut setup = RpModuleTestSetup::new_session_with_fe_type(SessionFeType::Action).await?;
+    setup.request.auth.signed_action = Some(setup.setup.rp_fixture.action.into());
+    setup
+        .assert_auth_err(
+            error_codes::SIGNED_ACTION_NOT_ALLOWED,
+            "Signed actions are only allowed on session-seed queries from EOA-backed RPs",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_uniqueness_rejects_signed_action() -> eyre::Result<()> {
+    // The uniqueness module signs the regular action; a signed_action is meaningless there.
+    let mut setup = RpModuleTestSetup::new_uniqueness().await?;
+    setup.request.auth.signed_action = Some(setup.setup.rp_fixture.action.into());
+    setup
+        .assert_auth_err(
+            error_codes::SIGNED_ACTION_NOT_ALLOWED,
+            "Signed actions are only allowed on session-seed queries from EOA-backed RPs",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_session_wip101_rejects_signed_action() -> eyre::Result<()> {
+    // WIP101 contract-backed RPs do not support session queries with signed actions.
+    let mut setup = RpModuleTestSetup::new_session_bound_seed().await?;
+    let addr = deploy!(WIP101Correct, setup);
+    setup.set_contract_signer(addr, None).await;
+    setup.request.auth.signed_action = Some(setup.setup.rp_fixture.action.into());
+    setup
+        .assert_auth_err(
+            error_codes::SIGNED_ACTION_NOT_ALLOWED,
+            "Signed actions are only allowed on session-seed queries from EOA-backed RPs",
         )
         .await
 }

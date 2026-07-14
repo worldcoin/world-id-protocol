@@ -5,7 +5,7 @@ use circom_types::groth16::Proof;
 use serde::{Deserialize, Serialize};
 use taceo_oprf::types::api::{CloseFrameMessage, OprfRequestAuthenticatorError};
 
-use crate::rp::RpId;
+use crate::{FieldElement, rp::RpId};
 
 #[expect(unused_imports, reason = "used in doc comments")]
 use crate::SessionFeType;
@@ -69,6 +69,14 @@ pub struct NullifierOprfRequestAuthV1 {
         with = "serde_utils::hex_bytes_opt"
     )]
     pub wip101_data: Option<Vec<u8>>,
+    /// The RP-signed uniqueness action (MSB `0x00`) for create-and-bind session-seed queries.
+    ///
+    /// Only valid on session-seed queries (see [`SessionFeType::OprfSeed`]) from EOA-backed RPs.
+    /// When present, the OPRF node verifies the RP signature over the action-inclusive message
+    /// (see `compute_rp_signature_msg`) instead of the action-less one, so a single RP signature
+    /// can authorize creating a session and binding a Uniqueness Proof to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_action: Option<FieldElement>,
 }
 
 /// A request sent by a client for OPRF credential blinding factor authentication.
@@ -171,6 +179,14 @@ pub enum WorldIdRequestAuthError {
     /// prefixes.
     #[error("invalid_action_for_session")]
     InvalidActionSession,
+    /// The provided signed action is not a valid nullifier action. Signed actions must
+    /// start with `0x00` (MSB).
+    #[error("invalid_signed_action")]
+    InvalidSignedAction,
+    /// A signed action was provided on a request that does not support one. Signed
+    /// actions are only allowed on session-seed queries from EOA-backed RPs.
+    #[error("signed_action_not_allowed")]
+    SignedActionNotAllowed,
     /// The RP signer is a contract but does not implement the WIP101 interface.
     #[error("wip101_incompatible_rp_signer")]
     Wip101IncompatibleRpSigner,
@@ -235,6 +251,7 @@ impl WorldIdRequestAuthError {
             | Self::InvalidRpSignature
             | Self::DuplicateNonce
             | Self::InvalidActionNullifier
+            | Self::InvalidSignedAction
             | Self::Wip101IncompatibleRpSigner
             | Self::Wip101VerificationFailed(_)
             | Self::Wip101CustomRevert
@@ -247,6 +264,7 @@ impl WorldIdRequestAuthError {
             | Self::InvalidQueryProof
             | Self::InvalidActionSchemaIssuer
             | Self::InvalidActionSession
+            | Self::SignedActionNotAllowed
             | Self::RpSignatureMissing => ErrorActor::Authenticator,
             Self::Internal | Self::Unknown(_) => ErrorActor::OprfNode,
         }
@@ -268,6 +286,8 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::UNKNOWN_SCHEMA_ISSUER => Self::UnknownSchemaIssuerId,
             error_codes::INVALID_ACTION_NULLIFIER => Self::InvalidActionNullifier,
             error_codes::INVALID_ACTION_SESSION => Self::InvalidActionSession,
+            error_codes::INVALID_SIGNED_ACTION => Self::InvalidSignedAction,
+            error_codes::SIGNED_ACTION_NOT_ALLOWED => Self::SignedActionNotAllowed,
             error_codes::RP_SIGNATURE_EXPIRED => Self::RpSignatureExpired,
             error_codes::RP_SIGNATURE_MISSING => Self::RpSignatureMissing,
             error_codes::INVALID_TIMESTAMP => Self::InvalidTimestamp,
@@ -309,6 +329,10 @@ impl From<WorldIdRequestAuthError> for u16 {
                 error_codes::INVALID_ACTION_NULLIFIER
             }
             WorldIdRequestAuthError::InvalidActionSession => error_codes::INVALID_ACTION_SESSION,
+            WorldIdRequestAuthError::InvalidSignedAction => error_codes::INVALID_SIGNED_ACTION,
+            WorldIdRequestAuthError::SignedActionNotAllowed => {
+                error_codes::SIGNED_ACTION_NOT_ALLOWED
+            }
             WorldIdRequestAuthError::RpSignatureExpired => error_codes::RP_SIGNATURE_EXPIRED,
             WorldIdRequestAuthError::CreatedAtTooFarInFuture => {
                 error_codes::CREATED_AT_TOO_FAR_IN_FUTURE
@@ -386,6 +410,10 @@ pub mod error_codes {
     pub const BLOCKED_RP: u16 = 4522;
     /// Error code for [`super::WorldIdRequestAuthError::ExpiresAtTooFarInFuture`].
     pub const EXPIRES_AT_TOO_FAR_IN_FUTURE: u16 = 4523;
+    /// Error code for [`super::WorldIdRequestAuthError::InvalidSignedAction`].
+    pub const INVALID_SIGNED_ACTION: u16 = 4524;
+    /// Error code for [`super::WorldIdRequestAuthError::SignedActionNotAllowed`].
+    pub const SIGNED_ACTION_NOT_ALLOWED: u16 = 4525;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
     pub const INTERNAL: u16 = 1011;
 }
@@ -468,6 +496,16 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
                 // this should never truncate as code is a U256 encoded as hex
                 CloseFrameMessage::new_truncate(format!("{:#x}", code))
             }
+            WorldIdRequestAuthError::InvalidSignedAction => {
+                taceo_oprf::types::close_frame_message!(
+                    "Invalid signed action - must be a valid nullifier action (MSB 0x00)"
+                )
+            }
+            WorldIdRequestAuthError::SignedActionNotAllowed => {
+                taceo_oprf::types::close_frame_message!(
+                    "Signed actions are only allowed on session-seed queries from EOA-backed RPs"
+                )
+            }
             WorldIdRequestAuthError::Wip101AuxDataOnEoa => taceo_oprf::types::close_frame_message!(
                 "Auxiliary data must be empty with EOA backed signer"
             ),
@@ -496,6 +534,81 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
 mod tests {
     use super::*;
 
+    /// A structurally valid Groth16 proof (BN254 generator points) for serde tests.
+    fn test_proof() -> Proof<Bn254> {
+        serde_json::from_value(serde_json::json!({
+            "pi_a": ["1", "2", "1"],
+            "pi_b": [
+                [
+                    "10857046999023057135944570762232829481370756359578518086990519993285655852781",
+                    "11559732032986387107991004021392285783925812861821192530917403151452391805634"
+                ],
+                [
+                    "8495653923123431417604973247489272438418190587263600148770280649306958101930",
+                    "4082367875863433681332203403145435568316851327593401208105741076214120093531"
+                ],
+                ["1", "0"]
+            ],
+            "pi_c": ["1", "2", "1"],
+            "protocol": "groth16",
+            "curve": "bn128"
+        }))
+        .expect("valid test proof")
+    }
+
+    fn test_auth(signed_action: Option<FieldElement>) -> NullifierOprfRequestAuthV1 {
+        NullifierOprfRequestAuthV1 {
+            proof: test_proof(),
+            action: ark_babyjubjub::Fq::from(1u64),
+            nonce: ark_babyjubjub::Fq::from(2u64),
+            merkle_root: ark_babyjubjub::Fq::from(3u64),
+            created_at: 4,
+            expires_at: 5,
+            signature: None,
+            rp_id: RpId::new(6),
+            wip101_data: None,
+            signed_action,
+        }
+    }
+
+    #[test]
+    fn nullifier_auth_signed_action_none_is_omitted() {
+        let value = serde_json::to_value(test_auth(None)).unwrap();
+        // Forward compat: unused, the field never appears on the wire.
+        assert!(value.get("signed_action").is_none());
+        // Backward compat: payloads without the field deserialize to `None`.
+        let parsed: NullifierOprfRequestAuthV1 = serde_json::from_value(value).unwrap();
+        assert!(parsed.signed_action.is_none());
+    }
+
+    #[test]
+    fn nullifier_auth_signed_action_json_roundtrip() {
+        let signed_action = FieldElement::from(42u64);
+        let auth = test_auth(Some(signed_action));
+        let json = serde_json::to_string(&auth).unwrap();
+        let parsed: NullifierOprfRequestAuthV1 = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.signed_action, Some(signed_action));
+    }
+
+    #[test]
+    fn nullifier_auth_signed_action_cbor_roundtrip() {
+        let signed_action = FieldElement::from(42u64);
+        let auth = test_auth(Some(signed_action));
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&auth, &mut bytes).unwrap();
+        let parsed: NullifierOprfRequestAuthV1 = ciborium::from_reader(bytes.as_slice()).unwrap();
+        assert_eq!(parsed.signed_action, Some(signed_action));
+    }
+
+    #[test]
+    fn nullifier_auth_ignores_unknown_fields() {
+        // Old nodes must ignore fields added later (no `deny_unknown_fields`).
+        let mut value = serde_json::to_value(test_auth(None)).unwrap();
+        value["some_future_field"] = serde_json::json!("ignored");
+        let parsed = serde_json::from_value::<NullifierOprfRequestAuthV1>(value);
+        assert!(parsed.is_ok());
+    }
+
     #[test]
     fn error_code_roundtrip() {
         let codes: &[u16] = &[
@@ -511,6 +624,8 @@ mod tests {
             error_codes::UNKNOWN_SCHEMA_ISSUER,
             error_codes::INVALID_ACTION_NULLIFIER,
             error_codes::INVALID_ACTION_SESSION,
+            error_codes::INVALID_SIGNED_ACTION,
+            error_codes::SIGNED_ACTION_NOT_ALLOWED,
             error_codes::INACTIVE_RP,
             error_codes::RP_SIGNATURE_EXPIRED,
             error_codes::INVALID_TIMESTAMP,
