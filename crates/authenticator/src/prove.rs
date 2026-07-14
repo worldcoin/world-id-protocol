@@ -208,11 +208,17 @@ impl Authenticator {
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
         proof_request.validate_proof_type()?;
-        if !proof_request.is_session_proof() {
+        if !proof_request.is_session_proof()
+            && !matches!(
+                (proof_request.proof_type, proof_request.session_id),
+                (ProofType::Uniqueness, SessionRef::Create)
+            )
+        {
             return Err(AuthenticatorError::PrimitiveError(
                 world_id_primitives::PrimitiveError::InvalidInput {
-                    attribute: "proof_type".to_string(),
-                    reason: "session ids can only be built for session proof requests".to_string(),
+                    attribute: "session_id".to_string(),
+                    reason: "session ids can only be built for session proofs or uniqueness session creation"
+                        .to_string(),
                 },
             ));
         }
@@ -275,8 +281,10 @@ impl Authenticator {
     ///   matched to request items by `issuer_schema_id`.
     /// - `account_inclusion_proof` — a cached inclusion proof if available (a fresh one will be fetched otherwise)
     /// - `session_id_r_seed` — a cached session `r` seed. For Session Proofs it is re-computed
-    ///   if unavailable; for session-bound Uniqueness Proofs ([`ProofRequest::binds_session`])
-    ///   it is required and the call fails with [`AuthenticatorError::SessionSeedRequired`] otherwise.
+    ///   if unavailable; for session-bound Uniqueness Proofs with an existing session id
+    ///   ([`ProofRequest::binds_session`]) it is required and the call fails with
+    ///   [`AuthenticatorError::SessionSeedRequired`] otherwise. Create flows mint a fresh
+    ///   session and return the new `session_id_r_seed` for caching.
     ///
     /// # Caller Responsibilities
     /// 1. The caller must ensure the request can be fulfilled with the credentials which the user has available,
@@ -316,7 +324,7 @@ impl Authenticator {
                     self.validate_cached_session_r_seed(seed, session_id)?;
                     (Some(session_id), Some(seed))
                 }
-                (ProofType::Session, SessionRef::Create) => {
+                (ProofType::Uniqueness | ProofType::Session, SessionRef::Create) => {
                     let (session_id, seed) = self
                         .build_session_id(proof_request, None, account_inclusion_proof)
                         .await?;
@@ -336,8 +344,7 @@ impl Authenticator {
                     }
                 }
                 // Rejected by validate_proof_type() above; kept explicit to stay exhaustive.
-                (ProofType::Uniqueness, SessionRef::Create)
-                | (ProofType::Session, SessionRef::None) => {
+                (ProofType::Session, SessionRef::None) => {
                     return Err(AuthenticatorError::PrimitiveError(
                         world_id_primitives::PrimitiveError::InvalidInput {
                             attribute: "session_id".to_string(),

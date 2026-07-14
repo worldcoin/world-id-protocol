@@ -254,7 +254,9 @@ pub enum SessionRef {
     /// No session involvement.
     #[default]
     None,
-    /// Mint a fresh session and prove it in the same response.
+    /// Mint a fresh session. For [`crate::ProofType::Session`] this proves the new
+    /// session in the same response; for [`crate::ProofType::Uniqueness`] this
+    /// returns a uniqueness proof committed to the newly minted session.
     Create,
     /// Refer to an existing session.
     Existing(SessionId),

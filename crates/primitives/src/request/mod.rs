@@ -52,8 +52,9 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
 pub enum ProofType {
     /// A uniqueness proof scoped by the RP-provided action.
     ///
-    /// May carry a `session_id` to bind the proof to an existing session,
-    /// see [`ProofRequest::binds_session`].
+    /// May carry a `session_id` to mint a fresh session, bind the proof to an
+    /// existing session, or omit session involvement entirely — see
+    /// [`ProofRequest::binds_session`].
     #[default]
     Uniqueness,
     /// Prove an RP-scoped session — either minting a fresh one
@@ -99,10 +100,10 @@ pub struct ProofRequest {
     pub oprf_key_id: OprfKeyId,
     /// Session identifier that links proofs for the same user/RP pair across requests.
     ///
-    /// Three states: absent/`null` (no session), `"create"` (mint a fresh session,
-    /// [`ProofType::Session`] only), or an existing `"session_"`-prefixed id —
-    /// required for [`ProofType::Session`], optional for [`ProofType::Uniqueness`]
-    /// to bind the proof to that session (see [`Self::binds_session`]).
+    /// Three states: absent/`null` (no session), `"create"` (mint a fresh session),
+    /// or an existing `"session_"`-prefixed id. For [`ProofType::Uniqueness`], all
+    /// three are valid; for [`ProofType::Session`], `"create"` or an existing id is
+    /// required (see [`Self::binds_session`]).
     /// The proof will only be valid if the session ID is meant for this context and
     /// this particular World ID holder.
     #[serde(default)]
@@ -234,8 +235,9 @@ pub struct ProofResponse {
     /// the newly generated `SessionId`. For subsequent Session Proofs, this
     /// echoes back the `SessionId` from the request for convenience.
     ///
-    /// For Uniqueness Proofs this is only present when the request asked for
-    /// session binding ([`ProofRequest::binds_session`]), echoing back the bound `SessionId`.
+    /// For Uniqueness Proofs this is present when the request asked to create or
+    /// bind a session ([`ProofRequest::binds_session`]). Create responses carry
+    /// the newly minted `SessionId`; existing-session responses echo the bound id.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<SessionId>,
     /// Error message if the entire proof request failed.
@@ -463,13 +465,7 @@ impl ProofRequest {
     /// combination of `proof_type`, `session_id`, and `action`.
     pub fn validate_proof_type(&self) -> Result<(), PrimitiveError> {
         match (self.proof_type, self.session_id) {
-            // No session, or bound to an existing one — see `Self::binds_session`
-            (ProofType::Uniqueness, SessionRef::None | SessionRef::Existing(_)) => Ok(()),
-            // Enabled in a future protocol change together with signed session modes.
-            (ProofType::Uniqueness, SessionRef::Create) => Err(PrimitiveError::InvalidInput {
-                attribute: "session_id".to_string(),
-                reason: "session creation is not yet supported for uniqueness proofs".to_string(),
-            }),
+            (ProofType::Uniqueness, _) => Ok(()),
             (ProofType::Session, SessionRef::None) => Err(PrimitiveError::InvalidInput {
                 attribute: "session_id".to_string(),
                 reason: "must be \"create\" or an existing session id for session proofs"
@@ -493,15 +489,15 @@ impl ProofRequest {
         self.proof_type.is_session()
     }
 
-    /// Returns true if this request asks for a Uniqueness Proof bound to an existing session.
+    /// Returns true if this request asks for a Uniqueness Proof committed to a session.
     ///
-    /// A bound proof carries [`SessionId::commitment`] as its `id_commitment` public signal,
-    /// proving in-circuit that session and nullifier belong to the same World ID. RPs MUST
-    /// verify the proof against that commitment — with a zero commitment the proof is valid
-    /// but unbound.
+    /// A committed proof carries [`SessionId::commitment`] as its `id_commitment` public
+    /// signal, proving in-circuit that session and nullifier belong to the same World ID.
+    /// RPs MUST verify the proof against that commitment — with a zero commitment the
+    /// proof is valid but unbound.
     #[must_use]
     pub const fn binds_session(&self) -> bool {
-        self.proof_type.is_uniqueness() && self.session_id.existing().is_some()
+        self.proof_type.is_uniqueness() && !self.session_id.is_none()
     }
 
     /// Validates the structural integrity of the constraint expression.
@@ -551,14 +547,19 @@ impl ProofRequest {
         }
 
         match (self.proof_type, self.session_id) {
+            (ProofType::Uniqueness, SessionRef::None) => {
+                if response.session_id.is_some() {
+                    return Err(ValidationError::UnexpectedSessionId);
+                }
+            }
+            (ProofType::Uniqueness, SessionRef::Create) => {
+                if response.session_id.is_none() {
+                    return Err(ValidationError::MissingSessionId);
+                }
+            }
             (ProofType::Uniqueness, SessionRef::Existing(session_id)) => {
                 if response.session_id != Some(session_id) {
                     return Err(ValidationError::SessionIdMismatch);
-                }
-            }
-            (ProofType::Uniqueness, _) => {
-                if response.session_id.is_some() {
-                    return Err(ValidationError::UnexpectedSessionId);
                 }
             }
             (ProofType::Session, SessionRef::Create) => {
@@ -2429,15 +2430,13 @@ mod tests {
         assert!(plain_uniqueness.validate_proof_type().is_ok());
         assert!(!plain_uniqueness.binds_session());
 
-        // uniqueness + "create" is reserved for a future protocol change
+        // uniqueness + "create" mints and binds a session
         let uniqueness_with_create = ProofRequest {
             session_id: SessionRef::Create,
             ..uniqueness_with_session.clone()
         };
-        assert!(matches!(
-            uniqueness_with_create.validate_proof_type(),
-            Err(PrimitiveError::InvalidInput { attribute, .. }) if attribute == "session_id"
-        ));
+        assert!(uniqueness_with_create.validate_proof_type().is_ok());
+        assert!(uniqueness_with_create.binds_session());
 
         let session_without_session = ProofRequest {
             proof_type: ProofType::Session,
@@ -2584,10 +2583,17 @@ mod tests {
         without_session["session_id"] = serde_json::Value::Null;
         assert!(ProofRequest::from_json(&without_session.to_string()).is_err());
 
-        // uniqueness × "create" is rejected at the parse boundary
-        let mut uniqueness_create: serde_json::Value = serde_json::from_str(&json).unwrap();
-        uniqueness_create["proof_type"] = "uniqueness".into();
-        assert!(ProofRequest::from_json(&uniqueness_create.to_string()).is_err());
+        // uniqueness × "create" is valid at the parse boundary
+        let uniqueness_create_request = ProofRequest {
+            proof_type: ProofType::Uniqueness,
+            session_id: SessionRef::Create,
+            action: Some(FieldElement::ZERO),
+            ..request.clone()
+        };
+        let parsed =
+            ProofRequest::from_json(&uniqueness_create_request.to_json().unwrap()).unwrap();
+        assert!(parsed.session_id.is_create());
+        assert!(parsed.binds_session());
     }
 
     #[test]
@@ -2755,6 +2761,55 @@ mod tests {
                 1,
                 ZeroKnowledgeProof::default(),
                 SessionNullifier::new(test_field_element(1001), test_action(42)).unwrap(),
+                1_735_689_600,
+            )],
+        };
+        assert!(matches!(
+            request.validate_response(&missing_session),
+            Err(ValidationError::MissingSessionId)
+        ));
+
+        let valid_response = ProofResponse {
+            session_id: Some(SessionId::default()),
+            ..missing_session
+        };
+        assert!(request.validate_response(&valid_response).is_ok());
+    }
+
+    #[test]
+    fn test_validate_response_uniqueness_create_requires_minted_session_id() {
+        let request = ProofRequest {
+            id: "req_uniqueness_create".into(),
+            version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: SessionRef::Create,
+            action: Some(FieldElement::ZERO),
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_900,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                identifier: "orb".into(),
+                issuer_schema_id: 1,
+                signal: None,
+                genesis_issued_at_min: None,
+                expires_at_min: None,
+            }],
+            constraints: None,
+        };
+
+        let missing_session = ProofResponse {
+            id: request.id.clone(),
+            version: RequestVersion::V1,
+            session_id: None,
+            error: None,
+            responses: vec![ResponseItem::new_uniqueness(
+                "orb".into(),
+                1,
+                ZeroKnowledgeProof::default(),
+                Nullifier::new(test_field_element(1001)),
                 1_735_689_600,
             )],
         };
