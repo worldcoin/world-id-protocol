@@ -2513,90 +2513,6 @@ mod tests {
     }
 
     #[test]
-    fn test_request_with_create_session_proof_type_fails_loudly() {
-        let request = ProofRequest {
-            id: "req_legacy".into(),
-            version: RequestVersion::V1,
-            proof_type: ProofType::Session,
-            session_id: SessionRef::Create,
-            action: None,
-            created_at: 1_735_689_600,
-            expires_at: 1_735_689_900,
-            rp_id: RpId::new(1),
-            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            signature: test_signature(),
-            nonce: test_nonce(),
-            requests: vec![RequestItem {
-                identifier: "orb".into(),
-                issuer_schema_id: 1,
-                signal: None,
-                genesis_issued_at_min: None,
-                expires_at_min: None,
-            }],
-            constraints: None,
-        };
-
-        // the collapsed legacy proof type must be rejected at the parse boundary
-        let mut value: serde_json::Value =
-            serde_json::from_str(&request.to_json().unwrap()).unwrap();
-        value["proof_type"] = "create_session".into();
-        value["session_id"] = serde_json::Value::Null;
-        let err = ProofRequest::from_json(&value.to_string()).unwrap_err();
-        assert!(err.to_string().contains("create_session"));
-    }
-
-    #[test]
-    fn test_request_session_create_parses_and_validates() {
-        let request = ProofRequest {
-            id: "req_create".into(),
-            version: RequestVersion::V1,
-            proof_type: ProofType::Session,
-            session_id: SessionRef::Create,
-            action: None,
-            created_at: 1_735_689_600,
-            expires_at: 1_735_689_900,
-            rp_id: RpId::new(1),
-            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            signature: test_signature(),
-            nonce: test_nonce(),
-            requests: vec![RequestItem {
-                identifier: "orb".into(),
-                issuer_schema_id: 1,
-                signal: None,
-                genesis_issued_at_min: None,
-                expires_at_min: None,
-            }],
-            constraints: None,
-        };
-
-        let json = request.to_json().unwrap();
-        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(value["session_id"], "create");
-
-        let parsed = ProofRequest::from_json(&json).unwrap();
-        assert!(parsed.session_id.is_create());
-        assert!(parsed.is_session_proof());
-        assert!(!parsed.binds_session());
-
-        // session proofs without a session reference stay rejected
-        let mut without_session: serde_json::Value = serde_json::from_str(&json).unwrap();
-        without_session["session_id"] = serde_json::Value::Null;
-        assert!(ProofRequest::from_json(&without_session.to_string()).is_err());
-
-        // uniqueness × "create" is valid at the parse boundary
-        let uniqueness_create_request = ProofRequest {
-            proof_type: ProofType::Uniqueness,
-            session_id: SessionRef::Create,
-            action: Some(FieldElement::ZERO),
-            ..request.clone()
-        };
-        let parsed =
-            ProofRequest::from_json(&uniqueness_create_request.to_json().unwrap()).unwrap();
-        assert!(parsed.session_id.is_create());
-        assert!(parsed.binds_session());
-    }
-
-    #[test]
     fn test_request_absent_session_id_defaults_to_none() {
         let request = ProofRequest {
             id: "req_plain".into(),
@@ -2722,9 +2638,6 @@ mod tests {
             serde_json::from_str::<ProofType>("\"session\"").unwrap(),
             ProofType::Session
         );
-        // the collapsed legacy variant must fail loudly
-        let err = serde_json::from_str::<ProofType>("\"create_session\"").unwrap_err();
-        assert!(err.to_string().contains("create_session"));
     }
 
     #[test]
