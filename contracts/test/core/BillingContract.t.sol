@@ -1057,4 +1057,215 @@ contract BillingContractTest is Test {
         vm.expectRevert(WorldIDBase.ZeroAddress.selector);
         billing.updateOprfKeyRegistry(address(0));
     }
+
+    ////////////////////////////////////////////////////////////
+    //                    currentVoteEpoch                    //
+    ////////////////////////////////////////////////////////////
+
+    function test_CurrentVoteEpoch_epoch0StillInProgress() public view {
+        (bool exists,,,,,, uint64 blockTime) = billing.currentVoteEpoch(node1);
+        assertFalse(exists, "epoch 0 has not elapsed yet");
+        assertEq(blockTime, GENESIS, "blockTime is meaningful even when exists is false");
+    }
+
+    function test_CurrentVoteEpoch_afterEpoch0Elapses() public {
+        vm.warp(billing.epochEnd(0));
+        (
+            bool exists,
+            uint32 epoch,
+            uint64 epochStart,
+            uint64 epochEnd_,
+            uint64 votingWindowEnd_,
+            bool alreadyVoted,
+            uint64 blockTime
+        ) = billing.currentVoteEpoch(node1);
+        assertTrue(exists);
+        assertEq(epoch, 0);
+        assertEq(epochStart, GENESIS, "epoch 0 start comes from the genesis era, not epochEnd(-1)");
+        assertEq(epochEnd_, billing.epochEnd(0));
+        assertEq(votingWindowEnd_, billing.votingWindowEnd(0));
+        assertFalse(alreadyVoted);
+        assertEq(blockTime, billing.epochEnd(0));
+    }
+
+    function test_CurrentVoteEpoch_progressesAcrossEpochs() public {
+        vm.warp(billing.epochEnd(2));
+        (bool exists, uint32 epoch, uint64 epochStart, uint64 epochEnd_,,,) = billing.currentVoteEpoch(node1);
+        assertTrue(exists);
+        assertEq(epoch, 2, "epoch 2 just fully elapsed, epoch 3 is only just starting");
+        assertEq(epochStart, billing.epochEnd(1));
+        assertEq(epochEnd_, billing.epochEnd(2));
+    }
+
+    function test_CurrentVoteEpoch_alreadyVotedIsPerSigner() public {
+        _voteSingle(0, 1, 50, _pks2()); // node1 and node2 close their votes; warps to epochEnd(0)
+        (,,,,, bool votedNode1,) = billing.currentVoteEpoch(node1);
+        (,,,,, bool votedNode2,) = billing.currentVoteEpoch(node2);
+        (,,,,, bool votedNode3,) = billing.currentVoteEpoch(node3);
+        assertTrue(votedNode1);
+        assertTrue(votedNode2);
+        assertFalse(votedNode3, "node3 never voted");
+    }
+
+    function test_CurrentVoteEpoch_incompleteChunkedVoteNotAlreadyVoted() public {
+        _openVoting(0);
+        IBillingContract.SignedVoteChunk[] memory chunks = new IBillingContract.SignedVoteChunk[](1);
+        chunks[0] = _signChunk(pk1, 0, 0, false, _one(1, 50)); // first chunk only, not final
+        billing.submitBillingVotes(0, chunks);
+
+        vm.warp(billing.epochEnd(0));
+        (,,,,, bool alreadyVoted,) = billing.currentVoteEpoch(node1);
+        assertFalse(alreadyVoted, "node1's chunked vote never closed");
+    }
+
+    function test_CurrentVoteEpoch_alreadyVotedResetsAfterFinalization() public {
+        // Finalizing an epoch prunes its transient submitter state ({_pruneFinalizedEpoch}), so
+        // alreadyVoted reverts to false for a finalized epoch even though the node did vote.
+        _voteSingle(0, 1, 50, _pks2());
+        _closeVoting(0);
+        billing.finalizeEpochs(0, 100);
+
+        vm.warp(billing.epochEnd(0));
+        (bool exists, uint32 epoch,,,, bool alreadyVoted,) = billing.currentVoteEpoch(node1);
+        assertTrue(exists);
+        assertEq(epoch, 0);
+        assertFalse(alreadyVoted, "finalization prunes submitter state, resetting alreadyVoted");
+    }
+
+    function test_CurrentVoteEpoch_usesNewEraAfterTimingChange() public {
+        // New era from epoch 1 with a doubled epoch length; querying deep into era 1 must use
+        // era-1's epoch length for the elapsed-epoch calculation, not era-0's.
+        billing.setTiming(EPOCH_LEN * 2, VOTING, PAYMENT); // era 1 starts at epoch 1, GENESIS + EPOCH_LEN
+
+        vm.warp(billing.epochEnd(2)); // epoch 2 (era 1) just fully elapsed
+
+        (bool exists, uint32 epoch, uint64 epochStart, uint64 epochEnd_,,,) = billing.currentVoteEpoch(node1);
+        assertTrue(exists);
+        assertEq(epoch, 2);
+        assertEq(epochStart, billing.epochEnd(1));
+        assertEq(epochEnd_, billing.epochEnd(2));
+    }
+
+    function test_CurrentVoteEpoch_revertsEpochTooLarge() public {
+        billing = _deploy(0, 1, 1, PAYMENT, _tiers(100, 10, 5), REBATE);
+        vm.warp(uint256(type(uint32).max) + 3);
+        vm.expectRevert(IBillingContract.EpochTooLarge.selector);
+        billing.currentVoteEpoch(node1);
+    }
+
+    function test_CurrentVoteEpoch_midEpochStillReportsPreviousElapsedEpoch() public {
+        // 50s into epoch 1's span (well before epoch 1 itself elapses): the latest fully-elapsed
+        // epoch is still 0, unaffected by epoch 1's still-open voting window.
+        vm.warp(billing.epochEnd(0) + 50);
+        (bool exists, uint32 epoch,,,,,) = billing.currentVoteEpoch(node1);
+        assertTrue(exists);
+        assertEq(epoch, 0);
+    }
+
+    function test_CurrentVoteEpoch_ignoresPendingFutureEra() public {
+        // Append a future era mid-epoch-1 (era 1 starts at epoch 2, GENESIS + 200) without warping
+        // there yet. The era-walk's newest entry (era 1) has startTime in the future relative to
+        // block.timestamp, so it must be skipped (the `continue` branch) in favor of era 0, which
+        // still governs "now".
+        vm.warp(GENESIS + 150); // inside epoch 1's span [100, 200)
+        billing.setTiming(EPOCH_LEN * 2, VOTING, PAYMENT); // era 1 starts at epoch 2, GENESIS + 200
+
+        (bool exists, uint32 epoch, uint64 epochStart, uint64 epochEnd_, uint64 votingWindowEnd_,,) =
+            billing.currentVoteEpoch(node1);
+        assertTrue(exists);
+        assertEq(epoch, 0, "epoch 1 (era 1's regime) has not elapsed yet; epoch 0 (era 0) is still latest");
+        assertEq(epochStart, GENESIS);
+        assertEq(epochEnd_, billing.epochEnd(0));
+        assertEq(votingWindowEnd_, billing.votingWindowEnd(0));
+    }
+
+    function test_CurrentVoteEpoch_atEraStartTimeBoundary() public {
+        // Warping to exactly the new era's startTime (not a moment before or after) must select
+        // the new era, not skip it: `block.timestamp < era.startTime` is false at equality.
+        vm.warp(GENESIS + 150); // inside epoch 1's span [100, 200)
+        billing.setTiming(EPOCH_LEN * 2, VOTING, PAYMENT); // era 1 starts at epoch 2, GENESIS + 200
+
+        vm.warp(GENESIS + 200); // exactly era 1's startTime
+
+        (bool exists, uint32 epoch, uint64 epochStart, uint64 epochEnd_, uint64 votingWindowEnd_,,) =
+            billing.currentVoteEpoch(node1);
+        assertTrue(exists);
+        assertEq(epoch, 1, "epoch 1 (era 0's last epoch) just elapsed exactly as era 1 begins");
+        assertEq(epochStart, billing.epochEnd(0));
+        assertEq(epochEnd_, billing.epochEnd(1));
+        assertEq(votingWindowEnd_, billing.votingWindowEnd(1));
+    }
+
+    function test_CurrentVoteEpoch_votingWindowEqualsEpochLength() public {
+        // votingWindow == epochLength is the maximum allowed (setTiming/initialize only reject
+        // votingWindow > epochLength). At that boundary, an epoch's voting window closes exactly
+        // when the next epoch elapses.
+        billing = _deploy(GENESIS, EPOCH_LEN, EPOCH_LEN, PAYMENT, _tiers(100, 10, 5), REBATE);
+        vm.warp(billing.epochEnd(0));
+
+        (bool exists, uint32 epoch,, uint64 epochEnd_, uint64 votingWindowEnd_,,) = billing.currentVoteEpoch(node1);
+        assertTrue(exists);
+        assertEq(epoch, 0);
+        assertEq(epochEnd_, billing.epochEnd(0));
+        assertEq(votingWindowEnd_, billing.epochEnd(1), "window close coincides with the next epoch elapsing");
+    }
+
+    /// @dev Asserts that, at `expectedBlockTime`, currentVoteEpoch reports `expectedEpoch` for all
+    ///      three nodes, each with the expected alreadyVoted value.
+    function _assertVoteEpoch(uint32 expectedEpoch, uint64 expectedBlockTime, bool voted1, bool voted2, bool voted3)
+        internal
+        view
+    {
+        (bool exists1, uint32 epoch1_,,,, bool alreadyVoted1, uint64 blockTime1) = billing.currentVoteEpoch(node1);
+        (bool exists2, uint32 epoch2_,,,, bool alreadyVoted2, uint64 blockTime2) = billing.currentVoteEpoch(node2);
+        (bool exists3, uint32 epoch3_,,,, bool alreadyVoted3, uint64 blockTime3) = billing.currentVoteEpoch(node3);
+
+        assertTrue(exists1 && exists2 && exists3);
+        assertEq(epoch1_, expectedEpoch);
+        assertEq(epoch2_, expectedEpoch);
+        assertEq(epoch3_, expectedEpoch);
+        assertEq(blockTime1, expectedBlockTime);
+        assertEq(blockTime2, expectedBlockTime);
+        assertEq(blockTime3, expectedBlockTime);
+
+        assertEq(alreadyVoted1, voted1, "node1 alreadyVoted mismatch");
+        assertEq(alreadyVoted2, voted2, "node2 alreadyVoted mismatch");
+        assertEq(alreadyVoted3, voted3, "node3 alreadyVoted mismatch");
+    }
+
+    /// @dev Advance across 4 epochs with distinct voting participation each time (all/none/one/two
+    ///      of the 3-node set), and assert every node always gets the correct alreadyVoted read for
+    ///      whichever epoch is currently reported.
+    function test_CurrentVoteEpoch_acrossEpochsWithVaryingParticipation() public {
+        // Epoch 0: all 3 nodes vote.
+        _openVoting(0);
+        IBillingContract.SignedVoteChunk[] memory votes0 = new IBillingContract.SignedVoteChunk[](3);
+        votes0[0] = _sign(pk1, 0, _one(1, 10));
+        votes0[1] = _sign(pk2, 0, _one(1, 10));
+        votes0[2] = _sign(pk3, 0, _one(1, 10));
+        billing.submitBillingVotes(0, votes0);
+
+        _assertVoteEpoch(0, billing.epochEnd(0), true, true, true);
+
+        // Epoch 1: nobody votes.
+        _openVoting(1);
+        _assertVoteEpoch(1, billing.epochEnd(1), false, false, false);
+
+        // Epoch 2: only node1 votes.
+        _openVoting(2);
+        IBillingContract.SignedVoteChunk[] memory votes2 = new IBillingContract.SignedVoteChunk[](1);
+        votes2[0] = _sign(pk1, 2, _one(1, 10));
+        billing.submitBillingVotes(2, votes2);
+
+        _assertVoteEpoch(2, billing.epochEnd(2), true, false, false);
+
+        // Epoch 3: node2 and node3 vote, node1 does not.
+        _openVoting(3);
+        IBillingContract.SignedVoteChunk[] memory votes3 = new IBillingContract.SignedVoteChunk[](2);
+        votes3[0] = _sign(pk2, 3, _one(1, 10));
+        votes3[1] = _sign(pk3, 3, _one(1, 10));
+        billing.submitBillingVotes(3, votes3);
+
+        _assertVoteEpoch(3, billing.epochEnd(3), false, true, true);
+    }
 }
