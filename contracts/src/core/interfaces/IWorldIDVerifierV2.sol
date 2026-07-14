@@ -9,7 +9,7 @@ import {IWorldIDVerifier} from "./IWorldIDVerifier.sol";
  * @notice Interface for verifying World ID proofs (Uniqueness and Session proofs).
  * @dev V2 enforces the action-prefix convention on the convenience entry points (`verify`
  *  requires the action's most significant byte to be `0x00`, `verifySession` requires `0x02`)
- *  and adds `verifyWithSession` for Uniqueness Proofs bound to an existing session.
+ *  and adds `verifyWithSession` for Uniqueness Proofs bound to a session commitment.
  */
 interface IWorldIDVerifierV2 is IWorldIDVerifier {
     ////////////////////////////////////////////////////////////
@@ -34,7 +34,7 @@ interface IWorldIDVerifierV2 is IWorldIDVerifier {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @notice Verifies a Uniqueness Proof that is bound to an existing session.
+     * @notice Verifies a Uniqueness Proof that is bound to a session commitment.
      * @dev Same as `verify`, except the proof's `session_id` public signal is checked against the
      *   provided session commitment instead of being pinned to 0. Bound proofs are rejected by
      *   `verify` and unbound proofs are rejected here. Hence, binding is explicit in both directions.

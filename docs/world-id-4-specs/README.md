@@ -30,29 +30,29 @@ Stemming from the enablement of other Authenticators to exist, a reference open-
 This notes the key **new** features or functionality for this **release** of World ID (v4.0):
 
 - Multi-key support: A World ID is not bound to a single key. A user can generate proofs on multiple valid authenticators (e.g. devices, platforms). With the important exception of security properties of the Authenticator, a proof proves the same thing to an RP regardless of which authenticator was used.
-    - A user can add or remove different valid authenticators to manage their World ID (Portability).
-    - **Motivation:** Allowing multiple authenticators serves to the Decentralization of the Protocol, with no reliance on a single actor (such as a single Authenticator provider, e.g. World App). Furthermore, abstracting a World ID into a conceptual record vs. a single secret enables the secure and practical existence of multiple Authenticators as well as enabling Recovery in case of loss and rotation in case of compromise.
+  - A user can add or remove different valid authenticators to manage their World ID (Portability).
+  - **Motivation:** Allowing multiple authenticators serves to the Decentralization of the Protocol, with no reliance on a single actor (such as a single Authenticator provider, e.g. World App). Furthermore, abstracting a World ID into a conceptual record vs. a single secret enables the secure and practical existence of multiple Authenticators as well as enabling Recovery in case of loss and rotation in case of compromise.
 - Recovery: Regain access to the same World ID through Recovery Agents.
-    - **Motivation:** Recovery is a fundamental building block of a Proof-of-Human Protocol (see [Whitepaper](https://whitepaper.world.org/#recovery) on why). While we expect authenticator providers to offer robust backup mechanisms, the user must be able to recover their World ID and related state in a contingency scenario.
+  - **Motivation:** Recovery is a fundamental building block of a Proof-of-Human Protocol (see [Whitepaper](https://whitepaper.world.org/#recovery) on why). While we expect authenticator providers to offer robust backup mechanisms, the user must be able to recover their World ID and related state in a contingency scenario.
 - Web-based Authenticator Provider: A limited authenticator that allows usage of World ID in the web browser. This serves both as a reference of an authenticator and also for improved UX for certain RP flows. Functionality is limited as enrollment of credentials is out of the scope for this initial release.
-    - **Motivation**: A lightweight web-based authenticator enables simpler usage of World ID which provides a better user experience and will enable more growth as interacting with RPs will be significantly simpler.
+  - **Motivation**: A lightweight web-based authenticator enables simpler usage of World ID which provides a better user experience and will enable more growth as interacting with RPs will be significantly simpler.
 - Trusted RPs. An authenticator can identify a request comes from a valid RP.
-    - **Motivation:** Authenticators need to be able to identify that they’re generating proofs for the right recipient to reduce potential for proof phishing (e.g. a malicious actor asking you for a proof meant for a different RP to know if you’ve performed that action). In addition, this enables future introduction of Protocol fees.
+  - **Motivation:** Authenticators need to be able to identify that they’re generating proofs for the right recipient to reduce potential for proof phishing (e.g. a malicious actor asking you for a proof meant for a different RP to know if you’ve performed that action). In addition, this enables future introduction of Protocol fees.
 
 ## Non-Functional Requirements
 
 - Privacy.
-    - Assuming **non-collusion** of nodes of each multi-party system, the user’s privacy cannot be compromised by any single party, neither correlation of multiple actions nor direct identification of a user. For example, it’s impossible to know that a specific user performed a specific action (identification) or that two different Actions were performed by the same user (correlation).
-    - Addressing the attack vector of collusion of a threshold (or all) nodes is covered in the [Other Risk Considerations](#other-risk-considerations) section.
-    - Strict requirements for the identifiers handed off by the Protocol are introduced. See details in Tech Specs.
-    - No human super-cookies. Permanent state or linkable state is as privacy-preserving as possible and is protocol-enforced. Privacy preserving in this context means that it’s not possible to identify a single person, even pseudonymously, across a long period of time without ongoing consent. Any exposed long-living / constant IDs should be protected as secrets.
+  - Assuming **non-collusion** of nodes of each multi-party system, the user’s privacy cannot be compromised by any single party, neither correlation of multiple actions nor direct identification of a user. For example, it’s impossible to know that a specific user performed a specific action (identification) or that two different Actions were performed by the same user (correlation).
+  - Addressing the attack vector of collusion of a threshold (or all) nodes is covered in the [Other Risk Considerations](#other-risk-considerations) section.
+  - Strict requirements for the identifiers handed off by the Protocol are introduced. See details in Tech Specs.
+  - No human super-cookies. Permanent state or linkable state is as privacy-preserving as possible and is protocol-enforced. Privacy preserving in this context means that it’s not possible to identify a single person, even pseudonymously, across a long period of time without ongoing consent. Any exposed long-living / constant IDs should be protected as secrets.
 - Security.
-    - A World ID is not a single secret that needs to be shared or can’t be rotated.
-    - A World ID cannot be recovered or an authenticator added without verifiable user intent (through knowledge of a secret key of an authorized authenticator).
-    - Collusion of **all** nodes with an multi-party system (MPC) does not allow performing actions on the user’s behalf.
-    - User Auditability — each user needs to be able to see account management events that have been authorized with their World ID, for example things like adding / removing of authenticators.
+  - A World ID is not a single secret that needs to be shared or can’t be rotated.
+  - A World ID cannot be recovered or an authenticator added without verifiable user intent (through knowledge of a secret key of an authorized authenticator).
+  - Collusion of **all** nodes with an multi-party system (MPC) does not allow performing actions on the user’s behalf.
+  - User Auditability — each user needs to be able to see account management events that have been authorized with their World ID, for example things like adding / removing of authenticators.
 - Migration Path.
-    - There needs to be a clear migration path for all currently active and relevant use cases to the new version of the Protocol.
+  - There needs to be a clear migration path for all currently active and relevant use cases to the new version of the Protocol.
 
 ## User Flows (Authenticator)
 
@@ -72,14 +72,14 @@ This notes the key **new** features or functionality for this **release** of Wor
 ## Summary: What is Changing?
 
 - A World ID is now a record on an on-chain registry and more importantly a single World ID can have multiple public keys.
-    - This also means identity commitments (`identityCommitment`) no longer exist. Instead, the identification mechanism is the knowledge of a secret key corresponding to a public key registered in a specific leaf index in the `WorldIDRegistry`.
-    - Also implies that the on-chain trees of identity commitments is gone in favor of a single `WorldIDRegistry`.
+  - This also means identity commitments (`identityCommitment`) no longer exist. Instead, the identification mechanism is the knowledge of a secret key corresponding to a public key registered in a specific leaf index in the `WorldIDRegistry`.
+  - Also implies that the on-chain trees of identity commitments is gone in favor of a single `WorldIDRegistry`.
 - Creating a World ID now occurs through on-chain registration (vs. as an offline keypair generation previously), and issuing Credentials is now done without on-chain interaction. Credentials are now issued by the Issuer signing them. Previously, the Issuer would add the user’s identity commitment to the relevant on-chain tree.
 - Nullifiers are enforced one-time use. Previously there was no enforcement of nullifiers being one-time use and they could become pseudonymous identifiers for an RP, now Authenticators will not issue a nullifier more than once.
 - [**For RPs only**]. When RPs require users to prove they are still the same World ID that originally performed an action, they will be able to store an identifier (a `sessionId`) and provide it to the user for subsequent proofs. With Proof of Human, this allows RPs to establish they are interacting with the same World ID, potentially with different credentials too. See *Session Proofs* for further details.
 - [**For Issuers only**]. Authentication based on using nullifiers from ZKPs as identifiers is no longer supported. A new authentication mechanism is introduced for issuers.
 - Access to a World ID can be recovered. A user can designate a *Recovery Agent* for their account which will allow for recovery in case of access to all Authenticators is lost.
-    - [**Recovery Agent Scope**]. Users may designate the *PoH AMPC* system as their Recovery Agent to recover their World ID. In the future, other Recovery Agents are expected to be available.
+  - [**Recovery Agent Scope**]. Users may designate the *PoH AMPC* system as their Recovery Agent to recover their World ID. In the future, other Recovery Agents are expected to be available.
 
 ## High level overview
 
@@ -90,14 +90,13 @@ Diagram of components for the World ID 4.0 Protocol.
 2. Similarly, a **Relying Party Registry** is introduced. This registry contains a list of authorized Relying Parties with their accompanying authorized public keys. The registry permits RPs to authenticate requests for proofs to Authenticators.
 3. The multi-party set of **OPRF Nodes** is introduced. This set of nodes are now responsible for generating the nullifiers that users present to RPs to prove uniqueness. The nullifiers are generated through a *Verified Threshold* *Oblivious Pseudorandom Function* (vOPRF) with participation of the OPRF nodes. Nodes verify requests for nullifiers are properly validated by both RPs and users (see *Uniqueness Proofs*), and only then will generate the required output to compute the user’s nullifier. The users then construct the final nullifier and prove its computation in the proof they present to RPs.
     1. A multi-party OPRF is necessary because it prevents nullifiers from being guessable, i.e. nullifiers are deterministic but appear random (recall that PRF outputs under a uniformly random key are computationally indistinguishable from a uniformly random function). This could theoretically be accomplished with a regular hash function, but then nullifiers could be brute forced by computing the hash for all possible `leafIndex`es (which are public on-chain). To prevent this, secret entropy is required (in World ID ≤ 3.0, the user provided this entropy). Since this is not available anymore, the entropy now comes from the OPRF nodes.
-    2. Additionally, to prevent brute forcing even with involvement of OPRF nodes, OPRF nodes require authentication before computing each hash. They authenticate the user through a ZKP that proves knowledge of an Authenticator secret key authorized in the `WorldIDRegistry` for the particular `leafIndex` for which they are generating a nullifier. 
+    2. Additionally, to prevent brute forcing even with involvement of OPRF nodes, OPRF nodes require authentication before computing each hash. They authenticate the user through a ZKP that proves knowledge of an Authenticator secret key authorized in the `WorldIDRegistry` for the particular `leafIndex` for which they are generating a nullifier.
     3. Importantly, the OPRF nodes compute the keyed-hash function $H_k(x')$ on a blinded input, hence they cannot learn which user is actually performing a request. Furthermore, the OPRF nodes output a proof that attests to the proper computation of $H_k$ given a committed $k_{pk}$, so neither users nor RPs need to blindly trust the OPRF nodes.
     4. Similar to how OPRF Nodes are used to generate the nullifiers presented to RPs, these nodes also generate a blinding factor for each credential so there cannot be correlation of World IDs from malicious issuers.
     5. More information on the OPRF Nodes can be found in the paper: *“[A Nullifier Protocol based on a Verifiable, Threshold OPRF](https://github.com/TaceoLabs/oprf-service/blob/main/docs/oprf.pdf)”*.
-    6. Details about the nature, number, and diversity requirements of OPRF nodes must be established before the production network is live. 
+    6. Details about the nature, number, and diversity requirements of OPRF nodes must be established before the production network is live.
 4. Protocol differences at a glance:
-    
-    
+
     |  | **World ID ≤3.0** | **World ID 4.0 (2025)** |
     | --- | --- | --- |
     | What is a World ID? | A secret. | An entry in public registry. |
@@ -147,12 +146,11 @@ RP ->> RP: Verify nullifier uniqueness
 ```
 
 - The nullifier is computed by the OPRF Nodes. Computing it requires output from a threshold number of nodes to be valid.
-    - Importantly, the input to the OPRF Nodes is blinded so that no OPRF node can see the raw `leafIndex` (i.e. OPRF nodes only know that the request is from an authorized authenticator).
-    - Importantly, the nullifier is credential *independent*, so the action can only be performed once regardless of which credentials are available at the time.
-    - Further information on how the nullifier is computed can be found in the [TACEO OPRF Whitepaper](https://github.com/TaceoLabs/nullifier-oracle-service/blob/main/docs/oprf.pdf).
+  - Importantly, the input to the OPRF Nodes is blinded so that no OPRF node can see the raw `leafIndex` (i.e. OPRF nodes only know that the request is from an authorized authenticator).
+  - Importantly, the nullifier is credential *independent*, so the action can only be performed once regardless of which credentials are available at the time.
+  - Further information on how the nullifier is computed can be found in the [TACEO OPRF Whitepaper](https://github.com/TaceoLabs/nullifier-oracle-service/blob/main/docs/oprf.pdf).
 - Nullifiers have the following properties, which in combination make them amenable for use by an RP to enforce anonymous per-action uniqueness:
-    
-    
+
     | **Property** | **Description** |
     | --- | --- |
     | Deterministic | Given the same context (`leafIndex` [blinded], `rpId`, `action`), the nullifier is always the same. Assuming honest behavior of OPRF nodes never rotating their base key. *Note that the credential is intentionally not included in this context. This means that the action can be performed only once, regardless of which credentials are available at the time.* |
@@ -161,45 +159,46 @@ RP ->> RP: Verify nullifier uniqueness
     | Anonymous | A nullifier hides which user generated it. To preserve anonymity, each nullifier must only be used once (otherwise repeated use makes it pseudonymous). This is the responsibility of Authenticators. |
     | Unlinkable | For any two nullifiers with different contexts, the probability that an adversary can correctly distinguish whether they were derived from the same user is at most negligibly better than random guessing. |
     | Pre-image resistance | For any given nullifier, and knowing the public context (`rpId`, `action`), it is computationally infeasible to find the pre-image or the `leafIndex`. |
+
 - The authenticator generates two types of different zero-knowledge proofs to be able to deliver a Uniqueness Proof to an RP,
-    - The query proof $\pi_1$ which proves to the OPRF Nodes that the request is properly authorized by the user. This ZKP proves the request is signed by a public key which is registered for the particularly provided blinded `leafIndex` in the `WorldIDRegistry`.
-    - A final Uniqueness Proof $\pi_2$ which ensures at least the following constraints:
-        - *The same constraints of the query proof are evaluated.*
-        - Correct OPRF evaluation on `leafIndex`, i.e. the generated nullifier is correct for the committed public keys from each OPRF node.
-        - Request is signed by a public key that is registered for the `leafIndex` in the `WorldIDRegistry` (user authentication).
-        - The Credential was issued for this World ID, i.e. the Credential’s `sub` matches the blinded `leafIndex` of the user.
-        - The Credential used in the proof is signed by the Issuer (through the committed key in the `CredentialSchemaIssuerRegistry`).
-        - Credential is not expired.
-        - Credential meets the minimum genesis_issued_at constraint provided by the RP.
-        - Signal and nonce provided by the RP as public inputs are committed.
-        - *Potential future constraints may include: integrity attestation of device, enforcing the expiration of actions, credential specific checks, etc.*
+  - The query proof $\pi_1$ which proves to the OPRF Nodes that the request is properly authorized by the user. This ZKP proves the request is signed by a public key which is registered for the particularly provided blinded `leafIndex` in the `WorldIDRegistry`.
+  - A final Uniqueness Proof $\pi_2$ which ensures at least the following constraints:
+    - *The same constraints of the query proof are evaluated.*
+    - Correct OPRF evaluation on `leafIndex`, i.e. the generated nullifier is correct for the committed public keys from each OPRF node.
+    - Request is signed by a public key that is registered for the `leafIndex` in the `WorldIDRegistry` (user authentication).
+    - The Credential was issued for this World ID, i.e. the Credential’s `sub` matches the blinded `leafIndex` of the user.
+    - The Credential used in the proof is signed by the Issuer (through the committed key in the `CredentialSchemaIssuerRegistry`).
+    - Credential is not expired.
+    - Credential meets the minimum genesis_issued_at constraint provided by the RP.
+    - Signal and nonce provided by the RP as public inputs are committed.
+    - *Potential future constraints may include: integrity attestation of device, enforcing the expiration of actions, credential specific checks, etc.*
 - **Oblivious Nullifier Pool**. The Oblivious Nullifier Pool is a separate service which offers *Private Intersection Retrieval* and keeps track of used nullifiers. Its function is simply to keep a flat list of used nullifiers such that an authenticator can query if a nullifier has been used before sharing it (and the related $\pi_2$) with an RP if it has been used before. The list is flat (as the nullifier is already unique per-RP-per-action-per-user) relying on the collision-resistance property of the hash function used in the Protocol.
-    - This system ensures that nullifiers can’t be misused to create long running identifiers. As their name suggests, a nullifier is one-time use.
-    - The term *oblivious* is used to refer to the fact that this map is queried in a way where the servers serving such requests cannot learn which records where accessed and hence be able to compromise the user’s privacy.
-    - The main limitation of the nullifier pool is performance at scale. One option is to shard the pool, making trade-offs of anonymity set size vs. performance. This is still in research.
-    - Initially, this pool will only be used for actions that have a running period longer than a predefined threshold. This is to solve for scaling issues as this system grows.
+  - This system ensures that nullifiers can’t be misused to create long running identifiers. As their name suggests, a nullifier is one-time use.
+  - The term *oblivious* is used to refer to the fact that this map is queried in a way where the servers serving such requests cannot learn which records where accessed and hence be able to compromise the user’s privacy.
+  - The main limitation of the nullifier pool is performance at scale. One option is to shard the pool, making trade-offs of anonymity set size vs. performance. This is still in research.
+  - Initially, this pool will only be used for actions that have a running period longer than a predefined threshold. This is to solve for scaling issues as this system grows.
 - **Blinded subjects**. To prevent correlation of users even among issuers, or in case of leaked credentials, the subjects of the credentials are blinded.
-    - When requesting a new credential from an issuer, the user generates a blinding factor using the OPRF nodes, $\texttt{subjectBlindingFactor}=H_k(\texttt{issuerSchemaId} \mid\mid \texttt{leafIndex})$.
-    - The user then hashes the blinding factor with their `leafIndex` to compute the `sub` claim of the credential. This value is what issuers include in the credential.
-    - When a proof is presented, the `subjectBlindingFactor` is used within the Uniqueness Proof circuit to ensure the credential is issued to the right user. The blinding factor acts as entropy to prevent correlation, but the right `leafIndex` as provided in the circuit input must match correctly.
+  - When requesting a new credential from an issuer, the user generates a blinding factor using the OPRF nodes, $\texttt{subjectBlindingFactor}=H_k(\texttt{issuerSchemaId} \mid\mid \texttt{leafIndex})$.
+  - The user then hashes the blinding factor with their `leafIndex` to compute the `sub` claim of the credential. This value is what issuers include in the credential.
+  - When a proof is presented, the `subjectBlindingFactor` is used within the Uniqueness Proof circuit to ensure the credential is issued to the right user. The blinding factor acts as entropy to prevent correlation, but the right `leafIndex` as provided in the circuit input must match correctly.
 
 ### Registries
 
 - **World ID Registry**
-    - Each user can grant access to multiple different keys to interact with their World ID. The Authenticator proves control inside a ZKP to prevent long-lived identifiers.
-    - In order to not leak the user, this needs to be in some structure that allows inclusion proofs. This is accomplished with [Incremental Merkle Trees](https://github.com/zk-kit/zk-kit.solidity/blob/main/packages/imt/contracts/BinaryIMT.sol).
-    - Each Authenticator registers two keys in the registry. This is done to enable performant operations both on-chain and on zero-knowledge circuits.
-        - An on-chain key which is an elliptic curve key on the `secp256k1` curve is used to authorize on-chain operations on the contract (e.g. adding an authenticator, removing an authenticator, etc.). The public key is simply represented as an Ethereum address.
-        - An off-chain key which is an elliptic curve key on the `BabyJubJub` curve is used to sign requests for zero-knowledge proofs. The public key (represented as a curve point) is emitted on-chain and committed to in the contract.
+  - Each user can grant access to multiple different keys to interact with their World ID. The Authenticator proves control inside a ZKP to prevent long-lived identifiers.
+  - In order to not leak the user, this needs to be in some structure that allows inclusion proofs. This is accomplished with [Incremental Merkle Trees](https://github.com/zk-kit/zk-kit.solidity/blob/main/packages/imt/contracts/BinaryIMT.sol).
+  - Each Authenticator registers two keys in the registry. This is done to enable performant operations both on-chain and on zero-knowledge circuits.
+    - An on-chain key which is an elliptic curve key on the `secp256k1` curve is used to authorize on-chain operations on the contract (e.g. adding an authenticator, removing an authenticator, etc.). The public key is simply represented as an Ethereum address.
+    - An off-chain key which is an elliptic curve key on the `BabyJubJub` curve is used to sign requests for zero-knowledge proofs. The public key (represented as a curve point) is emitted on-chain and committed to in the contract.
 - **Relying Party Registry**
-    - Each RP needs to commit to their authorized public key on the public registry, such that this can be verified in the request proof $\pi_1$ by each queried OPRF node.
-    - Registering an RP is a public action that anyone can take, but this requires paying a one-time registration fee (see *Registration Fees* below).
-    - In order to allow for decentralized application creation and registration, the RP Registry will be extended and restrictions further lifted in the future, but for this initial version the following applies:
-        - At launch, only one authorized key is allowed per RP. This will be extended in the future.
+  - Each RP needs to commit to their authorized public key on the public registry, such that this can be verified in the request proof $\pi_1$ by each queried OPRF node.
+  - Registering an RP is a public action that anyone can take, but this requires paying a one-time registration fee (see *Registration Fees* below).
+  - In order to allow for decentralized application creation and registration, the RP Registry will be extended and restrictions further lifted in the future, but for this initial version the following applies:
+    - At launch, only one authorized key is allowed per RP. This will be extended in the future.
 - **Credential Schema Issuer Registry**
-    - It's a simple registry where Issuers register for each of their credential types a schema and an authorized signatory and get issued an `issuerSchemaId`. This ID represents the combination of an (issuer, schema). For example: (Tools For Humanity, Orb credential).
-    - The `issuerSchemaId` is included in the credential and is verified as part of all Proofs. When generating and verifying proofs, the signature of a credential is verified against the public key registered in the contract.
-    - Registering an Issuer Schema also requires paying a one-time registration fee (see *Registration Fees* below).
+  - It's a simple registry where Issuers register for each of their credential types a schema and an authorized signatory and get issued an `issuerSchemaId`. This ID represents the combination of an (issuer, schema). For example: (Tools For Humanity, Orb credential).
+  - The `issuerSchemaId` is included in the credential and is verified as part of all Proofs. When generating and verifying proofs, the signature of a credential is verified against the public key registered in the contract.
+  - Registering an Issuer Schema also requires paying a one-time registration fee (see *Registration Fees* below).
 
 ### Registration Fees
 
@@ -208,6 +207,7 @@ Both the Relying Party Registry and the Credential Schema Issuer Registry charge
 **Why the fee exists.** Registering an RP or an Issuer Schema triggers the initialization of an OPRF key via a multi-round distributed key generation ceremony across the OPRF Nodes. This is a computationally expensive operation with real infrastructure cost. The registration fee is sized to cover the cost of OPRF key generation and storage for at least approximately one year.
 
 **How it works.**
+
 - The fee is paid in a configurable ERC-20 token via `safeTransferFrom` at the time of registration, before OPRF key generation begins.
 
 **Future: per-request fees.** The registration fee described here covers only the one-time cost of onboarding. A separate per-request fee — enforced by OPRF Nodes as a proof-of-payment requirement during nullifier generation — may be introduced in a future Protocol release (4.1 or 4.2). See *Future Proofing Notes* for details.
@@ -275,24 +275,27 @@ rp->>rp: verify proof (checking sessionId == C' in verifier contract)
 **Recovering `r` for subsequent Session Proofs.** The OPRF is deterministic: the same input and key always produce the same output. This means `r` can be re-derived at any time by calling the OPRF nodes with the original `oprf_seed` (stored in `sessionId`). Caching `r` is an optimization, not a requirement. The OPRF call to derive `r` and the OPRF call to derive the nullifier can be made in parallel.
 
 **Session Nullifiers**
+
 - A [`sessionNullifier`](https://docs.rs/world-id-primitives/latest/world_id_primitives/session/struct.SessionNullifier.html) is used for verifying Session Proofs. It must be passed to the verification contract. Internally, the [`sessionNullifier`](https://docs.rs/world-id-primitives/latest/world_id_primitives/session/struct.SessionNullifier.html) implements custom encoding on the Authenticator and on the `WorldIDVerifier` contract.
 - The raison d'être is simply to allow usage of the same ZK circuit as for Uniqueness Proofs. Reducing the number of circuits is currently a priority because of the size of the circuits needed to be bundled in Authenticator clients. As World ID moves to a different proving system, this type will no longer be required.
 - Session Proofs use a randomized `action` as circuit input. This randomized `action` ensures the circuit's nullifier output is unique per proof, preserving the one-time use property. It is verified internally within the circuit. It does not affect `r` derivation.
 
 **Binding Uniqueness Proofs to a Session**
 
-- A Uniqueness Proof request may include an existing `sessionId`. The proof then carries the session's commitment `C` as its `id_commitment` public signal, proving in-circuit that the session and the nullifier belong to the same World ID.
-- The Authenticator requires the cached `r` for this; re-deriving `r` is only possible through a session-type request.
-- Verifiers MUST check the proof against the session's commitment. With the session commitment set to `0` the proof is valid but unbound. On-chain, the dedicated `verifyWithSession()` entry point does this (it rejects `sessionId == 0`). The convenience `verify()` entry point pins the signal to `0` and rejects bound proofs, so binding is explicit in both directions.
+- A Uniqueness Proof request may omit `session_id` (unbound), use `"create"` to atomically mint a session and bind the proof to it, or include an existing `sessionId` to bind to a previously established session. Bound proofs carry the session's commitment `C` as their `id_commitment` public signal, proving in-circuit that the session and the nullifier belong to the same World ID.
+- `proof_type: "uniqueness", session_id: "create"` performs two OPRF rounds: the normal uniqueness-nullifier query and a session-seed query. The latter carries the RP-signed uniqueness action as `signed_action`, allowing the same RP signature to authorize the session module.
+- Binding to an existing `sessionId` requires the Authenticator's cached `r`; re-deriving `r` is only possible through a session-type request.
+- Verifiers MUST check bound proofs against the session's commitment. With the session commitment set to `0` the proof is valid but unbound. On-chain, the dedicated `verifyWithSession()` entry point does this (it rejects `sessionId == 0`). The convenience `verify()` entry point pins the signal to `0` and rejects bound proofs, so binding is explicit in both directions.
 - Binding one `sessionId` to Uniqueness Proofs under different actions intentionally links those actions to the same World ID; Authenticators MUST clearly surface this to users.
+- OPRF nodes must support `signed_action` on session-seed queries before authenticators begin sending it. The field is additive: requests without it behave identically to before.
 
 ### Web-based Authenticator Provider
 
-To allow for an improved user experience, a reference browser-based Authenticator provider is being introduced. This app provides (currently limited) World ID functionality but without leaving the browser. 
+To allow for an improved user experience, a reference browser-based Authenticator provider is being introduced. This app provides (currently limited) World ID functionality but without leaving the browser.
 
 1. At a high-level, it allows **usage** of a World ID. The user can generate proofs in their browser, and this is particularly useful for when working on other devices (such as desktop) or on non-native apps.
 2. Whenever an RP requires a user’s World ID proof, they can simply redirect the user to the web app (handled automatically by common SDKs like [ID Kit](https://github.com/worldcoin/idkit)). The user authenticates with their passkey, generates the proof in their browser and passes it back to the RP.
-3. Further documentation on the architecture of the reference web-based Authenticator provider will be published in the https://github.com/worldcoin/web-authenticator repository.
+3. Further documentation on the architecture of the reference web-based Authenticator provider will be published in the <https://github.com/worldcoin/web-authenticator> repository.
 4. **Credential Enrollment** will not be supported in the initial release, but this may be introduced in the future.
 
 ## Migration Considerations
@@ -303,8 +306,7 @@ At a high level, every user and RP will need to migrate to the new Protocol. Det
 
 - The Protocol, via the Oblivious Nullifier Pool enforces that nullifiers cannot be generated more than once (as long as authenticators are properly implemented), which prevents long running user tracking, increasing the privacy from the previous protocol version.
 - In adversarial scenarios, these are the most relevant privacy considerations,
-    
-    
+
     | Attack scenario | **World ID ≤3.0** | **World ID 4.0 (2025)** |
     | --- | --- | --- |
     | Compromised user’s secret | ⚠️ Potentially reveals all past activity if the attacker knows the public app IDs and actions. | ✅ Cannot reveal past activity on its own |
@@ -325,7 +327,6 @@ At a high level, every user and RP will need to migrate to the new Protocol. Det
   3. **Strict key management policies**. RPs will be able to specify their policies for action duration such that keys are destroyed after their utility period has elapsed.
 - **Authenticator Risk**. Aside from having access to the user’s credentials, an Authenticator must learn of a user’s raw `leafIndex` to be able to generate Proofs. A malicious Authenticator can misuse this to track the user, even though that tracking cannot be correlated to nullifiers provided to RPs on its own. Different strategies to mitigate Authenticator risk are being explored.
 - **Recovery Agent Risk**. Should a user designate a Recovery Agent, this entity has a special permission that allows it to gain access to the user’s World ID, which could be misused. Beyond the explicit risk of a malicious Recovery Agent compromising a user's World ID, users need to consider the different risks associated with different Recovery Agents based on how they perform authentication.
-
 
 ## Future Proofing Notes (World ID 4.x future releases and beyond)
 
