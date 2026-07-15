@@ -3,9 +3,8 @@
 //! Both the session and uniqueness modules share identical struct fields, init
 //! logic, and query-proof verification. They differ only in:
 //! - how the action field is validated (`MSB == 0x00` for uniqueness vs `0x01/0x02` for sessions depending on the [`SessionFeType`])
-//! - whether the action is included in the RP signature (`Some` for uniqueness, `None` for
-//!   session), except for session-seed queries carrying a uniqueness action in
-//!   `rp_signature_verification`
+//! - whether the action is included in the RP signature. Some for uniqueness, none for session. For session-seed queries initiated by an RP request for a uniqueness proof,
+//!   the action of the uniqueness proof is part of the data the RP signs over and is included in the `rp_signature_verification` field.
 //! - which [`WorldIdRequestAuthError`] variant is returned for an invalid action
 //!
 //! [`RpModuleKind`] captures these differences; [`RpModuleAuth`] holds the shared
