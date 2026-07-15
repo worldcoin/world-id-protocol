@@ -4,21 +4,22 @@
 //! logic, and query-proof verification. They differ only in:
 //! - how the action field is validated (`MSB == 0x00` for uniqueness vs `0x01/0x02` for sessions depending on the [`SessionFeType`])
 //! - whether the action is included in the RP signature (`Some` for uniqueness, `None` for
-//!   session — unless the request carries a `signed_action`, see below)
+//!   session — unless the request carries RP signature verification data, see below)
 //! - which [`WorldIdRequestAuthError`] variant is returned for an invalid action
 //!
 //! [`RpModuleKind`] captures these differences; [`RpModuleAuth`] holds the shared
 //! state and branches on the kind at runtime.
 //!
-//! # Signed actions on session-seed queries (create-and-bind)
+//! # RP signature verification data on session-seed queries (create-and-bind)
 //!
-//! A session-seed query may carry an optional `signed_action` (a nullifier action, MSB
-//! `0x00`). When present, the session module verifies the RP signature over the
+//! A session-seed query may carry an optional uniqueness action (MSB `0x00`) as
+//! [`RpSignatureVerification::UniquenessAction`]. When present, the session module
+//! verifies the RP signature over the
 //! action-inclusive message instead of the action-less one. This lets a single RP
 //! signature authorize both creating a session and binding a Uniqueness Proof to it.
-//! `signed_action` is rejected everywhere else: on session-action queries, on the
-//! uniqueness module, and for WIP101 contract-backed RPs (which do not support session
-//! queries yet).
+//! RP signature verification data is rejected everywhere else: on session-action queries,
+//! on the uniqueness module, and for WIP101 contract-backed RPs (which do not support
+//! session queries yet).
 
 use crate::{
     accountant_batcher::AccountantBatcherHandle,
@@ -44,7 +45,7 @@ use taceo_oprf::types::{
 use tracing::instrument;
 use world_id_primitives::{
     FieldElement, SessionFeType, SessionFieldElement as _,
-    oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
+    oprf::{NullifierOprfRequestAuthV1, RpSignatureVerification, WorldIdRequestAuthError},
     rp::RpId,
 };
 
@@ -54,8 +55,9 @@ pub(crate) mod wip101;
 #[derive(Clone)]
 pub(crate) enum RpModuleKind {
     /// Session module: action MSB must be `0x01` (seed) or `0x02` (action); action is NOT
-    /// signed. Seed queries may carry a `signed_action` (MSB `0x00`), in which case the RP
-    /// signature is verified over the action-inclusive message (create-and-bind).
+    /// signed. Seed queries may carry a uniqueness action as RP signature verification data,
+    /// in which case the signature is verified over the action-inclusive message
+    /// (create-and-bind).
     Session,
     /// Uniqueness module: action MSB must be `0x00`; action IS signed.
     Uniqueness(AccountantBatcherHandle),
@@ -341,14 +343,18 @@ impl RpModuleAuth {
                 let action = match self.kind {
                     RpModuleKind::Uniqueness(_) => Some(action),
                     // Session RP signatures do not include the action, unless the request
-                    // carries a `signed_action` (create-and-bind seed queries).
-                    RpModuleKind::Session => request.auth.signed_action.map(|a| *a),
+                    // carries a uniqueness action as verification data (create-and-bind).
+                    RpModuleKind::Session => request.auth.rp_signature_verification.map(
+                        |verification| match verification {
+                            RpSignatureVerification::UniquenessAction { action } => *action,
+                        },
+                    ),
                 };
                 rp.verify_eoa(action, request)
             }
             RpAccountType::Contract => {
                 // TODO(session-proofs): WIP-101 does not currently support session proofs.
-                if request.auth.signed_action.is_some() {
+                if request.auth.rp_signature_verification.is_some() {
                     return Err(RpModuleError::SignedActionNotAllowed {
                         context: "not supported for WIP101 contract-backed RPs",
                     });
@@ -404,13 +410,16 @@ impl RpModuleAuth {
         let action = FieldElement::from(request.auth.action);
 
         // Validate the action per kind and derive the nonce scope it consumes.
-        // A `signed_action` (a nullifier action the RP signature covers) is only valid on
-        // session-seed queries; see the module docs for the create-and-bind flow.
+        // RP signature verification data is only valid on session-seed queries; see the
+        // module docs for the create-and-bind flow.
         let nonce_scope = match self.kind {
             RpModuleKind::Session => {
                 metrics::auth_module::inc_session();
                 if action.is_valid_for_session(SessionFeType::OprfSeed) {
-                    if let Some(signed_action) = request.auth.signed_action {
+                    if let Some(RpSignatureVerification::UniquenessAction {
+                        action: signed_action,
+                    }) = request.auth.rp_signature_verification
+                    {
                         if signed_action.to_be_bytes()[0] != 0 {
                             return Err(RpModuleError::InvalidSignedAction { signed_action });
                         }
@@ -418,7 +427,7 @@ impl RpModuleAuth {
                     }
                     NonceScope::SessionOprfSeed
                 } else if action.is_valid_for_session(SessionFeType::Action) {
-                    if request.auth.signed_action.is_some() {
+                    if request.auth.rp_signature_verification.is_some() {
                         return Err(RpModuleError::SignedActionNotAllowed {
                             context: "only allowed on session-seed queries",
                         });
@@ -430,7 +439,7 @@ impl RpModuleAuth {
             }
             RpModuleKind::Uniqueness(_) => {
                 metrics::auth_module::inc_nullifier();
-                if request.auth.signed_action.is_some() {
+                if request.auth.rp_signature_verification.is_some() {
                     return Err(RpModuleError::SignedActionNotAllowed {
                         context: "only allowed on the session module",
                     });

@@ -21,6 +21,20 @@ pub enum OprfModule {
     Session,
 }
 
+/// Additional data needed to reconstruct the message covered by an RP signature.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RpSignatureVerification {
+    /// A uniqueness action covered by the RP signature.
+    ///
+    /// This is used on create-and-bind session-seed queries, whose OPRF action is the
+    /// session seed rather than the uniqueness action included in the signed message.
+    UniquenessAction {
+        /// The RP-signed uniqueness action (MSB `0x00`).
+        action: FieldElement,
+    },
+}
+
 impl std::fmt::Display for OprfModule {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -69,14 +83,12 @@ pub struct NullifierOprfRequestAuthV1 {
         with = "serde_utils::hex_bytes_opt"
     )]
     pub wip101_data: Option<Vec<u8>>,
-    /// The RP-signed uniqueness action (MSB `0x00`) for create-and-bind session-seed queries.
+    /// Additional data needed to reconstruct the RP-signed message.
     ///
-    /// Only valid on session-seed queries (see [`SessionFeType::OprfSeed`]) from EOA-backed RPs.
-    /// When present, the OPRF node verifies the RP signature over the action-inclusive message
-    /// (see `compute_rp_signature_msg`) instead of the action-less one, so a single RP signature
-    /// can authorize creating a session and binding a Uniqueness Proof to it.
+    /// Currently only valid on create-and-bind session-seed queries (see
+    /// [`SessionFeType::OprfSeed`]) from EOA-backed RPs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signed_action: Option<FieldElement>,
+    pub rp_signature_verification: Option<RpSignatureVerification>,
 }
 
 /// A request sent by a client for OPRF credential blinding factor authentication.
@@ -556,7 +568,9 @@ mod tests {
         .expect("valid test proof")
     }
 
-    fn test_auth(signed_action: Option<FieldElement>) -> NullifierOprfRequestAuthV1 {
+    fn test_auth(
+        rp_signature_verification: Option<RpSignatureVerification>,
+    ) -> NullifierOprfRequestAuthV1 {
         NullifierOprfRequestAuthV1 {
             proof: test_proof(),
             action: ark_babyjubjub::Fq::from(1u64),
@@ -567,37 +581,41 @@ mod tests {
             signature: None,
             rp_id: RpId::new(6),
             wip101_data: None,
-            signed_action,
+            rp_signature_verification,
         }
     }
 
     #[test]
-    fn nullifier_auth_signed_action_none_is_omitted() {
+    fn nullifier_auth_rp_signature_verification_none_is_omitted() {
         let value = serde_json::to_value(test_auth(None)).unwrap();
         // Forward compat: unused, the field never appears on the wire.
-        assert!(value.get("signed_action").is_none());
+        assert!(value.get("rp_signature_verification").is_none());
         // Backward compat: payloads without the field deserialize to `None`.
         let parsed: NullifierOprfRequestAuthV1 = serde_json::from_value(value).unwrap();
-        assert!(parsed.signed_action.is_none());
+        assert!(parsed.rp_signature_verification.is_none());
     }
 
     #[test]
-    fn nullifier_auth_signed_action_json_roundtrip() {
-        let signed_action = FieldElement::from(42u64);
-        let auth = test_auth(Some(signed_action));
+    fn nullifier_auth_rp_signature_verification_json_roundtrip() {
+        let verification = RpSignatureVerification::UniquenessAction {
+            action: FieldElement::from(42u64),
+        };
+        let auth = test_auth(Some(verification));
         let json = serde_json::to_string(&auth).unwrap();
         let parsed: NullifierOprfRequestAuthV1 = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.signed_action, Some(signed_action));
+        assert_eq!(parsed.rp_signature_verification, Some(verification));
     }
 
     #[test]
-    fn nullifier_auth_signed_action_cbor_roundtrip() {
-        let signed_action = FieldElement::from(42u64);
-        let auth = test_auth(Some(signed_action));
+    fn nullifier_auth_rp_signature_verification_cbor_roundtrip() {
+        let verification = RpSignatureVerification::UniquenessAction {
+            action: FieldElement::from(42u64),
+        };
+        let auth = test_auth(Some(verification));
         let mut bytes = Vec::new();
         ciborium::into_writer(&auth, &mut bytes).unwrap();
         let parsed: NullifierOprfRequestAuthV1 = ciborium::from_reader(bytes.as_slice()).unwrap();
-        assert_eq!(parsed.signed_action, Some(signed_action));
+        assert_eq!(parsed.rp_signature_verification, Some(verification));
     }
 
     #[test]

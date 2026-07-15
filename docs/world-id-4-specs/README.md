@@ -283,11 +283,11 @@ rp->>rp: verify proof (checking sessionId == C' in verifier contract)
 **Binding Uniqueness Proofs to a Session**
 
 - A Uniqueness Proof request may omit `session_id` (unbound), use `"create"` to atomically mint a session and bind the proof to it, or include an existing `sessionId` to bind to a previously established session. Bound proofs carry the session's commitment `C` as their `id_commitment` public signal, proving in-circuit that the session and the nullifier belong to the same World ID.
-- `proof_type: "uniqueness", session_id: "create"` performs two OPRF rounds: the normal uniqueness-nullifier query and a session-seed query. The latter carries the RP-signed uniqueness action as `signed_action`, allowing the same RP signature to authorize the session module.
+- `proof_type: "uniqueness", session_id: "create"` performs two OPRF rounds: the normal uniqueness-nullifier query and a session-seed query. The latter carries the RP-signed uniqueness action as `rp_signature_verification: { "uniqueness_action": { "action": ... } }`, allowing the same RP signature to authorize the session module.
 - Binding to an existing `sessionId` requires the Authenticator's cached `r`; re-deriving `r` is only possible through a session-type request.
 - Verifiers MUST check bound proofs against the session's commitment. With the session commitment set to `0` the proof is valid but unbound. On-chain, the dedicated `verifyWithSession()` entry point does this (it rejects `sessionId == 0`). The convenience `verify()` entry point pins the signal to `0` and rejects bound proofs, so binding is explicit in both directions.
 - Binding one `sessionId` to Uniqueness Proofs under different actions intentionally links those actions to the same World ID; Authenticators MUST clearly surface this to users.
-- OPRF nodes must support `signed_action` on session-seed queries before authenticators begin sending it. The field is additive: requests without it behave identically to before.
+- OPRF nodes must support `rp_signature_verification` on session-seed queries before authenticators begin sending it. The field is additive: requests without it behave identically to before.
 
 ### Web-based Authenticator Provider
 
