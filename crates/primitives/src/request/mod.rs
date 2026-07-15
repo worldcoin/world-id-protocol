@@ -464,22 +464,23 @@ impl ProofRequest {
     /// Returns [`PrimitiveError::InvalidInput`] when the request has an invalid
     /// combination of `proof_type`, `session_id`, and `action`.
     pub fn validate_proof_type(&self) -> Result<(), PrimitiveError> {
-        match (self.proof_type, self.session_id) {
-            (ProofType::Uniqueness, _) => Ok(()),
-            (ProofType::Session, SessionRef::None) => Err(PrimitiveError::InvalidInput {
+        match (self.proof_type, self.session_id, self.action) {
+            (ProofType::Uniqueness, _, None) => Err(PrimitiveError::InvalidInput {
+                attribute: "action".to_string(),
+                reason: "must be present for uniqueness proofs".to_string(),
+            }),
+            (ProofType::Session, SessionRef::None, _) => Err(PrimitiveError::InvalidInput {
                 attribute: "session_id".to_string(),
                 reason: "must be \"create\" or an existing session id for session proofs"
                     .to_string(),
             }),
-            (ProofType::Session, SessionRef::Create | SessionRef::Existing(_)) => {
-                if self.action.is_some() {
-                    return Err(PrimitiveError::InvalidInput {
-                        attribute: "action".to_string(),
-                        reason: "must be omitted for session proofs".to_string(),
-                    });
-                }
-                Ok(())
+            (ProofType::Session, SessionRef::Create | SessionRef::Existing(_), Some(_)) => {
+                Err(PrimitiveError::InvalidInput {
+                    attribute: "action".to_string(),
+                    reason: "must be omitted for session proofs".to_string(),
+                })
             }
+            _ => Ok(()),
         }
     }
 
@@ -2401,7 +2402,7 @@ mod tests {
             version: RequestVersion::V1,
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::Existing(test_session_id(1)),
-            action: None,
+            action: Some(FieldElement::ZERO),
             created_at: 1_735_689_600,
             expires_at: 1_735_689_900,
             rp_id: RpId::new(1),
@@ -2423,6 +2424,15 @@ mod tests {
         assert!(uniqueness_with_session.binds_session());
         assert!(!uniqueness_with_session.is_session_proof());
 
+        let uniqueness_without_action = ProofRequest {
+            action: None,
+            ..uniqueness_with_session.clone()
+        };
+        assert!(matches!(
+            uniqueness_without_action.validate_proof_type(),
+            Err(PrimitiveError::InvalidInput { attribute, .. }) if attribute == "action"
+        ));
+
         let plain_uniqueness = ProofRequest {
             session_id: SessionRef::None,
             ..uniqueness_with_session.clone()
@@ -2441,6 +2451,7 @@ mod tests {
         let session_without_session = ProofRequest {
             proof_type: ProofType::Session,
             session_id: SessionRef::None,
+            action: None,
             ..uniqueness_with_session.clone()
         };
         assert!(matches!(
@@ -2452,6 +2463,7 @@ mod tests {
         let session_create = ProofRequest {
             proof_type: ProofType::Session,
             session_id: SessionRef::Create,
+            action: None,
             ..uniqueness_with_session.clone()
         };
         assert!(session_create.validate_proof_type().is_ok());
@@ -2460,6 +2472,7 @@ mod tests {
 
         let session_existing = ProofRequest {
             proof_type: ProofType::Session,
+            action: None,
             ..uniqueness_with_session.clone()
         };
         assert!(session_existing.validate_proof_type().is_ok());
