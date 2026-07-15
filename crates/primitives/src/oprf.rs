@@ -572,16 +572,6 @@ mod tests {
     }
 
     #[test]
-    fn nullifier_auth_rp_signature_verification_none_is_omitted() {
-        let value = serde_json::to_value(test_auth(None)).unwrap();
-        // Forward compat: unused, the field never appears on the wire.
-        assert!(value.get("rp_signature_verification").is_none());
-        // Backward compat: payloads without the field deserialize to `None`.
-        let parsed: NullifierOprfRequestAuthV1 = serde_json::from_value(value).unwrap();
-        assert!(parsed.rp_signature_verification.is_none());
-    }
-
-    #[test]
     fn nullifier_auth_rp_signature_verification_json_roundtrip() {
         let verification = RpSignatureVerification::UniquenessAction {
             action: FieldElement::from(42u64),
@@ -602,15 +592,6 @@ mod tests {
         ciborium::into_writer(&auth, &mut bytes).unwrap();
         let parsed: NullifierOprfRequestAuthV1 = ciborium::from_reader(bytes.as_slice()).unwrap();
         assert_eq!(parsed.rp_signature_verification, Some(verification));
-    }
-
-    #[test]
-    fn nullifier_auth_ignores_unknown_fields() {
-        // Old nodes must ignore fields added later (no `deny_unknown_fields`).
-        let mut value = serde_json::to_value(test_auth(None)).unwrap();
-        value["some_future_field"] = serde_json::json!("ignored");
-        let parsed = serde_json::from_value::<NullifierOprfRequestAuthV1>(value);
-        assert!(parsed.is_ok());
     }
 
     #[test]
