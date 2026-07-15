@@ -754,15 +754,15 @@ async fn test_session_seed_rp_signature_verification_invalid_prefix() -> eyre::R
         });
     setup
         .assert_auth_err(
-            error_codes::INVALID_SIGNED_ACTION,
-            "Invalid signed action - must be a valid nullifier action (MSB 0x00)",
+            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
+            "Invalid RP signature verification data",
         )
         .await
 }
 
 #[tokio::test]
 async fn test_session_action_query_rejects_rp_signature_verification() -> eyre::Result<()> {
-    // Only seed queries (0x01) may carry a signed action, not session-action queries (0x02).
+    // Only seed queries (0x01) may carry verification data, not session-action queries (0x02).
     let mut setup = RpModuleTestSetup::new_session_with_fe_type(SessionFeType::Action).await?;
     setup.request.auth.rp_signature_verification =
         Some(RpSignatureVerification::UniquenessAction {
@@ -770,8 +770,8 @@ async fn test_session_action_query_rejects_rp_signature_verification() -> eyre::
         });
     setup
         .assert_auth_err(
-            error_codes::SIGNED_ACTION_NOT_ALLOWED,
-            "Signed actions are only allowed on session-seed queries from EOA-backed RPs",
+            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
+            "Invalid RP signature verification data",
         )
         .await
 }
@@ -786,8 +786,8 @@ async fn test_uniqueness_rejects_rp_signature_verification() -> eyre::Result<()>
         });
     setup
         .assert_auth_err(
-            error_codes::SIGNED_ACTION_NOT_ALLOWED,
-            "Signed actions are only allowed on session-seed queries from EOA-backed RPs",
+            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
+            "Invalid RP signature verification data",
         )
         .await
 }
@@ -804,8 +804,8 @@ async fn test_session_wip101_rejects_rp_signature_verification() -> eyre::Result
         });
     setup
         .assert_auth_err(
-            error_codes::SIGNED_ACTION_NOT_ALLOWED,
-            "Signed actions are only allowed on session-seed queries from EOA-backed RPs",
+            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
+            "Invalid RP signature verification data",
         )
         .await
 }

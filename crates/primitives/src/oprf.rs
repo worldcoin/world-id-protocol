@@ -191,14 +191,12 @@ pub enum WorldIdRequestAuthError {
     /// prefixes.
     #[error("invalid_action_for_session")]
     InvalidActionSession,
-    /// The provided signed action is not a valid nullifier action. Signed actions must
-    /// start with `0x00` (MSB).
-    #[error("invalid_signed_action")]
-    InvalidSignedAction,
-    /// A signed action was provided on a request that does not support one. Signed
-    /// actions are only allowed on session-seed queries from EOA-backed RPs.
-    #[error("signed_action_not_allowed")]
-    SignedActionNotAllowed,
+    /// The provided RP signature verification data is invalid or not allowed on this query.
+    ///
+    /// Verification data is only valid on create-and-bind session-seed queries from
+    /// EOA-backed RPs and must carry a uniqueness action (MSB `0x00`).
+    #[error("invalid_rp_signature_verification")]
+    InvalidRpSignatureVerification,
     /// The RP signer is a contract but does not implement the WIP101 interface.
     #[error("wip101_incompatible_rp_signer")]
     Wip101IncompatibleRpSigner,
@@ -263,7 +261,6 @@ impl WorldIdRequestAuthError {
             | Self::InvalidRpSignature
             | Self::DuplicateNonce
             | Self::InvalidActionNullifier
-            | Self::InvalidSignedAction
             | Self::Wip101IncompatibleRpSigner
             | Self::Wip101VerificationFailed(_)
             | Self::Wip101CustomRevert
@@ -276,7 +273,7 @@ impl WorldIdRequestAuthError {
             | Self::InvalidQueryProof
             | Self::InvalidActionSchemaIssuer
             | Self::InvalidActionSession
-            | Self::SignedActionNotAllowed
+            | Self::InvalidRpSignatureVerification
             | Self::RpSignatureMissing => ErrorActor::Authenticator,
             Self::Internal | Self::Unknown(_) => ErrorActor::OprfNode,
         }
@@ -298,8 +295,7 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::UNKNOWN_SCHEMA_ISSUER => Self::UnknownSchemaIssuerId,
             error_codes::INVALID_ACTION_NULLIFIER => Self::InvalidActionNullifier,
             error_codes::INVALID_ACTION_SESSION => Self::InvalidActionSession,
-            error_codes::INVALID_SIGNED_ACTION => Self::InvalidSignedAction,
-            error_codes::SIGNED_ACTION_NOT_ALLOWED => Self::SignedActionNotAllowed,
+            error_codes::INVALID_RP_SIGNATURE_VERIFICATION => Self::InvalidRpSignatureVerification,
             error_codes::RP_SIGNATURE_EXPIRED => Self::RpSignatureExpired,
             error_codes::RP_SIGNATURE_MISSING => Self::RpSignatureMissing,
             error_codes::INVALID_TIMESTAMP => Self::InvalidTimestamp,
@@ -341,9 +337,8 @@ impl From<WorldIdRequestAuthError> for u16 {
                 error_codes::INVALID_ACTION_NULLIFIER
             }
             WorldIdRequestAuthError::InvalidActionSession => error_codes::INVALID_ACTION_SESSION,
-            WorldIdRequestAuthError::InvalidSignedAction => error_codes::INVALID_SIGNED_ACTION,
-            WorldIdRequestAuthError::SignedActionNotAllowed => {
-                error_codes::SIGNED_ACTION_NOT_ALLOWED
+            WorldIdRequestAuthError::InvalidRpSignatureVerification => {
+                error_codes::INVALID_RP_SIGNATURE_VERIFICATION
             }
             WorldIdRequestAuthError::RpSignatureExpired => error_codes::RP_SIGNATURE_EXPIRED,
             WorldIdRequestAuthError::CreatedAtTooFarInFuture => {
@@ -422,10 +417,8 @@ pub mod error_codes {
     pub const BLOCKED_RP: u16 = 4522;
     /// Error code for [`super::WorldIdRequestAuthError::ExpiresAtTooFarInFuture`].
     pub const EXPIRES_AT_TOO_FAR_IN_FUTURE: u16 = 4523;
-    /// Error code for [`super::WorldIdRequestAuthError::InvalidSignedAction`].
-    pub const INVALID_SIGNED_ACTION: u16 = 4524;
-    /// Error code for [`super::WorldIdRequestAuthError::SignedActionNotAllowed`].
-    pub const SIGNED_ACTION_NOT_ALLOWED: u16 = 4525;
+    /// Error code for [`super::WorldIdRequestAuthError::InvalidRpSignatureVerification`].
+    pub const INVALID_RP_SIGNATURE_VERIFICATION: u16 = 4524;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
     pub const INTERNAL: u16 = 1011;
 }
@@ -508,15 +501,8 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
                 // this should never truncate as code is a U256 encoded as hex
                 CloseFrameMessage::new_truncate(format!("{:#x}", code))
             }
-            WorldIdRequestAuthError::InvalidSignedAction => {
-                taceo_oprf::types::close_frame_message!(
-                    "Invalid signed action - must be a valid nullifier action (MSB 0x00)"
-                )
-            }
-            WorldIdRequestAuthError::SignedActionNotAllowed => {
-                taceo_oprf::types::close_frame_message!(
-                    "Signed actions are only allowed on session-seed queries from EOA-backed RPs"
-                )
+            WorldIdRequestAuthError::InvalidRpSignatureVerification => {
+                taceo_oprf::types::close_frame_message!("Invalid RP signature verification data")
             }
             WorldIdRequestAuthError::Wip101AuxDataOnEoa => taceo_oprf::types::close_frame_message!(
                 "Auxiliary data must be empty with EOA backed signer"
@@ -642,8 +628,7 @@ mod tests {
             error_codes::UNKNOWN_SCHEMA_ISSUER,
             error_codes::INVALID_ACTION_NULLIFIER,
             error_codes::INVALID_ACTION_SESSION,
-            error_codes::INVALID_SIGNED_ACTION,
-            error_codes::SIGNED_ACTION_NOT_ALLOWED,
+            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
             error_codes::INACTIVE_RP,
             error_codes::RP_SIGNATURE_EXPIRED,
             error_codes::INVALID_TIMESTAMP,
