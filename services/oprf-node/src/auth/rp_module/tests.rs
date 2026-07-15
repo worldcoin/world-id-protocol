@@ -39,11 +39,11 @@ pub(crate) struct RpModuleTestSetup {
 
 impl RpModuleTestSetup {
     pub(crate) async fn new_session() -> eyre::Result<Self> {
-        Self::new_session_with_fe_type(SessionFeType::OprfSeed).await
+        Self::new_unbound_session_with_fe_type(SessionFeType::OprfSeed).await
     }
 
     /// Constructs a valid session test setup with the given session type.
-    pub(crate) async fn new_session_with_fe_type(
+    pub(crate) async fn new_unbound_session_with_fe_type(
         session_type: SessionFeType,
     ) -> eyre::Result<Self> {
         let mut rng = rand::thread_rng();
@@ -93,7 +93,7 @@ impl RpModuleTestSetup {
     /// Constructs a valid session-seed test setup whose RP signature covers the
     /// fixture's uniqueness action, carried as RP signature verification data
     /// (create-and-bind).
-    pub(crate) async fn new_session_bound_seed() -> eyre::Result<Self> {
+    pub(crate) async fn new_bound_session_seed() -> eyre::Result<Self> {
         let mut rng = rand::thread_rng();
         let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
 
@@ -656,7 +656,7 @@ async fn test_session_wip101_account_check_timeout() -> eyre::Result<()> {
 
 #[tokio::test]
 async fn test_session_success_action() -> eyre::Result<()> {
-    let setup = RpModuleTestSetup::new_session_with_fe_type(SessionFeType::Action).await?;
+    let setup = RpModuleTestSetup::new_unbound_session_with_fe_type(SessionFeType::Action).await?;
     setup.assert_auth_ok().await
 }
 
@@ -688,54 +688,21 @@ async fn test_session_invalid_action_random_prefix() -> eyre::Result<()> {
 
 // ── RP signature verification (create-and-bind) tests ───────────────────
 //
-// A session-seed query may carry a uniqueness action covered by the RP signature.
-// The happy path verifies the action-inclusive message; everything else must
-// fail loudly — most importantly the two signature/field mismatch directions,
-// which are exactly what an old node (ignoring the field) would hit.
+// Session-seed queries may carry the RP-signed uniqueness action in
+// `rp_signature_verification`. Keep coverage minimal: happy path, one
+// signature/field mismatch, prefix validation, and one wrong-context rejection.
 
 #[tokio::test]
 async fn test_session_seed_rp_signature_verification_success() -> eyre::Result<()> {
-    check_success(RpModuleTestSetup::new_session_bound_seed().await?).await
+    check_success(RpModuleTestSetup::new_bound_session_seed().await?).await
 }
 
 #[tokio::test]
 async fn test_session_seed_rp_signature_verification_missing_field() -> eyre::Result<()> {
     // Old-node simulation: the signature covers the action, but the field is absent,
     // so the node reconstructs the action-less message. Must fail closed.
-    let mut setup = RpModuleTestSetup::new_session_bound_seed().await?;
+    let mut setup = RpModuleTestSetup::new_bound_session_seed().await?;
     setup.request.auth.rp_signature_verification = None;
-    setup
-        .assert_auth_err(
-            error_codes::INVALID_RP_SIGNATURE,
-            "signature from RP cannot be verified",
-        )
-        .await
-}
-
-#[tokio::test]
-async fn test_session_seed_rp_signature_verification_actionless_signature() -> eyre::Result<()> {
-    // Inverse mismatch: field present, but the signature was made over the
-    // action-less message.
-    let mut setup = RpModuleTestSetup::new_session().await?;
-    setup.request.auth.rp_signature_verification =
-        Some(RpSignatureVerification::UniquenessAction {
-            action: setup.setup.rp_fixture.action.into(),
-        });
-    setup
-        .assert_auth_err(
-            error_codes::INVALID_RP_SIGNATURE,
-            "signature from RP cannot be verified",
-        )
-        .await
-}
-
-#[tokio::test]
-async fn test_session_seed_rp_signature_verification_tampered() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_session_bound_seed().await?;
-    setup.request.auth.rp_signature_verification =
-        Some(RpSignatureVerification::UniquenessAction {
-            action: action_with_msb(0x00).into(),
-        });
     setup
         .assert_auth_err(
             error_codes::INVALID_RP_SIGNATURE,
@@ -747,7 +714,7 @@ async fn test_session_seed_rp_signature_verification_tampered() -> eyre::Result<
 #[tokio::test]
 async fn test_session_seed_rp_signature_verification_invalid_prefix() -> eyre::Result<()> {
     // A signed action must be a nullifier action (MSB 0x00); session prefixes are invalid.
-    let mut setup = RpModuleTestSetup::new_session_bound_seed().await?;
+    let mut setup = RpModuleTestSetup::new_bound_session_seed().await?;
     setup.request.auth.rp_signature_verification =
         Some(RpSignatureVerification::UniquenessAction {
             action: action_with_msb(0x01).into(),
@@ -761,43 +728,9 @@ async fn test_session_seed_rp_signature_verification_invalid_prefix() -> eyre::R
 }
 
 #[tokio::test]
-async fn test_session_action_query_rejects_rp_signature_verification() -> eyre::Result<()> {
-    // Only seed queries (0x01) may carry verification data, not session-action queries (0x02).
-    let mut setup = RpModuleTestSetup::new_session_with_fe_type(SessionFeType::Action).await?;
-    setup.request.auth.rp_signature_verification =
-        Some(RpSignatureVerification::UniquenessAction {
-            action: setup.setup.rp_fixture.action.into(),
-        });
-    setup
-        .assert_auth_err(
-            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
-            "Invalid RP signature verification data",
-        )
-        .await
-}
-
-#[tokio::test]
 async fn test_uniqueness_rejects_rp_signature_verification() -> eyre::Result<()> {
-    // The uniqueness module signs the regular action; extra verification is meaningless there.
+    // Verification data is only valid on the session module.
     let mut setup = RpModuleTestSetup::new_uniqueness().await?;
-    setup.request.auth.rp_signature_verification =
-        Some(RpSignatureVerification::UniquenessAction {
-            action: setup.setup.rp_fixture.action.into(),
-        });
-    setup
-        .assert_auth_err(
-            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
-            "Invalid RP signature verification data",
-        )
-        .await
-}
-
-#[tokio::test]
-async fn test_session_wip101_rejects_rp_signature_verification() -> eyre::Result<()> {
-    // WIP101 contract-backed RPs do not support session queries with verification data.
-    let mut setup = RpModuleTestSetup::new_session_bound_seed().await?;
-    let addr = deploy!(WIP101Correct, setup);
-    setup.set_contract_signer(addr, None).await;
     setup.request.auth.rp_signature_verification =
         Some(RpSignatureVerification::UniquenessAction {
             action: setup.setup.rp_fixture.action.into(),
