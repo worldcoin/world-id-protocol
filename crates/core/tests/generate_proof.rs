@@ -459,20 +459,15 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     info!("uniqueness create proof verified via verifyWithSession");
 
     // ── SESSION-BOUND UNIQUENESS PROOF (existing session) ──
-    // Note: We mock a cached r here. This would be initially obtained from an OPRF query.
-    let session_id_r_seed = FieldElement::random(&mut rng);
-    let session_id = SessionId::from_r_seed(
-        leaf_index,
-        session_id_r_seed,
-        SessionId::generate_oprf_seed(&mut rng),
-    )?;
+    let session_id_r_seed = created_session_seed;
+    let session_id = created_session_id;
     let bound_request = ProofRequest {
         session_id: SessionRef::Existing(session_id),
         ..proof_request.clone()
     };
 
-    // binding requires the cached seed
-    let err = authenticator
+    // The seed can be re-derived when it is not cached.
+    let uncached_bound_result = authenticator
         .generate_proof(
             &bound_request,
             nullifier_for_binding.clone(),
@@ -480,9 +475,15 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             None,
             None,
         )
-        .await
-        .unwrap_err();
-    assert!(matches!(err, AuthenticatorError::SessionSeedRequired));
+        .await?;
+    assert_eq!(
+        uncached_bound_result.session_id_r_seed,
+        Some(session_id_r_seed)
+    );
+    assert_eq!(
+        uncached_bound_result.proof_response.session_id,
+        Some(session_id)
+    );
 
     // a seed that does not open the session's commitment is rejected
     let err = authenticator

@@ -21,8 +21,7 @@ use taceo_oprf::{
 };
 
 use world_id_primitives::{
-    FieldElement, ProofRequest, ProofType, SessionFeType, SessionFieldElement, SessionRef,
-    TREE_DEPTH,
+    FieldElement, ProofRequest, ProofType, SessionFeType, SessionFieldElement, TREE_DEPTH,
     oprf::{
         CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule,
         RpSignatureVerification,
@@ -291,15 +290,9 @@ impl<'a> OprfEntrypoint<'a> {
         proof_request
             .validate_proof_type()
             .map_err(|err| ProofError::GenerationError(err.to_string()))?;
-        if !proof_request.is_session_proof()
-            && !matches!(
-                (proof_request.proof_type, proof_request.session_id),
-                (ProofType::Uniqueness, SessionRef::Create)
-            )
-        {
+        if proof_request.session_id.is_none() {
             return Err(ProofError::GenerationError(
-                "session randomness can only be derived for session proofs or uniqueness session creation"
-                    .to_string(),
+                "session randomness can only be derived for requests with a \"create\" or existing session_id".to_string(),
             ));
         }
 
@@ -312,12 +305,8 @@ impl<'a> OprfEntrypoint<'a> {
             rng,
         )?;
 
-        let rp_signature_verification = match (
-            proof_request.proof_type,
-            proof_request.session_id,
-            proof_request.action,
-        ) {
-            (ProofType::Uniqueness, SessionRef::Create, Some(action)) => {
+        let rp_signature_verification = match (proof_request.proof_type, proof_request.action) {
+            (ProofType::Uniqueness, Some(action)) => {
                 Some(RpSignatureVerification::UniquenessAction { action })
             }
             _ => None,

@@ -208,17 +208,11 @@ impl Authenticator {
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
         proof_request.validate_proof_type()?;
-        if !proof_request.is_session_proof()
-            && !matches!(
-                (proof_request.proof_type, proof_request.session_id),
-                (ProofType::Uniqueness, SessionRef::Create)
-            )
-        {
+        if proof_request.session_id.is_none() {
             return Err(AuthenticatorError::PrimitiveError(
                 world_id_primitives::PrimitiveError::InvalidInput {
                     attribute: "session_id".to_string(),
-                    reason: "session ids can only be built for session proofs or uniqueness session creation"
-                        .to_string(),
+                    reason: "session_id must be \"create\" or an existing session id".to_string(),
                 },
             ));
         }
@@ -227,7 +221,10 @@ impl Authenticator {
 
         let oprf_seed = match proof_request.session_id {
             SessionRef::Existing(session_id) => session_id.oprf_seed,
-            SessionRef::Create | SessionRef::None => SessionId::generate_oprf_seed(&mut rng),
+            SessionRef::Create => SessionId::generate_oprf_seed(&mut rng),
+            SessionRef::None => {
+                unreachable!("SessionRef::None should be handled by the guard above")
+            }
         };
 
         let resolved_session_id_r_seed = match session_id_r_seed {
@@ -280,11 +277,9 @@ impl Authenticator {
     /// - `credentials` — one [`CredentialInput`] per credential to prove,
     ///   matched to request items by `issuer_schema_id`.
     /// - `account_inclusion_proof` — a cached inclusion proof if available (a fresh one will be fetched otherwise)
-    /// - `session_id_r_seed` — a cached session `r` seed. For Session Proofs it is re-computed
-    ///   if unavailable; for session-bound Uniqueness Proofs with an existing session id
-    ///   ([`ProofRequest::binds_session`]) it is required and the call fails with
-    ///   [`AuthenticatorError::SessionSeedRequired`] otherwise. Create flows mint a fresh
-    ///   session and return the new `session_id_r_seed` for caching.
+    /// - `session_id_r_seed` — a cached session `r` seed. For requests using an existing
+    ///   session it is re-derived if unavailable. Create flows mint a fresh session and return
+    ///   the new `session_id_r_seed` for caching.
     ///
     /// # Caller Responsibilities
     /// 1. The caller must ensure the request can be fulfilled with the credentials which the user has available,
@@ -315,44 +310,28 @@ impl Authenticator {
             .ok_or(AuthenticatorError::UnfullfilableRequest)?;
 
         // 2. Resolve session seed
-        let (resolved_session_id, resolved_session_seed) =
-            match (proof_request.proof_type, proof_request.session_id) {
-                (ProofType::Uniqueness, SessionRef::None) => (None, None),
-                // Bind the proof to the existing session. Requires the cached `r`.
-                (ProofType::Uniqueness, SessionRef::Existing(session_id)) => {
-                    let seed = session_id_r_seed.ok_or(AuthenticatorError::SessionSeedRequired)?;
+        let (resolved_session_id, resolved_session_r_seed) = match proof_request.session_id {
+            SessionRef::None => (None, None),
+            SessionRef::Create => {
+                let (session_id, seed) = self
+                    .build_session_id(proof_request, None, account_inclusion_proof)
+                    .await?;
+                (Some(session_id), Some(seed))
+            }
+            SessionRef::Existing(session_id) => {
+                if let Some(seed) = session_id_r_seed {
                     self.validate_cached_session_r_seed(seed, session_id)?;
                     (Some(session_id), Some(seed))
-                }
-                (ProofType::Uniqueness | ProofType::Session, SessionRef::Create) => {
-                    let (session_id, seed) = self
+                } else {
+                    // Re-derive the same `r` from the existing session's `oprf_seed` when the
+                    // caller did not provide a cached seed.
+                    let (_session_id, seed) = self
                         .build_session_id(proof_request, None, account_inclusion_proof)
                         .await?;
                     (Some(session_id), Some(seed))
                 }
-                (ProofType::Session, SessionRef::Existing(session_id)) => {
-                    if let Some(seed) = session_id_r_seed {
-                        self.validate_cached_session_r_seed(seed, session_id)?;
-                        (Some(session_id), Some(seed))
-                    } else {
-                        // Re-derive the same `r` from the existing session's `oprf_seed` when the
-                        // caller did not provide a cached seed.
-                        let (_session_id, seed) = self
-                            .build_session_id(proof_request, None, account_inclusion_proof)
-                            .await?;
-                        (Some(session_id), Some(seed))
-                    }
-                }
-                // Rejected by validate_proof_type() above; kept explicit to stay exhaustive.
-                (ProofType::Session, SessionRef::None) => {
-                    return Err(AuthenticatorError::PrimitiveError(
-                        world_id_primitives::PrimitiveError::InvalidInput {
-                            attribute: "session_id".to_string(),
-                            reason: "invalid proof_type/session_id combination".to_string(),
-                        },
-                    ));
-                }
-            };
+            }
+        };
 
         let nullifier_material = self
             .zk_artifact_source
@@ -375,7 +354,7 @@ impl Authenticator {
                 request_item,
                 &cred_input.credential,
                 cred_input.blinding_factor,
-                resolved_session_seed,
+                resolved_session_r_seed,
                 resolved_session_id,
                 proof_request.proof_type,
                 proof_request.created_at,
@@ -395,7 +374,7 @@ impl Authenticator {
         // 5. Validate and return response
         proof_request.validate_response(&proof_response)?;
         Ok(ProofResult {
-            session_id_r_seed: resolved_session_seed,
+            session_id_r_seed: resolved_session_r_seed,
             proof_response,
         })
     }

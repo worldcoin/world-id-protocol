@@ -135,12 +135,6 @@ pub enum AuthenticatorError {
     #[error("the expected session id and the generated session id do not match")]
     SessionIdMismatch,
 
-    /// Binding a session to a Uniqueness Proof requires the cached `session_id_r_seed`.
-    /// Re-deriving it inside a uniqueness request is not possible; run a session-type
-    /// request first to obtain it.
-    #[error("session binding requires a cached `session_id_r_seed`")]
-    SessionSeedRequired,
-
     /// Generic error for other unexpected issues.
     #[error("{0}")]
     Generic(String),
