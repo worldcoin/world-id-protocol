@@ -407,6 +407,7 @@ impl RpModuleAuth {
                         action: signed_action,
                     }) = request.auth.rp_signature_verification
                     {
+                        // TODO: Move this check to a function or trait on FieldElement. Potentially unify with is_valid_for_session.
                         if signed_action.to_be_bytes()[0] != 0 {
                             return Err(RpModuleError::InvalidRpSignatureVerification {
                                 context: "uniqueness action MSB must be 0x00",
