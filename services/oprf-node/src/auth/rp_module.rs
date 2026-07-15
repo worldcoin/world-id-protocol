@@ -398,8 +398,7 @@ impl RpModuleAuth {
         let action = FieldElement::from(request.auth.action);
 
         // Validate the action per kind and derive the nonce scope it consumes.
-        // RP signature verification data is only valid on session-seed queries; see the
-        // module docs for the create-and-bind flow.
+        // RP signature verification data is only valid on session-seed queries
         let nonce_scope = match self.kind {
             RpModuleKind::Session => {
                 metrics::auth_module::inc_session();
@@ -413,7 +412,6 @@ impl RpModuleAuth {
                                 context: "uniqueness action MSB must be 0x00",
                             });
                         }
-                        metrics::auth_module::inc_session_signed_action();
                     }
                     NonceScope::SessionOprfSeed
                 } else if action.is_valid_for_session(SessionFeType::Action) {

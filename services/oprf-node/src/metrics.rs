@@ -51,8 +51,6 @@ pub(crate) mod accountant_batcher {
 pub(crate) mod auth_module {
 
     const METRICS_ID_AUTHENTICATION_COUNTER: &str = "taceo.oprf.node.auth";
-    const METRICS_ID_SESSION_SIGNED_ACTION_COUNTER: &str =
-        "taceo.oprf.node.auth.session_signed_action";
     const METRICS_ATTRID_AUTH_MODULE: &str = "auth_module";
     const METRICS_ATTR_NULLIFIER_MODULE: &str = "nullifier";
     const METRICS_ATTR_SESSION_MODULE: &str = "session";
@@ -64,11 +62,6 @@ pub(crate) mod auth_module {
             metrics::Unit::Count,
             "Number of times the authentication modules were hit."
         );
-        metrics::describe_counter!(
-            METRICS_ID_SESSION_SIGNED_ACTION_COUNTER,
-            metrics::Unit::Count,
-            "Number of session-seed authentications carrying an RP-signed action (create-and-bind)."
-        );
     }
 
     pub(crate) fn inc_nullifier() {
@@ -77,10 +70,6 @@ pub(crate) mod auth_module {
 
     pub(crate) fn inc_session() {
         metrics::counter!(METRICS_ID_AUTHENTICATION_COUNTER, METRICS_ATTRID_AUTH_MODULE => METRICS_ATTR_SESSION_MODULE).increment(1);
-    }
-
-    pub(crate) fn inc_session_signed_action() {
-        metrics::counter!(METRICS_ID_SESSION_SIGNED_ACTION_COUNTER).increment(1);
     }
 
     pub(crate) fn inc_issuer_blinding() {
