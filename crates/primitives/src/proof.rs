@@ -1,6 +1,8 @@
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
+use crate::FieldElement;
+
 /// Encoded World ID Proof.
 ///
 /// Internally, the first 4 elements are a compressed Groth16 proof
@@ -96,6 +98,18 @@ impl From<ZeroKnowledgeProof> for [U256; 5] {
     }
 }
 
+/// A WIP-103 Ownership Proof.
+///
+/// Contains the ZKP and the Merkle root public input that the verifier
+/// doesn't initially provide.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OwnershipProof {
+    /// The WHIR R1CS proof from ProveKit.
+    pub proof: provekit_common::WhirR1CSProof,
+    /// Merkle tree root used for inclusion within the circuit.
+    pub merkle_root: FieldElement,
+}
+
 #[cfg(test)]
 mod tests {
     use ruint::uint;
@@ -164,5 +178,94 @@ mod tests {
         let result = ZeroKnowledgeProof::from_compressed_bytes(&too_long);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid length"));
+    }
+
+    #[test]
+    fn test_ownership_proof_json_roundtrip() {
+        let whir_proof = provekit_common::WhirR1CSProof {
+            narg_string: vec![1, 2, 3],
+            hints: vec![4, 5],
+            #[cfg(debug_assertions)]
+            pattern: vec![],
+        };
+        let proof = OwnershipProof {
+            proof: whir_proof,
+            merkle_root: crate::FieldElement::from(999u64),
+        };
+        let json = serde_json::to_string(&proof).unwrap();
+        assert!(json.contains("proof"));
+        assert!(json.contains("merkle_root"));
+        let decoded: OwnershipProof = serde_json::from_str(&json).unwrap();
+        assert_eq!(proof, decoded);
+    }
+
+    /// A proof with a wrong (flipped) merkle root must not equal the original.
+    ///
+    /// This test simulates the data-level check that a verifier would perform:
+    /// if the merkle root stored inside an [`OwnershipProof`] has been tampered
+    /// with, the proof object is distinguishable from the original.
+    #[test]
+    fn test_ownership_proof_wrong_merkle_root_is_detected() {
+        let whir_proof = provekit_common::WhirR1CSProof {
+            narg_string: vec![10, 20, 30],
+            hints: vec![],
+            #[cfg(debug_assertions)]
+            pattern: vec![],
+        };
+        let proof = OwnershipProof {
+            proof: whir_proof.clone(),
+            merkle_root: crate::FieldElement::from(12345u64),
+        };
+
+        // Construct a proof with a different merkle root (simulating tampering).
+        let tampered = OwnershipProof {
+            proof: whir_proof,
+            merkle_root: crate::FieldElement::from(99999u64),
+        };
+
+        assert_ne!(
+            proof.merkle_root, tampered.merkle_root,
+            "a flipped merkle root must differ from the original"
+        );
+        assert_ne!(proof, tampered);
+    }
+
+    /// A proof with tampered proof bytes must not equal the original.
+    ///
+    /// This test simulates the data-level check that a verifier would perform:
+    /// if the proof bytes inside an [`OwnershipProof`] have been tampered with,
+    /// the proof object is distinguishable from the original.
+    #[test]
+    fn test_ownership_proof_tampered_bytes_is_detected() {
+        let original_bytes = vec![0xde, 0xad, 0xbe, 0xef];
+        let proof = OwnershipProof {
+            proof: provekit_common::WhirR1CSProof {
+                narg_string: original_bytes.clone(),
+                hints: vec![],
+                #[cfg(debug_assertions)]
+                pattern: vec![],
+            },
+            merkle_root: crate::FieldElement::from(42u64),
+        };
+
+        // Flip the first byte to simulate proof tampering.
+        let mut tampered_bytes = original_bytes;
+        tampered_bytes[0] ^= 0xFF;
+
+        let tampered = OwnershipProof {
+            proof: provekit_common::WhirR1CSProof {
+                narg_string: tampered_bytes,
+                hints: vec![],
+                #[cfg(debug_assertions)]
+                pattern: vec![],
+            },
+            merkle_root: crate::FieldElement::from(42u64),
+        };
+
+        assert_ne!(
+            proof.proof.narg_string, tampered.proof.narg_string,
+            "tampered proof bytes must differ from the original"
+        );
+        assert_ne!(proof, tampered);
     }
 }

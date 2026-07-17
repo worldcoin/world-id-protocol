@@ -5,14 +5,18 @@ members = [
   "crates/issuer",
   "crates/proof",
   "crates/primitives",
+  "crates/registries",
   "crates/test-utils",
+  "crates/zk-mobile-bench",
   "services/indexer",
   "services/gateway",
   "services/oprf-node",
+  "services/oprf-accountant",
   "services/oprf-dev-client",
   "services/common",
   "services/faux-issuer",
   "tools/generate-solidity-fixtures",
+  "tools/legacy-recovery-migration",
   "services/relay",
 ]
 
@@ -20,7 +24,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.9.0"
+version = "0.13.0"
 license = "MIT"
 authors = [
   "World Foundation",
@@ -29,13 +33,23 @@ authors = [
 ]
 homepage = "https://docs.world.org/world-id"
 repository = "https://github.com/worldcoin/world-id-protocol"
-rust-version = "1.87"
+rust-version = "1.91"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+
+[workspace.lints.rust]
+missing_docs = "deny"
+dead_code = "deny"
+unused_crate_dependencies = "deny"
 
 [workspace.dependencies]
 # alloy
-alloy = { version = "1.7.3", default-features = false }
-alloy-primitives = { version = "1.5.6", default-features = false }
-alloy-node-bindings = "1.0.42"
+alloy = { version = "2.0.1", default-features = false }
+alloy-primitives = { version = "1.5.7", default-features = false }
+alloy-node-bindings = "2.0.1"
 
 anyhow = "1"
 ark-ec = "0.5"
@@ -61,13 +75,13 @@ itertools = "0.14"
 k256 = { version = "0.13" }
 sha2 = { version = "0.11", default-features = false }
 taceo-groth16-sol = { version = "0.3.1" }
-taceo-oprf = { version = "0.12.1", default-features = false }
-taceo-oprf-test-utils = { version = "0.10", default-features = false }
-taceo-oprf-key-gen = { version = "0.9" }
-telemetry-batteries = "0.2"
+taceo-oprf = { version = "0.17.2", default-features = false }
+taceo-oprf-test-utils = { version = "0.14", default-features = false }
+telemetry-batteries = "0.3"
+tikv-jemallocator = "0.6"
 ruint = { version = "1.17", features = ["ark-ff-05"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.2" }
-rand = "0.8"
+rand = "0.8.6"
 rand_chacha = "0.3"
 rustls = { version = "0.23", features = ["ring"] }
 semver = "1"
@@ -95,10 +109,12 @@ moka = { version = "0.12.13", features = ["future"] }
 dashmap = { version = "6.1.0" }
 parking_lot = { version = "0.12.5"}
 metrics = "0.24"
+metrics-util = "0.20"
 secrecy = "0.10"
 mockito = "1"
 ciborium = "0.2"
 arrayvec = "0.7"
+async-stream = "0.3"
 async-trait = "0.1"
 aws-config = "1"
 aws-sdk-kms = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio", "behavior-version-latest"] }
@@ -107,15 +123,16 @@ clap = "4.5.59"
 config = "0.15.19"
 dotenvy = "0.15"
 futures-util = "0.3"
-getrandom = "0.2"
+getrandom = "0.3"
 governor = "0.10.4"
 http = "1"
 humantime = "2"
 humantime-serde = "1"
 once_cell = "1"
-provekit-common = { version = "0.1.3" }
-provekit-prover = { version = "0.1.3" }
-provekit-r1cs-compiler = { version = "0.1.3" }
+provekit-common = { version = "0.1.4" }
+provekit-prover = { version = "0.1.4" }
+provekit-verifier = { version = "0.1.4" }
+provekit-r1cs-compiler = { version = "0.1.4" }
 rayon = "1.11"
 redis = "1"
 regex = "1"
@@ -128,22 +145,24 @@ testcontainers-modules = { version = "0.15", features = ["redis"] }
 sqlx = "0.8"
 take_mut = "0.2.2"
 tar = "0.4"
-taceo-nodes-common = { version = "0.4.4", default-features=false }
-taceo-nodes-observability = "0.1"
+taceo-nodes-common = { version = "0.7.4", default-features=false }
 tempfile = "3"
 tokio-util = "0.7"
-tempo-alloy = "1.4"
+tempo-alloy = "1.6"
 tower = "0.5.3"
 
 # Internal
-world-id-core = { version = "0.9.0", default-features = false, path = "crates/core" }
-world-id-issuer = { version = "0.9.0", path = "crates/issuer" }
-world-id-proof = { version = "0.9.0", path = "crates/proof" }
-world-id-authenticator = { version = "0.9.0", path = "crates/authenticator" }
-world-id-primitives = { version = "0.9.0", path = "crates/primitives", default-features = false }
-world-id-oprf-node = { version = "0.1.0", path = "services/oprf-node" }
+oprf-accountant = { package="world-id-oprf-accountant", path = "services/oprf-accountant/" }
+world-id-core = { version = "0.13.0", default-features = false, path = "crates/core" }
+world-id-issuer = { version = "0.13.0", path = "crates/issuer" }
+world-id-proof = { version = "0.13.0", path = "crates/proof" }
+world-id-registries = { version = "0.13.0", path = "crates/registries" }
+world-id-authenticator = { version = "0.13.0", path = "crates/authenticator" }
+world-id-primitives = { version = "0.13.0", path = "crates/primitives", default-features = false }
+world-id-oprf-node = { version = "1.2.0", path = "services/oprf-node" }
+world-id-oprf-accountant = { version = "0.1.0", path = "services/oprf-accountant" }
 world-id-test-utils = { path = "crates/test-utils" }
-world-id-services-common = { path = "services/common" }
+world-id-services-common = { path = "services/common", version = "0.1.0" }
 world-id-relay = { path = "services/relay" }
 
 # Compile all third-party dependencies with optimizations, even in dev/test builds.

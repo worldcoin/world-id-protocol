@@ -6,16 +6,17 @@
 //! It defines the following sub-modules:
 //!
 //! - [`credential_blinding_factor`] – implements authentication for OPRF credential blinding factor generation.
-//! - [`merkle_watcher`] – watches the blockchain for merkle-root update events.
-//! - [`nonce_history`] – keeps track of nonces used for nonce + `time_stamp` signatures to detect replays
-//! - [`rp_registry_watcher`] – keeps track of registered RPs
-//! - [`schema_issuer_registry_watcher`] – keeps track of registered Credential Schema Issuers
+//! - [`merkle_watcher`] – validates and caches merkle roots from the `WorldIDRegistry`.
+//! - [`nonce_history`] – keeps track of RP nonces in a node-local cache to
+//!   detect replays already seen by this process
+//! - [`rp_registry_watcher`] – validates and caches registered RPs from the `RpRegistry`.
+//! - [`schema_issuer_registry_watcher`] – validates and caches registered Credential Schema Issuers.
 //! - [`rp_module`] – unified implementation for session and uniqueness OPRF authentication.
 
 use ark_bn254::Bn254;
 use ark_groth16::PreparedVerifyingKey;
 use taceo_oprf::types::OprfKeyId;
-use world_id_primitives::TREE_DEPTH;
+use world_id_primitives::{TREE_DEPTH, oprf::WorldIdRequestAuthError};
 
 pub(crate) mod credential_blinding_factor;
 pub(crate) mod merkle_watcher;
@@ -23,6 +24,23 @@ pub(crate) mod nonce_history;
 pub(crate) mod rp_module;
 pub(crate) mod rp_registry_watcher;
 pub(crate) mod schema_issuer_registry_watcher;
+
+/// Maps an auth-module error to its [`WorldIdRequestAuthError`] and logs it:
+/// `error!` for internal errors, `warn!` (with `auth_error=true`) for
+/// client-attributable auth failures.
+pub(crate) fn auth_module_error<E>(err: E, module: &str) -> WorldIdRequestAuthError
+where
+    E: std::fmt::Debug + std::fmt::Display,
+    for<'a> WorldIdRequestAuthError: From<&'a E>,
+{
+    let mapped = WorldIdRequestAuthError::from(&err);
+    if matches!(mapped, WorldIdRequestAuthError::Internal) {
+        tracing::error!(?err, "Internal error in {module}");
+    } else {
+        tracing::warn!(auth_error = true, ?err, "Error in {module}: {err}");
+    }
+    mapped
+}
 
 pub(crate) fn verify_query_proof(
     vk: &PreparedVerifyingKey<Bn254>,
@@ -49,45 +67,59 @@ pub(crate) fn verify_query_proof(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
 
     use alloy::{
         node_bindings::AnvilInstance,
         primitives::{Address, U256},
         signers::local::LocalSigner,
     };
+    use ark_bn254::Bn254;
     use ark_serialize::CanonicalSerialize;
+    use circom_types::groth16::VerificationKey;
+    use eddsa_babyjubjub::EdDSAPrivateKey;
     use rand::Rng;
     use secrecy::ExposeSecret as _;
-    use taceo_nodes_common::web3::{self, RpcProviderBuilder};
-    use taceo_oprf::{core::oprf::BlindingFactor, service::StartedServices};
-    use tokio_util::sync::CancellationToken;
-    use world_id_core::{EdDSAPrivateKey, FieldElement, Signer, proof::errors};
+    use taceo_nodes_common::web3::{self, HttpRpcProviderBuilder};
+    use taceo_oprf::core::oprf::BlindingFactor;
     use world_id_primitives::{
-        TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
+        AuthenticatorPublicKeySet, FieldElement, Signer, TREE_DEPTH, merkle::MerkleInclusionProof,
+        rp::RpId,
     };
-    use world_id_proof::circuit_inputs::QueryProofCircuitInput;
+    use world_id_proof::{circuit_inputs::QueryProofCircuitInput, errors};
     use world_id_test_utils::{
         anvil::TestAnvil,
-        fixtures::{self, RegistryTestContext, RpFixture},
+        fixtures::{self, RpFixture},
         merkle::first_leaf_merkle_path,
     };
 
     use crate::{
+        QUERY_VERIFICATION_KEY,
         auth::{
             merkle_watcher::MerkleWatcher, nonce_history::NonceHistory,
-            rp_registry_watcher::RpRegistryWatcher,
+            rp_module::RpModuleAuthArgs, rp_registry_watcher::RpRegistryWatcher,
             schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
         },
         config::WatcherCacheConfig,
     };
 
+    /// Selects which registry (besides the World ID registry) a test setup deploys.
+    #[derive(Clone, Copy)]
+    pub(crate) enum SetupKind {
+        /// Deploys the RP registry and registers an RP.
+        RpModule,
+        /// Deploys the credential schema issuer registry and registers an issuer.
+        CredentialIssuer,
+    }
+
     pub(crate) struct OprfRequestAuthTestSetup {
         pub(crate) anvil: TestAnvil,
         pub(crate) world_id_registry: Address,
         pub(crate) rp_registry: Address,
+        pub(crate) billing_contract: Address,
         pub(crate) credential_schema_issuer_registry: Address,
         pub(crate) issuer_schema_id: u64,
+        pub(crate) blocked_rp: RpId,
         pub(crate) rp_fixture: RpFixture,
         pub(crate) merkle_inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
         pub(crate) key_index: u64,
@@ -95,64 +127,83 @@ mod tests {
         pub(crate) signer: Signer,
     }
 
-    pub(crate) async fn build_rpc_provider(anvil: &AnvilInstance) -> web3::RpcProvider {
-        let http_url = anvil
-            .endpoint()
-            .parse()
-            .expect("anvil should have valid http url");
-        let ws_url = anvil
-            .ws_endpoint()
-            .parse()
-            .expect("anvil should have valid ws url");
-        RpcProviderBuilder::with_default_values(vec![http_url], ws_url)
+    pub(crate) fn build_http_provider(anvil: &AnvilInstance) -> web3::HttpRpcProvider {
+        HttpRpcProviderBuilder::with_default_values([anvil.endpoint_url()])
+            .expect("Can build http provider")
             .environment(taceo_nodes_common::Environment::Dev)
             .chain_id(31_337)
             .wallet(anvil.wallet().expect("Should have signer wallet"))
             .build()
-            .await
             .expect("can build RPC providers")
     }
 
     impl OprfRequestAuthTestSetup {
-        pub(crate) async fn new() -> eyre::Result<Self> {
+        #[expect(clippy::too_many_lines, reason = "doesn't matter in test")]
+        pub(crate) async fn new(kind: SetupKind) -> eyre::Result<Self> {
             let mut rng = rand::thread_rng();
-            let RegistryTestContext {
-                anvil,
-                world_id_registry,
-                rp_registry,
-                credential_registry: credential_schema_issuer_registry,
-                ..
-            } = RegistryTestContext::new_with_mock_oprf_key_registry().await?;
-
+            let anvil = TestAnvil::spawn_auto_mine_with_multicall3().await?;
             let deployer = anvil.signer(0)?;
+            let world_id_registry = anvil.deploy_world_id_registry_v2(deployer.clone()).await?;
+            let oprf_key_registry = anvil
+                .deploy_mock_oprf_key_registry(deployer.clone())
+                .await?;
 
             let rp_fixture = fixtures::generate_rp_fixture();
-
-            // Register the RP which also triggers a OPRF key-gen.
-            let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
-            anvil
-                .register_rp(
-                    rp_registry,
-                    deployer.clone(),
-                    rp_fixture.world_rp_id,
-                    rp_signer.address(),
-                    rp_signer.address(),
-                    "taceo.oprf".to_string(),
-                )
-                .await?;
-
-            // Register an issuer which also triggers a OPRF key-gen.
             let issuer_schema_id = rng.r#gen::<u64>();
-            let issuer_sk = EdDSAPrivateKey::random(&mut rng);
-            let issuer_public_key = issuer_sk.public();
-            anvil
-                .register_issuer(
-                    credential_schema_issuer_registry,
-                    deployer.clone(),
-                    issuer_schema_id,
-                    issuer_public_key.clone(),
-                )
-                .await?;
+            let blocked_rp = RpId::new(42);
+
+            let mut rp_registry = Address::ZERO;
+            let mut credential_schema_issuer_registry = Address::ZERO;
+            let mut billing_contract = Address::ZERO;
+            match kind {
+                SetupKind::RpModule => {
+                    rp_registry = anvil
+                        .deploy_rp_registry(deployer.clone(), oprf_key_registry)
+                        .await?;
+                    billing_contract = anvil.deploy_billing_contract(deployer.clone()).await?;
+                    // Register the RP which also triggers a OPRF key-gen.
+                    let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
+                    anvil
+                        .register_rp(
+                            rp_registry,
+                            deployer.clone(),
+                            rp_fixture.world_rp_id,
+                            rp_signer.address(),
+                            rp_signer.address(),
+                            "taceo.oprf".to_string(),
+                        )
+                        .await?;
+
+                    anvil
+                        .register_rp(
+                            rp_registry,
+                            deployer.clone(),
+                            blocked_rp,
+                            rp_signer.address(),
+                            rp_signer.address(),
+                            "taceo.blocked".to_string(),
+                        )
+                        .await?;
+                }
+                SetupKind::CredentialIssuer => {
+                    credential_schema_issuer_registry = anvil
+                        .deploy_credential_schema_issuer_registry(
+                            deployer.clone(),
+                            oprf_key_registry,
+                        )
+                        .await?;
+                    // Register an issuer which also triggers a OPRF key-gen.
+                    let issuer_sk = EdDSAPrivateKey::random(&mut rng);
+                    anvil
+                        .register_issuer(
+                            credential_schema_issuer_registry,
+                            deployer.clone(),
+                            issuer_schema_id,
+                            issuer_sk.public(),
+                        )
+                        .await?;
+                }
+            }
 
             let signer =
                 Signer::from_seed_bytes(&rng.r#gen::<[u8; 32]>()).expect("Can build from seed");
@@ -193,6 +244,8 @@ mod tests {
                 anvil,
                 world_id_registry,
                 rp_registry,
+                billing_contract,
+                blocked_rp,
                 credential_schema_issuer_registry,
                 issuer_schema_id,
                 rp_fixture,
@@ -219,58 +272,47 @@ mod tests {
         pub(crate) rp_registry_watcher: RpRegistryWatcher,
         pub(crate) schema_issuer_registry_watcher: SchemaIssuerRegistryWatcher,
         pub(crate) nonce_history: NonceHistory,
-        pub(crate) current_time_stamp_max_difference: Duration,
+        pub(crate) created_at_max_difference: chrono::Duration,
+        pub(crate) expires_at_max_difference: chrono::Duration,
         pub(crate) timeout_external_eth_call: Duration,
-        pub(crate) rpc_provider: web3::RpcProvider,
+        pub(crate) http_rpc_provider: web3::HttpRpcProvider,
     }
 
     impl AuthModulesTestSetup {
-        pub(crate) async fn new() -> eyre::Result<Self> {
-            let setup = OprfRequestAuthTestSetup::new().await?;
+        pub(crate) async fn new(kind: SetupKind) -> eyre::Result<Self> {
+            let setup = OprfRequestAuthTestSetup::new(kind).await?;
 
-            let max_cache_size = 100;
-            let cache_maintenance_interval = Duration::from_secs(60);
-            let current_time_stamp_max_difference = Duration::from_secs(1800);
+            let created_at_max_difference = chrono::Duration::seconds(1800);
+            let expires_at_max_difference = chrono::Duration::seconds(1800);
             let timeout_external_eth_call = Duration::from_secs(10);
-            let started_services = StartedServices::default();
-            let cancellation_token = CancellationToken::new();
 
-            let rpc_provider = build_rpc_provider(&setup.anvil.instance).await;
+            let http_rpc_provider = build_http_provider(&setup.anvil.instance);
 
-            let (merkle_watcher, _) = MerkleWatcher::init(
+            let merkle_watcher = MerkleWatcher::init(
                 setup.world_id_registry,
-                &rpc_provider,
-                max_cache_size,
-                cache_maintenance_interval,
-                started_services.new_service(),
-                cancellation_token.clone(),
-            )
-            .await?;
+                &http_rpc_provider,
+                WatcherCacheConfig::default(),
+            );
 
-            let (rp_registry_watcher, _) = RpRegistryWatcher::init(
+            let rp_registry_watcher = RpRegistryWatcher::init(
                 setup.rp_registry,
-                rpc_provider.clone(),
-                WatcherCacheConfig::default(),
-                cache_maintenance_interval,
+                setup.billing_contract,
+                http_rpc_provider.clone(),
                 timeout_external_eth_call,
-                started_services.new_service(),
-                cancellation_token.clone(),
-            )
-            .await?;
-
-            let (schema_issuer_registry_watcher, _) = SchemaIssuerRegistryWatcher::init(
-                setup.credential_schema_issuer_registry,
-                &rpc_provider,
                 WatcherCacheConfig::default(),
-                cache_maintenance_interval,
-                started_services.new_service(),
-                cancellation_token.clone(),
-            )
-            .await?;
+            );
+
+            let schema_issuer_registry_watcher = SchemaIssuerRegistryWatcher::init(
+                setup.credential_schema_issuer_registry,
+                &http_rpc_provider,
+                WatcherCacheConfig::default(),
+            );
 
             let nonce_history = NonceHistory::init(
-                current_time_stamp_max_difference * 2,
-                cache_maintenance_interval,
+                created_at_max_difference
+                    .to_std()
+                    .expect("can convert to std")
+                    * 2,
             );
 
             Ok(Self {
@@ -279,10 +321,26 @@ mod tests {
                 rp_registry_watcher,
                 schema_issuer_registry_watcher,
                 nonce_history,
-                current_time_stamp_max_difference,
+                created_at_max_difference,
+                expires_at_max_difference,
                 timeout_external_eth_call,
-                rpc_provider,
+                http_rpc_provider,
             })
+        }
+
+        pub(crate) fn rp_module_args(&self) -> RpModuleAuthArgs {
+            let vk: VerificationKey<Bn254> =
+                serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
+            RpModuleAuthArgs {
+                merkle_watcher: self.merkle_watcher.clone(),
+                rp_registry_watcher: self.rp_registry_watcher.clone(),
+                nonce_history: self.nonce_history.clone(),
+                created_at_max_difference: self.created_at_max_difference,
+                expires_at_max_difference: self.expires_at_max_difference,
+                timeout_external_eth_call: self.timeout_external_eth_call,
+                rpc_provider: self.http_rpc_provider.clone(),
+                query_vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
+            }
         }
 
         /// Generates a valid ZK query proof and blinds the query for use in OPRF
@@ -296,10 +354,16 @@ mod tests {
             action: FieldElement,
             query_origin_id: FieldElement,
         ) -> eyre::Result<QueryProofBundle> {
+            // Parsing the embedded zkey is expensive; do it once per test process.
+            static QUERY_MATERIAL: std::sync::OnceLock<world_id_proof::CircomGroth16Material> =
+                std::sync::OnceLock::new();
+
             let mut rng = rand::thread_rng();
 
-            let query_material = world_id_core::proof::load_embedded_query_material()
-                .expect("Can load query material");
+            let query_material = QUERY_MATERIAL.get_or_init(|| {
+                world_id_proof::artifacts::embedded::zkeys::load_embedded_query_material()
+                    .expect("Can load query material")
+            });
 
             let query_blinding_factor = BlindingFactor::rand(&mut rng);
 

@@ -1,7 +1,7 @@
 #![cfg_attr(all(),
 doc = ::embed_doc_image::embed_image!("world-id-protocol-parties", "assets/world-id-protocol-parties.png"))]
 #![doc = include_str!("../README.md")]
-#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+#![cfg_attr(not(test), deny(unused_crate_dependencies))]
 #![deny(clippy::all, clippy::nursery, missing_docs, dead_code)]
 #![allow(clippy::option_if_let_else)]
 
@@ -16,12 +16,20 @@ use std::{
     str::FromStr,
 };
 
+#[cfg(target_arch = "wasm32")]
+use getrandom as _;
+
 /// Contains types related to the Authenticator.
 pub mod authenticator;
 
+mod key_set;
+pub use key_set::{
+    AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS, SparseAuthenticatorPubkeysError,
+};
+
 /// Contains the global configuration for interacting with the World ID Protocol.
 mod config;
-pub use config::Config;
+pub use config::{Config, ServiceEndpoint};
 
 /// SAFE-style sponge utilities and helpers.
 pub mod sponge;
@@ -49,7 +57,7 @@ pub use session::{SessionFeType, SessionFieldElement, SessionId, SessionNullifie
 
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;
-pub use proof::ZeroKnowledgeProof;
+pub use proof::{OwnershipProof, ZeroKnowledgeProof};
 
 /// Contains types specifically related to relying parties.
 pub mod rp;
@@ -64,7 +72,7 @@ pub use signer::Signer;
 pub mod request;
 pub use request::{
     ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES, ProofRequest,
-    ProofResponse, RequestItem, RequestVersion, ResponseItem, ValidationError,
+    ProofResponse, ProofType, RequestItem, RequestVersion, ResponseItem, ValidationError,
 };
 
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
@@ -78,10 +86,10 @@ pub type ScalarField = ark_babyjubjub::Fr;
 /// The depth of the Merkle tree used in the World ID Protocol for the `WorldIDRegistry` contract.
 pub const TREE_DEPTH: usize = 30;
 
-/// Represents a field element of the base field (`Fq`) in the World ID Protocol.
+/// Represents an element of the field used in the World ID Protocol (`Fq`), which
+/// is the **`BabyJubJub` base field**.
 ///
-/// The World ID Protocol uses the `BabyJubJub` curve throughout. Note the
-/// base field of `BabyJubJub` is the scalar field of the BN254 curve.
+/// Note the base field of `BabyJubJub` is the scalar field of the BN254 curve.
 ///
 /// This wrapper ensures consistent serialization and deserialization of field elements, where
 /// string-based serialization is done with hex encoding and binary serialization is done with byte vectors.

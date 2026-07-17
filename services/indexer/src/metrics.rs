@@ -10,7 +10,7 @@ pub const METRICS_TREE_SYNC_LATENCY_MS: &str = "tree.sync_latency_ms";
 pub const METRICS_TREE_SYNC_EVENTS: &str = "tree.sync_events";
 pub const METRICS_TREE_LAST_SYNCED_BLOCK: &str = "tree.last_synced_block";
 
-pub const METRICS_HTTP_LATENCY_MS: &str = "http.latency_ms";
+pub use world_id_services_common::METRICS_HTTP_LATENCY_MS;
 
 pub fn describe_metrics() {
     ::metrics::describe_gauge!(
@@ -50,11 +50,9 @@ pub fn describe_metrics() {
         "Block number of the last DB event synced into the tree."
     );
 
-    ::metrics::describe_histogram!(
-        METRICS_HTTP_LATENCY_MS,
-        ::metrics::Unit::Milliseconds,
-        "HTTP request latency in milliseconds."
-    );
+    world_id_services_common::describe_http_request_metrics();
+
+    world_id_services_common::describe_provider_transport_metrics();
 }
 
 pub fn set_chain_head_block(block_number: u64) {
@@ -79,22 +77,4 @@ pub fn record_tree_sync(events: usize, latency_ms: f64, last_synced_block: u64) 
 
 pub fn set_tree_last_synced_block(block_number: u64) {
     ::metrics::gauge!(METRICS_TREE_LAST_SYNCED_BLOCK).set(block_number as f64);
-}
-
-pub fn record_http_latency_ms(route: &str, status: u16, latency_ms: f64) {
-    let status_class = match status / 100 {
-        1 => "1xx",
-        2 => "2xx",
-        3 => "3xx",
-        4 => "4xx",
-        5 => "5xx",
-        _ => "other",
-    };
-
-    ::metrics::histogram!(
-        METRICS_HTTP_LATENCY_MS,
-        "route" => route.to_string(),
-        "status_class" => status_class
-    )
-    .record(latency_ms);
 }

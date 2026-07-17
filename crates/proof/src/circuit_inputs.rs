@@ -9,9 +9,7 @@ use groth16_material::circom::ProofInput;
 use ruint::aliases::U256;
 
 use world_id_primitives::{
-    FieldElement,
-    authenticator::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS},
-    merkle::MerkleInclusionProof,
+    AuthenticatorPublicKeySet, FieldElement, MAX_AUTHENTICATOR_KEYS, merkle::MerkleInclusionProof,
 };
 
 type BaseField = ark_babyjubjub::Fq;
@@ -132,7 +130,10 @@ pub struct NullifierProofCircuitInput<const MAX_DEPTH: usize> {
     pub cred_genesis_issued_at_min: BaseField,
     /// The `cred_user_id_r` blinding factor used to generate the `sub`.
     pub cred_sub_blinding_factor: BaseField,
-    /// The unique identifier of the `Credential`.
+    /// Packed `Credential` `id` and `issuer_version` that occupies the last
+    /// slot of the credential hash permutation. The value is the field element
+    /// representation of `BigInt([id, issuer_version, 0, 0])`, i.e.
+    /// `id + issuer_version`.
     pub cred_id: BaseField,
 
     // SECTION: User Inputs

@@ -5,21 +5,60 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "world-id-indexer-v*"
+      - "world-id-gateway-v*"
+      - "world-id-relay-v*"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      service:
+        description: "Service to build (e.g. oprf-node)"
+        required: true
+        type: string
+      version:
+        description: "Version tag including v prefix (e.g. v1.0.0)"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
+  compute-matrix:
+    name: Compute build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.filter.outputs.services }}
+    steps:
+      - name: Determine services to build
+        id: filter
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_SERVICE: ${{ inputs.service }}
+        run: |
+          if [[ -n "$INPUT_SERVICE" ]]; then
+            echo "services=[\"$INPUT_SERVICE\"]" >> "$GITHUB_OUTPUT"
+          elif [[ "$REF_TYPE" == "branch" ]]; then
+            echo 'services=["indexer","gateway","relay"]' >> "$GITHUB_OUTPUT"
+          elif [[ "$REF_NAME" == world-id-indexer-v* ]]; then
+            echo 'services=["indexer"]' >> "$GITHUB_OUTPUT"
+          elif [[ "$REF_NAME" == world-id-gateway-v* ]]; then
+            echo 'services=["gateway"]' >> "$GITHUB_OUTPUT"
+          elif [[ "$REF_NAME" == world-id-relay-v* ]]; then
+            echo 'services=["relay"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'services=[]' >> "$GITHUB_OUTPUT"
+          fi
   docker-build:
     name: Docker Build
+    needs: compute-matrix
+    if: needs.compute-matrix.outputs.services != '[]'
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service:
-          - indexer
-          - gateway
-          - oprf-node
+        service: ${{ fromJSON(needs.compute-matrix.outputs.services) }}
     permissions:
       contents: read
       id-token: write
@@ -30,14 +69,34 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      - name: Resolve version
+        id: tag
+        if: github.ref_type == 'tag' || inputs.version != ''
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ -n "$INPUT_VERSION" ]]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="${GITHUB_REF_NAME#world-id-${{ matrix.service }}-}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # latest only for stable releases (no pre-release suffix like -alpha, -rc.1)
+          if [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "is_stable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_stable=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v4
         with:
           images: ghcr.io/${{ github.repository }}/world-id-${{ matrix.service }}
           tags: |
-            type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ (github.ref == 'refs/heads/main' && inputs.version == '') || steps.tag.outputs.is_stable == 'true' }}
             type=sha
+            type=raw,value=${{ steps.tag.outputs.version }},enable=${{ steps.tag.outputs.version != '' }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -69,3 +128,22 @@ jobs:
           push-to-registry: true
           subject-name: ghcr.io/${{ github.repository }}/world-id-${{ matrix.service }}
           subject-digest: ${{ steps.docker_build.outputs.digest }}
+
+      - name: Trigger staging deploy
+        if: (github.ref_type == 'tag' || inputs.version != '') && matrix.service != 'oprf-node'
+        uses: actions/github-script@v7
+        env:
+          SERVICE: ${{ matrix.service }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        with:
+          github-token: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: 'worldcoin',
+              repo: 'world-id-protocol-deploy',
+              event_type: 'service-release',
+              client_payload: {
+                service: process.env.SERVICE,
+                version: process.env.VERSION
+              }
+            });

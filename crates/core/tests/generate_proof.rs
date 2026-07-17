@@ -19,12 +19,20 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use world_id_core::{
     Authenticator, AuthenticatorError, CredentialInput, EdDSAPrivateKey,
-    requests::{ProofRequest, RequestItem, RequestVersion},
+    artifacts::{ZkArtifactSource, ZkArtifactSourceExt as _},
+    requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
 };
+
+fn zk_artifact_source() -> Arc<dyn ZkArtifactSource> {
+    Arc::new(world_id_core::artifacts::embedded::EmbeddedZkArtifacts.cached())
+}
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
+    spawn_gateway_for_tests,
 };
-use world_id_primitives::{Config, FieldElement, TREE_DEPTH, merkle::AccountInclusionProof};
+use world_id_primitives::{
+    Config, FieldElement, ServiceEndpoint, TREE_DEPTH, merkle::AccountInclusionProof,
+};
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
     fixtures::{
@@ -39,15 +47,6 @@ fn init_test_tracing() {
         .with_env_filter(EnvFilter::from_default_env())
         .with_test_writer()
         .try_init();
-}
-
-fn load_embedded_materials() -> (
-    Arc<world_id_core::proof::CircomGroth16Material>,
-    Arc<world_id_core::proof::CircomGroth16Material>,
-) {
-    let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
-    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material().unwrap();
-    (Arc::new(query_material), Arc::new(nullifier_material))
 }
 
 /// Generates an entire end-to-end Uniqueness Proof Generator
@@ -65,6 +64,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         anvil,
         world_id_registry,
         rp_registry,
+        billing_contract,
         oprf_key_registry,
         world_id_verifier,
         credential_registry,
@@ -85,6 +85,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: world_id_registry,
+        registry_version: RegistryVersion::V2,
         provider: world_id_gateway::ProviderArgs {
             http: Some(vec![anvil.endpoint().parse().unwrap()]),
             signer: Some(signer_args),
@@ -121,14 +122,15 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         Some(anvil.endpoint().to_string()),
         anvil.instance.chain_id(),
         world_id_registry,
-        "http://127.0.0.1:0".to_string(), // placeholder for future indexer stub
-        gateway_url.clone(),
+        ServiceEndpoint::direct("http://127.0.0.1:0".to_string()), // placeholder for future indexer stub
+        ServiceEndpoint::direct(gateway_url.clone()),
         Vec::new(),
         3,
     )
     .unwrap();
     // World ID should not yet exist.
-    let init_result = Authenticator::init(&seed, creation_config.clone().into()).await;
+    let init_result =
+        Authenticator::init(&seed, creation_config.clone(), zk_artifact_source()).await;
     assert!(
         matches!(init_result, Err(AuthenticatorError::AccountDoesNotExist)),
         "expected missing account error before creation"
@@ -138,8 +140,9 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let start = SystemTime::now();
     let authenticator = Authenticator::init_or_register(
         &seed,
-        creation_config.clone().into(),
+        creation_config.clone(),
         Some(recovery_address),
+        zk_artifact_source(),
     )
     .await
     .unwrap();
@@ -152,7 +155,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     assert_eq!(authenticator.recovery_counter(), U256::ZERO);
 
     // Re-initialize to ensure account metadata is persisted.
-    let authenticator = Authenticator::init(&seed, creation_config.into())
+    let authenticator = Authenticator::init(&seed, creation_config, zk_artifact_source())
         .await
         .wrap_err("expected authenticator to initialize after account creation")?;
     assert_eq!(authenticator.leaf_index(), 1);
@@ -178,31 +181,28 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let (_postgres, connection_string) = taceo_oprf_test_utils::postgres_testcontainer().await?;
 
-    let (key_gen_secret_managers, node_secret_managers) =
-        world_id_test_utils::stubs::init_test_secret_managers(connection_string.into()).await?;
+    let node_secret_managers =
+        world_id_test_utils::stubs::init_test_secret_managers(connection_string.clone().into())
+            .await?;
 
     // OPRF key-gen instances
-    let oprf_key_gens = world_id_test_utils::stubs::spawn_key_gens(
-        anvil.endpoint(),
-        anvil.ws_endpoint(),
-        key_gen_secret_managers,
-        oprf_key_registry,
-    )
-    .await;
+    let oprf_key_gens =
+        world_id_test_utils::stubs::spawn_key_gens(&anvil, &connection_string, oprf_key_registry)
+            .await?;
 
     // OPRF nodes
     let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
         &anvil,
         node_secret_managers,
-        oprf_key_registry,
         world_id_registry,
         rp_registry,
+        billing_contract,
         credential_registry,
     )
     .await;
 
     health_checks::services_health_check(&nodes, Duration::from_secs(60)).await?;
-    health_checks::services_health_check(&oprf_key_gens, Duration::from_secs(60)).await?;
+    health_checks::services_health_check(&oprf_key_gens.urls, Duration::from_secs(60)).await?;
     info!("oprf nodes and key-gen services passed health checks");
 
     // Register an issuer which also triggers a OPRF key-gen.
@@ -261,18 +261,16 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         Some(anvil.endpoint().to_string()),
         anvil.instance.chain_id(),
         world_id_registry,
-        indexer_url.clone(),
-        gateway_url.clone(),
+        ServiceEndpoint::direct(indexer_url.clone()),
+        ServiceEndpoint::direct(gateway_url.clone()),
         nodes.to_vec(),
         3,
     )
     .unwrap();
 
-    let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator = Authenticator::init(&seed, proof_config.into())
+    let authenticator = Authenticator::init(&seed, proof_config, zk_artifact_source())
         .await
-        .wrap_err("failed to reinitialize authenticator with proof config")?
-        .with_proof_materials(query_material, nullifier_material);
+        .wrap_err("failed to reinitialize authenticator with proof config")?;
     assert_eq!(authenticator.leaf_index(), 1);
 
     let leaf_index = authenticator.leaf_index();
@@ -302,6 +300,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let proof_request = ProofRequest {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
+        proof_type: ProofType::Uniqueness,
         created_at: rp_fixture.current_timestamp,
         expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,

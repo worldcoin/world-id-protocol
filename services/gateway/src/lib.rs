@@ -1,7 +1,9 @@
+#![recursion_limit = "256"]
+
 pub use crate::{
     config::{
         BatchPolicyConfig, BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig,
-        defaults,
+        RegistryVersion, defaults,
     },
     orphan_sweeper::sweep_once,
     request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
@@ -9,7 +11,7 @@ pub use crate::{
 use crate::{routes::build_app, types::AppState};
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};
 use tokio::sync::oneshot;
-use world_id_core::world_id_registry::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 mod batch_policy;
 mod batcher;
@@ -57,6 +59,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     ));
     let app = build_app(
         registry,
+        cfg.registry_version,
         batcher_config,
         cfg.redis_url,
         rate_limit,
@@ -105,11 +108,18 @@ pub async fn run() -> GatewayResult<()> {
     let sweeper_config = cfg.sweeper();
 
     let provider = Arc::new(cfg.provider.http().await?);
-    let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
+    let registry = Arc::new(WorldIdRegistryInstance::new(
+        cfg.registry_addr,
+        provider.clone(),
+    ));
 
-    tracing::info!("Config is ready. Building app...");
+    tracing::info!(
+        registry_version = ?cfg.registry_version,
+        "Config is ready. Building app..."
+    );
     let app = build_app(
         registry,
+        cfg.registry_version,
         batcher_config,
         cfg.redis_url,
         rate_limit,

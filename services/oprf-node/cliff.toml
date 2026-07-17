@@ -1,0 +1,75 @@
+# git-cliff configuration for world-id-oprf-node release notes.
+# Used only by the Release OPRF Node workflow; does not affect the crate changelogs
+# managed by release-plz.
+
+[changelog]
+# Template for the release body (no header/footer -- the workflow strips those).
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {% if commit.breaking %}**breaking** {% endif %}\
+{{ commit.message | upper_first }}\
+{% if commit.github.username %} by @{{ commit.github.username }}{% endif %}\
+{% if commit.github.pr_number %} in [#{{ commit.github.pr_number }}]({{ commit.github.pr_url }}){% endif %}
+{% endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+# Only process conventional commits; drop everything else.
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+
+# Restrict --latest to OPRF-node tag boundaries only.
+# Without this, git-cliff would pick the most recent tag across all prefixes
+# (world-id-gateway-v*, world-id-core-v*, ...) in this monorepo.
+tag_pattern = "world-id-oprf-node-v[0-9]*"
+
+filter_commits = false
+# Sort commits newest-first within each group.
+sort_commits = "newest"
+
+# Skip merge commits.
+commit_preprocessors = [
+  { pattern = "^Merge ", replace = "" },
+]
+
+[[git.commit_parsers]]
+message = "^feat"
+group = "Features"
+
+[[git.commit_parsers]]
+message = "^fix"
+group = "Bug Fixes"
+
+[[git.commit_parsers]]
+message = "^perf"
+group = "Performance"
+
+[[git.commit_parsers]]
+message = "^refactor"
+group = "Refactoring"
+
+[[git.commit_parsers]]
+message = "^docs"
+group = "Documentation"
+
+[[git.commit_parsers]]
+message = "^test"
+group = "Testing"
+
+[[git.commit_parsers]]
+message = "^chore"
+group = "Miscellaneous"
+
+[[git.commit_parsers]]
+message = "^build"
+group = "Build"
+
+[[git.commit_parsers]]
+message = "^ci"
+skip = true

@@ -1,4 +1,4 @@
-use alloy::node_bindings::Anvil;
+use world_id_test_utils::anvil::TestAnvil;
 
 use crate::auth::{self, rp_module::RpAccountType};
 
@@ -222,9 +222,9 @@ alloy::sol!(
 
 #[tokio::test]
 async fn test_confirm_success() {
-    let anvil = Anvil::new().spawn();
-    let rpc_provider = auth::tests::build_rpc_provider(&anvil).await;
-    let wip101_instance = WIP101Correct::deploy(rpc_provider.http())
+    let anvil = TestAnvil::spawn_auto_mine().expect("Should spawn anvil");
+    let rpc_provider = auth::tests::build_http_provider(&anvil.instance);
+    let wip101_instance = WIP101Correct::deploy(rpc_provider.inner())
         .await
         .expect("Should be able to deploy contract");
     let rp_type = super::account_check(*wip101_instance.address(), &rpc_provider)
@@ -236,8 +236,8 @@ async fn test_confirm_success() {
 
 #[tokio::test]
 async fn test_no_contract() {
-    let anvil = Anvil::new().spawn();
-    let rpc_provider = auth::tests::build_rpc_provider(&anvil).await;
+    let anvil = TestAnvil::spawn_auto_mine().expect("Should spawn anvil");
+    let rpc_provider = auth::tests::build_http_provider(&anvil.instance);
     let zero_address = alloy::primitives::address!("0x0000000000000000000000000000000000000000");
 
     let rp_type = super::account_check(zero_address, &rpc_provider)
@@ -249,9 +249,9 @@ async fn test_no_contract() {
 
 #[tokio::test]
 async fn test_contract_broken_erc165() {
-    let anvil = Anvil::new().spawn();
-    let rpc_provider = auth::tests::build_rpc_provider(&anvil).await;
-    let wip101_instance = WIP101BrokenERC165::deploy(rpc_provider.http())
+    let anvil = TestAnvil::spawn_auto_mine().expect("Should spawn anvil");
+    let rpc_provider = auth::tests::build_http_provider(&anvil.instance);
+    let wip101_instance = WIP101BrokenERC165::deploy(rpc_provider.inner())
         .await
         .expect("Should be able to deploy contract");
 
@@ -264,9 +264,9 @@ async fn test_contract_broken_erc165() {
 
 #[tokio::test]
 async fn test_contract_no_method() {
-    let anvil = Anvil::new().spawn();
-    let rpc_provider = auth::tests::build_rpc_provider(&anvil).await;
-    let wip101_instance = NoERC165::deploy(rpc_provider.http())
+    let anvil = TestAnvil::spawn_auto_mine().expect("Should spawn anvil");
+    let rpc_provider = auth::tests::build_http_provider(&anvil.instance);
+    let wip101_instance = NoERC165::deploy(rpc_provider.inner())
         .await
         .expect("Should be able to deploy contract");
 

@@ -7,6 +7,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.12.0...world-id-primitives-v0.13.0) - 2026-07-08
+
+### Added
+
+- Remove probing of registry version ([#818](https://github.com/worldcoin/world-id-protocol/pull/818))
+- distribute noir artifacts via GH release artifacts ([#827](https://github.com/worldcoin/world-id-protocol/pull/827))
+
+### Other
+
+- *(deps)* bump oprf to version 0.17.2 ([#826](https://github.com/worldcoin/world-id-protocol/pull/826))
+- granular embed features, no-embed defaults ([#833](https://github.com/worldcoin/world-id-protocol/pull/833))
+- introduce ZkArtifactSource abstraction ([#831](https://github.com/worldcoin/world-id-protocol/pull/831))
+- *(proof)* single provenance per ZK artifact type ([#828](https://github.com/worldcoin/world-id-protocol/pull/828))
+
+## [0.12.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.11.0...world-id-primitives-v0.12.0) - 2026-06-24
+
+### Added
+
+- introduce issuer version attribute to credential ([#725](https://github.com/worldcoin/world-id-protocol/pull/725))
+- WIP-103 make nonce part of the authenticator sig ([#656](https://github.com/worldcoin/world-id-protocol/pull/656))
+- implement WIP-102 v1 to v2 migration method for legacy pending recovery agent updates ([#807](https://github.com/worldcoin/world-id-protocol/pull/807))
+
+### Other
+
+- *(node)* add retry logic for RPC requests + bump oprf deps ([#764](https://github.com/worldcoin/world-id-protocol/pull/764))
+- *(contracts)* internal `compress` ([#558](https://github.com/worldcoin/world-id-protocol/pull/558))
+
+## [0.11.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.10.2...world-id-primitives-v0.11.0) - 2026-05-15
+
+### Added
+
+- expose validate_constraints on ProofRequest for pre-flight checks ([#732](https://github.com/worldcoin/world-id-protocol/pull/732))
+- WIP-102  ([#692](https://github.com/worldcoin/world-id-protocol/pull/692))
+- WIP-104 - Proving and Admin Authenticators with Different Permission Sets ([#643](https://github.com/worldcoin/world-id-protocol/pull/643))
+- add proof type to proof requests ([#711](https://github.com/worldcoin/world-id-protocol/pull/711))
+- support session proof generation ([#712](https://github.com/worldcoin/world-id-protocol/pull/712))
+- add proof inputs validation ([#721](https://github.com/worldcoin/world-id-protocol/pull/721))
+
+### Fixed
+
+- Improve Registry Version Probe ([#738](https://github.com/worldcoin/world-id-protocol/pull/738))
+- use correct field in error msg ([#720](https://github.com/worldcoin/world-id-protocol/pull/720))
+
+### Other
+
+- [**breaking**] model indexer/gateway as ServiceEndpoint enum on Config ([#729](https://github.com/worldcoin/world-id-protocol/pull/729))
+
+## [0.10.2](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.10.1...world-id-primitives-v0.10.2) - 2026-05-04
+
+### Added
+
+- Make world-id-authenticator compile for wasm32 ([#714](https://github.com/worldcoin/world-id-protocol/pull/714))
+
+## [0.10.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.10.0...world-id-primitives-v0.10.1) - 2026-04-29
+
+### Added
+
+- Persist circuit artifacts for proof builds ([#706](https://github.com/worldcoin/world-id-protocol/pull/706))
+
+### Other
+
+- update Cargo.toml dependencies
+- remove oprf-key-gen dep and use testcontainers ([#691](https://github.com/worldcoin/world-id-protocol/pull/691))
+- migrate ohttp-gateway image build to ohttp-tools repo ([#699](https://github.com/worldcoin/world-id-protocol/pull/699))
+- bump alloy to 2.0.1 ([#687](https://github.com/worldcoin/world-id-protocol/pull/687))
+- fix check_query_input_validity errors ([#698](https://github.com/worldcoin/world-id-protocol/pull/698))
+- highlight noir version in build.rs ([#697](https://github.com/worldcoin/world-id-protocol/pull/697))
+
+## [0.10.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.9.0...world-id-primitives-v0.10.0) - 2026-04-23
+
+### Added
+
+- ownership proof verification ([#669](https://github.com/worldcoin/world-id-protocol/pull/669))
+- ownership proof generation ([#657](https://github.com/worldcoin/world-id-protocol/pull/657))
+- ownership proof generation ([#648](https://github.com/worldcoin/world-id-protocol/pull/648))
+- expose compression in authenticator crate ([#670](https://github.com/worldcoin/world-id-protocol/pull/670))
+
+### Other
+
+- Update docs & clarify around Authenticator management ([#673](https://github.com/worldcoin/world-id-protocol/pull/673))
+- *(primitives)* move circuit_inputs to world-id-proof ([#667](https://github.com/worldcoin/world-id-protocol/pull/667))
+- *(primitives)* move k256 to dev-dependencies ([#666](https://github.com/worldcoin/world-id-protocol/pull/666))
+- *(primitives)* move proof compression to world-id-proof ([#668](https://github.com/worldcoin/world-id-protocol/pull/668))
+- introduce registries crate ([#671](https://github.com/worldcoin/world-id-protocol/pull/671))
+- fix registries crate ([#678](https://github.com/worldcoin/world-id-protocol/pull/678))
+
 ## [0.9.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.8.2...world-id-primitives-v0.9.0) - 2026-04-14
 
 ### Breaking Changes

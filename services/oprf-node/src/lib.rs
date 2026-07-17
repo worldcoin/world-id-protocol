@@ -31,17 +31,19 @@ use std::sync::Arc;
 use ark_bn254::Bn254;
 use circom_types::groth16::VerificationKey;
 use eyre::Context;
-use taceo_nodes_common::web3;
-use taceo_oprf::service::{
-    OprfServiceBuilder, StartedServices, secret_manager::SecretManagerService,
+use taceo_oprf::{
+    service::{OprfServiceBuilder, StartedServices, secret_manager::SecretManagerService},
+    types::service::NodeInformation,
 };
-use tokio_util::sync::CancellationToken;
 use world_id_primitives::oprf::OprfModule;
 
 use crate::{
+    accountant_batcher::AccountantBatcherHandle,
     auth::{
         credential_blinding_factor::CredentialBlindingFactorModuleAuth,
-        merkle_watcher::MerkleWatcher, nonce_history::NonceHistory, rp_module::RpModuleAuth,
+        merkle_watcher::MerkleWatcher,
+        nonce_history::NonceHistory,
+        rp_module::{RpModuleAuth, RpModuleAuthArgs},
         rp_registry_watcher::RpRegistryWatcher,
         schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
     },
@@ -51,53 +53,10 @@ use crate::{
 /// The embedded Groth16 verification key for OPRF query proofs.
 const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");
 
+pub mod accountant_batcher;
 pub(crate) mod auth;
 pub mod config;
 pub mod metrics;
-
-/// The tasks spawned by the oprf-node. Should call [`WorldOprfNodeTasks::join`] when shutting down for graceful shutdown.
-#[allow(clippy::struct_field_names, reason = "Has the watcher suffix in name")]
-pub struct WorldOprfNodeTasks {
-    key_event_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
-    merkle_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
-    rp_registry_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
-    schema_issuer_registry_watcher: tokio::task::JoinHandle<eyre::Result<()>>,
-    // We also store the RpcProvider here.
-    //
-    // We want it to live at least as long as the sub-tasks need to complete their graceful shutdown.
-    _rpc_provider: web3::RpcProvider,
-}
-
-impl WorldOprfNodeTasks {
-    /// Awaits all background tasks and propagates any errors.
-    ///
-    /// This consumes the struct and joins all internally tracked
-    /// `tokio::task::JoinHandle`s. It waits for all tasks to finish
-    /// and returns an error if any of them failed or panicked.
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - any task returns an error, or
-    /// - any task panics or is aborted.
-    pub async fn join(self) -> eyre::Result<()> {
-        let (
-            key_event_watcher,
-            merkle_watcher,
-            rp_registry_watcher,
-            schema_issuer_registry_watcher,
-        ) = tokio::join!(
-            self.key_event_watcher,
-            self.merkle_watcher,
-            self.rp_registry_watcher,
-            self.schema_issuer_registry_watcher
-        );
-        key_event_watcher??;
-        merkle_watcher??;
-        rp_registry_watcher??;
-        schema_issuer_registry_watcher??;
-        Ok(())
-    }
-}
 
 /// Starts the OPRF node and initializes all required services.
 ///
@@ -117,7 +76,7 @@ impl WorldOprfNodeTasks {
 /// - Constructing the Axum router for handling incoming HTTP requests
 ///
 /// The returned [`WorldOprfNodeTasks`] contains all long-running background
-/// tasks (watchers and key event handling).
+/// tasks (key event handling).
 ///
 /// # Arguments
 /// - `config`: Full node configuration.
@@ -131,103 +90,78 @@ impl WorldOprfNodeTasks {
 ///
 /// # Errors
 /// Returns an error if any component fails to initialize.
-#[allow(
+#[expect(
     clippy::missing_panics_doc,
     reason = "Can realistically not panic as we embed the key at compile time"
 )]
-#[allow(
-    clippy::too_many_lines,
-    reason = "Still acceptable length for an init function"
-)]
-pub async fn start(
+pub fn start(
     config: WorldOprfNodeConfig,
     secret_manager: SecretManagerService,
-    cancellation_token: CancellationToken,
-) -> eyre::Result<(axum::Router, WorldOprfNodeTasks)> {
+    node_information: &NodeInformation,
+    accountant_batcher: AccountantBatcherHandle,
+) -> eyre::Result<axum::Router> {
     let node_config = config.node_config;
     let started_services = StartedServices::default();
 
     tracing::info!("connecting to RPC..");
-    let rpc_provider =
-        taceo_nodes_common::web3::RpcProviderBuilder::with_config(&config.rpc_provider_config)
+    let http_rpc_provider =
+        taceo_nodes_common::web3::HttpRpcProviderBuilder::with_config(&config.rpc_provider_config)
             .environment(node_config.environment)
             .build()
-            .await
             .context("while init blockchain connection")?;
 
     tracing::info!("init merkle watcher..");
-    let (merkle_watcher, merkle_watcher_task) = MerkleWatcher::init(
+    let merkle_watcher = MerkleWatcher::init(
         config.world_id_registry_contract,
-        &rpc_provider,
-        config.max_merkle_cache_size,
-        config.cache_maintenance_interval,
-        started_services.new_service(),
-        cancellation_token.clone(),
-    )
-    .await
-    .context("while starting merkle watcher")?;
+        &http_rpc_provider,
+        config.merkle_cache_config,
+    );
 
     tracing::info!("init RpRegistry watcher..");
-    let (rp_registry_watcher, rp_registry_watcher_task) = RpRegistryWatcher::init(
+    let rp_registry_watcher = RpRegistryWatcher::init(
         config.rp_registry_contract,
-        rpc_provider.clone(),
-        config.rp_cache_config,
-        config.cache_maintenance_interval,
+        config.billing_contract,
+        http_rpc_provider.clone(),
         config.timeout_external_eth_call,
-        started_services.new_service(),
-        cancellation_token.clone(),
-    )
-    .await
-    .context("while starting rp registry watcher")?;
+        config.rp_cache_config,
+    );
 
     let query_vk = serde_json::from_str::<VerificationKey<Bn254>>(QUERY_VERIFICATION_KEY)
         .expect("can deserialize embedded vk");
     let query_vk = Arc::new(ark_groth16::prepare_verifying_key(&query_vk.into()));
 
+    let nonce_history = NonceHistory::init(
+        // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
+        config.created_at_max_difference * 2,
+    );
+
     tracing::info!("init nullifier oprf request auth service..");
+    let rp_module_args = RpModuleAuthArgs {
+        merkle_watcher: merkle_watcher.clone(),
+        rp_registry_watcher,
+        nonce_history,
+        created_at_max_difference: chrono::Duration::from_std(config.created_at_max_difference)
+            .context("while building created_at_max_difference")?,
+        expires_at_max_difference: chrono::Duration::from_std(config.expires_at_max_difference)
+            .context("while building expires_at_max_difference")?,
+        timeout_external_eth_call: config.timeout_external_eth_call,
+        rpc_provider: http_rpc_provider.clone(),
+        query_vk: Arc::clone(&query_vk),
+    };
     let nullifier_oprf_req_auth_service = Arc::new(RpModuleAuth::new_uniqueness(
-        merkle_watcher.clone(),
-        rp_registry_watcher.clone(),
-        NonceHistory::init(
-            // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
-            config.current_time_stamp_max_difference * 2,
-            config.cache_maintenance_interval,
-        ),
-        config.current_time_stamp_max_difference,
-        config.timeout_external_eth_call,
-        rpc_provider.clone(),
-        Arc::clone(&query_vk),
+        rp_module_args.clone(),
+        accountant_batcher,
     ));
 
     tracing::info!("init session oprf request auth service..");
-    // Session and uniqueness use separate nonce histories intentionally.
-    // We use the same nonce for both signatures
-    let session_oprf_req_auth_service = Arc::new(RpModuleAuth::new_session(
-        merkle_watcher.clone(),
-        rp_registry_watcher.clone(),
-        NonceHistory::init(
-            // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
-            config.current_time_stamp_max_difference * 2,
-            config.cache_maintenance_interval,
-        ),
-        config.current_time_stamp_max_difference,
-        config.timeout_external_eth_call,
-        rpc_provider.clone(),
-        Arc::clone(&query_vk),
-    ));
+    let session_oprf_req_auth_service = Arc::new(RpModuleAuth::new_session(rp_module_args));
 
     tracing::info!("init CredentialSchemaIssuerRegistry watcher..");
-    let (schema_issuer_registry_watcher, schema_issuer_registry_watcher_task) =
-        SchemaIssuerRegistryWatcher::init(
-            config.credential_schema_issuer_registry_contract,
-            &rpc_provider,
-            config.issuer_cache_config,
-            config.cache_maintenance_interval,
-            started_services.new_service(),
-            cancellation_token.clone(),
-        )
-        .await
-        .context("while starting schema issuer registry watcher")?;
+    let schema_issuer_registry_watcher = SchemaIssuerRegistryWatcher::init(
+        config.credential_schema_issuer_registry_contract,
+        &http_rpc_provider,
+        config.issuer_cache_config,
+    );
 
     tracing::info!("init credential blinding factor oprf request auth service..");
     let credential_blinding_factor_oprf_req_auth_service =
@@ -238,14 +172,12 @@ pub async fn start(
         ));
 
     tracing::info!("init oprf service..");
-    let (router, key_event_watcher) = OprfServiceBuilder::init(
+    let router = OprfServiceBuilder::init(
         node_config,
         secret_manager,
-        rpc_provider.clone(),
         started_services,
-        cancellation_token.clone(),
+        node_information,
     )
-    .await?
     .module(
         &format!("/{}", OprfModule::Nullifier),
         nullifier_oprf_req_auth_service,
@@ -259,13 +191,6 @@ pub async fn start(
         session_oprf_req_auth_service,
     )
     .build();
-    let tasks = WorldOprfNodeTasks {
-        key_event_watcher,
-        merkle_watcher: merkle_watcher_task,
-        rp_registry_watcher: rp_registry_watcher_task,
-        schema_issuer_registry_watcher: schema_issuer_registry_watcher_task,
-        _rpc_provider: rpc_provider,
-    };
 
-    Ok((router, tasks))
+    Ok(router)
 }

@@ -6,7 +6,9 @@ use crate::{
     batcher::{
         BatcherHandle, CreateBatcherHandle, CreateBatcherRunner, OpsBatcherHandle, OpsBatcherRunner,
     },
-    config::{BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig},
+    config::{
+        BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig, RegistryVersion,
+    },
     error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
     orphan_sweeper::run_orphan_sweeper,
     request::GatewayContext,
@@ -22,7 +24,9 @@ use crate::{
         recover_account::recover_account,
         remove_authenticator::remove_authenticator,
         request_status::request_status,
+        revert_recovery_agent_update::revert_recovery_agent_update,
         update_authenticator::update_authenticator,
+        update_recovery_agent::update_recovery_agent,
     },
     types::RootExpiry,
 };
@@ -35,18 +39,16 @@ use axum::{
     routing::{get, post},
 };
 use moka::future::Cache;
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 use utoipa::OpenApi;
-use world_id_core::{
-    api_types::{
-        CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
-        GatewayErrorCode, GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
-        HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery, IsValidRootResponse,
-        RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
-        UpdateRecoveryAgentRequest,
-    },
-    world_id_registry::WorldIdRegistry::WorldIdRegistryInstance,
+use world_id_primitives::api_types::{
+    CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
+    GatewayErrorCode, GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
+    HealthResponse, InsertAuthenticatorRequest, IsValidRootQuery, IsValidRootResponse,
+    RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+    UpdateRecoveryAgentRequest,
 };
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 // Health and status routes
 mod health;
@@ -65,6 +67,8 @@ mod update_authenticator;
 mod cancel_recovery_agent_update;
 mod execute_recovery_agent_update;
 mod initiate_recovery_agent_update;
+mod revert_recovery_agent_update;
+mod update_recovery_agent;
 
 // Admin / utility routes
 mod is_valid_root;
@@ -77,8 +81,10 @@ const ROOT_CACHE_SIZE: u64 = 1024;
 const CREATE_BATCHER_CHANNEL_CAPACITY: usize = 1024;
 const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
 
+#[expect(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
+    registry_version: RegistryVersion,
     batcher_config: BatcherConfig,
     redis_url: String,
     rate_limit: Option<RateLimitConfig>,
@@ -94,6 +100,7 @@ pub(crate) async fn build_app(
     )
     .await;
     let base_fee_cache = BaseFeeCache::default();
+    let tx_send_lock = Arc::new(Mutex::new(()));
 
     spawn_base_fee_sampler(
         registry.provider().clone(),
@@ -111,6 +118,7 @@ pub(crate) async fn build_app(
         tracker.clone(),
         batch_policy_config.clone(),
         base_fee_cache.clone(),
+        tx_send_lock.clone(),
     );
     tokio::spawn(runner.run());
 
@@ -125,6 +133,7 @@ pub(crate) async fn build_app(
         tracker.clone(),
         batch_policy_config,
         base_fee_cache,
+        tx_send_lock,
     );
     tokio::spawn(ops_runner.run());
 
@@ -150,6 +159,7 @@ pub(crate) async fn build_app(
     };
     let ctx = GatewayContext {
         registry: registry.clone(),
+        registry_version,
         tracker,
         batcher: batcher_handle,
         root_cache,
@@ -179,11 +189,20 @@ pub(crate) async fn build_app(
             "/execute-recovery-agent-update",
             post(execute_recovery_agent_update),
         )
+        // WIP-102 optimistic recovery agent update (gated on V2 contract)
+        .route("/update-recovery-agent", post(update_recovery_agent))
+        .route(
+            "/revert-recovery-agent-update",
+            post(revert_recovery_agent_update),
+        )
         // admin / utility
         .route("/is-valid-root", get(is_valid_root))
         .route("/openapi.json", get(openapi))
         .with_state(state)
         .layer(from_fn(middleware::request_id_middleware))
+        .layer(from_fn(
+            world_id_services_common::request_latency_middleware,
+        ))
         .layer(world_id_services_common::timeout_layer(
             request_timeout_secs,
             GatewayErrorResponse::request_timeout(request_timeout_secs),

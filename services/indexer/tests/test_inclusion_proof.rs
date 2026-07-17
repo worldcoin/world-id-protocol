@@ -6,8 +6,8 @@ use serial_test::serial;
 use std::time::Duration;
 
 use alloy::primitives::{U256, address};
+use eddsa_babyjubjub::EdDSAPrivateKey;
 use http::StatusCode;
-use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
 };
@@ -49,6 +49,8 @@ async fn test_backfill_and_live_sync() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8080".parse().unwrap(),
@@ -59,7 +61,6 @@ async fn test_backfill_and_live_sync() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: TreeCacheConfig {
             cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
@@ -179,6 +180,8 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8082".parse().unwrap(),
@@ -189,7 +192,6 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: TreeCacheConfig {
             cache_file_path: temp_cache_path.to_str().unwrap().to_string(),

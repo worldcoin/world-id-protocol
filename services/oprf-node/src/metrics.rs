@@ -4,91 +4,229 @@
 //! provides a helper [`describe_metrics`] to set metadata for
 //! each metric using the `metrics` crate.
 
-/// Attribute ID attached to `METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE`* metrics distinguishing the RP signer type: `EOA`, `contract` vs `unsupported`
-pub(crate) const METRICS_ATTRID_RP_TYPE: &str = "type";
-
-/// Attribute value for `METRICS_ATTRID_RP_TYPE` describing an `EOA` signer.
-pub(crate) const METRICS_ATTRVAL_RP_TYPE_EOA: &str = "eoa";
-/// Attribute value for `METRICS_ATTRID_RP_TYPE` describing an wip101 `CONTRACT` signer.
-pub(crate) const METRICS_ATTRVAL_RP_TYPE_CONTRACT: &str = "contract";
-/// Attribute value for `METRICS_ATTRID_RP_TYPE` describing an `INCOMPATIBLE_WIP101_CONTRACT` signer. This means that the signer is a deployed contract but does not conform to wip101.
-pub(crate) const METRICS_ATTRVAL_RP_TYPE_INCOMPATIBLE_WIP101_CONTRACT: &str = "incompatible_wip101";
-
-/// Number of stored nonces in the nonce history.
-pub const METRICS_ID_NODE_NONCE_HISTORY_SIZE: &str = "taceo.oprf.node.nonce_history.size";
-/// Number of stored roots in the `merkle_watcher` cache.
-pub const METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE: &str =
-    "taceo.oprf.node.merkle_watcher_cache.size";
-/// Number hits in the `merkle_watcher` cache.
-pub const METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS: &str =
-    "taceo.oprf.node.merkle_watcher_cache.hits";
-/// Number misses in the `merkle_watcher` cache.
-pub const METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES: &str =
-    "taceo.oprf.node.merkle_watcher_cache.misses";
-
-/// Number of stored RPs in the `rp_registry_watcher` cache.
-pub const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE: &str =
-    "taceo.oprf.node.rp_registry_watcher_cache.size";
-/// Number of misses in the `rp_registry_watcher` cache.
-pub const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES: &str =
-    "taceo.oprf.node.rp_registry_watcher_cache.misses";
-
-/// Number of stored schema issuers in the `schema_issuer_registry_watcher` cache.
-pub const METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE: &str =
-    "taceo.oprf.node.schema_issuer_registry_watcher_cache.size";
-/// Number of misses in the `schema_issuer_registry_watcher` cache.
-pub const METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES: &str =
-    "taceo.oprf.node.schema_issuer_registry_watcher_cache.misses";
-
 /// Describe all metrics used by the service.
 ///
 /// This calls the `describe_*` functions from the `metrics` crate to set metadata on the different metrics.
 pub fn describe_metrics() {
-    metrics::describe_gauge!(
-        METRICS_ID_NODE_NONCE_HISTORY_SIZE,
-        metrics::Unit::Count,
-        "Number of stored nonces in the nonce history."
-    );
+    auth_module::describe_metrics();
+    nonce_history::describe_metrics();
+    merkle_cache::describe_metrics();
+    rp_registry_cache::describe_metrics();
+    schema_issuer_cache::describe_metrics();
+    accountant_batcher::describe_metrics();
 
-    metrics::describe_gauge!(
-        METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE,
-        metrics::Unit::Count,
-        "Number of stored roots in the merkle_watcher cache."
-    );
+    taceo_oprf::service::metrics::describe_metrics();
+}
 
-    metrics::describe_counter!(
-        METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS,
-        metrics::Unit::Count,
-        "Number of hits in the merkle_watcher cache."
-    );
+pub(crate) mod accountant_batcher {
 
-    metrics::describe_counter!(
-        METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES,
-        metrics::Unit::Count,
-        "Number of misses in the merkle_watcher cache."
-    );
+    const METRICS_ID_ACCOUNTANT_BATCHER_DROPPED_REQUESTS: &str =
+        "taceo.oprf.node.batcher.requests.dropped.full";
 
-    metrics::describe_gauge!(
-        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
-        metrics::Unit::Count,
-        "Number of stored RPs in the rp_registry_watcher cache."
-    );
+    const METRICS_ID_ACCOUNTANT_BATCHER_JOB_QUEUE: &str = "taceo.oprf.node.batcher.job.queue";
 
-    metrics::describe_counter!(
-        METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES,
-        metrics::Unit::Count,
-        "Number of misses in the rp_registry_watcher cache."
-    );
+    pub(super) fn describe_metrics() {
+        metrics::describe_counter!(
+            METRICS_ID_ACCOUNTANT_BATCHER_DROPPED_REQUESTS,
+            metrics::Unit::Count,
+            "Number of requests that were dropped because the channel is full."
+        );
 
-    metrics::describe_gauge!(
-        METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE,
-        metrics::Unit::Count,
-        "Number of stored schema issuers in the schema_issuer_registry_watcher cache."
-    );
+        metrics::describe_gauge!(
+            METRICS_ID_ACCOUNTANT_BATCHER_JOB_QUEUE,
+            metrics::Unit::Count,
+            "Gauge for the job queue/channel size of the batcher. If this starts to increase we have a back pressure problem"
+        );
+    }
 
-    metrics::describe_counter!(
-        METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES,
-        metrics::Unit::Count,
-        "Number of misses in the schema_issuer_registry_watcher cache."
-    );
+    pub(crate) fn inc_request_dropped_full() {
+        metrics::counter!(METRICS_ID_ACCOUNTANT_BATCHER_DROPPED_REQUESTS).increment(1);
+    }
+
+    pub(crate) fn set_job_queue(val: usize) {
+        metrics::gauge!(METRICS_ID_ACCOUNTANT_BATCHER_JOB_QUEUE).set(val as f64);
+    }
+}
+
+pub(crate) mod auth_module {
+
+    const METRICS_ID_AUTHENTICATION_COUNTER: &str = "taceo.oprf.node.auth";
+    const METRICS_ATTRID_AUTH_MODULE: &str = "auth_module";
+    const METRICS_ATTR_NULLIFIER_MODULE: &str = "nullifier";
+    const METRICS_ATTR_SESSION_MODULE: &str = "session";
+    const METRICS_ATTR_CREDENTIAL_BLINDING: &str = "blinding";
+
+    pub(super) fn describe_metrics() {
+        metrics::describe_counter!(
+            METRICS_ID_AUTHENTICATION_COUNTER,
+            metrics::Unit::Count,
+            "Number of times the authentication modules were hit."
+        );
+    }
+
+    pub(crate) fn inc_nullifier() {
+        metrics::counter!(METRICS_ID_AUTHENTICATION_COUNTER, METRICS_ATTRID_AUTH_MODULE => METRICS_ATTR_NULLIFIER_MODULE).increment(1);
+    }
+
+    pub(crate) fn inc_session() {
+        metrics::counter!(METRICS_ID_AUTHENTICATION_COUNTER, METRICS_ATTRID_AUTH_MODULE => METRICS_ATTR_SESSION_MODULE).increment(1);
+    }
+
+    pub(crate) fn inc_issuer_blinding() {
+        metrics::counter!(METRICS_ID_AUTHENTICATION_COUNTER, METRICS_ATTRID_AUTH_MODULE => METRICS_ATTR_CREDENTIAL_BLINDING).increment(1);
+    }
+}
+
+pub(crate) mod nonce_history {
+
+    /// Number of stored nonces in the nonce history.
+    const METRICS_ID_NODE_NONCE_HISTORY_SIZE: &str = "taceo.oprf.node.nonce_history.size";
+
+    pub(super) fn describe_metrics() {
+        metrics::describe_gauge!(
+            METRICS_ID_NODE_NONCE_HISTORY_SIZE,
+            metrics::Unit::Count,
+            "Number of stored nonces in the nonce history."
+        );
+    }
+
+    pub(crate) fn set(val: u64) {
+        metrics::gauge!(METRICS_ID_NODE_NONCE_HISTORY_SIZE).set(val as f64);
+    }
+}
+
+pub(crate) mod merkle_cache {
+
+    /// Number of stored roots in the `merkle_watcher` cache.
+    const METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE: &str =
+        "taceo.oprf.node.merkle_watcher_cache.size";
+    /// Number hits in the `merkle_watcher` cache.
+    const METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS: &str =
+        "taceo.oprf.node.merkle_watcher_cache.hits";
+    /// Number misses in the `merkle_watcher` cache.
+    const METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES: &str =
+        "taceo.oprf.node.merkle_watcher_cache.misses";
+
+    pub(super) fn describe_metrics() {
+        metrics::describe_gauge!(
+            METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE,
+            metrics::Unit::Count,
+            "Number of stored roots in the merkle_watcher cache."
+        );
+
+        metrics::describe_counter!(
+            METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS,
+            metrics::Unit::Count,
+            "Number of hits in the merkle_watcher cache."
+        );
+
+        metrics::describe_counter!(
+            METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES,
+            metrics::Unit::Count,
+            "Number of misses in the merkle_watcher cache."
+        );
+    }
+
+    pub(crate) fn set(val: u64) {
+        metrics::gauge!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_SIZE).set(val as f64);
+    }
+
+    pub(crate) fn hit() {
+        metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_HITS).increment(1);
+    }
+
+    pub(crate) fn miss() {
+        metrics::counter!(METRICS_ID_NODE_MERKLE_WATCHER_CACHE_MISSES).increment(1);
+    }
+}
+
+pub(crate) mod rp_registry_cache {
+
+    /// Number of stored RPs in the `rp_registry_watcher` cache.
+    const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE: &str =
+        "taceo.oprf.node.rp_registry_watcher_cache.size";
+    /// Number of misses in the `rp_registry_watcher` cache.
+    const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES: &str =
+        "taceo.oprf.node.rp_registry_watcher_cache.misses";
+    /// Number of hits in the `rp_registry_watcher` cache.
+    const METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS: &str =
+        "taceo.oprf.node.rp_registry_watcher_cache.hits";
+
+    pub(super) fn describe_metrics() {
+        metrics::describe_gauge!(
+            METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE,
+            metrics::Unit::Count,
+            "Number of stored RPs in the rp_registry_watcher cache."
+        );
+
+        metrics::describe_counter!(
+            METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES,
+            metrics::Unit::Count,
+            "Number of misses in the rp_registry_watcher cache."
+        );
+
+        metrics::describe_counter!(
+            METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS,
+            metrics::Unit::Count,
+            "Number of hits in the rp_registry_watcher cache."
+        );
+    }
+
+    pub(crate) fn set(val: u64) {
+        metrics::gauge!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_SIZE).set(val as f64);
+    }
+
+    pub(crate) fn hit() {
+        metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_HITS).increment(1);
+    }
+
+    pub(crate) fn miss() {
+        metrics::counter!(METRICS_ID_NODE_RP_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
+    }
+}
+
+pub(crate) mod schema_issuer_cache {
+
+    /// Number of stored schema issuers in the `schema_issuer_registry_watcher` cache.
+    const METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE: &str =
+        "taceo.oprf.node.schema_issuer_registry_watcher_cache.size";
+    /// Number of misses in the `schema_issuer_registry_watcher` cache.
+    const METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES: &str =
+        "taceo.oprf.node.schema_issuer_registry_watcher_cache.misses";
+
+    /// Number of hits in the `schema_issuer_registry_watcher` cache.
+    const METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS: &str =
+        "taceo.oprf.node.schema_issuer_registry_watcher_cache.hits";
+
+    pub(super) fn describe_metrics() {
+        metrics::describe_gauge!(
+            METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE,
+            metrics::Unit::Count,
+            "Number of stored schema issuers in the schema_issuer_registry_watcher cache."
+        );
+
+        metrics::describe_counter!(
+            METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS,
+            metrics::Unit::Count,
+            "Number of hits in the schema_issuer_registry_watcher cache."
+        );
+
+        metrics::describe_counter!(
+            METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES,
+            metrics::Unit::Count,
+            "Number of misses in the schema_issuer_registry_watcher cache."
+        );
+    }
+
+    pub(crate) fn set(val: u64) {
+        metrics::gauge!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_SIZE).set(val as f64);
+    }
+
+    pub(crate) fn hit() {
+        metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_HITS).increment(1);
+    }
+
+    pub(crate) fn miss() {
+        metrics::counter!(METRICS_ID_NODE_SCHEMA_ISSUER_REGISTRY_WATCHER_CACHE_MISSES).increment(1);
+    }
 }

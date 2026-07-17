@@ -49,19 +49,19 @@ sol!(
 
 sol!(
     #[sol(rpc)]
-    Poseidon2T2,
+    PackedAccountData,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/Poseidon2.sol/Poseidon2T2.json"
+        "/../../contracts/out/PackedAccountData.sol/PackedAccountData.json"
     )
 );
 
 sol!(
     #[sol(rpc)]
-    PackedAccountData,
+    FullStorageBinaryIMT,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/PackedAccountData.sol/PackedAccountData.json"
+        "/../../contracts/out/FullStorageBinaryIMT.sol/FullStorageBinaryIMT.json"
     )
 );
 
@@ -81,6 +81,16 @@ sol!(
     concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../contracts/out/WorldIDRegistry.sol/WorldIDRegistry.json"
+    )
+);
+
+sol!(
+    #[allow(clippy::too_many_arguments)]
+    #[sol(rpc, ignore_unlinked)]
+    WorldIDRegistryV2,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/WorldIDRegistryV2.sol/WorldIDRegistryV2.json"
     )
 );
 
@@ -147,6 +157,16 @@ sol!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../contracts/out/Verifier.sol/Verifier.json"
     )
+);
+
+// FIXME replace me with the actual billing contract as soon as it is done.
+alloy::sol!(
+    #[sol(rpc, bytecode = "60808060405234601357608b908160188239f35b5f80fdfe60808060405260043610156011575f80fd5b5f3560e01c6375298c75146023575f80fd5b3460515760203660031901126051576004359067ffffffffffffffff8216809203605157602a602092148152f35b5f80fdfea2646970667358221220bfb7611c967593ea8addfd14d3e723982bc72dfd2448df1cdcf1563b09adbc4164736f6c634300081e0033")]
+    contract BillingContractMock {
+        function isBlocked(uint64 rpId) external pure returns (bool) {
+            return rpId == 42;
+        }
+    }
 );
 
 // ── State bridge contract bindings ────────────────────────────────────────
@@ -293,6 +313,32 @@ impl TestAnvil {
         Ok(anvil)
     }
 
+    /// Spawns a fresh `anvil` instance with auto-mining: a block is mined instantly for every
+    /// transaction instead of the 1-second interval used by [`Self::spawn`]. Prefer this for
+    /// tests that only need transactions included and don't depend on periodic block production.
+    pub fn spawn_auto_mine() -> Result<Self> {
+        let instance = Anvil::new()
+            .mnemonic(Self::MNEMONIC)
+            .try_spawn()
+            .context("failed to start anvil")?;
+
+        let rpc_url = instance.endpoint().to_string();
+        let ws_url = instance.ws_endpoint();
+
+        Ok(Self {
+            instance,
+            rpc_url,
+            ws_url,
+        })
+    }
+
+    /// Auto-mining variant of [`Self::spawn_with_multicall3`].
+    pub async fn spawn_auto_mine_with_multicall3() -> Result<Self> {
+        let anvil = Self::spawn_auto_mine()?;
+        anvil.deploy_multicall3().await?;
+        Ok(anvil)
+    }
+
     /// Deploys Multicall3 bytecode at the canonical address using `anvil_setCode`.
     async fn deploy_multicall3(&self) -> Result<()> {
         let provider = ProviderBuilder::new()
@@ -405,67 +451,27 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        // Step 1: Deploy Poseidon2T2 library (no dependencies)
-        let poseidon = Poseidon2T2::deploy(provider.clone())
-            .await
-            .context("failed to deploy Poseidon2T2 library")?;
-
-        // Step 2: Deploy PackedAccountData library (no dependencies)
         let packed_account_data = PackedAccountData::deploy(provider.clone())
             .await
             .context("failed to deploy PackedAccountData library")?;
+        let full_storage_binary_imt = FullStorageBinaryIMT::deploy(provider.clone())
+            .await
+            .context("failed to deploy FullStorageBinaryIMT library")?;
 
-        // Step 3: Link Poseidon2T2 and PackedAccountData to WorldIDRegistry
-        // (FullStorageBinaryIMT is an internal library inlined into WorldIDRegistry,
-        // but it uses Poseidon2T2 which is a public library requiring linking.)
-        let world_id_registry_json = include_str!(concat!(
+        let v1_json = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../contracts/out/WorldIDRegistry.sol/WorldIDRegistry.json"
         ));
-
-        let json_value: serde_json::Value = serde_json::from_str(world_id_registry_json)?;
-        let mut bytecode_str = json_value["bytecode"]["object"]
-            .as_str()
-            .context("bytecode not found in JSON")?
-            .strip_prefix("0x")
-            .unwrap_or_else(|| {
-                json_value["bytecode"]["object"]
-                    .as_str()
-                    .expect("bytecode should be a string")
-            })
-            .to_string();
-
-        bytecode_str = Self::link_bytecode_hex(
-            world_id_registry_json,
-            &bytecode_str,
-            "src/core/hash/Poseidon2.sol:Poseidon2T2",
-            *poseidon.address(),
-        )?;
-
-        bytecode_str = Self::link_bytecode_hex(
-            world_id_registry_json,
-            &bytecode_str,
-            "src/core/libraries/PackedAccountData.sol:PackedAccountData",
+        let implementation_address = Self::deploy_linked_registry_impl(
+            provider.clone(),
+            v1_json,
+            *full_storage_binary_imt.address(),
             *packed_account_data.address(),
-        )?;
+        )
+        .await
+        .context("failed to deploy WorldIDRegistry implementation")?;
 
-        // Decode the fully-linked bytecode
-        let world_id_registry_bytecode = Bytes::from(hex::decode(bytecode_str)?);
-
-        let implementation_address =
-            Self::deploy_contract(provider.clone(), world_id_registry_bytecode, Bytes::new())
-                .await
-                .context("failed to deploy WorldIDRegistry implementation")?;
-
-        let init_data = Bytes::from(
-            WorldIDRegistry::initializeCall {
-                initialTreeDepth: U256::from(tree_depth),
-                feeRecipient: address!("0x2cFc85d8E48F8EAB294be644d9E25C3030863003"),
-                feeToken: address!("0x2cFc85d8E48F8EAB294be644d9E25C3030863003"),
-                registrationFee: U256::from(0),
-            }
-            .abi_encode(),
-        );
+        let init_data = Self::world_id_registry_init_data(tree_depth);
 
         let proxy = ERC1967Proxy::deploy(provider, implementation_address, init_data)
             .await
@@ -479,6 +485,130 @@ impl TestAnvil {
     pub async fn deploy_world_id_registry(&self, signer: PrivateKeySigner) -> Result<Address> {
         self.deploy_world_id_registry_with_depth(signer, TREE_DEPTH as u64)
             .await
+    }
+
+    /// Deploys the `WorldIDRegistry` behind an ERC1967 proxy (initialized as V1)
+    /// and then upgrades the proxy to the V2 implementation. Returns the proxy
+    /// address. Mirrors the on-chain contract upgrade flow used in production.
+    #[allow(dead_code)]
+    pub async fn deploy_world_id_registry_v2_with_depth(
+        &self,
+        signer: PrivateKeySigner,
+        tree_depth: u64,
+    ) -> Result<Address> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+
+        // 1. Deploy the libraries used by the registry bytecode.
+        let packed_account_data = PackedAccountData::deploy(provider.clone())
+            .await
+            .context("failed to deploy PackedAccountData library")?;
+        let full_storage_binary_imt = FullStorageBinaryIMT::deploy(provider.clone())
+            .await
+            .context("failed to deploy FullStorageBinaryIMT library")?;
+
+        // 2. Deploy V1 implementation, link, and stand up the proxy.
+        let v1_json = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/WorldIDRegistry.sol/WorldIDRegistry.json"
+        ));
+        let v1_impl = Self::deploy_linked_registry_impl(
+            provider.clone(),
+            v1_json,
+            *full_storage_binary_imt.address(),
+            *packed_account_data.address(),
+        )
+        .await
+        .context("failed to deploy WorldIDRegistry V1 implementation")?;
+
+        let init_data = Self::world_id_registry_init_data(tree_depth);
+        let proxy = ERC1967Proxy::deploy(provider.clone(), v1_impl, init_data)
+            .await
+            .context("failed to deploy WorldIDRegistry proxy")?;
+        let proxy_address = *proxy.address();
+
+        // 3. Deploy V2 implementation linked against the same libraries.
+        let v2_json = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/WorldIDRegistryV2.sol/WorldIDRegistryV2.json"
+        ));
+        let v2_impl = Self::deploy_linked_registry_impl(
+            provider.clone(),
+            v2_json,
+            *full_storage_binary_imt.address(),
+            *packed_account_data.address(),
+        )
+        .await
+        .context("failed to deploy WorldIDRegistry V2 implementation")?;
+
+        // 4. Upgrade the proxy to V2.
+        let proxy_v1 = WorldIDRegistry::new(proxy_address, provider);
+        proxy_v1
+            .upgradeToAndCall(v2_impl, Bytes::new())
+            .send()
+            .await
+            .context("failed to send upgradeToAndCall(V2)")?
+            .watch()
+            .await
+            .context("upgradeToAndCall(V2) transaction not mined")?;
+
+        Ok(proxy_address)
+    }
+
+    /// Deploys the V2 `WorldIDRegistry` (V1 → V2 upgrade) with default tree depth.
+    #[allow(dead_code)]
+    pub async fn deploy_world_id_registry_v2(&self, signer: PrivateKeySigner) -> Result<Address> {
+        self.deploy_world_id_registry_v2_with_depth(signer, TREE_DEPTH as u64)
+            .await
+    }
+
+    fn world_id_registry_init_data(tree_depth: u64) -> Bytes {
+        Bytes::from(
+            WorldIDRegistry::initializeCall {
+                initialTreeDepth: U256::from(tree_depth),
+                feeRecipient: address!("0x2cFc85d8E48F8EAB294be644d9E25C3030863003"),
+                feeToken: address!("0x2cFc85d8E48F8EAB294be644d9E25C3030863003"),
+                registrationFee: U256::from(0),
+            }
+            .abi_encode(),
+        )
+    }
+
+    /// Links the registry implementation bytecode and deploys it.
+    async fn deploy_linked_registry_impl<P: Provider>(
+        provider: P,
+        impl_json: &str,
+        full_storage_binary_imt_addr: Address,
+        packed_account_data_addr: Address,
+    ) -> Result<Address> {
+        let json_value: serde_json::Value = serde_json::from_str(impl_json)?;
+        let mut bytecode_str = json_value["bytecode"]["object"]
+            .as_str()
+            .context("bytecode not found in JSON")?
+            .strip_prefix("0x")
+            .unwrap_or_else(|| {
+                json_value["bytecode"]["object"]
+                    .as_str()
+                    .expect("bytecode should be a string")
+            })
+            .to_string();
+
+        bytecode_str = Self::link_bytecode_hex(
+            impl_json,
+            &bytecode_str,
+            "src/core/libraries/FullStorageBinaryIMT.sol:FullStorageBinaryIMT",
+            full_storage_binary_imt_addr,
+        )?;
+        bytecode_str = Self::link_bytecode_hex(
+            impl_json,
+            &bytecode_str,
+            "src/core/libraries/PackedAccountData.sol:PackedAccountData",
+            packed_account_data_addr,
+        )?;
+
+        let bytecode = Bytes::from(hex::decode(bytecode_str)?);
+        Self::deploy_contract(provider, bytecode, Bytes::new()).await
     }
 
     /// Deploys the `RpRegistry` contract using the supplied signer.
@@ -515,6 +645,17 @@ impl TestAnvil {
             .context("failed to deploy RpRegistry proxy")?;
 
         Ok(*proxy.address())
+    }
+
+    // FIXME replace me with real billing contract once merged
+    pub async fn deploy_billing_contract(&self, signer: PrivateKeySigner) -> eyre::Result<Address> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+        let billing_contract_mock = BillingContractMock::deploy(provider.clone())
+            .await
+            .context("failed to deploy billing contract")?;
+        Ok(*billing_contract_mock.address())
     }
 
     /// Deploys the `OprfKeyRegistry` contract using the supplied signer.

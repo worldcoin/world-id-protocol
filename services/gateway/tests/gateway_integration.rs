@@ -6,15 +6,13 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use reqwest::StatusCode;
-use world_id_core::{
-    api_types::{
-        GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
-        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
-    },
-    world_id_registry::{
-        WorldIdRegistry, domain as ag_domain, sign_insert_authenticator, sign_recover_account,
-        sign_remove_authenticator, sign_update_authenticator,
-    },
+use world_id_primitives::api_types::{
+    GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
+};
+use world_id_registries::world_id::{
+    WorldIdRegistry, domain as ag_domain, sign_insert_authenticator, sign_recover_account,
+    sign_remove_authenticator, sign_update_authenticator,
 };
 
 use crate::common::{spawn_test_gateway, wait_for_finalized};

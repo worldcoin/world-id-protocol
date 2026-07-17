@@ -1,6 +1,6 @@
 #![cfg(feature = "authenticator")]
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use alloy::{
     primitives::{Address, U256},
@@ -12,11 +12,14 @@ use reqwest::Client;
 use world_id_core::{
     Authenticator, AuthenticatorError,
     api_types::{GatewayRequestState, GatewayStatusResponse},
+    artifacts::{ZkArtifactSource, dummy::DummyZkArtifactSource},
 };
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
+    spawn_gateway_for_tests,
 };
-use world_id_primitives::{Config, TREE_DEPTH, merkle::AccountInclusionProof};
+use world_id_primitives::{Config, ServiceEndpoint, TREE_DEPTH, merkle::AccountInclusionProof};
+
 use world_id_test_utils::{
     anvil::{TestAnvil, WorldIDRegistry},
     fixtures::{MerkleFixture, single_leaf_merkle_fixture},
@@ -82,8 +85,8 @@ fn make_config(
         Some(rpc_url.to_string()),
         chain_id,
         registry,
-        indexer_url.to_string(),
-        gateway_url.to_string(),
+        ServiceEndpoint::direct(indexer_url.to_string()),
+        ServiceEndpoint::direct(gateway_url.to_string()),
         Vec::new(),
         2,
     )
@@ -92,6 +95,11 @@ fn make_config(
 
 // Tests that the on-chain nonce increments correctly after each authenticator operation.
 // Flow: create account (nonce=0) -> insert (nonce=1) -> update (nonce=2) -> remove (nonce=3)
+
+fn dummy_zk_source() -> Arc<dyn ZkArtifactSource> {
+    Arc::new(DummyZkArtifactSource)
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn e2e_authenticator_insert_update_remove() {
     rustls::crypto::aws_lc_rs::default_provider()
@@ -101,6 +109,7 @@ async fn e2e_authenticator_insert_update_remove() {
         .await
         .expect("failed to spawn anvil with multicall3");
     let deployer = anvil.signer(0).unwrap();
+    // This test covers the legacy updateAuthenticator route, which V2 removes.
     let registry_address = anvil
         .deploy_world_id_registry(deployer.clone())
         .await
@@ -109,6 +118,7 @@ async fn e2e_authenticator_insert_update_remove() {
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
+        registry_version: RegistryVersion::V1,
         provider: world_id_gateway::ProviderArgs {
             http: Some(vec![anvil.endpoint().parse().unwrap()]),
             signer: Some(signer_args),
@@ -148,16 +158,20 @@ async fn e2e_authenticator_insert_update_remove() {
         "http://127.0.0.1:0",
         &gateway_url,
     );
-    let result = Authenticator::init(&primary_seed, config.clone().into()).await;
+    let result = Authenticator::init(&primary_seed, config.clone(), dummy_zk_source()).await;
     assert!(matches!(
         result,
         Err(AuthenticatorError::AccountDoesNotExist)
     ));
 
-    let primary =
-        Authenticator::init_or_register(&primary_seed, config.into(), Some(recovery_address))
-            .await
-            .unwrap();
+    let primary = Authenticator::init_or_register(
+        &primary_seed,
+        config,
+        Some(recovery_address),
+        dummy_zk_source(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(primary.leaf_index(), 1);
     assert_eq!(primary.signing_nonce().await.unwrap(), U256::from(0));
@@ -183,7 +197,7 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&primary_seed, config.into())
+    let auth = Authenticator::init(&primary_seed, config, dummy_zk_source())
         .await
         .unwrap();
 
@@ -223,7 +237,7 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&primary_seed, config.into())
+    let auth = Authenticator::init(&primary_seed, config, dummy_zk_source())
         .await
         .unwrap();
 
@@ -278,7 +292,7 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&secondary_seed, config.into())
+    let auth = Authenticator::init(&secondary_seed, config, dummy_zk_source())
         .await
         .unwrap();
 

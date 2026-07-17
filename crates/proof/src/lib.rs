@@ -4,10 +4,13 @@ use eddsa_babyjubjub::EdDSAPrivateKey;
 use groth16_material::Groth16Error;
 
 use world_id_primitives::{
-    TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
+    AuthenticatorPublicKeySet, TREE_DEPTH, merkle::MerkleInclusionProof,
     oprf::WorldIdRequestAuthError,
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
+
+/// ZK artifact source abstractions.
+pub mod artifacts;
 
 /// Circuit input types for Circom/Groth16 circuits (query, nullifier, ownership proofs).
 pub mod circuit_inputs;
@@ -15,22 +18,25 @@ pub mod circuit_inputs;
 pub mod compress;
 pub use compress::ProofCompression;
 pub(crate) mod oprf_query;
-pub use oprf_query::{FullOprfOutput, OprfEntrypoint};
+pub use oprf_query::{
+    FullOprfOutput, OprfEntrypoint, QUERY_GRAPH_FINGERPRINT, QUERY_ZKEY_FINGERPRINT,
+    load_query_material_from_paths, load_query_material_from_reader,
+};
 
-pub mod proof;
-pub use proof::*;
+pub mod nullifier_proof;
+pub use nullifier_proof::*;
 
-#[cfg(feature = "provekit")]
 use provekit_common::{InputMap, InputValue, NoirElement};
 
-#[cfg(feature = "provekit")]
 use world_id_primitives::FieldElement;
 
-#[cfg(feature = "provekit")]
+// TODO: Currently ownership proofs are not supported for WASM targets
+#[cfg(not(target_arch = "wasm32"))]
 pub mod ownership_proof;
 
-#[cfg(feature = "provekit")]
-pub use provekit_common::{NoirProof, WhirR1CSProof};
+pub use provekit_common::{
+    NoirProof, Prover as OwnershipProver, Verifier as OwnershipVerifier, WhirR1CSProof,
+};
 
 /// Error type for OPRF operations and proof generation.
 #[derive(Debug, thiserror::Error)]
@@ -47,25 +53,28 @@ pub enum ProofError {
     /// Errors originating from Groth16 proof generation or verification.
     #[error(transparent)]
     ZkError(#[from] Groth16Error),
+    /// Error loading ZK artifacts from a [`artifacts::ZkArtifactSource`].
+    #[error(transparent)]
+    ZkArtifact(#[from] artifacts::ZkArtifactError),
     /// Error generating a Noir Proof with ProveKit
-    #[error("generation error: {0}")]
+    #[error("proof generation error: {0}")]
     GenerationError(String),
+    /// Error verifying a Noir Proof with ProveKit. This usually means the proof is invalid.
+    #[error("proof verification error: {0}")]
+    Verification(String),
     /// Catch-all for other internal errors.
     #[error(transparent)]
     InternalError(#[from] eyre::Report),
 }
 
-#[cfg(feature = "provekit")]
 pub trait NoirCircuitInput {
     fn into_witness(self) -> Result<InputMap, ProofError>;
 }
 
-#[cfg(feature = "provekit")]
 pub trait NoirRepresentable {
     fn into_noir_value(self) -> InputValue;
 }
 
-#[cfg(feature = "provekit")]
 impl NoirRepresentable for FieldElement {
     fn into_noir_value(self) -> InputValue {
         InputValue::Field(NoirElement::from_repr(*self))
@@ -74,10 +83,10 @@ impl NoirRepresentable for FieldElement {
 
 impl From<taceo_oprf::client::Error> for ProofError {
     fn from(err: taceo_oprf::client::Error) -> Self {
-        if let taceo_oprf::client::Error::ThresholdServiceError(ref svc) = err {
-            if svc.kind.is_auth() {
-                return Self::RequestAuthError(WorldIdRequestAuthError::from(svc.error_code));
-            }
+        if let taceo_oprf::client::Error::ThresholdServiceError(ref svc) = err
+            && svc.kind.is_auth()
+        {
+            return Self::RequestAuthError(WorldIdRequestAuthError::from(svc.error_code));
         }
         Self::OprfError(err)
     }

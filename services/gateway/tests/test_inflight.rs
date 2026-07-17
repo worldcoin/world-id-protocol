@@ -2,16 +2,20 @@ use alloy::{
     primitives::{Address, U256},
     signers::local::PrivateKeySigner,
 };
+use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use reqwest::StatusCode;
-use world_id_core::{
-    Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSAPublicKey, OnchainKeyRepresentable,
+use std::sync::Arc;
+use world_id_authenticator::{Authenticator, AuthenticatorError, OnchainKeyRepresentable};
+use world_id_primitives::{
+    Config, ServiceEndpoint, TREE_DEPTH,
     api_types::{
         GatewayRequestId, GatewayRequestKind, GatewayStatusResponse, RecoverAccountRequest,
     },
-    primitives::{Config, TREE_DEPTH, merkle::AccountInclusionProof},
-    world_id_registry::{domain as ag_domain, sign_recover_account},
+    merkle::AccountInclusionProof,
 };
 
+use world_id_authenticator::proof::artifacts::{ZkArtifactSource, dummy::DummyZkArtifactSource};
+use world_id_registries::world_id::{domain as ag_domain, sign_recover_account};
 use world_id_test_utils::{
     fixtures::{MerkleFixture, single_leaf_merkle_fixture},
     stubs::MutableIndexerStub,
@@ -43,8 +47,8 @@ fn make_config(gw: &TestGateway, indexer_url: &str) -> Config {
         Some(gw.rpc_url.clone()),
         gw.chain_id,
         gw.registry_addr,
-        indexer_url.to_string(),
-        gw.base_url.clone(),
+        ServiceEndpoint::direct(indexer_url.to_string()),
+        ServiceEndpoint::direct(gw.base_url.clone()),
         Vec::new(),
         2,
     )
@@ -78,14 +82,14 @@ async fn register_and_init(
 ) -> (Authenticator, MutableIndexerStub) {
     ensure_crypto_provider();
     let config = make_config(gw, "http://127.0.0.1:0");
-    let initializing = Authenticator::register(&seed, config.into(), recovery_address)
+    let initializing = Authenticator::register(&seed, config, recovery_address)
         .await
         .expect("register failed");
     wait_for_finalized(&gw.client, &gw.base_url, initializing.request_id()).await;
 
     let (pubkey, _) = derive_keys_from_seed(seed);
     let tmp_config = make_config(gw, "http://127.0.0.1:0");
-    let auth = Authenticator::init(&seed, tmp_config.into())
+    let auth = Authenticator::init(&seed, tmp_config, dummy_zk_source())
         .await
         .expect("init failed after register");
 
@@ -96,7 +100,7 @@ async fn register_and_init(
         .expect("failed to spawn indexer stub");
 
     let config = make_config(gw, &stub.url);
-    let auth = Authenticator::init(&seed, config.into())
+    let auth = Authenticator::init(&seed, config, dummy_zk_source())
         .await
         .expect("init with indexer stub failed");
 
@@ -253,6 +257,10 @@ fn assert_duplicate_in_flight(err: AuthenticatorError, ctx: &str) {
 // Tests: Redis lock lifecycle
 // ===========================================================================
 
+fn dummy_zk_source() -> Arc<dyn ZkArtifactSource> {
+    Arc::new(DummyZkArtifactSource)
+}
+
 /// After submitting a request (with a long batch window so it stays in-flight),
 /// the corresponding Redis lock key must exist.
 ///
@@ -267,7 +275,7 @@ async fn test_lock_created_on_submit() {
     let seed: [u8; 32] = rand::random();
     let (_, addr) = derive_keys_from_seed(seed);
     let config = make_config(&gw, "http://127.0.0.1:0");
-    let _initializing = Authenticator::register(&seed, config.into(), None)
+    let _initializing = Authenticator::register(&seed, config, None)
         .await
         .expect("register failed");
     let auth_key = format!("gateway:inflight:create:{addr}");
@@ -347,7 +355,7 @@ async fn test_lock_removed_after_finalization() {
     let seed: [u8; 32] = rand::random();
     let (_, addr) = derive_keys_from_seed(seed);
     let config = make_config(&gw, "http://127.0.0.1:0");
-    let initializing = Authenticator::register(&seed, config.into(), None)
+    let initializing = Authenticator::register(&seed, config, None)
         .await
         .expect("register failed");
     wait_for_finalized(&gw.client, &gw.base_url, initializing.request_id()).await;

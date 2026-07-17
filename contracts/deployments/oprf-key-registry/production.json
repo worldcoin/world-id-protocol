@@ -6,11 +6,12 @@
     "admins": [
       "0xD9A213A92Bca460D56cDbBF4d775b48fB5925BbC",
       "0x941239840F4d9668da8be76b568e836b50685d2c",
-      "0x588DA525a1c7986B4BB2C521Ea67b95603Be6c26"
+      "0x588DA525a1c7986B4BB2C521Ea67b95603Be6c26",
+      "0x18fC7663cD00Cf54929F7a64826633C18B9B7Fb1"
     ],
     "owner": {
-      "wallet": "0x588DA525a1c7986B4BB2C521Ea67b95603Be6c26",
-      "description": "Hardware wallet in TACEO's possession. Ownership will be transferred to a multisig wallet in the foreseeable future."
+      "wallet": "0x18fC7663cD00Cf54929F7a64826633C18B9B7Fb1",
+      "description": "Multi-sig wallet managed by TACEO."
     }
   },
   "verifierKeyGen25": "0x23f7d6e35836F21717d3346fe3078aE695619BFB"

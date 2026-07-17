@@ -12,11 +12,10 @@ use secrecy::ExposeSecret as _;
 use taceo_oprf::{core::oprf::BlindingFactor, dev_client::DevClientConfig};
 use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSASignature, FieldElement,
-    proof::{CircomGroth16Material, errors},
+    artifacts::ZkArtifactSourceExt as _,
+    nullifier_proof::{CircomGroth16Material, errors},
 };
-use world_id_primitives::{
-    TREE_DEPTH, authenticator::AuthenticatorPublicKeySet, merkle::MerkleInclusionProof,
-};
+use world_id_primitives::{AuthenticatorPublicKeySet, TREE_DEPTH, merkle::MerkleInclusionProof};
 use world_id_proof::circuit_inputs::QueryProofCircuitInput;
 
 const HARDCODED_RP_SIGNER: &str =
@@ -124,7 +123,26 @@ impl SharedDevClientComponents {
         AuthenticatorPublicKeySet,
         u64,
     )> {
-        let account_inclusion_proof = self.authenticator.fetch_inclusion_proof().await?;
+        // Under poll-based indexer sync the indexer is eventually-consistent: a freshly
+        // created account may not be indexed until the next poll tick. Retry the read while
+        // the indexer reports "not indexed yet" (404) or "insertion pending" (423 Locked),
+        // and bail immediately on any other error.
+        let indexer_not_ready = |e: &AuthenticatorError| {
+            matches!(
+                e,
+                AuthenticatorError::IndexerError { status, .. }
+                    if status.as_u16() == 404 || status.as_u16() == 423
+            )
+        };
+        let backoff = backon::ExponentialBuilder::default()
+            .with_min_delay(std::time::Duration::from_millis(500))
+            .with_factor(1.5)
+            .without_max_times()
+            .with_total_delay(Some(std::time::Duration::from_secs(30)));
+        let account_inclusion_proof =
+            backon::Retryable::retry(|| self.authenticator.fetch_inclusion_proof(), backoff)
+                .when(indexer_not_ready)
+                .await?;
 
         let key_index = account_inclusion_proof
             .authenticator_pubkeys
@@ -146,7 +164,7 @@ pub async fn init_shared_components(
     config: &WorldDevClientConfig,
 ) -> eyre::Result<SharedDevClientComponents> {
     let query_material = Arc::new(
-        world_id_core::proof::load_embedded_query_material()
+        world_id_core::artifacts::embedded::zkeys::load_embedded_query_material()
             .context("while loading query material")?,
     );
     let (authenticator, authenticator_private_key) = init_authenticator(
@@ -155,7 +173,6 @@ pub async fn init_shared_components(
         config.world_id_registry_contract,
         &config.config,
         config.anvil,
-        Arc::clone(&query_material),
     )
     .await?;
 
@@ -182,27 +199,27 @@ pub async fn init_authenticator(
     world_id_registry_contract: Address,
     config: &DevClientConfig,
     anvil: bool,
-    query_material: Arc<CircomGroth16Material>,
 ) -> eyre::Result<(Authenticator, EdDSAPrivateKey)> {
     let world_config = world_id_primitives::Config::new(
         Some(config.chain_rpc_url.expose_secret().to_string()),
         if anvil { 31_337 } else { 480 },
         world_id_registry_contract,
-        indexer_url.clone(),
-        gateway_url.clone(),
+        world_id_primitives::ServiceEndpoint::direct(indexer_url.clone()),
+        world_id_primitives::ServiceEndpoint::direct(gateway_url.clone()),
         config.nodes.clone(),
         config.threshold,
     )
     .context("while creating world config")?;
 
-    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material()
-        .context("while loading query material")?;
-
     tracing::info!("creating account..");
     let seed = [7u8; 32];
-    let authenticator = Authenticator::init_or_register(&seed, world_config.into(), None)
-        .await?
-        .with_proof_materials(query_material, Arc::new(nullifier_material));
+    let authenticator = Authenticator::init_or_register(
+        &seed,
+        world_config,
+        None,
+        Arc::new(world_id_core::artifacts::embedded::EmbeddedZkArtifacts.cached()),
+    )
+    .await?;
     let authenticator_private_key = EdDSAPrivateKey::from_bytes(seed);
     Ok((authenticator, authenticator_private_key))
 }

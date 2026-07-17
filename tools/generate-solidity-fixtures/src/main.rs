@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! Generates Solidity test fixtures for `WorldIDVerifierTest.t.sol`.
 //!
 //! Spins up a local Anvil node, gateway, OPRF nodes, and indexer stub, then
@@ -18,7 +19,7 @@ use std::{
 
 use alloy::{
     primitives::{U160, U256},
-    signers::local::LocalSigner,
+    signers::{SignerSync as _, local::LocalSigner},
 };
 use eyre::{Context as _, Result, eyre};
 use taceo_oprf::{
@@ -29,13 +30,16 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 use world_id_core::{
     Authenticator, CredentialInput, EdDSAPrivateKey,
-    requests::{ProofRequest, RequestItem, RequestVersion},
+    artifacts::{ZkArtifactSource, ZkArtifactSourceExt as _},
+    requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
 };
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
+    spawn_gateway_for_tests,
 };
 use world_id_primitives::{
-    Config, FieldElement, SessionFieldElement, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
+    Config, FieldElement, ServiceEndpoint, SessionFieldElement, SessionId, TREE_DEPTH,
+    merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
     anvil::WorldIDVerifier,
@@ -46,13 +50,8 @@ use world_id_test_utils::{
     stubs::spawn_indexer_stub,
 };
 
-fn load_embedded_materials() -> (
-    Arc<world_id_core::proof::CircomGroth16Material>,
-    Arc<world_id_core::proof::CircomGroth16Material>,
-) {
-    let query_material = world_id_core::proof::load_embedded_query_material().unwrap();
-    let nullifier_material = world_id_core::proof::load_embedded_nullifier_material().unwrap();
-    (Arc::new(query_material), Arc::new(nullifier_material))
+fn zk_artifact_source() -> Arc<dyn ZkArtifactSource> {
+    Arc::new(world_id_core::artifacts::embedded::EmbeddedZkArtifacts.cached())
 }
 
 #[tokio::main]
@@ -73,6 +72,7 @@ async fn main() -> Result<()> {
         oprf_key_registry,
         world_id_verifier,
         credential_registry,
+        billing_contract,
     } = RegistryTestContext::new().await?;
 
     let deployer = anvil
@@ -84,6 +84,7 @@ async fn main() -> Result<()> {
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: world_id_registry,
+        registry_version: RegistryVersion::V2,
         provider: world_id_gateway::ProviderArgs {
             http: Some(vec![anvil.endpoint().parse().unwrap()]),
             signer: Some(signer_args),
@@ -117,21 +118,22 @@ async fn main() -> Result<()> {
         Some(anvil.endpoint().to_string()),
         anvil.instance.chain_id(),
         world_id_registry,
-        "http://127.0.0.1:0".to_string(),
-        format!("http://127.0.0.1:{gw_port}"),
+        ServiceEndpoint::direct("http://127.0.0.1:0".to_string()),
+        ServiceEndpoint::direct(format!("http://127.0.0.1:{gw_port}")),
         Vec::new(),
         3,
     )
     .unwrap();
     let _authenticator = Authenticator::init_or_register(
         &seed,
-        creation_config.clone().into(),
+        creation_config.clone(),
         Some(recovery_address),
+        zk_artifact_source(),
     )
     .await
     .unwrap();
 
-    let authenticator = Authenticator::init(&seed, creation_config.into())
+    let authenticator = Authenticator::init(&seed, creation_config, zk_artifact_source())
         .await
         .wrap_err("expected authenticator to initialize after account creation")?;
 
@@ -154,29 +156,26 @@ async fn main() -> Result<()> {
 
     let (_postgres, connection_string) = taceo_oprf_test_utils::postgres_testcontainer().await?;
 
-    let (key_gen_secret_managers, node_secret_managers) =
-        world_id_test_utils::stubs::init_test_secret_managers(connection_string.into()).await?;
+    let node_secret_managers =
+        world_id_test_utils::stubs::init_test_secret_managers(connection_string.clone().into())
+            .await?;
 
-    let oprf_key_gens = world_id_test_utils::stubs::spawn_key_gens(
-        anvil.endpoint(),
-        anvil.ws_endpoint(),
-        key_gen_secret_managers,
-        oprf_key_registry,
-    )
-    .await;
+    let oprf_key_gens =
+        world_id_test_utils::stubs::spawn_key_gens(&anvil, &connection_string, oprf_key_registry)
+            .await?;
 
     let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
         &anvil,
         node_secret_managers,
-        oprf_key_registry,
         world_id_registry,
         rp_registry,
+        billing_contract,
         credential_registry,
     )
     .await;
 
     health_checks::services_health_check(&nodes, Duration::from_secs(60)).await?;
-    health_checks::services_health_check(&oprf_key_gens, Duration::from_secs(60)).await?;
+    health_checks::services_health_check(&oprf_key_gens.urls, Duration::from_secs(60)).await?;
 
     // Register issuer.
     let issuer_schema_id = 1u64;
@@ -229,18 +228,16 @@ async fn main() -> Result<()> {
         Some(anvil.endpoint().to_string()),
         anvil.instance.chain_id(),
         world_id_registry,
-        indexer_url.clone(),
-        format!("http://127.0.0.1:{gw_port}"),
+        ServiceEndpoint::direct(indexer_url.clone()),
+        ServiceEndpoint::direct(format!("http://127.0.0.1:{gw_port}")),
         nodes.to_vec(),
         3,
     )
     .unwrap();
 
-    let (query_material, nullifier_material) = load_embedded_materials();
-    let authenticator = Authenticator::init(&seed, proof_config.into())
+    let authenticator = Authenticator::init(&seed, proof_config, zk_artifact_source())
         .await
-        .wrap_err("failed to reinitialize authenticator with proof config")?
-        .with_proof_materials(query_material, nullifier_material);
+        .wrap_err("failed to reinitialize authenticator with proof config")?;
 
     let credential_sub_blinding_factor = authenticator
         .generate_credential_blinding_factor(issuer_schema_id)
@@ -270,6 +267,7 @@ async fn main() -> Result<()> {
     let uniqueness_request = ProofRequest {
         id: "fixture_uniqueness".to_string(),
         version: RequestVersion::V1,
+        proof_type: ProofType::Uniqueness,
         created_at: rp_fixture.current_timestamp,
         expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,
@@ -299,9 +297,6 @@ async fn main() -> Result<()> {
     let nullifier_data = authenticator
         .generate_nullifier(&uniqueness_request, None)
         .await?;
-
-    // Clone the nullifier data before it's consumed — we reuse it for the session proof.
-    let nullifier_data_for_session = nullifier_data.clone();
 
     let uniqueness_result = authenticator
         .generate_proof(
@@ -350,17 +345,34 @@ async fn main() -> Result<()> {
     )
     .unwrap();
 
-    // ── SESSION PROOF (reuse cloned OPRF data with a session_id on the request) ──
+    // ── SESSION PROOF (own OPRF round: session queries use an internal random action
+    //    generated at query time, and the RP signature does not cover an action) ──
+    let session_nonce = FieldElement::random(&mut rng);
+    let session_msg = world_id_primitives::rp::compute_rp_signature_msg(
+        *session_nonce,
+        rp_fixture.current_timestamp,
+        rp_fixture.expiration_timestamp,
+        None,
+    );
+    let session_signature = LocalSigner::from_signing_key(rp_fixture.signing_key.clone())
+        .sign_message_sync(&session_msg)?;
     let session_request = ProofRequest {
+        proof_type: ProofType::Session,
         session_id: Some(session_id),
-        action: None, // session proofs use an internal random action
+        action: None,
+        nonce: session_nonce,
+        signature: session_signature,
         ..uniqueness_request.clone()
     };
+
+    let session_nullifier_data = authenticator
+        .generate_nullifier(&session_request, None)
+        .await?;
 
     let session_result = authenticator
         .generate_proof(
             &session_request,
-            nullifier_data_for_session,
+            session_nullifier_data,
             &credentials,
             None,
             Some(session_id_r_seed),
@@ -377,7 +389,7 @@ async fn main() -> Result<()> {
     verifier_instance
         .verifySession(
             rp_fixture.world_rp_id.into_inner(),
-            rp_fixture.nonce.into(),
+            session_nonce.into(),
             request_item.signal_hash().into(),
             session_response.expires_at_min,
             issuer_schema_id,
@@ -466,7 +478,9 @@ async fn main() -> Result<()> {
     let session_id_u256: U256 = session_id.commitment.into();
     let s_proof = session_response.proof.as_ethereum_representation();
     let s_null = session_nullifier.as_ethereum_representation();
+    let session_nonce_u256: U256 = session_nonce.into();
     println!("uint256 sessionId = {:#x};", session_id_u256);
+    println!("uint256 sessionNonce = {:#x};", session_nonce_u256);
     println!(
         "uint64 sessionExpiresAtMin = {:#x};",
         session_response.expires_at_min

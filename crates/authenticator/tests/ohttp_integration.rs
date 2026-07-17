@@ -10,7 +10,7 @@ use testcontainers::{
 use tokio::{net::TcpListener, sync::Mutex};
 use world_id_authenticator::ohttp::{OhttpClient, OhttpClientConfig};
 
-const OHTTP_GATEWAY_IMAGE: &str = "ghcr.io/worldcoin/world-id-protocol/ohttp-gateway";
+const OHTTP_GATEWAY_IMAGE: &str = "ghcr.io/worldcoin/ohttp-tools/ohttp-gateway";
 const OHTTP_GATEWAY_TAG: &str = "latest";
 
 /// Recorded HTTP request received by the backend stub.

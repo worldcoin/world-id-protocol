@@ -6,8 +6,8 @@ use helpers::common::{RECOVERY_ADDRESS, TestSetup, query_count};
 use std::time::Duration;
 
 use alloy::primitives::{U256, address};
+use eddsa_babyjubjub::EdDSAPrivateKey;
 use http::StatusCode;
-use world_id_core::EdDSAPrivateKey;
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
 };
@@ -33,6 +33,8 @@ async fn test_get_recovery_agent_endpoint() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8085".parse().unwrap(),
@@ -43,7 +45,6 @@ async fn test_get_recovery_agent_endpoint() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: TreeCacheConfig {
             cache_file_path: temp_cache_path.to_str().unwrap().to_string(),

@@ -10,16 +10,14 @@ use alloy::{
     primitives::{Address, Bytes, U256, address},
     providers::{Provider, ProviderBuilder},
 };
+use eddsa_babyjubjub::EdDSAPrivateKey;
 use http::StatusCode;
-use world_id_core::{
-    EdDSAPrivateKey,
-    api_types::UpdateRecoveryAgentRequest,
-    world_id_registry::{
-        WorldIdRegistry, domain as ag_domain, sign_initiate_recovery_agent_update,
-    },
-};
 use world_id_indexer::config::{
     Environment, GlobalConfig, HttpConfig, IndexerConfig, RunMode, TreeCacheConfig,
+};
+use world_id_primitives::api_types::UpdateRecoveryAgentRequest;
+use world_id_registries::world_id::{
+    WorldIdRegistry, domain as ag_domain, sign_initiate_recovery_agent_update,
 };
 use world_id_services_common::ProviderArgs;
 
@@ -92,6 +90,8 @@ async fn test_get_pending_recovery_agent_endpoint() {
                 start_block: 0,
                 batch_size: 1000,
                 tree_max_block_age: 1000,
+                blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
                 http_addr: "0.0.0.0:8086".parse().unwrap(),
@@ -102,7 +102,6 @@ async fn test_get_pending_recovery_agent_endpoint() {
         },
         db_url: setup.db_url.clone(),
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
-        ws_rpc_url: setup.ws_url(),
         registry_address: setup.registry_address,
         tree_cache: TreeCacheConfig {
             cache_file_path: temp_cache_path.to_str().unwrap().to_string(),

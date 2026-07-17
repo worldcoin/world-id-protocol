@@ -7,7 +7,7 @@ use tracing::{info, instrument};
 
 use super::{TreeError, TreeResult, TreeState};
 use crate::{
-    db::{DB, WorldIdRegistryEventId},
+    db::{DB, IsolationLevel, WorldIdRegistryEventId},
     tree::MerkleTree,
 };
 
@@ -222,9 +222,16 @@ async fn build_from_db_with_cache(
 
     let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
 
+    // The account snapshot and sync cursor must describe the same database state.
+    // Without a repeatable-read transaction, a worker commit between these two
+    // reads can make the cursor advance past updates absent from `leaves`, causing
+    // incremental synchronization to skip updates and produce an invalid tree.
+    let mut tx = db.transaction(IsolationLevel::RepeatableRead).await?;
+
     info!("Downloading leaves from database");
-    let leaves = db
+    let leaves = tx
         .accounts()
+        .await?
         .stream_leaf_index_and_offchain_signer_commitment()
         .try_fold(Vec::new(), |mut acc, (index, value)| async move {
             if index == acc.len() as u64 {
@@ -239,7 +246,16 @@ async fn build_from_db_with_cache(
         })
         .await?;
 
-    info!(len = leaves.len(), "Building Tree");
+    let last_event_id = tx
+        .world_id_registry_events()
+        .await?
+        .get_latest_id()
+        .await?
+        .unwrap_or_default();
+
+    tx.commit().await?;
+
+    info!(len = leaves.len(), ?last_event_id, "Building Tree");
 
     let storage = unsafe { MmapVec::<U256>::create_from_path(cache_path_str)? };
 
@@ -247,14 +263,9 @@ async fn build_from_db_with_cache(
 
     info!(
         root = %format!("0x{:x}", tree.root()),
+        ?last_event_id,
         "Tree built from database with mmap cache"
     );
-
-    let last_event_id = db
-        .world_id_registry_events()
-        .get_latest_id()
-        .await?
-        .unwrap_or_default();
 
     Ok((tree, last_event_id))
 }

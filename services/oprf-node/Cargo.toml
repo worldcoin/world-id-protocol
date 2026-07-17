@@ -1,6 +1,6 @@
 [package]
 name = "world-id-oprf-node"
-version = "0.1.0"
+version = "1.2.1"
 edition.workspace = true
 rust-version.workspace = true
 homepage.workspace = true
@@ -13,8 +13,10 @@ ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
 ark-groth16 = { workspace = true }
+ark-serde-compat = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["json", "macros"] }
+backon = { workspace = true, features = ["std", "tokio-sleep"] }
 chrono = { workspace = true }
 circom-types = { workspace = true, features = [
   "bn254",
@@ -29,13 +31,15 @@ humantime = { workspace = true }
 humantime-serde = { workspace = true }
 metrics = { workspace = true }
 moka = { workspace = true }
+oprf-accountant.workspace = true
+reqwest.workspace = true
 rustls = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-taceo-nodes-common = { workspace = true, features = ["postgres"] }
-taceo-nodes-observability = { workspace = true }
-taceo-oprf = { workspace = true, features = ["core", "service", "types"] }
+taceo-nodes-common = { workspace = true, features = ["postgres", "web3"] }
+taceo-oprf = { workspace = true, features = ["postgres", "service"] }
+telemetry-batteries = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = [
   "net",
@@ -46,13 +50,17 @@ tokio = { workspace = true, features = [
   "tokio-macros",
 ] }
 tokio-util = { workspace = true }
-tracing = { workspace = true }
+tracing = { workspace = true, features = ["release_max_level_debug"] }
 uuid = { workspace = true, features = ["serde", "v4"] }
-world-id-core = { workspace = true, features = ["authenticator", "embed-zkeys"] }
 world-id-primitives = { workspace = true }
+world-id-registries = { workspace = true }
 
 [dev-dependencies]
 ark-serialize.workspace = true
+eddsa-babyjubjub = { workspace = true }
 rand.workspace = true
-world-id-proof = { workspace = true }
+world-id-proof = { workspace = true, features = ["embed-zkeys"] }
 world-id-test-utils = { workspace = true }
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = { workspace = true }

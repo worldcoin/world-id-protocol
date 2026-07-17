@@ -13,11 +13,12 @@ use taceo_oprf::{
     types::{OprfKeyId, ShareEpoch, api::OprfRequest, async_trait, crypto::OprfPublicKey},
 };
 use uuid::Uuid;
-use world_id_core::{EdDSAPrivateKey, EdDSASignature, FieldElement, proof::CircomGroth16Material};
+use world_id_core::{
+    EdDSAPrivateKey, EdDSASignature, FieldElement, nullifier_proof::CircomGroth16Material,
+};
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
-    TREE_DEPTH,
-    authenticator::AuthenticatorPublicKeySet,
+    AuthenticatorPublicKeySet, TREE_DEPTH,
     merkle::MerkleInclusionProof,
     oprf::{CredentialBlindingFactorOprfRequestAuthV1, OprfModule},
 };
@@ -262,9 +263,7 @@ fn generate_oprf_auth_request(
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    taceo_nodes_observability::install_tracing(
-        "world_id_oprf_dev_client_issuer_blinding=trace,taceo_oprf_dev_client=trace,warn",
-    );
+    let _guard = telemetry_batteries::init();
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("can install");

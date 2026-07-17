@@ -1,15 +1,13 @@
 //! Configuration types and CLI/environment parsing for the OPRF node.
 
-use std::time::Duration;
+use std::{num::NonZeroU64, time::Duration};
 
 use alloy::primitives::Address;
 use serde::Deserialize;
-use taceo_nodes_common::web3::{self, RpcProviderConfig};
+use taceo_nodes_common::web3::{self};
 use taceo_oprf::service::{VersionReq, config::OprfNodeServiceConfig};
 
 /// The configuration for the OPRF node.
-///
-/// It can be configured via environment variables or command line arguments using `clap`.
 #[derive(Clone, Debug, Deserialize)]
 #[non_exhaustive]
 pub struct WorldOprfNodeConfig {
@@ -18,6 +16,9 @@ pub struct WorldOprfNodeConfig {
 
     /// The address of the `RpRegistry` smart contract
     pub rp_registry_contract: Address,
+
+    /// The address of the `Billing` smart contract
+    pub billing_contract: Address,
 
     /// The address of the `CredentialSchemaIssuerRegistry` smart contract
     pub credential_schema_issuer_registry_contract: Address,
@@ -28,11 +29,11 @@ pub struct WorldOprfNodeConfig {
 
     /// The blockchain RPC config
     #[serde(rename = "rpc")]
-    pub rpc_provider_config: web3::RpcProviderConfig,
+    pub rpc_provider_config: web3::HttpRpcProviderConfig,
 
-    /// Maximum size of the Merkle cache
-    #[serde(default = "WorldOprfNodeConfig::default_max_merkle_cache_size")]
-    pub max_merkle_cache_size: u64,
+    /// Cache configuration for the [`MerkleWatcher`](crate::auth::merkle_watcher::MerkleWatcher)
+    #[serde(default)]
+    pub merkle_cache_config: WatcherCacheConfig,
 
     /// Cache configuration for the [`RpRegistryWatcher`](crate::auth::rp_registry_watcher::RpRegistryWatcher)
     #[serde(default)]
@@ -42,23 +43,21 @@ pub struct WorldOprfNodeConfig {
     #[serde(default)]
     pub issuer_cache_config: WatcherCacheConfig,
 
-    /// Maximum delta between the received `current_time_stamp` and the node's `current_time_stamp`
+    /// Maximum delta between the received `created_at` and the node's local time.
     #[serde(
-        default = "WorldOprfNodeConfig::default_current_time_stamp_max_difference",
+        default = "WorldOprfNodeConfig::default_created_at_max_difference",
         with = "humantime_serde"
     )]
-    pub current_time_stamp_max_difference: Duration,
+    pub created_at_max_difference: Duration,
 
-    /// Interval for running maintenance tasks for caches
+    /// Maximum allowed delta between `expires_at` and `created_at` on RP signatures.
     ///
-    /// This includes removing expired entries from caches (invalidated automatically,
-    /// but not removed unless entries are added/removed or maintenance tasks are run)
-    /// and running potential eviction listeners to update metrics.
+    /// According to WIP107 §3.1 nodes must check that the difference of the `expires_at` and the `created_at` on RP signatures must not be larger than `expires_at_max_difference`.
     #[serde(
-        default = "WorldOprfNodeConfig::default_cache_maintenance_interval",
+        default = "WorldOprfNodeConfig::default_expires_at_max_difference",
         with = "humantime_serde"
     )]
-    pub cache_maintenance_interval: Duration,
+    pub expires_at_max_difference: Duration,
 
     /// Max time for an `eth_call` to an unknown contract.
     ///
@@ -71,39 +70,39 @@ pub struct WorldOprfNodeConfig {
 }
 
 /// Cache configuration for a registry watcher.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Copy, Clone, Debug, Deserialize)]
 #[non_exhaustive]
 pub struct WatcherCacheConfig {
     /// Maximum size of the cache.
     ///
     /// Will drop old entries if this capacity is reached.
     #[serde(default = "WatcherCacheConfig::default_max_cache_size")]
-    pub max_cache_size: u64,
+    pub max_cache_size: NonZeroU64,
     /// TTL of the cache.
     ///
     /// Will drop entries that are older than this time.
-    #[serde(default = "WatcherCacheConfig::default_time_to_live")]
+    #[serde(
+        default = "WatcherCacheConfig::default_time_to_live",
+        with = "humantime_serde"
+    )]
     pub time_to_live: Duration,
+
     /// TTI of the cache.
     ///
-    /// Will drop entries that are not used for this amount of time.
-    #[serde(default = "WatcherCacheConfig::default_time_to_idle")]
-    pub time_to_idle: Duration,
+    /// Will drop entries that are not accessed (read/write) for this time.
+    #[serde(default, with = "humantime_serde")]
+    pub time_to_idle: Option<Duration>,
 }
 
 impl WatcherCacheConfig {
     /// Default maximum size of the cache
-    const fn default_max_cache_size() -> u64 {
-        1000
-    }
-    /// Default time-to-live for cache entries
-    const fn default_time_to_live() -> Duration {
-        Duration::from_secs(60 * 60 * 24 * 7)
+    const fn default_max_cache_size() -> NonZeroU64 {
+        NonZeroU64::new(1000).expect("1000 is non-zero")
     }
 
-    /// Default time-to-idle for cache entries
-    const fn default_time_to_idle() -> Duration {
-        Duration::from_secs(60 * 60 * 24)
+    /// Default time-to-live for cache entries
+    const fn default_time_to_live() -> Duration {
+        Duration::from_mins(10)
     }
 
     /// Initialize with default values for all fields
@@ -111,7 +110,23 @@ impl WatcherCacheConfig {
         Self {
             max_cache_size: Self::default_max_cache_size(),
             time_to_live: Self::default_time_to_live(),
-            time_to_idle: Self::default_time_to_idle(),
+            time_to_idle: None,
+        }
+    }
+
+    /// Builds a [`moka::future::Cache`] with this configuration.
+    pub(crate) fn build_cache<K, V>(&self) -> moka::future::Cache<K, V>
+    where
+        K: std::hash::Hash + Eq + Send + Sync + 'static,
+        V: Clone + Send + Sync + 'static,
+    {
+        let builder = moka::future::Cache::builder()
+            .max_capacity(self.max_cache_size.get())
+            .time_to_live(self.time_to_live);
+        if let Some(time_to_idle) = self.time_to_idle {
+            builder.time_to_idle(time_to_idle).build()
+        } else {
+            builder.build()
         }
     }
 }
@@ -123,27 +138,22 @@ impl Default for WatcherCacheConfig {
 }
 
 impl WorldOprfNodeConfig {
-    /// Default maximum Merkle cache size
-    const fn default_max_merkle_cache_size() -> u64 {
-        100
-    }
-
     /// Default maximum allowed difference between received and node timestamp
-    fn default_current_time_stamp_max_difference() -> Duration {
-        Duration::from_secs(300) // 5 minutes
+    const fn default_created_at_max_difference() -> Duration {
+        Duration::from_mins(5)
     }
 
-    /// Default interval for cache maintenance tasks
-    fn default_cache_maintenance_interval() -> Duration {
-        Duration::from_secs(60) // 1 minute
+    /// Default difference for `expires_at` and `created_at` on RP signatures. Difference must not be larger than this value.
+    const fn default_expires_at_max_difference() -> Duration {
+        Duration::from_mins(30)
     }
 
     /// Default timeout for an `eth_call` to an unknown contract.
-    fn default_timeout_external_eth_call() -> Duration {
+    const fn default_timeout_external_eth_call() -> Duration {
         Duration::from_secs(10)
     }
 
-    /// Initialize with default values for all optional fields
+    /// Initialize with default values for all optional fields.
     #[must_use]
     #[allow(
         clippy::needless_pass_by_value,
@@ -151,32 +161,29 @@ impl WorldOprfNodeConfig {
     )]
     pub fn with_default_values(
         environment: taceo_oprf::service::Environment,
-        contracts: WorldIdNodeContracts,
         version_req: VersionReq,
-        rpc_provider_config: RpcProviderConfig,
+        contracts: WorldIdNodeContracts,
+        rpc_provider_config: web3::HttpRpcProviderConfig,
     ) -> Self {
         let WorldIdNodeContracts {
             world_id_registry_contract,
             rp_registry_contract,
+            billing_contract,
             credential_schema_issuer_registry_contract,
-            oprf_key_registry_contract,
         } = contracts;
         Self {
             world_id_registry_contract,
             rp_registry_contract,
+            billing_contract,
             credential_schema_issuer_registry_contract,
             rpc_provider_config,
-            max_merkle_cache_size: Self::default_max_merkle_cache_size(),
-            current_time_stamp_max_difference: Self::default_current_time_stamp_max_difference(),
-            cache_maintenance_interval: Self::default_cache_maintenance_interval(),
+            created_at_max_difference: Self::default_created_at_max_difference(),
+            expires_at_max_difference: Self::default_expires_at_max_difference(),
             timeout_external_eth_call: Self::default_timeout_external_eth_call(),
-            node_config: OprfNodeServiceConfig::with_default_values(
-                environment,
-                oprf_key_registry_contract,
-                version_req,
-            ),
-            rp_cache_config: WatcherCacheConfig::with_default_values(),
-            issuer_cache_config: WatcherCacheConfig::with_default_values(),
+            node_config: OprfNodeServiceConfig::with_default_values(environment, version_req),
+            rp_cache_config: WatcherCacheConfig::default(),
+            issuer_cache_config: WatcherCacheConfig::default(),
+            merkle_cache_config: WatcherCacheConfig::default(),
         }
     }
 }
@@ -193,8 +200,8 @@ pub struct WorldIdNodeContracts {
     pub world_id_registry_contract: Address,
     /// Address of the `RpRegistry` contract.
     pub rp_registry_contract: Address,
+    /// Address of the `Billing` contract.
+    pub billing_contract: Address,
     /// Address of the `CredentialSchemaIssuerRegistry` contract.
     pub credential_schema_issuer_registry_contract: Address,
-    /// Address of the OPRF Key Registry contract.
-    pub oprf_key_registry_contract: Address,
 }

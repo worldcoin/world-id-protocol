@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use std::sync::{
     Arc,
     atomic::{AtomicU32, Ordering},
@@ -11,9 +13,12 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
+use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use tokio::net::TcpListener;
 use url::Url;
-use world_id_services_common::{ProviderArgs, RetryConfig};
+use world_id_services_common::{
+    METRICS_RPC_ENDPOINT_LATENCY_MS, METRICS_RPC_ENDPOINT_REQUESTS, ProviderArgs, RetryConfig,
+};
 
 const CHAIN_ID_RESPONSE: &str = r#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#;
 
@@ -68,6 +73,12 @@ fn fast_retry(max_retries: u32) -> RetryConfig {
         timeout_secs: 10,
         ..RetryConfig::default()
     }
+}
+
+/// The metric label the provider derives from a mock-server URL
+/// (`host:port` — the port is always non-default in tests).
+fn endpoint_label(url: &Url) -> String {
+    format!("{}:{}", url.host_str().unwrap(), url.port().unwrap())
 }
 
 // ---------------------------------------------------------------------------
@@ -281,4 +292,97 @@ async fn retries_disabled_when_max_retries_zero() {
     let result = provider.get_chain_id().await;
     assert!(result.is_err());
     assert_eq!(counter.load(Ordering::SeqCst), 1);
+}
+
+// ---------------------------------------------------------------------------
+// Test 8: Per-endpoint metrics record transport success/error with the right labels
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn endpoint_metrics_record_transport_outcomes() {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    recorder.install().expect("install debugging recorder");
+
+    // Provider for failed transport call.
+    let dead_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let dead_addr = dead_listener.local_addr().unwrap();
+    drop(dead_listener);
+    let dead_url: Url = format!("http://{dead_addr}").parse().unwrap();
+    let dead_label = endpoint_label(&dead_url);
+
+    let dead_provider = build_provider_args(vec![dead_url], fast_retry(0))
+        .http()
+        .await
+        .unwrap();
+    assert!(dead_provider.get_chain_id().await.is_err());
+
+    // Provide for successful transport call.
+    let (live_url, _live_counter) = spawn_mock_rpc(|_| success_response()).await;
+    let live_label = endpoint_label(&live_url);
+
+    let live_provider = build_provider_args(vec![live_url], fast_retry(0))
+        .http()
+        .await
+        .unwrap();
+    assert_eq!(live_provider.get_chain_id().await.unwrap(), 1);
+
+    let snapshot = snapshotter.snapshot().into_vec();
+    // Sum the `rpc.endpoint_requests` counter value for the given endpoint and
+    // status, i.e. how many transport calls were recorded with those labels.
+    let count = |endpoint: &str, status: &str| -> u64 {
+        snapshot
+            .iter()
+            .filter_map(|(key, _unit, _desc, value)| {
+                let key = key.key();
+                if key.name() != METRICS_RPC_ENDPOINT_REQUESTS {
+                    return None;
+                }
+                let has = |name: &str, want: &str| {
+                    key.labels().any(|l| l.key() == name && l.value() == want)
+                };
+                match value {
+                    DebugValue::Counter(v)
+                        if has("endpoint", endpoint) && has("status", status) =>
+                    {
+                        Some(*v)
+                    }
+                    _ => None,
+                }
+            })
+            .sum()
+    };
+
+    assert_eq!(count(&dead_label, "error"), 1);
+    assert_eq!(count(&dead_label, "success"), 0);
+    assert_eq!(count(&live_label, "success"), 1);
+    assert_eq!(count(&live_label, "error"), 0);
+
+    // The latency histogram is recorded for every completed call and carries the
+    // same `endpoint` / `status` labels: one sample per transport call.
+    let latency_samples = |endpoint: &str, status: &str| -> usize {
+        snapshot
+            .iter()
+            .filter_map(|(key, _unit, _desc, value)| {
+                let key = key.key();
+                if key.name() != METRICS_RPC_ENDPOINT_LATENCY_MS {
+                    return None;
+                }
+                let has = |name: &str, want: &str| {
+                    key.labels().any(|l| l.key() == name && l.value() == want)
+                };
+                match value {
+                    DebugValue::Histogram(samples)
+                        if has("endpoint", endpoint) && has("status", status) =>
+                    {
+                        Some(samples.len())
+                    }
+                    _ => None,
+                }
+            })
+            .sum()
+    };
+
+    assert_eq!(latency_samples(&dead_label, "error"), 1);
+    assert_eq!(latency_samples(&live_label, "success"), 1);
 }

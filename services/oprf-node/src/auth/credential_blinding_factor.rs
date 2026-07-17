@@ -5,11 +5,14 @@
 
 use std::sync::Arc;
 
-use crate::auth::{
-    merkle_watcher::{MerkleWatcher, MerkleWatcherError},
-    schema_issuer_registry_watcher::{
-        SchemaIssuerRegistryWatcher, SchemaIssuerRegistryWatcherError,
+use crate::{
+    auth::{
+        merkle_watcher::{MerkleWatcher, MerkleWatcherError},
+        schema_issuer_registry_watcher::{
+            SchemaIssuerRegistryWatcher, SchemaIssuerRegistryWatcherError,
+        },
     },
+    metrics,
 };
 use alloy::primitives::U160;
 use ark_bn254::Bn254;
@@ -21,9 +24,9 @@ use taceo_oprf::types::{
     api::{OprfRequest, OprfRequestAuthenticator, OprfRequestAuthenticatorError},
 };
 use tracing::instrument;
-use world_id_core::FieldElement;
-use world_id_primitives::oprf::{
-    CredentialBlindingFactorOprfRequestAuthV1, WorldIdRequestAuthError,
+use world_id_primitives::{
+    FieldElement,
+    oprf::{CredentialBlindingFactorOprfRequestAuthV1, WorldIdRequestAuthError},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -32,62 +35,25 @@ pub(crate) enum CredentialBlindingFactorModuleError {
     InvalidAction(FieldElement),
     #[error("Could not verify query proof")]
     InvalidQueryProof,
-    #[error("invalid Merkle root")]
-    InvalidMerkleRoot,
-    /// Unknown schema issuer.
-    #[error("unknown schema issuer: {0}")]
-    UnknownSchemaIssuer(u64),
-    /// Internal Error
     #[error(transparent)]
+    MerkleWatcher(#[from] Arc<MerkleWatcherError>),
+    #[error(transparent)]
+    SchemaIssuerRegistry(#[from] Arc<SchemaIssuerRegistryWatcherError>),
+    /// Internal Error
+    #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
 }
 
-impl From<SchemaIssuerRegistryWatcherError> for CredentialBlindingFactorModuleError {
-    fn from(value: SchemaIssuerRegistryWatcherError) -> Self {
-        match value {
-            SchemaIssuerRegistryWatcherError::UnknownSchemaIssuerId(id) => {
-                Self::UnknownSchemaIssuer(id)
-            }
-            SchemaIssuerRegistryWatcherError::Internal(report) => Self::Internal(report),
-        }
-    }
-}
-
-impl From<MerkleWatcherError> for CredentialBlindingFactorModuleError {
-    fn from(value: MerkleWatcherError) -> Self {
-        match value {
-            MerkleWatcherError::InvalidMerkleRoot => Self::InvalidMerkleRoot,
-            MerkleWatcherError::Internal(report) => Self::Internal(report),
-        }
-    }
-}
-
-impl From<CredentialBlindingFactorModuleError> for WorldIdRequestAuthError {
-    fn from(value: CredentialBlindingFactorModuleError) -> Self {
+impl From<&CredentialBlindingFactorModuleError> for WorldIdRequestAuthError {
+    fn from(value: &CredentialBlindingFactorModuleError) -> Self {
         match value {
             CredentialBlindingFactorModuleError::InvalidAction(_) => {
-                WorldIdRequestAuthError::InvalidActionSchemaIssuer
+                Self::InvalidActionSchemaIssuer
             }
-            CredentialBlindingFactorModuleError::InvalidQueryProof => {
-                WorldIdRequestAuthError::InvalidQueryProof
-            }
-            CredentialBlindingFactorModuleError::InvalidMerkleRoot => {
-                WorldIdRequestAuthError::InvalidMerkleRoot
-            }
-            CredentialBlindingFactorModuleError::UnknownSchemaIssuer(_) => {
-                WorldIdRequestAuthError::UnknownSchemaIssuerId
-            }
-            CredentialBlindingFactorModuleError::Internal(_) => WorldIdRequestAuthError::Internal,
-        }
-    }
-}
-
-impl CredentialBlindingFactorModuleError {
-    fn log(&self) {
-        if let CredentialBlindingFactorModuleError::Internal(report) = self {
-            tracing::error!("{report:?}");
-        } else {
-            tracing::debug!("{self}");
+            CredentialBlindingFactorModuleError::InvalidQueryProof => Self::InvalidQueryProof,
+            CredentialBlindingFactorModuleError::MerkleWatcher(e) => e.as_ref().into(),
+            CredentialBlindingFactorModuleError::SchemaIssuerRegistry(e) => e.as_ref().into(),
+            CredentialBlindingFactorModuleError::Internal(_) => Self::Internal,
         }
     }
 }
@@ -115,6 +81,7 @@ impl CredentialBlindingFactorModuleAuth {
         &self,
         request: &OprfRequest<CredentialBlindingFactorOprfRequestAuthV1>,
     ) -> Result<OprfKeyId, CredentialBlindingFactorModuleError> {
+        metrics::auth_module::inc_issuer_blinding();
         tracing::trace!("checking that action is 0...");
         // check that the action is valid (must be 0 for now, might change in the future)
         if request.auth.action != ark_babyjubjub::Fq::ZERO {
@@ -166,8 +133,7 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorModuleAuth {
         Ok(self
             .authenticate_inner(request)
             .await
-            .inspect_err(CredentialBlindingFactorModuleError::log)
-            .map_err(WorldIdRequestAuthError::from)?)
+            .map_err(|err| super::auth_module_error(err, "credential issuer blinding module"))?)
     }
 }
 
@@ -181,14 +147,15 @@ mod tests {
     use circom_types::groth16::VerificationKey;
     use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
     use uuid::Uuid;
-    use world_id_core::{FieldElement, primitives};
-    use world_id_primitives::oprf::CredentialBlindingFactorOprfRequestAuthV1;
+    use world_id_primitives::{
+        self as primitives, FieldElement, oprf::CredentialBlindingFactorOprfRequestAuthV1,
+    };
 
     use crate::{
         QUERY_VERIFICATION_KEY,
         auth::{
             credential_blinding_factor::CredentialBlindingFactorModuleAuth,
-            tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup},
+            tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup, SetupKind},
         },
     };
 
@@ -200,7 +167,7 @@ mod tests {
 
     impl CredentialBlindingFactorOprfRequestAuthTestSetup {
         pub(crate) async fn new() -> eyre::Result<Self> {
-            let infra = AuthModulesTestSetup::new().await?;
+            let infra = AuthModulesTestSetup::new(SetupKind::CredentialIssuer).await?;
             let vk: VerificationKey<Bn254> =
                 serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
 

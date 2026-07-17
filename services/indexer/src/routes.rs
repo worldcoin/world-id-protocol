@@ -1,7 +1,7 @@
 use crate::error::{IndexerErrorBody, IndexerErrorResponse};
 use axum::{Json, Router, middleware::from_fn, response::IntoResponse};
 use utoipa::OpenApi;
-use world_id_core::api_types::{
+use world_id_primitives::api_types::{
     AccountInclusionProofSchema, IndexerAuthenticatorPubkeysResponse, IndexerPackedAccountRequest,
     IndexerPackedAccountResponse, IndexerPendingRecoveryAgentResponse, IndexerQueryRequest,
     IndexerRecoveryAgentResponse, IndexerSignatureNonceResponse,
@@ -15,7 +15,6 @@ mod get_recovery_agent;
 mod get_signature_nonce;
 mod health;
 mod inclusion_proof;
-mod middleware;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -77,7 +76,9 @@ pub(crate) fn handler(state: AppState, request_timeout_secs: u64) -> Router {
         .route("/health", axum::routing::get(health::handler))
         .route("/openapi.json", axum::routing::get(openapi))
         .with_state(state)
-        .layer(from_fn(middleware::request_latency_middleware))
+        .layer(from_fn(
+            world_id_services_common::request_latency_middleware,
+        ))
         .layer(world_id_services_common::timeout_layer(
             request_timeout_secs,
             IndexerErrorResponse::request_timeout(request_timeout_secs),

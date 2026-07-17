@@ -4,7 +4,7 @@ use alloy::{
     primitives::{Address, U256},
     providers::DynProvider,
 };
-use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_registries::world_id::WorldIdRegistry;
 
 use tracing::instrument;
 
@@ -31,16 +31,16 @@ pub async fn root_sanity_check_loop(
 
         let local_root = tree_state.root().await;
 
-        // Check validity window on-chain first (covers slight lag vs current root)
-        let is_valid = match contract.isValidRoot(local_root).call().await {
+        let root_timestamp: U256 = match contract.getRootTimestamp(local_root).call().await {
             Ok(v) => v,
             Err(err) => {
-                tracing::error!(?err, "failed to call isValidRoot");
+                tracing::error!(?err, "failed to call getRootTimestamp");
                 continue;
             }
         };
 
-        if !is_valid {
+        // Root timestamp is only zero if the root was never recorded
+        if root_timestamp.is_zero() {
             // Fetch current on-chain root for diagnostics
             let current_onchain_root = match contract.currentRoot().call().await {
                 Ok(r) => r,
@@ -51,17 +51,31 @@ pub async fn root_sanity_check_loop(
             };
 
             tracing::error!(
-                local_root = %format!("0x{:x}", local_root),
-                current_onchain_root = %format!("0x{:x}", current_onchain_root),
+                local_root = %format!("0x{local_root:x}"),
+                current_onchain_root = %format!("0x{current_onchain_root:x}"),
                 "Local Merkle root is not valid on-chain"
             );
             return Err(crate::tree::TreeError::RootMismatch {
-                actual: format!("0x{:x}", local_root),
-                expected: format!("0x{:x}", current_onchain_root),
+                actual: format!("0x{local_root:x}"),
+                expected: format!("0x{current_onchain_root:x}"),
             }
             .into());
-        } else {
-            tracing::debug!(local_root = %format!("0x{:x}", local_root), "Local Merkle root is valid on-chain");
+        }
+
+        let is_valid = match contract.isValidRoot(local_root).call().await {
+            Ok(v) => v,
+            Err(err) => {
+                tracing::error!(?err, "failed to call isValidRoot");
+                continue;
+            }
+        };
+
+        if !is_valid {
+            tracing::warn!(
+                local_root = %format!("0x{local_root:x}"),
+                root_timestamp = %root_timestamp,
+                "Local Merkle root is expired"
+            );
         }
     }
 }

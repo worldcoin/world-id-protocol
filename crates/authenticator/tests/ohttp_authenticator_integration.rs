@@ -16,17 +16,20 @@ use testcontainers::{
 };
 use tokio::{net::TcpListener, sync::Mutex};
 use world_id_authenticator::{
-    Authenticator, AuthenticatorConfig, AuthenticatorError,
+    Authenticator, AuthenticatorError,
     api_types::{
         CreateAccountRequest, GatewayRequestState, IndexerAuthenticatorPubkeysResponse,
         IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
         InsertAuthenticatorRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
-    ohttp::OhttpClientConfig,
+    proof::artifacts::{ZkArtifactSource, dummy::DummyZkArtifactSource},
 };
-use world_id_primitives::Config;
+use world_id_primitives::{Config, ServiceEndpoint};
 
-const OHTTP_GATEWAY_IMAGE: &str = "ghcr.io/worldcoin/world-id-protocol/ohttp-gateway";
+fn dummy_zk_source() -> Arc<dyn ZkArtifactSource> {
+    Arc::new(DummyZkArtifactSource)
+}
+const OHTTP_GATEWAY_IMAGE: &str = "ghcr.io/worldcoin/ohttp-tools/ohttp-gateway";
 const OHTTP_GATEWAY_TAG: &str = "latest";
 
 // ---------------------------------------------------------------------------
@@ -112,8 +115,8 @@ async fn start_stub_server(state: SharedState) -> u16 {
 struct OhttpFixture {
     gateway_state: SharedState,
     indexer_state: SharedState,
-    ohttp_gateway_config: OhttpClientConfig,
-    ohttp_indexer_config: OhttpClientConfig,
+    relay_url: String,
+    key_config_base64: String,
     gateway_target_url: String,
     indexer_target_url: String,
     _container: testcontainers::ContainerAsync<GenericImage>,
@@ -164,41 +167,38 @@ impl OhttpFixture {
         let gateway_target_url = format!("http://{gw_authority}");
         let indexer_target_url = format!("http://{idx_authority}");
 
-        let ohttp_gateway_config =
-            OhttpClientConfig::new(format!("{relay_base}/gateway"), key_b64.clone());
-
-        let ohttp_indexer_config = OhttpClientConfig::new(format!("{relay_base}/gateway"), key_b64);
-
         Ok(Self {
             gateway_state,
             indexer_state,
-            ohttp_gateway_config,
-            ohttp_indexer_config,
+            relay_url: format!("{relay_base}/gateway"),
+            key_config_base64: key_b64,
             gateway_target_url,
             indexer_target_url,
             _container: container,
         })
     }
 
-    fn authenticator_config(&self) -> AuthenticatorConfig {
-        let config = Config::new(
+    fn authenticator_config(&self) -> Config {
+        Config::new(
             None,
             31337,
             "0x0000000000000000000000000000000000000001"
                 .parse()
                 .unwrap(),
-            self.indexer_target_url.clone(),
-            self.gateway_target_url.clone(),
+            ServiceEndpoint::ohttp(
+                self.indexer_target_url.clone(),
+                self.relay_url.clone(),
+                self.key_config_base64.clone(),
+            ),
+            ServiceEndpoint::ohttp(
+                self.gateway_target_url.clone(),
+                self.relay_url.clone(),
+                self.key_config_base64.clone(),
+            ),
             vec![],
             2,
         )
-        .expect("test config should be valid");
-
-        AuthenticatorConfig {
-            config,
-            ohttp_indexer: Some(self.ohttp_indexer_config.clone()),
-            ohttp_gateway: Some(self.ohttp_gateway_config.clone()),
-        }
+        .expect("test config should be valid")
     }
 
     #[allow(dead_code)]
@@ -298,8 +298,7 @@ fn build_test_inclusion_proof(
     leaf_index: u64,
 ) -> world_id_primitives::merkle::AccountInclusionProof<{ world_id_primitives::TREE_DEPTH }> {
     use world_id_primitives::{
-        FieldElement, TREE_DEPTH,
-        authenticator::AuthenticatorPublicKeySet,
+        AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH,
         merkle::{AccountInclusionProof, MerkleInclusionProof},
     };
 
@@ -403,7 +402,7 @@ async fn init_fetches_packed_account_through_ohttp() -> eyre::Result<()> {
 
     let config = f.authenticator_config();
 
-    let auth = Authenticator::init(&TEST_SEED, config).await?;
+    let auth = Authenticator::init(&TEST_SEED, config, dummy_zk_source()).await?;
     assert_eq!(auth.packed_account_data, packed);
 
     let idx_req = f
@@ -432,7 +431,7 @@ async fn fetch_inclusion_proof_roundtrips_through_ohttp() -> eyre::Result<()> {
     .await;
 
     let config = f.authenticator_config();
-    let auth = Authenticator::init(&TEST_SEED, config).await?;
+    let auth = Authenticator::init(&TEST_SEED, config, dummy_zk_source()).await?;
 
     let proof = build_test_inclusion_proof(leaf_index);
     let expected_root: U256 = proof.inclusion_proof.root.into();
@@ -476,7 +475,7 @@ async fn fetch_authenticator_pubkeys_roundtrips_through_ohttp() -> eyre::Result<
     .await;
 
     let config = f.authenticator_config();
-    let auth = Authenticator::init(&TEST_SEED, config).await?;
+    let auth = Authenticator::init(&TEST_SEED, config, dummy_zk_source()).await?;
 
     f.set_indexer_response(
         "/authenticator-pubkeys",
@@ -516,7 +515,7 @@ async fn signing_nonce_roundtrips_through_ohttp_when_no_rpc() -> eyre::Result<()
     .await;
 
     let config = f.authenticator_config();
-    let auth = Authenticator::init(&TEST_SEED, config).await?;
+    let auth = Authenticator::init(&TEST_SEED, config, dummy_zk_source()).await?;
 
     f.set_indexer_response(
         "/signature-nonce",
@@ -555,7 +554,7 @@ async fn init_authenticator_for_mutations(
     .await;
 
     let config = f.authenticator_config();
-    Authenticator::init(&TEST_SEED, config).await
+    Authenticator::init(&TEST_SEED, config, dummy_zk_source()).await
 }
 
 /// Pre-seeds the indexer stubs needed by mutation methods.
@@ -708,7 +707,7 @@ async fn packed_account_not_found_maps_to_account_does_not_exist() -> eyre::Resu
 
     let config = f.authenticator_config();
 
-    let result = Authenticator::init(&TEST_SEED, config).await;
+    let result = Authenticator::init(&TEST_SEED, config, dummy_zk_source()).await;
     assert!(
         matches!(result, Err(AuthenticatorError::AccountDoesNotExist)),
         "expected AccountDoesNotExist, got: {result:?}"

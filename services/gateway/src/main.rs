@@ -1,6 +1,10 @@
+#![recursion_limit = "256"]
+
 use std::path::Path;
 
 use world_id_gateway::GatewayResult;
+
+use telemetry_batteries::TopLevelResultExt;
 
 #[tokio::main]
 async fn main() -> GatewayResult<()> {
@@ -12,10 +16,7 @@ async fn main() -> GatewayResult<()> {
     let _ = dotenvy::dotenv();
     tracing::info!("Starting world-id-gateway");
 
-    if let Err(error) = world_id_gateway::run().await {
-        tracing::error!(error = ?error, "gateway terminated with error");
-        return Err(error);
-    }
+    world_id_gateway::run().await.panic_on_top_level_error();
 
     Ok(())
 }

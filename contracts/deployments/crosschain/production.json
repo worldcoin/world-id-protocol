@@ -1,0 +1,54 @@
+{
+  "worldchain": {
+    "chainId": 480,
+    "deployer": "0x0393cdfC3957dba7Cb143DDaA564D6cE9Ed0BB19",
+    "tag": "world-id-core-v0.10.2-13-g0902d9d",
+    "timestamp": 1778800213,
+    "worldIDSource": {
+      "implementation": "0xde234F3479De16fA695BC17B4208b53E6DCf6f09",
+      "proxy": "0x12E8f92fE5901c17341E4A445F6CF991fFc2909E"
+    }
+  },
+  "base": {
+    "chainId": 8453,
+    "deployer": "0x0393cdfC3957dba7Cb143DDaA564D6cE9Ed0BB19",
+    "gateways": {
+      "permissionedGateway": "0x087DC354aDD2B37C7c713568CE126aB657F02962"
+    },
+    "tag": "world-id-core-v0.10.2-13-g0902d9d",
+    "timestamp": 1778800213,
+    "verifier": "0xF4A6ED193B0aE63270cd8703aed142bFcaf7F685",
+    "worldIDSatellite": {
+      "implementation": "0x36BdEe5366D9C5e672A58Fce9330F7349dCDeD15",
+      "proxy": "0x8127DB9301683553a2610a046dE24dde741A1B80"
+    }
+  },
+  "tempo": {
+    "chainId": 4217,
+    "deployer": "0x0393cdfC3957dba7Cb143DDaA564D6cE9Ed0BB19",
+    "gateways": {
+      "permissionedGateway": "0xA10aeA79C07d42fBd315cA1aD6b0E59454c20250"
+    },
+    "tag": "world-id-core-v0.10.2-13-g0902d9d",
+    "timestamp": 1778800214,
+    "verifier": "0x0A3B9e4531cB72112d0877684D9dD5ce49D6DD85",
+    "worldIDSatellite": {
+      "implementation": "0x68CD02688FAedeC8CF63eE12fbe8743Ffb30bffA",
+      "proxy": "0x0E874EAf3c634f1b3C74Ca56B56C8b0B24f3c1DE"
+    }
+  },
+  "arc": {
+    "chainId": 5042,
+    "deployer": "0x0393cdfC3957dba7Cb143DDaA564D6cE9Ed0BB19",
+    "gateways": {
+      "permissionedGateway": "0x2940Ce2f0f852230Cde632e203D327513b090206"
+    },
+    "tag": "world-id-gateway-v0.1.0-3-g08c2fbf",
+    "timestamp": 1780520181,
+    "verifier": "0x0fdB202F2228C732e0662fa48F6c5C382489216f",
+    "worldIDSatellite": {
+      "implementation": "0x2dDeF03a67f1DbD7de4151F5f8be5b278A879F37",
+      "proxy": "0x304E14e4dC0508C0927e3b307a2C18422C07E394"
+    }
+  }
+}

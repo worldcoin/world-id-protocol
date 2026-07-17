@@ -19,15 +19,21 @@ include = [
 ]
 
 [features]
-default = ["embed-zkeys"]
-# Embed zkeys into binary
+default = []
+
+# Embed Circom zkeys (query + nullifier proof material) into the binary
 embed-zkeys = ["dep:tar"]
 # Compress the embedded zkeys to reduce binary size (ARK point compression)
 compress-zkeys = ["embed-zkeys", "dep:ark-serialize", "dep:circom-types"]
 # Compress the tar archive with zstd
 zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
-# Experimental: Introducing ProveKit ZK Backend
-provekit = ["dep:provekit-common", "dep:provekit-prover", "dep:provekit-r1cs-compiler"]
+
+embed-ownership-prover = ["dep:provekit-r1cs-compiler"]
+embed-ownership-verifier = ["dep:provekit-r1cs-compiler"]
+embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
+
+# Embed everything
+embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
 
 [dependencies]
 ark-babyjubjub = { workspace = true }
@@ -42,8 +48,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 zstd = { workspace = true, optional = true }
 eddsa-babyjubjub = { workspace = true }
-provekit-common = { workspace = true, optional = true }
-provekit-prover = { workspace = true, optional = true }
+provekit-common = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 groth16-material = { workspace = true, features = ["circom"] }
@@ -52,10 +57,15 @@ poseidon2 = { workspace = true }
 taceo-groth16-sol = { workspace = true }
 taceo-oprf = { workspace = true, features = ["client", "core"] }
 eyre = { workspace = true }
+once_cell = { workspace = true }
 zeroize = { workspace = true }
 
 # Internal
 world-id-primitives = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+provekit-prover = { workspace = true }
+provekit-verifier = { workspace = true }
 
 [build-dependencies]
 eyre = { workspace = true }
@@ -65,8 +75,8 @@ circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"] }
 rayon = { workspace = true }
 tar = { workspace = true }
 zstd = { workspace = true }
+provekit-common = { workspace = true }
 provekit-r1cs-compiler = { workspace = true, optional = true }
-provekit-common = { workspace = true, optional = true }
 
 [dev-dependencies]
 world-id-test-utils = { workspace = true }

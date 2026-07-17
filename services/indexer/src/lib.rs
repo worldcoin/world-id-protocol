@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use crate::{
     blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
     config::{AppState, HttpConfig, IndexerConfig, RunMode},
@@ -9,7 +11,7 @@ use alloy::{primitives::Address, providers::DynProvider};
 use futures_util::StreamExt;
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc, time::Duration};
 use tracing::instrument;
-use world_id_core::world_id_registry::WorldIdRegistry;
+use world_id_registries::world_id::WorldIdRegistry;
 
 // re-exports
 pub use config::GlobalConfig;
@@ -28,6 +30,7 @@ mod sanity_check;
 pub mod tree;
 
 static BLOCKCHAIN_RETRY_DELAY: Duration = Duration::from_secs(1);
+const BLOCKCHAIN_PULL_STREAM_ERROR_THRESHOLD: u64 = 5;
 
 /// Initializes the in-memory tree from a cache file if it exists, otherwise builds from DB.
 ///
@@ -133,7 +136,6 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
             run_indexer_only(
                 db,
                 http_provider,
-                &cfg.ws_rpc_url,
                 cfg.registry_address,
                 indexer_config,
                 tree_state,
@@ -167,7 +169,6 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
             run_both(
                 db,
                 http_provider,
-                &cfg.ws_rpc_url,
                 cfg.registry_address,
                 indexer_config,
                 http_config,
@@ -182,14 +183,12 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
 async fn run_indexer_only(
     db: DB,
     http_provider: DynProvider,
-    ws_rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     tree_state: tree::TreeState,
 ) -> eyre::Result<()> {
     process_registry_events(
         http_provider,
-        ws_rpc_url,
         registry_address,
         indexer_cfg,
         &db,
@@ -271,7 +270,6 @@ async fn run_http_only(
 async fn run_both(
     db: DB,
     http_provider: DynProvider,
-    ws_rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
@@ -318,7 +316,6 @@ async fn run_both(
     tokio::select! {
         result = process_registry_events(
             http_provider,
-            ws_rpc_url,
             registry_address,
             indexer_cfg,
             &db,
@@ -347,37 +344,33 @@ pub async fn handle_registry_event<'a>(
 }
 
 /// Stream registry events from the blockchain and process them.
-/// Restart when websocket connection is dropped.
+/// Restart when the pull stream returns an error.
 #[instrument(level = "info", skip_all, fields(start_from))]
 pub async fn process_registry_events(
     http_provider: DynProvider,
-    ws_rpc_url: &str,
     registry_address: Address,
     indexer_cfg: IndexerConfig,
     db: &DB,
     tree_state: &tree::TreeState,
 ) -> IndexerResult<()> {
-    // We re-create the blockchain connection (including backfill and websocket) when the stream
-    // returns an error or the websocket connection is dropped.
-    loop {
-        tracing::info!("starting blockchain connection");
+    let mut consecutive_stream_errors = 0u64;
 
-        let blockchain =
-            match Blockchain::new(http_provider.clone(), ws_rpc_url, registry_address).await {
-                Ok(b) => b,
-                Err(e) => {
-                    tracing::error!(?e, "failed to create blockchain connection, retrying");
-                    tokio::time::sleep(BLOCKCHAIN_RETRY_DELAY).await;
-                    continue;
-                }
-            };
+    loop {
+        tracing::info!("starting blockchain pull stream");
+
+        let blockchain = Blockchain::new(http_provider.clone(), registry_address);
 
         let from = match db.world_id_registry_events().get_latest_block().await? {
             Some(block) => block + 1,
             None => indexer_cfg.start_block,
         };
 
-        let mut stream = blockchain.backfill_and_stream_events(from, indexer_cfg.batch_size);
+        let mut stream = blockchain.stream_blockchain_events(
+            from,
+            indexer_cfg.batch_size,
+            Duration::from_millis(indexer_cfg.blockchain_poll_interval_ms),
+            indexer_cfg.max_concurrent_log_requests,
+        );
 
         let versioned_tree =
             tree::VersionedTreeState::new(tree_state.clone(), indexer_cfg.tree_max_block_age);
@@ -389,6 +382,7 @@ pub async fn process_registry_events(
                     let block_number = event.block_number;
                     match handle_registry_event(&mut events_committer, event).await {
                         Ok(()) => {
+                            consecutive_stream_errors = 0;
                             crate::metrics::set_chain_processed_block(block_number);
                         }
                         Err(IndexerError::ReorgDetected {
@@ -429,12 +423,27 @@ pub async fn process_registry_events(
                     }
                 }
                 Err(e) => {
-                    tracing::error!(?e, "blockchain event stream error");
+                    consecutive_stream_errors += 1;
+                    if consecutive_stream_errors >= BLOCKCHAIN_PULL_STREAM_ERROR_THRESHOLD {
+                        tracing::error!(
+                            ?e,
+                            consecutive_stream_errors,
+                            "blockchain pull stream error"
+                        );
+                    } else {
+                        tracing::warn!(
+                            ?e,
+                            consecutive_stream_errors,
+                            error_threshold = BLOCKCHAIN_PULL_STREAM_ERROR_THRESHOLD,
+                            "blockchain pull stream error"
+                        );
+                    }
                     break;
                 }
             }
         }
 
-        tracing::warn!("restarting blockchain connection");
+        tracing::warn!("restarting blockchain pull stream");
+        tokio::time::sleep(BLOCKCHAIN_RETRY_DELAY).await;
     }
 }

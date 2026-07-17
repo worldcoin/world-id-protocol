@@ -16,11 +16,9 @@ use crate::{
     },
     service_client::{ServiceClient, ServiceKind},
 };
-use serde::{Deserialize, Serialize};
 use world_id_primitives::{Credential, FieldElement, ProofResponse, Signer};
 
 pub use crate::ohttp::OhttpClientConfig;
-use crate::registry::WorldIdRegistry::WorldIdRegistryInstance;
 use alloy::{
     primitives::Address,
     providers::DynProvider,
@@ -28,17 +26,14 @@ use alloy::{
 };
 use ark_serialize::CanonicalSerialize;
 use eddsa_babyjubjub::EdDSAPublicKey;
-use groth16_material::circom::CircomGroth16Material;
 use ruint::{aliases::U256, uint};
 use taceo_oprf::client::Connector;
-pub use world_id_primitives::{Config, TREE_DEPTH, authenticator::ProtocolSigner};
 use world_id_primitives::{
-    PrimitiveError,
-    authenticator::{
-        AuthenticatorPublicKeySet, SparseAuthenticatorPubkeysError,
-        decode_sparse_authenticator_pubkeys,
-    },
+    AuthenticatorPublicKeySet, PrimitiveError, SparseAuthenticatorPubkeysError,
 };
+pub use world_id_primitives::{Config, ServiceEndpoint, TREE_DEPTH, authenticator::ProtocolSigner};
+use world_id_proof::artifacts::ZkArtifactSource;
+use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::{Nullifier, SessionId};
@@ -49,48 +44,6 @@ static MASK_PUBKEY_ID: U256 =
     uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
 static MASK_LEAF_INDEX: U256 =
     uint!(0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF_U256);
-
-/// Configuration for an [`Authenticator`], extends base protocol [`Config`] by
-/// optional OHTTP relay settings for the indexer and gateway services.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AuthenticatorConfig {
-    /// Base protocol configuration (indexer URL, gateway URL, RPC, etc.).
-    #[serde(flatten)]
-    pub config: Config,
-    /// Optional OHTTP relay configuration for indexer requests.
-    #[serde(default)]
-    pub ohttp_indexer: Option<OhttpClientConfig>,
-    /// Optional OHTTP relay configuration for gateway requests.
-    #[serde(default)]
-    pub ohttp_gateway: Option<OhttpClientConfig>,
-}
-
-impl AuthenticatorConfig {
-    /// Loads an authenticator configuration from JSON.
-    ///
-    /// Accepts both plain `Config` JSON (OHTTP fields default to `None`) and
-    /// extended JSON with `ohttp_indexer` / `ohttp_gateway` fields.
-    ///
-    /// # Errors
-    /// Will error if the JSON is not valid.
-    pub fn from_json(json_str: &str) -> Result<Self, AuthenticatorError> {
-        serde_json::from_str(json_str).map_err(|e| {
-            AuthenticatorError::from(PrimitiveError::Serialization(format!(
-                "failed to parse authenticator config: {e}"
-            )))
-        })
-    }
-}
-
-impl From<Config> for AuthenticatorConfig {
-    fn from(config: Config) -> Self {
-        Self {
-            config,
-            ohttp_indexer: None,
-            ohttp_gateway: None,
-        }
-    }
-}
 
 /// Input for a single credential proof within a proof request.
 pub struct CredentialInput {
@@ -137,8 +90,7 @@ pub struct Authenticator {
     pub(crate) indexer_client: ServiceClient,
     pub(crate) gateway_client: ServiceClient,
     pub(crate) ws_connector: Connector,
-    pub(crate) query_material: Option<Arc<CircomGroth16Material>>,
-    pub(crate) nullifier_material: Option<Arc<CircomGroth16Material>>,
+    pub(crate) zk_artifact_source: Arc<dyn ZkArtifactSource>,
 }
 
 impl std::fmt::Debug for Authenticator {
@@ -151,25 +103,37 @@ impl std::fmt::Debug for Authenticator {
 }
 
 impl Authenticator {
-    /// Initialize an Authenticator from a seed and config.
+    /// Initialize an Authenticator from a seed, config, and a source of ZK artifacts.
     ///
-    /// This method will error if the World ID account does not exist on the registry.
+    /// The artifact source supplies the proving material for all proof generation. Use
+    /// [`world_id_proof::artifacts::dummy::DummyZkArtifactSource`] in tests or code paths
+    /// that never generate proofs.
+    ///
+    /// This method requires the authenticator address derived from `seed` to already be present
+    /// on-chain in the `WorldIDRegistry`.
+    ///
+    /// If no account exists for that authenticator, it returns
+    /// [`AuthenticatorError::AccountDoesNotExist`]. The same error can also occur transiently
+    /// while a create-account or authenticator-management operation is still pending on-chain and
+    /// the authenticator address has not been registered yet. Consumers that are coordinating such
+    /// operations should poll the gateway request and retry initialization after finalization.
+    ///
+    /// Indexer DB catch-up is separate and does not block initialization, since packed account data
+    /// is read from the registry (directly or via the indexer's chain-backed packed-account
+    /// endpoint).
     ///
     /// # Errors
     /// - Will error if the provided seed is invalid (not 32 bytes).
     /// - Will error if the RPC URL is invalid.
     /// - Will error if there are contract call failures.
-    /// - Will error if the account does not exist (`AccountDoesNotExist`).
+    /// - Will return [`AuthenticatorError::AccountDoesNotExist`] if the authenticator address
+    ///   derived from `seed` is not currently registered on-chain, whether permanently or because a
+    ///   relevant on-chain operation has not finalized yet.
     pub async fn init(
         seed: &[u8],
-        config: AuthenticatorConfig,
+        config: Config,
+        zk_artifact_source: Arc<dyn ZkArtifactSource>,
     ) -> Result<Self, AuthenticatorError> {
-        let AuthenticatorConfig {
-            config,
-            ohttp_indexer,
-            ohttp_gateway,
-        } = config;
-
         let signer = Signer::from_seed_bytes(seed)?;
 
         let registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>> =
@@ -177,7 +141,7 @@ impl Authenticator {
                 let provider = alloy::providers::ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
                     .connect_http(rpc_url.clone());
-                Arc::new(crate::registry::WorldIdRegistry::new(
+                Arc::new(world_id_registries::world_id::WorldIdRegistry::new(
                     *config.registry_address(),
                     alloy::providers::Provider::erased(provider),
                 ))
@@ -185,21 +149,13 @@ impl Authenticator {
 
         let http_client = reqwest::Client::new();
 
-        let indexer_client = ServiceClient::new(
-            http_client.clone(),
-            ServiceKind::Indexer,
-            config.indexer_url(),
-            ohttp_indexer,
-        )?;
+        let indexer_client =
+            ServiceClient::new(http_client.clone(), ServiceKind::Indexer, config.indexer())?;
 
-        let gateway_client = ServiceClient::new(
-            http_client,
-            ServiceKind::Gateway,
-            config.gateway_url(),
-            ohttp_gateway,
-        )?;
+        let gateway_client =
+            ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())?;
 
-        let packed_account_data = Self::get_packed_account_data(
+        let packed_account_data = Self::fetch_packed_account_data_for(
             signer.onchain_signer_address(),
             registry.as_deref(),
             &config,
@@ -228,26 +184,8 @@ impl Authenticator {
             indexer_client,
             gateway_client,
             ws_connector,
-            query_material: None,
-            nullifier_material: None,
+            zk_artifact_source,
         })
-    }
-
-    /// Sets the proof materials for the Authenticator, returning a new instance.
-    ///
-    /// Proof materials are required for proof generation, blinding factors and starting
-    /// sessions. Given the proof circuits are large, this may be loaded only when necessary.
-    #[must_use]
-    pub fn with_proof_materials(
-        self,
-        query_material: Arc<CircomGroth16Material>,
-        nullifier_material: Arc<CircomGroth16Material>,
-    ) -> Self {
-        Self {
-            query_material: Some(query_material),
-            nullifier_material: Some(nullifier_material),
-            ..self
-        }
     }
 
     /// Registers a new World ID in the `WorldIDRegistry`.
@@ -259,19 +197,13 @@ impl Authenticator {
     /// - See `init` for additional error details.
     pub async fn register(
         seed: &[u8],
-        config: AuthenticatorConfig,
+        config: Config,
         recovery_address: Option<Address>,
     ) -> Result<InitializingAuthenticator, AuthenticatorError> {
-        let AuthenticatorConfig {
-            config,
-            ohttp_gateway,
-            ..
-        } = config;
         let gateway_client = ServiceClient::new(
             reqwest::Client::new(),
             ServiceKind::Gateway,
-            config.gateway_url(),
-            ohttp_gateway,
+            config.gateway(),
         )?;
         InitializingAuthenticator::new(seed, config, recovery_address, gateway_client).await
     }
@@ -290,21 +222,21 @@ impl Authenticator {
     /// - See `init` for additional error details.
     pub async fn init_or_register(
         seed: &[u8],
-        config: AuthenticatorConfig,
+        config: Config,
         recovery_address: Option<Address>,
+        zk_artifact_source: Arc<dyn ZkArtifactSource>,
     ) -> Result<Self, AuthenticatorError> {
-        match Self::init(seed, config.clone()).await {
+        match Self::init(seed, config.clone(), Arc::clone(&zk_artifact_source)).await {
             Ok(authenticator) => Ok(authenticator),
             Err(AuthenticatorError::AccountDoesNotExist) => {
                 let gateway_client = ServiceClient::new(
                     reqwest::Client::new(),
                     ServiceKind::Gateway,
-                    config.config.gateway_url(),
-                    config.ohttp_gateway.clone(),
+                    config.gateway(),
                 )?;
                 let initializing_authenticator = InitializingAuthenticator::new(
                     seed,
-                    config.config.clone(),
+                    config.clone(),
                     recovery_address,
                     gateway_client,
                 )
@@ -339,13 +271,17 @@ impl Authenticator {
                     };
 
                     match result {
-                        Ok(()) => match Self::init(seed, config.clone()).await {
-                            Ok(auth) => Ok(auth),
-                            Err(AuthenticatorError::AccountDoesNotExist) => {
-                                Err(PollResult::Retryable)
+                        Ok(()) => {
+                            match Self::init(seed, config.clone(), Arc::clone(&zk_artifact_source))
+                                .await
+                            {
+                                Ok(auth) => Ok(auth),
+                                Err(AuthenticatorError::AccountDoesNotExist) => {
+                                    Err(PollResult::Retryable)
+                                }
+                                Err(e) => Err(PollResult::TerminalError(e)),
                             }
-                            Err(e) => Err(PollResult::TerminalError(e)),
-                        },
+                        }
                         Err(e) => Err(e),
                     }
                 };
@@ -364,18 +300,29 @@ impl Authenticator {
         }
     }
 
-    /// Re-fetches the packed account data for this authenticator from the indexer or registry.
+    /// Fetches the packed account data for this authenticator from the indexer or registry
+    /// without mutating local state.
     ///
     /// # Errors
     /// Will error if the network call fails or if the account does not exist.
-    pub async fn refresh_packed_account_data(&self) -> Result<U256, AuthenticatorError> {
-        Self::get_packed_account_data(
+    pub async fn fetch_packed_account_data(&self) -> Result<U256, AuthenticatorError> {
+        Self::fetch_packed_account_data_for(
             self.onchain_address(),
             self.registry().as_deref(),
             &self.config,
             &self.indexer_client,
         )
         .await
+    }
+
+    /// Re-fetches the packed account data for this authenticator and updates local state.
+    ///
+    /// # Errors
+    /// Will error if the network call fails or if the account does not exist.
+    pub async fn refresh_packed_account_data(&mut self) -> Result<U256, AuthenticatorError> {
+        let packed_account_data = self.fetch_packed_account_data().await?;
+        self.packed_account_data = packed_account_data;
+        Ok(packed_account_data)
     }
 
     /// Returns the packed account data for the holder's World ID.
@@ -385,7 +332,7 @@ impl Authenticator {
     ///
     /// # Errors
     /// Will error if the network call fails or if the account does not exist.
-    async fn get_packed_account_data(
+    async fn fetch_packed_account_data_for(
         onchain_signer_address: Address,
         registry: Option<&WorldIdRegistryInstance<DynProvider>>,
         config: &Config,
@@ -591,7 +538,7 @@ impl Authenticator {
     pub(crate) fn decode_indexer_pubkeys(
         pubkeys: Vec<Option<U256>>,
     ) -> Result<AuthenticatorPublicKeySet, AuthenticatorError> {
-        decode_sparse_authenticator_pubkeys(pubkeys).map_err(|e| match e {
+        AuthenticatorPublicKeySet::from_sparse_encoded_pubkeys(pubkeys).map_err(|e| match e {
             SparseAuthenticatorPubkeysError::SlotOutOfBounds {
                 slot_index,
                 max_supported_slot,
@@ -607,19 +554,6 @@ impl Authenticator {
             }
         })
     }
-
-    pub(crate) fn insert_or_reuse_authenticator_key(
-        key_set: &mut AuthenticatorPublicKeySet,
-        new_authenticator_pubkey: EdDSAPublicKey,
-    ) -> Result<usize, AuthenticatorError> {
-        if let Some(index) = key_set.iter().position(Option::is_none) {
-            key_set.try_set_at_index(index, new_authenticator_pubkey)?;
-            Ok(index)
-        } else {
-            key_set.try_push(new_authenticator_pubkey)?;
-            Ok(key_set.len() - 1)
-        }
-    }
 }
 
 #[cfg(test)]
@@ -627,7 +561,7 @@ mod tests {
     use super::*;
     use crate::{error::AuthenticatorError, traits::OnchainKeyRepresentable};
     use alloy::primitives::{U256, address};
-    use world_id_primitives::authenticator::MAX_AUTHENTICATOR_KEYS;
+    use world_id_primitives::MAX_AUTHENTICATOR_KEYS;
 
     fn test_pubkey(seed_byte: u8) -> EdDSAPublicKey {
         Signer::from_seed_bytes(&[seed_byte; 32])
@@ -639,6 +573,10 @@ mod tests {
         test_pubkey(seed_byte).to_ethereum_representation().unwrap()
     }
 
+    fn dummy_zk_artifact_source() -> Arc<dyn ZkArtifactSource> {
+        Arc::new(world_id_proof::artifacts::dummy::DummyZkArtifactSource)
+    }
+
     #[test]
     fn test_insert_or_reuse_authenticator_key_reuses_empty_slot() {
         let mut key_set =
@@ -647,8 +585,7 @@ mod tests {
         key_set[1] = None;
         let new_key = test_pubkey(3);
 
-        let index =
-            Authenticator::insert_or_reuse_authenticator_key(&mut key_set, new_key).unwrap();
+        let index = key_set.insert_or_reuse(new_key).unwrap();
 
         assert_eq!(index, 1);
         assert_eq!(key_set.len(), 3);
@@ -660,8 +597,7 @@ mod tests {
         let mut key_set = AuthenticatorPublicKeySet::new(vec![test_pubkey(1)]).unwrap();
         let new_key = test_pubkey(2);
 
-        let index =
-            Authenticator::insert_or_reuse_authenticator_key(&mut key_set, new_key).unwrap();
+        let index = key_set.insert_or_reuse(new_key).unwrap();
 
         assert_eq!(index, 1);
         assert_eq!(key_set.len(), 2);
@@ -718,8 +654,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            indexer_url,
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct(indexer_url),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -728,12 +664,11 @@ mod tests {
         let indexer_client = ServiceClient::new(
             reqwest::Client::new(),
             ServiceKind::Indexer,
-            config.indexer_url(),
-            None,
+            config.indexer(),
         )
         .unwrap();
 
-        let result = Authenticator::get_packed_account_data(
+        let result = Authenticator::fetch_packed_account_data_for(
             test_address,
             None, // No registry, force indexer usage
             &config,
@@ -763,8 +698,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            indexer_url,
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct(indexer_url),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -773,14 +708,17 @@ mod tests {
         let indexer_client = ServiceClient::new(
             reqwest::Client::new(),
             ServiceKind::Indexer,
-            config.indexer_url(),
-            None,
+            config.indexer(),
         )
         .unwrap();
 
-        let result =
-            Authenticator::get_packed_account_data(test_address, None, &config, &indexer_client)
-                .await;
+        let result = Authenticator::fetch_packed_account_data_for(
+            test_address,
+            None,
+            &config,
+            &indexer_client,
+        )
+        .await;
 
         assert!(matches!(
             result,
@@ -815,8 +753,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            indexer_url,
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct(indexer_url),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -831,20 +769,13 @@ mod tests {
             indexer_client: ServiceClient::new(
                 http_client.clone(),
                 ServiceKind::Indexer,
-                config.indexer_url(),
-                None,
+                config.indexer(),
             )
             .unwrap(),
-            gateway_client: ServiceClient::new(
-                http_client,
-                ServiceKind::Gateway,
-                config.gateway_url(),
-                None,
-            )
-            .unwrap(),
+            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
+                .unwrap(),
             ws_connector: Connector::Plain,
-            query_material: None,
-            nullifier_material: None,
+            zk_artifact_source: dummy_zk_artifact_source(),
         };
         let nonce = authenticator.signing_nonce().await.unwrap();
         assert_eq!(nonce, expected_nonce);
@@ -858,8 +789,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            "http://indexer.example.com".to_string(),
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct("http://indexer.example.com".to_string()),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -869,24 +800,17 @@ mod tests {
             indexer_client: ServiceClient::new(
                 http_client.clone(),
                 ServiceKind::Indexer,
-                config.indexer_url(),
-                None,
+                config.indexer(),
             )
             .unwrap(),
-            gateway_client: ServiceClient::new(
-                http_client,
-                ServiceKind::Gateway,
-                config.gateway_url(),
-                None,
-            )
-            .unwrap(),
+            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
+                .unwrap(),
             config,
             packed_account_data: U256::from(1),
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
             ws_connector: Connector::Plain,
-            query_material: None,
-            nullifier_material: None,
+            zk_artifact_source: dummy_zk_artifact_source(),
         };
         let challenge = b"test challenge";
         let signature = authenticator.danger_sign_challenge(challenge).unwrap();
@@ -902,8 +826,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            "http://indexer.example.com".to_string(),
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct("http://indexer.example.com".to_string()),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -913,24 +837,17 @@ mod tests {
             indexer_client: ServiceClient::new(
                 http_client.clone(),
                 ServiceKind::Indexer,
-                config.indexer_url(),
-                None,
+                config.indexer(),
             )
             .unwrap(),
-            gateway_client: ServiceClient::new(
-                http_client,
-                ServiceKind::Gateway,
-                config.gateway_url(),
-                None,
-            )
-            .unwrap(),
+            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
+                .unwrap(),
             config,
             packed_account_data: U256::from(1),
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
             ws_connector: Connector::Plain,
-            query_material: None,
-            nullifier_material: None,
+            zk_artifact_source: dummy_zk_artifact_source(),
         };
         let sig_a = authenticator.danger_sign_challenge(b"challenge A").unwrap();
         let sig_b = authenticator.danger_sign_challenge(b"challenge B").unwrap();
@@ -943,8 +860,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            "http://indexer.example.com".to_string(),
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct("http://indexer.example.com".to_string()),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -954,24 +871,17 @@ mod tests {
             indexer_client: ServiceClient::new(
                 http_client.clone(),
                 ServiceKind::Indexer,
-                config.indexer_url(),
-                None,
+                config.indexer(),
             )
             .unwrap(),
-            gateway_client: ServiceClient::new(
-                http_client,
-                ServiceKind::Gateway,
-                config.gateway_url(),
-                None,
-            )
-            .unwrap(),
+            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
+                .unwrap(),
             config,
             packed_account_data: U256::from(1),
             signer: Signer::from_seed_bytes(&[1u8; 32]).unwrap(),
             registry: None,
             ws_connector: Connector::Plain,
-            query_material: None,
-            nullifier_material: None,
+            zk_artifact_source: dummy_zk_artifact_source(),
         };
         let challenge = b"deterministic test";
         let sig1 = authenticator.danger_sign_challenge(challenge).unwrap();
@@ -995,8 +905,8 @@ mod tests {
             None,
             1,
             address!("0x0000000000000000000000000000000000000001"),
-            indexer_url,
-            "http://gateway.example.com".to_string(),
+            ServiceEndpoint::direct(indexer_url),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
             Vec::new(),
             2,
         )
@@ -1011,20 +921,13 @@ mod tests {
             indexer_client: ServiceClient::new(
                 http_client.clone(),
                 ServiceKind::Indexer,
-                config.indexer_url(),
-                None,
+                config.indexer(),
             )
             .unwrap(),
-            gateway_client: ServiceClient::new(
-                http_client,
-                ServiceKind::Gateway,
-                config.gateway_url(),
-                None,
-            )
-            .unwrap(),
+            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
+                .unwrap(),
             ws_connector: Connector::Plain,
-            query_material: None,
-            nullifier_material: None,
+            zk_artifact_source: dummy_zk_artifact_source(),
         };
         let result = authenticator.signing_nonce().await;
         assert!(matches!(
@@ -1033,50 +936,5 @@ mod tests {
         ));
         mock.assert_async().await;
         drop(server);
-    }
-
-    #[test]
-    fn test_authenticator_config_from_json_plain_config() {
-        let json = serde_json::json!({
-            "chain_id": 480,
-            "registry_address": "0x0000000000000000000000000000000000000001",
-            "indexer_url": "http://indexer.example.com",
-            "gateway_url": "http://gateway.example.com",
-            "nullifier_oracle_urls": [],
-            "nullifier_oracle_threshold": 2
-        });
-
-        let config = AuthenticatorConfig::from_json(&json.to_string()).unwrap();
-        assert!(config.ohttp_indexer.is_none());
-        assert!(config.ohttp_gateway.is_none());
-        assert_eq!(config.config.gateway_url(), "http://gateway.example.com");
-    }
-
-    #[test]
-    fn test_authenticator_config_from_json_with_ohttp() {
-        let json = serde_json::json!({
-            "chain_id": 480,
-            "registry_address": "0x0000000000000000000000000000000000000001",
-            "indexer_url": "http://indexer.example.com",
-            "gateway_url": "http://gateway.example.com",
-            "nullifier_oracle_urls": [],
-            "nullifier_oracle_threshold": 2,
-            "ohttp_indexer": {
-                "relay_url": "https://relay.example.com/gateway",
-                "key_config_base64": "dGVzdC1rZXk="
-            },
-            "ohttp_gateway": {
-                "relay_url": "https://relay.example.com/gateway",
-                "key_config_base64": "dGVzdC1rZXk="
-            }
-        });
-
-        let config = AuthenticatorConfig::from_json(&json.to_string()).unwrap();
-        let ohttp_indexer = config.ohttp_indexer.unwrap();
-        assert_eq!(ohttp_indexer.relay_url, "https://relay.example.com/gateway");
-        assert_eq!(ohttp_indexer.key_config_base64, "dGVzdC1rZXk=");
-        let ohttp_gateway = config.ohttp_gateway.unwrap();
-        assert_eq!(ohttp_gateway.relay_url, "https://relay.example.com/gateway");
-        assert_eq!(ohttp_gateway.key_config_base64, "dGVzdC1rZXk=");
     }
 }

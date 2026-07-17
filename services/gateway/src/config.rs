@@ -16,6 +16,27 @@ pub mod defaults {
     pub const STALE_SUBMITTED_THRESHOLD_SECS: u64 = 600;
 }
 
+/// WorldIDRegistry implementation version to use for gateway request routing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegistryVersion {
+    V1,
+    V2,
+}
+
+impl std::str::FromStr for RegistryVersion {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "v1" => Ok(Self::V1),
+            "v2" => Ok(Self::V2),
+            _ => Err(format!(
+                "invalid registry version: {value}; expected v1 or v2"
+            )),
+        }
+    }
+}
+
 /// Batching configuration for transaction submission.
 #[derive(Clone, Debug)]
 pub struct BatcherConfig {
@@ -102,6 +123,10 @@ pub struct GatewayConfig {
     /// The address of the `WorldIDRegistry` contract
     #[arg(long, env = "REGISTRY_ADDRESS")]
     pub registry_addr: Address,
+
+    /// Registry implementation version to use for request routing.
+    #[arg(long, env = "REGISTRY_VERSION")]
+    pub registry_version: RegistryVersion,
 
     /// The HTTP RPC endpoint to submit transactions
     #[command(flatten)]
@@ -273,6 +298,8 @@ mod tests {
         "test",
         "--registry-addr",
         "0x0000000000000000000000000000000000000001",
+        "--registry-version",
+        "v1",
         "--rpc-url",
         "http://localhost:8545",
         "--redis-url",
@@ -291,6 +318,45 @@ mod tests {
     fn parse_valid_config() -> GatewayConfig {
         parse_with_signer_args(&["--wallet-private-key", TEST_PRIVATE_KEY])
             .expect("valid config should parse")
+    }
+
+    #[test]
+    fn registry_version_parses_v2() {
+        let config = GatewayConfig::try_parse_from([
+            "test",
+            "--registry-addr",
+            "0x0000000000000000000000000000000000000001",
+            "--registry-version",
+            "v2",
+            "--rpc-url",
+            "http://localhost:8545",
+            "--redis-url",
+            "redis://localhost:6379",
+            "--wallet-private-key",
+            TEST_PRIVATE_KEY,
+        ])
+        .expect("valid config should parse");
+        assert_eq!(config.registry_version, RegistryVersion::V2);
+    }
+
+    #[test]
+    fn registry_version_is_required() {
+        let result = GatewayConfig::try_parse_from([
+            "test",
+            "--registry-addr",
+            "0x0000000000000000000000000000000000000001",
+            "--rpc-url",
+            "http://localhost:8545",
+            "--redis-url",
+            "redis://localhost:6379",
+            "--wallet-private-key",
+            TEST_PRIVATE_KEY,
+        ]);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().kind(),
+            ErrorKind::MissingRequiredArgument
+        );
     }
 
     #[test]

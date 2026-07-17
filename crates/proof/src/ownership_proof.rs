@@ -4,56 +4,147 @@
 //! with the authenticator's EdDSA key, then proving the Noir circuit
 //! via ProveKit.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, io::Read, path::Path};
 
 use ark_ff::{BigInteger as _, PrimeField as _};
-use provekit_common::{InputMap, InputValue, NoirElement, NoirProof};
+use provekit_common::{InputMap, InputValue, NoirElement, NoirProof, PublicInputs};
 use provekit_prover::Prove;
+use provekit_verifier::Verify;
+use world_id_primitives::{FieldElement, TREE_DEPTH, proof::OwnershipProof};
 
-use crate::{NoirCircuitInput, NoirRepresentable, ProofError};
-use world_id_primitives::TREE_DEPTH;
+use crate::{
+    NoirCircuitInput, NoirRepresentable, ProofError, artifacts::ZkArtifactSource,
+    circuit_inputs::OwnershipProofCircuitInput,
+};
 
-use crate::circuit_inputs::OwnershipProofCircuitInput;
+/// Domain separator for the Ownership Proof Hash Message.
+pub const DS_OWNERSHIP_PROOF: &[u8; 6] = b"WIP103";
 
-/// Raw bytes of the embedded Proving Key Package (PKP).
-const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
-
-/// Cached deserialized prover (or the error message from the first attempt).
-static OWNERSHIP_PROVER: std::sync::OnceLock<Result<provekit_common::Prover, String>> =
-    std::sync::OnceLock::new();
-
-/// Returns a clone of the cached [`provekit_common::Prover`] deserialized
-/// from the embedded PKP bytes. The deserialization happens only once.
-fn load_ownership_prover() -> Result<provekit_common::Prover, ProofError> {
-    let cached = OWNERSHIP_PROVER.get_or_init(|| {
-        provekit_common::register_ntt();
-        provekit_common::file::deserialize(PKP_BYTES).map_err(|e| e.to_string())
-    });
-    match cached {
-        Ok(prover) => Ok(prover.clone()),
-        Err(err) => Err(ProofError::InternalError(eyre::eyre!(err.clone()))),
-    }
-}
-
-/// Generates an ownership proof for WIP-103.
-///
-/// # Arguments
-/// * `input` - Authenticator keys, Merkle inclusion proof, signing
-///   key, and key index.
-/// * `nonce` - Public nonce (signal hash placeholder).
-/// * `commitment_r` - Randomness used to derive the commitment.
+/// Loads an ownership proof prover from a reader containing PKP bytes.
 ///
 /// # Errors
-/// Returns [`ProofError`] if signing, serialization, or proving
-/// fails.
+/// Returns an error if the reader cannot be read or the prover cannot be deserialized.
+pub fn load_ownership_prover_from_reader(
+    mut reader: impl Read,
+) -> eyre::Result<provekit_common::Prover> {
+    provekit_common::register_ntt();
+
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes)?;
+    provekit_common::file::deserialize(&bytes).map_err(|e| eyre::eyre!(e.to_string()))
+}
+
+/// Loads an ownership proof prover from a PKP file path.
+///
+/// # Errors
+/// Returns an error if the file cannot be read or the prover cannot be deserialized.
+pub fn load_ownership_prover_from_path(
+    path: impl AsRef<Path>,
+) -> eyre::Result<provekit_common::Prover> {
+    provekit_common::register_ntt();
+    provekit_common::file::read(path.as_ref()).map_err(|e| eyre::eyre!(e.to_string()))
+}
+
+/// Loads an ownership proof verifier from a reader containing PKV bytes.
+///
+/// # Errors
+/// Returns an error if the reader cannot be read or the verifier cannot be deserialized.
+pub fn load_ownership_verifier_from_reader(
+    mut reader: impl Read,
+) -> eyre::Result<provekit_common::Verifier> {
+    provekit_common::register_ntt();
+
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes)?;
+    provekit_common::file::deserialize(&bytes).map_err(|e| eyre::eyre!(e.to_string()))
+}
+
+/// Loads an ownership proof verifier from a PKV file path.
+///
+/// # Errors
+/// Returns an error if the file cannot be read or the verifier cannot be deserialized.
+pub fn load_ownership_verifier_from_path(
+    path: impl AsRef<Path>,
+) -> eyre::Result<provekit_common::Verifier> {
+    provekit_common::register_ntt();
+    provekit_common::file::read(path.as_ref()).map_err(|e| eyre::eyre!(e.to_string()))
+}
+
+/// Generates an ownership proof using artifacts from the provided source.
+///
+/// # Errors
+/// Returns [`ProofError`] if Noir artifacts cannot be loaded or proving fails.
 pub fn generate_ownership_proof(
     input: OwnershipProofCircuitInput<TREE_DEPTH>,
-) -> Result<NoirProof, ProofError> {
-    let prover = load_ownership_prover()?;
+    artifacts: &dyn ZkArtifactSource,
+) -> Result<OwnershipProof, ProofError> {
+    let prover = artifacts.ownership_prover()?;
+    generate_ownership_proof_with_prover(input, prover)
+}
+
+/// Generates an ownership proof using the provided prover.
+///
+/// # Errors
+/// Returns [`ProofError`] if witness generation or proving fails.
+pub fn generate_ownership_proof_with_prover(
+    input: OwnershipProofCircuitInput<TREE_DEPTH>,
+    prover: provekit_common::Prover,
+) -> Result<OwnershipProof, ProofError> {
+    provekit_common::register_ntt();
+
+    let merkle_root = input.inclusion_proof.root;
     let witness = input.into_witness()?;
-    prover
+    let noir_proof = prover
         .prove(witness)
-        .map_err(|e| ProofError::GenerationError(e.to_string()))
+        .map_err(|e| ProofError::GenerationError(e.to_string()))?;
+
+    Ok(OwnershipProof {
+        proof: noir_proof.whir_r1cs_proof,
+        merkle_root,
+    })
+}
+
+/// Verifies an ownership proof using artifacts from the provided source.
+///
+/// # Errors
+/// Returns an error if Noir artifacts cannot be loaded, the proof bytes are malformed,
+/// or verification fails.
+pub fn verify_ownership_proof(
+    proof: &OwnershipProof,
+    nonce: FieldElement,
+    commitment: FieldElement,
+    artifacts: &dyn ZkArtifactSource,
+) -> Result<(), ProofError> {
+    let mut verifier = artifacts.ownership_verifier()?;
+    verify_ownership_proof_with_verifier(proof, nonce, commitment, &mut verifier)
+}
+
+/// Verifies an ownership proof using the provided verifier.
+///
+/// # Errors
+/// Returns an error if the proof bytes are malformed or verification fails.
+pub fn verify_ownership_proof_with_verifier(
+    proof: &OwnershipProof,
+    nonce: FieldElement,
+    commitment: FieldElement,
+    verifier: &mut provekit_common::Verifier,
+) -> Result<(), ProofError> {
+    provekit_common::register_ntt();
+
+    let public_inputs = PublicInputs::from_vec(vec![
+        *proof.merkle_root,
+        ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
+        *nonce,
+        *commitment,
+    ]);
+
+    let noir_proof = NoirProof {
+        public_inputs,
+        whir_r1cs_proof: proof.proof.clone(),
+    };
+    verifier
+        .verify(&noir_proof)
+        .map_err(|e| ProofError::Verification(e.to_string()))
 }
 
 impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
@@ -131,44 +222,51 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    feature = "embed-ownership-prover",
+    feature = "embed-ownership-verifier"
+))]
 mod tests {
-    use super::*;
-
-    use ark_bn254::Fr;
-    use eddsa_babyjubjub::EdDSAPrivateKey;
-    use world_id_primitives::{
-        Credential, FieldElement, authenticator::AuthenticatorPublicKeySet,
-        merkle::MerkleInclusionProof,
+    use crate::{
+        artifacts::embedded::EmbeddedZkArtifacts, circuit_inputs::OwnershipProofCircuitInput,
     };
 
-    /// Builds a Merkle inclusion proof for a single leaf at index 1
-    /// in an otherwise empty (all-zeros) tree of depth `TREE_DEPTH`.
+    use super::*;
+
+    use eddsa_babyjubjub::EdDSAPrivateKey;
+    use world_id_primitives::{
+        AuthenticatorPublicKeySet, Credential, TREE_DEPTH, merkle::MerkleInclusionProof,
+    };
+
+    const LEAF_INDEX: u64 = 1;
+
     fn build_merkle_proof(leaf: ark_bn254::Fr) -> MerkleInclusionProof<TREE_DEPTH> {
         let (siblings, root) = world_id_test_utils::merkle::first_leaf_merkle_path(leaf);
-        MerkleInclusionProof::new(root, 1, siblings)
+        MerkleInclusionProof::new(root, LEAF_INDEX, siblings)
     }
 
-    #[test]
-    fn test_generate_ownership_proof() {
-        // 1. Generate an EdDSA keypair
+    fn generate_valid_ownership_proof_fixture() -> (OwnershipProof, FieldElement, FieldElement) {
         let sk = EdDSAPrivateKey::from_bytes([42u8; 32]);
         let pk = sk.public();
-
-        // 2. Build a key set containing a single authenticator key
         let key_set = AuthenticatorPublicKeySet::new(vec![pk]).expect("single key fits");
-
-        // 3. Compute the leaf hash and build a Merkle proof
         let leaf = key_set.leaf_hash();
         let inclusion_proof = build_merkle_proof(leaf);
 
-        // 4. Compute the message and sign it
         let nonce = FieldElement::from(1234567890u64);
         let commitment_blinder = FieldElement::from(999u64);
-        let commitment = Credential::compute_sub(1, commitment_blinder);
-        let signature = sk.sign(*commitment);
+        let commitment = Credential::compute_sub(LEAF_INDEX, commitment_blinder);
 
-        // 5. Construct circuit input and generate proof
+        // The circuit signs `Poseidon2(DS_OWNERSHIP_PROOF, commitment, nonce)`, not the raw
+        // commitment. See `Authenticator::prove_credential_sub`.
+        let mut message = [
+            *FieldElement::from_be_bytes_mod_order(DS_OWNERSHIP_PROOF),
+            *commitment,
+            *nonce,
+        ];
+        poseidon2::bn254::t3::permutation_in_place(&mut message);
+        let signature = sk.sign(message[1]);
+
         let circuit_input = OwnershipProofCircuitInput {
             key_index: 0,
             key_set,
@@ -178,13 +276,67 @@ mod tests {
             commitment_blinder,
         };
 
-        let proof = generate_ownership_proof(circuit_input).unwrap();
+        let artifacts = EmbeddedZkArtifacts;
+        let proof = generate_ownership_proof(circuit_input, &artifacts).unwrap();
 
-        assert!(!proof.public_inputs.is_empty());
+        // Public input: merkle root is directly accessible
+        assert_eq!(proof.merkle_root, inclusion_proof.root);
+        assert!(!proof.proof.narg_string.is_empty());
 
-        assert_eq!(proof.public_inputs.0[0], *inclusion_proof.root);
-        assert_eq!(proof.public_inputs.0[1], Fr::from(30));
-        assert_eq!(proof.public_inputs.0[2], *nonce);
-        assert_eq!(proof.public_inputs.0[3], *commitment);
+        (proof, nonce, commitment)
+    }
+
+    #[test]
+    fn test_generate_and_verify_ownership_proof() {
+        let (proof, nonce, commitment) = generate_valid_ownership_proof_fixture();
+
+        // Verification succeeds with correct public inputs. Depth is currently hardcoded in the
+        // verification call.
+        let artifacts = EmbeddedZkArtifacts;
+        verify_ownership_proof(&proof, nonce, commitment, &artifacts)
+            .expect("ownership proof verifies");
+
+        // Wrong commitment → verification fails
+        let err = verify_ownership_proof(&proof, nonce, FieldElement::from(1u64), &artifacts)
+            .unwrap_err();
+        assert!(matches!(err, ProofError::Verification(_)));
+
+        // Wrong nonce → verification fails
+        let err = verify_ownership_proof(
+            &proof,
+            FieldElement::from(1234567891u64),
+            commitment,
+            &artifacts,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ProofError::Verification(_)));
+    }
+
+    #[test]
+    fn test_verify_ownership_proof_fails_with_wrong_merkle_root() {
+        let (proof, nonce, commitment) = generate_valid_ownership_proof_fixture();
+
+        let mut tampered_proof = proof.clone();
+        let mut merkle_root_bytes = tampered_proof.merkle_root.to_be_bytes();
+        merkle_root_bytes[31] ^= 0x01;
+        tampered_proof.merkle_root = FieldElement::from_be_bytes(&merkle_root_bytes).unwrap();
+
+        let artifacts = EmbeddedZkArtifacts;
+        let err =
+            verify_ownership_proof(&tampered_proof, nonce, commitment, &artifacts).unwrap_err();
+        assert!(matches!(err, ProofError::Verification(_)));
+    }
+
+    #[test]
+    fn test_verify_ownership_proof_fails_with_tampered_proof_bytes() {
+        let (proof, nonce, commitment) = generate_valid_ownership_proof_fixture();
+
+        let mut tampered_proof = proof.clone();
+        tampered_proof.proof.narg_string[0] ^= 0x01;
+
+        let artifacts = EmbeddedZkArtifacts;
+        let err =
+            verify_ownership_proof(&tampered_proof, nonce, commitment, &artifacts).unwrap_err();
+        assert!(matches!(err, ProofError::Verification(_)));
     }
 }

@@ -6,11 +6,11 @@ use alloy::{
     sol_types::SolStruct,
 };
 use reqwest::{Client, StatusCode};
-use world_id_core::{
-    api_types::{InsertAuthenticatorRequest, UpdateAuthenticatorRequest},
-    world_id_registry::{InsertAuthenticatorTypedData, UpdateAuthenticatorTypedData},
+use world_id_gateway::{
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, defaults, spawn_gateway_for_tests,
 };
-use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway_for_tests};
+use world_id_primitives::api_types::{InsertAuthenticatorRequest, UpdateAuthenticatorRequest};
+use world_id_registries::world_id::{InsertAuthenticatorTypedData, UpdateAuthenticatorTypedData};
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
@@ -58,12 +58,13 @@ async fn test_rate_limit_basic() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil.deploy_world_id_registry_v2(deployer).await.unwrap();
     let rpc_url = anvil.endpoint();
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
+        registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),
@@ -265,12 +266,13 @@ async fn test_rate_limit_different_leaf_indexes() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil.deploy_world_id_registry_v2(deployer).await.unwrap();
     let rpc_url = anvil.endpoint();
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
+        registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),
@@ -421,12 +423,13 @@ async fn test_rate_limit_sliding_window() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil.deploy_world_id_registry_v2(deployer).await.unwrap();
     let rpc_url = anvil.endpoint();
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
+        registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),
@@ -574,12 +577,13 @@ async fn test_rate_limit_multiple_endpoints() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil.deploy_world_id_registry_v2(deployer).await.unwrap();
     let rpc_url = anvil.endpoint();
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
+        registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
             http: Some(vec![rpc_url.parse().unwrap()]),
             signer: Some(signer_args),
