@@ -127,15 +127,11 @@ pub fn spawn_satellite(
 
                 for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
                     let entries = chunk.len();
-                    let commitments = chunk
-                        .iter()
-                        .map(|entry| commitment_count(entry))
-                        .sum::<usize>();
+
                     let merged = reduce(chunk)?;
                     let target_head = merged.chain_head;
 
                     tracing::info!(
-                        commitments,
                         entries,
                         max_commitments,
                         chunk = chunk_idx + 1,
@@ -153,7 +149,6 @@ pub fn spawn_satellite(
                             tracing::info!(
                                 %tx_hash,
                                 head = %local_head,
-                                commitments,
                                 entries,
                                 target_head = %target_head,
                                 "relay succeeded"
