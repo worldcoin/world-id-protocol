@@ -25,7 +25,7 @@ const RELAY_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Maximum number of individual commitments to include in a single relay
 /// transaction.
-const MAX_COMMITMENTS_PER_RELAY: usize = 64;
+const DEFAULT_MAX_COMMITMENTS_PER_RELAY: usize = 64;
 
 /// A destination chain that can receive bridged World ID state.
 pub trait Satellite: Send + Sync {
@@ -34,6 +34,15 @@ pub trait Satellite: Send + Sync {
 
     /// The chain ID of this destination.
     fn chain_id(&self) -> u64;
+
+    /// Maximum number of individual commitments to include in one relay
+    /// transaction.
+    ///
+    /// Destinations with smaller limits can override this without reducing
+    /// throughput for every other satellite.
+    fn max_commitments_per_relay(&self) -> usize {
+        DEFAULT_MAX_COMMITMENTS_PER_RELAY
+    }
 
     /// Queries the destination chain's current keccak chain head.
     ///
@@ -112,16 +121,23 @@ pub fn spawn_satellite(
                 // chain head, so the satellite applies them incrementally; on
                 // the first failure we stop and retry the remainder (from the
                 // now-advanced `local_head`) on the next head change.
-                let chunks = chunk_by_commitments(&delta, MAX_COMMITMENTS_PER_RELAY);
+                let max_commitments = satellite.max_commitments_per_relay();
+                let chunks = chunk_by_commitments(&delta, max_commitments);
                 let chunk_total = chunks.len();
 
                 for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
-                    let count = chunk.len();
+                    let entries = chunk.len();
+                    let commitments = chunk
+                        .iter()
+                        .map(|entry| commitment_count(entry))
+                        .sum::<usize>();
                     let merged = reduce(chunk)?;
                     let target_head = merged.chain_head;
 
                     tracing::info!(
-                        commitments = count,
+                        commitments,
+                        entries,
+                        max_commitments,
                         chunk = chunk_idx + 1,
                         chunks = chunk_total,
                         target_head = %target_head,
@@ -137,7 +153,8 @@ pub fn spawn_satellite(
                             tracing::info!(
                                 %tx_hash,
                                 head = %local_head,
-                                delta_count = count,
+                                commitments,
+                                entries,
                                 target_head = %target_head,
                                 "relay succeeded"
                             );
@@ -327,7 +344,7 @@ mod tests {
     #[test]
     fn small_delta_is_a_single_chunk() {
         let delta = vec![commitment_with(1)];
-        let chunks = chunk_by_commitments(&delta, MAX_COMMITMENTS_PER_RELAY);
+        let chunks = chunk_by_commitments(&delta, DEFAULT_MAX_COMMITMENTS_PER_RELAY);
         assert_eq!(chunks.len(), 1);
     }
 
@@ -416,7 +433,7 @@ mod tests {
 
         // ── Drive the production chunking path chunk-by-chunk. ──────────────────
         let recipient = encode_evm_v1_address(ANCHOR_CHAIN_ID, ARC_SATELLITE);
-        let chunks = chunk_by_commitments(&delta, MAX_COMMITMENTS_PER_RELAY);
+        let chunks = chunk_by_commitments(&delta, DEFAULT_MAX_COMMITMENTS_PER_RELAY);
         let n_chunks = chunks.len();
         for (i, chunk) in chunks.into_iter().enumerate() {
             let merged = reduce(chunk)?;

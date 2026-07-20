@@ -25,6 +25,8 @@ use super::build_chain_head_attribute;
 /// so wallet-balance checks must query `balanceOf` on this contract instead.
 pub const FEE_TOKEN: Address = address!("0x20c000000000000000000000b9537d11c60e8b50");
 
+const MAX_COMMITMENTS_PER_RELAY: usize = 8;
+
 /// A permissioned satellite targeting a Tempo blockchain destination.
 ///
 /// Uses `TempoNetwork` provider with 2D random nonces and pays gas fees
@@ -72,6 +74,10 @@ impl<P: Provider<TempoNetwork> + Send + Sync + Clone + 'static> Satellite for Te
 
     fn chain_id(&self) -> u64 {
         self.chain_id
+    }
+
+    fn max_commitments_per_relay(&self) -> usize {
+        MAX_COMMITMENTS_PER_RELAY
     }
 
     fn remote_chain_head<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<B256>> + Send + 'a>> {

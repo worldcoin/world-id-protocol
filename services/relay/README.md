@@ -83,7 +83,7 @@ Each satellite runs as an independent async task that:
 1. **Waits for backfill** via `log.wait_ready()`.
 2. **Queries the destination chain's current chain head** by calling `satellite.KECCAK_CHAIN()` on the destination contract. This becomes its `local_head` cursor.
 3. **Computes the delta** via `log.since(local_head)` -- all entries the destination hasn't received yet.
-4. **Merges the delta** using `reduce()`, which concatenates all `Commitment[]` payloads into a single `ChainCommitment` that advances from `local_head` to the log's current head in one transaction.
+4. **Chunks and merges the delta** using a destination-specific commitment cap, then `reduce()` concatenates each chunk's `Commitment[]` payloads into a `ChainCommitment`. Standard satellites relay up to 64 commitments per transaction; Tempo uses a smaller cap of 8 to stay within its transaction limits.
 5. **Builds a proof** and **sends a relay transaction** through an ERC-7786 gateway on the destination chain.
 6. **Subscribes to future updates** via the watch channel and repeats from step 3 whenever a new `ChainCommitted` event is emitted by the `WorldIDSource` contract.
 
@@ -195,6 +195,8 @@ Set `RUST_LOG` to control log verbosity:
 - `RUST_LOG=world_id_relay=info` — default, major state changes only
 - `RUST_LOG=world_id_relay=debug` — includes event processing, backfill progress, propagation ticks, and satellite relay details
 - `RUST_LOG=world_id_relay=trace` — full detail including duplicate skips and hash chain verification
+
+Logs are emitted as structured JSON by default so container log collectors can parse level and fields correctly. Set `TELEMETRY_LOG_FORMAT=pretty` for colored local output.
 
 > **Note:** The `RELAY_CONFIG` value in `.env` must be wrapped in single quotes (`'...'`) because dotenvy interprets double quotes as delimiters, which would strip the JSON's `"` characters.
 
