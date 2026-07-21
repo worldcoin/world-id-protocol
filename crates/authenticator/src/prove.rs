@@ -208,22 +208,19 @@ impl Authenticator {
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
         proof_request.validate_proof_type()?;
-        if proof_request.session_id.is_none() {
-            return Err(AuthenticatorError::PrimitiveError(
-                world_id_primitives::PrimitiveError::InvalidInput {
-                    attribute: "session_id".to_string(),
-                    reason: "session_id must be \"create\" or an existing session id".to_string(),
-                },
-            ));
-        }
-
         let mut rng = rand::rngs::OsRng;
 
         let oprf_seed = match proof_request.session_id {
             SessionRef::Existing(session_id) => session_id.oprf_seed,
             SessionRef::Create => SessionId::generate_oprf_seed(&mut rng),
             SessionRef::None => {
-                unreachable!("SessionRef::None should be handled by the guard above")
+                return Err(AuthenticatorError::PrimitiveError(
+                    world_id_primitives::PrimitiveError::InvalidInput {
+                        attribute: "session_id".to_string(),
+                        reason: "session_id must be \"create\" or an existing session id"
+                            .to_string(),
+                    },
+                ));
             }
         };
 
