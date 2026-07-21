@@ -39,6 +39,14 @@ fn main() -> eyre::Result<()> {
         noir_artifacts::setup(&out_dir)?;
     }
 
+    #[cfg(any(
+        feature = "embed-passkey-ownership-prover",
+        feature = "embed-passkey-ownership-verifier"
+    ))]
+    if should_embed_passkey_artifacts() {
+        setup_noir_passkey_ownership_artifacts(&out_dir)?;
+    }
+
     if env::var("CARGO_FEATURE_EMBED_ZKEYS").is_err() {
         return Ok(());
     };
@@ -330,6 +338,32 @@ mod noir_artifacts {
 
         Ok(())
     }
+}
+
+#[cfg(any(
+    feature = "embed-passkey-ownership-prover",
+    feature = "embed-passkey-ownership-verifier"
+))]
+fn should_embed_passkey_artifacts() -> bool {
+    env::var("CARGO_CFG_TARGET_ARCH").as_deref() != Ok("wasm32")
+}
+
+#[cfg(any(
+    feature = "embed-passkey-ownership-prover",
+    feature = "embed-passkey-ownership-verifier"
+))]
+fn setup_noir_passkey_ownership_artifacts(out_dir: &Path) -> eyre::Result<()> {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    let artifact_dir = manifest_dir.join("noir/passkey-ownership-proof/artifacts");
+
+    for file_name in ["passkey_ownership_proof.pkp", "passkey_ownership_proof.pkv"] {
+        let local_path = artifact_dir.join(file_name);
+        let output_path = out_dir.join(file_name);
+        fs::copy(&local_path, &output_path)?;
+        println!("cargo:rerun-if-changed={}", local_path.display());
+    }
+
+    Ok(())
 }
 
 fn compress_zkey(input: &Path, output: &Path) -> eyre::Result<()> {
