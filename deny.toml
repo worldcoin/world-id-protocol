@@ -45,7 +45,9 @@ ignore = [
     "RUSTSEC-2025-0057", # Unmaintained `fxhash` (2026-04-10), requires bumps on `provekit`
     "RUSTSEC-2025-0141", # Unmaintained `bincode` (2026-04-10), requires bumps on `provekit`
     "RUSTSEC-2026-0074", # `libcrux-sha3` via testcontainers->russh; dev-only, does not affect our usage (2026-03-26)
-    "RUSTSEC-2026-0097", # Unsoundness in `rand@0.8.5` (2026-04-11), multiple upstream deps on `rand`. Not directly using custom logger
+    "RUSTSEC-2026-0207", # `libcrux-sha3` SHAKE incremental API; via testcontainers->russh->libcrux-ml-kem; dev-only, no safe upgrade (2026-07-21)
+    "RUSTSEC-2026-0208", # `libcrux-sha3` AVX2 SHAKE-256 panic; via testcontainers->russh->libcrux-ml-kem; dev-only, no safe upgrade (2026-07-21)
+    "RUSTSEC-2026-0212", # `libcrux-secrets`/`libcrux-sha3` const-time swap on aarch64; via testcontainers->russh->libcrux-ml-kem; dev-only, no safe upgrade (2026-07-21)
     "RUSTSEC-2026-0153", # russh-cryptovec broken, via testcontainers, dev-only, does not affect our usage (2026-06-02)
     "RUSTSEC-2026-0154", # russh-cryptovec broken, via testcontainers, dev-only, does not affect our usage (2026-06-02)
     "RUSTSEC-2026-0173"  # Unmaintained `proc-macro-error2`; transitive via alloy-sol-macro, no safe upgrade available (2026-06-08)
