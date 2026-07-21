@@ -38,8 +38,7 @@ use world_id_gateway::{
     spawn_gateway_for_tests,
 };
 use world_id_primitives::{
-    Config, FieldElement, ServiceEndpoint, SessionFieldElement, SessionId, SessionRef, TREE_DEPTH,
-    merkle::AccountInclusionProof,
+    Config, FieldElement, ServiceEndpoint, SessionRef, TREE_DEPTH, merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
     anvil::WorldIDVerifierV2,
