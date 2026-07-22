@@ -19,8 +19,8 @@ use world_id_relay::{
     primitives::{ChainCommitment, KeccakChain, U160},
     satellite::permissioned::solana::SolanaPermissionedSatellite,
 };
-use world_id_solana_satellite as satellite_program;
-use world_id_solana_verifier::{hex_word, solidity_to_solana_compressed_proof};
+use world_id_solana as satellite_program;
+use world_id_solana::verifier::{hex_word, solidity_to_solana_compressed_proof};
 
 const TEST_LAMPORTS: u64 = 10_000_000_000;
 const ROOT_VALIDITY_WINDOW: i64 = 3600;
@@ -41,7 +41,7 @@ fn svm_result<T>(result: Result<T, Box<dyn std::error::Error>>) -> Result<T> {
 
 fn satellite_program_so() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/deploy/world_id_solana_satellite.so")
+        .join("../../target/deploy/world_id_solana.so")
 }
 
 fn anchor_instruction(
@@ -144,7 +144,7 @@ fn e2e_solana_permissioned_replays_commitment_on_local_svm() -> Result<()> {
     let program_so = satellite_program_so();
     if !program_so.exists() {
         eprintln!(
-            "skipping Solana LiteSVM E2E; build {} first with `cargo build-sbf --manifest-path crates/solana-satellite/Cargo.toml --sbf-out-dir target/deploy`",
+            "skipping Solana LiteSVM E2E; build {} first with `cargo build-sbf --manifest-path <world-id-protocol-solana>/programs/world-id-solana/Cargo.toml --sbf-out-dir target/deploy`",
             program_so.display()
         );
         return Ok(());

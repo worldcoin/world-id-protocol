@@ -344,7 +344,7 @@ impl SolanaPermissionedGatewayConfig {
         match &self.program_id {
             Some(program_id) => SolanaPubkey::from_str(program_id)
                 .map_err(|e| eyre::eyre!("failed to parse Solana program_id: {e}")),
-            None => Ok(world_id_solana_satellite::ID),
+            None => Ok(world_id_solana::ID),
         }
     }
 }
@@ -843,7 +843,7 @@ mod tests {
         assert_eq!(solana[0].keypair_env_var(), "SOLANA_LOCALNET_KEYPAIR");
         assert_eq!(
             solana[0].program_pubkey().unwrap(),
-            world_id_solana_satellite::ID
+            world_id_solana::ID
         );
     }
 
