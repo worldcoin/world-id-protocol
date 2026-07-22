@@ -244,10 +244,8 @@ impl Authenticator {
         let session_id =
             SessionId::from_r_seed(self.leaf_index(), resolved_session_id_r_seed, oprf_seed)?;
 
-        if let Some(request_session_id) = proof_request.session_id
-            && request_session_id != session_id
-        {
-            return Err(AuthenticatorError::SessionIdMismatch);
+        if let Some(request_session_id) = proof_request.session_id {
+            self.validate_cached_session_r_seed(resolved_session_id_r_seed, request_session_id)?;
         }
 
         Ok((session_id, resolved_session_id_r_seed))
@@ -276,8 +274,9 @@ impl Authenticator {
     /// - `credentials` — one [`CredentialInput`] per credential to prove,
     ///   matched to request items by `issuer_schema_id`.
     /// - `account_inclusion_proof` — a cached inclusion proof if available (a fresh one will be fetched otherwise)
-    /// - `session_id_r_seed` — a cached session `r` seed for Session Proofs. If not available, it will be
-    ///   re-computed.
+    /// - `session_id_r_seed` — a cached session `r` seed. For Session Proofs it is re-computed
+    ///   if unavailable; for session-bound Uniqueness Proofs ([`ProofRequest::binds_session`])
+    ///   it is required and the call fails with [`AuthenticatorError::SessionSeedRequired`] otherwise.
     ///
     /// # Caller Responsibilities
     /// 1. The caller must ensure the request can be fulfilled with the credentials which the user has available,
@@ -309,7 +308,15 @@ impl Authenticator {
 
         // 2. Resolve session seed
         let (resolved_session_id, resolved_session_seed) = match proof_request.proof_type {
-            ProofType::Uniqueness => (None, None),
+            ProofType::Uniqueness => match proof_request.session_id {
+                // Bind the proof to the existing session. Requires the cached `r`.
+                Some(session_id) => {
+                    let seed = session_id_r_seed.ok_or(AuthenticatorError::SessionSeedRequired)?;
+                    self.validate_cached_session_r_seed(seed, session_id)?;
+                    (Some(session_id), Some(seed))
+                }
+                None => (None, None),
+            },
             ProofType::CreateSession => {
                 let (session_id, seed) = self
                     .build_session_id(proof_request, None, account_inclusion_proof)
@@ -321,13 +328,7 @@ impl Authenticator {
                     .session_id
                     .expect("session proof must have session_id");
                 if let Some(seed) = session_id_r_seed {
-                    // Validate the cached seed produces the expected session ID
-                    let computed =
-                        SessionId::from_r_seed(self.leaf_index(), seed, session_id.oprf_seed)?;
-
-                    if computed != session_id {
-                        return Err(AuthenticatorError::SessionIdMismatch);
-                    }
+                    self.validate_cached_session_r_seed(seed, session_id)?;
                     (Some(session_id), Some(seed))
                 } else {
                     // Re-derive the same `r` from the existing session's `oprf_seed` when the
@@ -363,6 +364,7 @@ impl Authenticator {
                 cred_input.blinding_factor,
                 resolved_session_seed,
                 resolved_session_id,
+                proof_request.proof_type,
                 proof_request.created_at,
             )?;
             responses.push(response_item);
@@ -401,8 +403,10 @@ impl Authenticator {
     /// - `credential`: The Credential to be used for the proof that fulfills the `RequestItem`.
     /// - `credential_sub_blinding_factor`: The blinding factor for the Credential's sub.
     /// - `session_id_r_seed`: The session ID random seed, obtained via [`build_session_id`](Self::build_session_id).
-    ///   For Uniqueness Proofs (when `session_id` is `None`), this value is ignored by the circuit.
-    /// - `session_id`: The expected session ID provided by the RP. Only needed for Session Proofs. Obtained from the RP's [`ProofRequest`].
+    ///   For unbound Uniqueness Proofs (when `session_id` is `None`), this value is ignored by the circuit.
+    /// - `session_id`: The expected session ID provided by the RP. Needed for Session Proofs and
+    ///   session-bound Uniqueness Proofs. Obtained from the RP's [`ProofRequest`].
+    /// - `proof_type`: Determines whether a Session or Uniqueness response item is produced.
     /// - `request_timestamp`: The timestamp of the request. Obtained from the RP's [`ProofRequest`].
     ///
     /// # Errors
@@ -419,6 +423,7 @@ impl Authenticator {
         credential_sub_blinding_factor: FieldElement,
         session_id_r_seed: Option<FieldElement>,
         session_id: Option<SessionId>,
+        proof_type: ProofType,
         request_timestamp: u64,
     ) -> Result<ResponseItem, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
@@ -444,7 +449,7 @@ impl Authenticator {
 
         // Construct the appropriate response item based on proof type
         let nullifier_fe: FieldElement = nullifier.into();
-        let response_item = if session_id.is_some() {
+        let response_item = if proof_type.is_session() {
             let session_nullifier = SessionNullifier::new(nullifier_fe, action_from_query)?;
             ResponseItem::new_session(
                 request_item.identifier.clone(),
@@ -526,6 +531,19 @@ impl Authenticator {
             .map_err(AuthenticatorError::ZkArtifactError)?;
 
         Ok(generate_ownership_proof_with_prover(input, prover)?)
+    }
+
+    fn validate_cached_session_r_seed(
+        &self,
+        seed: FieldElement,
+        session_id: SessionId,
+    ) -> Result<(), AuthenticatorError> {
+        let computed = SessionId::from_r_seed(self.leaf_index(), seed, session_id.oprf_seed)
+            .map_err(AuthenticatorError::from)?;
+        if computed.commitment != session_id.commitment {
+            return Err(AuthenticatorError::SessionIdMismatch);
+        }
+        Ok(())
     }
 }
 

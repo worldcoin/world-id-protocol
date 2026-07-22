@@ -55,11 +55,14 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
 #[serde(rename_all = "snake_case")]
 pub enum ProofType {
     /// A uniqueness proof scoped by the RP-provided action.
+    ///
+    /// May carry a `session_id` to bind the proof to an existing session,
+    /// see [`ProofRequest::binds_session`].
     #[default]
     Uniqueness = 0x00,
-    /// Create a new RP-scoped session identifier and prove it in the same response.
+    /// Create a new RP-scoped `session_id` and prove it in the same response.
     CreateSession = 0x01,
-    /// Prove ownership of an existing RP-scoped session identifier.
+    /// Prove ownership of an existing RP-scoped `session_id`.
     Session = 0x02,
 }
 
@@ -101,7 +104,9 @@ pub struct ProofRequest {
     pub oprf_key_id: OprfKeyId,
     /// Session identifier that links proofs for the same user/RP pair across requests.
     ///
-    /// Required for [`ProofType::Session`], absent for all other proof types.
+    /// Required for [`ProofType::Session`], forbidden for [`ProofType::CreateSession`],
+    /// optional for [`ProofType::Uniqueness`] to bind the proof to an existing session
+    /// (see [`Self::binds_session`]).
     /// The proof will only be valid if the session ID is meant for this context and
     /// this particular World ID holder.
     pub session_id: Option<SessionId>,
@@ -232,7 +237,8 @@ pub struct ProofResponse {
     /// the newly generated `SessionId`. For subsequent Session Proofs, this
     /// echoes back the `SessionId` from the request for convenience.
     ///
-    /// This is optional as it's not provided in Uniqueness Proofs.
+    /// For Uniqueness Proofs this is only present when the request asked for
+    /// session binding ([`ProofRequest::binds_session`]), echoing back the bound `SessionId`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<SessionId>,
     /// Error message if the entire proof request failed.
@@ -460,14 +466,8 @@ impl ProofRequest {
     /// combination of `proof_type`, `session_id`, and `action`.
     pub fn validate_proof_type(&self) -> Result<(), PrimitiveError> {
         match self.proof_type {
-            ProofType::Uniqueness => {
-                if self.session_id.is_some() {
-                    return Err(PrimitiveError::InvalidInput {
-                        attribute: "session_id".to_string(),
-                        reason: "must be omitted for uniqueness proofs".to_string(),
-                    });
-                }
-            }
+            // `session_id` is allowed for session binding, see `Self::binds_session`
+            ProofType::Uniqueness => {}
             ProofType::CreateSession => {
                 if self.session_id.is_some() {
                     return Err(PrimitiveError::InvalidInput {
@@ -504,6 +504,17 @@ impl ProofRequest {
     #[must_use]
     pub const fn is_session_proof(&self) -> bool {
         self.proof_type.is_session()
+    }
+
+    /// Returns true if this request asks for a Uniqueness Proof bound to an existing session.
+    ///
+    /// A bound proof carries [`SessionId::commitment`] as its `id_commitment` public signal,
+    /// proving in-circuit that session and nullifier belong to the same World ID. RPs MUST
+    /// verify the proof against that commitment — with a zero commitment the proof is valid
+    /// but unbound.
+    #[must_use]
+    pub const fn binds_session(&self) -> bool {
+        self.proof_type.is_uniqueness() && self.session_id.is_some()
     }
 
     /// Returns true if this request creates a new session.
@@ -560,7 +571,11 @@ impl ProofRequest {
 
         match self.proof_type {
             ProofType::Uniqueness => {
-                if response.session_id.is_some() {
+                if self.binds_session() {
+                    if self.session_id != response.session_id {
+                        return Err(ValidationError::SessionIdMismatch);
+                    }
+                } else if response.session_id.is_some() {
                     return Err(ValidationError::UnexpectedSessionId);
                 }
             }
@@ -846,6 +861,18 @@ mod tests {
         let v = U256::from(n)
             | uint!(0x0200000000000000000000000000000000000000000000000000000000000000_U256);
         FieldElement::try_from(v).expect("test value fits in field")
+    }
+
+    /// Creates a session id with a non-zero commitment and a `0x01`-prefixed oprf seed
+    fn test_session_id(n: u64) -> SessionId {
+        use ruint::{aliases::U256, uint};
+        let seed = U256::from(n)
+            | uint!(0x0100000000000000000000000000000000000000000000000000000000000000_U256);
+        SessionId::new(
+            test_field_element(n),
+            FieldElement::try_from(seed).expect("test value fits in field"),
+        )
+        .expect("valid session id")
     }
 
     #[test]
@@ -2380,10 +2407,10 @@ mod tests {
     #[test]
     fn test_validate_proof_type_is_strict() {
         let uniqueness_with_session = ProofRequest {
-            id: "req_legacy_session".into(),
+            id: "req_bound_uniqueness".into(),
             version: RequestVersion::V1,
             proof_type: ProofType::Uniqueness,
-            session_id: Some(SessionId::default()),
+            session_id: Some(test_session_id(1)),
             action: None,
             created_at: 1_735_689_600,
             expires_at: 1_735_689_900,
@@ -2401,8 +2428,24 @@ mod tests {
             constraints: None,
         };
 
+        // uniqueness + session_id = session-bound uniqueness proof
+        assert!(uniqueness_with_session.validate_proof_type().is_ok());
+        assert!(uniqueness_with_session.binds_session());
+        assert!(!uniqueness_with_session.is_session_proof());
+
+        let plain_uniqueness = ProofRequest {
+            session_id: None,
+            ..uniqueness_with_session.clone()
+        };
+        assert!(plain_uniqueness.validate_proof_type().is_ok());
+        assert!(!plain_uniqueness.binds_session());
+
+        let create_session_with_session = ProofRequest {
+            proof_type: ProofType::CreateSession,
+            ..uniqueness_with_session.clone()
+        };
         assert!(matches!(
-            uniqueness_with_session.validate_proof_type(),
+            create_session_with_session.validate_proof_type(),
             Err(PrimitiveError::InvalidInput { attribute, .. }) if attribute == "session_id"
         ));
 
@@ -2411,10 +2454,114 @@ mod tests {
             session_id: None,
             ..uniqueness_with_session
         };
-
         assert!(matches!(
             session_without_session.validate_proof_type(),
             Err(PrimitiveError::InvalidInput { attribute, .. }) if attribute == "session_id"
+        ));
+    }
+
+    #[test]
+    fn test_bound_uniqueness_request_parses_with_default_proof_type() {
+        let request = ProofRequest {
+            id: "req_bound".into(),
+            version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: Some(test_session_id(1)),
+            action: Some(FieldElement::ZERO),
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_900,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                identifier: "orb".into(),
+                issuer_schema_id: 1,
+                signal: None,
+                genesis_issued_at_min: None,
+                expires_at_min: None,
+            }],
+            constraints: None,
+        };
+
+        // `proof_type` is #[serde(default)]: session_id without proof_type binds
+        let mut value: serde_json::Value =
+            serde_json::from_str(&request.to_json().unwrap()).unwrap();
+        value.as_object_mut().unwrap().remove("proof_type");
+        let parsed = ProofRequest::from_json(&value.to_string()).unwrap();
+        assert_eq!(parsed.proof_type, ProofType::Uniqueness);
+        assert!(parsed.binds_session());
+    }
+
+    #[test]
+    fn test_validate_response_bound_uniqueness_echoes_session_id() {
+        let session_id = test_session_id(7);
+        let request = ProofRequest {
+            id: "req_bound".into(),
+            version: RequestVersion::V1,
+            proof_type: ProofType::Uniqueness,
+            session_id: Some(session_id),
+            action: Some(FieldElement::ZERO),
+            created_at: 1_735_689_600,
+            expires_at: 1_735_689_900,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            signature: test_signature(),
+            nonce: test_nonce(),
+            requests: vec![RequestItem {
+                identifier: "orb".into(),
+                issuer_schema_id: 1,
+                signal: None,
+                genesis_issued_at_min: None,
+                expires_at_min: None,
+            }],
+            constraints: None,
+        };
+
+        // bound uniqueness responses carry a uniqueness nullifier + the echoed session id
+        let valid = ProofResponse {
+            id: request.id.clone(),
+            version: RequestVersion::V1,
+            session_id: Some(session_id),
+            error: None,
+            responses: vec![ResponseItem::new_uniqueness(
+                "orb".into(),
+                1,
+                ZeroKnowledgeProof::default(),
+                Nullifier::from(test_field_element(1001)),
+                1_735_689_600,
+            )],
+        };
+        assert!(request.validate_response(&valid).is_ok());
+
+        // downgraded response (no echo) is rejected
+        let missing_echo = ProofResponse {
+            session_id: None,
+            ..valid.clone()
+        };
+        assert!(matches!(
+            request.validate_response(&missing_echo),
+            Err(ValidationError::SessionIdMismatch)
+        ));
+
+        // different session id is rejected
+        let wrong_echo = ProofResponse {
+            session_id: Some(test_session_id(8)),
+            ..valid.clone()
+        };
+        assert!(matches!(
+            request.validate_response(&wrong_echo),
+            Err(ValidationError::SessionIdMismatch)
+        ));
+
+        // plain uniqueness requests still reject any session id in the response
+        let plain_request = ProofRequest {
+            session_id: None,
+            ..request
+        };
+        assert!(matches!(
+            plain_request.validate_response(&valid),
+            Err(ValidationError::UnexpectedSessionId)
         ));
     }
 

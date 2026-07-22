@@ -279,6 +279,13 @@ rp->>rp: verify proof (checking sessionId == C' in verifier contract)
 - The raison d'être is simply to allow usage of the same ZK circuit as for Uniqueness Proofs. Reducing the number of circuits is currently a priority because of the size of the circuits needed to be bundled in Authenticator clients. As World ID moves to a different proving system, this type will no longer be required.
 - Session Proofs use a randomized `action` as circuit input. This randomized `action` ensures the circuit's nullifier output is unique per proof, preserving the one-time use property. It is verified internally within the circuit. It does not affect `r` derivation.
 
+**Binding Uniqueness Proofs to a Session**
+
+- A Uniqueness Proof request may include an existing `sessionId`. The proof then carries the session's commitment `C` as its `id_commitment` public signal, proving in-circuit that the session and the nullifier belong to the same World ID.
+- The Authenticator requires the cached `r` for this; re-deriving `r` is only possible through a session-type request.
+- Verifiers MUST check the proof against the session's commitment — with the signal at `0` the proof is valid but unbound. On-chain, `verifyProofAndSignals` accepts the commitment as the `sessionId` signal; the convenience `verify()` entry point pins the signal to `0` and rejects bound proofs.
+- Binding one `sessionId` to Uniqueness Proofs under different actions intentionally links those actions to the same World ID; Authenticators MUST clearly surface this to users.
+
 ### Web-based Authenticator Provider
 
 To allow for an improved user experience, a reference browser-based Authenticator provider is being introduced. This app provides (currently limited) World ID functionality but without leaving the browser. 
