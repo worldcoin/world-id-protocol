@@ -6,8 +6,6 @@ members = [
   "crates/proof",
   "crates/primitives",
   "crates/registries",
-  "crates/solana-satellite",
-  "crates/solana-verifier",
   "crates/test-utils",
   "crates/zk-mobile-bench",
   "services/indexer",
@@ -66,6 +64,7 @@ ark-serialize = "0.5"
 anchor-lang = "1.0.2"
 anchor-client = "1.0.2"
 anchor-litesvm = "0.4.0"
+world-id-solana = { git = "https://github.com/worldcoin/world-id-protocol-solana" }
 backon = "1"
 base64 = "0.22"
 circom-types = { package = "taceo-circom-types", version = "0.2", default-features = false }
@@ -178,3 +177,8 @@ world-id-relay = { path = "services/relay" }
 # With opt-level 2 the same deserialization completes in seconds.
 [profile.dev.package."*"]
 opt-level = 2
+
+# For local development against a working copy of world-id-protocol-solana,
+# clone it as a sibling directory and uncomment:
+# [patch."https://github.com/worldcoin/world-id-protocol-solana"]
+# world-id-solana = { path = "../world-id-protocol-solana/programs/world-id-solana" }

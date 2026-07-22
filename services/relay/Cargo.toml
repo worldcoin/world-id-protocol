@@ -49,7 +49,7 @@ dotenvy = { workspace = true }
 eyre = { workspace = true }
 config = { workspace = true }
 solana-keypair = { workspace = true }
-world-id-solana-satellite = { path = "../../crates/solana-satellite" }
+world-id-solana = { workspace = true }
 
 [[example]]
 name = "create_account"
@@ -67,7 +67,6 @@ hex = { workspace = true }
 rand = { workspace = true }
 world-id-primitives = { workspace = true }
 world-id-relay = { workspace = true }
-world-id-solana-verifier = { path = "../../crates/solana-verifier" }
 world-id-test-utils = { workspace = true }
 
 [[bin]]

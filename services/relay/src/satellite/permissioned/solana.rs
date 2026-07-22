@@ -10,7 +10,7 @@ use anchor_client::{
 };
 use eyre::{Result, ensure};
 use solana_keypair::{Keypair, Signer};
-use world_id_solana_satellite as satellite_program;
+use world_id_solana as satellite_program;
 
 use crate::{
     bindings::{ICommitment, IWorldIDSource},
