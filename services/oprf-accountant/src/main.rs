@@ -24,6 +24,7 @@ struct FullOprfAccountantConfig {
     /// The bind addr of the AXUM server
     #[serde(default = "default_bind_addr")]
     pub bind_addr: SocketAddr,
+
     /// The OPRF accountant service config
     #[serde(rename = "service")]
     pub service_config: OprfAccountantConfig,
@@ -70,20 +71,26 @@ async fn run(config: FullOprfAccountantConfig) -> eyre::Result<()> {
     // Clone the values we need afterwards
     let bind_addr = config.bind_addr;
 
-    let accountant_router = world_id_oprf_accountant::start(&config.service_config, db).await;
+    tracing::info!("starting oprf-accountant service...");
+    let (accountant_router, accountant_task) =
+        world_id_oprf_accountant::start(&config.service_config, db, cancellation_token.clone())
+            .await?;
 
     let router = Router::new()
         .merge(taceo_nodes_common::api::routes(
             taceo_nodes_common::version_info!(),
         ))
         .merge(accountant_router);
+
     tracing::info!("starting axum server on {bind_addr}",);
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-    axum::serve(listener, router)
+    let serve_result = axum::serve(listener, router)
         .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
-        .await
-        .context("while serving axum")?;
+        .await;
     tracing::info!("axum server shutdown");
+    tracing::info!("waiting for accountant task to finish processing...");
+    accountant_task.await?;
+    serve_result.context("while serving axum")?;
     Ok(())
 }
 
