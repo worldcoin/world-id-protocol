@@ -28,6 +28,17 @@ impl OhttpClientConfig {
     }
 }
 
+/// Returns `true` if `content_type` is the OHTTP response media type
+/// `message/ohttp-res`, matched loosely: case-insensitive and ignoring any
+/// parameters (e.g. `message/ohttp-res; charset=utf-8`).
+fn is_ohttp_res_content_type(content_type: &str) -> bool {
+    content_type
+        .split(';')
+        .next()
+        .map(str::trim)
+        .is_some_and(|media_type| media_type.eq_ignore_ascii_case("message/ohttp-res"))
+}
+
 /// Parsed response from an OHTTP-decapsulated Binary HTTP message.
 #[derive(Debug)]
 pub struct OhttpResponse {
@@ -42,6 +53,7 @@ pub struct OhttpResponse {
 #[derive(Clone, Debug)]
 pub struct OhttpClient {
     client: Client,
+    config_scope: String,
     relay_url: String,
     target_scheme: String,
     target_authority: String,
@@ -97,6 +109,7 @@ impl OhttpClient {
 
         Ok(Self {
             client,
+            config_scope: config_scope.to_owned(),
             relay_url: config.relay_url,
             target_scheme,
             target_authority,
@@ -160,13 +173,36 @@ impl OhttpClient {
 
         if !resp.status().is_success() {
             return Err(AuthenticatorError::OhttpRelayError {
+                service: self.config_scope.clone(),
+                relay_url: self.relay_url.clone(),
                 status: resp.status(),
                 body: resp.text().await.unwrap_or_default(),
             });
         }
 
+        // RFC 9458: a successful OHTTP exchange is returned as `message/ohttp-res`.
+        // The gateway sets this content-type only on a 2xx success; any other 2xx
+        // body (e.g. a captive portal or proxy HTML page) is not decryptable, so
+        // reject it with a clear error instead of a cryptic decapsulation failure.
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        if !content_type
+            .as_deref()
+            .is_some_and(is_ohttp_res_content_type)
+        {
+            return Err(AuthenticatorError::OhttpRelayInvalidResponse {
+                relay_url: self.relay_url.clone(),
+                content_type,
+            });
+        }
+
         let enc_response = resp.bytes().await?;
-        let response_buf = ohttp_resp_ctx.decapsulate(&enc_response)?;
+        let response_buf = ohttp_resp_ctx
+            .decapsulate(&enc_response)
+            .map_err(AuthenticatorError::OhttpDecapsulationError)?;
 
         let response_msg = Message::read_bhttp(&mut std::io::Cursor::new(&response_buf))?;
         let status_code = response_msg
@@ -302,5 +338,135 @@ mod tests {
             matches!(result, Err(AuthenticatorError::InvalidConfig { .. })),
             "expected InvalidConfig for empty key config, got: {result:?}"
         );
+    }
+
+    #[test]
+    fn ohttp_res_content_type_matches_loosely() {
+        // Exact, parameterised, and differently-cased variants all match.
+        assert!(is_ohttp_res_content_type("message/ohttp-res"));
+        assert!(is_ohttp_res_content_type(
+            "message/ohttp-res; charset=utf-8"
+        ));
+        assert!(is_ohttp_res_content_type("Message/OHTTP-Res"));
+        assert!(is_ohttp_res_content_type("message/ohttp-res ; foo=bar"));
+
+        // Anything else (including the request media type) is rejected.
+        assert!(!is_ohttp_res_content_type("message/ohttp-req"));
+        assert!(!is_ohttp_res_content_type("text/html"));
+        assert!(!is_ohttp_res_content_type("application/json"));
+        assert!(!is_ohttp_res_content_type(""));
+    }
+
+    /// Builds a valid base64 `application/ohttp-keys` config list so that
+    /// [`OhttpClient::new`] succeeds and the request path can encapsulate.
+    fn test_key_config_base64() -> String {
+        ohttp::init();
+        let config = ohttp::KeyConfig::new(
+            1,
+            ohttp::hpke::Kem::X25519Sha256,
+            vec![ohttp::SymmetricSuite::new(
+                ohttp::hpke::Kdf::HkdfSha256,
+                ohttp::hpke::Aead::Aes128Gcm,
+            )],
+        )
+        .expect("failed to build test key config");
+        let encoded =
+            ohttp::KeyConfig::encode_list(&[config]).expect("failed to encode test key config");
+        base64::engine::general_purpose::STANDARD.encode(encoded)
+    }
+
+    fn test_client(relay_url: String) -> OhttpClient {
+        OhttpClient::new(
+            reqwest::Client::new(),
+            "ohttp_gateway",
+            "https://target.example",
+            OhttpClientConfig::new(relay_url, test_key_config_base64()),
+        )
+        .expect("failed to construct test OhttpClient")
+    }
+
+    #[tokio::test]
+    async fn relay_non_success_status_yields_relay_error_with_scope_and_url() {
+        let mut server = mockito::Server::new_async().await;
+        let relay_url = server.url();
+        let mock = server
+            .mock("POST", "/")
+            .with_status(502)
+            .with_body("upstream boom")
+            .create_async()
+            .await;
+
+        let client = test_client(relay_url.clone());
+        let result = client.get("/account").await;
+
+        match result {
+            Err(AuthenticatorError::OhttpRelayError {
+                service,
+                relay_url: err_relay_url,
+                status,
+                body,
+            }) => {
+                assert_eq!(service, "ohttp_gateway");
+                assert_eq!(err_relay_url, relay_url);
+                assert_eq!(status, StatusCode::BAD_GATEWAY);
+                assert_eq!(body, "upstream boom");
+            }
+            other => panic!("expected OhttpRelayError, got: {other:?}"),
+        }
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn relay_2xx_non_ohttp_content_type_yields_invalid_response() {
+        let mut server = mockito::Server::new_async().await;
+        let relay_url = server.url();
+        // A captive portal / proxy intercepting the connection returns 200 HTML.
+        let mock = server
+            .mock("POST", "/")
+            .with_status(200)
+            .with_header("content-type", "text/html")
+            .with_body("<html>captive portal</html>")
+            .create_async()
+            .await;
+
+        let client = test_client(relay_url.clone());
+        let result = client.get("/account").await;
+
+        match result {
+            Err(AuthenticatorError::OhttpRelayInvalidResponse {
+                relay_url: err_relay_url,
+                content_type,
+            }) => {
+                assert_eq!(err_relay_url, relay_url);
+                assert_eq!(content_type.as_deref(), Some("text/html"));
+            }
+            other => panic!("expected OhttpRelayInvalidResponse, got: {other:?}"),
+        }
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn ohttp_res_with_undecryptable_body_yields_decapsulation_error() {
+        let mut server = mockito::Server::new_async().await;
+        let relay_url = server.url();
+        // Correct content-type but a body that is not a valid encapsulated
+        // response: this must surface as a *decapsulation* error, never as the
+        // encapsulation error the two used to share.
+        let mock = server
+            .mock("POST", "/")
+            .with_status(200)
+            .with_header("content-type", "message/ohttp-res")
+            .with_body("not a valid encapsulated response")
+            .create_async()
+            .await;
+
+        let client = test_client(relay_url);
+        let result = client.get("/account").await;
+
+        match result {
+            Err(AuthenticatorError::OhttpDecapsulationError(_)) => {}
+            other => panic!("expected OhttpDecapsulationError, got: {other:?}"),
+        }
+        mock.assert_async().await;
     }
 }
