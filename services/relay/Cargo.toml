@@ -26,8 +26,8 @@ alloy = { workspace = true, features = [
 alloy-primitives = { workspace = true }
 tempo-alloy = { workspace = true }
 
-# async 
-anchor-client = { workspace = true, features = ["async"] }
+# async
+anchor-client = { version = "1.0.2", features = ["async"] }
 dashmap = { workspace = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
@@ -48,8 +48,8 @@ clap = { workspace = true, features = ["derive", "env"] }
 dotenvy = { workspace = true }
 eyre = { workspace = true }
 config = { workspace = true }
-solana-keypair = { workspace = true }
-world-id-solana = { workspace = true }
+solana-keypair = "3.0.1"
+world-id-solana = { git = "https://github.com/worldcoin/world-id-protocol-solana" }
 
 [[example]]
 name = "create_account"
@@ -60,7 +60,7 @@ name = "register_issuer_schema"
 path = "scripts/register_issuer_schema.rs"
 
 [dev-dependencies]
-anchor-litesvm = { workspace = true }
+anchor-litesvm = "0.4.0"
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
 hex = { workspace = true }
