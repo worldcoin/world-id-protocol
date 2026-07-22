@@ -130,7 +130,7 @@ jobs:
           subject-digest: ${{ steps.docker_build.outputs.digest }}
 
       - name: Trigger staging deploy
-        if: (github.ref_type == 'tag' || inputs.version != '') && matrix.service != 'oprf-node'
+        if: (github.ref_type == 'tag' || inputs.version != '') && matrix.service != 'oprf-node' && matrix.service != 'oprf-accountant'
         uses: actions/github-script@v7
         env:
           SERVICE: ${{ matrix.service }}
