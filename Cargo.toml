@@ -140,6 +140,7 @@ semaphore-rs-hasher = "0.5.0"
 semaphore-rs-trees = "0.5.0"
 semaphore-rs-storage = "0.5.0"
 serial_test = "3"
+test-case = "3"
 testcontainers = { version = "0.27", features = ["http_wait_plain", "host-port-exposure"] }
 testcontainers-modules = { version = "0.15", features = ["redis"] }
 sqlx = "0.8"

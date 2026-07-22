@@ -15,7 +15,7 @@ use tokio::{
     time::Instant,
 };
 use uuid::Uuid;
-use world_id_primitives::api_types::{CreateAccountRequest, GatewayRequestState};
+use world_id_primitives::api_types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState};
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::{
@@ -24,7 +24,7 @@ use crate::{
         BacklogUrgencyStats, BaseFeeCache, BatchPolicyEngine, DecisionReason, record_policy_metrics,
     },
     config::BatchPolicyConfig,
-    error::parse_contract_error,
+    contract_errors::DecodedRegistryError,
     metrics,
     request_tracker::BacklogScope,
 };
@@ -234,9 +234,12 @@ where
                     send_latency_ms,
                     "{batch_type} batch failed to submit to RPC node"
                 );
-                let code = parse_contract_error(&error_str);
+                let (code, message) = match DecodedRegistryError::from_contract_error(&err) {
+                    Some(decoded) => (decoded.to_error_code(), decoded.human_message()),
+                    None => (GatewayErrorCode::BadRequest, error_str),
+                };
                 self.tracker
-                    .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
+                    .set_status_batch(&ids, GatewayRequestState::failed(message, Some(code)))
                     .await;
             }
         }
