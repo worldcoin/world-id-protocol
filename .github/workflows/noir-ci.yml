@@ -22,4 +22,6 @@ jobs:
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
           toolchain: v1.0.0-beta.11
-      - run: cd ownership-proof && nargo fmt --check && nargo test
+      - run: |
+          cd ownership-proof && nargo fmt --check && nargo test
+          cd ../authenticator-attestation && nargo fmt --check && nargo test
