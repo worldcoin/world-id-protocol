@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>World ID Passkey Ownership Demo</title>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="workspace" aria-label="Passkey ownership demo">
+        <header class="topbar">
+          <div>
+            <h1>World ID passkey ownership</h1>
+            <p>Register a local ES256 passkey, bind it to a proving authenticator slot, and prove ownership locally with ProveKit WASM.</p>
+          </div>
+          <div class="status-pill" id="runtime-status">Ready</div>
+        </header>
+
+        <div class="grid">
+          <section class="panel controls" aria-label="Demo controls">
+            <button id="register-button" type="button">Register passkey</button>
+            <button id="assert-button" type="button" disabled>Prove ownership</button>
+            <button id="verify-button" type="button" disabled>Verify locally</button>
+          </section>
+
+          <section class="panel" aria-label="Registry state">
+            <h2>Registry</h2>
+            <dl class="facts">
+              <div><dt>slot</dt><dd id="slot-value">1</dd></div>
+              <div><dt>root</dt><dd id="root-value">not registered</dd></div>
+              <div><dt>leaf</dt><dd id="leaf-value">not registered</dd></div>
+            </dl>
+          </section>
+
+          <section class="panel" aria-label="Passkey state">
+            <h2>Passkey</h2>
+            <dl class="facts">
+              <div><dt>credential</dt><dd id="credential-value">none</dd></div>
+              <div><dt>rp id hash</dt><dd id="rp-value">none</dd></div>
+              <div><dt>challenge</dt><dd id="challenge-value">none</dd></div>
+            </dl>
+          </section>
+        </div>
+
+        <section class="panel output" aria-label="Local proof status">
+          <h2>Local proof status</h2>
+          <pre id="output">Waiting for a passkey registration.</pre>
+        </section>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

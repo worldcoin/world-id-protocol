@@ -34,6 +34,8 @@ use world_id_primitives::FieldElement;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ownership_proof;
 
+pub mod passkey_ownership_proof;
+
 pub use provekit_common::{
     NoirProof, Prover as OwnershipProver, Verifier as OwnershipVerifier, WhirR1CSProof,
 };

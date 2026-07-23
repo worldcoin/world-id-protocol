@@ -32,6 +32,14 @@ embed-ownership-prover = ["dep:provekit-r1cs-compiler"]
 embed-ownership-verifier = ["dep:provekit-r1cs-compiler"]
 embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
 
+# Experimental passkey ownership demo artifacts.
+embed-passkey-ownership-prover = []
+embed-passkey-ownership-verifier = []
+embed-passkey-noir-artifacts = [
+    "embed-passkey-ownership-prover",
+    "embed-passkey-ownership-verifier",
+]
+
 # Embed everything
 embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
 

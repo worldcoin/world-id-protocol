@@ -1,0 +1,12 @@
+[package]
+name = "passkey_ownership_proof"
+type = "bin"
+description = "UNAUDITED demo circuit proving WebAuthn passkey ownership and World ID registry inclusion."
+authors = ["World Foundation"]
+license = "MIT"
+compiler_version = ">=1.0.0"
+backend = "provekit"
+
+[dependencies]
+poseidon2 = { tag = "v0.6.1", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "poseidon2" }
+webauthn = { path = "vendor/webauthn" }
