@@ -172,3 +172,8 @@ world-id-relay = { path = "services/relay" }
 # With opt-level 2 the same deserialization completes in seconds.
 [profile.dev.package."*"]
 opt-level = 2
+
+# For local development against a working copy of world-id-protocol-solana,
+# clone it as a sibling directory and uncomment:
+# [patch."https://github.com/worldcoin/world-id-protocol-solana"]
+# world-id-solana = { path = "../world-id-protocol-solana/programs/world-id-solana" }

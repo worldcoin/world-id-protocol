@@ -2,6 +2,8 @@ mod ethereum_mpt;
 pub mod permissioned;
 
 pub use ethereum_mpt::EthereumMptSatellite;
+#[cfg(feature = "world-id-solana")]
+pub use permissioned::SolanaPermissionedSatellite;
 pub use permissioned::{PermissionedSatellite, TempoSatellite};
 use tracing::Instrument;
 

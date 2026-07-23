@@ -58,7 +58,6 @@
 //!   OP Stack dispute games and Merkle Patricia Trie (MPT) storage proofs
 //!   against the L2 state root.
 
-use config as _;
 use dotenvy as _;
 use serde_json as _;
 use telemetry_batteries as _;
