@@ -99,9 +99,9 @@ pub struct Cli {
 ///   ],
 ///   "solana_permissioned_gateways": [
 ///     {
-///       "name": "SOLANA_LOCALNET",
-///       "destination_chain_id": 1337,
-///       "program_id": "BxHvVSWUkStm7RsKySrzyGWV85PNF8TsGTsPEQ3PsVfK"
+///       "name": "SOLANA_DEVNET",
+///       "destination_chain_id": 103,
+///       "program_id": "HtAqPTHaxoDoHc6mXRPwAEJ2wUq58eveWLgt9Rfbb5ns"
 ///     }
 ///   ],
 ///   "ethereum_mpt_gateways": [
@@ -841,10 +841,7 @@ mod tests {
         assert_eq!(solana[0].name, "SOLANA_LOCALNET");
         assert_eq!(solana[0].rpc_env_var(), "SOLANA_LOCALNET_RPC_URL");
         assert_eq!(solana[0].keypair_env_var(), "SOLANA_LOCALNET_KEYPAIR");
-        assert_eq!(
-            solana[0].program_pubkey().unwrap(),
-            world_id_solana::ID
-        );
+        assert_eq!(solana[0].program_pubkey().unwrap(), world_id_solana::ID);
     }
 
     #[test]

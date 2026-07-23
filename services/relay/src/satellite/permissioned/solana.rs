@@ -8,7 +8,7 @@ use anchor_client::{
     Client, ClientError, Cluster, Instruction, Program,
     anchor_lang::{InstructionData, ToAccountMetas, prelude::Pubkey, system_program},
 };
-use eyre::{Result, ensure};
+use eyre::Result;
 use solana_keypair::{Keypair, Signer};
 use world_id_solana as satellite_program;
 
@@ -22,12 +22,16 @@ const CONFIG_SEED: &[u8] = b"config";
 const ROOT_SEED: &[u8] = b"root";
 const ISSUER_SEED: &[u8] = b"issuer";
 const OPRF_SEED: &[u8] = b"oprf";
+const GATEWAY_SEED: &[u8] = b"gateway";
 
 /// A permissioned Solana satellite backed by the Anchor World ID program.
 ///
-/// The relay operator signs as the configured gateway. Each World Chain
+/// The relay operator signs as an authorized gateway. Each World Chain
 /// `ChainCommitted` payload is decoded client-side and mapped into the
-/// equivalent Solana state update instructions.
+/// equivalent Solana state update instructions; each instruction folds its
+/// own commitment (including the World Chain block hash it was proven
+/// against) into the satellite's on-chain keccak chain head itself, so there
+/// is no separate "assert the chain head" instruction to build here.
 pub struct SolanaPermissionedSatellite {
     name: String,
     chain_id: u64,
@@ -35,6 +39,7 @@ pub struct SolanaPermissionedSatellite {
     gateway: Pubkey,
     program_id: Pubkey,
     config: Pubkey,
+    gateway_authorization: Pubkey,
 }
 
 impl SolanaPermissionedSatellite {
@@ -52,6 +57,8 @@ impl SolanaPermissionedSatellite {
         let client = Client::new(cluster, Arc::new(gateway_keypair));
         let program = client.program(program_id)?;
         let (config, _) = Pubkey::find_program_address(&[CONFIG_SEED], &program_id);
+        let (gateway_authorization, _) =
+            Pubkey::find_program_address(&[GATEWAY_SEED, gateway.as_ref()], &program_id);
 
         Ok(Self {
             name: name.into(),
@@ -60,6 +67,7 @@ impl SolanaPermissionedSatellite {
             gateway,
             program_id,
             config,
+            gateway_authorization,
         })
     }
 
@@ -68,22 +76,22 @@ impl SolanaPermissionedSatellite {
         let commits = Vec::<IWorldIDSource::Commitment>::abi_decode_params(
             commitment.commitment_payload.as_ref(),
         )?;
-        let mut instructions = Vec::with_capacity(commits.len() + 1);
+        let mut instructions = Vec::with_capacity(commits.len());
 
         for commit in commits {
-            instructions.push(self.decode_commitment_data(commit.data.as_ref())?);
+            instructions.push(self.decode_commitment_data(commit.blockHash, commit.data.as_ref())?);
         }
 
-        instructions.push(self.set_chain_head_instruction(commitment.chain_head));
         Ok(instructions)
     }
 
-    fn decode_commitment_data(&self, data: &[u8]) -> Result<Instruction> {
+    fn decode_commitment_data(&self, block_hash: B256, data: &[u8]) -> Result<Instruction> {
         let selector: [u8; 4] = data
             .get(..4)
             .ok_or_else(|| eyre::eyre!("empty commitment payload"))?
             .try_into()
             .expect("selector slice length is fixed");
+        let block_hash = b256_word(block_hash);
 
         match selector {
             ICommitment::updateRootCall::SELECTOR => {
@@ -91,7 +99,7 @@ impl SolanaPermissionedSatellite {
                 let root = u256_word(call._0);
                 let timestamp = u256_to_i64(call._1)?;
                 let proof_id = b256_word(call._2);
-                Ok(self.update_root_instruction(root, timestamp, proof_id))
+                Ok(self.update_root_instruction(root, timestamp, proof_id, block_hash))
             }
             ICommitment::setIssuerPubkeyCall::SELECTOR => {
                 let call = ICommitment::setIssuerPubkeyCall::abi_decode(data)?;
@@ -100,16 +108,17 @@ impl SolanaPermissionedSatellite {
                     u256_word(call._1),
                     u256_word(call._2),
                     b256_word(call._3),
+                    block_hash,
                 ))
             }
             ICommitment::setOprfPubkeyCall::SELECTOR => {
                 let call = ICommitment::setOprfPubkeyCall::abi_decode(data)?;
-                let oprf_key_id = u160_to_u64(call._0)?;
                 Ok(self.set_oprf_key_instruction(
-                    oprf_key_id,
+                    u160_word20(call._0),
                     u256_word(call._1),
                     u256_word(call._2),
                     b256_word(call._3),
+                    block_hash,
                 ))
             }
             _ => Err(eyre::eyre!(
@@ -124,6 +133,7 @@ impl SolanaPermissionedSatellite {
         root: [u8; 32],
         timestamp: i64,
         proof_id: [u8; 32],
+        block_hash: [u8; 32],
     ) -> Instruction {
         let (root_state, _) = Pubkey::find_program_address(&[ROOT_SEED, &root], &self.program_id);
         anchor_instruction(
@@ -131,6 +141,7 @@ impl SolanaPermissionedSatellite {
             satellite_program::accounts::GatewayUpdateRoot {
                 config: self.config,
                 gateway: self.gateway,
+                gateway_authorization: self.gateway_authorization,
                 root_state,
                 system_program: system_program::ID,
             },
@@ -138,19 +149,7 @@ impl SolanaPermissionedSatellite {
                 root,
                 timestamp,
                 proof_id,
-            },
-        )
-    }
-
-    fn set_chain_head_instruction(&self, chain_head: B256) -> Instruction {
-        anchor_instruction(
-            self.program_id,
-            satellite_program::accounts::GatewaySetChainHead {
-                config: self.config,
-                gateway: self.gateway,
-            },
-            satellite_program::instruction::SetChainHead {
-                chain_head: b256_word(chain_head),
+                block_hash,
             },
         )
     }
@@ -161,8 +160,9 @@ impl SolanaPermissionedSatellite {
         x: [u8; 32],
         y: [u8; 32],
         proof_id: [u8; 32],
+        block_hash: [u8; 32],
     ) -> Instruction {
-        let seed = issuer_schema_id.to_le_bytes();
+        let seed = key20_from_u64(issuer_schema_id);
         let (issuer_state, _) =
             Pubkey::find_program_address(&[ISSUER_SEED, &seed], &self.program_id);
         anchor_instruction(
@@ -170,6 +170,7 @@ impl SolanaPermissionedSatellite {
             satellite_program::accounts::GatewaySetIssuerPubkey {
                 config: self.config,
                 gateway: self.gateway,
+                gateway_authorization: self.gateway_authorization,
                 issuer_state,
                 system_program: system_program::ID,
             },
@@ -178,32 +179,35 @@ impl SolanaPermissionedSatellite {
                 x,
                 y,
                 proof_id,
+                block_hash,
             },
         )
     }
 
     fn set_oprf_key_instruction(
         &self,
-        oprf_key_id: u64,
+        rp_id: [u8; 20],
         x: [u8; 32],
         y: [u8; 32],
         proof_id: [u8; 32],
+        block_hash: [u8; 32],
     ) -> Instruction {
-        let seed = oprf_key_id.to_le_bytes();
-        let (oprf_state, _) = Pubkey::find_program_address(&[OPRF_SEED, &seed], &self.program_id);
+        let (oprf_state, _) = Pubkey::find_program_address(&[OPRF_SEED, &rp_id], &self.program_id);
         anchor_instruction(
             self.program_id,
             satellite_program::accounts::GatewaySetOprfKey {
                 config: self.config,
                 gateway: self.gateway,
+                gateway_authorization: self.gateway_authorization,
                 oprf_state,
                 system_program: system_program::ID,
             },
             satellite_program::instruction::SetOprfKey {
-                rp_id: oprf_key_id,
+                rp_id,
                 x,
                 y,
                 proof_id,
+                block_hash,
             },
         )
     }
@@ -281,21 +285,28 @@ fn u256_word(value: U256) -> [u8; 32] {
 
 fn u256_to_i64(value: U256) -> Result<i64> {
     let limbs = value.as_limbs();
-    ensure!(
+    eyre::ensure!(
         limbs[1..].iter().all(|limb| *limb == 0),
         "timestamp does not fit in u64"
     );
-    ensure!(limbs[0] <= i64::MAX as u64, "timestamp does not fit in i64");
+    eyre::ensure!(limbs[0] <= i64::MAX as u64, "timestamp does not fit in i64");
     Ok(limbs[0] as i64)
 }
 
-fn u160_to_u64(value: U160) -> Result<u64> {
-    let limbs = value.as_limbs();
-    ensure!(
-        limbs[1..].iter().all(|limb| *limb == 0),
-        "Solana satellite currently supports only u64 OPRF key ids"
-    );
-    Ok(limbs[0])
+/// Zero-extends a `u64` into a big-endian 20-byte (160-bit) key, matching
+/// `world-id-solana`'s `key20_from_u64` (used for the issuer PDA seed).
+fn key20_from_u64(value: u64) -> [u8; 20] {
+    let mut out = [0u8; 20];
+    out[12..].copy_from_slice(&value.to_be_bytes());
+    out
+}
+
+/// Converts a full 160-bit OPRF key id into its big-endian byte
+/// representation, matching `world-id-solana`'s `set_oprf_key` seed/key
+/// encoding. Unlike the previous u64-only satellite schema, this accepts the
+/// full `StateBridge.oprfKeyIdToPubkeyAndProofId` keyspace.
+fn u160_word20(value: U160) -> [u8; 20] {
+    value.to_be_bytes::<20>()
 }
 
 #[cfg(test)]
@@ -319,6 +330,7 @@ mod tests {
         let satellite = test_satellite();
         let root = U256::from(42u64);
         let proof_id = B256::from([0xAB; 32]);
+        let block_hash = B256::from([0x11; 32]);
         let data = ICommitment::updateRootCall {
             _0: root,
             _1: U256::from(1234u64),
@@ -326,7 +338,7 @@ mod tests {
         }
         .abi_encode();
 
-        let instruction = satellite.decode_commitment_data(&data).unwrap();
+        let instruction = satellite.decode_commitment_data(block_hash, &data).unwrap();
         let expected_root_state = Pubkey::find_program_address(
             &[ROOT_SEED, &root.to_be_bytes::<32>()],
             &satellite_program::ID,
@@ -334,13 +346,14 @@ mod tests {
         .0;
 
         assert_eq!(instruction.program_id, satellite_program::ID);
-        assert_eq!(instruction.accounts[2].pubkey, expected_root_state);
+        assert_eq!(instruction.accounts[3].pubkey, expected_root_state);
         assert_eq!(
             instruction.data,
             satellite_program::instruction::UpdateRoot {
                 root: root.to_be_bytes::<32>(),
                 timestamp: 1234,
                 proof_id: b256_word(proof_id),
+                block_hash: b256_word(block_hash),
             }
             .data()
         );
@@ -350,6 +363,7 @@ mod tests {
     fn decodes_issuer_pubkey_commitment() {
         let satellite = test_satellite();
         let proof_id = B256::from([0xCD; 32]);
+        let block_hash = B256::from([0x22; 32]);
         let data = ICommitment::setIssuerPubkeyCall {
             _0: 7,
             _1: U256::from(11u64),
@@ -358,7 +372,7 @@ mod tests {
         }
         .abi_encode();
 
-        let instruction = satellite.decode_commitment_data(&data).unwrap();
+        let instruction = satellite.decode_commitment_data(block_hash, &data).unwrap();
         assert_eq!(
             instruction.data,
             satellite_program::instruction::SetIssuerPubkey {
@@ -366,6 +380,7 @@ mod tests {
                 x: U256::from(11u64).to_be_bytes::<32>(),
                 y: U256::from(12u64).to_be_bytes::<32>(),
                 proof_id: b256_word(proof_id),
+                block_hash: b256_word(block_hash),
             }
             .data()
         );
@@ -375,6 +390,7 @@ mod tests {
     fn decodes_oprf_pubkey_commitment() {
         let satellite = test_satellite();
         let proof_id = B256::from([0xEF; 32]);
+        let block_hash = B256::from([0x33; 32]);
         let data = ICommitment::setOprfPubkeyCall {
             _0: U160::from(9u64),
             _1: U256::from(21u64),
@@ -383,24 +399,28 @@ mod tests {
         }
         .abi_encode();
 
-        let instruction = satellite.decode_commitment_data(&data).unwrap();
+        let instruction = satellite.decode_commitment_data(block_hash, &data).unwrap();
         assert_eq!(
             instruction.data,
             satellite_program::instruction::SetOprfKey {
-                rp_id: 9,
+                rp_id: u160_word20(U160::from(9u64)),
                 x: U256::from(21u64).to_be_bytes::<32>(),
                 y: U256::from(22u64).to_be_bytes::<32>(),
                 proof_id: b256_word(proof_id),
+                block_hash: b256_word(block_hash),
             }
             .data()
         );
     }
 
     #[test]
-    fn rejects_wide_oprf_ids_for_current_satellite_schema() {
-        let too_wide = U160::from(1u128 << 80);
-        let error = u160_to_u64(too_wide).unwrap_err().to_string();
+    fn wide_oprf_ids_are_no_longer_rejected() {
+        // Unlike the previous u64-only satellite schema, set_oprf_key now
+        // accepts the full 160-bit StateBridge.oprfKeyIdToPubkeyAndProofId
+        // keyspace, so ids above u64::MAX round-trip rather than erroring.
+        let wide = U160::from(1u128 << 80);
+        let key = u160_word20(wide);
 
-        assert!(error.contains("u64 OPRF key ids"));
+        assert_eq!(key, wide.to_be_bytes::<20>());
     }
 }

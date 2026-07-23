@@ -25,6 +25,11 @@ use world_id_solana::verifier::{hex_word, solidity_to_solana_compressed_proof};
 const TEST_LAMPORTS: u64 = 10_000_000_000;
 const ROOT_VALIDITY_WINDOW: i64 = 3600;
 const MIN_EXPIRATION_THRESHOLD: i64 = 1_000_000_000;
+const CONFIG_SEED: &[u8] = b"config";
+const ROOT_SEED: &[u8] = b"root";
+const ISSUER_SEED: &[u8] = b"issuer";
+const OPRF_SEED: &[u8] = b"oprf";
+const GATEWAY_SEED: &[u8] = b"gateway";
 
 // Ported from `contracts/test/core/Verifier.t.sol::testVerifyNullifier`.
 const ROOT_CORRECT: &str = "af727d9412a9d5c73b685fd09dc39e727064e65b8269b233009edfc105f9853";
@@ -40,8 +45,7 @@ fn svm_result<T>(result: Result<T, Box<dyn std::error::Error>>) -> Result<T> {
 }
 
 fn satellite_program_so() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/deploy/world_id_solana.so")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/deploy/world_id_solana.so")
 }
 
 fn anchor_instruction(
@@ -53,6 +57,14 @@ fn anchor_instruction(
         accounts: accounts.to_account_metas(None),
         data: args.data(),
     }
+}
+
+/// Zero-extends a `u64` into a big-endian 20-byte (160-bit) key, matching
+/// `world-id-solana`'s issuer/OPRF PDA seed encoding.
+fn key20_from_u64(value: u64) -> [u8; 20] {
+    let mut out = [0u8; 20];
+    out[12..].copy_from_slice(&value.to_be_bytes());
+    out
 }
 
 fn encode_update_root(root: U256, timestamp: u64, proof_id: B256) -> IWorldIDSource::Commitment {
@@ -156,25 +168,42 @@ fn e2e_solana_permissioned_replays_commitment_on_local_svm() -> Result<()> {
     let gateway = svm_result(ctx.create_funded_account(TEST_LAMPORTS))?;
 
     let (config, _) = anchor_client::anchor_lang::prelude::Pubkey::find_program_address(
-        &[b"config"],
+        &[CONFIG_SEED],
         &satellite_program::ID,
     );
 
     let init_ix = anchor_instruction(
         satellite_program::accounts::Initialize {
             config,
-            payer: gateway.pubkey(),
+            payer: owner.pubkey(),
             system_program: system_program::ID,
         },
         satellite_program::instruction::Initialize {
             owner: owner.pubkey(),
-            gateway: gateway.pubkey(),
             root_validity_window: ROOT_VALIDITY_WINDOW,
             tree_depth: 30,
             min_expiration_threshold: MIN_EXPIRATION_THRESHOLD,
         },
     );
-    svm_result(ctx.execute_instruction(init_ix, &[&gateway]))?.assert_success();
+    svm_result(ctx.execute_instruction(init_ix, &[&owner]))?.assert_success();
+
+    let (gateway_authorization, _) =
+        anchor_client::anchor_lang::prelude::Pubkey::find_program_address(
+            &[GATEWAY_SEED, gateway.pubkey().as_ref()],
+            &satellite_program::ID,
+        );
+    let add_gateway_ix = anchor_instruction(
+        satellite_program::accounts::AddGateway {
+            config,
+            owner: owner.pubkey(),
+            gateway_authorization,
+            system_program: system_program::ID,
+        },
+        satellite_program::instruction::AddGateway {
+            gateway: gateway.pubkey(),
+        },
+    );
+    svm_result(ctx.execute_instruction(add_gateway_ix, &[&owner]))?.assert_success();
 
     let public_inputs = verifier_t_sol_nullifier_inputs();
     let root = U256::from_be_bytes(public_inputs[6]);
@@ -205,12 +234,16 @@ fn e2e_solana_permissioned_replays_commitment_on_local_svm() -> Result<()> {
 
     let config_state: satellite_program::Config = ctx.get_account(&config)?;
     assert_eq!(config_state.latest_root, root.to_be_bytes::<32>());
+    // The satellite computes its own chain head on-chain from each commit's
+    // block hash and ABI-encoded call data; it should exactly match the
+    // relay's independent off-chain KeccakChain computation over the same
+    // commits, since both fold keccak256(head || blockHash || data).
     assert_eq!(config_state.latest_chain_head, *commitment.chain_head);
     assert_eq!(config_state.root_validity_window, ROOT_VALIDITY_WINDOW);
     assert_eq!(config_state.tree_depth, tree_depth);
 
     let (root_state, _) = anchor_client::anchor_lang::prelude::Pubkey::find_program_address(
-        &[b"root", &root.to_be_bytes::<32>()],
+        &[ROOT_SEED, &root.to_be_bytes::<32>()],
         &satellite_program::ID,
     );
     let root_account: satellite_program::RootState = ctx.get_account(&root_state)?;
@@ -219,20 +252,20 @@ fn e2e_solana_permissioned_replays_commitment_on_local_svm() -> Result<()> {
     assert_eq!(root_account.proof_id, *proof_id);
 
     let (issuer_state, _) = anchor_client::anchor_lang::prelude::Pubkey::find_program_address(
-        &[b"issuer", &issuer_schema_id.to_le_bytes()],
+        &[ISSUER_SEED, &key20_from_u64(issuer_schema_id)],
         &satellite_program::ID,
     );
     let issuer_account: satellite_program::PubkeyState = ctx.get_account(&issuer_state)?;
-    assert_eq!(issuer_account.key, issuer_schema_id);
+    assert_eq!(issuer_account.key, key20_from_u64(issuer_schema_id));
     assert_eq!(issuer_account.x, issuer_x.to_be_bytes::<32>());
     assert_eq!(issuer_account.y, issuer_y.to_be_bytes::<32>());
 
     let (oprf_state, _) = anchor_client::anchor_lang::prelude::Pubkey::find_program_address(
-        &[b"oprf", &rp_id.to_le_bytes()],
+        &[OPRF_SEED, &key20_from_u64(rp_id)],
         &satellite_program::ID,
     );
     let oprf_account: satellite_program::PubkeyState = ctx.get_account(&oprf_state)?;
-    assert_eq!(oprf_account.key, rp_id);
+    assert_eq!(oprf_account.key, key20_from_u64(rp_id));
     assert_eq!(oprf_account.x, oprf_x.to_be_bytes::<32>());
     assert_eq!(oprf_account.y, oprf_y.to_be_bytes::<32>());
 
