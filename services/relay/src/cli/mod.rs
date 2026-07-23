@@ -1,8 +1,12 @@
-use std::{io::Cursor, path::Path, str::FromStr, sync::Arc};
+use std::sync::Arc;
+#[cfg(feature = "world-id-solana")]
+use std::{io::Cursor, path::Path, str::FromStr};
 
+#[cfg(feature = "world-id-solana")]
 use anchor_client::anchor_lang::prelude::Pubkey as SolanaPubkey;
 use eyre::Result;
 use serde::Deserialize;
+#[cfg(feature = "world-id-solana")]
 use solana_keypair::{Keypair, Signer, read_keypair, read_keypair_file};
 
 use alloy::{
@@ -17,13 +21,15 @@ use alloy_primitives::{
 use axum::{Router, extract::State, http::StatusCode, routing::get};
 use tempo_alloy::{TempoNetwork, provider::TempoProviderBuilderExt};
 
+#[cfg(feature = "world-id-solana")]
+use crate::satellite::SolanaPermissionedSatellite;
 use crate::{
     bindings::IERC20,
     engine::Engine,
     log::CommitmentLog,
     metrics as relay_metrics,
     satellite::{
-        EthereumMptSatellite, PermissionedSatellite, SolanaPermissionedSatellite, TempoSatellite,
+        EthereumMptSatellite, PermissionedSatellite, TempoSatellite,
         permissioned::tempo::FEE_TOKEN as TEMPO_FEE_TOKEN,
     },
 };
@@ -131,6 +137,7 @@ pub struct RelayConfig {
     pub ethereum_mpt_gateways: Option<Vec<EthereumMptGatewayConfig>>,
 
     /// Solana permissioned gateway satellites.
+    #[cfg(feature = "world-id-solana")]
     #[serde(default)]
     pub solana_permissioned_gateways: Option<Vec<SolanaPermissionedGatewayConfig>>,
 }
@@ -224,6 +231,7 @@ pub struct PermissionedGatewayConfig {
 /// The RPC endpoint is read from `{NAME}_RPC_URL`. The gateway signer keypair
 /// is read from `{NAME}_KEYPAIR` as either a Solana JSON keypair file path, a
 /// JSON keypair string, or a base58-encoded keypair.
+#[cfg(feature = "world-id-solana")]
 #[derive(Debug, Clone, Deserialize)]
 pub struct SolanaPermissionedGatewayConfig {
     /// Satellite identifier, also used to derive RPC and keypair env vars.
@@ -297,6 +305,7 @@ fn rpc_url_from_env(env_var: &str) -> eyre::Result<String> {
     })
 }
 
+#[cfg(feature = "world-id-solana")]
 fn solana_keypair_from_env(env_var: &str) -> eyre::Result<Keypair> {
     let raw = std::env::var(env_var).map_err(|_| {
         eyre::eyre!(
@@ -328,6 +337,7 @@ impl PermissionedGatewayConfig {
     }
 }
 
+#[cfg(feature = "world-id-solana")]
 impl SolanaPermissionedGatewayConfig {
     /// Returns the env var name that supplies this satellite's RPC URL.
     pub fn rpc_env_var(&self) -> String {
@@ -669,6 +679,7 @@ impl Cli {
         }
 
         // Spawn Solana permissioned gateway satellites.
+        #[cfg(feature = "world-id-solana")]
         for sat_config in config.solana_permissioned_gateways.iter().flatten() {
             let rpc_url = rpc_url_from_env(&sat_config.rpc_env_var())?;
             let gateway_keypair = solana_keypair_from_env(&sat_config.keypair_env_var())?;
@@ -836,12 +847,15 @@ mod tests {
         assert_eq!(perm[1].destination_chain_id, 12345);
         assert_eq!(perm[1].chain_type, ChainType::Tempo);
 
-        let solana = config.solana_permissioned_gateways.as_ref().unwrap();
-        assert_eq!(solana.len(), 1);
-        assert_eq!(solana[0].name, "SOLANA_LOCALNET");
-        assert_eq!(solana[0].rpc_env_var(), "SOLANA_LOCALNET_RPC_URL");
-        assert_eq!(solana[0].keypair_env_var(), "SOLANA_LOCALNET_KEYPAIR");
-        assert_eq!(solana[0].program_pubkey().unwrap(), world_id_solana::ID);
+        #[cfg(feature = "world-id-solana")]
+        {
+            let solana = config.solana_permissioned_gateways.as_ref().unwrap();
+            assert_eq!(solana.len(), 1);
+            assert_eq!(solana[0].name, "SOLANA_LOCALNET");
+            assert_eq!(solana[0].rpc_env_var(), "SOLANA_LOCALNET_RPC_URL");
+            assert_eq!(solana[0].keypair_env_var(), "SOLANA_LOCALNET_KEYPAIR");
+            assert_eq!(solana[0].program_pubkey().unwrap(), world_id_solana::ID);
+        }
     }
 
     #[test]
@@ -860,6 +874,7 @@ mod tests {
         assert_eq!(config.source.bridge_interval_secs, 3600);
         assert!(config.permissioned_gateways.is_none());
         assert!(config.ethereum_mpt_gateways.is_none());
+        #[cfg(feature = "world-id-solana")]
         assert!(config.solana_permissioned_gateways.is_none());
     }
 }
