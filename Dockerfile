@@ -50,7 +50,13 @@ COPY . .
 ARG GIT_HASH
 ENV GIT_HASH=$GIT_HASH
 
-RUN cargo build --release --locked --target x86_64-unknown-linux-musl --package $SERVICE_NAME
+# Optional comma-separated cargo features for $SERVICE_NAME (e.g. "world-id-solana"
+# for world-id-relay's Solana satellite support, which is opt-in so services that
+# don't need it skip anchor-client/solana-keypair/world-id-solana entirely).
+ARG FEATURES=""
+
+RUN cargo build --release --locked --target x86_64-unknown-linux-musl --package $SERVICE_NAME \
+  $(if [ -n "$FEATURES" ]; then echo "--features $FEATURES"; fi)
 
 RUN mv target/x86_64-unknown-linux-musl/release/$SERVICE_NAME /app/bin
 
