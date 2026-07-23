@@ -11,7 +11,7 @@
         <header class="topbar">
           <div>
             <h1>World ID passkey ownership</h1>
-            <p>Register a local ES256 passkey, bind it to a proving authenticator slot, and prepare the WebAuthn proof witness.</p>
+            <p>Register a local ES256 passkey, bind it to a proving authenticator slot, and prove ownership locally with ProveKit WASM.</p>
           </div>
           <div class="status-pill" id="runtime-status">Ready</div>
         </header>
@@ -42,8 +42,8 @@
           </section>
         </div>
 
-        <section class="panel output" aria-label="Proof witness">
-          <h2>Proof witness payload</h2>
+        <section class="panel output" aria-label="Local proof status">
+          <h2>Local proof status</h2>
           <pre id="output">Waiting for a passkey registration.</pre>
         </section>
       </section>

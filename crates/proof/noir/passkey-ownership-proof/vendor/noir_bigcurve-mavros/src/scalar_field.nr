@@ -185,11 +185,11 @@ impl<let N: u32> ScalarField<N> {
         for i in 0..N {
             (base4_slices[i] as Field).assert_max_bit_size::<4>();
         }
-        let result = Self { base4_slices, skew };
-        if N >= 64 {
-            compare_scalar_field_to_bignum(result);
-        }
-        result
+        // Do not compare these slices against the native BN254 Field modulus.
+        // BigCurve uses this constructor for foreign-field scalars such as
+        // Secp256r1_Fr, whose valid range is larger. Callers must separately
+        // constrain the slices against the intended foreign-field BigNum.
+        Self { base4_slices, skew }
     }
 
     pub fn len(_: Self) -> u32 {

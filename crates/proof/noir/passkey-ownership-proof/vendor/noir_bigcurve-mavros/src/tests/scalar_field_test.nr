@@ -2,6 +2,17 @@ use crate::scalar_field::get_modulus_slices;
 use crate::scalar_field::ScalarField;
 
 #[test]
+fn unchecked_foreign_field_slices_may_exceed_the_native_field_modulus() {
+    // This is a valid 65-slice foreign-field value even though its integer
+    // representation exceeds BN254. The foreign-field caller supplies the
+    // modulus and reconstruction constraints.
+    let slices = [15; 65];
+    let scalar = ScalarField::from_slices_unchecked(slices, false);
+    assert(scalar.get(0) == 15);
+    assert(scalar.get(64) == 15);
+}
+
+#[test]
 // test even number of nibbles
 unconstrained fn fuzz_test_scalar_field_conversion(f: Field) {
     let scalar_field: ScalarField<64> = ScalarField::from(f);

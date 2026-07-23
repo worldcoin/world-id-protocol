@@ -18,6 +18,8 @@ export type AssertionWitness = {
 };
 
 const ES256 = -7;
+const USER_PRESENT = 0x01;
+const USER_VERIFIED = 0x04;
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength);
@@ -55,6 +57,49 @@ export function p256BeBytesToLimbs(bytes: Uint8Array): [bigint, bigint, bigint] 
   };
 
   return [fold(bytes.slice(17, 32)), fold(bytes.slice(2, 17)), fold(bytes.slice(0, 2))];
+}
+
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) difference |= left[index]! ^ right[index]!;
+  return difference === 0;
+}
+
+export async function validateAssertionPolicy(
+  clientDataJson: Uint8Array,
+  authenticatorData: Uint8Array,
+  challenge: Uint8Array,
+  expectedOrigin: string,
+  expectedRpId: string,
+): Promise<void> {
+  let clientData: unknown;
+  try {
+    clientData = JSON.parse(new TextDecoder().decode(clientDataJson));
+  } catch (error) {
+    throw new Error("clientDataJSON is not valid JSON", { cause: error });
+  }
+  if (clientData === null || typeof clientData !== "object") {
+    throw new Error("clientDataJSON must be an object");
+  }
+  const fields = clientData as Record<string, unknown>;
+  if (fields.type !== "webauthn.get") throw new Error("clientDataJSON type is not webauthn.get");
+  if (fields.challenge !== base64url(challenge)) throw new Error("clientDataJSON challenge does not match");
+  if (fields.origin !== expectedOrigin) throw new Error("clientDataJSON origin does not match");
+  if (fields.crossOrigin !== undefined && fields.crossOrigin !== false) {
+    throw new Error("cross-origin WebAuthn assertions are not accepted");
+  }
+  if (authenticatorData.length < 37) throw new Error("authenticatorData is too short");
+  const flags = authenticatorData[32]!;
+  if ((flags & USER_PRESENT) === 0) throw new Error("WebAuthn user-presence flag is missing");
+  if ((flags & USER_VERIFIED) === 0) throw new Error("WebAuthn user-verification flag is missing");
+
+  const expectedRpIdHash = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(expectedRpId)),
+  );
+  if (!equalBytes(authenticatorData.slice(0, 32), expectedRpIdHash)) {
+    throw new Error("authenticatorData RP ID hash does not match");
+  }
 }
 
 export function extractP256PublicKeyFromSpki(spki: ArrayBuffer): P256PublicKey {
@@ -119,8 +164,8 @@ export async function registerPasskey(): Promise<RegisteredPasskey> {
       },
       pubKeyCredParams: [{ type: "public-key", alg: ES256 }],
       authenticatorSelection: {
-        residentKey: "preferred",
-        userVerification: "preferred",
+        residentKey: "required",
+        userVerification: "required",
       },
       attestation: "none",
     },
@@ -154,7 +199,7 @@ export async function requestAssertion(credentialId: Uint8Array): Promise<Assert
       challenge: toArrayBuffer(challenge),
       rpId: window.location.hostname,
       allowCredentials: [{ type: "public-key", id: toArrayBuffer(credentialId) }],
-      userVerification: "preferred",
+      userVerification: "required",
     },
   });
 
@@ -172,6 +217,13 @@ export async function requestAssertion(credentialId: Uint8Array): Promise<Assert
     throw new Error("clientDataJSON does not contain the challenge");
   }
   const authenticatorData = new Uint8Array(response.authenticatorData);
+  await validateAssertionPolicy(
+    clientDataJson,
+    authenticatorData,
+    challenge,
+    window.location.origin,
+    window.location.hostname,
+  );
 
   return {
     authenticatorData,
