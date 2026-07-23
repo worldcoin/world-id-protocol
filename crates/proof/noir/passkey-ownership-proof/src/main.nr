@@ -4,10 +4,28 @@ mod merkle_proof;
 mod types;
 
 use commitment::{mixed_authenticator_set_commitment, passkey_slot_commitment};
-use constants::NUM_KEYS;
+use constants::{NUM_KEYS, P256_LIMBS};
 use merkle_proof::compute_merkle_root_poseidon2;
 use std::field::bn254::assert_lt;
 use types::PasskeyOwnershipInputs;
+
+fn assert_public_key_limbs_match(
+    signed_public_key_x_limbs: [u128; P256_LIMBS],
+    signed_public_key_y_limbs: [u128; P256_LIMBS],
+    committed_public_key_x_limbs: [Field; P256_LIMBS],
+    committed_public_key_y_limbs: [Field; P256_LIMBS],
+) {
+    for i in 0..P256_LIMBS {
+        assert(
+            signed_public_key_x_limbs[i] as Field == committed_public_key_x_limbs[i],
+            "signed and committed public key x limbs differ",
+        );
+        assert(
+            signed_public_key_y_limbs[i] as Field == committed_public_key_y_limbs[i],
+            "signed and committed public key y limbs differ",
+        );
+    }
+}
 
 pub fn main(
     root: pub Field,
@@ -15,6 +33,13 @@ pub fn main(
     rp_id_hash: pub [u8; 32],
     inputs: PasskeyOwnershipInputs,
 ) {
+    assert_public_key_limbs_match(
+        inputs.webauthn.public_key_x_limbs,
+        inputs.webauthn.public_key_y_limbs,
+        inputs.public_key_x_limbs_field,
+        inputs.public_key_y_limbs_field,
+    );
+
     for i in 0..32 {
         assert(inputs.webauthn.authenticator_data.storage()[i] == rp_id_hash[i]);
     }
@@ -64,4 +89,16 @@ pub fn main(
         inputs.merkle_proof.siblings,
     );
     assert(computed_root == root, "Merkle proof verification failed");
+}
+
+#[test]
+fn test_signed_and_committed_public_key_limbs_match() {
+    assert_public_key_limbs_match([1, 2, 3], [4, 5, 6], [1, 2, 3], [4, 5, 6]);
+}
+
+#[test(should_fail_with = "signed and committed public key x limbs differ")]
+fn test_rejects_key_a_signature_with_key_b_slot_commitment() {
+    // The first pair represents the key used by the WebAuthn signature, while
+    // the second pair represents the different key committed in the registry slot.
+    assert_public_key_limbs_match([1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]);
 }

@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { base64url, derEcdsaToRawSignature, extractP256PublicKeyFromSpki, p256BeBytesToLimbs } from "../src/webauthn";
+import {
+  base64url,
+  derEcdsaToRawSignature,
+  extractP256PublicKeyFromSpki,
+  p256BeBytesToLimbs,
+  validateAssertionPolicy,
+} from "../src/webauthn";
+
+async function sha256(value: string): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+}
 
 describe("webauthn helpers", () => {
   it("encodes challenge bytes as unpadded base64url", () => {
@@ -42,5 +52,40 @@ describe("webauthn helpers", () => {
     const key = extractP256PublicKeyFromSpki(spki.buffer);
     expect(Array.from(key.x)).toEqual(Array(32).fill(0x11));
     expect(Array.from(key.y)).toEqual(Array(32).fill(0x22));
+  });
+
+  it("accepts only a same-origin, user-verified WebAuthn assertion", async () => {
+    const challenge = Uint8Array.from({ length: 32 }, (_, index) => index);
+    const origin = "http://localhost:5178";
+    const rpId = "localhost";
+    const authenticatorData = new Uint8Array(37);
+    authenticatorData.set(await sha256(rpId));
+    authenticatorData[32] = 0x05;
+    const clientDataJson = new TextEncoder().encode(JSON.stringify({
+      type: "webauthn.get",
+      challenge: base64url(challenge),
+      origin,
+      crossOrigin: false,
+    }));
+
+    await expect(
+      validateAssertionPolicy(clientDataJson, authenticatorData, challenge, origin, rpId),
+    ).resolves.toBeUndefined();
+
+    const missingUv = authenticatorData.slice();
+    missingUv[32] = 0x01;
+    await expect(
+      validateAssertionPolicy(clientDataJson, missingUv, challenge, origin, rpId),
+    ).rejects.toThrow("user-verification flag");
+
+    const crossOrigin = new TextEncoder().encode(JSON.stringify({
+      type: "webauthn.get",
+      challenge: base64url(challenge),
+      origin,
+      crossOrigin: true,
+    }));
+    await expect(
+      validateAssertionPolicy(crossOrigin, authenticatorData, challenge, origin, rpId),
+    ).rejects.toThrow("cross-origin");
   });
 });
