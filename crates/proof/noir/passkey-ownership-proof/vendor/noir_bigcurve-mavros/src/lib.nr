@@ -5,11 +5,8 @@ mod scalar_field;
 pub mod curves;
 
 mod tests;
-mod benchmarks;
-mod data;
 
-// Free functions and other utils, called by the BigCurve structs
-pub(crate) mod utils;
+// Free functions called by the BigCurve structs.
 pub(crate) mod ops;
 pub(crate) mod curve_jac;
 
@@ -33,14 +30,6 @@ pub use bigcurve::BigCurveParams;
 pub use bigcurve::derive_curve_impl;
 pub use scalar_field::ScalarField;
 
-// Re-export the pre-defied bigcurve types, for easier access:
-pub use curves::bls12_377::BLS12_377;
-pub use curves::bls12_381::BLS12_381;
-pub use curves::bn254::BN254;
-pub use curves::mnt4_753::MNT4_753;
-pub use curves::mnt6_753::MNT6_753;
-pub use curves::pallas::Pallas;
-pub use curves::secp256k1::Secp256k1;
+// This compatibility package intentionally exposes only the P-256 curve used
+// by the passkey circuit.
 pub use curves::secp256r1::Secp256r1;
-pub use curves::secp384r1::Secp384r1;
-pub use curves::vesta::Vesta;
