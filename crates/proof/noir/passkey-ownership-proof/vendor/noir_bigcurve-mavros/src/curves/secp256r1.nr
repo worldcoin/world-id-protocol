@@ -98,13 +98,6 @@ mod test {
     }
 
     #[test]
-    fn test_hash_to_curve() {
-        let r = Secp256r1::hash_to_curve("hello world".as_bytes());
-
-        r.validate_on_curve();
-    }
-
-    #[test]
     fn test_msm() {
         let four = Secp256r1_Fr::from(4);
         let p_minus_4_fr = Secp256r1_Fr::modulus() - four;
@@ -120,14 +113,6 @@ mod test {
             Secp256r1::evaluate_linear_expression(points, scalars, [Secp256r1::one().neg()]);
 
         assert(result.is_infinity);
-    }
-
-    #[test]
-    unconstrained fn verify_offset_generators() {
-        // Secp256r1 cofactor is 1
-        crate::utils::derive_offset_generators::verify_offset_generators::<Secp256r1_Fq, SECP256r1_SCALAR_SLICES, Secp256r1>(
-            1,
-        );
     }
 
     #[test]

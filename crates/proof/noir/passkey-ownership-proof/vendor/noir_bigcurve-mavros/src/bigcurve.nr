@@ -51,9 +51,6 @@ pub trait BigCurve<B: BigNum>: Eq + Add + Sub + Neg {
     /// Multiplies the point by a scalar value, returning the resulting point.
     fn mul<let NScalarSlices: u32>(self, scalar: ScalarField<NScalarSlices>) -> Self;
 
-    /// Hashes the provided `seed` to a point on the curve.
-    fn hash_to_curve<let N: u32>(seed: [u8; N]) -> Self;
-
     /// Evaluates a linear expression involving multiple points and scalars, returning the resulting point.
     fn evaluate_linear_expression<let NScalarSlices: u32, let NMuls: u32, let NAdds: u32>(
         mul_points: [Self; NMuls],
@@ -156,11 +153,6 @@ pub comptime fn derive_curve_impl(
                 let transcript: [$AffineTranscript<$field_type>; (NScalarSlices * 5) + 6] =
                     unsafe { $crate::internal::get_mul_transcript::<NScalarSlices, $field_type, $typ>(self, scalar) };
                 $crate::internal::mul_with_hint::<NScalarSlices, (NScalarSlices * 5) + 6, $field_type, $typ>(self, scalar, transcript)
-            }
-
-            fn hash_to_curve<let N: u32>(seed: [u8; N]) -> Self {
-                let r = $crate::utils::hash_to_curve::hash_to_curve::<$field_type, N>(seed, $params.a, $params.b);
-                Self { x: r.0, y: r.1, is_infinity: false }
             }
 
             fn evaluate_linear_expression<let NScalarSlices: u32, let NMuls: u32, let NAdds: u32>(

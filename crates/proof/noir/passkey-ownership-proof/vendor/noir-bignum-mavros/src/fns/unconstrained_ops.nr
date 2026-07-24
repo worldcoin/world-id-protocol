@@ -551,9 +551,7 @@ pub(crate) unconstrained fn __easy_sqrt<let N: u32, let MOD_BITS: u32>(
 
 mod test_invmod {
     use crate::bignum::BigNum;
-    use crate::fields::bls12_381Fq::BLS12_381_Fq;
-    use crate::fields::bn254Fq::BN254_Fq;
-    use crate::fields::ed25519Fq::ED25519_Fq;
+    use crate::fields::secp256r1Fq::Secp256r1_Fq;
 
     /// test inverting neg(zero)
     unconstrained fn helper_invmod_neg_zero<BN: BigNum>() {
@@ -570,9 +568,7 @@ mod test_invmod {
 
     #[test]
     unconstrained fn test_invmod_neg_zero() {
-        helper_invmod_neg_zero::<BN254_Fq>();
-        helper_invmod_neg_zero::<ED25519_Fq>();
-        helper_invmod_neg_zero::<BLS12_381_Fq>();
+        helper_invmod_neg_zero::<Secp256r1_Fq>();
     }
 
     /// test inverting modulus
@@ -584,9 +580,7 @@ mod test_invmod {
 
     #[test]
     unconstrained fn test_invmod_on_modulus_value() {
-        helper_invmod_on_modulus_value::<BN254_Fq>();
-        helper_invmod_on_modulus_value::<ED25519_Fq>();
-        helper_invmod_on_modulus_value::<BLS12_381_Fq>();
+        helper_invmod_on_modulus_value::<Secp256r1_Fq>();
     }
 
     /// test that zero returns zero
@@ -598,9 +592,7 @@ mod test_invmod {
 
     #[test]
     unconstrained fn test_invmod_zero_returns_zero() {
-        helper_invmod_zero_returns_zero::<BN254_Fq>();
-        helper_invmod_zero_returns_zero::<ED25519_Fq>();
-        helper_invmod_zero_returns_zero::<BLS12_381_Fq>();
+        helper_invmod_zero_returns_zero::<Secp256r1_Fq>();
     }
 
     /// test invmod via division
@@ -619,8 +611,6 @@ mod test_invmod {
 
     #[test]
     unconstrained fn test_invmod_via_division(x: [u8; 4], y: [u8; 4]) {
-        helper_invmod_via_division::<BN254_Fq>(x, y);
-        helper_invmod_via_division::<ED25519_Fq>(x, y);
-        helper_invmod_via_division::<BLS12_381_Fq>(x, y);
+        helper_invmod_via_division::<Secp256r1_Fq>(x, y);
     }
 }
