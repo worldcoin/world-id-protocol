@@ -73,4 +73,5 @@ ignore = [
     "RUSTSEC-2021-0139", # Unmaintained `ansi_term`; via litesvm (world-id-solana feature, anchor-litesvm dev-dependency), dev-only, no safe upgrade available (2026-07)
     "RUSTSEC-2025-0161", # Unmaintained `libsecp256k1`; via agave-syscalls/litesvm (world-id-solana feature, anchor-litesvm dev-dependency), dev-only, no safe upgrade available (2026-07)
     "RUSTSEC-2026-0205", # `Array::insert` exception-safety issue in `scc` 2.4.0; via serial_test (world-id-indexer dev-dependency), dev-only; fix requires scc >=3.8.4, a major bump serial_test doesn't permit yet (2026-07-24)
+    "RUSTSEC-2026-0097", # `rand` 0.7.3 unsound `rand::thread_rng()` w/ custom logger; via libsecp256k1 0.6.0 -> agave-syscalls -> litesvm (world-id-solana feature, anchor-litesvm dev-dependency), dev-only; rand 0.7.x has no patched release (2026-07-24)
 ]
