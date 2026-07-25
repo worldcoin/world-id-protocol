@@ -48,7 +48,9 @@ clap = { workspace = true, features = ["derive", "env"] }
 dotenvy = { workspace = true }
 eyre = { workspace = true }
 solana-keypair = { version = "3.0.1", optional = true }
-world-id-solana = { git = "https://github.com/worldcoin/world-id-protocol-solana", optional = true }
+world-id-solana = { git = "https://github.com/worldcoin/world-id-protocol-solana", optional = true, default-features = false, features = [
+  "no-entrypoint",
+] }
 
 [features]
 default = []
@@ -72,6 +74,7 @@ ark-serialize = { workspace = true }
 bincode = "1"
 hex = { workspace = true }
 rand = { workspace = true }
+solana-compute-budget-interface = "3.0.0"
 solana-message = "3.1.0"
 solana-transaction = "3.1.0"
 world-id-primitives = { workspace = true }

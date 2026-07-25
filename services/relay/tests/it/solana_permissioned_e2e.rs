@@ -299,7 +299,16 @@ fn e2e_solana_permissioned_replays_commitment_on_local_svm() -> Result<()> {
             },
         },
     );
-    svm_result(ctx.execute_instruction(verify_ix, &[&gateway]))?.assert_success();
+    // Groth16/BN254 verification exceeds Solana's default 200_000 CU
+    // per-instruction limit -- every real caller of verify()/verify_session()
+    // MUST prepend a compute-budget instruction requesting a higher limit, or
+    // the transaction fails with `exceeded CUs meter at BPF instruction`.
+    let compute_budget_ix =
+        solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+            1_400_000,
+        );
+    svm_result(ctx.execute_instructions(vec![compute_budget_ix, verify_ix], &[&gateway]))?
+        .assert_success();
 
     Ok(())
 }

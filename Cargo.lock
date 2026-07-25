@@ -15992,6 +15992,7 @@ dependencies = [
  "rand 0.8.7",
  "serde",
  "serde_json",
+ "solana-compute-budget-interface",
  "solana-keypair",
  "solana-message",
  "solana-transaction",
