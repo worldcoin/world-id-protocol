@@ -111,8 +111,8 @@ impl SolanaPermissionedSatellite {
                     block_hash,
                 ))
             }
-            ICommitment::setOprfPubkeyCall::SELECTOR => {
-                let call = ICommitment::setOprfPubkeyCall::abi_decode(data)?;
+            ICommitment::setOprfKeyCall::SELECTOR => {
+                let call = ICommitment::setOprfKeyCall::abi_decode(data)?;
                 Ok(self.set_oprf_key_instruction(
                     u160_word20(call._0),
                     u256_word(call._1),
@@ -222,6 +222,18 @@ impl Satellite for SolanaPermissionedSatellite {
         self.chain_id
     }
 
+    /// This bounds how many *World Chain events* get merged into one
+    /// `ChainCommitment` before `relay()` decodes and submits it -- not the
+    /// Solana transaction size limit directly. `relay()` submits one Solana
+    /// instruction per transaction regardless of how many are decoded from a
+    /// single commitment, so this is just an efficiency knob for the merge
+    /// step, not a correctness one. See `relay()`'s doc comment for why the
+    /// actual size limit has to be enforced post-decode, on instruction
+    /// count, not here on event count.
+    fn max_commitments_per_relay(&self) -> usize {
+        20
+    }
+
     fn remote_chain_head<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<B256>> + Send + 'a>> {
         Box::pin(async move {
             match self
@@ -249,13 +261,34 @@ impl Satellite for SolanaPermissionedSatellite {
     ) -> Pin<Box<dyn Future<Output = Result<B256>> + Send + 'a>> {
         Box::pin(async move {
             let instructions = self.decode_instructions(commitment)?;
-            let mut request = self.program.request();
+
+            // `max_commitments_per_relay` bounds how many *World Chain
+            // events* get merged into one `commitment` -- but a single event
+            // can itself bundle multiple individual commits (root + issuer +
+            // oprf), each becoming its own Solana instruction here. So the
+            // real per-transaction size limit has to be enforced on the
+            // decoded instruction count, not the merged-event count above
+            // this call. One instruction per transaction is the safe,
+            // unconditionally-correct choice: even a single bare instruction
+            // plus anchor_client's real (larger than our own instructions
+            // alone) versioned-transaction framing has landed reliably
+            // against live devnet, whereas batches of 3-4 have intermittently
+            // overflowed Solana's 1232-byte limit depending on which commit
+            // kinds happened to be bundled together.
+            let mut last_signature = None;
             for instruction in instructions {
-                request = request.instruction(instruction);
+                let signature = self
+                    .program
+                    .request()
+                    .instruction(instruction)
+                    .send()
+                    .await?;
+                tracing::info!(%signature, "submitted Solana satellite transaction");
+                last_signature = Some(signature);
             }
 
-            let signature = request.send().await?;
-            tracing::info!(%signature, "submitted Solana satellite transaction");
+            let signature =
+                last_signature.ok_or_else(|| eyre::eyre!("no instructions to relay"))?;
             Ok(keccak256(signature.to_string().as_bytes()))
         })
     }
@@ -391,7 +424,7 @@ mod tests {
         let satellite = test_satellite();
         let proof_id = B256::from([0xEF; 32]);
         let block_hash = B256::from([0x33; 32]);
-        let data = ICommitment::setOprfPubkeyCall {
+        let data = ICommitment::setOprfKeyCall {
             _0: U160::from(9u64),
             _1: U256::from(21u64),
             _2: U256::from(22u64),
@@ -422,5 +455,66 @@ mod tests {
         let key = u160_word20(wide);
 
         assert_eq!(key, wide.to_be_bytes::<20>());
+    }
+
+    /// Solana's wire-format transaction size limit (1232 raw bytes) is far
+    /// smaller than what EVM chains allow, so `max_commitments_per_relay`'s
+    /// generic default (64, tuned for EVM) massively overflows it here. This
+    /// builds real mixed-entry transactions (matching what `relay()` actually
+    /// submits) and measures their serialized size directly, rather than
+    /// estimating, to pick a safe cutoff empirically.
+    #[test]
+    fn measures_max_commitments_that_fit_in_one_solana_transaction() {
+        use solana_message::Message;
+        use solana_transaction::Transaction;
+
+        let satellite = test_satellite();
+        const RAW_TX_SIZE_LIMIT: usize = 1232;
+
+        // Cycle through the three instruction kinds to model a realistic
+        // mixed batch (root updates, issuer keys, OPRF keys all bridging in
+        // the same window), not a best-case single-kind batch.
+        let make_ix = |i: u64| match i % 3 {
+            0 => satellite.update_root_instruction(
+                U256::from(i + 1).to_be_bytes::<32>(),
+                1234,
+                [0xAB; 32],
+                [0x11; 32],
+            ),
+            1 => satellite.set_issuer_pubkey_instruction(
+                i,
+                U256::from(i).to_be_bytes::<32>(),
+                U256::from(i).to_be_bytes::<32>(),
+                [0xCD; 32],
+                [0x22; 32],
+            ),
+            _ => satellite.set_oprf_key_instruction(
+                u160_word20(U160::from(i)),
+                U256::from(i).to_be_bytes::<32>(),
+                U256::from(i).to_be_bytes::<32>(),
+                [0xEF; 32],
+                [0x33; 32],
+            ),
+        };
+
+        let payer = satellite.gateway;
+        let mut max_that_fits = 0;
+        for n in 1..=20u64 {
+            let instructions: Vec<_> = (0..n).map(make_ix).collect();
+            let message = Message::new(&instructions, Some(&payer));
+            let tx = Transaction::new_unsigned(message);
+            let size = bincode::serialize(&tx).unwrap().len();
+
+            println!("n={n} raw_bytes={size} limit={RAW_TX_SIZE_LIMIT}");
+            if size <= RAW_TX_SIZE_LIMIT {
+                max_that_fits = n;
+            }
+        }
+
+        println!("max_commitments_per_relay that fits in one Solana transaction: {max_that_fits}");
+        assert!(
+            max_that_fits > 0,
+            "even a single commitment instruction should fit in one transaction"
+        );
     }
 }

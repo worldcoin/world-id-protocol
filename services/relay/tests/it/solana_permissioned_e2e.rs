@@ -102,7 +102,7 @@ fn encode_issuer(
 fn encode_oprf(oprf_key_id: u64, x: U256, y: U256, proof_id: B256) -> IWorldIDSource::Commitment {
     IWorldIDSource::Commitment {
         blockHash: B256::from([3u8; 32]),
-        data: ICommitment::setOprfPubkeyCall {
+        data: ICommitment::setOprfKeyCall {
             _0: U160::from(oprf_key_id),
             _1: x,
             _2: y,

@@ -189,21 +189,32 @@ const BACKFILL_CHUNK_SIZE: u64 = 1000;
 /// `WorldIDSource` contract — registry events (roots, issuer keys, OPRF
 /// keys) are picked up by the live event stream.
 pub async fn backfill_commitments(world_chain: &WorldChain, log: &CommitmentLog) -> Result<()> {
+    backfill_commitments_from(world_chain, log, world_chain.deployment_block()).await
+}
+
+/// Like [`backfill_commitments`], but starts scanning from `from_block`
+/// instead of the source's deployment block. Used by
+/// [`backfill_commitments_cached`] to resume from a cached checkpoint instead
+/// of always rescanning from genesis.
+pub async fn backfill_commitments_from(
+    world_chain: &WorldChain,
+    log: &CommitmentLog,
+    from_block: u64,
+) -> Result<()> {
     let provider = world_chain.provider();
     let source_address = *world_chain.world_id_source().address();
     let event_sigs = CHAIN_COMMITTED_EVENTS.to_vec();
-    let deployment_block = world_chain.deployment_block();
 
     let latest = provider.get_block_number().await?;
     tracing::info!(
         latest_block = latest,
-        deployment_block,
+        from_block,
         "starting chunked backfill"
     );
 
-    let mut from = deployment_block;
+    let mut from = from_block;
     let mut total = 0usize;
-    let total_blocks = latest.saturating_sub(deployment_block);
+    let total_blocks = latest.saturating_sub(from_block);
     let mut chunks_done = 0u64;
     let total_chunks = total_blocks.div_ceil(BACKFILL_CHUNK_SIZE);
 
@@ -256,6 +267,85 @@ pub async fn backfill_commitments(world_chain: &WorldChain, log: &CommitmentLog)
         blocks_scanned = latest,
         "backfill complete"
     );
+    Ok(())
+}
+
+// ── Local backfill cache (dev/iteration only) ──────────────────────────────
+//
+// Local iteration against a real chain means redoing a multi-million-block
+// scan every restart, since `CommitmentLog` is in-memory only. This caches
+// the raw `ChainCommitment`s plus the last block scanned to a local JSON
+// file, so a restart only backfills the delta since the last run instead of
+// rescanning from `deployment_block`. Not used in production -- opt in via
+// `BACKFILL_CACHE_PATH`; see [`super::engine::Engine::run`].
+
+use std::path::Path;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BackfillCache {
+    last_block: u64,
+    commitments: Vec<ChainCommitment>,
+}
+
+/// Like [`backfill_commitments`], but resumes from a local JSON cache file
+/// instead of always rescanning from the source's deployment block.
+///
+/// Loads any previously-cached commitments (fast: no RPC calls, just
+/// replaying already-decoded events through `commit_chained`), then only
+/// backfills the delta from the cached checkpoint to the current head.
+/// Writes the full updated cache back out afterwards.
+pub async fn backfill_commitments_cached(
+    world_chain: &WorldChain,
+    log: &CommitmentLog,
+    cache_path: &Path,
+) -> Result<()> {
+    let from_block = match std::fs::read(cache_path) {
+        Ok(bytes) => {
+            let cache: BackfillCache = serde_json::from_slice(&bytes)
+                .map_err(|e| eyre::eyre!("failed to parse backfill cache {cache_path:?}: {e}"))?;
+            let cached_count = cache.commitments.len();
+            for commitment in cache.commitments {
+                if let Err(e) = log.commit_chained(Arc::new(commitment)) {
+                    tracing::warn!(error = %e, "backfill cache: skipping stale/invalid entry");
+                }
+            }
+            tracing::info!(
+                cache_path = %cache_path.display(),
+                cached_entries = cached_count,
+                resume_from_block = cache.last_block + 1,
+                "loaded backfill cache, resuming from checkpoint"
+            );
+            cache.last_block + 1
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            tracing::info!(cache_path = %cache_path.display(), "no backfill cache found, doing a full backfill");
+            world_chain.deployment_block()
+        }
+        Err(e) => {
+            return Err(eyre::eyre!(
+                "failed to read backfill cache {cache_path:?}: {e}"
+            ));
+        }
+    };
+
+    let latest = world_chain.provider().get_block_number().await?;
+    backfill_commitments_from(world_chain, log, from_block).await?;
+
+    let commitments = log.since(alloy_primitives::B256::ZERO).unwrap_or_default();
+    let cache = BackfillCache {
+        last_block: latest,
+        commitments: commitments.iter().map(|c| (**c).clone()).collect(),
+    };
+    let json = serde_json::to_vec_pretty(&cache)?;
+    std::fs::write(cache_path, json)
+        .map_err(|e| eyre::eyre!("failed to write backfill cache {cache_path:?}: {e}"))?;
+    tracing::info!(
+        cache_path = %cache_path.display(),
+        entries = cache.commitments.len(),
+        last_block = latest,
+        "wrote backfill cache"
+    );
+
     Ok(())
 }
 

@@ -69,8 +69,11 @@ path = "scripts/register_issuer_schema.rs"
 anchor-litesvm = "0.4.0"
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
+bincode = "1"
 hex = { workspace = true }
 rand = { workspace = true }
+solana-message = "3.1.0"
+solana-transaction = "3.1.0"
 world-id-primitives = { workspace = true }
 world-id-relay = { workspace = true }
 world-id-test-utils = { workspace = true }
