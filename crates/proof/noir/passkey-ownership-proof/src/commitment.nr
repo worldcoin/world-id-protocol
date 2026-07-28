@@ -1,5 +1,21 @@
 use super::constants::{DS_MIXED_AUTH_SET, DS_PASSKEY_SLOT, NUM_KEYS, P256_LIMBS};
-use poseidon2::bn254::perm;
+use poseidon2::bn254::permutation;
+
+pub fn p256_be_bytes_to_limbs(bytes: [u8; 32]) -> [Field; P256_LIMBS] {
+    let mut high: Field = 0;
+    for i in 0..2 {
+        high = high * 256 + bytes[i] as Field;
+    }
+    let mut mid: Field = 0;
+    for i in 2..17 {
+        mid = mid * 256 + bytes[i] as Field;
+    }
+    let mut low: Field = 0;
+    for i in 17..32 {
+        low = low * 256 + bytes[i] as Field;
+    }
+    [low, mid, high]
+}
 
 pub fn passkey_slot_commitment(
     public_key_x_limbs: [Field; P256_LIMBS],
@@ -15,8 +31,20 @@ pub fn passkey_slot_commitment(
         inputs[i + 1 + P256_LIMBS] = public_key_y_limbs[i];
     }
 
-    let hash_state = perm::x5_16(inputs);
+    let hash_state = permutation::t16(inputs);
     hash_state[1]
+}
+
+#[test]
+fn test_p256_bytes_use_protocol_limb_order() {
+    let bytes: [u8; 32] = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+        25, 26, 27, 28, 29, 30, 31,
+    ];
+    assert(
+        p256_be_bytes_to_limbs(bytes)
+            == [0x1112131415161718191a1b1c1d1e1f, 0x02030405060708090a0b0c0d0e0f10, 0x0001],
+    );
 }
 
 pub fn mixed_authenticator_set_commitment(slot_commitments: [Field; NUM_KEYS]) -> Field {
@@ -27,7 +55,7 @@ pub fn mixed_authenticator_set_commitment(slot_commitments: [Field; NUM_KEYS]) -
         inputs[i + 1] = slot_commitments[i];
     }
 
-    let hash_state = perm::x5_16(inputs);
+    let hash_state = permutation::t16(inputs);
     hash_state[1]
 }
 
@@ -48,7 +76,7 @@ fn test_account_commitment_changes_with_slot() {
 #[test]
 fn test_poseidon2_t16_matches_legacy_vector() {
     assert(
-        perm::x5_16([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+        permutation::t16([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
             == [
                 0x0fc2e6b758f493969e1d860f9a44ee3bdffdf796f382aa4ffb16fa4e9bcc333f,
                 0x0c118155a0dfeca3f91faf14a350511228ac33743be91249c6e0b3a635a50de4,
