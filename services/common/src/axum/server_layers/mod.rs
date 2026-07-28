@@ -4,7 +4,8 @@ mod timeout;
 mod trace;
 
 pub use deprecation::{
-    METRICS_DEPRECATED_ENDPOINT_REQUESTS, deprecated_endpoint_middleware,
+    Deprecation, DeprecationLayer, DeprecationService, METRICS_DEPRECATED_ENDPOINT_REQUESTS,
+    V2RecoveryAgentDeprecation, V2RecoveryAgentDeprecationLayer,
     describe_deprecated_endpoint_metrics,
 };
 pub use request_metrics::{

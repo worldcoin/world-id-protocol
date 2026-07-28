@@ -2,17 +2,24 @@ use axum::{
     Router,
     body::Body,
     http::{Request, StatusCode},
-    middleware::from_fn,
     routing::get,
 };
 use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use tower::ServiceExt;
 use world_id_services_common::{
-    METRICS_DEPRECATED_ENDPOINT_REQUESTS, deprecated_endpoint_middleware,
+    Deprecation, DeprecationLayer, METRICS_DEPRECATED_ENDPOINT_REQUESTS,
 };
 
+struct TestDeprecation;
+
+impl Deprecation for TestDeprecation {
+    const ID: &'static str = "test_deprecation";
+    const DEPRECATED_AT: &'static str = "@1785110400";
+    const SUNSET: &'static str = "Tue, 27 Jul 2027 00:00:00 GMT";
+}
+
 #[tokio::test]
-async fn deprecated_endpoint_adds_headers_and_records_usage() {
+async fn deprecation_layer_adds_headers_and_records_usage() {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
     recorder.install().expect("install debugging recorder");
@@ -20,7 +27,7 @@ async fn deprecated_endpoint_adds_headers_and_records_usage() {
     let app = Router::new().route(
         "/deprecated",
         get(|| async { StatusCode::NO_CONTENT })
-            .route_layer(from_fn(deprecated_endpoint_middleware)),
+            .route_layer(DeprecationLayer::<TestDeprecation>::new()),
     );
 
     let response = app
@@ -54,6 +61,7 @@ async fn deprecated_endpoint_adds_headers_and_records_usage() {
             match value {
                 DebugValue::Counter(value)
                     if key.name() == METRICS_DEPRECATED_ENDPOINT_REQUESTS
+                        && has_label("deprecation", "test_deprecation")
                         && has_label("route", "/deprecated")
                         && has_label("method", "GET") =>
                 {
