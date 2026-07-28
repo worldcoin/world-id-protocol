@@ -1,7 +1,11 @@
 mod default;
+#[cfg(feature = "world-id-solana")]
+pub mod solana;
 pub mod tempo;
 
 pub use default::PermissionedSatellite;
+#[cfg(feature = "world-id-solana")]
+pub use solana::SolanaPermissionedSatellite;
 pub use tempo::TempoSatellite;
 
 use alloy::{

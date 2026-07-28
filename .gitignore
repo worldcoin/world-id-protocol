@@ -17,6 +17,10 @@ contracts/script/crosschain/config/local.json
 # Node (if used later)
 node_modules/
 
+# Local relay config scratch files
+services/relay/config.local.json
+services/relay/backfill_cache.local.json
+
 # Scripts
 contracts/deploy.sh
 

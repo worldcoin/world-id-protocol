@@ -3,6 +3,17 @@ all-features = true
 
 [sources]
 unknown-registry = "deny"
+unknown-git = "deny"
+# world-id-protocol-solana: our own Solana satellite program, depended on via
+# git (see services/relay/Cargo.toml). world-id-protocol (self): pulled back
+# in transitively, since world-id-solana itself depends on world-id-primitives
+# via a git dependency on this same repo (see world-id-protocol-solana's
+# Cargo.toml) -- TODO: drop once worldcoin/world-id-protocol#797 merges to
+# main and that branch pin is removed.
+allow-git = [
+    "https://github.com/worldcoin/world-id-protocol-solana",
+    "https://github.com/worldcoin/world-id-protocol",
+]
 
 [bans]
 deny = [
@@ -36,6 +47,14 @@ allow = [
     "Zlib",
 ]
 
+# solana-config-interface ships Apache-2.0 (see its LICENSE file) but declares
+# it via `license-file` rather than an SPDX `license` string, which the
+# confidence-threshold above (1.0) can't auto-classify with full confidence.
+[[licenses.clarify]]
+name = "solana-config-interface"
+expression = "Apache-2.0"
+license-files = []
+
 [advisories]
 ignore = [
     "RUSTSEC-2024-0388", # Unmaintained `derivative` (2024-11-22)
@@ -50,5 +69,9 @@ ignore = [
     "RUSTSEC-2026-0212", # `libcrux-secrets`/`libcrux-sha3` const-time swap on aarch64; via testcontainers->russh->libcrux-ml-kem; dev-only, no safe upgrade (2026-07-21)
     "RUSTSEC-2026-0153", # russh-cryptovec broken, via testcontainers, dev-only, does not affect our usage (2026-06-02)
     "RUSTSEC-2026-0154", # russh-cryptovec broken, via testcontainers, dev-only, does not affect our usage (2026-06-02)
-    "RUSTSEC-2026-0173"  # Unmaintained `proc-macro-error2`; transitive via alloy-sol-macro, no safe upgrade available (2026-06-08)
+    "RUSTSEC-2026-0173", # Unmaintained `proc-macro-error2`; transitive via alloy-sol-macro, no safe upgrade available (2026-06-08)
+    "RUSTSEC-2021-0139", # Unmaintained `ansi_term`; via litesvm (world-id-solana feature, anchor-litesvm dev-dependency), dev-only, no safe upgrade available (2026-07)
+    "RUSTSEC-2025-0161", # Unmaintained `libsecp256k1`; via agave-syscalls/litesvm (world-id-solana feature, anchor-litesvm dev-dependency), dev-only, no safe upgrade available (2026-07)
+    "RUSTSEC-2026-0205", # `Array::insert` exception-safety issue in `scc` 2.4.0; via serial_test (world-id-indexer dev-dependency), dev-only; fix requires scc >=3.8.4, a major bump serial_test doesn't permit yet (2026-07-24)
+    "RUSTSEC-2026-0097", # `rand` 0.7.3 unsound `rand::thread_rng()` w/ custom logger; via libsecp256k1 0.6.0 -> agave-syscalls -> litesvm (world-id-solana feature, anchor-litesvm dev-dependency), dev-only; rand 0.7.x has no patched release (2026-07-24)
 ]

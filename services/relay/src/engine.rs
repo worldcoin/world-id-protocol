@@ -180,8 +180,19 @@ impl Engine {
         // in-memory log contains every commit the source has ever made.
         // Satellites query the destination chain's head and use log.since()
         // to send any commits the destination hasn't received yet.
+        //
+        // BACKFILL_CACHE_PATH is a local-iteration-only escape hatch: with it
+        // set, only the delta since the last cached run is scanned instead of
+        // rescanning from genesis every restart. Unset (the production
+        // default) does a full backfill every time, unchanged.
         info!("backfilling historical ChainCommitted events");
-        stream::backfill_commitments(&self.world_chain, &self.log).await?;
+        match std::env::var("BACKFILL_CACHE_PATH") {
+            Ok(path) => {
+                stream::backfill_commitments_cached(&self.world_chain, &self.log, path.as_ref())
+                    .await?
+            }
+            Err(_) => stream::backfill_commitments(&self.world_chain, &self.log).await?,
+        }
 
         info!("backfill complete, starting satellite relay loop");
 

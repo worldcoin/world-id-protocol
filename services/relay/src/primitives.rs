@@ -21,7 +21,7 @@ pub struct OprfKeyId(pub U160);
 // ── Commitment types ────────────────────────────────────────────────────────
 
 /// A decoded `ChainCommitted` event with everything needed for relay.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ChainCommitment {
     /// The new keccak chain head after this commitment.
     pub chain_head: B256,

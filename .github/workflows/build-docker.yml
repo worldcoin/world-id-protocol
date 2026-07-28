@@ -108,6 +108,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Determine cargo features
+        id: features
+        run: |
+          if [[ "${{ matrix.service }}" == "relay" ]]; then
+            echo "value=world-id-solana" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Docker Build
         id: docker_build
         uses: docker/build-push-action@v6
@@ -121,6 +130,7 @@ jobs:
           build-args: |
             SERVICE_NAME=world-id-${{ matrix.service }}
             GIT_HASH=${{ github.sha }}
+            FEATURES=${{ steps.features.outputs.value }}
 
       - name: Attest
         uses: actions/attest-build-provenance@v1

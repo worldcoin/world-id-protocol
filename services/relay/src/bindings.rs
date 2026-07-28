@@ -273,7 +273,7 @@ sol! {
     interface ICommitment {
         function updateRoot(uint256,uint256,bytes32);
         function setIssuerPubkey(uint64,uint256,uint256,bytes32);
-        function setOprfPubkey(uint160,uint256,uint256,bytes32);
+        function setOprfKey(uint160,uint256,uint256,bytes32);
     }
 
     /// Aggregated event interface for stream decoding.

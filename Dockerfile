@@ -44,13 +44,26 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json --package $SERVICE_NAME
+
+# Optional comma-separated cargo features for $SERVICE_NAME (e.g. "world-id-solana"
+# for world-id-relay's Solana satellite support, which is opt-in so services that
+# don't need it skip anchor-client/solana-keypair/world-id-solana entirely).
+#
+# Must be passed to `chef cook` as well as the final build: `chef cook` primes the
+# dependency-build cache layer, so if it's compiled without these features, the
+# optional deps it pulls in aren't cached and get rebuilt from scratch on every
+# source change, defeating the point of the chef layer.
+ARG FEATURES=""
+
+RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json --package $SERVICE_NAME \
+  $(if [ -n "$FEATURES" ]; then echo "--features $FEATURES"; fi)
 COPY . .
 
 ARG GIT_HASH
 ENV GIT_HASH=$GIT_HASH
 
-RUN cargo build --release --locked --target x86_64-unknown-linux-musl --package $SERVICE_NAME
+RUN cargo build --release --locked --target x86_64-unknown-linux-musl --package $SERVICE_NAME \
+  $(if [ -n "$FEATURES" ]; then echo "--features $FEATURES"; fi)
 
 RUN mv target/x86_64-unknown-linux-musl/release/$SERVICE_NAME /app/bin
 
