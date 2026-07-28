@@ -122,17 +122,18 @@ where
     }
 }
 
-/// Deprecation of the V1 recovery-agent management API after the V2 upgrade.
-pub enum V2RecoveryAgentDeprecation {}
+/// Deprecation of the V1 recovery-agent management methods.
+pub enum V1RecoveryAgentMethodsDeprecation {}
 
-impl Deprecation for V2RecoveryAgentDeprecation {
-    const ID: &'static str = "v2_recovery_agent";
+impl Deprecation for V1RecoveryAgentMethodsDeprecation {
+    const ID: &'static str = "v1_recovery_agent_methods";
     // Mon, 27 Jul 2026 00:00:00 GMT, encoded as an RFC 9651 date.
     const DEPRECATED_AT: &'static str = "@1785110400";
     const SUNSET: &'static str = "Tue, 27 Jul 2027 00:00:00 GMT";
 }
 
-pub type V2RecoveryAgentDeprecationLayer = DeprecationLayer<V2RecoveryAgentDeprecation>;
+pub type V1RecoveryAgentMethodsDeprecationLayer =
+    DeprecationLayer<V1RecoveryAgentMethodsDeprecation>;
 
 pub fn describe_deprecated_endpoint_metrics() {
     ::metrics::describe_counter!(

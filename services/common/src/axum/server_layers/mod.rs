@@ -5,7 +5,7 @@ mod trace;
 
 pub use deprecation::{
     Deprecation, DeprecationLayer, DeprecationService, METRICS_DEPRECATED_ENDPOINT_REQUESTS,
-    V2RecoveryAgentDeprecation, V2RecoveryAgentDeprecationLayer,
+    V1RecoveryAgentMethodsDeprecation, V1RecoveryAgentMethodsDeprecationLayer,
     describe_deprecated_endpoint_metrics,
 };
 pub use request_metrics::{

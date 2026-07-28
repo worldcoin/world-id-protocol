@@ -6,7 +6,7 @@ use world_id_primitives::api_types::{
     IndexerPackedAccountResponse, IndexerPendingRecoveryAgentResponse, IndexerQueryRequest,
     IndexerRecoveryAgentResponse, IndexerSignatureNonceResponse,
 };
-use world_id_services_common::V2RecoveryAgentDeprecationLayer;
+use world_id_services_common::V1RecoveryAgentMethodsDeprecationLayer;
 
 use crate::config::AppState;
 mod get_authenticator_pubkeys;
@@ -73,7 +73,7 @@ pub(crate) fn handler(state: AppState, request_timeout_secs: u64) -> Router {
         .route(
             "/pending-recovery-agent",
             axum::routing::post(get_pending_recovery_agent::handler)
-                .route_layer(V2RecoveryAgentDeprecationLayer::new()),
+                .route_layer(V1RecoveryAgentMethodsDeprecationLayer::new()),
         )
         .route("/health", axum::routing::get(health::handler))
         .route("/openapi.json", axum::routing::get(openapi))

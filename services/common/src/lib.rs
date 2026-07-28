@@ -13,9 +13,9 @@ pub use self::{
     },
     axum::server_layers::{
         Deprecation, DeprecationLayer, DeprecationService, METRICS_DEPRECATED_ENDPOINT_REQUESTS,
-        METRICS_HTTP_LATENCY_MS, V2RecoveryAgentDeprecation, V2RecoveryAgentDeprecationLayer,
-        describe_deprecated_endpoint_metrics, describe_http_request_metrics,
-        request_latency_middleware, timeout_layer, trace_layer,
+        METRICS_HTTP_LATENCY_MS, V1RecoveryAgentMethodsDeprecation,
+        V1RecoveryAgentMethodsDeprecationLayer, describe_deprecated_endpoint_metrics,
+        describe_http_request_metrics, request_latency_middleware, timeout_layer, trace_layer,
     },
 };
 
