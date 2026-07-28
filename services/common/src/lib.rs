@@ -12,8 +12,9 @@ pub use self::{
         },
     },
     axum::server_layers::{
-        METRICS_HTTP_LATENCY_MS, describe_http_request_metrics, request_latency_middleware,
-        timeout_layer, trace_layer,
+        METRICS_DEPRECATED_ENDPOINT_REQUESTS, METRICS_HTTP_LATENCY_MS,
+        deprecated_endpoint_middleware, describe_deprecated_endpoint_metrics,
+        describe_http_request_metrics, request_latency_middleware, timeout_layer, trace_layer,
     },
 };
 

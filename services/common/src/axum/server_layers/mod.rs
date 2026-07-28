@@ -1,7 +1,12 @@
+mod deprecation;
 mod request_metrics;
 mod timeout;
 mod trace;
 
+pub use deprecation::{
+    METRICS_DEPRECATED_ENDPOINT_REQUESTS, deprecated_endpoint_middleware,
+    describe_deprecated_endpoint_metrics,
+};
 pub use request_metrics::{
     METRICS_HTTP_LATENCY_MS, describe_http_request_metrics, request_latency_middleware,
 };

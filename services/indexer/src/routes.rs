@@ -71,7 +71,9 @@ pub(crate) fn handler(state: AppState, request_timeout_secs: u64) -> Router {
         )
         .route(
             "/pending-recovery-agent",
-            axum::routing::post(get_pending_recovery_agent::handler),
+            axum::routing::post(get_pending_recovery_agent::handler).route_layer(from_fn(
+                world_id_services_common::deprecated_endpoint_middleware,
+            )),
         )
         .route("/health", axum::routing::get(health::handler))
         .route("/openapi.json", axum::routing::get(openapi))
