@@ -50,5 +50,32 @@ bun test
 bun run build
 ```
 
-The checked-in circuit currently triggers Noir's BigCurve manual-constraint diagnostic. The demo
-artifacts are suitable for integration testing, but are not a production/audited security claim.
+The passkey circuit uses the P-256 verifier from ProveKit's
+[`p256_bigcurve`](https://github.com/worldfnd/provekit/tree/main/noir-examples/p256_bigcurve)
+example with Noir `1.0.0-beta.20`, `noir-bignum` `v0.10.0`, and `noir_bigcurve` `v0.14.0`.
+The checked-in PKP/PKV were prepared with ProveKit commit
+`4b61b5d68e633a044eb41de4a6934d52ffdcbedc`:
+
+```sh
+cd crates/proof/noir/passkey-ownership-proof
+provekit-cli prepare --skip-brillig-constraints-check --force \
+  -p artifacts/passkey_ownership_proof.pkp \
+  -v artifacts/passkey_ownership_proof.pkv \
+  .
+```
+
+The browser demo consumes these artifacts directly through `@worldcoin/provekit@0.1.0`.
+They are intentionally not exposed through `world-id-proof`'s older native Rust ProveKit API:
+the current native SDK and ProveKit-main artifact formats are not compatible.
+
+For the deterministic browser acceptance fixture, run Anvil and the bridge as above, then:
+
+```sh
+bun run fixture
+```
+
+Open `http://localhost:5179/e2e-fixture.html`. The fixture uses threaded proving when
+cross-origin isolation is available and reports valid-proof acceptance plus tampered-proof
+rejection. The circuit currently triggers Noir's BigCurve manual-constraint diagnostic, so
+artifact preparation explicitly acknowledges that diagnostic. These artifacts are suitable for
+integration testing, but are not a production or audited security claim.

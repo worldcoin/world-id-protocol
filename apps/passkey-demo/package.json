@@ -6,6 +6,7 @@
   "scripts": {
     "bridge": "bun run server.ts",
     "dev": "vite --host localhost",
+    "fixture": "vite --host localhost --port 5179 --strictPort --config vite.preview.config.ts",
     "preview:http": "vite preview --config vite.preview.config.ts",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run"

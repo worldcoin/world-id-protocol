@@ -11,8 +11,15 @@ permissions:
 
 jobs:
   test:
-    name: Noir CI
+    name: Noir CI (${{ matrix.package }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - package: ownership-proof
+            toolchain: v1.0.0-beta.11
+          - package: passkey-ownership-proof
+            toolchain: v1.0.0-beta.20
     defaults:
       run:
         working-directory: ./crates/proof/noir
@@ -21,5 +28,5 @@ jobs:
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
-          toolchain: v1.0.0-beta.11
-      - run: cd ownership-proof && nargo fmt --check && nargo test
+          toolchain: ${{ matrix.toolchain }}
+      - run: cd "${{ matrix.package }}" && nargo fmt --check && nargo test

@@ -1,8 +1,0 @@
-[package]
-name = "noir_bigcurve"
-type = "lib"
-authors = [""]
-compiler_version = ">=1.0.0"
-
-[dependencies]
-bignum = { path = "../noir-bignum-mavros" }

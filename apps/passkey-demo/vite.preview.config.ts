@@ -6,6 +6,15 @@ const crossOriginIsolationHeaders = {
 };
 
 export default defineConfig({
+  server: {
+    host: "localhost",
+    port: 5179,
+    strictPort: true,
+    headers: crossOriginIsolationHeaders,
+    proxy: {
+      "/api": "http://127.0.0.1:8787",
+    },
+  },
   preview: {
     host: "localhost",
     port: 5179,
