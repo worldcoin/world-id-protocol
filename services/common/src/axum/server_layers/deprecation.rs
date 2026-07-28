@@ -10,6 +10,8 @@ pub const METRICS_DEPRECATED_ENDPOINT_REQUESTS: &str = "http.deprecated_endpoint
 
 /// The date these endpoints were formally marked as deprecated, encoded as an
 /// RFC 9651 date per RFC 9745.
+///
+/// The timestamp represents the date: Mon, 27 Jul 2026 00:00:00 GMT
 const DEPRECATION: HeaderValue = HeaderValue::from_static("@1785110400");
 /// One year after formal deprecation, encoded as an HTTP-date per RFC 8594.
 const SUNSET: HeaderValue = HeaderValue::from_static("Tue, 27 Jul 2027 00:00:00 GMT");
