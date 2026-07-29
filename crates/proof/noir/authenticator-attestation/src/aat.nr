@@ -1,7 +1,7 @@
 // Verification of an Authenticator Assertion Token (AAT): a token
 // representing integrity of a specific environment through an environment-bound
 // key which is attested by a Trust Anchor Key Token (TAKT).
-use super::takt::{TAKT_TOKEN_LEN, TrustAnchorKeyToken, serialize_takt, verify_takt};
+use super::takt::{serialize_takt, TAKT_TOKEN_LEN, TrustAnchorKeyToken, verify_takt};
 use bigcurve::curves::secp256r1::{Secp256r1_Fq, Secp256r1_Fr};
 use bignum::BigNum;
 use noir_ecdsa::ecdsa::verify_secp256r1_ecdsa;

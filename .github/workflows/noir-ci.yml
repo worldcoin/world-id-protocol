@@ -10,18 +10,32 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Noir CI
+  ownership-proof:
+    name: Noir CI (ownership-proof)
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./crates/proof/noir
+        working-directory: ./crates/proof/noir/ownership-proof
     steps:
       - uses: actions/checkout@v6
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
           toolchain: v1.0.0-beta.11
-      - run: |
-          cd ownership-proof && nargo fmt --check && nargo test
-          cd ../authenticator-attestation && nargo fmt --check && nargo test
+      - run: nargo fmt --check && nargo test
+
+  authenticator-attestation:
+    name: Noir CI (authenticator-attestation)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./crates/proof/noir/authenticator-attestation
+    steps:
+      - uses: actions/checkout@v6
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+        with:
+          # This package requires beta.20: the pure-Noir ECDSA stack and the
+          # oprf-nr babyjubjub library target it (matching provekit git main).
+          # See crates/proof/noir/README.md.
+          toolchain: v1.0.0-beta.20
+      - run: nargo fmt --check && nargo test
