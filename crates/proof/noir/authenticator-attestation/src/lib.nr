@@ -1,5 +1,5 @@
 pub mod aat;
 pub(crate) mod constants;
 pub(crate) mod eddsa;
-pub mod rot;
+pub mod takt;
 pub(crate) mod utils;

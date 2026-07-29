@@ -8,9 +8,9 @@ use rand::rngs::OsRng;
 use world_id_primitives::{FieldElement, rp::RpId};
 
 use crate::authenticator_attestation::{
-    AttestationError, AuthenticatorAssertionClaims, AuthenticatorAssertionToken,
-    AuthenticatorMeta, COSE_ALG_BABYJUBJUB_EDDSA_POSEIDON2, Platform, SecLevel,
-    TrustAnchorKeyClaims, TrustAnchorKeyToken, UserPresence,
+    AttestationError, AuthenticatorAssertionClaims, AuthenticatorAssertionToken, AuthenticatorMeta,
+    COSE_ALG_BABYJUBJUB_EDDSA_POSEIDON2, Platform, SecLevel, TrustAnchorKeyClaims,
+    TrustAnchorKeyToken, UserPresence,
 };
 
 fn sample_claims(assertion_key: p256::PublicKey) -> TrustAnchorKeyClaims {
@@ -72,7 +72,10 @@ fn known_answer_digest_and_signature() {
     );
 
     let sign1 = CoseSign1::from_slice(&token.sign(&trust_anchor_key).unwrap()).unwrap();
-    assert_eq!(to_hex(&sign1.signature), "");
+    assert_eq!(
+        to_hex(&sign1.signature),
+        "f32e95cf56faf261db27f501f1be33d91f5ecfc91c1c2158b62f33a3c89be7078574f9cdda5841d5b50b803cb82336d50896ce39a98a83e06d0bd03d900c0a01"
+    );
 }
 
 #[test]
@@ -276,10 +279,7 @@ fn aat_claims_follow_deterministic_cbor_map_order() {
         .collect();
     assert_eq!(keys, vec![3, 4, 10, 265, 266, -80_000, -80_001]);
 
-    assert_eq!(
-        entries[0].1,
-        Value::Integer(claims.aud.into_inner().into())
-    );
+    assert_eq!(entries[0].1, Value::Integer(claims.aud.into_inner().into()));
     assert_eq!(entries[1].1, Value::Integer(claims.exp.into()));
     assert_eq!(
         entries[2].1,
@@ -321,9 +321,8 @@ fn aat_rejects_assertion_key_not_attested_by_takt() {
 
 #[test]
 fn aat_rejects_invalid_trust_anchor_key_token() {
-    let err =
-        AuthenticatorAssertionToken::new(sample_aat_claims(), vec![0xde, 0xad, 0xbe, 0xef])
-            .unwrap_err();
+    let err = AuthenticatorAssertionToken::new(sample_aat_claims(), vec![0xde, 0xad, 0xbe, 0xef])
+        .unwrap_err();
     assert!(matches!(
         err,
         AttestationError::InvalidTrustAnchorKeyToken(_)
@@ -344,10 +343,7 @@ fn aat_rejects_provider_bits_with_more_than_two_bits() {
     };
 
     let err = AuthenticatorAssertionToken::new(claims, takt).unwrap_err();
-    assert!(matches!(
-        err,
-        AttestationError::ProviderBitsTooLarge(0b100)
-    ));
+    assert!(matches!(err, AttestationError::ProviderBitsTooLarge(0b100)));
 }
 
 #[test]
