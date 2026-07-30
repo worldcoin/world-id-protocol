@@ -5,7 +5,7 @@ use futures_util::TryStreamExt as _;
 use semaphore_rs_storage::MmapVec;
 use tracing::{info, instrument};
 
-use super::{TreeError, TreeResult, TreeState};
+use super::{TreeError, TreeResult, TreeState, checkpoint};
 use crate::{
     db::{DB, IsolationLevel, WorldIdRegistryEventId},
     tree::MerkleTree,
@@ -15,26 +15,60 @@ use crate::{
 // Public API
 // =============================================================================
 
+/// Statistics describing what an [`init_tree`] call actually did. Primarily useful
+/// for tests and observability to distinguish a fast incremental restore from a slow
+/// full replay.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct InitStats {
+    /// Number of raw events replayed from the DB during initialization.
+    pub replayed_events: usize,
+    /// True when a valid local checkpoint was used to start replay from a cursor
+    /// (incremental restore) rather than from genesis.
+    pub used_checkpoint: bool,
+    /// True when the tree was built from scratch from the `accounts` table because
+    /// no cache file existed.
+    pub full_rebuild: bool,
+}
+
 /// Unified tree initialization.
 ///
-/// 1. If mmap file exists → load it, validate root against DB, replay missed events
-/// 2. If mmap missing or validation fails → full rebuild from DB
+/// 1. If mmap file exists → load it, validate root against DB, then replay events.
+///    If a valid local checkpoint sidecar (`<cache_path>.meta`) is present and its
+///    root matches the loaded mmap, replay only events *after* the checkpoint cursor
+///    (incremental restore). Otherwise replay from genesis (safe fallback).
+/// 2. If mmap missing or validation fails → full rebuild from DB.
 ///
 /// Returns a `TreeState` with the sync cursor set so `sync_from_db()` can pick
-/// up any future events incrementally.
+/// up any future events incrementally, and persists a fresh checkpoint.
 ///
 /// # Safety
 ///
 /// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
 /// The caller must ensure that the cache file is not concurrently accessed or modified
 /// by other processes while the tree is using it.
-#[instrument(level = "info", skip_all, fields(tree_depth))]
 pub async unsafe fn init_tree(
     db: &DB,
     cache_path: &Path,
     tree_depth: usize,
 ) -> eyre::Result<TreeState> {
-    let (tree, last_event_id) = if cache_path.exists() {
+    let (tree_state, _stats) = unsafe { init_tree_with_stats(db, cache_path, tree_depth).await? };
+    Ok(tree_state)
+}
+
+/// Like [`init_tree`] but also returns [`InitStats`] describing whether the restore
+/// was incremental (checkpoint-based) or a full replay/rebuild, and how many events
+/// were replayed.
+///
+/// # Safety
+///
+/// See [`init_tree`].
+#[instrument(level = "info", skip_all, fields(tree_depth))]
+pub async unsafe fn init_tree_with_stats(
+    db: &DB,
+    cache_path: &Path,
+    tree_depth: usize,
+) -> eyre::Result<(TreeState, InitStats)> {
+    let (tree, last_event_id, stats) = if cache_path.exists() {
         match try_restore(db, cache_path, tree_depth).await {
             Ok(result) => result,
             Err(e) => {
@@ -42,19 +76,35 @@ pub async unsafe fn init_tree(
                 if let Err(remove_err) = std::fs::remove_file(cache_path) {
                     tracing::error!(?remove_err, "failed to delete cache file");
                 }
+                // A stale/invalid mmap also means any colocated checkpoint is
+                // meaningless — drop it so we never trust it later.
+                checkpoint::delete_checkpoint(cache_path);
                 return Err(e);
             }
         }
     } else {
         info!("no cache file, building from database");
-        build_from_db_with_cache(db, cache_path, tree_depth).await?
+        // A fresh cache must not inherit a stale checkpoint from a previous file.
+        checkpoint::delete_checkpoint(cache_path);
+        let (tree, last_event_id) = build_from_db_with_cache(db, cache_path, tree_depth).await?;
+        let stats = InitStats {
+            replayed_events: 0,
+            used_checkpoint: false,
+            full_rebuild: true,
+        };
+        (tree, last_event_id, stats)
     };
 
-    let tree_state = TreeState::new(tree, tree_depth, last_event_id);
+    let tree_state = TreeState::new(tree, tree_depth, last_event_id, Some(cache_path.to_path_buf()));
+
+    // Persist a fresh checkpoint reflecting the fully-initialized tree so the next
+    // restart can resume incrementally from here.
+    tree_state.persist_checkpoint(last_event_id).await;
+
     crate::metrics::set_tree_last_synced_block(last_event_id.block_number);
     crate::metrics::set_chain_processed_block(last_event_id.block_number);
 
-    Ok(tree_state)
+    Ok((tree_state, stats))
 }
 
 /// Incrementally sync the in-memory tree with events committed to DB
@@ -127,8 +177,8 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
         }
     }
 
-    // Advance cursor
-    tree_state.set_last_synced_event_id(cursor).await;
+    // Advance cursor and persist a checkpoint so a restart can resume from here.
+    tree_state.persist_checkpoint(cursor).await;
 
     info!(
         total_events = total,
@@ -148,23 +198,26 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
 // =============================================================================
 
 /// Try to restore from mmap cache + replay missed events.
-/// Returns the tree and last event ID on success.
+/// Returns the tree, last event ID, and init stats on success.
 #[instrument(level = "info", skip_all)]
 async fn try_restore(
     db: &DB,
     cache_path: &Path,
     tree_depth: usize,
-) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId)> {
+) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId, InitStats)> {
     // 1. Load mmap
     let tree = restore_from_cache(cache_path, tree_depth)?;
     let restored_root = tree.root();
+    let num_leaves = tree.num_leaves() as u64;
 
     info!(
         root = %format!("0x{:x}", restored_root),
         "loaded mmap"
     );
 
-    // 2. Validate that the restored root exists in world_id_registry_events
+    // 2. Validate that the restored root exists in world_id_registry_events.
+    //    This is the safety net: we never serve a tree whose root the DB has never
+    //    recorded. It is independent of the checkpoint optimization below.
     let root_exists = db
         .world_id_registry_events()
         .root_exists(&restored_root)
@@ -179,23 +232,58 @@ async fn try_restore(
 
     info!("Root validated successfully in DB");
 
-    // 3. For now, replay all events from genesis since we don't track which event produced which root
-    // TODO: Store root->event_id mapping to optimize replay
-    let replay_cursor = WorldIdRegistryEventId {
+    // 3. Choose the replay cursor.
+    //
+    //    If a valid local checkpoint exists AND it describes exactly the mmap we
+    //    just loaded (same root and leaf count), we can trust its cursor and replay
+    //    only the events after it. The root equality check is the crash-consistency
+    //    guard: a Poseidon root commits to the entire leaf set, so a match proves
+    //    the mmap is at the checkpointed position. Any mismatch (torn write,
+    //    partially-flushed mmap, post-rollback state, stale/foreign checkpoint)
+    //    falls back to a full genesis replay, which is always correct.
+    let genesis = WorldIdRegistryEventId {
         block_number: 0,
         log_index: 0,
     };
+    let (replay_cursor, used_checkpoint) = match checkpoint::read_checkpoint(cache_path) {
+        Some(cp) if cp.root_u256() == Some(restored_root) && cp.num_leaves == num_leaves => {
+            info!(
+                cursor = ?cp.cursor(),
+                "valid checkpoint matches mmap; incremental replay from cursor"
+            );
+            (cp.cursor(), true)
+        }
+        Some(_) => {
+            info!(
+                "checkpoint present but does not match mmap (root/leaf mismatch); \
+                 falling back to full genesis replay"
+            );
+            (genesis, false)
+        }
+        None => {
+            info!("no valid checkpoint; full genesis replay");
+            (genesis, false)
+        }
+    };
 
-    // 4. Replay events after that root's position
-    let (tree, last_event_id) = replay_events(tree, db, replay_cursor).await?;
+    // 4. Replay events after the chosen cursor.
+    let (tree, last_event_id, replayed_events) = replay_events(tree, db, replay_cursor).await?;
 
     info!(
         root = %format!("0x{:x}", tree.root()),
         ?last_event_id,
+        used_checkpoint,
+        replayed_events,
         "replay complete"
     );
 
-    Ok((tree, last_event_id))
+    let stats = InitStats {
+        replayed_events,
+        used_checkpoint,
+        full_rebuild: false,
+    };
+
+    Ok((tree, last_event_id, stats))
 }
 
 /// Restore tree from mmap file (no validation).
@@ -272,12 +360,15 @@ async fn build_from_db_with_cache(
 
 /// Replay events onto an existing tree with deduplication.
 /// Uses event ID-based pagination to efficiently handle large replays.
+///
+/// Returns the updated tree, the last event ID observed, and the number of raw
+/// events replayed (before deduplication).
 #[instrument(level = "info", skip_all, fields(?from_event_id))]
 async fn replay_events(
     mut tree: MerkleTree,
     db: &DB,
     from_event_id: WorldIdRegistryEventId,
-) -> TreeResult<(MerkleTree, WorldIdRegistryEventId)> {
+) -> TreeResult<(MerkleTree, WorldIdRegistryEventId, usize)> {
     const BATCH_SIZE: u64 = 10_000;
 
     let mut last_event_id = from_event_id;
@@ -332,7 +423,7 @@ async fn replay_events(
 
     if total_events == 0 {
         info!("No events to replay, cache is up-to-date");
-        return Ok((tree, last_event_id));
+        return Ok((tree, last_event_id, 0));
     }
 
     info!(
@@ -357,7 +448,7 @@ async fn replay_events(
         leaf_final_states.len()
     );
 
-    Ok((tree, last_event_id))
+    Ok((tree, last_event_id, total_events))
 }
 
 /// Set a leaf value at the given index, extending the tree if necessary.

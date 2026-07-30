@@ -6,6 +6,7 @@ use semaphore_rs_trees::cascading::CascadingMerkleTree;
 use thiserror::Error;
 
 pub mod cached_tree;
+pub mod checkpoint;
 pub mod state;
 pub mod versioned;
 
