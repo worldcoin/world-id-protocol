@@ -17,7 +17,7 @@ use world_id_indexer::{
     handle_registry_event,
     tree::{
         TreeState, VersionedTreeState,
-        cached_tree::{init_tree, sync_from_db},
+        cached_tree::{self, init_tree, sync_from_db},
     },
 };
 
@@ -38,7 +38,7 @@ async fn test_init_tree_empty_db() {
     let test_db = create_unique_test_db().await;
     let cache_path = temp_cache_path();
 
-    let tree_state = unsafe { init_tree(test_db.db(), &cache_path, 6).await.unwrap() };
+    let (tree_state, _) = unsafe { init_tree(test_db.db(), &cache_path, 6).await.unwrap() };
 
     let expected = unsafe { TreeState::new_empty(6, temp_cache_path()) }.unwrap();
     assert_eq!(tree_state.root().await, expected.root().await);
@@ -63,7 +63,7 @@ async fn test_stale_cache_returns_error() {
         .await
         .unwrap();
 
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let (tree_state, _) = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     drop(tree_state);
     assert!(cache_path.exists());
 
@@ -114,7 +114,7 @@ async fn test_replay_with_no_new_events() {
     .unwrap();
 
     // Build cache
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let (tree_state, _) = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     let root = tree_state.root().await;
     drop(tree_state);
 
@@ -126,7 +126,7 @@ async fn test_replay_with_no_new_events() {
         .unwrap();
 
     // Second init: restore from cache, replay 0 events
-    let tree_state2 = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let (tree_state2, _) = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     assert_eq!(tree_state2.root().await, root, "root must be unchanged");
 
     cleanup(&cache_path);
@@ -164,7 +164,7 @@ async fn test_replay_deduplication() {
     .unwrap();
 
     // Build cache
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let (tree_state, _) = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     let root = tree_state.root().await;
     drop(tree_state);
 
@@ -206,7 +206,7 @@ async fn test_replay_deduplication() {
         .unwrap();
 
     // Restore + replay should deduplicate to final value 400
-    let tree_state2 = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let (tree_state2, _) = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
 
     let tree = tree_state2.read().await;
     assert_eq!(
@@ -272,7 +272,7 @@ async fn test_replay_matches_fresh_build() {
     .unwrap();
 
     // Build cache
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let (tree_state, _) = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     let root = tree_state.root().await;
     drop(tree_state);
 
@@ -359,14 +359,30 @@ async fn test_replay_matches_fresh_build() {
         .unwrap();
 
     // Path A: Restore from cache + replay
-    let replayed = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let (replayed, replayed_outcome) = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     let replayed_root = replayed.root().await;
     drop(replayed);
 
     // Path B: Fresh rebuild (delete cache first)
     cleanup(&cache_path);
-    let fresh = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let (fresh, fresh_outcome) = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     let fresh_root = fresh.root().await;
+
+    // The init outcome should correctly reflect how the tree was sourced.
+    assert_eq!(
+        replayed_outcome.source,
+        cached_tree::TreeInitSource::MmapRestore,
+        "path A should restore from the mmap cache"
+    );
+    assert_eq!(
+        fresh_outcome.source,
+        cached_tree::TreeInitSource::DbRebuild,
+        "path B should rebuild from the DB"
+    );
+    assert_eq!(
+        fresh_outcome.events_replayed, 0,
+        "a fresh rebuild replays no events"
+    );
 
     assert_eq!(
         replayed_root, fresh_root,
@@ -387,7 +403,7 @@ async fn test_sync_from_db_no_pending_events() {
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let (tree_state, _) = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
 
     let count = sync_from_db(db, &tree_state).await.unwrap();
     assert_eq!(count, 0);
@@ -407,7 +423,7 @@ async fn test_sync_from_db_deduplication() {
         .unwrap();
 
     // Build tree — last_synced_event_id will be (0,0) since no events exist yet
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let (tree_state, _) = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
 
     // Insert 3 events for the same leaf with increasing commitments
     for (block, commitment) in [(100, 200u64), (101, 300), (102, 400)] {
@@ -463,7 +479,7 @@ async fn test_handle_registry_event_root_mismatch() {
         .await
         .unwrap();
 
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let (tree_state, _) = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     let versioned_tree = VersionedTreeState::new(tree_state, 1000);
 
     // Simulate a batch: AccountCreated event followed by RootRecorded.
@@ -516,7 +532,7 @@ async fn test_handle_registry_event_root_match() {
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let (tree_state, _) = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
 
     // Build a temporary tree to compute the expected root after inserting leaf 1
     let tmp_path = temp_cache_path();
@@ -613,7 +629,7 @@ async fn test_init_tree_recovers_after_cache_deletion() {
     assert!(!cache_path.exists());
 
     // Second call: no cache file → fresh build from DB
-    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let (tree_state, _) = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     let tree = tree_state.read().await;
     assert_eq!(tree.get_leaf(1), U256::from(100));
 

@@ -34,26 +34,42 @@ const BLOCKCHAIN_PULL_STREAM_ERROR_THRESHOLD: u64 = 5;
 
 /// Initializes the in-memory tree from a cache file if it exists, otherwise builds from DB.
 ///
+/// Emits a structured `tree initialization complete` log with the total
+/// wall-clock initialization time and metadata (leaf count, run mode, whether
+/// the tree was restored from the mmap cache or rebuilt from the DB, and how
+/// many events were replayed). This powers observability for tree
+/// restore/rebuild performance (e.g. Datadog dashboards).
+///
 /// # Safety
 ///
 /// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
 /// The caller must ensure that the cache file is not concurrently accessed or modified
 /// by other processes while the tree is using it.
-#[instrument(level = "info", skip_all)]
+#[instrument(level = "info", skip_all, fields(run_mode))]
 async unsafe fn initialize_tree_with_config(
     tree_cache_cfg: &config::TreeCacheConfig,
     db: &DB,
+    run_mode: &str,
 ) -> eyre::Result<tree::TreeState> {
     let cache_path = std::path::Path::new(&tree_cache_cfg.cache_file_path);
 
-    let tree_state =
+    let start = std::time::Instant::now();
+    let (tree_state, outcome) =
         unsafe { tree::cached_tree::init_tree(db, cache_path, tree_cache_cfg.tree_depth).await? };
+    let duration_ms = start.elapsed().as_millis() as u64;
 
     let root = tree_state.root().await;
+    let num_leaves = tree_state.num_leaves().await;
+
     tracing::info!(
-        root = %format!("0x{:x}", root),
+        duration_ms,
+        num_leaves,
+        run_mode,
+        init_source = outcome.source.as_str(),
+        events_replayed = outcome.events_replayed,
         depth = tree_cache_cfg.tree_depth,
-        "Tree initialized successfully"
+        root = %format!("0x{:x}", root),
+        "tree initialization complete"
     );
 
     Ok(tree_state)
@@ -129,9 +145,8 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
     match cfg.run_mode {
         RunMode::IndexerOnly { indexer_config } => {
             tracing::info!("Running in INDEXER-ONLY mode");
-            let start_time = std::time::Instant::now();
-            let tree_state = unsafe { initialize_tree_with_config(&cfg.tree_cache, &db).await? };
-            tracing::info!("tree initialization took {:?}", start_time.elapsed());
+            let tree_state =
+                unsafe { initialize_tree_with_config(&cfg.tree_cache, &db, "indexer_only").await? };
 
             run_indexer_only(
                 db,
@@ -144,9 +159,8 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
         }
         RunMode::HttpOnly { http_config } => {
             tracing::info!("Running in HTTP-ONLY mode (initializing tree with cache)");
-            let start_time = std::time::Instant::now();
-            let tree_state = unsafe { initialize_tree_with_config(&cfg.tree_cache, &db).await? };
-            tracing::info!("tree initialization took {:?}", start_time.elapsed());
+            let tree_state =
+                unsafe { initialize_tree_with_config(&cfg.tree_cache, &db, "http_only").await? };
 
             run_http_only(
                 db,
@@ -162,9 +176,8 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
             http_config,
         } => {
             tracing::info!("Running in BOTH mode (indexer + HTTP server)");
-            let start_time = std::time::Instant::now();
-            let tree_state = unsafe { initialize_tree_with_config(&cfg.tree_cache, &db).await? };
-            tracing::info!("tree initialization took {:?}", start_time.elapsed());
+            let tree_state =
+                unsafe { initialize_tree_with_config(&cfg.tree_cache, &db, "both").await? };
 
             run_both(
                 db,

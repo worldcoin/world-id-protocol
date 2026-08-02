@@ -15,6 +15,42 @@ use crate::{
 // Public API
 // =============================================================================
 
+/// Describes how the in-memory tree was initialized on startup.
+///
+/// This is purely observability metadata surfaced to the caller so it can be
+/// logged in a structured way (e.g. for Datadog dashboards tracking tree
+/// restore/rebuild performance).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TreeInitOutcome {
+    /// How the tree contents were sourced.
+    pub source: TreeInitSource,
+    /// Number of events replayed on top of the initial contents.
+    ///
+    /// For the mmap-restore path this is the number of events replayed from the
+    /// DB after loading the cache. For a fresh rebuild-from-DB this is `0` since
+    /// the leaves are materialized directly rather than replayed as events.
+    pub events_replayed: usize,
+}
+
+/// Where the tree contents came from during initialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeInitSource {
+    /// Restored from the mmap cache file and (possibly) replayed missed events.
+    MmapRestore,
+    /// Rebuilt from the database because no valid cache file was available.
+    DbRebuild,
+}
+
+impl TreeInitSource {
+    /// Stable string label suitable for structured logging / querying.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            TreeInitSource::MmapRestore => "mmap_restore",
+            TreeInitSource::DbRebuild => "db_rebuild",
+        }
+    }
+}
+
 /// Unified tree initialization.
 ///
 /// 1. If mmap file exists → load it, validate root against DB, replay missed events
@@ -33,10 +69,17 @@ pub async unsafe fn init_tree(
     db: &DB,
     cache_path: &Path,
     tree_depth: usize,
-) -> eyre::Result<TreeState> {
-    let (tree, last_event_id) = if cache_path.exists() {
+) -> eyre::Result<(TreeState, TreeInitOutcome)> {
+    let (tree, last_event_id, outcome) = if cache_path.exists() {
         match try_restore(db, cache_path, tree_depth).await {
-            Ok(result) => result,
+            Ok((tree, last_event_id, events_replayed)) => (
+                tree,
+                last_event_id,
+                TreeInitOutcome {
+                    source: TreeInitSource::MmapRestore,
+                    events_replayed,
+                },
+            ),
             Err(e) => {
                 tracing::error!(?e, "restore failed, deleting cache file");
                 if let Err(remove_err) = std::fs::remove_file(cache_path) {
@@ -47,14 +90,22 @@ pub async unsafe fn init_tree(
         }
     } else {
         info!("no cache file, building from database");
-        build_from_db_with_cache(db, cache_path, tree_depth).await?
+        let (tree, last_event_id) = build_from_db_with_cache(db, cache_path, tree_depth).await?;
+        (
+            tree,
+            last_event_id,
+            TreeInitOutcome {
+                source: TreeInitSource::DbRebuild,
+                events_replayed: 0,
+            },
+        )
     };
 
     let tree_state = TreeState::new(tree, tree_depth, last_event_id);
     crate::metrics::set_tree_last_synced_block(last_event_id.block_number);
     crate::metrics::set_chain_processed_block(last_event_id.block_number);
 
-    Ok(tree_state)
+    Ok((tree_state, outcome))
 }
 
 /// Incrementally sync the in-memory tree with events committed to DB
@@ -148,13 +199,13 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
 // =============================================================================
 
 /// Try to restore from mmap cache + replay missed events.
-/// Returns the tree and last event ID on success.
+/// Returns the tree, last event ID, and the number of events replayed on success.
 #[instrument(level = "info", skip_all)]
 async fn try_restore(
     db: &DB,
     cache_path: &Path,
     tree_depth: usize,
-) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId)> {
+) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId, usize)> {
     // 1. Load mmap
     let tree = restore_from_cache(cache_path, tree_depth)?;
     let restored_root = tree.root();
@@ -187,15 +238,16 @@ async fn try_restore(
     };
 
     // 4. Replay events after that root's position
-    let (tree, last_event_id) = replay_events(tree, db, replay_cursor).await?;
+    let (tree, last_event_id, events_replayed) = replay_events(tree, db, replay_cursor).await?;
 
     info!(
         root = %format!("0x{:x}", tree.root()),
         ?last_event_id,
+        events_replayed,
         "replay complete"
     );
 
-    Ok((tree, last_event_id))
+    Ok((tree, last_event_id, events_replayed))
 }
 
 /// Restore tree from mmap file (no validation).
@@ -277,7 +329,7 @@ async fn replay_events(
     mut tree: MerkleTree,
     db: &DB,
     from_event_id: WorldIdRegistryEventId,
-) -> TreeResult<(MerkleTree, WorldIdRegistryEventId)> {
+) -> TreeResult<(MerkleTree, WorldIdRegistryEventId, usize)> {
     const BATCH_SIZE: u64 = 10_000;
 
     let mut last_event_id = from_event_id;
@@ -332,7 +384,7 @@ async fn replay_events(
 
     if total_events == 0 {
         info!("No events to replay, cache is up-to-date");
-        return Ok((tree, last_event_id));
+        return Ok((tree, last_event_id, total_events));
     }
 
     info!(
@@ -357,7 +409,7 @@ async fn replay_events(
         leaf_final_states.len()
     );
 
-    Ok((tree, last_event_id))
+    Ok((tree, last_event_id, total_events))
 }
 
 /// Set a leaf value at the given index, extending the tree if necessary.
