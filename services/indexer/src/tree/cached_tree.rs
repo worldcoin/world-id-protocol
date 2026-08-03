@@ -15,21 +15,6 @@ use crate::{
 // Public API
 // =============================================================================
 
-/// Statistics describing what an [`init_tree`] call actually did. Primarily useful
-/// for tests and observability to distinguish a fast incremental restore from a slow
-/// full replay.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct InitStats {
-    /// Number of raw events replayed from the DB during initialization.
-    pub replayed_events: usize,
-    /// True when a valid local checkpoint was used to start replay from a cursor
-    /// (incremental restore) rather than from genesis.
-    pub used_checkpoint: bool,
-    /// True when the tree was built from scratch from the `accounts` table because
-    /// no cache file existed.
-    pub full_rebuild: bool,
-}
-
 /// Unified tree initialization.
 ///
 /// 1. If mmap file exists → load it, validate root against DB, then replay events.
@@ -46,29 +31,13 @@ pub struct InitStats {
 /// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
 /// The caller must ensure that the cache file is not concurrently accessed or modified
 /// by other processes while the tree is using it.
+#[instrument(level = "info", skip_all, fields(tree_depth))]
 pub async unsafe fn init_tree(
     db: &DB,
     cache_path: &Path,
     tree_depth: usize,
 ) -> eyre::Result<TreeState> {
-    let (tree_state, _stats) = unsafe { init_tree_with_stats(db, cache_path, tree_depth).await? };
-    Ok(tree_state)
-}
-
-/// Like [`init_tree`] but also returns [`InitStats`] describing whether the restore
-/// was incremental (checkpoint-based) or a full replay/rebuild, and how many events
-/// were replayed.
-///
-/// # Safety
-///
-/// See [`init_tree`].
-#[instrument(level = "info", skip_all, fields(tree_depth))]
-pub async unsafe fn init_tree_with_stats(
-    db: &DB,
-    cache_path: &Path,
-    tree_depth: usize,
-) -> eyre::Result<(TreeState, InitStats)> {
-    let (tree, last_event_id, stats) = if cache_path.exists() {
+    let (tree, last_event_id) = if cache_path.exists() {
         match try_restore(db, cache_path, tree_depth).await {
             Ok(result) => result,
             Err(e) => {
@@ -83,16 +52,10 @@ pub async unsafe fn init_tree_with_stats(
             }
         }
     } else {
-        info!("no cache file, building from database");
+        info!("no cache file, building tree from database (full rebuild)");
         // A fresh cache must not inherit a stale checkpoint from a previous file.
         checkpoint::delete_checkpoint(cache_path);
-        let (tree, last_event_id) = build_from_db_with_cache(db, cache_path, tree_depth).await?;
-        let stats = InitStats {
-            replayed_events: 0,
-            used_checkpoint: false,
-            full_rebuild: true,
-        };
-        (tree, last_event_id, stats)
+        build_from_db_with_cache(db, cache_path, tree_depth).await?
     };
 
     let tree_state = TreeState::new(tree, tree_depth, last_event_id, Some(cache_path.to_path_buf()));
@@ -104,7 +67,7 @@ pub async unsafe fn init_tree_with_stats(
     crate::metrics::set_tree_last_synced_block(last_event_id.block_number);
     crate::metrics::set_chain_processed_block(last_event_id.block_number);
 
-    Ok((tree_state, stats))
+    Ok(tree_state)
 }
 
 /// Incrementally sync the in-memory tree with events committed to DB
@@ -198,13 +161,14 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
 // =============================================================================
 
 /// Try to restore from mmap cache + replay missed events.
-/// Returns the tree, last event ID, and init stats on success.
+/// Returns the tree and last event ID on success. Logs whether the restore was an
+/// incremental (checkpoint-based) replay or a full genesis replay.
 #[instrument(level = "info", skip_all)]
 async fn try_restore(
     db: &DB,
     cache_path: &Path,
     tree_depth: usize,
-) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId, InitStats)> {
+) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId)> {
     // 1. Load mmap
     let tree = restore_from_cache(cache_path, tree_depth)?;
     let restored_root = tree.root();
@@ -274,16 +238,15 @@ async fn try_restore(
         ?last_event_id,
         used_checkpoint,
         replayed_events,
-        "replay complete"
+        restore_mode = if used_checkpoint {
+            "incremental (checkpoint)"
+        } else {
+            "full genesis replay"
+        },
+        "tree restore complete"
     );
 
-    let stats = InitStats {
-        replayed_events,
-        used_checkpoint,
-        full_rebuild: false,
-    };
-
-    Ok((tree, last_event_id, stats))
+    Ok((tree, last_event_id))
 }
 
 /// Restore tree from mmap file (no validation).

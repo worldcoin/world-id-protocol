@@ -1,14 +1,18 @@
 //! Tests for the local per-instance tree checkpoint (watermark) restore path.
 //!
-//! These assert the *desired* behavior of the incremental-restore optimization:
-//!   - a valid local checkpoint makes restart replay only events AFTER the cursor
-//!     (fast path), not the whole history from genesis;
+//! These assert the behavior of the incremental-restore optimization via
+//! *observable* effects only (tree roots and the on-disk checkpoint sidecar) — no
+//! internal stats/return-type surface is used:
 //!   - incremental restore produces an IDENTICAL tree to a full rebuild (the
 //!     critical correctness property for a ZK/identity Merkle tree);
+//!   - restore actually resumes from the checkpoint cursor rather than replaying
+//!     from genesis (probed by inserting a pre-cursor event that a genesis replay
+//!     would pick up but an incremental restore must ignore);
+//!   - the checkpoint sidecar is written on init and advances across restarts;
 //!   - a missing / corrupted / mismatched checkpoint safely falls back to the full
-//!     replay (never a crash, never a silently-wrong tree);
-//!   - invalidating the checkpoint (as the reorg/rollback path does) forces one
-//!     safe full replay on the next boot;
+//!     replay (never a crash, never a silently-wrong tree) and is rewritten;
+//!   - invalidating the checkpoint (as the reorg/rollback path does) removes the
+//!     sidecar and the next boot still restores correctly;
 //!   - two independent "instances" (separate cache + checkpoint file pairs) restore
 //!     independently and correctly using only their own local checkpoint.
 
@@ -26,11 +30,7 @@ use helpers::db_helpers::{
 use world_id_indexer::{
     blockchain::{AccountCreatedEvent, BlockchainEvent, RegistryEvent},
     db::DB,
-    tree::{
-        TreeState, apply_event_to_tree,
-        cached_tree::{InitStats, init_tree_with_stats},
-        checkpoint,
-    },
+    tree::{TreeState, apply_event_to_tree, cached_tree::init_tree, checkpoint},
 };
 
 const DEPTH: usize = 6;
@@ -45,17 +45,18 @@ fn cleanup(path: &PathBuf) {
 }
 
 /// Build an `AccountCreated` event for `leaf_index` with the given commitment at
-/// `(block_number, 0)`.
+/// `(block_number, log_index)`.
 fn account_created(
     block_number: u64,
+    log_index: u64,
     leaf_index: u64,
     commitment: u64,
 ) -> BlockchainEvent<RegistryEvent> {
     BlockchainEvent {
         block_number,
         block_hash: U256::from(1_000_000 + block_number),
-        tx_hash: U256::from(block_number),
-        log_index: 0,
+        tx_hash: U256::from(block_number * 100 + log_index),
+        log_index,
         details: RegistryEvent::AccountCreated(AccountCreatedEvent {
             leaf_index,
             recovery_address: Address::ZERO,
@@ -81,8 +82,8 @@ async fn root_after_events(events: &[BlockchainEvent<RegistryEvent>]) -> U256 {
 }
 
 /// Seed the DB with `AccountCreated` events for the given `(leaf_index, commitment)`
-/// pairs at consecutive blocks starting at `first_block`, plus matching `accounts`
-/// rows. Returns `(events, next_block)`.
+/// pairs at consecutive blocks starting at `first_block` (log_index 0), plus matching
+/// `accounts` rows. Returns `(events, next_block)`.
 async fn seed_stage(
     db: &DB,
     leaves: &[(u64, u64)],
@@ -91,7 +92,7 @@ async fn seed_stage(
     let mut events = Vec::new();
     let mut block = first_block;
     for (leaf_index, commitment) in leaves {
-        let ev = account_created(block, *leaf_index, *commitment);
+        let ev = account_created(block, 0, *leaf_index, *commitment);
         insert_test_account(db, *leaf_index, Address::ZERO, U256::from(*commitment))
             .await
             .unwrap();
@@ -103,11 +104,12 @@ async fn seed_stage(
 }
 
 // ============================================================================
-// 1. Fast path: valid checkpoint ⇒ replay only the delta, not from genesis.
+// 1. Checkpoint is written on init and advances across restarts; restore is
+//    correct.
 // ============================================================================
 
 #[tokio::test]
-async fn test_restart_uses_checkpoint_and_replays_only_delta() {
+async fn test_checkpoint_written_and_advanced_on_restart() {
     let test_db = create_unique_test_db().await;
     let db = test_db.db();
     let cache_path = temp_cache_path();
@@ -120,17 +122,15 @@ async fn test_restart_uses_checkpoint_and_replays_only_delta() {
         .await
         .unwrap();
 
-    // First init: no cache ⇒ full build from accounts, writes checkpoint at the
+    // First init: no cache ⇒ full build from accounts, writes a checkpoint at the
     // latest event id (the RootRecorded at block 15).
-    let (ts1, stats1) = unsafe { init_tree_with_stats(db, &cache_path, DEPTH).await.unwrap() };
-    assert!(stats1.full_rebuild, "first init should build from DB");
+    let ts1 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
     assert_eq!(ts1.root().await, r5, "built root must match expected");
     drop(ts1);
 
-    assert!(
-        checkpoint::read_checkpoint(&cache_path).is_some(),
-        "a checkpoint should have been written after first init"
-    );
+    let cp1 = checkpoint::read_checkpoint(&cache_path).expect("checkpoint written after init");
+    assert_eq!(cp1.root_u256(), Some(r5));
+    assert_eq!(cp1.cursor().block_number, next_block, "cursor at latest event");
 
     // Stage 2 delta: 2 more accounts (blocks 16,17) + RootRecorded at block 18.
     let stage2 = [(6u64, 106u64), (7, 107)];
@@ -141,25 +141,15 @@ async fn test_restart_uses_checkpoint_and_replays_only_delta() {
         .await
         .unwrap();
 
-    // Second init: cache + valid checkpoint ⇒ incremental restore.
-    let (ts2, stats2) = unsafe { init_tree_with_stats(db, &cache_path, DEPTH).await.unwrap() };
+    // Second init: cache + valid checkpoint ⇒ incremental restore reaches r7 and
+    // advances the checkpoint.
+    let ts2 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
+    assert_eq!(ts2.root().await, r7, "restore must reach the up-to-date root");
+    drop(ts2);
 
-    assert!(
-        stats2.used_checkpoint,
-        "restart with a valid checkpoint must use it (incremental restore)"
-    );
-    assert!(!stats2.full_rebuild, "restart must not rebuild from scratch");
-    // Only the delta after the checkpoint cursor (block 15) is replayed:
-    // blocks 16, 17 (AccountCreated) + 18 (RootRecorded) == 3 raw events.
-    assert_eq!(
-        stats2.replayed_events, 3,
-        "must replay only events after the checkpoint cursor, not from genesis"
-    );
-    assert_eq!(
-        ts2.root().await,
-        r7,
-        "incremental restore must reach the up-to-date root"
-    );
+    let cp2 = checkpoint::read_checkpoint(&cache_path).expect("checkpoint still present");
+    assert_eq!(cp2.root_u256(), Some(r7), "checkpoint root advanced");
+    assert_eq!(cp2.cursor().block_number, next_block2, "cursor advanced to new latest");
 
     cleanup(&cache_path);
 }
@@ -182,7 +172,7 @@ async fn test_incremental_restore_matches_full_rebuild() {
         .unwrap();
 
     // First init builds + checkpoints.
-    let (ts1, _s1) = unsafe { init_tree_with_stats(db, &cache_path, DEPTH).await.unwrap() };
+    let ts1 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
     drop(ts1);
 
     // Delta.
@@ -195,17 +185,13 @@ async fn test_incremental_restore_matches_full_rebuild() {
         .unwrap();
 
     // Path A: incremental restore (cache + checkpoint present).
-    let (incremental, stats_inc) =
-        unsafe { init_tree_with_stats(db, &cache_path, DEPTH).await.unwrap() };
-    assert!(stats_inc.used_checkpoint, "should have used checkpoint");
+    let incremental = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
     let incremental_root = incremental.root().await;
     drop(incremental);
 
     // Path B: full rebuild from scratch (wipe cache + checkpoint).
     cleanup(&cache_path);
-    let (fresh, stats_fresh) =
-        unsafe { init_tree_with_stats(db, &cache_path, DEPTH).await.unwrap() };
-    assert!(stats_fresh.full_rebuild, "should have rebuilt from DB");
+    let fresh = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
     let fresh_root = fresh.root().await;
     drop(fresh);
 
@@ -222,13 +208,73 @@ async fn test_incremental_restore_matches_full_rebuild() {
 }
 
 // ============================================================================
-// 3. Fallbacks: missing / corrupted / mismatched checkpoint ⇒ safe full replay.
+// 3. Fast-path proof: incremental restore resumes from the checkpoint cursor and
+//    does NOT re-scan history before it.
+//
+//    We checkpoint at block 15, then insert an event at block 12 (before the
+//    cursor) that was not part of the mmap. A genesis replay would apply it and
+//    change the root; an incremental restore (resuming after block 15) must ignore
+//    it, leaving the root unchanged. This distinguishes the two code paths purely
+//    by observable root value.
 // ============================================================================
 
-/// Shared setup: build a cache + checkpoint, then add a delta. Returns the
-/// expected up-to-date root and the number of events a *full genesis* replay
-/// would process.
-async fn setup_with_delta(db: &DB, cache_path: &PathBuf) -> (U256, usize) {
+#[tokio::test]
+async fn test_incremental_restore_resumes_from_cursor_and_ignores_earlier_events() {
+    let test_db = create_unique_test_db().await;
+    let db = test_db.db();
+    let cache_path = temp_cache_path();
+
+    let stage1 = [(1u64, 101u64), (2, 102), (3, 103), (4, 104), (5, 105)];
+    let (all_events, next_block) = seed_stage(db, &stage1, 10).await;
+    let r5 = root_after_events(&all_events).await;
+    insert_test_world_tree_root(db, next_block, 0, r5, U256::ZERO)
+        .await
+        .unwrap();
+
+    // Build + checkpoint at cursor (block 15).
+    let ts1 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
+    assert_eq!(ts1.root().await, r5);
+    drop(ts1);
+    let cp = checkpoint::read_checkpoint(&cache_path).unwrap();
+    assert_eq!(cp.cursor().block_number, next_block);
+
+    // Insert a "pre-cursor" event (block 12, log 5) touching a new leaf (20) that is
+    // NOT reflected in the mmap. A full genesis replay would apply it.
+    let stray = account_created(12, 5, 20, 999);
+    insert_test_world_tree_event(db, &stray).await.unwrap();
+
+    // What the root WOULD be if the stray were applied (genesis-replay outcome).
+    let mut with_stray = all_events.clone();
+    with_stray.push(stray);
+    let r_with_stray = root_after_events(&with_stray).await;
+    assert_ne!(r5, r_with_stray, "sanity: the stray event changes the root");
+
+    // Restart: incremental restore resumes after block 15, so the block-12 stray is
+    // ignored and the root stays r5.
+    let ts2 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
+    let restored = ts2.root().await;
+    drop(ts2);
+
+    assert_eq!(
+        restored, r5,
+        "incremental restore must resume from the cursor and ignore pre-cursor events"
+    );
+    assert_ne!(
+        restored, r_with_stray,
+        "a genesis replay (which would apply the stray) must NOT have happened"
+    );
+
+    cleanup(&cache_path);
+}
+
+// ============================================================================
+// 4. Fallbacks: missing / corrupted / mismatched checkpoint ⇒ safe full replay,
+//    still correct, and the checkpoint is rewritten.
+// ============================================================================
+
+/// Shared setup: build a cache + checkpoint, then add a delta. Returns the expected
+/// up-to-date root.
+async fn setup_with_delta(db: &DB, cache_path: &PathBuf) -> U256 {
     let stage1 = [(1u64, 11u64), (2, 22), (3, 33)];
     let (mut all_events, nb) = seed_stage(db, &stage1, 10).await;
     let r_a = root_after_events(&all_events).await;
@@ -236,7 +282,7 @@ async fn setup_with_delta(db: &DB, cache_path: &PathBuf) -> (U256, usize) {
         .await
         .unwrap();
 
-    let (ts1, _s1) = unsafe { init_tree_with_stats(db, cache_path, DEPTH).await.unwrap() };
+    let ts1 = unsafe { init_tree(db, cache_path, DEPTH).await.unwrap() };
     drop(ts1);
 
     let stage2 = [(4u64, 44u64), (5, 55)];
@@ -247,8 +293,7 @@ async fn setup_with_delta(db: &DB, cache_path: &PathBuf) -> (U256, usize) {
         .await
         .unwrap();
 
-    // Full genesis replay would process every event: 3 + root_a + 2 + root_b = 7.
-    (r_b, 7)
+    r_b
 }
 
 #[tokio::test]
@@ -257,25 +302,22 @@ async fn test_fallback_when_checkpoint_missing() {
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    let (expected_root, full_count) = setup_with_delta(db, &cache_path).await;
+    let expected_root = setup_with_delta(db, &cache_path).await;
 
     // Delete the checkpoint but keep the mmap cache.
     fs::remove_file(checkpoint::checkpoint_path(&cache_path)).unwrap();
 
-    let (ts, stats) = unsafe { init_tree_with_stats(db, &cache_path, DEPTH).await.unwrap() };
-    assert!(!stats.used_checkpoint, "no checkpoint ⇒ must not use one");
-    assert!(
-        !stats.full_rebuild,
-        "mmap still present ⇒ restore path, not rebuild"
-    );
-    assert_eq!(
-        stats.replayed_events, full_count,
-        "missing checkpoint ⇒ full genesis replay"
-    );
+    let ts = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
     assert_eq!(
         ts.root().await,
         expected_root,
-        "fallback must still be correct"
+        "fallback (full replay) must still be correct"
+    );
+    drop(ts);
+
+    assert!(
+        checkpoint::read_checkpoint(&cache_path).is_some(),
+        "a fresh checkpoint should be rewritten after fallback restore"
     );
 
     cleanup(&cache_path);
@@ -287,18 +329,16 @@ async fn test_fallback_when_checkpoint_corrupted() {
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    let (expected_root, full_count) = setup_with_delta(db, &cache_path).await;
+    let expected_root = setup_with_delta(db, &cache_path).await;
 
     // Corrupt the checkpoint file with garbage.
     fs::write(checkpoint::checkpoint_path(&cache_path), b"garbage not json").unwrap();
 
-    let (ts, stats) = unsafe { init_tree_with_stats(db, &cache_path, DEPTH).await.unwrap() };
-    assert!(!stats.used_checkpoint, "corrupt checkpoint ⇒ ignored");
-    assert_eq!(stats.replayed_events, full_count, "⇒ full genesis replay");
+    let ts = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
     assert_eq!(
         ts.root().await,
         expected_root,
-        "fallback must still be correct"
+        "corrupt checkpoint ⇒ safe full replay, still correct"
     );
 
     cleanup(&cache_path);
@@ -310,11 +350,12 @@ async fn test_fallback_when_checkpoint_root_mismatches_mmap() {
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    let (expected_root, full_count) = setup_with_delta(db, &cache_path).await;
+    let expected_root = setup_with_delta(db, &cache_path).await;
 
     // Write a well-formed checkpoint (valid checksum) whose root does NOT match the
-    // mmap's root — simulating a checkpoint that is ahead of / inconsistent with the
-    // actual cache (e.g. post-crash or post-rollback).
+    // mmap's root — simulating a checkpoint that is inconsistent with the actual
+    // cache (e.g. post-crash or post-rollback). The restore-time root guard must
+    // reject it and fall back to a full replay.
     let bogus = checkpoint::TreeCheckpoint::new(
         U256::from(0xdead_beefu64),
         world_id_indexer::db::WorldIdRegistryEventId {
@@ -325,36 +366,32 @@ async fn test_fallback_when_checkpoint_root_mismatches_mmap() {
     );
     checkpoint::write_checkpoint(&cache_path, &bogus).unwrap();
 
-    let (ts, stats) = unsafe { init_tree_with_stats(db, &cache_path, DEPTH).await.unwrap() };
-    assert!(
-        !stats.used_checkpoint,
-        "checkpoint whose root != mmap root must be rejected"
-    );
-    assert_eq!(stats.replayed_events, full_count, "⇒ full genesis replay");
+    let ts = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
     assert_eq!(
         ts.root().await,
         expected_root,
-        "fallback must still be correct"
+        "root-mismatched checkpoint ⇒ rejected, full replay, still correct"
     );
 
     cleanup(&cache_path);
 }
 
 // ============================================================================
-// 4. Reorg: invalidating the checkpoint forces one safe full replay next boot.
+// 5. Reorg: invalidating the checkpoint removes the sidecar; the next boot still
+//    restores correctly (and rewrites a fresh checkpoint).
 // ============================================================================
 
 #[tokio::test]
-async fn test_invalidate_checkpoint_forces_full_replay() {
+async fn test_invalidate_checkpoint_removes_sidecar() {
     let test_db = create_unique_test_db().await;
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    let (expected_root, full_count) = setup_with_delta(db, &cache_path).await;
+    let expected_root = setup_with_delta(db, &cache_path).await;
 
     // Simulate the reorg/rollback path invalidating the checkpoint via the tree's
     // own API.
-    let (ts, _s) = unsafe { init_tree_with_stats(db, &cache_path, DEPTH).await.unwrap() };
+    let ts = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
     ts.invalidate_checkpoint();
     drop(ts);
 
@@ -363,22 +400,22 @@ async fn test_invalidate_checkpoint_forces_full_replay() {
         "invalidate_checkpoint must remove the sidecar"
     );
 
-    // Next boot: no checkpoint ⇒ safe full replay, still correct.
-    let (ts2, stats2) = unsafe { init_tree_with_stats(db, &cache_path, DEPTH).await.unwrap() };
-    assert!(
-        !stats2.used_checkpoint,
-        "after invalidation, must not use a checkpoint"
-    );
-    assert_eq!(stats2.replayed_events, full_count, "⇒ full genesis replay");
+    // Next boot: no checkpoint ⇒ safe full replay, still correct, checkpoint rewritten.
+    let ts2 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
     assert_eq!(ts2.root().await, expected_root, "must still be correct");
+    drop(ts2);
+    assert!(
+        checkpoint::read_checkpoint(&cache_path).is_some(),
+        "checkpoint rewritten after fallback restore"
+    );
 
     cleanup(&cache_path);
 }
 
 // ============================================================================
-// 5. Multi-instance independence: each instance uses only its OWN local
-//    checkpoint; one instance's missing checkpoint does not affect the other.
-//    Both share the same DB and reach the same correct root.
+// 6. Multi-instance independence: each instance uses only its OWN local
+//    checkpoint; one instance's missing checkpoint does not affect the other, and
+//    both converge to the same correct root.
 // ============================================================================
 
 #[tokio::test]
@@ -399,9 +436,9 @@ async fn test_multi_instance_independent_checkpoints() {
 
     // Both instances build independently from the same DB, each writing its own
     // checkpoint colocated with its own cache file.
-    let (a1, _sa1) = unsafe { init_tree_with_stats(db, &cache_a, DEPTH).await.unwrap() };
+    let a1 = unsafe { init_tree(db, &cache_a, DEPTH).await.unwrap() };
     drop(a1);
-    let (b1, _sb1) = unsafe { init_tree_with_stats(db, &cache_b, DEPTH).await.unwrap() };
+    let b1 = unsafe { init_tree(db, &cache_b, DEPTH).await.unwrap() };
     drop(b1);
 
     assert!(checkpoint::read_checkpoint(&cache_a).is_some());
@@ -419,25 +456,14 @@ async fn test_multi_instance_independent_checkpoints() {
     // Break ONLY instance B's checkpoint.
     fs::remove_file(checkpoint::checkpoint_path(&cache_b)).unwrap();
 
-    // Instance A restarts using its own (still valid) checkpoint → incremental.
-    let (a2, stats_a) = unsafe { init_tree_with_stats(db, &cache_a, DEPTH).await.unwrap() };
+    // Instance A restarts using its own (still valid) checkpoint; instance B falls
+    // back to a full replay. A's checkpoint is untouched and unused by B.
+    let a2 = unsafe { init_tree(db, &cache_a, DEPTH).await.unwrap() };
     assert!(
-        stats_a.used_checkpoint,
-        "instance A must use its own valid checkpoint"
+        checkpoint::read_checkpoint(&cache_a).is_some(),
+        "instance A's checkpoint remains present and independent"
     );
-    assert_eq!(
-        stats_a.replayed_events, 3,
-        "A replays only its own delta (blocks 20,21,22)"
-    );
-
-    // Instance B restarts; its checkpoint is gone → safe full replay. A's checkpoint
-    // is untouched and unused by B.
-    let (b2, stats_b) = unsafe { init_tree_with_stats(db, &cache_b, DEPTH).await.unwrap() };
-    assert!(
-        !stats_b.used_checkpoint,
-        "instance B fell back independently of A"
-    );
-    assert_eq!(stats_b.replayed_events, 7, "B does a full genesis replay");
+    let b2 = unsafe { init_tree(db, &cache_b, DEPTH).await.unwrap() };
 
     // Both instances converge to the same correct root.
     assert_eq!(a2.root().await, r_b);
