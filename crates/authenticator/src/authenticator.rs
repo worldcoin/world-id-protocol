@@ -61,8 +61,8 @@ pub struct CredentialInput {
 pub struct ProofResult {
     /// The session_id_r_seed (`r`), when a session was created or proven.
     ///
-    /// Returned for session proofs and for uniqueness proofs that create or bind
-    /// a session. The SDK should cache this keyed by [`SessionId::oprf_seed`].
+    /// Returned for session proofs and for uniqueness proofs that create a bound
+    /// session. The SDK should cache this keyed by [`SessionId::oprf_seed`].
     pub session_id_r_seed: Option<FieldElement>,
 
     /// The response to deliver to an RP.

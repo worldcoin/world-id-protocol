@@ -258,7 +258,7 @@ pub enum SessionRef {
     /// session in the same response; for [`crate::ProofType::Uniqueness`] this
     /// returns a uniqueness proof committed to the newly minted session.
     Create,
-    /// Refer to an existing session.
+    /// Refer to an existing session. Only valid for [`crate::ProofType::Session`].
     Existing(SessionId),
 }
 

@@ -97,7 +97,7 @@ Diagram of components for the World ID 4.0 Protocol.
     6. Details about the nature, number, and diversity requirements of OPRF nodes must be established before the production network is live.
 4. Protocol differences at a glance:
 
-    |  | **World ID ≤3.0** | **World ID 4.0 (2025)** |
+    | | **World ID ≤3.0** | **World ID 4.0 (2025)** |
     | --- | --- | --- |
     | What is a World ID? | A secret. | An entry in public registry. |
     | Proof Generation | [Semaphore](https://semaphore.pse.dev/) proofs generated on the client. | *Conceptually the same but with new ZK-circuits.* Users generate a query proof for OPRF nodes, which provide computations that enable the nullifier generation. A final Uniqueness Proof is generated and presented to RPs. |
@@ -230,7 +230,7 @@ Both the Relying Party Registry and the Credential Schema Issuer Registry charge
 
 ### Session Proofs
 
-RPs can create sessions for their app to ensure that it's still the same World ID interacting with them across multiple interactions. Session Proofs intentionally allow the RP to link multiple interactions in their app to the same World ID. Sessions require the RP to store a `sessionId`. A `sessionId` can be created as part of a request for a Uniqueness Proof (see [Binding Uniqueness Proofs to a Session](#binding-uniqueness-proofs-to-a-session)), which binds the `sessionId` to a `nullifier`, or without uniqueness binding. Potential use cases include:
+RPs can create sessions for their app to ensure that it's still the same World ID interacting with them across multiple interactions. Session Proofs intentionally allow the RP to link multiple interactions in their app to the same World ID. Sessions require the RP to store a `sessionId`. A `sessionId` can be created as part of a request for a Uniqueness Proof (see [Binding Uniqueness Proofs to a Session](#binding-uniqueness-proofs-to-a-session)), which binds the `sessionId` to a `nullifier`, or standalone without uniqueness binding. Potential use cases include:
 
 - Credential upgrade: A user verified previously with one credential and now wants to prove using another one (e.g. unlocking additional benefits). **Important Note**. While this can be used to prove a new Credential belongs to the same World ID, the implications must be carefully considered when it comes to uniqueness. **Uniqueness sets are independent**, e.g. users may have both a PoH and a government document Credential, but this doesn't mean that by accepting both as an RP you can get guarantees that only a single human is behind each. A user may choose to obtain a PoH Credential and a document Credential in different World IDs.
 - Credential expiration check: A user previously enrolled with one Credential; periodically,the RP wants to make sure the user's Credential is still valid (for example not expired).
@@ -281,8 +281,8 @@ rp->>rp: verify proof (checking sessionId == C' in verifier contract)
 
 **Binding Uniqueness Proofs to a Session**
 
-- A Uniqueness Proof request may include an existing `sessionId` to bind the uniqueness proof to a previously established session, or set the `sessionId` field to `"create"` to atomically mint a session and bind the proof to it. In both cases, the protocol verifies in-circuit that the session and the nullifier belong to the same World ID. The flow for creating a `sessionId` as part of a uniqueness proof is outlined below.
-- As for session proofs, the blinding factor `r` of the `sessionId` may be cached or re-derived from the `oprf_seed`.
+- A Uniqueness Proof request may set the `sessionId` field to `"create"` to atomically mint a session and bind the proof to it. The protocol verifies in-circuit that the session and the nullifier belong to the same World ID. The flow is outlined below. Binding a Uniqueness Proof to an already existing `sessionId` is not supported. A session is either created together with the uniqueness proof, or it carries no uniqueness binding at all.
+- The blinding factor `r` of the minted `sessionId` is returned to the Authenticator for caching; as for session proofs it can always be re-derived from the `oprf_seed`.
 - Verifiers MUST check bound proofs against the session's commitment. With the session commitment set to `0` the proof is valid but unbound. On-chain, the dedicated `verifyWithSession()` entry point does this (it rejects `sessionId == 0`). The convenience `verify()` entry point pins the signal to `0` and rejects bound proofs, so binding is explicit in both directions.
 - Binding one `sessionId` to Uniqueness Proofs under different actions intentionally links those actions to the same World ID; Authenticators MUST clearly surface this to users.
 
@@ -293,15 +293,10 @@ participant a as Authenticator
 participant o as OPRF Nodes
 participant v as Verifier
 
-rp->>a: Signed Uniqueness Proof request (action + sessionId)
-alt sessionId = "create"
+rp->>a: Signed Uniqueness Proof request (action + sessionId = "create")
 a->>a: Generate oprf_seed
 a->>o: Derive session blinding factor r
 a->>a: sessionId = encode(H(DS_C || leafIndex || r), oprf_seed)
-else existing sessionId
-a->>o: Re-derive r from sessionId.oprf_seed if not cached
-a->>a: Check H(DS_C || leafIndex || r) == sessionId.commitment
-end
 par Session binding
 a->>a: Constrain sessionId.commitment to the user's leafIndex
 and Uniqueness
