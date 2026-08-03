@@ -111,10 +111,10 @@ pub fn write_checkpoint(cache_path: &Path, checkpoint: &TreeCheckpoint) -> std::
 
     fs::rename(&tmp, &dest)?;
 
-    if let Some(dir) = dest.parent() {
-        if let Ok(dir_file) = fs::File::open(dir) {
-            let _ = dir_file.sync_all();
-        }
+    if let Some(dir) = dest.parent()
+        && let Ok(dir_file) = fs::File::open(dir)
+    {
+        let _ = dir_file.sync_all();
     }
 
     debug!(

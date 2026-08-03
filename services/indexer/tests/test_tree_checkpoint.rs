@@ -26,7 +26,10 @@
 
 mod helpers;
 
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use alloy::primitives::{Address, U256};
 use helpers::db_helpers::{
@@ -296,7 +299,7 @@ async fn test_incremental_restore_resumes_from_cursor_and_ignores_earlier_events
 
 /// Shared setup: build a cache + checkpoint, then add a delta. Returns the expected
 /// up-to-date root.
-async fn setup_with_delta(db: &DB, cache_path: &PathBuf) -> U256 {
+async fn setup_with_delta(db: &DB, cache_path: &Path) -> U256 {
     let stage1 = [(1u64, 11u64), (2, 22), (3, 33)];
     let (mut all_events, nb) = seed_stage(db, &stage1, 10).await;
     let r_a = root_after_events(&all_events).await;
