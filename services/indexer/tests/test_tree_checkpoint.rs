@@ -15,6 +15,10 @@
 //!     sidecar and the next boot still restores correctly;
 //!   - a stale mmap whose root is not in the DB (e.g. empty fresh deployment)
 //!     falls back to a full rebuild rather than propagating the error;
+//!   - the checkpoint written by `sync_from_db` (not `init_tree`) is the one used
+//!     on the next restart, so events applied during a sync cycle are not replayed;
+//!   - after a fallback rebuild the resulting checkpoint enables incremental restore
+//!     on the subsequent restart (fix 1 and fix 2 compose correctly);
 //!   - two independent "instances" (separate cache + checkpoint file pairs) restore
 //!     independently and correctly using only their own local checkpoint.
 
@@ -32,7 +36,7 @@ use helpers::db_helpers::{
 use world_id_indexer::{
     blockchain::{AccountCreatedEvent, BlockchainEvent, RegistryEvent},
     db::DB,
-    tree::{TreeState, apply_event_to_tree, cached_tree::init_tree, checkpoint},
+    tree::{TreeState, apply_event_to_tree, cached_tree::{init_tree, sync_from_db}, checkpoint},
 };
 
 const DEPTH: usize = 6;
@@ -505,4 +509,155 @@ async fn test_multi_instance_independent_checkpoints() {
     drop(b2);
     cleanup(&cache_a);
     cleanup(&cache_b);
+}
+
+// ============================================================================
+// 8. sync_from_db writes its own checkpoint; that checkpoint (not the one
+//    written by init_tree) is used on the next restart.
+//
+//    Proof: init_tree checkpoints at the stage-1 cursor. sync_from_db then
+//    applies stage-2 events and advances the checkpoint to the stage-2 cursor.
+//    A stray event is inserted between the two cursors. On restart, if the
+//    stage-2 (sync) checkpoint is used the stray is ignored; if the stage-1
+//    (init) checkpoint were used the stray would be applied and change the root.
+// ============================================================================
+
+#[tokio::test]
+async fn test_sync_from_db_checkpoint_used_on_restart() {
+    let test_db = create_unique_test_db().await;
+    let db = test_db.db();
+    let cache_path = temp_cache_path();
+
+    // Stage 1: build + checkpoint at stage-1 cursor.
+    let stage1 = [(1u64, 11u64), (2, 22), (3, 33)];
+    let (mut all_events, nb) = seed_stage(db, &stage1, 10).await;
+    let r_a = root_after_events(&all_events).await;
+    insert_test_world_tree_root(db, nb, 0, r_a, U256::ZERO).await.unwrap();
+
+    let ts1 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
+    let cp_after_init = checkpoint::read_checkpoint(&cache_path).unwrap();
+
+    // Stage 2 delta: add to DB but don't restart — simulate events arriving
+    // while the indexer is running.
+    let stage2 = [(4u64, 44u64), (5, 55)];
+    let (delta, nb2) = seed_stage(db, &stage2, 20).await;
+    all_events.extend(delta);
+    let r_b = root_after_events(&all_events).await;
+    insert_test_world_tree_root(db, nb2, 0, r_b, U256::ZERO).await.unwrap();
+
+    // sync_from_db applies stage 2 to the mmap and advances the checkpoint.
+    sync_from_db(db, &ts1).await.unwrap();
+    assert_eq!(ts1.root().await, r_b);
+
+    let cp_after_sync = checkpoint::read_checkpoint(&cache_path).unwrap();
+    assert_ne!(
+        cp_after_init.cursor(),
+        cp_after_sync.cursor(),
+        "sync_from_db must advance the checkpoint past the init cursor"
+    );
+    assert_eq!(cp_after_sync.cursor().block_number, nb2);
+    drop(ts1);
+
+    // Insert a stray event strictly between the init cursor and the sync cursor.
+    // (block 15 is after stage-1 end ≈ block 13 and before stage-2 start = block 20)
+    let stray = account_created(15, 0, 20, 999);
+    insert_test_world_tree_event(db, &stray).await.unwrap();
+
+    let mut events_with_stray = all_events.clone();
+    events_with_stray.push(stray);
+    let r_with_stray = root_after_events(&events_with_stray).await;
+    assert_ne!(r_b, r_with_stray, "sanity: stray must change the root");
+
+    // Restart: init_tree reads the sync checkpoint (stage-2 cursor).
+    // It must resume after the sync cursor, leaving the stray ignored.
+    let ts2 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
+    assert_eq!(
+        ts2.root().await,
+        r_b,
+        "restart must use sync_from_db checkpoint and reach stage-2 root"
+    );
+    assert_ne!(
+        ts2.root().await,
+        r_with_stray,
+        "a replay from the init cursor (which would include the stray) must NOT have happened"
+    );
+    drop(ts2);
+
+    cleanup(&cache_path);
+}
+
+// ============================================================================
+// 9. Fallback rebuild → checkpoint → incremental restore on the next restart
+//    (fixes 1 and 2 compose correctly).
+//
+//    After a corrupted mmap forces a fallback rebuild, the checkpoint written
+//    by that rebuild must be valid enough to enable incremental restore on the
+//    subsequent restart — i.e., fix 2's output feeds correctly into fix 1.
+//
+//    Proof: a stray event inserted before the fallback cursor is ignored on the
+//    third init; a genesis replay would include it and change the root.
+// ============================================================================
+
+#[tokio::test]
+async fn test_post_fallback_checkpoint_enables_incremental_restore() {
+    let test_db = create_unique_test_db().await;
+    let db = test_db.db();
+    let cache_path = temp_cache_path();
+
+    // Stage 1 + RootRecorded so the mmap root is in world_id_registry_events.
+    let stage1 = [(1u64, 11u64), (2, 22), (3, 33)];
+    let (mut all_events, nb) = seed_stage(db, &stage1, 10).await;
+    let r_a = root_after_events(&all_events).await;
+    insert_test_world_tree_root(db, nb, 0, r_a, U256::ZERO).await.unwrap();
+
+    // First init: normal build, checkpoint at stage-1 cursor.
+    let ts1 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
+    drop(ts1);
+
+    // Corrupt the mmap to force a fallback on the second init.
+    fs::write(&cache_path, b"corrupted").unwrap();
+
+    // Second init: corrupted mmap → fallback rebuild from DB → correct tree,
+    // checkpoint written at stage-1 cursor with stage-1 root.
+    let ts2 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
+    assert_eq!(ts2.root().await, r_a);
+    let fallback_cursor = checkpoint::read_checkpoint(&cache_path).unwrap().cursor();
+    drop(ts2);
+
+    // Stage 2 + RootRecorded.
+    let stage2 = [(4u64, 44u64), (5, 55)];
+    let (delta, nb2) = seed_stage(db, &stage2, 20).await;
+    all_events.extend(delta);
+    let r_b = root_after_events(&all_events).await;
+    insert_test_world_tree_root(db, nb2, 0, r_b, U256::ZERO).await.unwrap();
+
+    // Insert a stray event strictly before the fallback cursor (block 5 < block ~13).
+    let stray = account_created(5, 0, 20, 999);
+    insert_test_world_tree_event(db, &stray).await.unwrap();
+    assert!(
+        stray.block_number < fallback_cursor.block_number,
+        "stray must be before the fallback cursor for the test to be meaningful"
+    );
+
+    let mut events_with_stray = all_events.clone();
+    events_with_stray.push(stray);
+    let r_with_stray = root_after_events(&events_with_stray).await;
+    assert_ne!(r_b, r_with_stray, "sanity: stray must change the root");
+
+    // Third init: uses the post-fallback checkpoint → incremental from fallback cursor
+    // → applies stage 2, ignores the stray.
+    let ts3 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
+    assert_eq!(
+        ts3.root().await,
+        r_b,
+        "third init must reach the stage-2 root via incremental restore"
+    );
+    assert_ne!(
+        ts3.root().await,
+        r_with_stray,
+        "a genesis replay (which would include the stray) must NOT have happened"
+    );
+    drop(ts3);
+
+    cleanup(&cache_path);
 }
