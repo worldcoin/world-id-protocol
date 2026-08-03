@@ -5,8 +5,7 @@
 //! The in-memory Merkle tree is backed by a memory-mapped file (`TREE_CACHE_FILE`).
 //! The mmap persists the tree *state* across restarts, but on its own it carries no
 //! record of **which event the mmap reflects**. Without that watermark the indexer
-//! historically replayed the *entire* event history from genesis on every restart to
-//! be safe (see `cached_tree::try_restore`).
+//! historically replayed the *entire* event history from genesis on every restart.
 //!
 //! This module reinstates a durable watermark — a small JSON sidecar colocated with
 //! the cache file (`<TREE_CACHE_FILE>.meta`) — so that on restart an instance can
@@ -16,20 +15,19 @@
 //!
 //! The indexer runs as one writer plus N `HttpOnly` read replicas, all sharing one
 //! Postgres but **each with its own `TREE_CACHE_FILE` on its own pod-local disk**.
-//! Every instance advances its own mmap independently (the writer per committed
-//! batch, each reader on its own `DB_POLL_INTERVAL_SECS`). A single shared DB row
+//! Every instance advances its own mmap independently. A single shared DB row
 //! therefore cannot describe N different mmaps. The watermark must live next to the
 //! mmap it describes so it travels with — and only with — that instance's cache.
 //!
 //! # Crash consistency
 //!
 //! Correctness does **not** depend on flushing the mmap and the sidecar in a precise
-//! order. On restore we require the sidecar's `root` to equal the actual mmap root
-//! (and `num_leaves` to match, and the root to exist in the DB). A Poseidon root is a
-//! cryptographic commitment to the entire leaf set, so a match proves the mmap really
-//! is at the checkpointed position; any mismatch (torn write, partially-flushed mmap,
-//! post-rollback state) falls back to the safe full replay. The sidecar may lag the
-//! mmap (→ a few extra events replayed) but a lagging checkpoint is always safe.
+//! order. On restore we require the sidecar's `root` to equal the actual mmap root.
+//! A Poseidon root is a cryptographic commitment to the entire leaf set, so a match
+//! proves the mmap really is at the checkpointed position; any mismatch (torn write,
+//! partially-flushed mmap, post-rollback state) falls back to the safe full replay.
+//! The sidecar may lag the mmap (→ a few extra events replayed) but a lagging
+//! checkpoint is always safe.
 
 use std::{
     fs,
@@ -58,31 +56,15 @@ pub struct TreeCheckpoint {
     pub block_number: u64,
     /// Log index of the last event applied to the mmap.
     pub log_index: u64,
-    /// Number of leaves in the tree at the checkpoint.
-    pub num_leaves: u64,
-    /// FNV-1a checksum over the canonical form of the fields above; detects torn
-    /// writes / corruption.
-    pub checksum: u64,
 }
 
 impl TreeCheckpoint {
-    /// Build a checkpoint for the given tree state, computing the checksum.
-    pub fn new(root: U256, cursor: WorldIdRegistryEventId, num_leaves: u64) -> Self {
-        let root = format!("0x{root:x}");
-        let checksum = compute_checksum(
-            CACHE_VERSION,
-            &root,
-            cursor.block_number,
-            cursor.log_index,
-            num_leaves,
-        );
+    pub fn new(root: U256, cursor: WorldIdRegistryEventId) -> Self {
         Self {
             cache_version: CACHE_VERSION,
-            root,
+            root: format!("0x{root:x}"),
             block_number: cursor.block_number,
             log_index: cursor.log_index,
-            num_leaves,
-            checksum,
         }
     }
 
@@ -98,50 +80,9 @@ impl TreeCheckpoint {
     pub fn root_u256(&self) -> Option<U256> {
         U256::from_str_radix(self.root.trim_start_matches("0x"), 16).ok()
     }
-
-    /// Validate `cache_version` and `checksum`. Returns `false` for any format or
-    /// integrity problem.
-    fn is_self_consistent(&self) -> bool {
-        if self.cache_version != CACHE_VERSION {
-            return false;
-        }
-        let expected = compute_checksum(
-            self.cache_version,
-            &self.root,
-            self.block_number,
-            self.log_index,
-            self.num_leaves,
-        );
-        expected == self.checksum
-    }
-}
-
-/// Deterministic FNV-1a (64-bit) checksum over the canonical checkpoint fields.
-///
-/// Implemented inline (no extra dependency) so it is stable across binary versions.
-fn compute_checksum(
-    cache_version: u8,
-    root: &str,
-    block_number: u64,
-    log_index: u64,
-    num_leaves: u64,
-) -> u64 {
-    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
-    const FNV_PRIME: u64 = 0x100000001b3;
-
-    let canonical = format!("{cache_version}|{root}|{block_number}|{log_index}|{num_leaves}");
-    let mut hash = FNV_OFFSET;
-    for byte in canonical.as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    hash
 }
 
 /// Path of the checkpoint sidecar for a given cache file: `<cache_path>.meta`.
-///
-/// Appends (rather than replaces the extension) so it is unambiguous and colocated
-/// with the cache regardless of the cache file's own extension.
 pub fn checkpoint_path(cache_path: &Path) -> PathBuf {
     let mut os = cache_path.as_os_str().to_os_string();
     os.push(".meta");
@@ -170,7 +111,6 @@ pub fn write_checkpoint(cache_path: &Path, checkpoint: &TreeCheckpoint) -> std::
 
     fs::rename(&tmp, &dest)?;
 
-    // Best-effort durability of the rename itself.
     if let Some(dir) = dest.parent() {
         if let Ok(dir_file) = fs::File::open(dir) {
             let _ = dir_file.sync_all();
@@ -182,7 +122,6 @@ pub fn write_checkpoint(cache_path: &Path, checkpoint: &TreeCheckpoint) -> std::
         root = %checkpoint.root,
         block_number = checkpoint.block_number,
         log_index = checkpoint.log_index,
-        num_leaves = checkpoint.num_leaves,
         "wrote tree checkpoint"
     );
 
@@ -191,10 +130,9 @@ pub fn write_checkpoint(cache_path: &Path, checkpoint: &TreeCheckpoint) -> std::
 
 /// Read and validate the checkpoint sidecar for `cache_path`.
 ///
-/// Returns `None` (never an error) when the sidecar is absent, unreadable,
-/// unparseable, of an incompatible version, or fails its checksum — every such case
-/// simply means "no usable checkpoint", and the caller should fall back to a full
-/// replay.
+/// Returns `None` when the sidecar is absent, unreadable, unparseable, or of an
+/// incompatible version — every such case means "no usable checkpoint" and the
+/// caller should fall back to a full replay.
 pub fn read_checkpoint(cache_path: &Path) -> Option<TreeCheckpoint> {
     let path = checkpoint_path(cache_path);
     if !path.exists() {
@@ -217,10 +155,11 @@ pub fn read_checkpoint(cache_path: &Path) -> Option<TreeCheckpoint> {
         }
     };
 
-    if !checkpoint.is_self_consistent() {
+    if checkpoint.cache_version != CACHE_VERSION {
         warn!(
             path = %path.display(),
-            "tree checkpoint failed version/checksum validation; ignoring"
+            cache_version = checkpoint.cache_version,
+            "tree checkpoint has incompatible version; ignoring"
         );
         return None;
     }
@@ -258,7 +197,7 @@ mod tests {
     #[test]
     fn roundtrip_write_read() {
         let cache = tmp_cache();
-        let cp = TreeCheckpoint::new(U256::from(0x1234u64), cursor(42, 3), 7);
+        let cp = TreeCheckpoint::new(U256::from(0x1234u64), cursor(42, 3));
         write_checkpoint(&cache, &cp).unwrap();
 
         let read = read_checkpoint(&cache).expect("checkpoint should be readable");
@@ -285,32 +224,10 @@ mod tests {
     }
 
     #[test]
-    fn checksum_mismatch_returns_none() {
-        let cache = tmp_cache();
-        let mut cp = TreeCheckpoint::new(U256::from(9u64), cursor(1, 0), 1);
-        // Tamper with a field without recomputing the checksum.
-        cp.num_leaves = 999;
-        write_checkpoint(&cache, &cp).unwrap();
-        assert!(
-            read_checkpoint(&cache).is_none(),
-            "tampered checkpoint must be rejected"
-        );
-        delete_checkpoint(&cache);
-    }
-
-    #[test]
     fn wrong_version_returns_none() {
         let cache = tmp_cache();
-        let mut cp = TreeCheckpoint::new(U256::from(9u64), cursor(1, 0), 1);
+        let mut cp = TreeCheckpoint::new(U256::from(9u64), cursor(1, 0));
         cp.cache_version = CACHE_VERSION + 1;
-        // Recompute checksum so only the version is "wrong".
-        cp.checksum = compute_checksum(
-            cp.cache_version,
-            &cp.root,
-            cp.block_number,
-            cp.log_index,
-            cp.num_leaves,
-        );
         write_checkpoint(&cache, &cp).unwrap();
         assert!(read_checkpoint(&cache).is_none());
         delete_checkpoint(&cache);

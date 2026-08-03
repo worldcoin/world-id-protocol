@@ -17,14 +17,12 @@ use crate::{
 
 /// Unified tree initialization.
 ///
-/// 1. If mmap file exists → load it, validate root against DB, then replay events.
-///    If a valid local checkpoint sidecar (`<cache_path>.meta`) is present and its
-///    root matches the loaded mmap, replay only events *after* the checkpoint cursor
-///    (incremental restore). Otherwise replay from genesis (safe fallback).
-/// 2. If mmap missing or validation fails → full rebuild from DB.
+/// If the mmap exists: validates root against DB, then replays only events after
+/// the local checkpoint cursor (incremental restore) or from genesis (safe fallback).
+/// If the mmap is missing or validation fails: full rebuild from DB.
 ///
-/// Returns a `TreeState` with the sync cursor set so `sync_from_db()` can pick
-/// up any future events incrementally, and persists a fresh checkpoint.
+/// Persists a fresh checkpoint on completion so the next restart can resume
+/// incrementally.
 ///
 /// # Safety
 ///
@@ -41,27 +39,21 @@ pub async unsafe fn init_tree(
         match try_restore(db, cache_path, tree_depth).await {
             Ok(result) => result,
             Err(e) => {
-                tracing::error!(?e, "restore failed, deleting cache file");
+                tracing::error!(?e, "restore failed, rebuilding from database");
                 if let Err(remove_err) = std::fs::remove_file(cache_path) {
                     tracing::error!(?remove_err, "failed to delete cache file");
                 }
-                // A stale/invalid mmap also means any colocated checkpoint is
-                // meaningless — drop it so we never trust it later.
                 checkpoint::delete_checkpoint(cache_path);
-                return Err(e);
+                build_from_db_with_cache(db, cache_path, tree_depth).await?
             }
         }
     } else {
         info!("no cache file, building tree from database (full rebuild)");
-        // A fresh cache must not inherit a stale checkpoint from a previous file.
         checkpoint::delete_checkpoint(cache_path);
         build_from_db_with_cache(db, cache_path, tree_depth).await?
     };
 
     let tree_state = TreeState::new(tree, tree_depth, last_event_id, Some(cache_path.to_path_buf()));
-
-    // Persist a fresh checkpoint reflecting the fully-initialized tree so the next
-    // restart can resume incrementally from here.
     tree_state.persist_checkpoint(last_event_id).await;
 
     crate::metrics::set_tree_last_synced_block(last_event_id.block_number);
@@ -140,7 +132,6 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
         }
     }
 
-    // Advance cursor and persist a checkpoint so a restart can resume from here.
     tree_state.persist_checkpoint(cursor).await;
 
     info!(
@@ -161,27 +152,17 @@ pub async fn sync_from_db(db: &DB, tree_state: &TreeState) -> TreeResult<usize> 
 // =============================================================================
 
 /// Try to restore from mmap cache + replay missed events.
-/// Returns the tree and last event ID on success. Logs whether the restore was an
-/// incremental (checkpoint-based) replay or a full genesis replay.
 #[instrument(level = "info", skip_all)]
 async fn try_restore(
     db: &DB,
     cache_path: &Path,
     tree_depth: usize,
 ) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId)> {
-    // 1. Load mmap
     let tree = restore_from_cache(cache_path, tree_depth)?;
     let restored_root = tree.root();
-    let num_leaves = tree.num_leaves() as u64;
 
-    info!(
-        root = %format!("0x{:x}", restored_root),
-        "loaded mmap"
-    );
+    info!(root = %format!("0x{:x}", restored_root), "loaded mmap");
 
-    // 2. Validate that the restored root exists in world_id_registry_events.
-    //    This is the safety net: we never serve a tree whose root the DB has never
-    //    recorded. It is independent of the checkpoint optimization below.
     let root_exists = db
         .world_id_registry_events()
         .root_exists(&restored_root)
@@ -194,55 +175,36 @@ async fn try_restore(
         .into());
     }
 
-    info!("Root validated successfully in DB");
-
-    // 3. Choose the replay cursor.
-    //
-    //    If a valid local checkpoint exists AND it describes exactly the mmap we
-    //    just loaded (same root and leaf count), we can trust its cursor and replay
-    //    only the events after it. The root equality check is the crash-consistency
-    //    guard: a Poseidon root commits to the entire leaf set, so a match proves
-    //    the mmap is at the checkpointed position. Any mismatch (torn write,
-    //    partially-flushed mmap, post-rollback state, stale/foreign checkpoint)
-    //    falls back to a full genesis replay, which is always correct.
     let genesis = WorldIdRegistryEventId {
         block_number: 0,
         log_index: 0,
     };
-    let (replay_cursor, used_checkpoint) = match checkpoint::read_checkpoint(cache_path) {
-        Some(cp) if cp.root_u256() == Some(restored_root) && cp.num_leaves == num_leaves => {
-            info!(
-                cursor = ?cp.cursor(),
-                "valid checkpoint matches mmap; incremental replay from cursor"
-            );
+
+    // Use the checkpoint cursor if the recorded root matches the mmap (crash-consistency
+    // guard: Poseidon root commits to the full leaf set). Any mismatch falls back to a
+    // full genesis replay, which is always correct.
+    let (replay_cursor, incremental) = match checkpoint::read_checkpoint(cache_path) {
+        Some(cp) if cp.root_u256() == Some(restored_root) => {
+            info!(cursor = ?cp.cursor(), "valid checkpoint; incremental replay from cursor");
             (cp.cursor(), true)
         }
         Some(_) => {
-            info!(
-                "checkpoint present but does not match mmap (root/leaf mismatch); \
-                 falling back to full genesis replay"
-            );
+            info!("checkpoint root mismatch; falling back to full genesis replay");
             (genesis, false)
         }
         None => {
-            info!("no valid checkpoint; full genesis replay");
+            info!("no checkpoint; full genesis replay");
             (genesis, false)
         }
     };
 
-    // 4. Replay events after the chosen cursor.
     let (tree, last_event_id, replayed_events) = replay_events(tree, db, replay_cursor).await?;
 
     info!(
         root = %format!("0x{:x}", tree.root()),
         ?last_event_id,
-        used_checkpoint,
+        incremental,
         replayed_events,
-        restore_mode = if used_checkpoint {
-            "incremental (checkpoint)"
-        } else {
-            "full genesis replay"
-        },
         "tree restore complete"
     );
 
@@ -262,21 +224,20 @@ fn restore_from_cache(cache_path: &Path, tree_depth: usize) -> eyre::Result<Merk
     Ok(tree)
 }
 
-/// Build tree from DB with mmap backing using chunk-based processing.
+/// Build tree from DB with mmap backing.
 #[instrument(level = "info", skip_all)]
 async fn build_from_db_with_cache(
     db: &DB,
     cache_path: &Path,
     tree_depth: usize,
 ) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId)> {
-    info!("Building tree from database with mmap cache (chunk-based processing)");
+    info!("building tree from database");
 
     let cache_path_str = cache_path.to_str().ok_or(TreeError::InvalidCacheFilePath)?;
 
-    // The account snapshot and sync cursor must describe the same database state.
-    // Without a repeatable-read transaction, a worker commit between these two
-    // reads can make the cursor advance past updates absent from `leaves`, causing
-    // incremental synchronization to skip updates and produce an invalid tree.
+    // RepeatableRead keeps the account snapshot and the cursor consistent —
+    // a commit between the two reads would otherwise advance the cursor past
+    // updates absent from `leaves` and produce an invalid tree.
     let mut tx = db.transaction(IsolationLevel::RepeatableRead).await?;
 
     info!("Downloading leaves from database");
@@ -306,26 +267,18 @@ async fn build_from_db_with_cache(
 
     tx.commit().await?;
 
-    info!(len = leaves.len(), ?last_event_id, "Building Tree");
+    info!(len = leaves.len(), ?last_event_id, "building tree");
 
     let storage = unsafe { MmapVec::<U256>::create_from_path(cache_path_str)? };
-
     let tree = MerkleTree::new_with_leaves(storage, tree_depth, &U256::ZERO, &leaves);
 
-    info!(
-        root = %format!("0x{:x}", tree.root()),
-        ?last_event_id,
-        "Tree built from database with mmap cache"
-    );
+    info!(root = %format!("0x{:x}", tree.root()), ?last_event_id, "tree built");
 
     Ok((tree, last_event_id))
 }
 
-/// Replay events onto an existing tree with deduplication.
-/// Uses event ID-based pagination to efficiently handle large replays.
-///
-/// Returns the updated tree, the last event ID observed, and the number of raw
-/// events replayed (before deduplication).
+/// Replay events onto `tree` starting after `from_event_id`, deduplicating to the
+/// last value per leaf. Returns `(updated_tree, last_event_id, total_events_seen)`.
 #[instrument(level = "info", skip_all, fields(?from_event_id))]
 async fn replay_events(
     mut tree: MerkleTree,
@@ -336,14 +289,7 @@ async fn replay_events(
 
     let mut last_event_id = from_event_id;
     let mut total_events = 0;
-
     let mut leaf_final_states: HashMap<u64, U256> = HashMap::new();
-
-    info!(
-        from_event_id = ?from_event_id,
-        "Starting replay from event ID {:?} (events after this ID will be replayed)",
-        from_event_id
-    );
 
     loop {
         let events = db
@@ -359,7 +305,6 @@ async fn replay_events(
         total_events += batch_count;
 
         for event in &events {
-            // Extract leaf_index and offchain_signer_commitment from event details
             if let Some((leaf_index, commitment)) = super::extract_leaf_commitment(&event.details) {
                 leaf_final_states.insert(leaf_index, commitment);
             }
@@ -371,31 +316,14 @@ async fn replay_events(
             log_index: last.log_index,
         };
 
-        info!(
-            batch_events = batch_count,
-            total_events,
-            unique_leaves = leaf_final_states.len(),
-            ?last_event_id,
-            "Processed batch into memory"
-        );
-
         if batch_count < BATCH_SIZE as usize {
             break;
         }
     }
 
     if total_events == 0 {
-        info!("No events to replay, cache is up-to-date");
         return Ok((tree, last_event_id, 0));
     }
-
-    info!(
-        unique_leaves = leaf_final_states.len(),
-        total_events,
-        "Applying {} deduplicated updates to tree (from {} total events)",
-        leaf_final_states.len(),
-        total_events
-    );
 
     for (leaf_index, value) in &leaf_final_states {
         set_arbitrary_leaf(&mut tree, *leaf_index as usize, *value);
@@ -406,9 +334,7 @@ async fn replay_events(
         unique_updates = leaf_final_states.len(),
         ?last_event_id,
         new_root = %format!("0x{:x}", tree.root()),
-        "Replay complete: {} events deduplicated to {} unique leaf updates",
-        total_events,
-        leaf_final_states.len()
+        "replay complete"
     );
 
     Ok((tree, last_event_id, total_events))

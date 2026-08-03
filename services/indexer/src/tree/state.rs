@@ -28,11 +28,6 @@ struct TreeStateInner {
 }
 
 impl TreeState {
-    /// Create a new `TreeState` with an existing tree, depth, and sync cursor.
-    ///
-    /// `cache_path` is the mmap cache file backing the tree; when `Some`, the tree
-    /// will write/delete a checkpoint sidecar colocated with it. Pass `None` for
-    /// trees that should never persist a checkpoint (e.g. tests).
     pub fn new(
         tree: CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>,
         tree_depth: usize,
@@ -49,8 +44,6 @@ impl TreeState {
         }
     }
 
-    /// Create a new `TreeState` with an empty tree of the given depth.
-    ///
     /// # Safety
     ///
     /// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
@@ -59,7 +52,6 @@ impl TreeState {
     pub unsafe fn new_empty(tree_depth: usize, path: impl AsRef<Path>) -> eyre::Result<Self> {
         let storage = unsafe { MmapVec::create_from_path(path)? };
         let tree = MerkleTree::new(storage, tree_depth, &U256::ZERO);
-        // In-memory/test trees do not persist a checkpoint.
         Ok(Self::new(
             tree,
             tree_depth,
@@ -174,17 +166,10 @@ impl TreeState {
         self.inner.cache_path.as_deref()
     }
 
-    /// Persist a local checkpoint sidecar describing the current tree state.
+    /// Atomically write the checkpoint sidecar for the current tree state.
     ///
-    /// Advances the in-memory sync cursor to `cursor` and, if this tree is backed
-    /// by a cache file, atomically writes `<cache_path>.meta` recording the current
-    /// root, `cursor`, and leaf count so a restart can replay only events after
-    /// `cursor`. A no-op for trees created without a cache path.
-    ///
-    /// The sidecar is only ever allowed to *lag* the mmap: the caller must have
-    /// already applied all events up to and including `cursor` to the tree. On
-    /// restore, correctness is guaranteed by comparing the sidecar root against the
-    /// actual mmap root, so an occasionally-stale sidecar is always safe.
+    /// No-op for trees created without a cache path. A failed write is not fatal —
+    /// the next restart falls back to a full genesis replay.
     pub async fn persist_checkpoint(&self, cursor: WorldIdRegistryEventId) {
         self.set_last_synced_event_id(cursor).await;
 
@@ -192,23 +177,14 @@ impl TreeState {
             return;
         };
 
-        let (root, num_leaves) = {
-            let tree = self.inner.tree.read().await;
-            (tree.root(), tree.num_leaves() as u64)
-        };
-
-        let checkpoint = checkpoint::TreeCheckpoint::new(root, cursor, num_leaves);
+        let root = self.inner.tree.read().await.root();
+        let checkpoint = checkpoint::TreeCheckpoint::new(root, cursor);
         if let Err(e) = checkpoint::write_checkpoint(&cache_path, &checkpoint) {
-            // A failed checkpoint write is not fatal: the worst case is that the
-            // next restart falls back to a full replay.
             tracing::warn!(?e, "failed to persist tree checkpoint");
         }
     }
 
-    /// Delete the local checkpoint sidecar, if any.
-    ///
-    /// Used on reorg/rollback so the next boot performs one safe full replay rather
-    /// than trusting a watermark that may be ahead of the rolled-back mmap.
+    /// Delete the local checkpoint sidecar, if any. Used on reorg/rollback.
     pub fn invalidate_checkpoint(&self) {
         if let Some(cache_path) = self.inner.cache_path.as_deref() {
             checkpoint::delete_checkpoint(cache_path);

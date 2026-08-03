@@ -43,10 +43,6 @@ pub async fn rollback_to_last_valid_root(
         Err(e) => return Err(e.into()),
     }
 
-    // Invalidate the local checkpoint sidecar. After a rollback the mmap reflects
-    // the rolled-back state whose root differs from the last checkpoint's root, so
-    // the restore-time root-equality guard would already reject it — but we delete
-    // it explicitly so the next boot unambiguously performs one safe full replay.
     versioned_tree.invalidate_checkpoint();
 
     Ok(Some(target_id))

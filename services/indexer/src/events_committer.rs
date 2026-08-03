@@ -220,9 +220,6 @@ impl<'a> EventsCommitter<'a> {
             apply_event_to_tree(tree, event).await?;
         }
 
-        // Persist a local checkpoint at the last event of this committed batch so a
-        // restart can replay only events after it. Done after the DB commit and the
-        // in-memory tree update, so the mmap reflects everything up to this cursor.
         if let Some(last) = self.buffered_events.last() {
             let cursor = crate::db::WorldIdRegistryEventId {
                 block_number: last.block_number,

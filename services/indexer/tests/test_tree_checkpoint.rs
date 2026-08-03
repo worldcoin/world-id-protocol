@@ -13,6 +13,8 @@
 //!     replay (never a crash, never a silently-wrong tree) and is rewritten;
 //!   - invalidating the checkpoint (as the reorg/rollback path does) removes the
 //!     sidecar and the next boot still restores correctly;
+//!   - a stale mmap whose root is not in the DB (e.g. empty fresh deployment)
+//!     falls back to a full rebuild rather than propagating the error;
 //!   - two independent "instances" (separate cache + checkpoint file pairs) restore
 //!     independently and correctly using only their own local checkpoint.
 
@@ -362,7 +364,6 @@ async fn test_fallback_when_checkpoint_root_mismatches_mmap() {
             block_number: 999,
             log_index: 0,
         },
-        3,
     );
     checkpoint::write_checkpoint(&cache_path, &bogus).unwrap();
 
@@ -413,7 +414,37 @@ async fn test_invalidate_checkpoint_removes_sidecar() {
 }
 
 // ============================================================================
-// 6. Multi-instance independence: each instance uses only its OWN local
+// 6. Stale mmap (root not in DB) ⇒ falls back to a full rebuild, does NOT
+//    crash. Covered by using an empty DB: the first init_tree builds an empty
+//    mmap whose root is never recorded in world_id_registry_events, so the
+//    second init_tree hits StaleCache in try_restore and must recover via
+//    build_from_db_with_cache rather than propagating the error.
+// ============================================================================
+
+#[tokio::test]
+async fn test_stale_mmap_falls_back_to_rebuild() {
+    let test_db = create_unique_test_db().await;
+    let db = test_db.db();
+    let cache_path = temp_cache_path();
+
+    // First init: no mmap → build from empty DB → writes mmap with empty-tree
+    // root. The empty-tree root is never inserted into world_id_registry_events.
+    let ts1 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
+    let empty_root = ts1.root().await;
+    drop(ts1);
+
+    // Second init: mmap exists → try_restore → root_exists(empty_root) == false
+    // → StaleCache. With the fix, init_tree falls back to build_from_db_with_cache
+    // and succeeds instead of propagating the error.
+    let ts2 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
+    assert_eq!(ts2.root().await, empty_root, "rebuilt tree must match empty DB");
+    drop(ts2);
+
+    cleanup(&cache_path);
+}
+
+// ============================================================================
+// 7. Multi-instance independence: each instance uses only its OWN local
 //    checkpoint; one instance's missing checkpoint does not affect the other, and
 //    both converge to the same correct root.
 // ============================================================================
