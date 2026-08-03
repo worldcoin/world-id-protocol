@@ -53,7 +53,12 @@ pub async unsafe fn init_tree(
         build_from_db_with_cache(db, cache_path, tree_depth).await?
     };
 
-    let tree_state = TreeState::new(tree, tree_depth, last_event_id, Some(cache_path.to_path_buf()));
+    let tree_state = TreeState::new(
+        tree,
+        tree_depth,
+        last_event_id,
+        Some(cache_path.to_path_buf()),
+    );
     tree_state.persist_checkpoint(last_event_id).await;
 
     crate::metrics::set_tree_last_synced_block(last_event_id.block_number);

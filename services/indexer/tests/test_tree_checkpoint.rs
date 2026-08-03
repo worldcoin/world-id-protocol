@@ -36,7 +36,11 @@ use helpers::db_helpers::{
 use world_id_indexer::{
     blockchain::{AccountCreatedEvent, BlockchainEvent, RegistryEvent},
     db::DB,
-    tree::{TreeState, apply_event_to_tree, cached_tree::{init_tree, sync_from_db}, checkpoint},
+    tree::{
+        TreeState, apply_event_to_tree,
+        cached_tree::{init_tree, sync_from_db},
+        checkpoint,
+    },
 };
 
 const DEPTH: usize = 6;
@@ -136,7 +140,11 @@ async fn test_checkpoint_written_and_advanced_on_restart() {
 
     let cp1 = checkpoint::read_checkpoint(&cache_path).expect("checkpoint written after init");
     assert_eq!(cp1.root_u256(), Some(r5));
-    assert_eq!(cp1.cursor().block_number, next_block, "cursor at latest event");
+    assert_eq!(
+        cp1.cursor().block_number,
+        next_block,
+        "cursor at latest event"
+    );
 
     // Stage 2 delta: 2 more accounts (blocks 16,17) + RootRecorded at block 18.
     let stage2 = [(6u64, 106u64), (7, 107)];
@@ -150,12 +158,20 @@ async fn test_checkpoint_written_and_advanced_on_restart() {
     // Second init: cache + valid checkpoint ⇒ incremental restore reaches r7 and
     // advances the checkpoint.
     let ts2 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
-    assert_eq!(ts2.root().await, r7, "restore must reach the up-to-date root");
+    assert_eq!(
+        ts2.root().await,
+        r7,
+        "restore must reach the up-to-date root"
+    );
     drop(ts2);
 
     let cp2 = checkpoint::read_checkpoint(&cache_path).expect("checkpoint still present");
     assert_eq!(cp2.root_u256(), Some(r7), "checkpoint root advanced");
-    assert_eq!(cp2.cursor().block_number, next_block2, "cursor advanced to new latest");
+    assert_eq!(
+        cp2.cursor().block_number,
+        next_block2,
+        "cursor advanced to new latest"
+    );
 
     cleanup(&cache_path);
 }
@@ -338,7 +354,11 @@ async fn test_fallback_when_checkpoint_corrupted() {
     let expected_root = setup_with_delta(db, &cache_path).await;
 
     // Corrupt the checkpoint file with garbage.
-    fs::write(checkpoint::checkpoint_path(&cache_path), b"garbage not json").unwrap();
+    fs::write(
+        checkpoint::checkpoint_path(&cache_path),
+        b"garbage not json",
+    )
+    .unwrap();
 
     let ts = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
     assert_eq!(
@@ -441,7 +461,11 @@ async fn test_stale_mmap_falls_back_to_rebuild() {
     // → StaleCache. With the fix, init_tree falls back to build_from_db_with_cache
     // and succeeds instead of propagating the error.
     let ts2 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
-    assert_eq!(ts2.root().await, empty_root, "rebuilt tree must match empty DB");
+    assert_eq!(
+        ts2.root().await,
+        empty_root,
+        "rebuilt tree must match empty DB"
+    );
     drop(ts2);
 
     cleanup(&cache_path);
@@ -532,7 +556,9 @@ async fn test_sync_from_db_checkpoint_used_on_restart() {
     let stage1 = [(1u64, 11u64), (2, 22), (3, 33)];
     let (mut all_events, nb) = seed_stage(db, &stage1, 10).await;
     let r_a = root_after_events(&all_events).await;
-    insert_test_world_tree_root(db, nb, 0, r_a, U256::ZERO).await.unwrap();
+    insert_test_world_tree_root(db, nb, 0, r_a, U256::ZERO)
+        .await
+        .unwrap();
 
     let ts1 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
     let cp_after_init = checkpoint::read_checkpoint(&cache_path).unwrap();
@@ -543,7 +569,9 @@ async fn test_sync_from_db_checkpoint_used_on_restart() {
     let (delta, nb2) = seed_stage(db, &stage2, 20).await;
     all_events.extend(delta);
     let r_b = root_after_events(&all_events).await;
-    insert_test_world_tree_root(db, nb2, 0, r_b, U256::ZERO).await.unwrap();
+    insert_test_world_tree_root(db, nb2, 0, r_b, U256::ZERO)
+        .await
+        .unwrap();
 
     // sync_from_db applies stage 2 to the mmap and advances the checkpoint.
     sync_from_db(db, &ts1).await.unwrap();
@@ -608,7 +636,9 @@ async fn test_post_fallback_checkpoint_enables_incremental_restore() {
     let stage1 = [(1u64, 11u64), (2, 22), (3, 33)];
     let (mut all_events, nb) = seed_stage(db, &stage1, 10).await;
     let r_a = root_after_events(&all_events).await;
-    insert_test_world_tree_root(db, nb, 0, r_a, U256::ZERO).await.unwrap();
+    insert_test_world_tree_root(db, nb, 0, r_a, U256::ZERO)
+        .await
+        .unwrap();
 
     // First init: normal build, checkpoint at stage-1 cursor.
     let ts1 = unsafe { init_tree(db, &cache_path, DEPTH).await.unwrap() };
@@ -629,7 +659,9 @@ async fn test_post_fallback_checkpoint_enables_incremental_restore() {
     let (delta, nb2) = seed_stage(db, &stage2, 20).await;
     all_events.extend(delta);
     let r_b = root_after_events(&all_events).await;
-    insert_test_world_tree_root(db, nb2, 0, r_b, U256::ZERO).await.unwrap();
+    insert_test_world_tree_root(db, nb2, 0, r_b, U256::ZERO)
+        .await
+        .unwrap();
 
     // Insert a stray event strictly before the fallback cursor (block 5 < block ~13).
     let stray = account_created(5, 0, 20, 999);

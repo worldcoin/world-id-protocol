@@ -1,4 +1,7 @@
-use std::{path::Path, path::PathBuf, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use alloy::primitives::U256;
 use semaphore_rs_storage::MmapVec;

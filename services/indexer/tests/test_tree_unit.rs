@@ -71,7 +71,10 @@ async fn test_stale_cache_falls_back_to_rebuild() {
     let tree_state = unsafe { init_tree(db, &cache_path, 6).await }
         .expect("init_tree should fall back to rebuild when cache root is not in DB");
     assert_eq!(tree_state.read().await.get_leaf(1), U256::from(100));
-    assert!(cache_path.exists(), "cache file should be recreated after fallback rebuild");
+    assert!(
+        cache_path.exists(),
+        "cache file should be recreated after fallback rebuild"
+    );
 
     cleanup(&cache_path);
 }
@@ -577,8 +580,14 @@ async fn test_init_tree_restore_failure_falls_back_to_rebuild() {
     fs::write(&cache_path, b"not a valid mmap file").unwrap();
 
     let result = unsafe { init_tree(db, &cache_path, 6).await };
-    assert!(result.is_ok(), "init_tree should fall back to rebuild on corrupted cache");
-    assert!(cache_path.exists(), "a new cache file should be created after fallback rebuild");
+    assert!(
+        result.is_ok(),
+        "init_tree should fall back to rebuild on corrupted cache"
+    );
+    assert!(
+        cache_path.exists(),
+        "a new cache file should be created after fallback rebuild"
+    );
 
     cleanup(&cache_path);
 }
