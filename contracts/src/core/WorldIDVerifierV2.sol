@@ -96,6 +96,9 @@ contract WorldIDVerifierV2 is IWorldIDVerifierV2, WorldIDVerifier {
         if (uint8(action >> 248) != uint8(2)) {
             revert InvalidAction();
         }
+        if (sessionId == 0) {
+            revert InvalidSessionId();
+        }
 
         verifyProofAndSignals(
             sessionNullifier[0],
