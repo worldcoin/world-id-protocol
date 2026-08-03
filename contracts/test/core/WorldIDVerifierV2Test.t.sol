@@ -149,6 +149,17 @@ contract WorldIDVerifierV2Test is Test {
         );
     }
 
+    function test_SessionRevertsWhenSessionIdZero() public {
+        // Valid session action prefix, but a zero session id must not pass
+        uint256 action = 0x0200000000000000000000000000000000000000000000000000000000000001;
+
+        vm.warp(expiresAtMin + 1 hours);
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifierV2.InvalidSessionId.selector));
+        verifier.verifySession(
+            rpIdCorrect, nonce, signalHash, expiresAtMin, credentialIssuerIdCorrect, 0, 0, [nullifier, action], proof
+        );
+    }
+
     function test_PassesActionCheckWhenFirstByteZero() public {
         // passes the prefix check but fails proof verification
         uint256 action = 0x00d4b66e5417cb9875f6a2b5be9814dca80651d7c74b3b21685fdd494566e7;
