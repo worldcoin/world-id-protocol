@@ -32,6 +32,12 @@ embed-ownership-prover = ["dep:provekit-r1cs-compiler"]
 embed-ownership-verifier = ["dep:provekit-r1cs-compiler"]
 embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
 
+# DeepFace Query Proof (billing gate for the Verifier TEE). Deliberately not part of
+# `embed-noir-artifacts`: the circuit is unaudited and the prover is multi-MB, so it is
+# only pulled in by consumers that explicitly want it (currently `zk-mobile-bench`).
+embed-deepface-query-prover = ["dep:provekit-r1cs-compiler"]
+embed-deepface-query-verifier = ["dep:provekit-r1cs-compiler"]
+
 # Embed everything
 embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
 
@@ -80,3 +86,4 @@ provekit-r1cs-compiler = { workspace = true, optional = true }
 
 [dev-dependencies]
 world-id-test-utils = { workspace = true }
+rand_chacha = { workspace = true }

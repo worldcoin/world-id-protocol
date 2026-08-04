@@ -268,7 +268,7 @@ pub mod noir {
     /// # Errors
     /// Returns an error if embedded Noir artifacts are missing or invalid.
     #[cfg(feature = "embed-ownership-prover")]
-    pub fn load_embedded_ownership_prover() -> eyre::Result<crate::OwnershipProver> {
+    pub fn load_embedded_ownership_prover() -> eyre::Result<crate::NoirProver> {
         crate::ownership_proof::load_ownership_prover_from_reader(PKP_BYTES)
     }
 
@@ -283,8 +283,47 @@ pub mod noir {
     /// # Errors
     /// Returns an error if embedded Noir artifacts are missing or invalid.
     #[cfg(feature = "embed-ownership-verifier")]
-    pub fn load_embedded_ownership_verifier() -> eyre::Result<crate::OwnershipVerifier> {
+    pub fn load_embedded_ownership_verifier() -> eyre::Result<crate::NoirVerifier> {
         crate::ownership_proof::load_ownership_verifier_from_reader(PKV_BYTES)
+    }
+}
+
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    any(
+        feature = "embed-deepface-query-prover",
+        feature = "embed-deepface-query-verifier"
+    )
+))]
+pub mod deepface_query {
+    #[cfg(all(feature = "embed-deepface-query-prover", not(docsrs)))]
+    const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/deepface_query_proof.pkp"));
+
+    #[cfg(all(feature = "embed-deepface-query-prover", docsrs))]
+    const PKP_BYTES: &[u8] = &[];
+
+    /// Loads the embedded DeepFace query proof prover.
+    ///
+    /// # Errors
+    /// Returns an error if embedded Noir artifacts are missing or invalid.
+    #[cfg(feature = "embed-deepface-query-prover")]
+    pub fn load_embedded_deepface_query_prover() -> eyre::Result<crate::NoirProver> {
+        crate::deepface_query_proof::load_deepface_query_prover_from_reader(PKP_BYTES)
+    }
+
+    #[cfg(all(feature = "embed-deepface-query-verifier", not(docsrs)))]
+    const PKV_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/deepface_query_proof.pkv"));
+
+    #[cfg(all(feature = "embed-deepface-query-verifier", docsrs))]
+    const PKV_BYTES: &[u8] = &[];
+
+    /// Loads the embedded DeepFace query proof verifier.
+    ///
+    /// # Errors
+    /// Returns an error if embedded Noir artifacts are missing or invalid.
+    #[cfg(feature = "embed-deepface-query-verifier")]
+    pub fn load_embedded_deepface_query_verifier() -> eyre::Result<crate::NoirVerifier> {
+        crate::deepface_query_proof::load_deepface_query_verifier_from_reader(PKV_BYTES)
     }
 }
 

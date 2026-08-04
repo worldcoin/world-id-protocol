@@ -12807,6 +12807,7 @@ dependencies = [
  "provekit-r1cs-compiler",
  "provekit-verifier",
  "rand 0.8.6",
+ "rand_chacha 0.3.1",
  "rayon",
  "reqwest 0.12.28",
  "ruint",

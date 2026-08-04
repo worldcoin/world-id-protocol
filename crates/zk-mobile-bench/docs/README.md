@@ -79,7 +79,31 @@ Benchmark reports also preserve optional semantic `phases` emitted by
 | `bench_nullifier_proof_generation` | π2 nullifier | Full measured path: fixture/input generation, witness generation, and Groth16 proving |
 | `bench_nullifier_witness_generation_only` | π2 nullifier | Circom witness generation only, with cached input/material |
 | `bench_nullifier_proving_only` | π2 nullifier | Groth16 proving only, from a cached witness |
+| `bench_deepface_query_proof_generation` | DeepFace query | Full measured path: fixture generation, prover deserialization, witness generation and ProveKit proving |
+| `bench_deepface_query_cached_proof_generation` | DeepFace query | Witness generation plus ProveKit proving, with input and prover cached; includes one prover clone |
 
-CI runs all seven functions by default. The function list is specified directly
+CI runs the seven Circom functions by default. The function list is specified directly
 in the caller workflow (`mobile-bench.yml`) via the `functions` input to the
-reusable workflow.
+reusable workflow, so the two DeepFace functions must be added there before CI picks
+them up.
+
+## Running locally
+
+`run_local` takes benchmark names as arguments and runs all defaults when given none:
+
+```bash
+cargo run -p zk-mobile-bench --example run_local --release -- \
+  bench_deepface_query_proof_generation
+```
+
+Run **one benchmark per process** when you intend to quote the numbers. Benchmarks in the
+same process share the allocator and the process-wide ProveKit NTT tables, which inflated
+both DeepFace means by roughly 2.5x and quadrupled the spread. See
+`crates/proof/noir/deepface-query-proof/docs/benchmarks.md`.
+
+## ProveKit benchmarks
+
+The DeepFace query benchmarks are the first ProveKit/Noir benchmarks in this crate; the
+rest are Circom/Groth16. Their prover is embedded via `world-id-proof`'s
+`embed-deepface-query-prover` feature, which needs `nargo` 1.0.0-beta.11 on PATH at build
+time.
