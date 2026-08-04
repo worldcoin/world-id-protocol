@@ -31,6 +31,7 @@ pub const METRICS_REQUEST_REJECTED: &str = "request.rejected";
 
 pub fn describe_metrics() {
     world_id_services_common::describe_http_request_metrics();
+    world_id_services_common::describe_deprecated_endpoint_metrics();
 
     ::metrics::describe_counter!(
         METRICS_ROOT_CACHE_HITS,

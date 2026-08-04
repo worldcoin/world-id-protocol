@@ -13,7 +13,9 @@ use taceo_oprf::{
     types::{OprfKeyId, ShareEpoch, api::OprfRequest, async_trait, crypto::OprfPublicKey},
 };
 use uuid::Uuid;
-use world_id_core::{EdDSAPrivateKey, EdDSASignature, FieldElement, proof::CircomGroth16Material};
+use world_id_core::{
+    EdDSAPrivateKey, EdDSASignature, FieldElement, nullifier_proof::CircomGroth16Material,
+};
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
     AuthenticatorPublicKeySet, TREE_DEPTH,

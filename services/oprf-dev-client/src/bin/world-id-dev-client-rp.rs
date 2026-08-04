@@ -17,7 +17,8 @@ use taceo_oprf::{
 };
 use uuid::Uuid;
 use world_id_core::{
-    EdDSASignature, FieldElement, api_types::AccountInclusionProof, proof::CircomGroth16Material,
+    EdDSASignature, FieldElement, api_types::AccountInclusionProof,
+    nullifier_proof::CircomGroth16Material,
 };
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
@@ -354,8 +355,8 @@ fn generate_oprf_auth_request(
         action: *action,
         nonce: *proof_request.nonce,
         merkle_root: *setup.inclusion_proof.root,
-        current_time_stamp: proof_request.created_at,
-        expiration_timestamp: proof_request.expires_at,
+        created_at: proof_request.created_at,
+        expires_at: proof_request.expires_at,
         signature: Some(proof_request.signature),
         rp_id: proof_request.rp_id,
         wip101_data: None,
