@@ -49,6 +49,7 @@ use world_id_primitives::api_types::{
     UpdateRecoveryAgentRequest,
 };
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_services_common::V1RecoveryAgentMethodsDeprecationLayer;
 
 // Health and status routes
 mod health;
@@ -179,15 +180,18 @@ pub(crate) async fn build_app(
         // recovery agent management
         .route(
             "/initiate-recovery-agent-update",
-            post(initiate_recovery_agent_update),
+            post(initiate_recovery_agent_update)
+                .route_layer(V1RecoveryAgentMethodsDeprecationLayer::new()),
         )
         .route(
             "/cancel-recovery-agent-update",
-            post(cancel_recovery_agent_update),
+            post(cancel_recovery_agent_update)
+                .route_layer(V1RecoveryAgentMethodsDeprecationLayer::new()),
         )
         .route(
             "/execute-recovery-agent-update",
-            post(execute_recovery_agent_update),
+            post(execute_recovery_agent_update)
+                .route_layer(V1RecoveryAgentMethodsDeprecationLayer::new()),
         )
         // WIP-102 optimistic recovery agent update (gated on V2 contract)
         .route("/update-recovery-agent", post(update_recovery_agent))
