@@ -1,5 +1,5 @@
 use super::constants::DS_TAKT;
-use super::utils::p256_be_coord_to_field;
+use super::utils::{assert_cbor_uint32, assert_not_expired, p256_be_coord_to_field};
 use eddsa_poseidon2::verify_eddsa_poseidon2;
 use poseidon2::bn254::perm;
 
@@ -23,8 +23,14 @@ pub struct TrustAnchorKeyToken {
     trust_anchor_key_y: Field,
 }
 
-pub fn verify_takt(input: TrustAnchorKeyToken) {
-    // FIXME: exp verification?
+/// Verifies a Trust Anchor Key Token.
+///
+/// `now` is the verifier-supplied Unix time (seconds) against which CWT `exp`
+/// freshness is checked (`now < exp`). It MUST be a public input of any outer
+/// proof that calls this function.
+pub fn verify_takt(input: TrustAnchorKeyToken, now: Field) {
+    // CBOR uint32 encoding of `exp` is checked later in `serialize_takt`.
+    assert_not_expired(input.exp, now);
 
     // Range-check the packed sub-fields (reserved bits MUST be 0).
     let _ = unpack_sec_flags(input.sec_flags);
@@ -107,11 +113,8 @@ fn compress_bjj_point(x: Field, y: Field) -> [u8; 32] {
 /// embeds exactly the TAKT whose claims the circuit exposes.
 pub(crate) fn serialize_takt(input: TrustAnchorKeyToken) -> [u8; TAKT_TOKEN_LEN] {
     // Fixed-width claim encodings so the template offsets are constant.
+    assert_cbor_uint32(input.exp);
     let exp_bytes: [u8; 4] = input.exp.to_be_bytes();
-    assert(
-        (exp_bytes[0] != 0) | (exp_bytes[1] != 0),
-        "exp must require a 4-byte CBOR uint encoding",
-    );
     let sec_flags_bytes: [u8; 8] = input.sec_flags.to_be_bytes();
 
     let kid = compress_bjj_point(input.trust_anchor_key_x, input.trust_anchor_key_y);
@@ -213,11 +216,18 @@ fn test_coord_from_limbs(hi: Field, lo: Field) -> [u8; 32] {
     coord
 }
 
+/// Known-answer `exp` shared by the deterministic TAKT/AAT fixtures
+/// (`1783446925`, around 2026-07-07).
+pub(crate) global TEST_EXP: Field = 1783446925;
+
+/// Verifier time used by happy-path tests: strictly before `TEST_EXP`.
+pub(crate) global TEST_NOW: Field = 1700000000;
+
 pub(crate) fn test_deterministic_takt() -> TrustAnchorKeyToken {
     // P-256 coordinates as (hi, lo) 128-bit limbs. A whole coordinate cannot
     // be a single Field literal: it may exceed the BN254 modulus (y does here).
     TrustAnchorKeyToken {
-        exp: 1783446925,
+        exp: TEST_EXP,
         assertion_key_x: test_coord_from_limbs(
             0x209c317b637935dd3da1c54f63495dfb,
             0x31f97d293df085710320595c9aacb83f,
@@ -243,7 +253,7 @@ pub(crate) fn test_deterministic_takt() -> TrustAnchorKeyToken {
 /// that an AAT must be signed by the key its TAKT attests.
 pub(crate) fn test_deterministic_takt_unrelated_key() -> TrustAnchorKeyToken {
     TrustAnchorKeyToken {
-        exp: 1783446925,
+        exp: TEST_EXP,
         assertion_key_x: test_coord_from_limbs(
             0x42ad971d037d1ab2bedfce3f17f97dba,
             0xd1205ea7cc75a04ff582ddca56a0bf38,
@@ -271,7 +281,7 @@ fn test_deterministic_takt_verification() {
         13841652385841404096687877664637984932218603617558109472176126865842396474985,
         "digest mismatch",
     );
-    verify_takt(candidate);
+    verify_takt(candidate, TEST_NOW);
 }
 
 #[test]
@@ -305,12 +315,26 @@ fn test_digest_mismatch() {
     let mut candidate = test_deterministic_takt();
     // platform sub-field: 2 -> 4
     candidate.sec_flags = 0x0003000007D60104;
-    verify_takt(candidate);
+    verify_takt(candidate, TEST_NOW);
 }
 
 #[test(should_fail_with = "sec_flags bits 52-55 are reserved and must be 0")]
 fn test_reserved_sec_flags_bits_rejected() {
     let mut candidate = test_deterministic_takt();
     candidate.sec_flags = 0x0013000007D60102;
-    verify_takt(candidate);
+    verify_takt(candidate, TEST_NOW);
+}
+
+#[test(should_fail)]
+fn test_expired_takt_rejected() {
+    // At `exp` the token is already expired (RFC 8392: "on or after").
+    verify_takt(test_deterministic_takt(), TEST_EXP);
+}
+
+#[test(should_fail_with = "value must require a 4-byte CBOR uint encoding")]
+fn test_exp_too_small_for_cbor_uint32_rejected() {
+    let mut candidate = test_deterministic_takt();
+    // Fits in a 2-byte CBOR uint; breaks the fixed-offset serialization profile.
+    candidate.exp = 0xffff;
+    let _ = serialize_takt(candidate);
 }
