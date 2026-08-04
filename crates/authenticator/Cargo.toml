@@ -45,7 +45,6 @@ ark-babyjubjub = { workspace = true }
 ark-serialize = { workspace = true }
 groth16-material = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
-poseidon2 = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 eyre = { workspace = true }
 world-id-primitives = { workspace = true }

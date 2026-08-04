@@ -12490,7 +12490,6 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
  "taceo-oprf",
- "taceo-poseidon2",
  "testcontainers",
  "thiserror 2.0.18",
  "tokio",

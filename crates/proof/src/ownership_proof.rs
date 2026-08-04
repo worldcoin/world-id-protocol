@@ -24,7 +24,7 @@ pub const DS_OWNERSHIP_PROOF: &[u8; 6] = b"WIP103";
 /// `Poseidon2(DS_OWNERSHIP_PROOF, expected_commitment, nonce, context)` as defined in
 /// the Noir circuit and the WIP-103 spec.
 #[must_use]
-pub fn signed_message(
+pub fn message_digest(
     expected_commitment: FieldElement,
     nonce: FieldElement,
     context: FieldElement,
@@ -293,7 +293,7 @@ mod tests {
 
         // The circuit verifies a signature over the domain-separated message, not the raw
         // commitment. See `Authenticator::prove_credential_sub`.
-        let signature = sk.sign(*signed_message(commitment, nonce, context));
+        let signature = sk.sign(*message_digest(commitment, nonce, context));
 
         let circuit_input = OwnershipProofCircuitInput {
             key_index: 0,
@@ -398,7 +398,7 @@ mod tests {
 
         // Signed over the commitment the circuit derives, so the signature check still passes and
         // the only violated constraint is `commitment == expected_commitment`.
-        let signature = sk.sign(*signed_message(commitment, nonce, context));
+        let signature = sk.sign(*message_digest(commitment, nonce, context));
 
         let circuit_input = OwnershipProofCircuitInput {
             key_index: 0,

@@ -472,6 +472,8 @@ impl Authenticator {
     ///
     /// # Arguments
     /// - `nonce`: The nonce of the request provided by the Issuer.
+    /// - `context`: The context provided by the Issuer for which the proof is valid (e.g. "delete a credential"). The Issuer
+    ///   defines the context meaning but MUST enforce it is used only for the intended operation.
     /// - `credential_blinding_factor`: The blinding factor generated for the credential.
     /// - `sub`: The expected `sub` of the Credential in question.
     /// - `account_inclusion_proof`: An optionally cached account inclusion proof. If not provided, a new inclusion proof will be fetched.
@@ -482,11 +484,12 @@ impl Authenticator {
     pub async fn prove_credential_sub(
         &self,
         nonce: FieldElement,
+        context: FieldElement,
         credential_blinding_factor: FieldElement,
         sub: FieldElement,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<OwnershipProof, AuthenticatorError> {
-        use world_id_proof::ownership_proof::DS_OWNERSHIP_PROOF;
+        use world_id_proof::ownership_proof::message_digest;
 
         let authenticator_input = self
             .prepare_authenticator_input(account_inclusion_proof)
@@ -498,24 +501,19 @@ impl Authenticator {
             return Err(AuthenticatorError::InvalidSubOrBlindingFactor);
         }
 
-        let mut message = [
-            *FieldElement::from_be_bytes_mod_order(DS_OWNERSHIP_PROOF),
-            *commitment,
-            *nonce,
-        ];
-        poseidon2::bn254::t3::permutation_in_place(&mut message);
-
         let signature = self
             .signer
             .offchain_signer_private_key()
             .expose_secret()
-            .sign(message[1]);
+            .sign(*message_digest(commitment, nonce, context));
 
         let input = OwnershipProofCircuitInput {
             key_index: authenticator_input.key_index,
             key_set: authenticator_input.key_set.clone(),
             inclusion_proof: authenticator_input.inclusion_proof.clone(),
             nonce,
+            expected_commitment: commitment,
+            context,
             signature,
             commitment_blinder: credential_blinding_factor,
         };
@@ -603,6 +601,7 @@ mod tests {
         let result = authenticator
             .prove_credential_sub(
                 FieldElement::from(1_234_567_890u64),
+                FieldElement::from(42u64),
                 blinding_factor,
                 wrong_sub,
                 Some(inclusion_proof),
@@ -633,9 +632,16 @@ mod tests {
         let blinding_factor = FieldElement::from(999u64);
         let correct_sub = Credential::compute_sub(leaf_index, blinding_factor);
         let nonce = FieldElement::from(1_234_567_890u64);
+        let context = FieldElement::from(42u64);
 
         authenticator
-            .prove_credential_sub(nonce, blinding_factor, correct_sub, Some(inclusion_proof))
+            .prove_credential_sub(
+                nonce,
+                context,
+                blinding_factor,
+                correct_sub,
+                Some(inclusion_proof),
+            )
             .await
             .expect("proof generation should succeed");
     }
