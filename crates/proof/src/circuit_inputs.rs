@@ -253,8 +253,12 @@ pub const BILLING_TREE_DEPTH: usize = 30;
 ///
 /// Must match `PCP_CLAIM_INDEX` in `noir/deepface-query-proof/src/constants.nr`.
 ///
-/// PROVISIONAL: no issuer populates `claims` yet, so no slot is spoken for. Changing it
-/// changes the circuit and therefore the proving/verifying keys.
+/// Slot 0 of the *iris* (orb signup) credential, which `signup-service` populates with
+/// `H(b"CLAIMS_HASH_V1" || hashes.json)`. Claim indices are scoped to the credential
+/// schema -- slot 0 of the *face* credential is a uniqueness flag -- so this is only
+/// meaningful alongside `issuer_schema_id`.
+///
+/// Changing it changes the circuit and therefore the proving/verifying keys.
 pub const PCP_CLAIM_INDEX: usize = 0;
 
 /// Number of credential claim slots other than the PCP one, i.e.

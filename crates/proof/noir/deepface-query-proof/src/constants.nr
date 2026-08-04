@@ -22,9 +22,15 @@ pub global MAX_CLAIMS: u32 = 16;
 
 // Which claim slot carries the PCP commitment.
 //
-// PROVISIONAL. No issuer populates `claims` today, so no slot is spoken for yet; see
-// the module docs in `main.nr`. Changing this changes the circuit and therefore the
-// proving/verifying keys, so it needs to be fixed with the PoH credential schema.
+// Slot 0 of the *iris* (orb signup) credential. `signup-service` issues exactly one claim
+// there, `base64(hashes.json)` passed as a raw `Claims` entry so the signer Poseidon2-hashes
+// it -- see the module docs in `main.nr`.
+//
+// Claim indices are scoped to the credential schema, not global: slot 0 of the *face*
+// credential is a uniqueness flag, not a PCP. `issuer_schema_id` is what disambiguates,
+// which is why it is a public input the TEE has to pin.
+//
+// Changing this changes the circuit and therefore the proving/verifying keys.
 pub global PCP_CLAIM_INDEX: u32 = 0;
 
 // b"POSEIDON2+EDDSA-BJJ" -- domain separator of the credential signature message.

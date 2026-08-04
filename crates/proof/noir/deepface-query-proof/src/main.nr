@@ -25,25 +25,36 @@
 //!
 //! ## Which credential field `pcp_hash` is
 //!
-//! `pcp_hash` is **one claim slot**, not the aggregate `claims_hash` and not
-//! `associated_data_commitment`:
+//! `pcp_hash` is **claim slot 0 of the iris (orb signup) credential**, which is what
+//! `signup-service` already issues. Its `createClaimFromPcp` sets a single claim to
+//! `base64(hashes.json)`, passed as a raw `Claims` entry so the credential signer
+//! Poseidon2-hashes it -- the base64 is JSON transport, so the pre-image is the
+//! `hashes.json` bytes and the value is `H(b"CLAIMS_HASH_V1" || hashes.json)`. That is
+//! exactly what the enclave can derive from the `hashes.json` it already holds. Claim
+//! indices are assigned in order from 0, and iris passes one claim, so slot 0 it is.
 //!
-//! - `claims` are documented as "commitments to data (e.g. passport image)" that the
-//!   issuer attests about the subject, which is exactly what a PCP commitment is. A slot
-//!   is set as `H(b"CLAIMS_HASH_V1" || bytes)`, so the enclave can derive it from the
-//!   `hashes.json` it already holds.
-//! - `associated_data_commitment` is ruled out: the `Credential` docs make it
-//!   issuer-private ("never exposed to RPs or others") with a structure "solely determined
-//!   by the issuer", so binding the protocol to it would both misuse the field and let the
-//!   issuer break this circuit by changing its own encoding.
-//! - The aggregate `claims_hash` is ruled out because the TEE cannot check it: deriving it
-//!   needs *every* claim slot, and the TEE only ever sees the PCP. Publishing it would
-//!   also leak a handle to claims the TEE has no business learning.
+//! Note the PoH credential is *not* issued in this repo -- `services/faux-issuer` is a
+//! stand-in and sets no claims, so it says nothing about the real schema.
 //!
-//! Caveat, and the reason `PCP_CLAIM_INDEX` is provisional: **no issuer populates `claims`
-//! today** -- they are marked "For Future Use" in `world-id-primitives` and nothing in the
-//! repo, the faux issuer included, sets one. So this circuit is the first consumer, and
-//! the slot index has to be pinned down together with the PoH credential schema.
+//! Ruled out:
+//!
+//! - `associated_data_commitment`: the `Credential` docs make it issuer-private ("never
+//!   exposed to RPs or others") with a structure "solely determined by the issuer", so
+//!   binding the protocol to it would both misuse the field and let the issuer break this
+//!   circuit by changing its own encoding.
+//! - The aggregate `claims_hash`: the TEE cannot check it, because deriving it needs
+//!   *every* claim slot and the TEE only ever sees the PCP. Publishing it would also leak a
+//!   handle to claims the TEE has no business learning.
+//!
+//! ## Claim indices are schema-scoped
+//!
+//! Slot 0 does not mean "PCP" in general. The *face* credential, issued by the same
+//! service, uses slot 0 for a uniqueness flag and slot 1 for a score, written through
+//! `ClaimHashes` so they land verbatim rather than Poseidon2-hashed. So a claim slot is
+//! only meaningful together with `issuer_schema_id`, which is a public input the TEE must
+//! pin to the PoH schema. Failing to pin it is not directly exploitable -- a face
+//! credential's slot 0 is the constant `1`, which cannot match a `hashes.json` digest --
+//! but the check is what makes the slot index mean anything.
 pub(crate) mod commitment;
 pub(crate) mod constants;
 pub(crate) mod credential;

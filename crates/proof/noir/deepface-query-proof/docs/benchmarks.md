@@ -98,32 +98,48 @@ distribute or pin.
 
 The YABS doc names a public `PCP hash` input and says the TEE must check it "matches the
 one derived from `hashes.json`", without naming the signed credential field that carries
-it. Resolved as **one claim slot**, `claims[PCP_CLAIM_INDEX]`:
+it. It is **claim slot 0 of the iris (orb signup) credential**, which `signup-service`
+already issues.
 
-- `claims` are documented in `world-id-primitives` as "commitments to data (e.g. passport
-  image)" that the issuer attests about the subject -- exactly what a PCP commitment is.
-  A slot is set as `H(b"CLAIMS_HASH_V1" || bytes)`, which the enclave can derive from the
-  `hashes.json` it already holds.
-- `associated_data_commitment` is ruled out. The `Credential` docs make it issuer-private
+The PoH credential is not issued in this repo, so the schema has to be read there:
+`createClaimFromPcp` in `iris/app-api/handlers/utils.go` sets a single claim to
+`base64(hashes.json)`, and `Claims` entries are documented as "raw claim values (base64
+encoded)" that "the signer will compute the Poseidon2 hash for", with "indices assigned
+automatically (0, 1, 2, ...)". So the base64 is JSON transport, the pre-image is the
+`hashes.json` bytes, the value is `H(b"CLAIMS_HASH_V1" || hashes.json)`, and the slot is 0 --
+precisely what the enclave can derive from the `hashes.json` it already holds.
+
+Ruled out:
+
+- `associated_data_commitment`. The `Credential` docs make it issuer-private
   ("never exposed to RPs or others") with a structure "solely determined by the issuer", so
   binding the protocol to it would misuse the field *and* let an issuer break this circuit
   by changing its own encoding.
-- The aggregate `claims_hash` is ruled out because **the TEE cannot check it**: deriving it
-  needs every claim slot, and the TEE only ever sees the PCP. Publishing it would also leak
-  a handle to claims the TEE has no business learning.
+- The aggregate `claims_hash`, because **the TEE cannot check it**: deriving it needs every
+  claim slot, and the TEE only ever sees the PCP. Publishing it would also leak a handle to
+  claims the TEE has no business learning.
 
-Two caveats:
+Note `services/faux-issuer` sets no claims, so it says nothing about the real schema -- it
+is a stand-in, not the PoH issuer.
 
-- **No issuer populates `claims` today.** They are marked "For Future Use" in
-  `world-id-primitives`, and nothing in the repo -- the faux issuer included -- sets one.
-  This circuit is the first consumer, so `PCP_CLAIM_INDEX` is provisional and has to be
-  pinned down with the PoH credential schema. Changing it changes the keys.
+Three caveats:
+
+- **Claim indices are schema-scoped.** The *face* credential, from the same service, uses
+  slot 0 for a uniqueness flag and slot 1 for a score, written via `ClaimHashes` so they
+  land verbatim instead of Poseidon2-hashed. A slot index therefore only means something
+  alongside `issuer_schema_id`, which the TEE must pin to the PoH schema. Not directly
+  exploitable -- the face credential's slot 0 is the constant `1`, which cannot match a
+  `hashes.json` digest -- but the pin is what gives the index meaning.
+- **`hashes.json` is version-dependent.** The PCP versions doc specifies it as a flattened,
+  entry-sorted JSON of file to sha256, and several PCP versions are in circulation. The
+  enclave has to canonicalise identically to the orb for the version it is handed, or the
+  claim will not match.
 - `Credential::claims_hash` has **no domain separator**: all 16 slots are data, and the
   t16 output is taken at index 1 -- the same permutation and output index as
   `MerkleLeaf` in `circom/client_side_proofs/oprf_query.circom`, which *does* reserve a
-  capacity element for one. Claim values are issuer-set and domain-separated individually,
-  so this is not obviously exploitable, but the aggregate shares a hash domain with other
-  t16 uses and there is no spare slot to add a separator without a credential version bump.
+  capacity element for one. Iris claim values are domain-separated individually, but the
+  face domain writes claim values verbatim, so that mitigation is not universal, and there
+  is no spare slot to add a separator without a credential version bump.
 
 ## Cost of proving control of the World ID
 
