@@ -401,3 +401,32 @@ fn aat_rejects_aud_outside_fixed_width_range() {
     let err = AuthenticatorAssertionToken::new(claims, takt).unwrap_err();
     assert!(matches!(err, AttestationError::AudOutOfRange(100)));
 }
+
+#[test]
+fn aat_rejects_exp_outside_fixed_width_range() {
+    let trust_anchor_key = EdDSAPrivateKey::random(&mut OsRng);
+    let assertion_secret = p256::SecretKey::random(&mut OsRng);
+    let takt = signed_takt(assertion_secret.public_key(), &trust_anchor_key);
+    let claims = AuthenticatorAssertionClaims {
+        // Year 2106+: needs an 8-byte CBOR uint, which would shift every
+        // payload offset the circuit relies on.
+        exp: 1_u64 << 32,
+        ..sample_aat_claims()
+    };
+
+    let err = AuthenticatorAssertionToken::new(claims, takt).unwrap_err();
+    assert!(matches!(err, AttestationError::ExpirationOutOfRange(_)));
+}
+
+#[test]
+fn takt_rejects_exp_outside_fixed_width_range() {
+    let assertion_secret = p256::SecretKey::random(&mut OsRng);
+    let claims = TrustAnchorKeyClaims {
+        // Fits a 2-byte CBOR uint; same fixed-offset violation from below.
+        exp: 100,
+        ..sample_claims(assertion_secret.public_key())
+    };
+
+    let err = TrustAnchorKeyToken::new(claims).unwrap_err();
+    assert!(matches!(err, AttestationError::ExpirationOutOfRange(100)));
+}

@@ -138,7 +138,8 @@ impl AuthenticatorMeta {
 /// Claims carried by a Trust Anchor Key Token.
 #[derive(Debug, Clone, Copy)]
 pub struct TrustAnchorKeyClaims {
-    /// Expiration as seconds since the Unix epoch.
+    /// Expiration as seconds since the Unix epoch; MUST be in `[2^16, 2^32)`
+    /// for its fixed-width encoding.
     pub exp: u64,
     /// The attested `assertion_key`, carried as a `COSE_Key` in the `cnf` claim.
     pub assertion_key: p256::PublicKey,
@@ -179,8 +180,8 @@ pub enum AttestationError {
     /// `aud` cannot use the fixed 4-byte CBOR encoding.
     #[error("aud {0} must be in [2^16, 2^32) for its fixed-width encoding")]
     AudOutOfRange(u64),
-    /// `exp` cannot be represented as a CWT numeric date.
-    #[error("exp {0} exceeds the representable CWT numeric date range")]
+    /// `exp` cannot use the fixed 4-byte CBOR encoding.
+    #[error("exp {0} must be in [2^16, 2^32) for its fixed-width encoding")]
     ExpirationOutOfRange(u64),
     /// Key material could not be serialized.
     #[error("failed to encode key material: {0}")]
@@ -199,6 +200,16 @@ pub enum AttestationError {
     AssertionKeyMismatch,
 }
 
+/// Validates that `exp` fits the fixed 4-byte CBOR uint encoding mandated by
+/// WIP-106 (`2^16 <= exp < 2^32`, dates between 1971 and 2106), so the claim
+/// offsets the circuits rely on stay constant.
+fn validate_exp_fixed_width(exp: u64) -> Result<(), AttestationError> {
+    if u16::try_from(exp).is_ok() || u32::try_from(exp).is_err() {
+        return Err(AttestationError::ExpirationOutOfRange(exp));
+    }
+    Ok(())
+}
+
 /// A Trust Anchor Key Token (TAKT, WIP-106): an EAT attesting an
 /// `assertion_key` through the `cnf` claim.
 ///
@@ -215,14 +226,13 @@ impl TrustAnchorKeyToken {
     ///
     /// # Errors
     /// - [`AttestationError::SecMetaTooLarge`] if `sec_meta` carries more than 4 bits.
-    /// - [`AttestationError::ExpirationOutOfRange`] if `exp` is not a valid CWT numeric date.
+    /// - [`AttestationError::ExpirationOutOfRange`] if `exp` cannot use the
+    ///   fixed 4-byte CBOR encoding.
     pub fn new(claims: TrustAnchorKeyClaims) -> Result<Self, AttestationError> {
         if claims.sec_meta > MAX_SEC_META {
             return Err(AttestationError::SecMetaTooLarge(claims.sec_meta));
         }
-        if i64::try_from(claims.exp).is_err() {
-            return Err(AttestationError::ExpirationOutOfRange(claims.exp));
-        }
+        validate_exp_fixed_width(claims.exp)?;
         Ok(Self { claims })
     }
 
@@ -354,7 +364,8 @@ impl TrustAnchorKeyToken {
 pub struct AuthenticatorAssertionClaims {
     /// The `rpId` of the requesting RP (CWT `aud`); MUST be in `[2^16, 2^32)`.
     pub aud: RpId,
-    /// Expiration as seconds since the Unix epoch.
+    /// Expiration as seconds since the Unix epoch; MUST be in `[2^16, 2^32)`
+    /// for its fixed-width encoding.
     pub exp: u64,
     /// The `ProofRequest` nonce binding the token to a specific request.
     pub nonce: FieldElement,
@@ -393,8 +404,8 @@ impl AuthenticatorAssertionToken {
     ///   provider bits carry more than 2 bits.
     /// - [`AttestationError::AudOutOfRange`] if `aud` cannot use the fixed
     ///   4-byte CBOR encoding.
-    /// - [`AttestationError::ExpirationOutOfRange`] if `exp` is not a valid CWT
-    ///   numeric date.
+    /// - [`AttestationError::ExpirationOutOfRange`] if `exp` cannot use the
+    ///   fixed 4-byte CBOR encoding.
     /// - [`AttestationError::InvalidTrustAnchorKeyToken`] if the Trust Anchor
     ///   Key Token cannot be parsed or carries no `cnf` claim.
     pub fn new(
@@ -410,9 +421,7 @@ impl AuthenticatorAssertionToken {
         if u16::try_from(aud).is_ok() || u32::try_from(aud).is_err() {
             return Err(AttestationError::AudOutOfRange(aud));
         }
-        if i64::try_from(claims.exp).is_err() {
-            return Err(AttestationError::ExpirationOutOfRange(claims.exp));
-        }
+        validate_exp_fixed_width(claims.exp)?;
         let attested_key = attested_key_coordinates(&trust_anchor_key_token)?;
         Ok(Self {
             claims,
