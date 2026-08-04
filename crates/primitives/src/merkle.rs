@@ -111,3 +111,30 @@ fn poseidon2_compress(left: Fr, right: Fr) -> Fr {
     state[0] += left;
     state[0]
 }
+
+/// Builds the inclusion witness for the first registered account.
+///
+/// # Warning
+/// Should only be used in tests.
+///
+/// Returns the default-zero sibling path for index 1 and the Merkle root after inserting the
+/// provided `leaf` at that index.
+#[must_use]
+pub fn first_leaf_merkle_path<const TREE_DEPTH: usize>(
+    leaf: Fr,
+) -> ([FieldElement; TREE_DEPTH], FieldElement) {
+    let mut siblings = [FieldElement::from(0u64); TREE_DEPTH];
+    let mut zero = Fr::from(0u64);
+    for sibling in &mut siblings {
+        *sibling = zero.into();
+        zero = poseidon2_compress(zero, zero);
+    }
+
+    let mut current = poseidon2_compress(*siblings[0], leaf);
+    // For the remaining levels, continue hashing with current on the left
+    for sibling in &siblings[1..] {
+        current = poseidon2_compress(current, **sibling);
+    }
+
+    (siblings, current.into())
+}

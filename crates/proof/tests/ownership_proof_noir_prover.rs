@@ -9,8 +9,7 @@
 use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
 use provekit_common::{InputMap, InputValue};
-use world_id_proof::NoirCircuitInput as _;
-use world_id_test_utils::fixtures::ownership_proof_fixture;
+use world_id_proof::{NoirCircuitInput as _, fixtures::ownership_proof_fixture};
 
 /// Every key the circuit ABI is expected to have, in `BTreeMap` (alphabetical) order. A circuit
 /// input added, removed or renamed without updating the renderer below fails these assertions.
