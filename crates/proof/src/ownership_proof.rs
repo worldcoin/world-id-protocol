@@ -259,58 +259,29 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
     feature = "embed-ownership-verifier"
 ))]
 mod tests {
-    use crate::{
-        artifacts::embedded::EmbeddedZkArtifacts, circuit_inputs::OwnershipProofCircuitInput,
-    };
+    use crate::artifacts::embedded::EmbeddedZkArtifacts;
 
     use super::*;
 
-    use eddsa_babyjubjub::EdDSAPrivateKey;
-    use world_id_primitives::{
-        AuthenticatorPublicKeySet, Credential, TREE_DEPTH, merkle::MerkleInclusionProof,
-    };
-
-    const LEAF_INDEX: u64 = 1;
-
-    fn build_merkle_proof(leaf: ark_bn254::Fr) -> MerkleInclusionProof<TREE_DEPTH> {
-        let (siblings, root) = world_id_test_utils::merkle::first_leaf_merkle_path(leaf);
-        MerkleInclusionProof::new(root, LEAF_INDEX, siblings)
-    }
+    use crate::fixtures::ownership_proof_fixture;
+    use world_id_primitives::Credential;
 
     /// A valid proof together with its `(nonce, expected_commitment, context)` public inputs.
     fn generate_valid_ownership_proof_fixture()
     -> (OwnershipProof, FieldElement, FieldElement, FieldElement) {
-        let sk = EdDSAPrivateKey::from_bytes([42u8; 32]);
-        let pk = sk.public();
-        let key_set = AuthenticatorPublicKeySet::new(vec![pk]).expect("single key fits");
-        let leaf = key_set.leaf_hash();
-        let inclusion_proof = build_merkle_proof(leaf);
-
-        let nonce = FieldElement::from(1234567890u64);
-        let context = FieldElement::from(42u64);
-        let commitment_blinder = FieldElement::from(999u64);
-        let commitment = Credential::compute_sub(LEAF_INDEX, commitment_blinder);
-
-        // The circuit verifies a signature over the domain-separated message, not the raw
-        // commitment. See `Authenticator::prove_credential_sub`.
-        let signature = sk.sign(*message_digest(commitment, nonce, context));
-
-        let circuit_input = OwnershipProofCircuitInput {
-            key_index: 0,
-            key_set,
-            inclusion_proof: inclusion_proof.clone(),
-            nonce,
-            expected_commitment: commitment,
-            context,
-            signature,
-            commitment_blinder,
-        };
+        let circuit_input = ownership_proof_fixture();
+        let (nonce, commitment, context) = (
+            circuit_input.nonce,
+            circuit_input.expected_commitment,
+            circuit_input.context,
+        );
+        let root = circuit_input.inclusion_proof.root;
 
         let artifacts = EmbeddedZkArtifacts;
         let proof = generate_ownership_proof(circuit_input, &artifacts).unwrap();
 
         // Public input: merkle root is directly accessible
-        assert_eq!(proof.merkle_root, inclusion_proof.root);
+        assert_eq!(proof.merkle_root, root);
         assert!(!proof.proof.narg_string.is_empty());
 
         (proof, nonce, commitment, context)
@@ -387,30 +358,14 @@ mod tests {
     /// mismatched pair fails.
     #[test]
     fn test_generate_ownership_proof_rejects_mismatched_commitment() {
-        let sk = EdDSAPrivateKey::from_bytes([42u8; 32]);
-        let key_set = AuthenticatorPublicKeySet::new(vec![sk.public()]).unwrap();
-        let inclusion_proof = build_merkle_proof(key_set.leaf_hash());
+        let mut circuit_input = ownership_proof_fixture();
 
-        let nonce = FieldElement::from(1234567890u64);
-        let context = FieldElement::from(42u64);
-        let commitment_blinder = FieldElement::from(999u64);
-        let commitment = Credential::compute_sub(LEAF_INDEX, commitment_blinder);
-
-        // Signed over the commitment the circuit derives, so the signature check still passes and
-        // the only violated constraint is `commitment == expected_commitment`.
-        let signature = sk.sign(*message_digest(commitment, nonce, context));
-
-        let circuit_input = OwnershipProofCircuitInput {
-            key_index: 0,
-            key_set,
-            inclusion_proof,
-            nonce,
-            // Commitment for a different leaf index
-            expected_commitment: Credential::compute_sub(LEAF_INDEX + 1, commitment_blinder),
-            context,
-            signature,
-            commitment_blinder,
-        };
+        // The fixture signature stays valid over the commitment the circuit derives, so the only
+        // violated constraint is `commitment == expected_commitment`
+        circuit_input.expected_commitment = Credential::compute_sub(
+            circuit_input.inclusion_proof.leaf_index + 1,
+            circuit_input.commitment_blinder,
+        );
 
         let err = generate_ownership_proof(circuit_input, &EmbeddedZkArtifacts).unwrap_err();
         assert!(matches!(err, ProofError::GenerationError(_)));
