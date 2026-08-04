@@ -130,11 +130,10 @@ impl OprfRequestAuthenticator for CredentialBlindingFactorModuleAuth {
         &self,
         request: &OprfRequest<Self::RequestAuth>,
     ) -> Result<OprfKeyId, OprfRequestAuthenticatorError> {
-        Ok(self.authenticate_inner(request).await.map_err(|err| {
-            let mapped = WorldIdRequestAuthError::from(&err);
-            super::log_auth_module_error(&err, mapped, "credential issuer blinding module");
-            mapped
-        })?)
+        Ok(self
+            .authenticate_inner(request)
+            .await
+            .map_err(|err| super::auth_module_error(err, "credential issuer blinding module"))?)
     }
 }
 
@@ -156,7 +155,7 @@ mod tests {
         QUERY_VERIFICATION_KEY,
         auth::{
             credential_blinding_factor::CredentialBlindingFactorModuleAuth,
-            tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup},
+            tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup, SetupKind},
         },
     };
 
@@ -168,7 +167,7 @@ mod tests {
 
     impl CredentialBlindingFactorOprfRequestAuthTestSetup {
         pub(crate) async fn new() -> eyre::Result<Self> {
-            let infra = AuthModulesTestSetup::new().await?;
+            let infra = AuthModulesTestSetup::new(SetupKind::CredentialIssuer).await?;
             let vk: VerificationKey<Bn254> =
                 serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
 

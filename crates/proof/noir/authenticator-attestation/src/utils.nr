@@ -14,3 +14,18 @@ pub(crate) fn p256_be_coord_to_field(coord: [u8; 32]) -> (Field, Field) {
 
     (Field::from_be_bytes(hi_bytes), Field::from_be_bytes(lo_bytes))
 }
+
+/// Asserts that `value` requires a 4-byte CBOR uint encoding
+/// (`2^16 <= value < 2^32`), so fixed template offsets stay valid.
+pub(crate) fn assert_cbor_uint32(value: Field) {
+    let bytes: [u8; 4] = value.to_be_bytes();
+    assert((bytes[0] != 0) | (bytes[1] != 0), "value must require a 4-byte CBOR uint encoding");
+}
+
+/// Asserts CWT `exp` freshness: `now < exp` (expired at `exp`, RFC 8392).
+///
+/// `now` MUST be a verifier-supplied public input; a prover-chosen private
+/// timestamp would make the check vacuous.
+pub(crate) fn assert_not_expired(exp: Field, now: Field) {
+    std::field::bn254::assert_lt(now, exp);
+}
