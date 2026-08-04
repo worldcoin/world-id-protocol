@@ -18,10 +18,10 @@ use crate::{
 };
 
 /// Domain separator for the Ownership Proof Hash Message.
-pub const DS_OWNERSHIP_PROOF: &[u8; 6] = b"WIP103";
+pub const DS_WIP_103: &[u8; 6] = b"WIP103";
 
 /// Computes the message the authenticator signs for an ownership proof:
-/// `Poseidon2(DS_OWNERSHIP_PROOF, expected_commitment, nonce, context)` as defined in
+/// `Poseidon2(DS_WIP_103, expected_commitment, nonce, context)` as defined in
 /// the Noir circuit and the WIP-103 spec.
 #[must_use]
 pub fn message_digest(
@@ -30,7 +30,7 @@ pub fn message_digest(
     context: FieldElement,
 ) -> FieldElement {
     let mut state = [
-        *FieldElement::from_be_bytes_mod_order(DS_OWNERSHIP_PROOF),
+        *FieldElement::from_be_bytes_mod_order(DS_WIP_103),
         *expected_commitment,
         *nonce,
         *context,

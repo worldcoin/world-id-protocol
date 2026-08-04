@@ -1,4 +1,4 @@
-use super::constants::{DS_C_CS, DS_OWNERSHIP_PROOF};
+use super::constants::{DS_C_CS, DS_WIP_103};
 use poseidon2::bn254::perm;
 
 pub(crate) fn generate_commitment(leaf_index: Field, commitment_blinder: Field) -> Field {
@@ -8,7 +8,7 @@ pub(crate) fn generate_commitment(leaf_index: Field, commitment_blinder: Field) 
 }
 
 pub(crate) fn generate_message(commitment: Field, nonce: Field, context: Field) -> Field {
-    let state = perm::x5_4([DS_OWNERSHIP_PROOF, commitment, nonce, context]);
+    let state = perm::x5_4([DS_WIP_103, commitment, nonce, context]);
     state[1]
 }
 
@@ -55,5 +55,5 @@ fn test_generate_message_is_not_symmetric() {
 #[test]
 fn test_commitment_and_message_are_domain_separated() {
     assert(generate_commitment(1, 100) != generate_message(1, 100, 0));
-    assert(DS_C_CS != DS_OWNERSHIP_PROOF);
+    assert(DS_C_CS != DS_WIP_103);
 }

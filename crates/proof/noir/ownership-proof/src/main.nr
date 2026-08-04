@@ -111,6 +111,8 @@ mod tests {
         2736030358979909402780800718157159386076813972158567259200215660948447373041;
 
     /// The neutral point of BabyJubJub, the value unused authenticator key slots hold.
+    //
+    // O = (0,1). Reference: <https://docs.iden3.io/publications/pdfs/Baby-Jubjub.pdf> section 4.3.1
     global UNUSED_KEY: PublicKey = PublicKey { x: 0, y: 1 };
 
     /// `-PK`, a valid key in the same subgroup that the fixture signature was *not* made with.
