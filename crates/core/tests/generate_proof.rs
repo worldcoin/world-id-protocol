@@ -35,7 +35,7 @@ use world_id_primitives::{
     merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
-    anvil::WorldIDVerifierV2,
+    anvil::WorldIDVerifierV3,
     fixtures::{
         MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
         single_leaf_merkle_fixture,
@@ -339,9 +339,9 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // verify proof with verifier contract
     let request_item = &proof_request.requests[0];
-    let world_id_verifier: WorldIDVerifierV2::WorldIDVerifierV2Instance<
+    let world_id_verifier: WorldIDVerifierV3::WorldIDVerifierV3Instance<
         alloy::providers::DynProvider,
-    > = WorldIDVerifierV2::new(world_id_verifier, anvil.provider()?);
+    > = WorldIDVerifierV3::new(world_id_verifier, anvil.provider()?);
     world_id_verifier
         .verify(
             response_item
