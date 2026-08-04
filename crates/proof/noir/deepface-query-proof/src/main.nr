@@ -22,6 +22,20 @@
 //! being secrets only the holder has. Adding the missing block is exactly the
 //! `ownership_proof` circuit, so its measured cost is the price of closing this gap --
 //! see `docs/benchmarks.md`.
+//!
+//! ## Which credential field `pcp_hash` is
+//!
+//! Resolved here as the credential's `claims_hash`, i.e. `hashes[0]` in
+//! `CheckCredentialSignature`. The YABS doc says only "Pub. `PCP hash`", and the TEE side
+//! says it must "match the one derived from `hashes.json`", which does not say which
+//! signed credential field carries it. The other candidate is
+//! `associated_data_commitment` (`hashes[1]`), whose construction is issuer-defined.
+//!
+//! Both are authenticated by the same issuer signature, so the choice does not change the
+//! circuit's cost or its security argument -- but it does have to match what the PoH
+//! issuer actually puts where, and what the enclave derives from `hashes.json`. Swapping
+//! it is a one-line change here plus the matching field in
+//! `DeepFaceQueryProofCircuitInput`.
 pub(crate) mod commitment;
 pub(crate) mod constants;
 pub(crate) mod credential;

@@ -101,9 +101,14 @@ pub fn generate_deepface_query_proof_with_prover(
 /// # Note
 /// This only establishes that the proof is valid for the public inputs *it carries*. The
 /// TEE must separately check those public inputs: that `billing_root` is in its host-fed
-/// root map, that `pcp_hash` matches the hash it derives from `hashes.json`, that
+/// root map and that `billing_depth` is the depth it recorded for that root, that
+/// `pcp_hash` matches the hash it derives from `hashes.json`, that
 /// `issuer_schema_id`/`issuer_pk` are accepted, that `current_timestamp` is current
 /// against its trusted clock, and that `nonce` has not been seen.
+///
+/// A wrong `billing_depth` is not exploitable on its own — the recomputed root would have
+/// to collide with a root the host fed in — but checking it keeps `root unknown` and
+/// `inclusion proof invalid` distinguishable as reject reasons.
 ///
 /// # Errors
 /// Returns [`ProofError`] if verification fails.
