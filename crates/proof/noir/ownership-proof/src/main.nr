@@ -106,6 +106,10 @@ mod tests {
         15888057581779748293164452094398990053773731478520540058125130669204703869637,
     ];
 
+    /// The order of the BabyJubJub scalar field, i.e. the modulus a signature's `s` is reduced by.
+    global BABYJUBJUB_FR: Field =
+        2736030358979909402780800718157159386076813972158567259200215660948447373041;
+
     /// The neutral point of BabyJubJub, the value unused authenticator key slots hold.
     global UNUSED_KEY: PublicKey = PublicKey { x: 0, y: 1 };
 
@@ -263,6 +267,22 @@ mod tests {
     fn test_main_rejects_off_curve_signature_r() {
         let mut inputs = fixture_inputs();
         inputs.query_r = [QUERY_R[1], QUERY_R[0]];
+        main(
+            merkle_root_of(inputs),
+            DEPTH,
+            NONCE,
+            fixture_commitment(),
+            CONTEXT,
+            inputs,
+        );
+    }
+
+    /// `s` must be canonical. `s + Fr` reduces to the same scalar, so accepting it would make
+    /// signatures malleable. uses assert_lt so we can't check for a specific error
+    #[test(should_fail)]
+    fn test_main_rejects_non_canonical_signature_s() {
+        let mut inputs = fixture_inputs();
+        inputs.query_s = QUERY_S + BABYJUBJUB_FR;
         main(
             merkle_root_of(inputs),
             DEPTH,
