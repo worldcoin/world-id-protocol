@@ -19,8 +19,7 @@ pub fn main(
     inputs: OwnershipProofInputs<MAX_DEPTH, NUM_KEYS>,
 ) {
     // 1. Generate query commitment and verify
-    let commitment =
-        generate_commitment(inputs.merkle_proof.leaf_index, inputs.commitment_blinder);
+    let commitment = generate_commitment(inputs.merkle_proof.leaf_index, inputs.commitment_blinder);
     assert(commitment == expected_commitment, "commitment mismatch");
 
     // 2. Verify authenticator signature to the expected message
