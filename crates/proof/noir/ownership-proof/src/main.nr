@@ -8,20 +8,24 @@ use constants::{MAX_DEPTH, NUM_KEYS};
 use eddsa_poseidon2::verify_eddsa_poseidon2;
 use merkle_proof::{compute_merkle_root_poseidon2, merkle_leaf};
 use std::field::bn254::assert_lt;
-use types::{OwnershipProofInputs, OwnershipProofOutputs};
+use types::OwnershipProofInputs;
 
 pub fn main(
-    root: pub Field,
+    merkle_root: pub Field,
     depth: pub Field,
     nonce: pub Field,
+    expected_commitment: pub Field,
+    context: pub Field,
     inputs: OwnershipProofInputs<MAX_DEPTH, NUM_KEYS>,
-) -> pub OwnershipProofOutputs {
-    // 1. Generate query commitment & signed message
-    let commitment = generate_commitment(inputs.merkle_proof.mt_index, inputs.commitment_r); // the commitment is the output being proven
-    let message = generate_message(commitment, nonce); // the message is the query which the authenticator signs
+) {
+    // 1. Generate query commitment and verify
+    let commitment =
+        generate_commitment(inputs.merkle_proof.leaf_index, inputs.commitment_blinder);
+    assert(commitment == expected_commitment, "commitment mismatch");
 
-    // 2. Verify sk/pk by verifying a signature to a known message
+    // 2. Verify authenticator signature to the expected message
     assert_lt(inputs.pk_index, NUM_KEYS as Field);
+    let message = generate_message(commitment, nonce, context);
     let chosen_pk = inputs.user_pk[inputs.pk_index as u32];
 
     let is_valid = verify_eddsa_poseidon2(
@@ -31,25 +35,15 @@ pub fn main(
         inputs.query_r,
         message,
     );
-    assert(is_valid, "Invalid signature");
+    assert(is_valid, "invalid signature");
 
-    // 3. Compute and verify merkle proof
+    // 3. Compute and verify merkle inclusion proof
     let merkle_leaf = merkle_leaf(inputs.user_pk);
     let computed_root = compute_merkle_root_poseidon2(
         merkle_leaf,
         depth,
-        inputs.merkle_proof.mt_index,
+        inputs.merkle_proof.leaf_index,
         inputs.merkle_proof.siblings,
     );
-    assert(computed_root == root, "Merkle proof verification failed");
-
-    // SAFETY: The multiplication is constrained below, this is just to emulate the signal hash coming from Circom/Semaphore
-    let nonce_squared = unsafe { unconstrained_mul(nonce, nonce) };
-    assert(nonce_squared == nonce * nonce, "Nonce dummy constraint failed");
-
-    OwnershipProofOutputs { commitment: commitment }
-}
-
-unconstrained fn unconstrained_mul(a: Field, b: Field) -> Field {
-    a * b
+    assert(computed_root == merkle_root, "merkle proof verification failed");
 }
