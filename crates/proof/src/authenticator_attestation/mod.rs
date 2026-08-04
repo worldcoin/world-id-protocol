@@ -1,7 +1,7 @@
 //! Authenticator Attestations (WIP-106).
 
 use coset::{
-    AsCborValue, CborSerializable, CoseKeyBuilder, CoseSign1, CoseSign1Builder, Header,
+    AsCborValue, CborSerializable, CoseKeyBuilder, CoseSign1, CoseSign1Builder, Header, Label,
     RegisteredLabelWithPrivate,
     cbor::value::Value,
     cwt::{ClaimsSet, ClaimsSetBuilder, Timestamp},
@@ -47,10 +47,8 @@ const CWT_CLAIM_EXP: i64 = 4;
 const CWT_CLAIM_NONCE: i64 = 10;
 /// CWT claim key for `eat_profile` (RFC 9711).
 const CWT_CLAIM_EAT_PROFILE: i64 = 265;
-/// CWT claim key for `submods` (RFC 9711).
-const CWT_CLAIM_SUBMODS: i64 = 266;
-/// CWT claim key for `signal` (WIP-106).
-const CWT_CLAIM_SIGNAL: i64 = -80_000;
+/// CWT claim key for `cdh` (client data hash, WIP-106).
+const CWT_CLAIM_CDH: i64 = -80_000;
 /// CWT claim key for `authenticator_meta` (WIP-106).
 const CWT_CLAIM_AUTHENTICATOR_META: i64 = -80_001;
 /// CWT claim key for `sec_flags` (WIP-106).
@@ -59,8 +57,9 @@ const CWT_CLAIM_SEC_FLAGS: i64 = -70_000;
 /// `cnf` confirmation method label for a `COSE_Key` (RFC 8747 §3.1).
 const CNF_COSE_KEY: i64 = 1;
 
-/// Label of the Trust Anchor Key Token within the `submods` map.
-const SUBMOD_TAKT: &str = "takt";
+/// Label of the Trust Anchor Key Token in the AAT's `COSE_Sign1` unprotected
+/// header (WIP-106 AAT section 6).
+const HEADER_TAKT: &str = "takt";
 
 /// Bit offsets of the `sec_flags` sub-fields (LSB-first packing).
 const SEC_FLAGS_SEC_LEVEL_SHIFT: u64 = 8;
@@ -359,15 +358,16 @@ pub struct AuthenticatorAssertionClaims {
     pub exp: u64,
     /// The `ProofRequest` nonce binding the token to a specific request.
     pub nonce: FieldElement,
-    /// Hash of the signal the proof commits to; zero when no signal is present.
-    pub signal: FieldElement,
+    /// Client data hash: an arbitrary commitment binding the token to its
+    /// upstream use case. A nil value is 32 zero bytes.
+    pub cdh: FieldElement,
     /// Structured integrity metadata for the proof.
     pub authenticator_meta: AuthenticatorMeta,
 }
 
 /// An Authenticator Assertion Token (AAT, WIP-106): the outer EAT signed by the
 /// `assertion_key` with `ES256`, carrying the Trust Anchor Key Token that
-/// attests that key under `submods.takt`.
+/// attests that key in its unprotected header.
 ///
 /// Construct with [`AuthenticatorAssertionToken::new`];
 /// [`AuthenticatorAssertionToken::sign`] signs the token with the
@@ -375,8 +375,8 @@ pub struct AuthenticatorAssertionClaims {
 #[derive(Debug, Clone)]
 pub struct AuthenticatorAssertionToken {
     claims: AuthenticatorAssertionClaims,
-    /// Serialized `COSE_Sign1` Trust Anchor Key Token, embedded under
-    /// `submods.takt`.
+    /// Serialized `COSE_Sign1` Trust Anchor Key Token, carried in the
+    /// unprotected header and therefore outside the AAT signature.
     trust_anchor_key_token: Vec<u8>,
     /// Coordinates of the assertion key attested by the Trust Anchor Key
     /// Token's `cnf` claim; the signing key must match.
@@ -441,8 +441,23 @@ impl AuthenticatorAssertionToken {
             alg: Some(RegisteredLabelWithPrivate::Assigned(iana::Algorithm::ES256)),
             ..Header::default()
         };
+        // The TAKT rides in the *unprotected* header, so it is not covered by
+        // this signature (WIP-106 AAT section 6). It is self-authenticating via
+        // its own `trust_anchor_key` signature, and bound to this token solely
+        // by the shared `assertion_key` — enforced above and re-checked
+        // in-circuit. This mirrors RFC 9360's X.509 chain placement, and keeps
+        // the signed payload free of the TAKT's bytes so verifying circuits
+        // never have to reserialize it.
+        let unprotected = Header {
+            rest: vec![(
+                Label::Text(HEADER_TAKT.to_string()),
+                Value::Bytes(self.trust_anchor_key_token.clone()),
+            )],
+            ..Header::default()
+        };
         CoseSign1Builder::new()
             .protected(protected)
+            .unprotected(unprotected)
             .payload(self.encode_claims()?)
             .create_signature(&[], |message| {
                 let signature: p256::ecdsa::Signature = signing_key.sign(message);
@@ -485,15 +500,8 @@ impl AuthenticatorAssertionToken {
                 Value::Text(EAT_PROFILE_AUTHENTICATOR_ASSERTION.to_string()),
             ),
             (
-                Value::Integer(CWT_CLAIM_SUBMODS.into()),
-                Value::Map(vec![(
-                    Value::Text(SUBMOD_TAKT.to_string()),
-                    Value::Bytes(self.trust_anchor_key_token.clone()),
-                )]),
-            ),
-            (
-                Value::Integer(CWT_CLAIM_SIGNAL.into()),
-                Value::Bytes(self.claims.signal.to_be_bytes().to_vec()),
+                Value::Integer(CWT_CLAIM_CDH.into()),
+                Value::Bytes(self.claims.cdh.to_be_bytes().to_vec()),
             ),
             (
                 Value::Integer(CWT_CLAIM_AUTHENTICATOR_META.into()),
