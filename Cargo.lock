@@ -12922,6 +12922,7 @@ dependencies = [
  "tracing",
  "world-id-oprf-node",
  "world-id-primitives",
+ "world-id-proof",
 ]
 
 [[package]]

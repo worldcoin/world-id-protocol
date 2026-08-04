@@ -40,3 +40,4 @@ semver = { workspace = true }
 testcontainers = { workspace = true }
 tracing = { workspace = true }
 world-id-primitives = { workspace = true }
+world-id-proof = { workspace = true }
