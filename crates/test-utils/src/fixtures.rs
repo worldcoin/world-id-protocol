@@ -7,7 +7,7 @@ use alloy::{
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::UniformRand;
-use eddsa_babyjubjub::EdDSAPublicKey;
+use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey};
 use eyre::{Context as _, Result};
 use k256::ecdsa::SigningKey;
 use rand::{Rng, thread_rng};
@@ -17,6 +17,7 @@ use world_id_primitives::{
     AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, credential::Credential,
     merkle::MerkleInclusionProof, rp::RpId as WorldRpId,
 };
+use world_id_proof::{circuit_inputs::OwnershipProofCircuitInput, ownership_proof::message_digest};
 
 use crate::{anvil::TestAnvil, merkle::first_leaf_merkle_path};
 
@@ -137,6 +138,34 @@ pub fn single_leaf_merkle_fixture(
         root,
         leaf,
     })
+}
+
+/// Builds static WIP-103 Ownership Proof fixtures.
+///
+/// # Panics
+/// Panics if the fixture cannot be built, not expected.
+#[must_use]
+pub fn ownership_proof_fixture() -> OwnershipProofCircuitInput<TREE_DEPTH> {
+    const LEAF_INDEX: u64 = 1;
+
+    let sk = EdDSAPrivateKey::from_bytes([42u8; 32]);
+    let merkle = single_leaf_merkle_fixture(vec![sk.public()], LEAF_INDEX).unwrap();
+
+    let nonce = FieldElement::from(1_234_567_890u64); // <- this is an example, DO NOT use guessable nonces (see spec)
+    let context = FieldElement::from(42u64);
+    let commitment_blinder = FieldElement::from(999u64);
+    let expected_commitment = Credential::compute_sub(LEAF_INDEX, commitment_blinder);
+
+    OwnershipProofCircuitInput {
+        key_index: 0,
+        key_set: merkle.key_set,
+        inclusion_proof: merkle.inclusion_proof,
+        nonce,
+        expected_commitment,
+        context,
+        signature: sk.sign(*message_digest(expected_commitment, nonce, context)),
+        commitment_blinder,
+    }
 }
 
 #[derive(Clone)]
