@@ -55,21 +55,10 @@ contract WorldIDVerifierV3Test is Test {
         verifier.updateOprfKeyRegistry(oprfKeyRegistry);
     }
 
-    function test_SessionRevertsWhenSessionIdZero() public {
-        // A zero session id is the circuit's "no session" sentinel and is satisfiable by any
-        // World ID, so it must not be accepted as a session
-        uint256 action = 0x0200000000000000000000000000000000000000000000000000000000000001;
-
-        vm.warp(expiresAtMin + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifierV3.InvalidSessionId.selector));
-        verifier.verifySession(
-            rpIdCorrect, nonce, signalHash, expiresAtMin, credentialIssuerIdCorrect, 0, 0, [nullifier, action], proof
-        );
-    }
-
     function testFuzz_SessionRevertsWhenSessionIdZero(uint256 actionSeed) public {
-        // The session id check must hold for every valid session action. The 0x02 prefix is
-        // forced rather than assumed, which would reject 255 of every 256 fuzz inputs.
+        // A zero session id is the circuit's "no session" sentinel and is satisfiable by any
+        // World ID, so it must not be accepted as a session. The 0x02 prefix is forced rather
+        // than assumed, which would reject 255 of every 256 fuzz inputs.
         uint256 action = (actionSeed & ~(uint256(0xff) << 248)) | (uint256(2) << 248);
 
         vm.warp(expiresAtMin + 1 hours);
