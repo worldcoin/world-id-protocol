@@ -82,10 +82,7 @@ pub(crate) fn verify_credential(
     current_timestamp.assert_max_bit_size::<64>();
     genesis_issued_at_min.assert_max_bit_size::<64>();
 
-    assert(
-        current_timestamp as u64 < credential.expires_at as u64,
-        "Credential expired",
-    );
+    assert(current_timestamp as u64 < credential.expires_at as u64, "Credential expired");
     assert(
         genesis_issued_at_min as u64 <= credential.genesis_issued_at as u64,
         "Credential issued before the minimum genesis time",
