@@ -56,7 +56,7 @@ Same mechanism as the ownership proof features, for the DeepFace Query Proof
 (`noir/deepface-query-proof`) — the billing gate presented to the Verifier TEE.
 
 Deliberately **not** part of `embed-noir-artifacts`: the circuit is UNAUDITED and adds a
-558 KiB prover, so only consumers that explicitly want it pull it in (currently
+718 KiB prover, so only consumers that explicitly want it pull it in (currently
 `crates/zk-mobile-bench`). See `noir/deepface-query-proof/docs/benchmarks.md`.
 
 ##### Umbrellas

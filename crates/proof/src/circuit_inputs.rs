@@ -249,6 +249,18 @@ pub struct OwnershipProofCircuitInput<const MAX_DEPTH: usize> {
 /// Must match `BILLING_MAX_DEPTH` in `noir/deepface-query-proof/src/constants.nr`.
 pub const BILLING_TREE_DEPTH: usize = 30;
 
+/// Which credential claim slot carries the PCP commitment.
+///
+/// Must match `PCP_CLAIM_INDEX` in `noir/deepface-query-proof/src/constants.nr`.
+///
+/// PROVISIONAL: no issuer populates `claims` yet, so no slot is spoken for. Changing it
+/// changes the circuit and therefore the proving/verifying keys.
+pub const PCP_CLAIM_INDEX: usize = 0;
+
+/// Number of credential claim slots other than the PCP one, i.e.
+/// `Credential::MAX_CLAIMS - 1`.
+pub const PCP_OTHER_CLAIMS: usize = 15;
+
 /// The input for the DeepFace Query Proof circuit.
 ///
 /// The proof shows that the human is enrolled for billing under a `(rp_id, period)`
@@ -266,8 +278,12 @@ pub struct DeepFaceQueryProofCircuitInput {
     pub billing_root: FieldElement,
     /// **Public input**. Actual depth of the billing tree, at most [`BILLING_TREE_DEPTH`].
     pub billing_depth: u64,
-    /// **Public input**. Hash of the PCP this query is for, i.e. the credential's
-    /// `claims_hash`. The TEE compares it with the hash it derives from `hashes.json`.
+    /// **Public input**. The credential claim that commits to the PCP this query is for,
+    /// i.e. `claims[PCP_CLAIM_INDEX]` = `H(b"CLAIMS_HASH_V1" || hashes_json)`.
+    ///
+    /// This is a single claim slot, not the aggregate `claims_hash`: the TEE can derive
+    /// one claim from the `hashes.json` it already holds, but not the aggregate, which
+    /// commits to claims it never sees.
     pub pcp_hash: FieldElement,
     /// **Public input**. The `(issuer, schema)` pair as registered in the
     /// `CredentialSchemaIssuerRegistry`.
@@ -296,7 +312,12 @@ pub struct DeepFaceQueryProofCircuitInput {
     pub billing_siblings: [FieldElement; BILLING_TREE_DEPTH],
 
     // SECTION: Credential witnesses
+    /// Private input. The credential's claim slots other than the PCP one, in ascending
+    /// slot order. Must match `MAX_CLAIMS - 1` in the circuit.
+    pub credential_other_claims: [FieldElement; PCP_OTHER_CLAIMS],
     /// Private input. The credential's `associated_data_commitment`.
+    ///
+    /// Issuer-private operational data per the `Credential` docs, hence a witness.
     pub credential_associated_data_hash: FieldElement,
     /// Private input. The credential's `genesis_issued_at`.
     pub credential_genesis_issued_at: u64,

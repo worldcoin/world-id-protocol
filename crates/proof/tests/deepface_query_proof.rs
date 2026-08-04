@@ -26,7 +26,9 @@ use world_id_proof::{
     artifacts::embedded::deepface_query::{
         load_embedded_deepface_query_prover, load_embedded_deepface_query_verifier,
     },
-    circuit_inputs::{BILLING_TREE_DEPTH, DeepFaceQueryProofCircuitInput},
+    circuit_inputs::{
+        BILLING_TREE_DEPTH, DeepFaceQueryProofCircuitInput, PCP_CLAIM_INDEX, PCP_OTHER_CLAIMS,
+    },
     deepface_query_proof::{
         generate_deepface_query_proof_with_prover, verify_deepface_query_proof_with_verifier,
     },
@@ -38,6 +40,17 @@ const EXPIRES_AT: u64 = 1_900_000_000;
 const CURRENT_TIMESTAMP: u64 = 1_800_000_000;
 const LEAF_INDEX: u64 = 1;
 const ISSUER_SCHEMA_ID: u64 = 1;
+
+/// The claim slots other than the PCP one, in ascending slot order.
+fn other_claims(claims: &[FieldElement]) -> [FieldElement; PCP_OTHER_CLAIMS] {
+    let mut rest = claims
+        .iter()
+        .enumerate()
+        .filter(|(slot, _)| *slot != PCP_CLAIM_INDEX)
+        .map(|(_, claim)| *claim);
+
+    std::array::from_fn(|_| rest.next().expect("credential has MAX_CLAIMS slots"))
+}
 
 /// Builds a fully valid circuit input.
 ///
@@ -58,8 +71,18 @@ fn valid_input(seed: u64) -> DeepFaceQueryProofCircuitInput {
     credential.expires_at = EXPIRES_AT;
     credential.associated_data_commitment = Fq::rand(&mut rng).into();
 
+    // The PCP claim is what the enclave derives from `hashes.json`. A second claim is set
+    // so the test actually exercises `other_claims` rather than an all-zero vector.
+    let credential = credential
+        .claim(PCP_CLAIM_INDEX, b"hashes.json stand-in for the PCP")
+        .expect("pcp claim")
+        .claim(3, b"an unrelated issuer claim")
+        .expect("other claim");
+
+    let pcp_hash = credential.claims[PCP_CLAIM_INDEX];
+    let credential_other_claims = other_claims(&credential.claims);
+
     let credential = credential.sign(&issuer_sk).expect("credential signing");
-    let pcp_hash = credential.claims_hash().expect("claims hash");
 
     let oprf_seed = SessionId::generate_oprf_seed(&mut rng);
     let commitment_r: FieldElement = Fq::rand(&mut rng).into();
@@ -81,6 +104,7 @@ fn valid_input(seed: u64) -> DeepFaceQueryProofCircuitInput {
         commitment_r,
         billing_leaf_index: LEAF_INDEX,
         billing_siblings,
+        credential_other_claims,
         credential_associated_data_hash: credential.associated_data_commitment,
         credential_genesis_issued_at: credential.genesis_issued_at,
         credential_expires_at: credential.expires_at,
@@ -140,12 +164,38 @@ fn rejects_credential_belonging_to_another_world_id() {
 fn rejects_pcp_hash_the_credential_does_not_carry() {
     let mut input = valid_input(42);
     // This is the binding that stops an enrolled World ID from being used to verify a
-    // different human: the PCP hash is inside the issuer-signed credential.
+    // different human: the PCP claim is inside the issuer-signed credential.
     input.pcp_hash = Fq::from(0x1234_u64).into();
 
     assert!(
         prove_and_verify(input).is_err(),
         "pcp_hash must be authenticated by the credential signature"
+    );
+}
+
+#[test]
+fn rejects_tampered_other_claims() {
+    let mut input = valid_input(42);
+    // The PCP claim is opened out of the aggregate `claims_hash`, so the remaining slots
+    // are still covered by the signature and cannot be swapped freely.
+    input.credential_other_claims[2] = Fq::from(0x9999_u64).into();
+
+    assert!(
+        prove_and_verify(input).is_err(),
+        "the non-PCP claim slots must stay bound by the credential signature"
+    );
+}
+
+#[test]
+fn rejects_pcp_hash_moved_to_another_slot() {
+    let mut input = valid_input(42);
+    // Presenting the real PCP claim in a different slot must not verify, otherwise the
+    // slot index would be meaningless and any claim could pose as the PCP.
+    std::mem::swap(&mut input.pcp_hash, &mut input.credential_other_claims[0]);
+
+    assert!(
+        prove_and_verify(input).is_err(),
+        "the PCP must be committed at PCP_CLAIM_INDEX specifically"
     );
 }
 

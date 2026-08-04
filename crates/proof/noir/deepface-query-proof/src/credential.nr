@@ -1,4 +1,4 @@
-use super::constants::{DS_CREDENTIAL_MESSAGE, DS_CREDENTIAL_SUB};
+use super::constants::{DS_CREDENTIAL_MESSAGE, DS_CREDENTIAL_SUB, MAX_CLAIMS, PCP_CLAIM_INDEX};
 use super::types::{CredentialWitness, PublicKey};
 use eddsa_poseidon2::verify_eddsa_poseidon2;
 use poseidon2::bn254::perm;
@@ -8,6 +8,29 @@ use poseidon2::bn254::perm;
 /// `user_id` is the `mt_index`, which is what binds the credential to one World ID.
 fn credential_sub(user_id: Field, blinding_factor: Field) -> Field {
     let state = perm::x5_3([DS_CREDENTIAL_SUB, user_id, blinding_factor]);
+    state[1]
+}
+
+/// Recomputes the credential's `claims_hash` from the PCP claim and the other slots.
+///
+/// Mirrors `Credential::claims_hash` in `world-id-primitives`: all `MAX_CLAIMS` slots are
+/// data (there is no capacity element reserved for a domain separator), permuted with
+/// Poseidon2 t16, output taken at index 1.
+///
+/// Opening a single slot -- rather than taking the aggregate `claims_hash` as the public
+/// input -- is what lets the TEE check the PCP: it can derive one claim from the
+/// `hashes.json` it already holds, but not the aggregate, which commits to claims it never
+/// sees. It also keeps the other claims private.
+fn claims_hash(pcp_claim: Field, other_claims: [Field; MAX_CLAIMS - 1]) -> Field {
+    let mut claims: [Field; MAX_CLAIMS] = [0; MAX_CLAIMS];
+    claims[PCP_CLAIM_INDEX] = pcp_claim;
+
+    for i in 0..MAX_CLAIMS - 1 {
+        let slot = if i < PCP_CLAIM_INDEX { i } else { i + 1 };
+        claims[slot] = other_claims[i];
+    }
+
+    let state = perm::x5_16(claims);
     state[1]
 }
 
@@ -39,9 +62,10 @@ fn credential_message(
 
 /// Verifies a Proof of Human credential and that it belongs to `mt_index`.
 ///
-/// `claims_hash` is passed in from the `pcp_hash` public input, so a valid proof ties
-/// that PCP hash to this `mt_index` -- an enrolled World ID cannot be used to verify a
-/// different human.
+/// `pcp_claim` is the `pcp_hash` public input. It is placed in slot `PCP_CLAIM_INDEX` and
+/// the credential's `claims_hash` is recomputed around it, so a valid proof ties that
+/// exact PCP commitment to this `mt_index` -- an enrolled World ID cannot be used to
+/// verify a different human.
 ///
 /// The two timestamp bounds are range checked before the `u64` comparisons so the casts
 /// are sound. `oprf_nullifier.circom` leaves the two public timestamps to be checked
@@ -52,18 +76,19 @@ pub(crate) fn verify_credential(
     mt_index: Field,
     issuer_schema_id: Field,
     issuer_pk: PublicKey,
-    claims_hash: Field,
+    pcp_claim: Field,
     current_timestamp: Field,
     genesis_issued_at_min: Field,
 ) {
     let sub = credential_sub(mt_index, credential.sub_blinding_factor);
+    let claims = claims_hash(pcp_claim, credential.other_claims);
 
     let message = credential_message(
         issuer_schema_id,
         sub,
         credential.genesis_issued_at,
         credential.expires_at,
-        claims_hash,
+        claims,
         credential.associated_data_hash,
         credential.cred_id,
     );

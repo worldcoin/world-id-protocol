@@ -32,7 +32,7 @@ use world_id_proof::{
     artifacts::embedded::{deepface_query::load_embedded_deepface_query_prover, zkeys},
     circuit_inputs::{
         BILLING_TREE_DEPTH, DeepFaceQueryProofCircuitInput, NullifierProofCircuitInput,
-        QueryProofCircuitInput,
+        PCP_CLAIM_INDEX, PCP_OTHER_CLAIMS, QueryProofCircuitInput,
     },
     deepface_query_proof::generate_deepface_query_proof_with_prover,
 };
@@ -263,8 +263,26 @@ fn generate_deepface_query_input() -> (DeepFaceQueryProofCircuitInput, DeepFaceQ
     credential.expires_at = CREDENTIAL_EXPIRES_AT;
     credential.associated_data_commitment = Fq::rand(&mut rng).into();
 
+    // The PCP claim is what the enclave derives from `hashes.json`; a second claim keeps
+    // `other_claims` from being an all-zero vector.
+    let credential = credential
+        .claim(PCP_CLAIM_INDEX, b"hashes.json stand-in for the PCP")
+        .expect("pcp claim")
+        .claim(3, b"an unrelated issuer claim")
+        .expect("other claim");
+
+    let pcp_hash = credential.claims[PCP_CLAIM_INDEX];
+    // The claim slots other than the PCP one, in ascending slot order.
+    let mut rest = credential
+        .claims
+        .iter()
+        .enumerate()
+        .filter(|(slot, _)| *slot != PCP_CLAIM_INDEX)
+        .map(|(_, claim)| *claim);
+    let credential_other_claims: [FieldElement; PCP_OTHER_CLAIMS] =
+        std::array::from_fn(|_| rest.next().expect("credential has MAX_CLAIMS slots"));
+
     let credential = credential.sign(&issuer_sk).expect("credential signing");
-    let pcp_hash = credential.claims_hash().expect("credential claims hash");
 
     // Billing leaf: the session id commitment `H(DS_C || leaf_index || r)`.
     let oprf_seed = SessionId::generate_oprf_seed(&mut rng);
@@ -287,6 +305,7 @@ fn generate_deepface_query_input() -> (DeepFaceQueryProofCircuitInput, DeepFaceQ
         commitment_r,
         billing_leaf_index: leaf_index,
         billing_siblings,
+        credential_other_claims,
         credential_associated_data_hash: credential.associated_data_commitment,
         credential_genesis_issued_at: credential.genesis_issued_at,
         credential_expires_at: credential.expires_at,

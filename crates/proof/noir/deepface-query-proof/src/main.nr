@@ -25,17 +25,25 @@
 //!
 //! ## Which credential field `pcp_hash` is
 //!
-//! Resolved here as the credential's `claims_hash`, i.e. `hashes[0]` in
-//! `CheckCredentialSignature`. The YABS doc says only "Pub. `PCP hash`", and the TEE side
-//! says it must "match the one derived from `hashes.json`", which does not say which
-//! signed credential field carries it. The other candidate is
-//! `associated_data_commitment` (`hashes[1]`), whose construction is issuer-defined.
+//! `pcp_hash` is **one claim slot**, not the aggregate `claims_hash` and not
+//! `associated_data_commitment`:
 //!
-//! Both are authenticated by the same issuer signature, so the choice does not change the
-//! circuit's cost or its security argument -- but it does have to match what the PoH
-//! issuer actually puts where, and what the enclave derives from `hashes.json`. Swapping
-//! it is a one-line change here plus the matching field in
-//! `DeepFaceQueryProofCircuitInput`.
+//! - `claims` are documented as "commitments to data (e.g. passport image)" that the
+//!   issuer attests about the subject, which is exactly what a PCP commitment is. A slot
+//!   is set as `H(b"CLAIMS_HASH_V1" || bytes)`, so the enclave can derive it from the
+//!   `hashes.json` it already holds.
+//! - `associated_data_commitment` is ruled out: the `Credential` docs make it
+//!   issuer-private ("never exposed to RPs or others") with a structure "solely determined
+//!   by the issuer", so binding the protocol to it would both misuse the field and let the
+//!   issuer break this circuit by changing its own encoding.
+//! - The aggregate `claims_hash` is ruled out because the TEE cannot check it: deriving it
+//!   needs *every* claim slot, and the TEE only ever sees the PCP. Publishing it would
+//!   also leak a handle to claims the TEE has no business learning.
+//!
+//! Caveat, and the reason `PCP_CLAIM_INDEX` is provisional: **no issuer populates `claims`
+//! today** -- they are marked "For Future Use" in `world-id-primitives` and nothing in the
+//! repo, the faux issuer included, sets one. So this circuit is the first consumer, and
+//! the slot index has to be pinned down together with the PoH credential schema.
 pub(crate) mod commitment;
 pub(crate) mod constants;
 pub(crate) mod credential;

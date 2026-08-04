@@ -189,6 +189,15 @@ impl NoirCircuitInput for DeepFaceQueryProofCircuitInput {
 
         let mut credential: BTreeMap<String, InputValue> = BTreeMap::new();
         credential.insert(
+            "other_claims".into(),
+            InputValue::Vec(
+                self.credential_other_claims
+                    .iter()
+                    .map(|c| (*c).into_noir_value())
+                    .collect(),
+            ),
+        );
+        credential.insert(
             "associated_data_hash".into(),
             self.credential_associated_data_hash.into_noir_value(),
         );

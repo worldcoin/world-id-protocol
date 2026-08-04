@@ -17,5 +17,15 @@ pub global DS_SESSION_COMMITMENT: Field = 5199521648757207593;
 // b"H_CS(id, r)" -- domain separator of the credential subject commitment (`sub`).
 pub global DS_CREDENTIAL_SUB: Field = 87492525752134038588518953;
 
+// Number of claim slots in a V1 credential (`Credential::MAX_CLAIMS`).
+pub global MAX_CLAIMS: u32 = 16;
+
+// Which claim slot carries the PCP commitment.
+//
+// PROVISIONAL. No issuer populates `claims` today, so no slot is spoken for yet; see
+// the module docs in `main.nr`. Changing this changes the circuit and therefore the
+// proving/verifying keys, so it needs to be fixed with the PoH credential schema.
+pub global PCP_CLAIM_INDEX: u32 = 0;
+
 // b"POSEIDON2+EDDSA-BJJ" -- domain separator of the credential signature message.
 pub global DS_CREDENTIAL_MESSAGE: Field = 1790969822004668215611014194230797064349043274;

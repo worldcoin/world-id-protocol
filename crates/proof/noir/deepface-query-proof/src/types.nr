@@ -10,10 +10,19 @@ pub struct MerkleProof<let MAX_DEPTH: u32> {
 
 /// The private part of a Proof of Human credential.
 ///
-/// `claims_hash` is deliberately absent: it is the `pcp_hash` public input, because the
-/// TEE has to compare it against the hash it derives from `hashes.json` itself.
+/// The aggregate `claims_hash` is absent by design: it is recomputed in-circuit from the
+/// `pcp_hash` public input plus `other_claims`, so the TEE checks the one claim it can
+/// derive from `hashes.json` rather than an aggregate it cannot.
 pub struct CredentialWitness {
+    /// The claim slots other than `PCP_CLAIM_INDEX`, in ascending slot order.
+    ///
+    /// Private, so the PCP claim can be opened without revealing what else the issuer
+    /// attested about this human.
+    pub other_claims: [Field; 15],
     /// The `associated_data_commitment`, i.e. `hashes[1]` of the credential.
+    ///
+    /// Issuer-private operational data per the `Credential` docs, so it is a witness and
+    /// deliberately not the PCP binding.
     pub associated_data_hash: Field,
     pub genesis_issued_at: Field,
     pub expires_at: Field,

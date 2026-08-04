@@ -20,7 +20,7 @@ end-user latency; see [Mobile devices](#mobile-devices) for the real-device path
 
 | Circuit | ACIR opcodes |
 |---|---|
-| `deepface_query_proof` (billing tree depth 30) | 25,652 |
+| `deepface_query_proof` (billing tree depth 30) | 26,520 |
 | `ownership_proof`, for reference | 26,059 |
 
 The Query Proof costs about the same as the existing WIP-103 ownership proof.
@@ -29,19 +29,26 @@ The Query Proof costs about the same as the existing WIP-103 ownership proof.
 
 | Billing tree depth | ACIR opcodes |
 |---|---|
-| 10 | 18,452 |
-| 20 | 22,052 |
-| 30 | 25,652 |
+| 10 | 19,320 |
+| 20 | 22,920 |
+| 30 | 26,520 |
 
-Exactly linear: **14,852 fixed + 360 per level**. The fixed part is the credential
-signature check, the session id commitment and the nonce binding.
+Exactly linear: **15,720 fixed + 360 per level**. The fixed part is the credential
+signature check, the claims-hash opening, the session id commitment and the nonce binding.
 
 Depth 30 is what this package ships, to keep the comparison against the registry-sized
 trees honest. It is not what the design needs: the billing tree holds only the humans
 enrolled under one `(rp_id, period)` pair, so depth `ceil(log2(n))` suffices. At the Zoom
-plugin's 100 World IDs per seat, 100 seats is 10,000 leaves, i.e. depth 14 and **19,892
-opcodes — 22% cheaper than depth 30**. Sizing the tree to the purchased quota is free
-performance.
+plugin's 100 World IDs per seat, 100 seats is 10,000 leaves, i.e. depth 14 and **20,760
+opcodes -- 22% cheaper than depth 30**. Sizing the tree to the purchased quota is free
+performance, and the quota is already known at `purchase()` time.
+
+### Cost of opening a single claim
+
+Publishing `pcp_hash` as one claim slot and recomputing the aggregate `claims_hash`
+in-circuit -- rather than publishing the aggregate directly -- costs one Poseidon2 t16
+permutation: **868 opcodes**, 3.4% of the circuit. See
+[Which credential field `pcp_hash` is](#which-credential-field-pcp_hash-is).
 
 ## Proving
 
@@ -49,8 +56,8 @@ One benchmark per process, 1 warmup + 3 measured iterations.
 
 | Benchmark | Mean | Min | Max | Process peak RSS |
 |---|---|---|---|---|
-| `bench_deepface_query_proof_generation` (cold) | 0.354 s | 0.326 s | 0.406 s | 113 MiB |
-| `bench_deepface_query_cached_proof_generation` | 0.235 s | 0.230 s | 0.241 s | 102 MiB |
+| `bench_deepface_query_proof_generation` (cold) | 0.339 s | 0.335 s | 0.346 s | 117 MiB |
+| `bench_deepface_query_cached_proof_generation` | 0.234 s | 0.232 s | 0.236 s | 105 MiB |
 
 - *cold* includes fixture generation, deserializing the embedded prover, witness
   generation and proving. It is the path a client hits on its first DeepFace request of a
@@ -59,8 +66,8 @@ One benchmark per process, 1 warmup + 3 measured iterations.
   plus proving, and one clone of the prover, which
   `provekit_prover::Prove::prove` requires because it consumes the prover.
 
-Verification is measured by `cargo test --release --test deepface_query_proof`: 7 tests,
-each of which proves and verifies once, complete in 0.40 s total.
+Verification is measured by `cargo test --release --test deepface_query_proof`: 9 tests,
+each of which proves and verifies once, complete in 0.46 s total.
 
 ### Methodology note
 
@@ -77,30 +84,62 @@ with the app").
 
 | Artifact | Size |
 |---|---|
-| `deepface_query_proof.pkp` (prover) | 558 KiB |
-| `deepface_query_proof.pkv` (verifier) | 340 KiB |
+| `deepface_query_proof.pkp` (prover) | 718 KiB |
+| `deepface_query_proof.pkv` (verifier) | 419 KiB |
 | `OPRFQuery.arks.zkey` + graph, for reference | 11.4 MiB |
 | `OPRFNullifier.arks.zkey` + graph, for reference | 26.7 MiB |
 
-The prover is **~49x smaller** than the Circom nullifier material. There is also no
+The prover is **~38x smaller** than the Circom nullifier material. There is also no
 trusted setup: the artifacts are derived from the checked-in Noir source by the ProveKit
 R1CS compiler at build time, so there is no ceremony to run and no ceremony output to
 distribute or pin.
 
+## Which credential field `pcp_hash` is
+
+The YABS doc names a public `PCP hash` input and says the TEE must check it "matches the
+one derived from `hashes.json`", without naming the signed credential field that carries
+it. Resolved as **one claim slot**, `claims[PCP_CLAIM_INDEX]`:
+
+- `claims` are documented in `world-id-primitives` as "commitments to data (e.g. passport
+  image)" that the issuer attests about the subject -- exactly what a PCP commitment is.
+  A slot is set as `H(b"CLAIMS_HASH_V1" || bytes)`, which the enclave can derive from the
+  `hashes.json` it already holds.
+- `associated_data_commitment` is ruled out. The `Credential` docs make it issuer-private
+  ("never exposed to RPs or others") with a structure "solely determined by the issuer", so
+  binding the protocol to it would misuse the field *and* let an issuer break this circuit
+  by changing its own encoding.
+- The aggregate `claims_hash` is ruled out because **the TEE cannot check it**: deriving it
+  needs every claim slot, and the TEE only ever sees the PCP. Publishing it would also leak
+  a handle to claims the TEE has no business learning.
+
+Two caveats:
+
+- **No issuer populates `claims` today.** They are marked "For Future Use" in
+  `world-id-primitives`, and nothing in the repo -- the faux issuer included -- sets one.
+  This circuit is the first consumer, so `PCP_CLAIM_INDEX` is provisional and has to be
+  pinned down with the PoH credential schema. Changing it changes the keys.
+- `Credential::claims_hash` has **no domain separator**: all 16 slots are data, and the
+  t16 output is taken at index 1 -- the same permutation and output index as
+  `MerkleLeaf` in `circom/client_side_proofs/oprf_query.circom`, which *does* reserve a
+  capacity element for one. Claim values are issuer-set and domain-separated individually,
+  so this is not obviously exploitable, but the aggregate shares a hash domain with other
+  t16 uses and there is no spare slot to add a separator without a credential version bump.
+
 ## Cost of proving control of the World ID
 
 The circuit deliberately does not prove that the prover controls the `mt_index` it opens
-the billing leaf to — no `WorldIDRegistry` inclusion proof and no authenticator signature.
+the billing leaf to -- no `WorldIDRegistry` inclusion proof and no authenticator signature.
 See the module docs in `src/main.nr`.
 
-Closing that gap means adding exactly the `ownership_proof` circuit's constraints. Since
-that circuit measures 26,059 opcodes and the two share only the session id commitment,
-adding it roughly **doubles the circuit, to about 50,000 opcodes**, and by the linearity
-above, proving time with it. That is an estimate from the two measured circuit sizes, not
-a measurement of a combined circuit.
+Closing that gap in *this* circuit means adding the `ownership_proof` constraints. Since
+that circuit measures 26,059 opcodes and the two share only the session id commitment and
+the nonce binding, it would add roughly 25,800 -- **about doubling the circuit, to ~52,000
+opcodes**, and by the linearity above, proving time with it. That is an estimate from the
+two measured circuit sizes, not a measurement of a combined circuit.
 
-Whether it is worth paying is a design question, not a performance one: without it,
-soundness rests on `r` and the credential being secrets only the holder has.
+Whether to pay it here is a design question. The cheaper alternative is to keep ownership
+on the cold path -- enrollment already carries such a proof -- and add a rotation operation
+so a compromised session secret can be revoked without re-enrolling.
 
 ## Mobile devices
 
@@ -130,7 +169,7 @@ Two caveats before trusting a device run:
 - The existing mobile benchmarks are Circom/Groth16. These two are the first ProveKit
   benchmarks in the crate, so an iOS/Android build of the ProveKit prover has not been
   exercised here.
-- Peak RSS is the number to watch on device, not time. 102 MiB of process peak on a laptop
+- Peak RSS is the number to watch on device, not time. 105 MiB of process peak on a laptop
   is comfortable; iOS jetsam limits are far tighter than the headroom that suggests.
 
 ## Reproducing
