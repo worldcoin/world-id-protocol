@@ -14,4 +14,5 @@ Circuits are developed and tested with **nargo only** — no proving backend:
 
 ```sh
 nargo test      # runs all constraint tests, including cross-implementation KATs
+nargo fmt       # CI runs `nargo fmt --check`
 ```
