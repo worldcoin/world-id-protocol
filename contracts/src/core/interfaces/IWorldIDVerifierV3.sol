@@ -4,28 +4,20 @@ pragma solidity ^0.8.13;
 import {IWorldIDVerifier} from "./IWorldIDVerifier.sol";
 
 /**
- * @title IWorldIDVerifierV2
+ * @title IWorldIDVerifierV3
  * @author World Contributors
  * @notice Interface for verifying World ID proofs (Uniqueness and Session proofs).
- * @dev V2 enforces the action-prefix convention on the convenience entry points (`verify`
- *  requires the action's most significant byte to be `0x00`, `verifySession` requires `0x02`)
- *  and adds `verifyWithSession` for Uniqueness Proofs bound to an existing session.
+ * @dev V3 adds `verifyWithSession` for Uniqueness Proofs bound to an existing session, and rejects
+ *  a zero `sessionId` on every session-carrying entry point.
  */
-interface IWorldIDVerifierV2 is IWorldIDVerifier {
+interface IWorldIDVerifierV3 is IWorldIDVerifier {
     ////////////////////////////////////////////////////////////
     //                        ERRORS                          //
     ////////////////////////////////////////////////////////////
 
     /**
-     * @dev Thrown when the action is not valid for the type of proof. The prefix is enforced
-     *  to ensure any nullifier request for a Uniqueness Proof is signed by the RP (actions
-     *  without this prefix, i.e. for sessions, it doesn't need to be signed).
-     */
-    error InvalidAction();
-
-    /**
-     * @dev Thrown when a session-bound verification is attempted with `sessionId == 0`,
-     *  which would silently degrade to unbound `verify` semantics.
+     * @dev Thrown when a session-carrying verification is attempted with `sessionId == 0`. Zero is
+     *  the circuit's "no session" sentinel and is satisfiable by any World ID, so it proves nothing.
      */
     error InvalidSessionId();
 
