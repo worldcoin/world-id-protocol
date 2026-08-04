@@ -28,3 +28,32 @@ fn test_generate_commitment_different_inputs() {
     let msg3 = generate_commitment(1, 200);
     assert(msg1 != msg3);
 }
+
+#[test]
+fn test_generate_commitment_is_not_symmetric() {
+    assert(generate_commitment(1, 100) != generate_commitment(100, 1));
+}
+
+#[test]
+fn test_generate_message_deterministic() {
+    assert_eq(generate_message(1, 100, 7), generate_message(1, 100, 7));
+}
+
+#[test]
+fn test_generate_message_binds_every_input() {
+    let message = generate_message(1, 100, 7);
+    assert(message != generate_message(2, 100, 7));
+    assert(message != generate_message(1, 200, 7));
+    assert(message != generate_message(1, 100, 8));
+}
+
+#[test]
+fn test_generate_message_is_not_symmetric() {
+    assert(generate_message(1, 100, 7) != generate_message(1, 7, 100));
+}
+
+#[test]
+fn test_commitment_and_message_are_domain_separated() {
+    assert(generate_commitment(1, 100) != generate_message(1, 100, 0));
+    assert(DS_C_CS != DS_OWNERSHIP_PROOF);
+}
