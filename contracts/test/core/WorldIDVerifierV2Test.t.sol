@@ -22,16 +22,16 @@ import {
 contract WorldIDVerifierV2Test is Test {
     WorldIDVerifierV2 public verifier;
 
-    uint256 nullifier = 0x5968cd4d3c50bfd2305671d1092bee10ccb679b93db3ca779b6477e4885e476;
-    uint64 expiresAtMin = 0x6a54cd68;
+    uint256 nullifier = 0x1bae01b23e5f0ee96151331fffb0550351c52e5ee0ced452c762e120723ae702;
+    uint64 expiresAtMin = 0x699cfa47;
     uint256 signalHash = 0x1578ed0de47522ad0b38e87031739c6a65caecc39ce3410bf3799e756a220f;
-    uint256 nonce = 0x38ed3d4d95deac6e369dde48890d5b14b49a2d26a0b2e8854d429ff7c52cf99;
+    uint256 nonce = 0x18e3ab3d5fedc6eaa5e0d06a3a6f3dd5e0bf2d17b18b797a1cc6ff4706169d1e;
 
     uint256[5] proof = [
-        0x2a184f5930f2b6a0f367f649a80757e081b3fb28b76fffcfe325d82df87395b3,
-        0xf6849ab589365a7537beeb70014958ae261fe2dd7fdbf5c4823c6b527aefa34,
-        0xac5ee090f2ee180619c5c9825f22cee8873fc0d4764b7b0c5ffd7802d8f2e0f9,
-        0x4a221ef1d3b5522ac95f38db43afda6863d34836f7a8cff0b50aa9c8ca52e727,
+        0x4906f4e17b969ef2cfc44bd96520f01a3f5c32972bca2e10b70e05e03e3d9f13,
+        0xd6d9a3456e9af7d8f6f78eb3380deb8c93505c062f62fa18b8ef8a2ccb55db8,
+        0xa92a48edeb327b190048648788de9a8eff0abed5dc93bee8881387da40571278,
+        0x38f52985c393efb732be8f54b5f00f7f25370ac5945de84e0d8d2f2d298866b8,
         rootCorrect
     ];
 
