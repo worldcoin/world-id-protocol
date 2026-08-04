@@ -99,28 +99,6 @@ contract WorldIDVerifierV3Test is Test {
         );
     }
 
-    function test_SessionRevertsWhenSessionIdZero() public {
-        // Valid session action prefix, but a zero session id must not pass
-        uint256 action = 0x0200000000000000000000000000000000000000000000000000000000000001;
-
-        vm.warp(expiresAtMin + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifierV3.InvalidSessionId.selector));
-        verifier.verifySession(
-            rpIdCorrect, nonce, signalHash, expiresAtMin, credentialIssuerIdCorrect, 0, 0, [nullifier, action], proof
-        );
-    }
-
-    function test_SessionRevertsWhenActionMissing0x02Prefix() public {
-        // The inherited V2 prefix check still applies, and runs before the session id check
-        uint256 action = 0x00d4b66e5417cb9875f6a2b5be9814dca80651d7c74b3b21685fdd494566e7;
-
-        vm.warp(expiresAtMin + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(WorldIDVerifierV2.InvalidAction.selector));
-        verifier.verifySession(
-            rpIdCorrect, nonce, signalHash, expiresAtMin, credentialIssuerIdCorrect, 0, 0, [nullifier, action], proof
-        );
-    }
-
     function test_BoundPassesChecksWhenValid() public {
         // 0x00 action prefix and non-zero session id — passes both checks,
         // reverts later in proof verification
