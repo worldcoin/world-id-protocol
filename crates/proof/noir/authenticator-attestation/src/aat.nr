@@ -57,6 +57,14 @@ pub fn verify_aat(aat: AuthenticatorAssertionToken) {
     let public_key_y = Secp256r1_Fq::from_be_bytes(aat.takt.assertion_key_y);
     let r = signature_scalar(aat.signature, 0);
     let s = signature_scalar(aat.signature, 32);
+
+    // `noir_ecdsa` only rejects `r == 0` from v0.4.1 onwards, and we pin v0.2.9
+    // (see crates/proof/noir/README.md), so the check lives here instead. With
+    // `r = 0` the verification equation collapses to `R = u1*G`, dropping the
+    // public key entirely: a single forgery would then verify under *every*
+    // key. `s == 0` is already rejected by the `s * s^-1 == 1` constraint.
+    assert(r != Secp256r1_Fr::zero(), "AAT signature r value is zero");
+
     let is_valid = verify_secp256r1_ecdsa(public_key_x, public_key_y, digest, (r, s));
     assert(is_valid, "invalid AAT signature");
 }
@@ -223,6 +231,18 @@ fn test_aat_key_not_attested() {
     // derived from the (wrong) attested key.
     let mut aat = test_deterministic_aat();
     aat.takt = super::takt::test_deterministic_takt_unrelated_key();
+    verify_aat(aat);
+}
+
+#[test(should_fail_with = "AAT signature r value is zero")]
+fn test_aat_zero_r_rejected() {
+    // Guards the check `noir_ecdsa` only gained in v0.4.1; we pin v0.2.9, so
+    // without our explicit assertion an `r = 0` signature would verify against
+    // any public key. Delete this test only if the pin moves to >= v0.4.1.
+    let mut aat = test_deterministic_aat();
+    for i in 0..32 {
+        aat.signature[i] = 0;
+    }
     verify_aat(aat);
 }
 

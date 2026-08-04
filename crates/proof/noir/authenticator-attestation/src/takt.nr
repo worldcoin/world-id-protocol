@@ -1,7 +1,7 @@
 use super::constants::DS_TAKT;
-use super::eddsa::verify_eddsa_poseidon2;
 use super::utils::p256_be_coord_to_field;
-use poseidon2::bn254::permutation;
+use eddsa_poseidon2::verify_eddsa_poseidon2;
+use poseidon2::bn254::perm;
 
 pub struct TrustAnchorKeyToken {
     /// Expiration as seconds since the Unix epoch (CWT `exp`).
@@ -67,7 +67,7 @@ fn takt_digest(input: TrustAnchorKeyToken) -> Field {
     let (x_hi, x_lo) = p256_be_coord_to_field(input.assertion_key_x);
     let (y_hi, y_lo) = p256_be_coord_to_field(input.assertion_key_y);
 
-    let state = permutation::t8([
+    let state = perm::x5_8([
         DS_TAKT, // [0]
         input.exp, // [1]
         x_hi, // [2]
