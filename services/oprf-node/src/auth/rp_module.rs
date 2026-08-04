@@ -34,6 +34,7 @@ use tracing::instrument;
 use world_id_primitives::{
     FieldElement, SessionFeType, SessionFieldElement as _,
     oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
+    rp::RpId,
 };
 
 pub(crate) mod wip101;
@@ -78,16 +79,30 @@ pub(crate) enum RpModuleError {
     MerkleWatcher(#[from] Arc<MerkleWatcherError>),
     #[error(transparent)]
     RpRegistry(#[from] Arc<RpRegistryWatcherError>),
-    #[error("Current Timestamp in request too old, timestamp={timestamp:?}, current={current:?}")]
+    /// Rp is blocked
+    #[error("rp is blocked: {rp} at block #{block} with timestamp: {timestamp}")]
+    BlockedRp {
+        rp: RpId,
+        block: U256,
+        timestamp: U256,
+    },
+    #[error("created_at in request too old, created_at={created_at:?}, current={current:?}")]
     TimestampTooOld {
-        timestamp: chrono::DateTime<Utc>,
+        created_at: chrono::DateTime<Utc>,
         current: chrono::DateTime<Utc>,
     },
     #[error(
-        "Current Timestamp in request too far in future, timestamp={timestamp:?}, current={current:?}"
+        "expires_at in request too far in future, created_at={created_at:?}, expires_at={expires_at:?}"
+    )]
+    ExpiresAtTooFarInFuture {
+        expires_at: chrono::DateTime<Utc>,
+        created_at: chrono::DateTime<Utc>,
+    },
+    #[error(
+        "created_at in request too far in future, created_at={created_at:?}, current={current:?}"
     )]
     TimestampTooFarInFuture {
-        timestamp: chrono::DateTime<Utc>,
+        created_at: chrono::DateTime<Utc>,
         current: chrono::DateTime<Utc>,
     },
     #[error("RP signature expired at {expired_timestamp:?}, current={current:?}")]
@@ -103,20 +118,10 @@ pub(crate) enum RpModuleError {
     InvalidSignature,
     #[error("RP signature is required for EOA-backed signers")]
     RpSignatureMissing,
-    #[error("Auxiliary data must be empty with EOA backed signer")]
-    Wip101AuxDataOnEoa,
     #[error(transparent)]
     DuplicateNonce(#[from] DuplicateNonce),
-    #[error("RP signer is a contract but does not conform to WIP101")]
-    Wip101IncompatibleRpSigner,
-    #[error("Ran into timeout while verifying RP signature")]
-    Wip101VerificationTimeout,
-    #[error("RP signer contract reverted with custom error")]
-    Wip101CustomRevert,
-    #[error("RP signer contract reverts with code: {0:?}")]
-    Wip101VerificationFailed(Option<U256>),
-    #[error("Auxiliary data for WIP101 contract too large")]
-    Wip101AuxDataTooLarge,
+    #[error(transparent)]
+    Wip101(#[from] wip101::Wip101Error),
     #[error("Internal error: {0:?}")]
     Internal(#[from] eyre::Report),
 }
@@ -127,23 +132,20 @@ impl From<&RpModuleError> for WorldIdRequestAuthError {
             RpModuleError::InvalidActionSession { .. } => Self::InvalidActionSession,
             RpModuleError::InvalidActionUniqueness { .. } => Self::InvalidActionNullifier,
             RpModuleError::InvalidQueryProof => Self::InvalidQueryProof,
-            RpModuleError::MerkleWatcher(e) => e.as_ref().into(),
-            RpModuleError::RpRegistry(e) => e.as_ref().into(),
-            RpModuleError::TimestampTooOld { .. } => Self::TimestampTooOld,
-            RpModuleError::TimestampTooFarInFuture { .. } => Self::TimestampTooFarInFuture,
+            RpModuleError::MerkleWatcher(e) => Self::from(e.as_ref()),
+            RpModuleError::RpRegistry(e) => Self::from(e.as_ref()),
+            RpModuleError::TimestampTooOld { .. } => Self::CreatedAtTooOld,
+            RpModuleError::TimestampTooFarInFuture { .. } => Self::CreatedAtTooFarInFuture,
+            RpModuleError::ExpiresAtTooFarInFuture { .. } => Self::ExpiresAtTooFarInFuture,
             RpModuleError::RpSignatureExpired { .. } => Self::RpSignatureExpired,
             RpModuleError::InvalidTimestamp(_) => Self::InvalidTimestamp,
             RpModuleError::RpSignatureMissing => Self::RpSignatureMissing,
+            RpModuleError::BlockedRp { .. } => Self::BlockedRp,
             RpModuleError::CorruptSignature(_) | RpModuleError::InvalidSignature => {
                 Self::InvalidRpSignature
             }
             RpModuleError::DuplicateNonce(_) => Self::DuplicateNonce,
-            RpModuleError::Wip101IncompatibleRpSigner => Self::Wip101IncompatibleRpSigner,
-            RpModuleError::Wip101VerificationTimeout => Self::Wip101VerificationTimeout,
-            RpModuleError::Wip101VerificationFailed(code) => Self::Wip101VerificationFailed(*code),
-            RpModuleError::Wip101CustomRevert => Self::Wip101CustomRevert,
-            RpModuleError::Wip101AuxDataOnEoa => Self::Wip101AuxDataOnEoa,
-            RpModuleError::Wip101AuxDataTooLarge => Self::Wip101AuxDataTooLarge,
+            RpModuleError::Wip101(e) => Self::from(e),
             RpModuleError::Internal(_) => Self::Internal,
         }
     }
@@ -171,13 +173,17 @@ pub(crate) struct RelyingParty {
     pub(crate) signer: Address,
     pub(crate) oprf_key_id: OprfKeyId,
     pub(crate) account_type: RpAccountType,
+    pub(crate) is_blocked: bool,
+    pub(crate) fetched_at_block: U256,
+    pub(crate) fetched_at_timestamp: U256,
 }
 
 pub(crate) struct RpModuleAuth {
     kind: RpModuleKind,
     rp_registry_watcher: RpRegistryWatcher,
     nonce_history: NonceHistory,
-    current_time_stamp_max_difference: Duration,
+    created_at_max_difference: chrono::Duration,
+    expires_at_max_difference: chrono::Duration,
     timeout_external_eth_call: Duration,
     merkle_watcher: MerkleWatcher,
     rpc_provider: web3::HttpRpcProvider,
@@ -195,13 +201,13 @@ impl RelyingParty {
             .signature
             .ok_or_else(|| RpModuleError::RpSignatureMissing)?;
         if request.auth.wip101_data.is_some() {
-            return Err(RpModuleError::Wip101AuxDataOnEoa);
+            return Err(RpModuleError::Wip101(wip101::Wip101Error::AuxDataOnEoa));
         }
         // check the RP nonce signature
         let msg = world_id_primitives::rp::compute_rp_signature_msg(
             request.auth.nonce,
-            request.auth.current_time_stamp,
-            request.auth.expiration_timestamp,
+            request.auth.created_at,
+            request.auth.expires_at,
             action,
         );
 
@@ -212,36 +218,6 @@ impl RelyingParty {
         }
         Ok(())
     }
-
-    async fn ensure_signature_valid(
-        &self,
-        kind: &RpModuleKind,
-        action: ark_babyjubjub::Fq,
-        request: &OprfRequest<NullifierOprfRequestAuthV1>,
-        wip101_timeout: Duration,
-        rpc_provider: &web3::HttpRpcProvider,
-    ) -> Result<(), RpModuleError> {
-        match self.account_type {
-            RpAccountType::Eoa => {
-                tracing::trace!("RP signer is EOA");
-                let action = match kind {
-                    RpModuleKind::Uniqueness(_) => Some(action),
-                    RpModuleKind::Session => None,
-                };
-                self.verify_eoa(action, request)
-            }
-            RpAccountType::Contract => {
-                tracing::trace!("RP signer is WIP101");
-                // TODO(session-proofs): WIP-101 does not currently support session proofs.
-                self.verify_wip101(action, &request.auth, rpc_provider, wip101_timeout)
-                    .await
-            }
-            RpAccountType::IncompatibleWip101 => {
-                tracing::trace!("RP signer is incompatible WIP101");
-                Err(RpModuleError::Wip101IncompatibleRpSigner)
-            }
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -249,7 +225,8 @@ pub(crate) struct RpModuleAuthArgs {
     pub(crate) merkle_watcher: MerkleWatcher,
     pub(crate) rp_registry_watcher: RpRegistryWatcher,
     pub(crate) nonce_history: NonceHistory,
-    pub(crate) current_time_stamp_max_difference: Duration,
+    pub(crate) created_at_max_difference: chrono::Duration,
+    pub(crate) expires_at_max_difference: chrono::Duration,
     pub(crate) timeout_external_eth_call: Duration,
     pub(crate) rpc_provider: web3::HttpRpcProvider,
     pub(crate) query_vk: Arc<PreparedVerifyingKey<Bn254>>,
@@ -258,25 +235,7 @@ pub(crate) struct RpModuleAuthArgs {
 impl RpModuleAuth {
     /// Initializes a session-module authenticator.
     pub(crate) fn new_session(args: RpModuleAuthArgs) -> Self {
-        let RpModuleAuthArgs {
-            merkle_watcher,
-            rp_registry_watcher,
-            nonce_history,
-            current_time_stamp_max_difference,
-            timeout_external_eth_call,
-            rpc_provider,
-            query_vk,
-        } = args;
-        Self {
-            kind: RpModuleKind::Session,
-            rp_registry_watcher,
-            nonce_history,
-            current_time_stamp_max_difference,
-            timeout_external_eth_call,
-            merkle_watcher,
-            rpc_provider,
-            query_vk,
-        }
+        Self::new(RpModuleKind::Session, args)
     }
 
     /// Initializes a uniqueness-module authenticator.
@@ -284,24 +243,105 @@ impl RpModuleAuth {
         args: RpModuleAuthArgs,
         accountant_batcher: AccountantBatcherHandle,
     ) -> Self {
+        Self::new(RpModuleKind::Uniqueness(accountant_batcher), args)
+    }
+
+    fn new(kind: RpModuleKind, args: RpModuleAuthArgs) -> Self {
         let RpModuleAuthArgs {
             merkle_watcher,
             rp_registry_watcher,
             nonce_history,
-            current_time_stamp_max_difference,
+            created_at_max_difference,
+            expires_at_max_difference,
             timeout_external_eth_call,
             rpc_provider,
             query_vk,
         } = args;
         Self {
-            kind: RpModuleKind::Uniqueness(accountant_batcher),
+            kind,
             rp_registry_watcher,
             nonce_history,
-            current_time_stamp_max_difference,
+            created_at_max_difference,
+            expires_at_max_difference,
             timeout_external_eth_call,
             merkle_watcher,
             rpc_provider,
             query_vk,
+        }
+    }
+
+    /// Checks that the signature has not expired and that the request timestamp
+    /// is within the configured window around the node's system time.
+    fn validate_timestamps(&self, auth: &NullifierOprfRequestAuthV1) -> Result<(), RpModuleError> {
+        let current_time = Utc::now();
+
+        tracing::trace!("checking expiration timestamp on signature...");
+        let expires_at = parse_timestamp(auth.expires_at)?;
+        if expires_at <= current_time {
+            return Err(RpModuleError::RpSignatureExpired {
+                current: current_time,
+                expired_timestamp: expires_at,
+            });
+        }
+
+        tracing::trace!("checking timestamp on signature...");
+        let created_at = parse_timestamp(auth.created_at)?;
+        if created_at > current_time + self.created_at_max_difference {
+            return Err(RpModuleError::TimestampTooFarInFuture {
+                created_at,
+                current: current_time,
+            });
+        }
+        if created_at < current_time - self.created_at_max_difference {
+            return Err(RpModuleError::TimestampTooOld {
+                created_at,
+                current: current_time,
+            });
+        }
+
+        tracing::trace!("checking delta between created at and expires_at...");
+        let max_expires_at = created_at + self.expires_at_max_difference;
+        if expires_at > max_expires_at {
+            return Err(RpModuleError::ExpiresAtTooFarInFuture {
+                expires_at,
+                created_at,
+            });
+        }
+        Ok(())
+    }
+
+    async fn ensure_signature_valid(
+        &self,
+        rp: &RelyingParty,
+        action: ark_babyjubjub::Fq,
+        request: &OprfRequest<NullifierOprfRequestAuthV1>,
+    ) -> Result<(), RpModuleError> {
+        match rp.account_type {
+            RpAccountType::Eoa => {
+                tracing::trace!("RP signer is EOA");
+                let action = match self.kind {
+                    RpModuleKind::Uniqueness(_) => Some(action),
+                    RpModuleKind::Session => None,
+                };
+                rp.verify_eoa(action, request)
+            }
+            RpAccountType::Contract => {
+                // TODO(session-proofs): WIP-101 does not currently support session proofs.
+                Ok(rp
+                    .verify_wip101(
+                        action,
+                        &request.auth,
+                        &self.rpc_provider,
+                        self.timeout_external_eth_call,
+                    )
+                    .await?)
+            }
+            RpAccountType::IncompatibleWip101 => {
+                tracing::trace!("RP signer is incompatible WIP101");
+                Err(RpModuleError::Wip101(
+                    wip101::Wip101Error::IncompatibleRpSigner,
+                ))
+            }
         }
     }
 
@@ -310,72 +350,21 @@ impl RpModuleAuth {
         action: ark_babyjubjub::Fq,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
     ) -> Result<OprfKeyId, RpModuleError> {
-        let current_time = Utc::now();
-        let req_expiration_time_stamp = parse_timestamp(request.auth.expiration_timestamp)?;
-        tracing::trace!("checking expiration timestamp on signature...");
-
-        if req_expiration_time_stamp <= current_time {
-            return Err(RpModuleError::RpSignatureExpired {
-                current: current_time,
-                expired_timestamp: req_expiration_time_stamp,
-            });
-        }
-
-        // check the time stamp against system time +/- difference
-        tracing::trace!("checking timestamp on signature...");
-        let req_time_stamp = parse_timestamp(request.auth.current_time_stamp)?;
-        let diff = current_time.signed_duration_since(req_time_stamp);
-        let abs_diff = diff
-            .abs()
-            .to_std()
-            .expect("absolute value is always non-negative");
-
-        if abs_diff > self.current_time_stamp_max_difference {
-            if diff < chrono::Duration::zero() {
-                // req is in the future
-                return Err(RpModuleError::TimestampTooFarInFuture {
-                    timestamp: req_time_stamp,
-                    current: current_time,
-                });
-            }
-            // req is in the past
-            return Err(RpModuleError::TimestampTooOld {
-                timestamp: req_time_stamp,
-                current: current_time,
-            });
-        }
+        self.validate_timestamps(&request.auth)?;
 
         tracing::trace!("fetching RP info...");
         // fetch the RP info
-        let rp = self.rp_registry_watcher.get_rp(&request.auth.rp_id).await?;
+        let rp = self.rp_registry_watcher.get_rp(request.auth.rp_id).await?;
 
-        rp.ensure_signature_valid(
-            &self.kind,
-            action,
-            request,
-            self.timeout_external_eth_call,
-            &self.rpc_provider,
-        )
-        .await?;
+        if rp.is_blocked {
+            return Err(RpModuleError::BlockedRp {
+                rp: request.auth.rp_id,
+                block: rp.fetched_at_block,
+                timestamp: rp.fetched_at_timestamp,
+            });
+        }
 
-        tracing::trace!("add nonce to store...");
-        // Add nonce to history to check if the nonce was only used once in this scope.
-        let nonce_scope = match self.kind {
-            RpModuleKind::Uniqueness(_) => NonceScope::Uniqueness,
-            RpModuleKind::Session => {
-                let action = FieldElement::from(action);
-                if action.is_valid_for_session(SessionFeType::OprfSeed) {
-                    NonceScope::SessionOprfSeed
-                } else if action.is_valid_for_session(SessionFeType::Action) {
-                    NonceScope::SessionAction
-                } else {
-                    return Err(RpModuleError::InvalidActionSession { action });
-                }
-            }
-        };
-        self.nonce_history
-            .add_nonce(FieldElement::from(request.auth.nonce), nonce_scope)
-            .await?;
+        self.ensure_signature_valid(&rp, action, request).await?;
 
         tracing::trace!("RP signature authentication successful");
         Ok(rp.oprf_key_id)
@@ -388,12 +377,15 @@ impl RpModuleAuth {
         tracing::trace!("Validating action for {}", self.kind);
         let action = FieldElement::from(request.auth.action);
 
-        match self.kind {
+        // Validate the action per kind and derive the nonce scope it consumes.
+        let nonce_scope = match self.kind {
             RpModuleKind::Session => {
                 metrics::auth_module::inc_session();
-                if !action.is_valid_for_session(SessionFeType::OprfSeed)
-                    && !action.is_valid_for_session(SessionFeType::Action)
-                {
+                if action.is_valid_for_session(SessionFeType::OprfSeed) {
+                    NonceScope::SessionOprfSeed
+                } else if action.is_valid_for_session(SessionFeType::Action) {
+                    NonceScope::SessionAction
+                } else {
                     return Err(RpModuleError::InvalidActionSession { action });
                 }
             }
@@ -402,8 +394,9 @@ impl RpModuleAuth {
                 if action.to_be_bytes()[0] != 0 {
                     return Err(RpModuleError::InvalidActionUniqueness { action });
                 }
+                NonceScope::Uniqueness
             }
-        }
+        };
 
         let (verify_rp_signature_check, merkle_check) = tokio::join!(
             self.verify_rp_signature(request.auth.action, request),
@@ -424,6 +417,12 @@ impl RpModuleAuth {
             request.auth.nonce,
         );
         if valid {
+            tracing::trace!("add nonce to store...");
+            // Add nonce to history to check if the nonce was only used once in this scope.
+            // Only add if everything else was successful
+            self.nonce_history
+                .add_nonce(FieldElement::from(request.auth.nonce), nonce_scope)
+                .await?;
             tracing::trace!("authentication successful!");
             Ok(oprf_key_id)
         } else {
@@ -455,11 +454,7 @@ impl OprfRequestAuthenticator for RpModuleAuth {
                     handle.record_request(BillableRpRequest::from(&request.auth));
                 }
             })
-            .map_err(|err| {
-                let mapped = WorldIdRequestAuthError::from(&err);
-                super::log_auth_module_error(&err, mapped, "RP-module");
-                mapped
-            })?)
+            .map_err(|err| super::auth_module_error(err, "RP-module"))?)
     }
 }
 

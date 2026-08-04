@@ -23,16 +23,28 @@ pub(crate) mod accountant_batcher {
     const METRICS_ID_ACCOUNTANT_BATCHER_DROPPED_REQUESTS: &str =
         "taceo.oprf.node.batcher.requests.dropped.full";
 
+    const METRICS_ID_ACCOUNTANT_BATCHER_JOB_QUEUE: &str = "taceo.oprf.node.batcher.job.queue";
+
     pub(super) fn describe_metrics() {
         metrics::describe_counter!(
             METRICS_ID_ACCOUNTANT_BATCHER_DROPPED_REQUESTS,
             metrics::Unit::Count,
             "Number of requests that were dropped because the channel is full."
         );
+
+        metrics::describe_gauge!(
+            METRICS_ID_ACCOUNTANT_BATCHER_JOB_QUEUE,
+            metrics::Unit::Count,
+            "Gauge for the job queue/channel size of the batcher. If this starts to increase we have a back pressure problem"
+        );
     }
 
     pub(crate) fn inc_request_dropped_full() {
         metrics::counter!(METRICS_ID_ACCOUNTANT_BATCHER_DROPPED_REQUESTS).increment(1);
+    }
+
+    pub(crate) fn set_job_queue(val: usize) {
+        metrics::gauge!(METRICS_ID_ACCOUNTANT_BATCHER_JOB_QUEUE).set(val as f64);
     }
 }
 

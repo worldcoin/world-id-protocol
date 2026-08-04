@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     OwnershipProver, OwnershipVerifier,
     artifacts::{ZkArtifactError, ZkArtifactKind, ZkArtifactSource},
-    proof::CircomGroth16Material,
+    nullifier_proof::CircomGroth16Material,
 };
 
 /// ZK artifacts embedded into the binary.
@@ -94,7 +94,7 @@ impl ZkArtifactSource for EmbeddedZkArtifacts {
 pub mod zkeys {
     use std::sync::OnceLock;
 
-    use crate::proof::CircomGroth16Material;
+    use crate::nullifier_proof::CircomGroth16Material;
 
     #[cfg(not(docsrs))]
     const CIRCUIT_ARCHIVE: &[u8] = {
@@ -132,7 +132,7 @@ pub mod zkeys {
     /// Will return an error if the embedded material cannot be loaded or verified.
     pub fn load_embedded_nullifier_material() -> eyre::Result<CircomGroth16Material> {
         let files = load_embedded_circuit_files()?;
-        crate::proof::load_nullifier_material_from_reader(
+        crate::nullifier_proof::load_nullifier_material_from_reader(
             files.nullifier_zkey.as_slice(),
             files.nullifier_graph.as_slice(),
         )
@@ -145,7 +145,7 @@ pub mod zkeys {
     /// Will return an error if the embedded material cannot be loaded or verified.
     pub fn load_embedded_query_material() -> eyre::Result<CircomGroth16Material> {
         let files = load_embedded_circuit_files()?;
-        crate::proof::load_query_material_from_reader(
+        crate::oprf_query::load_query_material_from_reader(
             files.query_zkey.as_slice(),
             files.query_graph.as_slice(),
         )
@@ -304,12 +304,12 @@ mod tests {
     #[test]
     fn builds_materials_from_embedded_readers() {
         let files = zkeys::load_embedded_circuit_files().unwrap();
-        crate::proof::load_query_material_from_reader(
+        crate::oprf_query::load_query_material_from_reader(
             files.query_zkey.as_slice(),
             files.query_graph.as_slice(),
         )
         .unwrap();
-        crate::proof::load_nullifier_material_from_reader(
+        crate::nullifier_proof::load_nullifier_material_from_reader(
             files.nullifier_zkey.as_slice(),
             files.nullifier_graph.as_slice(),
         )

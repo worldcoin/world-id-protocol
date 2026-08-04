@@ -104,6 +104,13 @@ deploy_contracts() {
     credential_schema_issuer_registry=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/core/local.json)
     echo "CredentialSchemaIssuerRegistry: $credential_schema_issuer_registry"
 
+    # FIXME: temporary BillingContractMock (isBlocked() returns true only for rpId == 42).
+    # Replace this with a real deploy of the billing contract once that contract is done.
+    billing_contract=$(cast send --private-key $PK --rpc-url http://127.0.0.1:8545 --json --create \
+    0x60808060405234601357608b908160188239f35b5f80fdfe60808060405260043610156011575f80fd5b5f3560e01c6375298c75146023575f80fd5b3460515760203660031901126051576004359067ffffffffffffffff8216809203605157602a602092148152f35b5f80fdfea2646970667358221220bfb7611c967593ea8addfd14d3e723982bc72dfd2448df1cdcf1563b09adbc4164736f6c634300081e0033 \
+    | jq -r '.contractAddress')
+    echo "BillingContractMock: $billing_contract"
+
     # register RpRegistry and CredentialSchemaIssuerRegistry as OPRF key-gen admins
     (cd contracts && TACEO_ADMIN_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry ADMIN_ADDRESS_REGISTER=$rp_registry forge script lib/oprf-key-registry/script/RegisterKeyGenAdmin.s.sol --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
     (cd contracts && TACEO_ADMIN_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 OPRF_KEY_REGISTRY_PROXY=$oprf_key_registry ADMIN_ADDRESS_REGISTER=$credential_schema_issuer_registry forge script lib/oprf-key-registry/script/RegisterKeyGenAdmin.s.sol --broadcast --fork-url http://127.0.0.1:8545 --private-key $PK)
@@ -139,6 +146,7 @@ start_node() {
     TACEO_OPRF_NODE__SERVICE__WORLD_ID_REGISTRY_CONTRACT=$world_id_registry \
     TACEO_OPRF_NODE__SERVICE__RP_REGISTRY_CONTRACT=$rp_registry \
     TACEO_OPRF_NODE__SERVICE__CREDENTIAL_SCHEMA_ISSUER_REGISTRY_CONTRACT=$credential_schema_issuer_registry \
+    TACEO_OPRF_NODE__SERVICE__BILLING_CONTRACT=$billing_contract \
     TACEO_OPRF_NODE__SERVICE__OPRF__ENVIRONMENT=dev \
     TACEO_OPRF_NODE__SERVICE__OPRF__VERSION_REQ=">=0.0.0" \
     TACEO_OPRF_NODE__SERVICE__OPRF__STORE_TTL=0s \

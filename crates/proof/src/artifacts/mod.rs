@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::{OwnershipProver, OwnershipVerifier, proof::CircomGroth16Material};
+use crate::{OwnershipProver, OwnershipVerifier, nullifier_proof::CircomGroth16Material};
 
 /// Source of ZK artifacts required by World ID proof generation.
 pub trait ZkArtifactSource: Send + Sync {
