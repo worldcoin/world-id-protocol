@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {WorldIDVerifierV3} from "../../src/core/WorldIDVerifierV3.sol";
-import {WorldIDVerifierV2} from "../../src/core/WorldIDVerifierV2.sol";
+import {IWorldIDVerifierV2} from "../../src/core/interfaces/IWorldIDVerifierV2.sol";
 import {WorldIDVerifier} from "../../src/core/WorldIDVerifier.sol";
 import {IWorldIDVerifierV3} from "../../src/core/interfaces/IWorldIDVerifierV3.sol";
 import {Verifier} from "../../src/core/Verifier.sol";
@@ -84,7 +84,7 @@ contract WorldIDVerifierV3Test is Test {
         uint256 action = 0x00d4b66e5417cb9875f6a2b5be9814dca80651d7c74b3b21685fdd494566e7;
 
         vm.warp(expiresAtMin + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(WorldIDVerifierV2.InvalidAction.selector));
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifierV2.InvalidAction.selector));
         verifier.verifySession(
             rpIdCorrect, nonce, signalHash, expiresAtMin, credentialIssuerIdCorrect, 0, 0, [nullifier, action], proof
         );
