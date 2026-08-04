@@ -391,7 +391,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .unwrap_err();
     assert!(matches!(err, AuthenticatorError::SessionSeedRequired));
 
-    // a seed that does not open the session's commitment is rejected
+    // a seed that does not match the session's commitment is rejected
     let err = authenticator
         .generate_proof(
             &bound_request,
