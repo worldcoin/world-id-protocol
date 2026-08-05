@@ -14,6 +14,40 @@ import {IWorldIDVerifierV3} from "./interfaces/UnreleasedIWorldIDVerifierV3.sol"
  * @custom:repo https://github.com/world-id/world-id-protocol
  */
 contract WorldIDVerifierV3 is IWorldIDVerifierV3, WorldIDVerifierV2 {
+    /// @inheritdoc IWorldIDVerifierV3
+    function verifyWithSession(
+        uint256 nullifier,
+        uint256 action,
+        uint64 rpId,
+        uint256 nonce,
+        uint256 signalHash,
+        uint64 expiresAtMin,
+        uint64 issuerSchemaId,
+        uint256 credentialGenesisIssuedAtMin,
+        uint256 sessionId,
+        uint256[5] calldata zeroKnowledgeProof
+    ) external view virtual override onlyProxy onlyInitialized {
+        if (uint8(action >> 248) != uint8(0)) {
+            revert InvalidAction();
+        }
+        if (sessionId == 0) {
+            revert InvalidSessionId();
+        }
+
+        verifyProofAndSignals(
+            nullifier,
+            action,
+            rpId,
+            nonce,
+            signalHash,
+            expiresAtMin,
+            issuerSchemaId,
+            credentialGenesisIssuedAtMin,
+            sessionId,
+            zeroKnowledgeProof
+        );
+    }
+
     /// @inheritdoc IWorldIDVerifier
     /// @dev Reverts with `InvalidSessionId` when `sessionId` is zero. The action prefix check is
     ///  repeated from V2 because Solidity cannot `super`-call an `external` function.

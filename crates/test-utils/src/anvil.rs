@@ -152,6 +152,16 @@ sol!(
 sol!(
     #[allow(clippy::too_many_arguments)]
     #[sol(rpc, ignore_unlinked)]
+    WorldIDVerifierV3,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/UnreleasedWorldIDVerifierV3.sol/WorldIDVerifierV3.json"
+    )
+);
+
+sol!(
+    #[allow(clippy::too_many_arguments)]
+    #[sol(rpc, ignore_unlinked)]
     Verifier,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -704,12 +714,12 @@ impl TestAnvil {
             .context("failed to deploy Verifier (Groth16) contract")?;
 
         // WorldID verifier (upgradeable, delegates to Groth16 verifier)
-        let world_id_verifier = WorldIDVerifier::deploy(provider.clone())
+        let world_id_verifier = WorldIDVerifierV3::deploy(provider.clone())
             .await
-            .context("failed to deploy WorldIDVerifier contract")?;
+            .context("failed to deploy WorldIDVerifierV3 contract")?;
 
         let init_data = Bytes::from(
-            WorldIDVerifier::initializeCall {
+            WorldIDVerifierV3::initializeCall {
                 credentialIssuerRegistry: credential_issuer_registry,
                 worldIDRegistry: world_id_registry,
                 oprfKeyRegistry: oprf_key_registry,
