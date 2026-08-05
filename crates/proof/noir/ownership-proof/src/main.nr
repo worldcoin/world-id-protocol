@@ -18,7 +18,7 @@ pub fn main(
     context: pub Field,
     inputs: OwnershipProofInputs<MAX_DEPTH, NUM_KEYS>,
 ) {
-    // 1. Per-spect, the `nonce` and `context` MUST not be `0`
+    // 1. Per-spec, the `nonce` and `context` MUST not be `0`
     assert(nonce != 0, "nonce must not be zero");
     assert(context != 0, "context must not be zero");
 
