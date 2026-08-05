@@ -1,0 +1,167 @@
+:root {
+  color: #18201d;
+  background: #f7f8f3;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button {
+  border: 1px solid #17251f;
+  border-radius: 6px;
+  background: #17251f;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 650;
+  padding: 0.8rem 1rem;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.shell {
+  min-height: 100vh;
+  padding: 32px;
+}
+
+.workspace {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  max-width: 760px;
+  margin-bottom: 8px;
+  font-size: clamp(2rem, 5vw, 4.5rem);
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+h2 {
+  margin-bottom: 16px;
+  font-size: 1rem;
+}
+
+p {
+  max-width: 680px;
+  color: #5c655f;
+  font-size: 1rem;
+}
+
+.status-pill {
+  min-width: 144px;
+  border: 1px solid #ccd2c8;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: #ffffff;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 0.8fr 1fr 1fr;
+  gap: 16px;
+}
+
+.panel {
+  border: 1px solid #dfe4dc;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 18px;
+}
+
+.controls {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.facts {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.facts div {
+  display: grid;
+  gap: 4px;
+}
+
+dt {
+  color: #68716b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.86rem;
+}
+
+.output {
+  margin-top: 16px;
+}
+
+pre {
+  min-height: 280px;
+  max-height: 48vh;
+  margin: 0;
+  overflow: auto;
+  border-radius: 6px;
+  background: #111713;
+  color: #d9fbe6;
+  padding: 16px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 860px) {
+  .shell {
+    padding: 18px;
+  }
+
+  .topbar,
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  h1 {
+    font-size: 2.3rem;
+  }
+
+}
