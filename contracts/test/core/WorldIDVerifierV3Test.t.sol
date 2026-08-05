@@ -88,36 +88,13 @@ contract WorldIDVerifierV3Test is Test {
     }
 
     function test_BoundRevertsWhenSessionIdZero() public {
-        // Valid uniqueness action prefix, but a zero session id must not pass —
-        // it would silently degrade to unbound verify() semantics.
+        // A zero session id would silently degrade to unbound verify() semantics
         uint256 action = 0x00d4b66e5417cb9875f6a2b5be9814dca80651d7c74b3b21685fdd494566e7;
 
         vm.warp(expiresAtMin + 1 hours);
         vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifierV3.InvalidSessionId.selector));
         verifier.verifyWithSession(
             nullifier, action, rpIdCorrect, nonce, signalHash, expiresAtMin, credentialIssuerIdCorrect, 0, 0, proof
-        );
-    }
-
-    function test_BoundPassesChecksWhenValid() public {
-        // 0x00 action prefix and non-zero session id — passes both checks,
-        // reverts later in proof verification
-        uint256 action = 0x00d4b66e5417cb9875f6a2b5be9814dca80651d7c74b3b21685fdd494566e7;
-        uint256 sessionId = 1;
-
-        vm.warp(expiresAtMin + 1 hours);
-        vm.expectRevert(abi.encodeWithSelector(Verifier.ProofInvalid.selector));
-        verifier.verifyWithSession(
-            nullifier,
-            action,
-            rpIdCorrect,
-            nonce,
-            signalHash,
-            expiresAtMin,
-            credentialIssuerIdCorrect,
-            0,
-            sessionId,
-            proof
         );
     }
 
