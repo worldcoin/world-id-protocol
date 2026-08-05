@@ -16,6 +16,39 @@
   signature under the key that TAKT attests. That key equality is the *only*
   binding — if you touch either verification path, preserve it.
 
+## Consuming `authenticator-attestation`
+
+`attestation::verify_attestation` is the only entrypoint. `verify_takt` and
+`verify_aat` are crate-private by design: a TAKT alone attests a key without
+saying what it signed, and an AAT alone proves only that *some* key signed the
+claims. Going through the composite is what binds them — it feeds `verify_aat`
+the `assertion_key` read from the TAKT it just verified, so the two cannot be
+mismatched. If you find yourself wanting one half, verify both and ignore what
+you don't need.
+
+The library cannot enforce the rest. A calling circuit MUST:
+
+- expose `trust_anchor_key_x`/`_y` and `now` as **public inputs**. The trust
+  anchor key is the RP's entire trust decision, taken from the provider's
+  Authenticator Metadata; left private, a prover signs its own TAKT and the
+  attestation proves nothing. A private `now` lets a prover pick a time at which
+  any token is fresh.
+- bind `aat.nonce` and `aat.cdh` to the surrounding proof.
+- expose whichever of `sec_flags` (via `takt::unpack_sec_flags`) and
+  `aat.authenticator_meta` the RP needs for its business rules.
+
+```rust
+fn main(
+    trust_anchor_key_x: pub Field,
+    trust_anchor_key_y: pub Field,
+    now: pub Field,
+    aat: AuthenticatorAssertionToken,
+    takt: TrustAnchorKeyToken,
+) {
+    verify_attestation(aat, takt, trust_anchor_key_x, trust_anchor_key_y, now);
+}
+```
+
 ## Development workflow
 
 Circuits are developed and tested with **nargo only** — no proving backend:

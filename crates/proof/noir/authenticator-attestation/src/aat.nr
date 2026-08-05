@@ -1,7 +1,6 @@
 // Verification of an Authenticator Assertion Token (AAT): a token
 // representing integrity of a specific environment through an environment-bound
 // key which is attested by a Trust Anchor Key Token (TAKT).
-use super::takt::{TrustAnchorKeyToken, verify_takt};
 use super::utils::{assert_cbor_uint32, assert_not_expired};
 use bigcurve::curves::secp256r1::{Secp256r1_Fq, Secp256r1_Fr};
 use bignum::BigNum;
@@ -20,44 +19,48 @@ use noir_ecdsa::ecdsa::verify_secp256r1_ecdsa;
 /// length (`0x58 0x9f`), where the old 417-byte payload needed the 2-byte form.
 pub global AAT_SIG_STRUCTURE_LEN: u32 = 178;
 
+/// The claims and signature of an Authenticator Assertion Token, as parsed from
+/// its `COSE_Sign1` encoding. The accompanying TAKT is *not* part of the token:
+/// it rides in the unprotected header, outside this signature, and is verified
+/// separately (see `attestation::verify_attestation`).
 pub struct AuthenticatorAssertionToken {
     /// The `rpId` of the requesting RP (CWT `aud`). MUST require a 4-byte
     /// CBOR uint encoding (`2^16 <= aud < 2^32`) so offsets stay constant.
-    aud: Field,
+    pub aud: Field,
     /// Expiration as seconds since the Unix epoch (CWT `exp`). MUST require a
-    /// 4-byte CBOR uint encoding (holds for dates between 1971 and 2106).
-    exp: Field,
+    /// 4-byte CBOR uint encoding (`2^16 <= exp < 2^32`), i.e. any instant from
+    /// 1970-01-01T18:12:16Z up to 2106.
+    pub exp: Field,
     /// The `ProofRequest` nonce binding the token to a specific request.
-    nonce: Field,
+    pub nonce: Field,
     /// Client data hash (CWT `cdh`): an arbitrary commitment binding the token
     /// to its upstream use case. A nil value is 32 zero bytes.
-    cdh: Field,
+    pub cdh: Field,
     /// Structured integrity metadata: user presence (bits 0-2) and
     /// provider-defined bits (3-4); all other bits are reserved (zero).
-    authenticator_meta: Field,
-    /// The TAKT attesting the assertion key. It is carried outside the AAT
-    /// signature, so nothing here proves the pairing on its own -- the binding
-    /// is `verify_takt` plus the ES256 key equality enforced in `verify_aat`.
-    takt: TrustAnchorKeyToken,
+    pub authenticator_meta: Field,
     /// ES256 signature over the COSE `Sig_structure` (`r || s`, low-S).
-    signature: [u8; 64],
+    pub signature: [u8; 64],
 }
 
-/// Verifies the full WIP-106 attestation chain:
-/// 1. the TAKT attests the assertion key (`BabyJubJub-EdDSA-Poseidon2`), and
-/// 2. the attested assertion key signs the AAT (`ES256` over the COSE
-///    `Sig_structure`).
+/// Verifies that `assertion_key` signed this AAT (`ES256` over the COSE
+/// `Sig_structure`) and that the token is unexpired.
 ///
-/// `now` is the verifier-supplied Unix time (seconds) used for CWT `exp`
-/// freshness on both the AAT and its accompanying TAKT (`now < exp`). It MUST be a
-/// public input of any outer proof that calls this function.
+/// Crate-private on purpose: this proves only that *some* key signed these
+/// claims. Nothing here says the key is genuine -- that requires a TAKT
+/// attesting it, which is why consumers go through
+/// `attestation::verify_attestation` instead.
 ///
-/// This is the primary entrypoint; the TAKT digest is computed exactly once
-/// along this path (inside `verify_takt`).
-pub fn verify_aat(aat: AuthenticatorAssertionToken, now: Field) {
+/// `now` is the verifier-supplied Unix time (seconds) checked against CWT `exp`
+/// (`now < exp`), and MUST be a public input of the outer circuit.
+pub(crate) fn verify_aat(
+    aat: AuthenticatorAssertionToken,
+    assertion_key_x: [u8; 32],
+    assertion_key_y: [u8; 32],
+    now: Field,
+) {
     // CBOR uint32 encoding of `exp` is checked later in `aat_sig_structure`.
     assert_not_expired(aat.exp, now);
-    verify_takt(aat.takt, now);
 
     let message = aat_sig_structure(aat);
     let digest = sha256::digest(message);
@@ -66,8 +69,8 @@ pub fn verify_aat(aat: AuthenticatorAssertionToken, now: Field) {
     // `ecdsa_secp256r1` black box: provekit does not implement it, so the
     // black box passes `nargo test` but cannot be proven. Only black boxes
     // from provekit's allowlist may be used here; see crates/proof/noir/README.md.
-    let public_key_x = Secp256r1_Fq::from_be_bytes(aat.takt.assertion_key_x);
-    let public_key_y = Secp256r1_Fq::from_be_bytes(aat.takt.assertion_key_y);
+    let public_key_x = Secp256r1_Fq::from_be_bytes(assertion_key_x);
+    let public_key_y = Secp256r1_Fq::from_be_bytes(assertion_key_y);
     let r = signature_scalar(aat.signature, 0);
     let s = signature_scalar(aat.signature, 32);
 
@@ -179,11 +182,10 @@ fn aat_sig_structure(input: AuthenticatorAssertionToken) -> [u8; AAT_SIG_STRUCTU
     msg
 }
 
-/// Known-answer test companion to `test_deterministic_takt`: the same TAKT,
-/// wrapped in an AAT signed by the assertion key (`ES256`, RFC 6979
-/// deterministic, low-S normalized). Values generated by the Rust
-/// implementation.
-fn test_deterministic_aat() -> AuthenticatorAssertionToken {
+/// Known-answer test companion to `test_deterministic_takt`: an AAT signed by
+/// the key that fixture attests (`ES256`, RFC 6979 deterministic, low-S
+/// normalized). Values generated by the Rust implementation.
+pub(crate) fn test_deterministic_aat() -> AuthenticatorAssertionToken {
     AuthenticatorAssertionToken {
         aud: 1928118,
         exp: super::takt::TEST_EXP,
@@ -191,7 +193,6 @@ fn test_deterministic_aat() -> AuthenticatorAssertionToken {
         cdh: 0x9f2c1abc,
         // presence PresentBiometric (0b010) | provider 0b01 << 3
         authenticator_meta: 10,
-        takt: super::takt::test_deterministic_takt(),
         signature: [
             0x33, 0x07, 0x2e, 0x05, 0x70, 0x4c, 0x92, 0x7b, 0x97, 0x54, 0xdc, 0x49, 0x4c, 0x0d,
             0x31, 0xbc, 0x87, 0x5e, 0x03, 0xa2, 0x03, 0x35, 0x83, 0xc2, 0xa6, 0x03, 0x46, 0xee,
@@ -202,26 +203,44 @@ fn test_deterministic_aat() -> AuthenticatorAssertionToken {
     }
 }
 
+/// The assertion key attested by `test_deterministic_takt`, which signed
+/// `test_deterministic_aat`.
+fn test_assertion_key() -> ([u8; 32], [u8; 32]) {
+    let takt = super::takt::test_deterministic_takt();
+    (takt.assertion_key_x, takt.assertion_key_y)
+}
+
 #[test]
 fn test_deterministic_aat_verification() {
-    verify_aat(test_deterministic_aat(), super::takt::TEST_NOW);
+    let (key_x, key_y) = test_assertion_key();
+    verify_aat(
+        test_deterministic_aat(),
+        key_x,
+        key_y,
+        super::takt::TEST_NOW,
+    );
 }
 
 #[test(should_fail_with = "invalid AAT signature")]
 fn test_aat_tampered_claim() {
+    let (key_x, key_y) = test_assertion_key();
     let mut aat = test_deterministic_aat();
     aat.nonce += 1;
-    verify_aat(aat, super::takt::TEST_NOW);
+    verify_aat(aat, key_x, key_y, super::takt::TEST_NOW);
 }
 
 #[test(should_fail_with = "invalid AAT signature")]
-fn test_aat_key_not_attested() {
-    // A valid TAKT attesting a different assertion key must not verify this
-    // AAT: the embedded TAKT bytes and the ES256 verification key are both
-    // derived from the (wrong) attested key.
-    let mut aat = test_deterministic_aat();
-    aat.takt = super::takt::test_deterministic_takt_unrelated_key();
-    verify_aat(aat, super::takt::TEST_NOW);
+fn test_aat_wrong_assertion_key() {
+    // Verifying under any key other than the one that signed must fail. The
+    // composite entrypoint is what guarantees the key came from a TAKT; see
+    // `attestation::test_aat_key_not_attested`.
+    let unrelated = super::takt::test_deterministic_takt_unrelated_key();
+    verify_aat(
+        test_deterministic_aat(),
+        unrelated.assertion_key_x,
+        unrelated.assertion_key_y,
+        super::takt::TEST_NOW,
+    );
 }
 
 #[test(should_fail_with = "AAT signature r value is zero")]
@@ -229,22 +248,30 @@ fn test_aat_zero_r_rejected() {
     // Guards the check `noir_ecdsa` only gained in v0.4.1; we pin v0.2.9, so
     // without our explicit assertion an `r = 0` signature would verify against
     // any public key. Delete this test only if the pin moves to >= v0.4.1.
+    let (key_x, key_y) = test_assertion_key();
     let mut aat = test_deterministic_aat();
     for i in 0..32 {
         aat.signature[i] = 0;
     }
-    verify_aat(aat, super::takt::TEST_NOW);
+    verify_aat(aat, key_x, key_y, super::takt::TEST_NOW);
 }
 
 #[test(should_fail_with = "authenticator_meta bits 5+ are reserved")]
 fn test_aat_reserved_meta_bits_rejected() {
+    let (key_x, key_y) = test_assertion_key();
     let mut aat = test_deterministic_aat();
     aat.authenticator_meta = 32; // bit 5 set
-    verify_aat(aat, super::takt::TEST_NOW);
+    verify_aat(aat, key_x, key_y, super::takt::TEST_NOW);
 }
 
 #[test(should_fail)]
 fn test_expired_aat_rejected() {
     // At `exp` the token is already expired (RFC 8392: "on or after").
-    verify_aat(test_deterministic_aat(), super::takt::TEST_EXP);
+    let (key_x, key_y) = test_assertion_key();
+    verify_aat(
+        test_deterministic_aat(),
+        key_x,
+        key_y,
+        super::takt::TEST_EXP,
+    );
 }
