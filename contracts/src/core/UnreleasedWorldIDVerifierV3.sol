@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import {WorldIDVerifierV2} from "./WorldIDVerifierV2.sol";
 import {IWorldIDVerifier} from "./interfaces/IWorldIDVerifier.sol";
-import {IWorldIDVerifierV3} from "./interfaces/IWorldIDVerifierV3.sol";
+import {IWorldIDVerifierV3} from "./interfaces/UnreleasedIWorldIDVerifierV3.sol";
 
 /**
  * @title WorldIDVerifierV3

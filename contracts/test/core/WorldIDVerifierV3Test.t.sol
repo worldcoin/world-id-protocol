@@ -2,10 +2,10 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {WorldIDVerifierV3} from "../../src/core/WorldIDVerifierV3.sol";
+import {WorldIDVerifierV3} from "../../src/core/UnreleasedWorldIDVerifierV3.sol";
 import {IWorldIDVerifierV2} from "../../src/core/interfaces/IWorldIDVerifierV2.sol";
 import {WorldIDVerifier} from "../../src/core/WorldIDVerifier.sol";
-import {IWorldIDVerifierV3} from "../../src/core/interfaces/IWorldIDVerifierV3.sol";
+import {IWorldIDVerifierV3} from "../../src/core/interfaces/UnreleasedIWorldIDVerifierV3.sol";
 import {Verifier} from "../../src/core/Verifier.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
