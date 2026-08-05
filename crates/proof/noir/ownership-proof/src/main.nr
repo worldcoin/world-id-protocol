@@ -123,6 +123,13 @@ mod tests {
     /// Negation in twisted Edwards form is `(-x, y)`.
     global OTHER_KEY: PublicKey = PublicKey { x: 0 - PK.x, y: PK.y };
 
+    /// Not a curve point: curve equation does not hold for `(1, 1)`
+    global OFF_CURVE_KEY: PublicKey = PublicKey { x: 1, y: 1 };
+
+    /// `(0, -1)` is on the curve but has order 2, so it lies outside the prime-order subgroup a
+    /// key must belong to (BabyJubJub has cofactor 8).
+    global SMALL_ORDER_KEY: PublicKey = PublicKey { x: 0, y: 0 - 1 };
+
     fn fixture_inputs() -> OwnershipProofInputs<MAX_DEPTH, NUM_KEYS> {
         let mut user_pk = [UNUSED_KEY; NUM_KEYS];
         user_pk[0] = PK;
@@ -312,8 +319,9 @@ mod tests {
     }
 
     /// `s` must be canonical. `s + Fr` reduces to the same scalar, so accepting it would make
-    /// signatures malleable. uses assert_lt so we can't check for a specific error
-    #[test(should_fail)]
+    /// signatures malleable. `validate_babyjubjub_field` range checks `s` with `assert_lt`, which
+    /// reports the stdlib message asserted below.
+    #[test(should_fail_with = "call to assert_max_bit_size")]
     fn test_main_rejects_non_canonical_signature_s() {
         let mut inputs = fixture_inputs();
         inputs.query_s = QUERY_S + BABYJUBJUB_FR;
@@ -377,6 +385,38 @@ mod tests {
         );
     }
 
+    /// A registered key must be a curve point. The merkle root is re-derived from the tampered key
+    /// set, so inclusion still holds and only the key validation can fail.
+    #[test(should_fail_with = "Public key must be on curve")]
+    fn test_main_rejects_off_curve_public_key() {
+        let mut inputs = fixture_inputs();
+        inputs.user_pk[0] = OFF_CURVE_KEY;
+        main(
+            merkle_root_of(inputs),
+            DEPTH,
+            NONCE,
+            fixture_commitment(),
+            CONTEXT,
+            inputs,
+        );
+    }
+
+    /// Being on the curve is not enough: a small-order point would let a prover work in a cofactor
+    /// subgroup where the signature check does not bind the discrete log.
+    #[test(should_fail_with = "Public key must be in subgroup")]
+    fn test_main_rejects_public_key_outside_prime_order_subgroup() {
+        let mut inputs = fixture_inputs();
+        inputs.user_pk[0] = SMALL_ORDER_KEY;
+        main(
+            merkle_root_of(inputs),
+            DEPTH,
+            NONCE,
+            fixture_commitment(),
+            CONTEXT,
+            inputs,
+        );
+    }
+
     /// Unused key slots hold the neutral point, which the EdDSA verifier refuses as a public key.
     /// Selecting an empty slot therefore cannot produce a proof.
     #[test(should_fail_with = "Public key cannot be identity")]
@@ -394,8 +434,8 @@ mod tests {
     }
 
     /// `pk_index` is constrained below `NUM_KEYS`, so it cannot read past the key set. The
-    /// rejection comes from `assert_lt`.
-    #[test(should_fail)]
+    /// rejection comes from `assert_lt`, which reports the stdlib message asserted below.
+    #[test(should_fail_with = "call to assert_max_bit_size")]
     fn test_main_rejects_pk_index_at_num_keys() {
         let mut inputs = fixture_inputs();
         inputs.pk_index = NUM_KEYS as Field;
@@ -409,7 +449,7 @@ mod tests {
         );
     }
 
-    #[test(should_fail)]
+    #[test(should_fail_with = "call to assert_max_bit_size")]
     fn test_main_rejects_pk_index_beyond_key_set() {
         let mut inputs = fixture_inputs();
         inputs.pk_index = 12345;
