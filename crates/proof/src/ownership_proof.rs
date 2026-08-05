@@ -325,10 +325,7 @@ mod input_validation_tests {
         );
 
         let err = check_ownership_input_validity(&input).unwrap_err();
-        assert!(matches!(
-            err,
-            ProofInputError::InvalidExpectedCommitment { .. }
-        ));
+        assert!(matches!(err, ProofInputError::InvalidExpectedCommitment));
     }
     #[test]
     fn test_rejects_tampered_commitment_blinder() {
@@ -336,10 +333,7 @@ mod input_validation_tests {
         input.commitment_blinder = FieldElement::from(1000u64);
 
         let err = check_ownership_input_validity(&input).unwrap_err();
-        assert!(matches!(
-            err,
-            ProofInputError::InvalidExpectedCommitment { .. }
-        ));
+        assert!(matches!(err, ProofInputError::InvalidExpectedCommitment));
     }
 }
 
