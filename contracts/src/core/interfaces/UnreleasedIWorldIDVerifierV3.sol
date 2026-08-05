@@ -7,7 +7,8 @@ import {IWorldIDVerifier} from "./IWorldIDVerifier.sol";
  * @title IWorldIDVerifierV3
  * @author World Contributors
  * @notice Interface for verifying World ID proofs (Uniqueness and Session proofs).
- * @dev V3 adds `verifyWithSession` for Uniqueness Proofs bound to a session commitment.
+ * @dev V3 adds `verifyWithSession` for Uniqueness Proofs bound to a session commitment, and rejects
+ *  a zero `sessionId` on every session-carrying entry point.
  */
 interface IWorldIDVerifierV3 is IWorldIDVerifier {
     ////////////////////////////////////////////////////////////
