@@ -1,14 +1,13 @@
 [package]
-name = "authenticator_attestation"
+name = "authenticator_assertion"
 type = "lib"
-descrption = "UNAUDITED. ALPHA. Library to support WIP-106 authenticator attestations."
-authors = ["@paolodamico"]
+descrption = "UNAUDITED. IN ACTIVE DEVELOPMENT, DO NOT USE YET. Library to support WIP-106 authenticator assertions."
+authors = ["@paolodamico", "@kilianglas"]
 license = "MIT"
 backend = "provekit"
 
 [dependencies]
-# Pinned to the nargo 1.0.0-beta.11 generation, matching ownership-proof and the
-# published provekit crates. See crates/proof/noir/README.md for why.
+# Pinned to the nargo 1.0.0-beta.11 generation, matching ownership-proof and the published provekit crates.
 poseidon2 = { tag = "v0.5.0-beta.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "poseidon2" }
 babyjubjub = { tag = "taceo-oprf-v0.12.0", git = "https://github.com/TaceoLabs/oprf-service", directory = "noir/babyjubjub" }
 eddsa_poseidon2 = { tag = "taceo-oprf-v0.12.0", git = "https://github.com/TaceoLabs/oprf-service", directory = "noir/eddsa_poseidon2" }
