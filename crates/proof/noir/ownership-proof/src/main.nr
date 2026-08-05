@@ -18,11 +18,15 @@ pub fn main(
     context: pub Field,
     inputs: OwnershipProofInputs<MAX_DEPTH, NUM_KEYS>,
 ) {
-    // 1. Generate query commitment and verify
+    // 1. Per-spect, the `nonce` and `context` MUST not be `0`
+    assert(nonce != 0, "nonce must not be zero");
+    assert(context != 0, "context must not be zero");
+
+    // 2. Generate query commitment and verify
     let commitment = generate_commitment(inputs.merkle_proof.leaf_index, inputs.commitment_blinder);
     assert(commitment == expected_commitment, "commitment mismatch");
 
-    // 2. Verify authenticator signature to the expected message
+    // 3. Verify authenticator signature to the expected message
     assert_lt(inputs.pk_index, NUM_KEYS as Field);
     let message = generate_message(commitment, nonce, context);
     let chosen_pk = inputs.user_pk[inputs.pk_index as u32];
@@ -36,7 +40,7 @@ pub fn main(
     );
     assert(is_valid, "invalid signature");
 
-    // 3. Compute and verify merkle inclusion proof
+    // 4. Compute and verify merkle inclusion proof
     let merkle_leaf = merkle_leaf(inputs.user_pk);
     let computed_root = compute_merkle_root_poseidon2(
         merkle_leaf,
@@ -156,6 +160,34 @@ mod tests {
             NONCE,
             fixture_commitment(),
             CONTEXT,
+            inputs,
+        );
+    }
+
+    // SECTION: verifier-supplied input validation
+
+    #[test(should_fail_with = "nonce must not be zero")]
+    fn test_main_rejects_zero_nonce() {
+        let inputs = fixture_inputs();
+        main(
+            merkle_root_of(inputs),
+            DEPTH,
+            0,
+            fixture_commitment(),
+            CONTEXT,
+            inputs,
+        );
+    }
+
+    #[test(should_fail_with = "context must not be zero")]
+    fn test_main_rejects_zero_context() {
+        let inputs = fixture_inputs();
+        main(
+            merkle_root_of(inputs),
+            DEPTH,
+            NONCE,
+            fixture_commitment(),
+            0,
             inputs,
         );
     }

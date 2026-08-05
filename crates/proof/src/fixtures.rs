@@ -3,9 +3,9 @@ use std::{collections::BTreeMap, env, fs, path::PathBuf};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use provekit_common::{InputMap, InputValue};
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH,
-    merkle::{MerkleInclusionProof, first_leaf_merkle_path},
+    AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH, merkle::MerkleInclusionProof,
 };
+use world_id_test_utils::merkle::first_leaf_merkle_path;
 
 use crate::{
     NoirCircuitInput as _, circuit_inputs::OwnershipProofCircuitInput,

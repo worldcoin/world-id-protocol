@@ -12821,6 +12821,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "world-id-primitives",
+ "world-id-test-utils",
  "zeroize",
  "zstd",
 ]
@@ -12914,6 +12915,7 @@ dependencies = [
  "taceo-nodes-common",
  "taceo-oprf",
  "taceo-oprf-test-utils",
+ "taceo-poseidon2",
  "testcontainers",
  "tokio",
  "tokio-util",

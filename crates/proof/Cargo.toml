@@ -76,3 +76,6 @@ tar = { workspace = true }
 zstd = { workspace = true }
 provekit-common = { workspace = true }
 provekit-r1cs-compiler = { workspace = true, optional = true }
+
+[dev-dependencies]
+world-id-test-utils = { workspace = true }

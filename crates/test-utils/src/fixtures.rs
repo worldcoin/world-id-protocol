@@ -1,6 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{anvil::TestAnvil, merkle::first_leaf_merkle_path};
 use alloy::{
     primitives::{Address, U160},
     signers::{Signature, SignerSync, local::PrivateKeySigner},
@@ -18,6 +17,8 @@ use world_id_primitives::{
     AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, credential::Credential,
     merkle::MerkleInclusionProof, rp::RpId as WorldRpId,
 };
+
+use crate::{anvil::TestAnvil, merkle::first_leaf_merkle_path};
 
 /// Holds the default on-chain environment used by the E2E tests
 pub struct RegistryTestContext {
