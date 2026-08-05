@@ -10,11 +10,11 @@ use ark_ff::{BigInteger as _, PrimeField as _};
 use provekit_common::{InputMap, InputValue, NoirElement, NoirProof, PublicInputs};
 use provekit_prover::Prove;
 use provekit_verifier::Verify;
-use world_id_primitives::{FieldElement, TREE_DEPTH, proof::OwnershipProof};
+use world_id_primitives::{Credential, FieldElement, TREE_DEPTH, proof::OwnershipProof};
 
 use crate::{
     NoirCircuitInput, NoirRepresentable, ProofError, artifacts::ZkArtifactSource,
-    circuit_inputs::OwnershipProofCircuitInput,
+    circuit_inputs::OwnershipProofCircuitInput, errors::ProofInputError,
 };
 
 /// Domain separator for the Ownership Proof Hash Message.
@@ -89,6 +89,33 @@ pub fn load_ownership_verifier_from_path(
     provekit_common::file::read(path.as_ref()).map_err(|e| eyre::eyre!(e.to_string()))
 }
 
+/// Checks the ownership proof inputs by emulating the constraints the circuit enforces, so a
+/// caller mistake surfaces as a specific error instead of an opaque proving failure. This is only
+/// for error convenience, the actual constraints are verified in the circuit.
+///
+/// # Errors
+/// Returns a [`ProofInputError`] if any check fails.
+pub fn check_ownership_input_validity<const MAX_DEPTH: usize>(
+    inputs: &OwnershipProofCircuitInput<MAX_DEPTH>,
+) -> Result<(), ProofInputError> {
+    // 1. The verifier-supplied inputs must be set. Zero is a field element's default value.
+    if inputs.nonce == FieldElement::ZERO {
+        return Err(ProofInputError::ValueMustNotBeZero { name: "nonce" });
+    }
+    if inputs.context == FieldElement::ZERO {
+        return Err(ProofInputError::ValueMustNotBeZero { name: "context" });
+    }
+
+    // 2. The commitment being proven must match the leaf index and blinder it is derived from.
+    let derived =
+        Credential::compute_sub(inputs.inclusion_proof.leaf_index, inputs.commitment_blinder);
+    if derived != inputs.expected_commitment {
+        return Err(ProofInputError::InvalidExpectedCommitment);
+    }
+
+    Ok(())
+}
+
 /// Generates an ownership proof using artifacts from the provided source.
 ///
 /// # Errors
@@ -109,6 +136,7 @@ pub fn generate_ownership_proof_with_prover(
     input: OwnershipProofCircuitInput<TREE_DEPTH>,
     prover: provekit_common::Prover,
 ) -> Result<OwnershipProof, ProofError> {
+    check_ownership_input_validity(&input)?;
     provekit_common::register_ntt();
 
     let merkle_root = input.inclusion_proof.root;
@@ -253,6 +281,68 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
     }
 }
 
+#[cfg(test)]
+mod input_validation_tests {
+    use super::*;
+
+    use crate::fixtures::ownership_proof_fixture;
+
+    #[test]
+    fn test_accepts_the_valid_fixture() {
+        check_ownership_input_validity(&ownership_proof_fixture()).expect("fixture is valid");
+    }
+
+    #[test]
+    fn test_rejects_zero_nonce() {
+        let mut input = ownership_proof_fixture();
+        input.nonce = FieldElement::ZERO;
+
+        let err = check_ownership_input_validity(&input).unwrap_err();
+        assert!(matches!(
+            err,
+            ProofInputError::ValueMustNotBeZero { name: "nonce" }
+        ));
+    }
+
+    #[test]
+    fn test_rejects_zero_context() {
+        let mut input = ownership_proof_fixture();
+        input.context = FieldElement::ZERO;
+
+        let err = check_ownership_input_validity(&input).unwrap_err();
+        assert!(matches!(
+            err,
+            ProofInputError::ValueMustNotBeZero { name: "context" }
+        ));
+    }
+
+    #[test]
+    fn test_rejects_expected_commitment_for_another_leaf_index() {
+        let mut input = ownership_proof_fixture();
+        input.expected_commitment = Credential::compute_sub(
+            input.inclusion_proof.leaf_index + 1,
+            input.commitment_blinder,
+        );
+
+        let err = check_ownership_input_validity(&input).unwrap_err();
+        assert!(matches!(
+            err,
+            ProofInputError::InvalidExpectedCommitment { .. }
+        ));
+    }
+    #[test]
+    fn test_rejects_tampered_commitment_blinder() {
+        let mut input = ownership_proof_fixture();
+        input.commitment_blinder = FieldElement::from(1000u64);
+
+        let err = check_ownership_input_validity(&input).unwrap_err();
+        assert!(matches!(
+            err,
+            ProofInputError::InvalidExpectedCommitment { .. }
+        ));
+    }
+}
+
 #[cfg(all(
     test,
     feature = "embed-ownership-prover",
@@ -354,20 +444,26 @@ mod tests {
         assert!(matches!(err, ProofError::Verification(_)));
     }
 
-    /// The circuit constrains `expected_commitment` against the leaf index and blinder, so a
-    /// mismatched pair fails.
+    /// [`check_ownership_input_validity`] rejects a bad input before proving, so it is bypassed
+    /// here to assert the constraint is also enforced by the *compiled* circuit.
     #[test]
-    fn test_generate_ownership_proof_rejects_mismatched_commitment() {
-        let mut circuit_input = ownership_proof_fixture();
+    fn test_compiled_circuit_rejects_mismatched_commitment() {
+        let mut input = ownership_proof_fixture();
 
         // The fixture signature stays valid over the commitment the circuit derives, so the only
         // violated constraint is `commitment == expected_commitment`
-        circuit_input.expected_commitment = Credential::compute_sub(
-            circuit_input.inclusion_proof.leaf_index + 1,
-            circuit_input.commitment_blinder,
+        input.expected_commitment = Credential::compute_sub(
+            input.inclusion_proof.leaf_index + 1,
+            input.commitment_blinder,
         );
 
-        let err = generate_ownership_proof(circuit_input, &EmbeddedZkArtifacts).unwrap_err();
-        assert!(matches!(err, ProofError::GenerationError(_)));
+        let prover = EmbeddedZkArtifacts
+            .ownership_prover()
+            .expect("embedded prover loads");
+        let witness = input.into_witness().expect("witness maps");
+
+        prover
+            .prove(witness)
+            .expect_err("the circuit must reject a commitment it cannot derive");
     }
 }

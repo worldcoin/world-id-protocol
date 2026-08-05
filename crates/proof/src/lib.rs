@@ -16,7 +16,7 @@ pub mod artifacts;
 pub mod circuit_inputs;
 
 /// Static circuit input fixtures shared by the tests and the generated circuit examples.
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod fixtures;
 
 pub mod compress;
