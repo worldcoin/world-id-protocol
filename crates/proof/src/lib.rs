@@ -34,9 +34,18 @@ use world_id_primitives::FieldElement;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ownership_proof;
 
+// Shares the ProveKit stack with `ownership_proof`, so it has the same WASM limitation.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod deepface_query_proof;
+
 pub use provekit_common::{
     NoirProof, Prover as OwnershipProver, Verifier as OwnershipVerifier, WhirR1CSProof,
 };
+
+// ProveKit has a single prover/verifier type, parameterized by the artifact it is built
+// from, so these are the same types as `OwnershipProver`/`OwnershipVerifier`. They are
+// re-exported under neutral names for circuits other than the ownership proof.
+pub use provekit_common::{Prover as NoirProver, Verifier as NoirVerifier};
 
 /// Error type for OPRF operations and proof generation.
 #[derive(Debug, thiserror::Error)]

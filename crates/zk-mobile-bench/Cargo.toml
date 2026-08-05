@@ -21,7 +21,10 @@ inventory = "0.3"
 # World ID
 world-id-core = { workspace = true, default-features = false, features = ["authenticator", "embed-zkeys", "issuer"] }
 world-id-primitives = { workspace = true }
-world-id-proof = { workspace = true }
+world-id-proof = { workspace = true, features = [
+    "embed-deepface-query-prover",
+    "embed-deepface-query-verifier",
+] }
 
 # ZK dependencies
 ark-babyjubjub = { workspace = true }

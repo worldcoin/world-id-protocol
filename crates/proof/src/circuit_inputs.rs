@@ -243,3 +243,94 @@ pub struct OwnershipProofCircuitInput<const MAX_DEPTH: usize> {
     /// Private input. The commitment's `r` blinder
     pub commitment_blinder: FieldElement,
 }
+
+/// Maximum depth of the per-RP-per-period billing Merkle tree.
+///
+/// Must match `BILLING_MAX_DEPTH` in `noir/deepface-query-proof/src/constants.nr`.
+pub const BILLING_TREE_DEPTH: usize = 30;
+
+/// Which credential claim slot carries the PCP commitment.
+///
+/// Must match `PCP_CLAIM_INDEX` in `noir/deepface-query-proof/src/constants.nr`.
+///
+/// Slot 0 of the *iris* (orb signup) credential, which `signup-service` populates with
+/// `H(b"CLAIMS_HASH_V1" || hashes.json)`. Claim indices are scoped to the credential
+/// schema -- slot 0 of the *face* credential is a uniqueness flag -- so this is only
+/// meaningful alongside `issuer_schema_id`.
+///
+/// Changing it changes the circuit and therefore the proving/verifying keys.
+pub const PCP_CLAIM_INDEX: usize = 0;
+
+/// Number of credential claim slots other than the PCP one, i.e.
+/// `Credential::MAX_CLAIMS - 1`.
+pub const PCP_OTHER_CLAIMS: usize = 15;
+
+/// The input for the DeepFace Query Proof circuit.
+///
+/// The proof shows that the human is enrolled for billing under a `(rp_id, period)`
+/// billing tree and that the enrolled leaf belongs to the same World ID whose Proof of
+/// Human credential carries `pcp_hash`.
+///
+/// Only the fields marked **public input** reach the TEE in the clear. Everything else is
+/// a witness, which is what keeps requests from the same human unlinkable.
+#[derive(Debug, Clone)]
+pub struct DeepFaceQueryProofCircuitInput {
+    // SECTION: Public inputs
+    /// **Public input**. Root of the per-RP-per-period billing Merkle tree. The TEE
+    /// accepts it only if it is in the root map fed to it by the host, which is what ties
+    /// the proof to a specific `(rp_id, period)` without either being an explicit input.
+    pub billing_root: FieldElement,
+    /// **Public input**. Actual depth of the billing tree, at most [`BILLING_TREE_DEPTH`].
+    pub billing_depth: u64,
+    /// **Public input**. The credential claim that commits to the PCP this query is for,
+    /// i.e. `claims[PCP_CLAIM_INDEX]` = `H(b"CLAIMS_HASH_V1" || hashes_json)`.
+    ///
+    /// This is a single claim slot, not the aggregate `claims_hash`: the TEE can derive
+    /// one claim from the `hashes.json` it already holds, but not the aggregate, which
+    /// commits to claims it never sees.
+    pub pcp_hash: FieldElement,
+    /// **Public input**. The `(issuer, schema)` pair as registered in the
+    /// `CredentialSchemaIssuerRegistry`.
+    pub issuer_schema_id: u64,
+    /// **Public input**. Public key of the credential issuer.
+    pub issuer_pk: Affine,
+    /// **Public input**. Timestamp the credential validity is judged against. The TEE
+    /// supplies this from its trusted clock.
+    pub current_timestamp: u64,
+    /// **Public input**. Minimum accepted `genesis_issued_at` of the credential.
+    pub genesis_issued_at_min: u64,
+    /// **Public input**. Nonce of the RP request, deduplicated by the host to stop
+    /// replays of a proof.
+    pub nonce: FieldElement,
+
+    // SECTION: Identity witnesses
+    /// Private input. Position of the World ID in the `WorldIDRegistry`, i.e. `leafIndex`.
+    pub mt_index: u64,
+    /// Private input. The session secret `r`, from which the billing leaf is derived.
+    pub commitment_r: FieldElement,
+
+    // SECTION: Billing inclusion witnesses
+    /// Private input. Position of the session id commitment in the billing tree.
+    pub billing_leaf_index: u64,
+    /// Private input. Sibling path of the session id commitment in the billing tree.
+    pub billing_siblings: [FieldElement; BILLING_TREE_DEPTH],
+
+    // SECTION: Credential witnesses
+    /// Private input. The credential's claim slots other than the PCP one, in ascending
+    /// slot order. Must match `MAX_CLAIMS - 1` in the circuit.
+    pub credential_other_claims: [FieldElement; PCP_OTHER_CLAIMS],
+    /// Private input. The credential's `associated_data_commitment`.
+    ///
+    /// Issuer-private operational data per the `Credential` docs, hence a witness.
+    pub credential_associated_data_hash: FieldElement,
+    /// Private input. The credential's `genesis_issued_at`.
+    pub credential_genesis_issued_at: u64,
+    /// Private input. The credential's `expires_at`.
+    pub credential_expires_at: u64,
+    /// Private input. The issuer's EdDSA signature over the credential.
+    pub credential_signature: EdDSASignature,
+    /// Private input. Blinding factor of the credential subject commitment (`sub`).
+    pub credential_sub_blinding_factor: FieldElement,
+    /// Private input. Packed credential `id` and `issuer_version`.
+    pub credential_id: BaseField,
+}

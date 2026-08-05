@@ -50,6 +50,15 @@ the verifier. Requires `nargo` on PATH at the pinned version — use `nix develo
 noirup --version v1.0.0-beta.11
 ```
 
+##### `embed-deepface-query-prover` / `embed-deepface-query-verifier`
+
+Same mechanism as the ownership proof features, for the DeepFace Query Proof
+(`noir/deepface-query-proof`) — the billing gate presented to the Verifier TEE.
+
+Deliberately **not** part of `embed-noir-artifacts`: the circuit is UNAUDITED and adds a
+718 KiB prover, so only consumers that explicitly want it pull it in (currently
+`crates/zk-mobile-bench`). See `noir/deepface-query-proof/docs/benchmarks.md`.
+
 ##### Umbrellas
 
 - `embed-noir-artifacts` = ownership prover + verifier

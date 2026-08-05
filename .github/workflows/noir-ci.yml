@@ -13,6 +13,12 @@ jobs:
   test:
     name: Noir CI
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - ownership-proof
+          - deepface-query-proof
     defaults:
       run:
         working-directory: ./crates/proof/noir
@@ -22,4 +28,4 @@ jobs:
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
           toolchain: v1.0.0-beta.11
-      - run: cd ownership-proof && nargo fmt --check && nargo test
+      - run: cd ${{ matrix.package }} && nargo fmt --check && nargo test

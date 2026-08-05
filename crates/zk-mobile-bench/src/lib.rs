@@ -10,7 +10,7 @@ mod fixtures;
 
 use ark_babyjubjub::Fq;
 use ark_ec::CurveGroup;
-use ark_ff::BigInt;
+use ark_ff::{BigInt, UniformRand};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use groth16_material::circom::CircomGroth16Material;
 use rand::SeedableRng;
@@ -24,11 +24,17 @@ use taceo_oprf::core::{
     oprf::{BlindedOprfResponse, BlindingFactor},
 };
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, authenticator::oprf_query_digest,
+    AuthenticatorPublicKeySet, Credential, FieldElement, SessionId, TREE_DEPTH,
+    authenticator::oprf_query_digest,
 };
 use world_id_proof::{
-    artifacts::embedded::zkeys,
-    circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
+    NoirProver as DeepFaceQueryProver,
+    artifacts::embedded::{deepface_query::load_embedded_deepface_query_prover, zkeys},
+    circuit_inputs::{
+        BILLING_TREE_DEPTH, DeepFaceQueryProofCircuitInput, NullifierProofCircuitInput,
+        PCP_CLAIM_INDEX, PCP_OTHER_CLAIMS, QueryProofCircuitInput,
+    },
+    deepface_query_proof::generate_deepface_query_proof_with_prover,
 };
 
 use fixtures::{first_leaf_merkle_path, generate_rp_fixture};
@@ -224,6 +230,99 @@ fn generate_nullifier_input() -> (
     (nullifier_input, nullifier_material, rng)
 }
 
+/// Fixed timestamps for the credential fixture, chosen so the credential is valid at
+/// `CURRENT_TIMESTAMP` and reproducible across runs.
+const CREDENTIAL_GENESIS_ISSUED_AT: u64 = 1_700_000_000;
+const CREDENTIAL_EXPIRES_AT: u64 = 1_900_000_000;
+const CURRENT_TIMESTAMP: u64 = 1_800_000_000;
+
+/// Generate a valid `DeepFaceQueryProofCircuitInput` plus its ProveKit prover.
+///
+/// The billing tree is a depth-30 tree holding the human's session id commitment at
+/// index 1, which is the same shape `first_leaf_merkle_path` produces for the registry
+/// tree. The credential is signed by a freshly generated issuer key.
+fn generate_deepface_query_input() -> (DeepFaceQueryProofCircuitInput, DeepFaceQueryProver) {
+    let mut rng = deterministic_rng();
+
+    let prover = load_embedded_deepface_query_prover()
+        .expect("failed to load embedded DeepFace query prover");
+
+    let leaf_index = 1u64;
+    let issuer_schema_id = 1u64;
+
+    // Credential, signed by the issuer over `sub = H(DS_CS_C || leaf_index || blinder)`.
+    let issuer_sk = EdDSAPrivateKey::random(&mut rng);
+    let sub_blinding_factor: FieldElement = Fq::rand(&mut rng).into();
+
+    let mut credential = Credential::new();
+    credential.id = 0x1234_5678_9abc_def0;
+    credential.issuer_version = 0;
+    credential.issuer_schema_id = issuer_schema_id;
+    credential.sub = Credential::compute_sub(leaf_index, sub_blinding_factor);
+    credential.genesis_issued_at = CREDENTIAL_GENESIS_ISSUED_AT;
+    credential.expires_at = CREDENTIAL_EXPIRES_AT;
+    credential.associated_data_commitment = Fq::rand(&mut rng).into();
+
+    // The PCP claim is what the enclave derives from `hashes.json`; a second claim keeps
+    // `other_claims` from being an all-zero vector.
+    let credential = credential
+        .claim(PCP_CLAIM_INDEX, b"hashes.json stand-in for the PCP")
+        .expect("pcp claim")
+        .claim(3, b"an unrelated issuer claim")
+        .expect("other claim");
+
+    let pcp_hash = credential.claims[PCP_CLAIM_INDEX];
+    // The claim slots other than the PCP one, in ascending slot order.
+    let mut rest = credential
+        .claims
+        .iter()
+        .enumerate()
+        .filter(|(slot, _)| *slot != PCP_CLAIM_INDEX)
+        .map(|(_, claim)| *claim);
+    let credential_other_claims: [FieldElement; PCP_OTHER_CLAIMS] =
+        std::array::from_fn(|_| rest.next().expect("credential has MAX_CLAIMS slots"));
+
+    let credential = credential.sign(&issuer_sk).expect("credential signing");
+
+    // Billing leaf: the session id commitment `H(DS_C || leaf_index || r)`.
+    let oprf_seed = SessionId::generate_oprf_seed(&mut rng);
+    let commitment_r: FieldElement = Fq::rand(&mut rng).into();
+    let session_id =
+        SessionId::from_r_seed(leaf_index, commitment_r, oprf_seed).expect("session id derivation");
+
+    let (billing_siblings, billing_root) = first_leaf_merkle_path(*session_id.commitment);
+
+    let input = DeepFaceQueryProofCircuitInput {
+        billing_root,
+        billing_depth: BILLING_TREE_DEPTH as u64,
+        pcp_hash,
+        issuer_schema_id,
+        issuer_pk: issuer_sk.public().pk,
+        current_timestamp: CURRENT_TIMESTAMP,
+        genesis_issued_at_min: CREDENTIAL_GENESIS_ISSUED_AT,
+        nonce: Fq::rand(&mut rng).into(),
+        mt_index: leaf_index,
+        commitment_r,
+        billing_leaf_index: leaf_index,
+        billing_siblings,
+        credential_other_claims,
+        credential_associated_data_hash: credential.associated_data_commitment,
+        credential_genesis_issued_at: credential.genesis_issued_at,
+        credential_expires_at: credential.expires_at,
+        credential_signature: credential.signature.expect("signed credential"),
+        credential_sub_blinding_factor: sub_blinding_factor,
+        // Packed as `BigInt([id, issuer_version, 0, 0])`, matching `Credential::hash`.
+        credential_id: Fq::from(BigInt([
+            credential.id,
+            u64::from(credential.issuer_version),
+            0,
+            0,
+        ])),
+    };
+
+    (input, prover)
+}
+
 // ============================================================================
 // Benchmark Functions
 // ============================================================================
@@ -255,6 +354,47 @@ thread_local! {
         const { RefCell::new(None) };
     static NULLIFIER_WITNESS_CACHE: RefCell<Option<(CircomGroth16Material, Vec<ark_bn254::Fr>)>> =
         const { RefCell::new(None) };
+    static DEEPFACE_QUERY_CACHE: RefCell<Option<(DeepFaceQueryProofCircuitInput, DeepFaceQueryProver)>> =
+        const { RefCell::new(None) };
+}
+
+/// Benchmark: DeepFace Query Proof generation (ProveKit/Noir)
+///
+/// Full measured path: fixture generation, loading the embedded ProveKit prover, witness
+/// generation and proving. This is the cold path a client hits on its first DeepFace
+/// request of a billing period.
+#[benchmark]
+pub fn bench_deepface_query_proof_generation() {
+    let (input, prover) = generate_deepface_query_input();
+
+    let proof = generate_deepface_query_proof_with_prover(input, prover)
+        .expect("DeepFace query proof generation");
+
+    std::hint::black_box(proof);
+}
+
+/// Benchmark: DeepFace Query Proof generation from cached input
+///
+/// Excludes fixture setup and prover deserialization, so it measures witness generation
+/// plus proving. It does include one clone of the prover, because
+/// `provekit_prover::Prove::prove` consumes it; see `docs/benchmarks.md` for that share.
+#[benchmark]
+pub fn bench_deepface_query_cached_proof_generation() {
+    DEEPFACE_QUERY_CACHE.with(|cache| {
+        if cache.borrow().is_none() {
+            *cache.borrow_mut() = Some(generate_deepface_query_input());
+        }
+
+        let cache_ref = cache.borrow();
+        let (input, prover) = cache_ref
+            .as_ref()
+            .expect("DeepFace query proof cache initialized");
+
+        let proof = generate_deepface_query_proof_with_prover(input.clone(), prover.clone())
+            .expect("DeepFace query proof generation");
+
+        std::hint::black_box(proof);
+    });
 }
 
 /// Benchmark: Query Proof (π1) generation from cached input
