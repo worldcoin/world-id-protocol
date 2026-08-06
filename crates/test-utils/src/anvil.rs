@@ -155,7 +155,7 @@ sol!(
     WorldIDVerifierV3,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/WorldIDVerifierV3.sol/WorldIDVerifierV3.json"
+        "/../../contracts/out/UnreleasedWorldIDVerifierV3.sol/WorldIDVerifierV3.json"
     )
 );
 

@@ -7,7 +7,8 @@ import {IWorldIDVerifier} from "./IWorldIDVerifier.sol";
  * @title IWorldIDVerifierV3
  * @author World Contributors
  * @notice Interface for verifying World ID proofs (Uniqueness and Session proofs).
- * @dev V3 adds `verifyWithSession` for Uniqueness Proofs bound to a session commitment.
+ * @dev V3 adds `verifyWithSession` for Uniqueness Proofs bound to a session commitment, and rejects
+ *  a zero `sessionId` on every session-carrying entry point.
  */
 interface IWorldIDVerifierV3 is IWorldIDVerifier {
     ////////////////////////////////////////////////////////////
@@ -25,7 +26,7 @@ interface IWorldIDVerifierV3 is IWorldIDVerifier {
     ////////////////////////////////////////////////////////////
 
     /**
-     * @notice Verifies a Uniqueness Proof that is bound to a session commitment.
+     * @notice Verifies a Uniqueness Proof that is bound to an existing session.
      * @dev Same as `verify`, except the proof's `session_id` public signal is checked against the
      *   provided session commitment instead of being pinned to 0. Bound proofs are rejected by
      *   `verify` and unbound proofs are rejected here. Hence, binding is explicit in both directions.

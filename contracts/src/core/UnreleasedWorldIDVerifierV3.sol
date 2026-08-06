@@ -2,7 +2,8 @@
 pragma solidity ^0.8.13;
 
 import {WorldIDVerifierV2} from "./WorldIDVerifierV2.sol";
-import {IWorldIDVerifierV3} from "./interfaces/IWorldIDVerifierV3.sol";
+import {IWorldIDVerifier} from "./interfaces/IWorldIDVerifier.sol";
+import {IWorldIDVerifierV3} from "./interfaces/UnreleasedIWorldIDVerifierV3.sol";
 
 /**
  * @title WorldIDVerifierV3
@@ -35,6 +36,42 @@ contract WorldIDVerifierV3 is IWorldIDVerifierV3, WorldIDVerifierV2 {
 
         verifyProofAndSignals(
             nullifier,
+            action,
+            rpId,
+            nonce,
+            signalHash,
+            expiresAtMin,
+            issuerSchemaId,
+            credentialGenesisIssuedAtMin,
+            sessionId,
+            zeroKnowledgeProof
+        );
+    }
+
+    /// @inheritdoc IWorldIDVerifier
+    /// @dev Reverts with `InvalidSessionId` when `sessionId` is zero. The action prefix check is
+    ///  repeated from V2 because Solidity cannot `super`-call an `external` function.
+    function verifySession(
+        uint64 rpId,
+        uint256 nonce,
+        uint256 signalHash,
+        uint64 expiresAtMin,
+        uint64 issuerSchemaId,
+        uint256 credentialGenesisIssuedAtMin,
+        uint256 sessionId,
+        uint256[2] calldata sessionNullifier,
+        uint256[5] calldata zeroKnowledgeProof
+    ) external view virtual override(IWorldIDVerifier, WorldIDVerifierV2) onlyProxy onlyInitialized {
+        uint256 action = sessionNullifier[1];
+        if (uint8(action >> 248) != uint8(2)) {
+            revert InvalidAction();
+        }
+        if (sessionId == 0) {
+            revert InvalidSessionId();
+        }
+
+        verifyProofAndSignals(
+            sessionNullifier[0],
             action,
             rpId,
             nonce,
