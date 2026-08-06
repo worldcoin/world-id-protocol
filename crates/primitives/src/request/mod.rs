@@ -47,6 +47,14 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
 }
 
 /// The high-level proof flow requested by an RP.
+///
+/// Explicit discriminants reserve a stable one-byte protocol encoding for future
+/// signed request payloads. JSON serialization remains the snake_case variant name.
+///
+/// The values match the action prefixes (see [`crate::SessionFeType`]): `0x00` for a
+/// uniqueness action, `0x02` for a session action. `0x01` is skipped because it prefixes
+/// the session `oprf_seed`, which is not a proof flow of its own.
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProofType {
@@ -56,10 +64,10 @@ pub enum ProofType {
     /// or omit session involvement entirely — see [`ProofRequest::binds_session`].
     /// Binding to an already existing session is not supported.
     #[default]
-    Uniqueness,
+    Uniqueness = 0x00,
     /// Prove an RP-scoped session — either minting a fresh one
     /// (`session_id: "create"`) or an existing one (`session_id: "session_<hex>"`).
-    Session,
+    Session = 0x02,
 }
 
 impl ProofType {
@@ -2645,6 +2653,14 @@ mod tests {
             serde_json::from_str::<ProofType>("\"session\"").unwrap(),
             ProofType::Session
         );
+    }
+
+    #[test]
+    fn proof_type_byte_encoding_is_stable() {
+        // Matches the action prefixes; 0x01 is skipped because it prefixes the session
+        // `oprf_seed` rather than a proof flow.
+        assert_eq!(ProofType::Uniqueness as u8, 0x00);
+        assert_eq!(ProofType::Session as u8, 0x02);
     }
 
     #[test]
