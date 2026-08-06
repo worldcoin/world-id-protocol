@@ -9,7 +9,7 @@
 
 ## Consuming `authenticator-assertion`
 
-`attestation::verify_attestation` is the only entrypoint. `verify_takt` and `verify_aat` are crate-private by design: a TAKT alone attests a key without saying what it signed, and an AAT alone proves only that *some* key signed the claims. Going through the composite is what binds them — it feeds `verify_aat` the `assertion_key` read from the TAKT it just verified, so the two cannot be mismatched. If you find yourself wanting one half, verify both and ignore what you don't need.
+`verify_attestation` is the only entrypoint. `verify_takt` and `verify_aat` are crate-private by design: a TAKT alone attests a key without saying what it signed, and an AAT alone proves only that *some* key signed the claims. Going through the composite is what binds them — it feeds `verify_aat` the `assertion_key` read from the TAKT it just verified, so the two cannot be mismatched. If you find yourself wanting one half, verify both and ignore what you don't need.
 
 The library cannot enforce the rest. A calling circuit MUST:
 
