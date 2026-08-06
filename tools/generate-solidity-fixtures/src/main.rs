@@ -297,10 +297,6 @@ async fn main() -> Result<()> {
         .generate_nullifier(&uniqueness_request, None)
         .await?;
 
-    // Clone the nullifier data before it's consumed — we reuse it for the
-    // session-bound uniqueness proof.
-    let nullifier_data_for_bound = nullifier_data.clone();
-
     let uniqueness_result = authenticator
         .generate_proof(
             &uniqueness_request,
@@ -473,57 +469,6 @@ async fn main() -> Result<()> {
         .call()
         .await?;
     info!("Session proof verified ✓");
-
-    // ── SESSION-BOUND UNIQUENESS PROOF (same action, bound to the session above) ──
-    let bound_request = ProofRequest {
-        proof_type: ProofType::Uniqueness,
-        session_id: Some(session_id),
-        ..uniqueness_request.clone()
-    };
-
-    let bound_result = authenticator
-        .generate_proof(
-            &bound_request,
-            nullifier_data_for_bound,
-            &credentials,
-            None,
-            Some(session_id_r_seed),
-        )
-        .await?;
-    let bound_response = &bound_result.proof_response.responses[0];
-    let bound_nullifier = bound_response
-        .nullifier
-        .expect("bound uniqueness proof should have nullifier");
-    // Same RP/action => same deterministic nullifier as the unbound proof.
-    assert_eq!(
-        bound_nullifier,
-        uniqueness_response
-            .nullifier
-            .expect("uniqueness proof has nullifier")
-    );
-
-    // Verify bound proof on-chain.
-    info!("Verifying session-bound uniqueness proof on-chain...");
-    verifier_instance
-        .verifyWithSession(
-            bound_nullifier.into(),
-            rp_fixture.action.into(),
-            rp_fixture.world_rp_id.into_inner(),
-            rp_fixture.nonce.into(),
-            request_item.signal_hash().into(),
-            bound_response.expires_at_min,
-            issuer_schema_id,
-            request_item
-                .genesis_issued_at_min
-                .unwrap_or_default()
-                .try_into()
-                .expect("u64 fits into U256"),
-            session_id.commitment.into(),
-            bound_response.proof.as_ethereum_representation(),
-        )
-        .call()
-        .await?;
-    info!("Session-bound uniqueness proof verified ✓");
 
     // ── PRINT SOLIDITY FIXTURE ──
     let u_proof = uniqueness_response.proof.as_ethereum_representation();
