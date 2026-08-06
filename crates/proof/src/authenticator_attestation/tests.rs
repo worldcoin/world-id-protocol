@@ -33,7 +33,7 @@ fn sample_aat_claims() -> AuthenticatorAssertionClaims {
         aud: RpId::new(1_928_118),
         exp: 1_783_446_925,
         nonce: FieldElement::from(0x11d2_23ce_7b91_ac21_u64),
-        signal: FieldElement::from(0x9f2c_1abc_u64),
+        cdh: FieldElement::from(0x9f2c_1abc_u64),
         authenticator_meta: AuthenticatorMeta {
             user_presence: UserPresence::PresentBiometric,
             provider_bits: 0b01,
@@ -277,7 +277,7 @@ fn aat_claims_follow_deterministic_cbor_map_order() {
         .iter()
         .map(|(key, _)| i128::from(key.as_integer().unwrap()))
         .collect();
-    assert_eq!(keys, vec![3, 4, 10, 265, 266, -80_000, -80_001]);
+    assert_eq!(keys, vec![3, 4, 10, 265, -80_000, -80_001]);
 
     assert_eq!(entries[0].1, Value::Integer(claims.aud.into_inner().into()));
     assert_eq!(entries[1].1, Value::Integer(claims.exp.into()));
@@ -290,21 +290,58 @@ fn aat_claims_follow_deterministic_cbor_map_order() {
         Value::Text("https://world.org/eat/aat/v1".to_string())
     );
     assert_eq!(
-        entries[5].1,
-        Value::Bytes(claims.signal.to_be_bytes().to_vec())
+        entries[4].1,
+        Value::Bytes(claims.cdh.to_be_bytes().to_vec())
     );
     // authenticator_meta: presence 0b010 | provider 0b01 << 3 = 10, as a
     // 32-byte canonical big-endian field element.
     assert_eq!(
-        entries[6].1,
+        entries[5].1,
         Value::Bytes(FieldElement::from(10_u64).to_be_bytes().to_vec())
     );
 
-    // submods carries the Trust Anchor Key Token byte-for-byte under "takt".
-    let submods = entries[4].1.as_map().unwrap();
-    assert_eq!(submods.len(), 1);
-    assert_eq!(submods[0].0, Value::Text("takt".to_string()));
-    assert_eq!(submods[0].1, Value::Bytes(takt));
+    // The TAKT is not in the payload at all (the exact key list above is what
+    // asserts that): it rides in the unprotected header, outside the AAT
+    // signature (WIP-106 AAT section 6).
+    let header_takt = sign1
+        .unprotected
+        .rest
+        .iter()
+        .find(|(label, _)| *label == coset::Label::Text("takt".to_string()))
+        .expect("TAKT must be carried in the unprotected header");
+    assert_eq!(header_takt.1, Value::Bytes(takt));
+}
+
+/// Cross-implementation known-answer test: pins the exact COSE `Sig_structure`
+/// the assertion key signs, and the resulting signature, for fixed test keys.
+///
+/// The Noir circuit rebuilds this byte layout at constant offsets
+/// (`aat.nr::aat_sig_structure`), so this is the anchor that keeps the two
+/// implementations from drifting. If this fails, the Noir fixture in
+/// `test_deterministic_aat` must move with it.
+#[test]
+fn aat_known_answer_sig_structure_and_signature() {
+    let trust_anchor_key = EdDSAPrivateKey::from_bytes([7_u8; 32]);
+    let assertion_secret = p256::SecretKey::from_slice(&[11_u8; 32]).unwrap();
+    let takt = signed_takt(assertion_secret.public_key(), &trust_anchor_key);
+
+    let token = AuthenticatorAssertionToken::new(sample_aat_claims(), takt).unwrap();
+    let sign1 = CoseSign1::from_slice(&token.sign(&assertion_secret).unwrap()).unwrap();
+
+    let tbs = sign1.tbs_data(&[]);
+    assert_eq!(
+        tbs.len(),
+        178,
+        "must equal AAT_SIG_STRUCTURE_LEN in crates/proof/noir/.../aat.nr"
+    );
+    assert_eq!(
+        to_hex(&tbs),
+        "846a5369676e61747572653143a1012640589fa6031a001d6bb6041a6a4d3d8d0a582000000000000000000000000000000000000000000000000011d223ce7b91ac21190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f5820000000000000000000000000000000000000000000000000000000009f2c1abc3a000138805820000000000000000000000000000000000000000000000000000000000000000a"
+    );
+    assert_eq!(
+        to_hex(&sign1.signature),
+        "33072e05704c927b9754dc494c0d31bc875e03a2033583c2a60346eec5718bed0f3c9d761927da772c8a6402aae1cb5f138eeadfd5ab334da00f0d4beee732c3"
+    );
 }
 
 #[test]
@@ -358,4 +395,33 @@ fn aat_rejects_aud_outside_fixed_width_range() {
 
     let err = AuthenticatorAssertionToken::new(claims, takt).unwrap_err();
     assert!(matches!(err, AttestationError::AudOutOfRange(100)));
+}
+
+#[test]
+fn aat_rejects_exp_outside_fixed_width_range() {
+    let trust_anchor_key = EdDSAPrivateKey::random(&mut OsRng);
+    let assertion_secret = p256::SecretKey::random(&mut OsRng);
+    let takt = signed_takt(assertion_secret.public_key(), &trust_anchor_key);
+    let claims = AuthenticatorAssertionClaims {
+        // Year 2106+: needs an 8-byte CBOR uint, which would shift every
+        // payload offset the circuit relies on.
+        exp: 1_u64 << 32,
+        ..sample_aat_claims()
+    };
+
+    let err = AuthenticatorAssertionToken::new(claims, takt).unwrap_err();
+    assert!(matches!(err, AttestationError::ExpirationOutOfRange(_)));
+}
+
+#[test]
+fn takt_rejects_exp_outside_fixed_width_range() {
+    let assertion_secret = p256::SecretKey::random(&mut OsRng);
+    let claims = TrustAnchorKeyClaims {
+        // Fits a 2-byte CBOR uint; same fixed-offset violation from below.
+        exp: 100,
+        ..sample_claims(assertion_secret.public_key())
+    };
+
+    let err = TrustAnchorKeyToken::new(claims).unwrap_err();
+    assert!(matches!(err, AttestationError::ExpirationOutOfRange(100)));
 }

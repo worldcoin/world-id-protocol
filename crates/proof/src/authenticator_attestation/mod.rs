@@ -1,7 +1,7 @@
 //! Authenticator Attestations (WIP-106).
 
 use coset::{
-    AsCborValue, CborSerializable, CoseKeyBuilder, CoseSign1, CoseSign1Builder, Header,
+    AsCborValue, CborSerializable, CoseKeyBuilder, CoseSign1, CoseSign1Builder, Header, Label,
     RegisteredLabelWithPrivate,
     cbor::value::Value,
     cwt::{ClaimsSet, ClaimsSetBuilder, Timestamp},
@@ -47,10 +47,8 @@ const CWT_CLAIM_EXP: i64 = 4;
 const CWT_CLAIM_NONCE: i64 = 10;
 /// CWT claim key for `eat_profile` (RFC 9711).
 const CWT_CLAIM_EAT_PROFILE: i64 = 265;
-/// CWT claim key for `submods` (RFC 9711).
-const CWT_CLAIM_SUBMODS: i64 = 266;
-/// CWT claim key for `signal` (WIP-106).
-const CWT_CLAIM_SIGNAL: i64 = -80_000;
+/// CWT claim key for `cdh` (client data hash, WIP-106).
+const CWT_CLAIM_CDH: i64 = -80_000;
 /// CWT claim key for `authenticator_meta` (WIP-106).
 const CWT_CLAIM_AUTHENTICATOR_META: i64 = -80_001;
 /// CWT claim key for `sec_flags` (WIP-106).
@@ -59,8 +57,9 @@ const CWT_CLAIM_SEC_FLAGS: i64 = -70_000;
 /// `cnf` confirmation method label for a `COSE_Key` (RFC 8747 §3.1).
 const CNF_COSE_KEY: i64 = 1;
 
-/// Label of the Trust Anchor Key Token within the `submods` map.
-const SUBMOD_TAKT: &str = "takt";
+/// Label of the Trust Anchor Key Token in the AAT's `COSE_Sign1` unprotected
+/// header (WIP-106 AAT section 6).
+const HEADER_TAKT: &str = "takt";
 
 /// Bit offsets of the `sec_flags` sub-fields (LSB-first packing).
 const SEC_FLAGS_SEC_LEVEL_SHIFT: u64 = 8;
@@ -139,7 +138,8 @@ impl AuthenticatorMeta {
 /// Claims carried by a Trust Anchor Key Token.
 #[derive(Debug, Clone, Copy)]
 pub struct TrustAnchorKeyClaims {
-    /// Expiration as seconds since the Unix epoch.
+    /// Expiration as seconds since the Unix epoch; MUST be in `[2^16, 2^32)`
+    /// for its fixed-width encoding.
     pub exp: u64,
     /// The attested `assertion_key`, carried as a `COSE_Key` in the `cnf` claim.
     pub assertion_key: p256::PublicKey,
@@ -180,8 +180,8 @@ pub enum AttestationError {
     /// `aud` cannot use the fixed 4-byte CBOR encoding.
     #[error("aud {0} must be in [2^16, 2^32) for its fixed-width encoding")]
     AudOutOfRange(u64),
-    /// `exp` cannot be represented as a CWT numeric date.
-    #[error("exp {0} exceeds the representable CWT numeric date range")]
+    /// `exp` cannot use the fixed 4-byte CBOR encoding.
+    #[error("exp {0} must be in [2^16, 2^32) for its fixed-width encoding")]
     ExpirationOutOfRange(u64),
     /// Key material could not be serialized.
     #[error("failed to encode key material: {0}")]
@@ -200,6 +200,16 @@ pub enum AttestationError {
     AssertionKeyMismatch,
 }
 
+/// Validates that `exp` fits the fixed 4-byte CBOR uint encoding mandated by
+/// WIP-106 (`2^16 <= exp < 2^32`, i.e. any instant from 1970-01-01T18:12:16Z up
+/// to 2106), so the claim offsets the circuits rely on stay constant.
+fn validate_exp_fixed_width(exp: u64) -> Result<(), AttestationError> {
+    if u16::try_from(exp).is_ok() || u32::try_from(exp).is_err() {
+        return Err(AttestationError::ExpirationOutOfRange(exp));
+    }
+    Ok(())
+}
+
 /// A Trust Anchor Key Token (TAKT, WIP-106): an EAT attesting an
 /// `assertion_key` through the `cnf` claim.
 ///
@@ -216,14 +226,13 @@ impl TrustAnchorKeyToken {
     ///
     /// # Errors
     /// - [`AttestationError::SecMetaTooLarge`] if `sec_meta` carries more than 4 bits.
-    /// - [`AttestationError::ExpirationOutOfRange`] if `exp` is not a valid CWT numeric date.
+    /// - [`AttestationError::ExpirationOutOfRange`] if `exp` cannot use the
+    ///   fixed 4-byte CBOR encoding.
     pub fn new(claims: TrustAnchorKeyClaims) -> Result<Self, AttestationError> {
         if claims.sec_meta > MAX_SEC_META {
             return Err(AttestationError::SecMetaTooLarge(claims.sec_meta));
         }
-        if i64::try_from(claims.exp).is_err() {
-            return Err(AttestationError::ExpirationOutOfRange(claims.exp));
-        }
+        validate_exp_fixed_width(claims.exp)?;
         Ok(Self { claims })
     }
 
@@ -355,19 +364,21 @@ impl TrustAnchorKeyToken {
 pub struct AuthenticatorAssertionClaims {
     /// The `rpId` of the requesting RP (CWT `aud`); MUST be in `[2^16, 2^32)`.
     pub aud: RpId,
-    /// Expiration as seconds since the Unix epoch.
+    /// Expiration as seconds since the Unix epoch; MUST be in `[2^16, 2^32)`
+    /// for its fixed-width encoding.
     pub exp: u64,
     /// The `ProofRequest` nonce binding the token to a specific request.
     pub nonce: FieldElement,
-    /// Hash of the signal the proof commits to; zero when no signal is present.
-    pub signal: FieldElement,
+    /// Client data hash: an arbitrary commitment binding the token to its
+    /// upstream use case. A nil value is 32 zero bytes.
+    pub cdh: FieldElement,
     /// Structured integrity metadata for the proof.
     pub authenticator_meta: AuthenticatorMeta,
 }
 
 /// An Authenticator Assertion Token (AAT, WIP-106): the outer EAT signed by the
 /// `assertion_key` with `ES256`, carrying the Trust Anchor Key Token that
-/// attests that key under `submods.takt`.
+/// attests that key in its unprotected header.
 ///
 /// Construct with [`AuthenticatorAssertionToken::new`];
 /// [`AuthenticatorAssertionToken::sign`] signs the token with the
@@ -375,8 +386,8 @@ pub struct AuthenticatorAssertionClaims {
 #[derive(Debug, Clone)]
 pub struct AuthenticatorAssertionToken {
     claims: AuthenticatorAssertionClaims,
-    /// Serialized `COSE_Sign1` Trust Anchor Key Token, embedded under
-    /// `submods.takt`.
+    /// Serialized `COSE_Sign1` Trust Anchor Key Token, carried in the
+    /// unprotected header and therefore outside the AAT signature.
     trust_anchor_key_token: Vec<u8>,
     /// Coordinates of the assertion key attested by the Trust Anchor Key
     /// Token's `cnf` claim; the signing key must match.
@@ -393,8 +404,8 @@ impl AuthenticatorAssertionToken {
     ///   provider bits carry more than 2 bits.
     /// - [`AttestationError::AudOutOfRange`] if `aud` cannot use the fixed
     ///   4-byte CBOR encoding.
-    /// - [`AttestationError::ExpirationOutOfRange`] if `exp` is not a valid CWT
-    ///   numeric date.
+    /// - [`AttestationError::ExpirationOutOfRange`] if `exp` cannot use the
+    ///   fixed 4-byte CBOR encoding.
     /// - [`AttestationError::InvalidTrustAnchorKeyToken`] if the Trust Anchor
     ///   Key Token cannot be parsed or carries no `cnf` claim.
     pub fn new(
@@ -410,9 +421,7 @@ impl AuthenticatorAssertionToken {
         if u16::try_from(aud).is_ok() || u32::try_from(aud).is_err() {
             return Err(AttestationError::AudOutOfRange(aud));
         }
-        if i64::try_from(claims.exp).is_err() {
-            return Err(AttestationError::ExpirationOutOfRange(claims.exp));
-        }
+        validate_exp_fixed_width(claims.exp)?;
         let attested_key = attested_key_coordinates(&trust_anchor_key_token)?;
         Ok(Self {
             claims,
@@ -441,8 +450,23 @@ impl AuthenticatorAssertionToken {
             alg: Some(RegisteredLabelWithPrivate::Assigned(iana::Algorithm::ES256)),
             ..Header::default()
         };
+        // The TAKT rides in the *unprotected* header, so it is not covered by
+        // this signature (WIP-106 AAT section 6). It is self-authenticating via
+        // its own `trust_anchor_key` signature, and bound to this token solely
+        // by the shared `assertion_key` — enforced above and re-checked
+        // in-circuit. This mirrors RFC 9360's X.509 chain placement, and keeps
+        // the signed payload free of the TAKT's bytes so verifying circuits
+        // never have to reserialize it.
+        let unprotected = Header {
+            rest: vec![(
+                Label::Text(HEADER_TAKT.to_string()),
+                Value::Bytes(self.trust_anchor_key_token.clone()),
+            )],
+            ..Header::default()
+        };
         CoseSign1Builder::new()
             .protected(protected)
+            .unprotected(unprotected)
             .payload(self.encode_claims()?)
             .create_signature(&[], |message| {
                 let signature: p256::ecdsa::Signature = signing_key.sign(message);
@@ -485,15 +509,8 @@ impl AuthenticatorAssertionToken {
                 Value::Text(EAT_PROFILE_AUTHENTICATOR_ASSERTION.to_string()),
             ),
             (
-                Value::Integer(CWT_CLAIM_SUBMODS.into()),
-                Value::Map(vec![(
-                    Value::Text(SUBMOD_TAKT.to_string()),
-                    Value::Bytes(self.trust_anchor_key_token.clone()),
-                )]),
-            ),
-            (
-                Value::Integer(CWT_CLAIM_SIGNAL.into()),
-                Value::Bytes(self.claims.signal.to_be_bytes().to_vec()),
+                Value::Integer(CWT_CLAIM_CDH.into()),
+                Value::Bytes(self.claims.cdh.to_be_bytes().to_vec()),
             ),
             (
                 Value::Integer(CWT_CLAIM_AUTHENTICATOR_META.into()),

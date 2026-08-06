@@ -3,33 +3,47 @@ use super::utils::{assert_cbor_uint32, assert_not_expired, p256_be_coord_to_fiel
 use eddsa_poseidon2::verify_eddsa_poseidon2;
 use poseidon2::bn254::perm;
 
+/// The claims and signature of a Trust Anchor Key Token, as parsed from its
+/// `COSE_Sign1` encoding. The `trust_anchor_key` that signed it is *not* part of
+/// the token: it is identified only by the `kid` protected-header parameter,
+/// which WIP-106 leaves outside the signature, so verifiers supply the key they
+/// trust out of band (see `verify_takt`).
 pub struct TrustAnchorKeyToken {
     /// Expiration as seconds since the Unix epoch (CWT `exp`).
-    exp: Field,
+    pub exp: Field,
     /// Big-endian affine x coordinate of the attested assertion key (`cnf`).
-    pub(crate) assertion_key_x: [u8; 32],
+    pub assertion_key_x: [u8; 32],
     /// Big-endian affine y coordinate of the attested assertion key (`cnf`).
-    pub(crate) assertion_key_y: [u8; 32],
+    pub assertion_key_y: [u8; 32],
     /// Packed security attributes (`sec_flags`, LSB-first): platform
     /// (bits 0-7), sec_level (8-15), build_version (16-47), sec_meta (48-51).
-    sec_flags: Field,
+    pub sec_flags: Field,
     /// EdDSA signature scalar component.
-    sig_s: Field,
+    pub sig_s: Field,
     /// EdDSA signature point component (affine x, y).
-    sig_r: [Field; 2],
-    /// Affine x coordinate of the Authenticator Provider's `trust_anchor_key`.
-    trust_anchor_key_x: Field,
-    /// Affine y coordinate of the Authenticator Provider's `trust_anchor_key`.
-    trust_anchor_key_y: Field,
+    pub sig_r: [Field; 2],
 }
 
-/// Verifies a Trust Anchor Key Token.
+/// Verifies a Trust Anchor Key Token under the Authenticator Provider's
+/// `trust_anchor_key`.
 ///
-/// `now` is the verifier-supplied Unix time (seconds) against which CWT `exp`
-/// freshness is checked (`now < exp`). It MUST be a public input of any outer
-/// proof that calls this function.
-pub fn verify_takt(input: TrustAnchorKeyToken, now: Field) {
-    // CBOR uint32 encoding of `exp` is checked later in `serialize_takt`.
+/// Crate-private on purpose: a TAKT on its own attests a key, but says nothing
+/// about the request that key signed. Consumers go through
+/// `attestation::verify_attestation`, which cannot be called without both
+/// tokens.
+///
+/// Both `trust_anchor_key_x` / `_y` and `now` are verifier-supplied and MUST be
+/// public inputs of the outer circuit. `trust_anchor_key` is the RP's entire
+/// trust decision -- taken from the provider's Authenticator Metadata and
+/// allowlisted by the RP. Left private, a prover could sign a TAKT with a key of
+/// its own choosing and the attestation would prove nothing.
+pub(crate) fn verify_takt(
+    input: TrustAnchorKeyToken,
+    trust_anchor_key_x: Field,
+    trust_anchor_key_y: Field,
+    now: Field,
+) {
+    assert_cbor_uint32(input.exp);
     assert_not_expired(input.exp, now);
 
     // Range-check the packed sub-fields (reserved bits MUST be 0).
@@ -38,8 +52,8 @@ pub fn verify_takt(input: TrustAnchorKeyToken, now: Field) {
     let digest = takt_digest(input);
 
     let is_valid = verify_eddsa_poseidon2(
-        input.trust_anchor_key_x,
-        input.trust_anchor_key_y,
+        trust_anchor_key_x,
+        trust_anchor_key_y,
         input.sig_s,
         input.sig_r,
         digest,
@@ -86,123 +100,6 @@ fn takt_digest(input: TrustAnchorKeyToken) -> Field {
     state[1]
 }
 
-/// Length in bytes of a serialized TAKT `COSE_Sign1` under this profile.
-pub(crate) global TAKT_TOKEN_LEN: u32 = 247;
-
-/// `(p - 1) / 2` for the BN254 base field; elements above this are "negative"
-/// in the compressed point encoding defined by WIP-106.
-global FIELD_HALF: Field =
-    10944121435919637611123202872628637544274182200208017171849102093287904247808;
-
-/// Serializes a BabyJubJub point in the WIP-106 compressed form: the y
-/// coordinate as 32 little-endian bytes, with the most significant bit of the
-/// last byte set when x is "negative" (`x > (p-1)/2`).
-fn compress_bjj_point(x: Field, y: Field) -> [u8; 32] {
-    let mut bytes: [u8; 32] = y.to_le_bytes();
-    // y < p < 2^254, so the top bit of the last byte is always free.
-    let x_is_negative = std::field::bn254::lt(FIELD_HALF, x);
-    bytes[31] = bytes[31] + (x_is_negative as u8) * 0x80;
-    bytes
-}
-
-/// Reserializes the TAKT `COSE_Sign1` from its parsed attributes.
-///
-/// The bytes embedded under the AAT's `submods.takt` are deduced from the
-/// verified token instead of being provided as a second, independent witness:
-/// this keeps the witness minimal and guarantees the AAT's signed payload
-/// embeds exactly the TAKT whose claims the circuit exposes.
-pub(crate) fn serialize_takt(input: TrustAnchorKeyToken) -> [u8; TAKT_TOKEN_LEN] {
-    // Fixed-width claim encodings so the template offsets are constant.
-    assert_cbor_uint32(input.exp);
-    let exp_bytes: [u8; 4] = input.exp.to_be_bytes();
-    let sec_flags_bytes: [u8; 8] = input.sec_flags.to_be_bytes();
-
-    let kid = compress_bjj_point(input.trust_anchor_key_x, input.trust_anchor_key_y);
-    let sig_r = compress_bjj_point(input.sig_r[0], input.sig_r[1]);
-    let sig_s_bytes: [u8; 32] = input.sig_s.to_le_bytes();
-
-    let mut token: [u8; TAKT_TOKEN_LEN] = [0; TAKT_TOKEN_LEN];
-
-    // COSE_Sign1 = [protected, unprotected, payload, signature]
-    token[0] = 0x84; // array(4)
-    token[1] = 0x58; // bytes(1-byte length): protected header
-    token[2] = 0x2a; // 42
-    token[3] = 0xa2; // map(2)
-    token[4] = 0x01; // alg:
-    token[5] = 0x3a; // BabyJubJub-EdDSA-Poseidon2 (-65537, 4-byte negative)
-    token[6] = 0x00;
-    token[7] = 0x01;
-    token[8] = 0x00;
-    token[9] = 0x00;
-    token[10] = 0x04; // kid:
-    token[11] = 0x58; // bytes(1-byte length)
-    token[12] = 0x20; // 32
-    for i in 0..32 {
-        token[13 + i] = kid[i];
-    }
-    token[45] = 0xa0; // unprotected: empty map
-    token[46] = 0x58; // bytes(1-byte length): payload
-    token[47] = 0x85; // 133
-
-    // Payload: the CWT claims map in deterministic CBOR map-key order.
-    token[48] = 0xa4; // map(4)
-    token[49] = 0x04; // exp (4):
-    token[50] = 0x1a; // uint32
-    for i in 0..4 {
-        token[51 + i] = exp_bytes[i];
-    }
-    token[55] = 0x08; // cnf (8):
-    token[56] = 0xa1; // map(1)
-    token[57] = 0x01; // COSE_Key:
-    token[58] = 0xa4; // map(4)
-    token[59] = 0x01; // kty:
-    token[60] = 0x02; // EC2
-    token[61] = 0x20; // crv (-1):
-    token[62] = 0x01; // P-256
-    token[63] = 0x21; // x (-2):
-    token[64] = 0x58; // bytes(1-byte length)
-    token[65] = 0x20; // 32
-    for i in 0..32 {
-        token[66 + i] = input.assertion_key_x[i];
-    }
-    token[98] = 0x22; // y (-3):
-    token[99] = 0x58;
-    token[100] = 0x20;
-    for i in 0..32 {
-        token[101 + i] = input.assertion_key_y[i];
-    }
-    token[133] = 0x19; // eat_profile (265, 2-byte uint):
-    token[134] = 0x01;
-    token[135] = 0x09;
-    token[136] = 0x78; // text(1-byte length)
-    token[137] = 0x1d; // 29
-    let profile = "https://world.org/eat/takt/v1".as_bytes();
-    for i in 0..29 {
-        token[138 + i] = profile[i];
-    }
-    token[167] = 0x3a; // sec_flags (-70000, 4-byte negative):
-    token[168] = 0x00;
-    token[169] = 0x01;
-    token[170] = 0x11;
-    token[171] = 0x6f;
-    token[172] = 0x48; // bytes(8)
-    for i in 0..8 {
-        token[173 + i] = sec_flags_bytes[i];
-    }
-
-    // Signature: EdDSA (compressed R || S), 64 bytes.
-    token[181] = 0x58; // bytes(1-byte length)
-    token[182] = 0x40; // 64
-    for i in 0..32 {
-        token[183 + i] = sig_r[i];
-    }
-    for i in 0..32 {
-        token[215 + i] = sig_s_bytes[i];
-    }
-
-    token
-}
-
 /// Builds a 32-byte big-endian P-256 coordinate from its two 128-bit limbs.
 /// Test-only inverse of `p256_be_coord_to_field`.
 fn test_coord_from_limbs(hi: Field, lo: Field) -> [u8; 32] {
@@ -222,6 +119,15 @@ pub(crate) global TEST_EXP: Field = 1783446925;
 
 /// Verifier time used by happy-path tests: strictly before `TEST_EXP`.
 pub(crate) global TEST_NOW: Field = 1700000000;
+
+/// The `trust_anchor_key` (BabyJubJub, affine x) that signed both deterministic
+/// TAKT fixtures. Supplied by the verifier, so it is no longer part of the token.
+pub(crate) global TEST_TRUST_ANCHOR_KEY_X: Field =
+    19037598474602150174935475944965340829216795940473064039209388058233204431288;
+
+/// Affine y of `TEST_TRUST_ANCHOR_KEY_X`.
+pub(crate) global TEST_TRUST_ANCHOR_KEY_Y: Field =
+    3549932221586364715003722955756497910920276078443163728621283280434115857197;
 
 pub(crate) fn test_deterministic_takt() -> TrustAnchorKeyToken {
     // P-256 coordinates as (hi, lo) 128-bit limbs. A whole coordinate cannot
@@ -243,8 +149,6 @@ pub(crate) fn test_deterministic_takt() -> TrustAnchorKeyToken {
             3038940160993341489764135949086927490288273871352067753480373103236792890019,
             3575406791906717862024209997991679600338512115093140550225375654630093303539,
         ],
-        trust_anchor_key_x: 19037598474602150174935475944965340829216795940473064039209388058233204431288,
-        trust_anchor_key_y: 3549932221586364715003722955756497910920276078443163728621283280434115857197,
     }
 }
 
@@ -268,8 +172,6 @@ pub(crate) fn test_deterministic_takt_unrelated_key() -> TrustAnchorKeyToken {
             2497510479714884033897370712372642880357637781552444460856656911402405468283,
             6160154892924888407590390789330876549069607663319416268142058127129410358139,
         ],
-        trust_anchor_key_x: 19037598474602150174935475944965340829216795940473064039209388058233204431288,
-        trust_anchor_key_y: 3549932221586364715003722955756497910920276078443163728621283280434115857197,
     }
 }
 
@@ -281,33 +183,12 @@ fn test_deterministic_takt_verification() {
         13841652385841404096687877664637984932218603617558109472176126865842396474985,
         "digest mismatch",
     );
-    verify_takt(candidate, TEST_NOW);
-}
-
-#[test]
-fn test_deterministic_takt_serialization() {
-    // Expected bytes produced by the Rust implementation
-    // (`TrustAnchorKeyToken::sign`) for the same key and claims.
-    let expected: [u8; TAKT_TOKEN_LEN] = [
-        0x84, 0x58, 0x2a, 0xa2, 0x01, 0x3a, 0x00, 0x01, 0x00, 0x00, 0x04, 0x58, 0x20, 0x2d, 0x4b,
-        0xdf, 0x6e, 0xe6, 0x0f, 0xed, 0xa0, 0x97, 0x5c, 0x77, 0x0b, 0xb7, 0xa2, 0x3d, 0xc6, 0xe4,
-        0xe0, 0xed, 0x1e, 0x35, 0xff, 0x3c, 0x24, 0x26, 0xcd, 0xed, 0x4e, 0xc0, 0x30, 0xd9, 0x87,
-        0xa0, 0x58, 0x85, 0xa4, 0x04, 0x1a, 0x6a, 0x4d, 0x3d, 0x8d, 0x08, 0xa1, 0x01, 0xa4, 0x01,
-        0x02, 0x20, 0x01, 0x21, 0x58, 0x20, 0x20, 0x9c, 0x31, 0x7b, 0x63, 0x79, 0x35, 0xdd, 0x3d,
-        0xa1, 0xc5, 0x4f, 0x63, 0x49, 0x5d, 0xfb, 0x31, 0xf9, 0x7d, 0x29, 0x3d, 0xf0, 0x85, 0x71,
-        0x03, 0x20, 0x59, 0x5c, 0x9a, 0xac, 0xb8, 0x3f, 0x22, 0x58, 0x20, 0xdd, 0xe4, 0xc6, 0x9f,
-        0xc1, 0x7a, 0x0c, 0x74, 0xc2, 0x0c, 0xc6, 0x92, 0x66, 0x2f, 0x04, 0x98, 0x92, 0xba, 0x37,
-        0xa4, 0xba, 0x47, 0xd2, 0xc7, 0x0c, 0xd8, 0xa9, 0x99, 0x86, 0x39, 0x1f, 0x9b, 0x19, 0x01,
-        0x09, 0x78, 0x1d, 0x68, 0x74, 0x74, 0x70, 0x73, 0x3a, 0x2f, 0x2f, 0x77, 0x6f, 0x72, 0x6c,
-        0x64, 0x2e, 0x6f, 0x72, 0x67, 0x2f, 0x65, 0x61, 0x74, 0x2f, 0x74, 0x61, 0x6b, 0x74, 0x2f,
-        0x76, 0x31, 0x3a, 0x00, 0x01, 0x11, 0x6f, 0x48, 0x00, 0x03, 0x00, 0x00, 0x07, 0xd6, 0x01,
-        0x02, 0x58, 0x40, 0xf3, 0x2e, 0x95, 0xcf, 0x56, 0xfa, 0xf2, 0x61, 0xdb, 0x27, 0xf5, 0x01,
-        0xf1, 0xbe, 0x33, 0xd9, 0x1f, 0x5e, 0xcf, 0xc9, 0x1c, 0x1c, 0x21, 0x58, 0xb6, 0x2f, 0x33,
-        0xa3, 0xc8, 0x9b, 0xe7, 0x07, 0x85, 0x74, 0xf9, 0xcd, 0xda, 0x58, 0x41, 0xd5, 0xb5, 0x0b,
-        0x80, 0x3c, 0xb8, 0x23, 0x36, 0xd5, 0x08, 0x96, 0xce, 0x39, 0xa9, 0x8a, 0x83, 0xe0, 0x6d,
-        0x0b, 0xd0, 0x3d, 0x90, 0x0c, 0x0a, 0x01,
-    ];
-    assert_eq(serialize_takt(test_deterministic_takt()), expected, "serialization mismatch");
+    verify_takt(
+        candidate,
+        TEST_TRUST_ANCHOR_KEY_X,
+        TEST_TRUST_ANCHOR_KEY_Y,
+        TEST_NOW,
+    );
 }
 
 #[test(should_fail_with = "invalid signature")]
@@ -315,26 +196,46 @@ fn test_digest_mismatch() {
     let mut candidate = test_deterministic_takt();
     // platform sub-field: 2 -> 4
     candidate.sec_flags = 0x0003000007D60104;
-    verify_takt(candidate, TEST_NOW);
+    verify_takt(
+        candidate,
+        TEST_TRUST_ANCHOR_KEY_X,
+        TEST_TRUST_ANCHOR_KEY_Y,
+        TEST_NOW,
+    );
 }
 
 #[test(should_fail_with = "sec_flags bits 52-55 are reserved and must be 0")]
 fn test_reserved_sec_flags_bits_rejected() {
     let mut candidate = test_deterministic_takt();
     candidate.sec_flags = 0x0013000007D60102;
-    verify_takt(candidate, TEST_NOW);
+    verify_takt(
+        candidate,
+        TEST_TRUST_ANCHOR_KEY_X,
+        TEST_TRUST_ANCHOR_KEY_Y,
+        TEST_NOW,
+    );
 }
 
 #[test(should_fail)]
 fn test_expired_takt_rejected() {
     // At `exp` the token is already expired (RFC 8392: "on or after").
-    verify_takt(test_deterministic_takt(), TEST_EXP);
+    verify_takt(
+        test_deterministic_takt(),
+        TEST_TRUST_ANCHOR_KEY_X,
+        TEST_TRUST_ANCHOR_KEY_Y,
+        TEST_EXP,
+    );
 }
 
 #[test(should_fail_with = "value must require a 4-byte CBOR uint encoding")]
 fn test_exp_too_small_for_cbor_uint32_rejected() {
     let mut candidate = test_deterministic_takt();
-    // Fits in a 2-byte CBOR uint; breaks the fixed-offset serialization profile.
+    // Fits in a 2-byte CBOR uint; violates the WIP-106 encoding profile.
     candidate.exp = 0xffff;
-    let _ = serialize_takt(candidate);
+    verify_takt(
+        candidate,
+        TEST_TRUST_ANCHOR_KEY_X,
+        TEST_TRUST_ANCHOR_KEY_Y,
+        TEST_NOW,
+    );
 }
