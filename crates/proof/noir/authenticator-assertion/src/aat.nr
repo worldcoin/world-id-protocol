@@ -69,8 +69,8 @@ pub(crate) fn verify_aat(
     // `ecdsa_secp256r1` black box: provekit does not implement it, so the
     // black box passes `nargo test` but cannot be proven. Only black boxes
     // from provekit's allowlist may be used here; see crates/proof/noir/README.md.
-    let public_key_x = Secp256r1_Fq::from_be_bytes(assertion_key_x);
-    let public_key_y = Secp256r1_Fq::from_be_bytes(assertion_key_y);
+    let assertion_key_x_fq = Secp256r1_Fq::from_be_bytes(assertion_key_x);
+    let assertion_key_y_fq = Secp256r1_Fq::from_be_bytes(assertion_key_y);
     let r = signature_scalar(aat.signature, 0);
     let s = signature_scalar(aat.signature, 32);
 
@@ -81,7 +81,7 @@ pub(crate) fn verify_aat(
     // key. `s == 0` is already rejected by the `s * s^-1 == 1` constraint.
     assert(r != Secp256r1_Fr::zero(), "AAT signature r value is zero");
 
-    let is_valid = verify_secp256r1_ecdsa(public_key_x, public_key_y, digest, (r, s));
+    let is_valid = verify_secp256r1_ecdsa(assertion_key_x_fq, assertion_key_y_fq, digest, (r, s));
     assert(is_valid, "invalid AAT signature");
 }
 
