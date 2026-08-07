@@ -58,7 +58,7 @@ const CWT_CLAIM_SEC_FLAGS: i64 = -70_000;
 const CNF_COSE_KEY: i64 = 1;
 
 /// Label of the Trust Anchor Key Token in the AAT's `COSE_Sign1` unprotected
-/// header (WIP-106 AAT section 6).
+/// header.
 const HEADER_TAKT: &str = "takt";
 
 /// Bit offsets of the `sec_flags` sub-fields (LSB-first packing).
@@ -451,12 +451,13 @@ impl AuthenticatorAssertionToken {
             ..Header::default()
         };
         // The TAKT rides in the *unprotected* header, so it is not covered by
-        // this signature (WIP-106 AAT section 6). It is self-authenticating via
-        // its own `trust_anchor_key` signature, and bound to this token solely
-        // by the shared `assertion_key` — enforced above and re-checked
-        // in-circuit. This mirrors RFC 9360's X.509 chain placement, and keeps
-        // the signed payload free of the TAKT's bytes so verifying circuits
-        // never have to reserialize it.
+        // this signature: it is self-authenticating under its own
+        // `trust_anchor_key`, and bound to this token solely by the shared
+        // `assertion_key` (enforced above, re-checked in-circuit). Keeping it
+        // out of the signed payload is what frees verifying circuits from
+        // reserializing its CBOR. Note the binding does not distinguish two
+        // TAKTs attesting the same key — WIP-106 makes uniform `sec_flags` per
+        // `assertion_key` a provider obligation instead.
         let unprotected = Header {
             rest: vec![(
                 Label::Text(HEADER_TAKT.to_string()),

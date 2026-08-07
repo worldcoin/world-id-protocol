@@ -302,7 +302,7 @@ fn aat_claims_follow_deterministic_cbor_map_order() {
 
     // The TAKT is not in the payload at all (the exact key list above is what
     // asserts that): it rides in the unprotected header, outside the AAT
-    // signature (WIP-106 AAT section 6).
+    // signature.
     let header_takt = sign1
         .unprotected
         .rest
