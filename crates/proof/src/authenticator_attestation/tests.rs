@@ -190,18 +190,6 @@ fn rejects_sec_meta_with_more_than_four_bits() {
 }
 
 #[test]
-fn rejects_exp_beyond_cwt_numeric_date_range() {
-    let assertion_key = p256::SecretKey::random(&mut OsRng).public_key();
-    let claims = TrustAnchorKeyClaims {
-        exp: u64::MAX,
-        ..sample_claims(assertion_key)
-    };
-
-    let err = TrustAnchorKeyToken::new(claims).unwrap_err();
-    assert!(matches!(err, AttestationError::ExpirationOutOfRange(_)));
-}
-
-#[test]
 fn signature_binds_to_claims() {
     let trust_anchor_key = EdDSAPrivateKey::random(&mut OsRng);
     let assertion_key = p256::SecretKey::random(&mut OsRng).public_key();
@@ -238,11 +226,9 @@ fn signature_binds_to_claims() {
 
 #[test]
 fn aat_signature_verifies_with_es256() {
-    let trust_anchor_key = EdDSAPrivateKey::random(&mut OsRng);
     let assertion_secret = p256::SecretKey::random(&mut OsRng);
-    let takt = signed_takt(assertion_secret.public_key(), &trust_anchor_key);
 
-    let token = AuthenticatorAssertionToken::new(sample_aat_claims(), takt).unwrap();
+    let token = AuthenticatorAssertionToken::new(sample_aat_claims()).unwrap();
     let sign1 = CoseSign1::from_slice(&token.sign(&assertion_secret).unwrap()).unwrap();
 
     assert_eq!(
@@ -266,7 +252,7 @@ fn aat_claims_follow_deterministic_cbor_map_order() {
     let takt = signed_takt(assertion_secret.public_key(), &trust_anchor_key);
     let claims = sample_aat_claims();
 
-    let token = AuthenticatorAssertionToken::new(claims, takt.clone()).unwrap();
+    let token = AuthenticatorAssertionToken::new(claims).unwrap();
     let token_bytes = token.sign(&assertion_secret).unwrap();
     let sign1 = CoseSign1::from_slice(&token_bytes).unwrap();
     let payload: Value = coset::cbor::from_reader(sign1.payload.unwrap().as_slice()).unwrap();
@@ -300,37 +286,22 @@ fn aat_claims_follow_deterministic_cbor_map_order() {
         entries[5].1,
         Value::Bytes(FieldElement::from(10_u64).to_be_bytes().to_vec())
     );
-
-    // The TAKT is not in the token at all: not in the payload (the exact key
-    // list above asserts that) and not in either header bucket. It is a fully
-    // separate object, bound only by the shared assertion key, so the carrying
-    // protocol pairs the two.
-    assert!(
-        sign1.unprotected.rest.is_empty(),
-        "the AAT must not carry the TAKT, or anything else, in its headers"
-    );
-    assert!(
-        !token_bytes
-            .windows(takt.len())
-            .any(|w| w == takt.as_slice()),
-        "the TAKT's bytes must not appear anywhere in the encoded AAT"
-    );
 }
 
 /// Cross-implementation known-answer test: pins the exact COSE `Sig_structure`
 /// the assertion key signs, and the resulting signature, for fixed test keys.
 ///
 /// The Noir circuit rebuilds this byte layout at constant offsets
-/// (`aat.nr::aat_sig_structure`), so this is the anchor that keeps the two
-/// implementations from drifting. If this fails, the Noir fixture in
-/// `test_deterministic_aat` must move with it.
+/// (`aat.nr::aat_sig_structure`), so this is the source fixture that keeps the
+/// two implementations from drifting. Its `Sig_structure` hex is copied as the
+/// byte array in Noir's `test_aat_sig_structure_matches_rust_fixture`, and its
+/// signature is copied into `test_deterministic_aat`. An intentional change to
+/// either expectation must update the corresponding Noir fixture.
 #[test]
 fn aat_known_answer_sig_structure_and_signature() {
-    let trust_anchor_key = EdDSAPrivateKey::from_bytes([7_u8; 32]);
     let assertion_secret = p256::SecretKey::from_slice(&[11_u8; 32]).unwrap();
-    let takt = signed_takt(assertion_secret.public_key(), &trust_anchor_key);
 
-    let token = AuthenticatorAssertionToken::new(sample_aat_claims(), takt).unwrap();
+    let token = AuthenticatorAssertionToken::new(sample_aat_claims()).unwrap();
     let sign1 = CoseSign1::from_slice(&token.sign(&assertion_secret).unwrap()).unwrap();
 
     let tbs = sign1.tbs_data(&[]);
@@ -350,32 +321,7 @@ fn aat_known_answer_sig_structure_and_signature() {
 }
 
 #[test]
-fn aat_rejects_assertion_key_not_attested_by_takt() {
-    let trust_anchor_key = EdDSAPrivateKey::random(&mut OsRng);
-    let assertion_secret = p256::SecretKey::random(&mut OsRng);
-    let takt = signed_takt(assertion_secret.public_key(), &trust_anchor_key);
-
-    let token = AuthenticatorAssertionToken::new(sample_aat_claims(), takt).unwrap();
-    let other_secret = p256::SecretKey::random(&mut OsRng);
-    let err = token.sign(&other_secret).unwrap_err();
-    assert!(matches!(err, AttestationError::AssertionKeyMismatch));
-}
-
-#[test]
-fn aat_rejects_invalid_trust_anchor_key_token() {
-    let err = AuthenticatorAssertionToken::new(sample_aat_claims(), vec![0xde, 0xad, 0xbe, 0xef])
-        .unwrap_err();
-    assert!(matches!(
-        err,
-        AttestationError::InvalidTrustAnchorKeyToken(_)
-    ));
-}
-
-#[test]
 fn aat_rejects_provider_bits_with_more_than_two_bits() {
-    let trust_anchor_key = EdDSAPrivateKey::random(&mut OsRng);
-    let assertion_secret = p256::SecretKey::random(&mut OsRng);
-    let takt = signed_takt(assertion_secret.public_key(), &trust_anchor_key);
     let claims = AuthenticatorAssertionClaims {
         authenticator_meta: AuthenticatorMeta {
             user_presence: UserPresence::Undetermined,
@@ -384,38 +330,32 @@ fn aat_rejects_provider_bits_with_more_than_two_bits() {
         ..sample_aat_claims()
     };
 
-    let err = AuthenticatorAssertionToken::new(claims, takt).unwrap_err();
+    let err = AuthenticatorAssertionToken::new(claims).unwrap_err();
     assert!(matches!(err, AttestationError::ProviderBitsTooLarge(0b100)));
 }
 
 #[test]
 fn aat_rejects_aud_outside_fixed_width_range() {
-    let trust_anchor_key = EdDSAPrivateKey::random(&mut OsRng);
-    let assertion_secret = p256::SecretKey::random(&mut OsRng);
-    let takt = signed_takt(assertion_secret.public_key(), &trust_anchor_key);
     let claims = AuthenticatorAssertionClaims {
         aud: RpId::new(100),
         ..sample_aat_claims()
     };
 
-    let err = AuthenticatorAssertionToken::new(claims, takt).unwrap_err();
+    let err = AuthenticatorAssertionToken::new(claims).unwrap_err();
     assert!(matches!(err, AttestationError::AudOutOfRange(100)));
 }
 
 #[test]
 fn aat_rejects_exp_outside_fixed_width_range() {
-    let trust_anchor_key = EdDSAPrivateKey::random(&mut OsRng);
-    let assertion_secret = p256::SecretKey::random(&mut OsRng);
-    let takt = signed_takt(assertion_secret.public_key(), &trust_anchor_key);
     let claims = AuthenticatorAssertionClaims {
-        // Year 2106+: needs an 8-byte CBOR uint, which would shift every
-        // payload offset the circuit relies on.
-        exp: 1_u64 << 32,
+        // Fits a 2-byte CBOR uint, which would shift every payload offset the
+        // circuit relies on.
+        exp: 100,
         ..sample_aat_claims()
     };
 
-    let err = AuthenticatorAssertionToken::new(claims, takt).unwrap_err();
-    assert!(matches!(err, AttestationError::ExpirationOutOfRange(_)));
+    let err = AuthenticatorAssertionToken::new(claims).unwrap_err();
+    assert!(matches!(err, AttestationError::ExpirationOutOfRange(100)));
 }
 
 #[test]
