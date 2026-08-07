@@ -65,6 +65,9 @@ pub enum ProofError {
     /// Error verifying a Noir Proof with ProveKit. This usually means the proof is invalid.
     #[error("proof verification error: {0}")]
     Verification(String),
+    /// The proof cannot be generated because the credential has an error
+    #[error("credential error: {0}")]
+    CredentialError(String),
     /// Catch-all for other internal errors.
     #[error(transparent)]
     InternalError(#[from] eyre::Report),

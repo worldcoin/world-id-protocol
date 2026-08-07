@@ -334,8 +334,7 @@ impl Credential {
     /// Get the claims hash of the credential.
     ///
     /// # Errors
-    /// Will error if there are more claims than the maximum allowed.
-    /// Will error if the claims cannot be lowered into the field. Should not occur in practice.
+    /// - Returns [`PrimitiveError::OutOfBounds`] if the credential has more claims than the maximum allowed.
     pub fn claims_hash(&self) -> Result<FieldElement, PrimitiveError> {
         if self.claims.len() > Self::MAX_CLAIMS {
             return Err(PrimitiveError::OutOfBounds);
