@@ -21,6 +21,9 @@ pub enum CredentialVersion {
     /// - Signature scheme: `EdDSA` on `BabyJubJub` Curve
     /// - Curve (Base) Field (`Fq`): `BabyJubJub` Curve Field (also the BN254 Scalar Field)
     /// - Scalar Field (`Fr`): `BabyJubJub` Scalar Field
+    ///
+    /// **NOTE**: In V1, the `claims_hash` uses the last element[15] of the Poseidon2
+    /// permutation as the capacity (value = `0`).
     #[default]
     V1 = 1,
 }
@@ -147,9 +150,9 @@ pub struct Credential {
     /// **For Future Use**. Concrete statements that the issuer attests about the receiver.
     ///
     /// They can be just commitments to data (e.g. passport image) or
-    /// the value directly (e.g. date of birth).
+    /// the value directly (e.g. encoded date of birth).
     ///
-    /// Currently these statements are not in use in the Proofs yet.
+    /// Currently these statements are not in use in proofs yet.
     pub claims: Vec<FieldElement>,
     /// The commitment to the Associated Data issued with the Credential.
     ///
@@ -175,7 +178,7 @@ pub struct Credential {
 
 impl Credential {
     /// The maximum number of claims that can be included in a credential.
-    pub const MAX_CLAIMS: usize = 16;
+    pub const MAX_CLAIMS: usize = 15;
 
     /// Initializes a new credential.
     ///
@@ -252,9 +255,10 @@ impl Credential {
     /// Set a claim hash for the credential at an index.
     ///
     /// # Errors
-    /// Will error if the index is out of bounds.
+    /// Will error if the index is out of bounds. Note that for [`CredentialVersion::V1`], the
+    /// element[15] is reserved for the capacity.
     pub fn claim_hash(mut self, index: usize, claim: U256) -> Result<Self, PrimitiveError> {
-        if index >= self.claims.len() {
+        if index >= self.claims.len() - 1 {
             return Err(PrimitiveError::OutOfBounds);
         }
         self.claims[index] = claim.try_into().map_err(|_| PrimitiveError::NotInField)?;
@@ -270,9 +274,10 @@ impl Credential {
     /// * `claim` - Arbitrary bytes to hash (any length).
     ///
     /// # Errors
-    /// Will error if the data is empty and if the index is out of bounds.
+    /// Will error if the data is empty and if the index is out of bounds. Note that for
+    /// [`CredentialVersion::V1`], the element[15] is reserved for the capacity.
     pub fn claim(mut self, index: usize, claim: &[u8]) -> Result<Self, PrimitiveError> {
-        if index >= self.claims.len() {
+        if index >= self.claims.len() - 1 {
             return Err(PrimitiveError::OutOfBounds);
         }
         self.claims[index] = hash_bytes_to_field_element(CLAIMS_HASH_DS_TAG, claim)?;
@@ -330,10 +335,11 @@ impl Credential {
         if self.claims.len() > Self::MAX_CLAIMS {
             eyre::bail!("There can be at most {} claims", Self::MAX_CLAIMS);
         }
-        let mut input = [*FieldElement::ZERO; Self::MAX_CLAIMS];
+        let mut input = [*FieldElement::ZERO; Self::MAX_CLAIMS + 1]; // +1 is the capacity value
         for (i, claim) in self.claims.iter().enumerate() {
             input[i] = **claim;
         }
+        input[15] = *FieldElement::ZERO; // unnnecessary but adding it for explicitness
         poseidon2::bn254::t16::permutation_in_place(&mut input);
         Ok(input[1].into())
     }
@@ -559,6 +565,17 @@ mod tests {
 
         // Both should produce the same hash
         assert_eq!(credential.claims[0], direct_hash);
+    }
+
+    #[test]
+    fn test_v1_cannot_set_last_element_of_claims() {
+        let err = Credential::new()
+            .claim_hash(15, U256::from(42))
+            .unwrap_err();
+        assert!(matches!(err, PrimitiveError::OutOfBounds));
+
+        let err = Credential::new().claim(15, b"out of bounds").unwrap_err();
+        assert!(matches!(err, PrimitiveError::OutOfBounds));
     }
 
     #[test]
