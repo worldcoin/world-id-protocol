@@ -336,16 +336,16 @@ impl Credential {
     /// # Errors
     /// Will error if there are more claims than the maximum allowed.
     /// Will error if the claims cannot be lowered into the field. Should not occur in practice.
-    pub fn claims_hash(&self) -> Result<FieldElement, eyre::Error> {
+    pub fn claims_hash(&self) -> Result<FieldElement, PrimitiveError> {
         if self.claims.len() > Self::MAX_CLAIMS {
-            eyre::bail!("There can be at most {} claims", Self::MAX_CLAIMS);
+            return Err(PrimitiveError::OutOfBounds);
         }
         let mut input = [*FieldElement::ZERO; Self::MAX_CLAIMS + 1]; // +1 is the capacity value
         for (i, claim) in self.claims.iter().enumerate() {
             input[i] = **claim;
         }
 
-        debug_assert!(input[15] == *FieldElement::ZERO);
+        debug_assert_eq!(input[15], *FieldElement::ZERO);
 
         poseidon2::bn254::t16::permutation_in_place(&mut input);
         Ok(input[1].into())
@@ -642,10 +642,7 @@ mod tests {
         let mut cred = Credential::new();
         cred.claims = vec![FieldElement::from(42u64); Credential::MAX_CLAIMS + 1];
         let err = cred.claims_hash().unwrap_err();
-        assert!(
-            err.to_string().contains("at most"),
-            "unexpected error: {err}"
-        );
+        assert!(matches!(err, PrimitiveError::OutOfBounds));
     }
 
     #[test]
