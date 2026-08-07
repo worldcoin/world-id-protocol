@@ -27,5 +27,5 @@ pub(crate) fn assert_cbor_uint32(value: Field) {
 /// `now` MUST be a verifier-supplied public input; a prover-chosen private
 /// timestamp would make the check vacuous.
 pub(crate) fn assert_not_expired(exp: Field, now: Field) {
-    std::field::bn254::assert_lt(now, exp);
+    assert(std::field::bn254::lt(now, exp), "token is expired");
 }

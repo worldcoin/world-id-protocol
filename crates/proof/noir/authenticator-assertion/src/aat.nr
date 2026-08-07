@@ -41,9 +41,8 @@ pub struct AuthenticatorAssertionToken {
 /// `Sig_structure`) and that the token is unexpired.
 ///
 /// Crate-private on purpose. This proves only that *some* key signed these
-/// claims. The full verification requires a TAKT
-/// attesting it, which is why consumers must go through
-/// `attestation::verify_attestation` instead.
+/// claims. The full verification requires a TAKT attesting that key, which is
+/// why consumers must go through the crate-root `verify_attestation` instead.
 ///
 /// `now` is the verifier-supplied Unix time (seconds) checked against CWT `exp`
 /// (`now < exp`), and MUST be a public input of the outer circuit.
@@ -227,7 +226,7 @@ fn test_aat_tampered_claim() {
 fn test_aat_wrong_assertion_key() {
     // Verifying under any key other than the one that signed must fail. The
     // composite entrypoint is what guarantees the key came from a TAKT; see
-    // `attestation::test_aat_key_not_attested`.
+    // `test_aat_key_not_attested` in `lib.nr`.
     let unrelated = super::takt::test_deterministic_takt_unrelated_key();
     verify_aat(
         test_deterministic_aat(),
@@ -258,7 +257,7 @@ fn test_aat_reserved_meta_bits_rejected() {
     verify_aat(aat, key_x, key_y, super::takt::TEST_NOW);
 }
 
-#[test(should_fail)]
+#[test(should_fail_with = "token is expired")]
 fn test_expired_aat_rejected() {
     // At `exp` the token is already expired (RFC 8392: "on or after").
     let (key_x, key_y) = test_assertion_key();

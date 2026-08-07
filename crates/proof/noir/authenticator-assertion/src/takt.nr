@@ -28,7 +28,7 @@ pub struct TrustAnchorKeyToken {
 /// Verifies a Trust Anchor Key Token under the Authenticator Provider's
 /// `trust_anchor_key`.
 ///
-/// Crate-private on purpose. Consumers should call `attestation::verify_attestation` instead.
+/// Crate-private on purpose. Consumers should call the crate-root `verify_attestation` instead.
 ///
 /// Both `trust_anchor_key_x` / `_y` and `now` are verifier-supplied and MUST be
 /// public inputs of the outer circuit.
@@ -211,7 +211,7 @@ fn test_reserved_sec_flags_bits_rejected() {
     );
 }
 
-#[test(should_fail)]
+#[test(should_fail_with = "token is expired")]
 fn test_expired_takt_rejected() {
     // At `exp` the token is already expired (RFC 8392: "on or after").
     verify_takt(
