@@ -178,6 +178,8 @@ pub struct Credential {
 
 impl Credential {
     /// The maximum number of claims that can be included in a credential.
+    ///
+    /// While the Poseidon2 permutation is t=16, one element is reserved for capacity.
     pub const MAX_CLAIMS: usize = 15;
 
     /// Initializes a new credential.
@@ -258,7 +260,7 @@ impl Credential {
     /// Will error if the index is out of bounds. Note that for [`CredentialVersion::V1`], the
     /// element[15] is reserved for the capacity.
     pub fn claim_hash(mut self, index: usize, claim: U256) -> Result<Self, PrimitiveError> {
-        if index >= self.claims.len() - 1 {
+        if index >= self.claims.len() {
             return Err(PrimitiveError::OutOfBounds);
         }
         self.claims[index] = claim.try_into().map_err(|_| PrimitiveError::NotInField)?;
@@ -277,7 +279,7 @@ impl Credential {
     /// Will error if the data is empty and if the index is out of bounds. Note that for
     /// [`CredentialVersion::V1`], the element[15] is reserved for the capacity.
     pub fn claim(mut self, index: usize, claim: &[u8]) -> Result<Self, PrimitiveError> {
-        if index >= self.claims.len() - 1 {
+        if index >= self.claims.len() {
             return Err(PrimitiveError::OutOfBounds);
         }
         self.claims[index] = hash_bytes_to_field_element(CLAIMS_HASH_DS_TAG, claim)?;
@@ -576,6 +578,26 @@ mod tests {
 
         let err = Credential::new().claim(15, b"out of bounds").unwrap_err();
         assert!(matches!(err, PrimitiveError::OutOfBounds));
+
+        // element[14] is valid
+        Credential::new().claim_hash(14, U256::from(42)).unwrap();
+    }
+
+    /// In [`CredentialVersion::V1`], the 15th-index is used for the sponge's
+    /// capacity and must equal to [`FieldElement::ZERO`]
+    #[test]
+    fn test_v1_claims_hash_enforces_capacity_at_index_15() {
+        let mut cred = Credential::new();
+        cred.claims = vec![FieldElement::from(42u64); 15];
+        cred.claims_hash().unwrap(); // 15 is completely fine
+
+        let mut cred = Credential::new();
+        cred.claims = vec![FieldElement::from(42u64); 16];
+        let err = cred.claims_hash().unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "There can be at most 15 claims".to_string()
+        );
     }
 
     #[test]
