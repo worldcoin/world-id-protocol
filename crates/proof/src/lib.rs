@@ -4,7 +4,7 @@ use eddsa_babyjubjub::EdDSAPrivateKey;
 use groth16_material::Groth16Error;
 
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, TREE_DEPTH, merkle::MerkleInclusionProof,
+    AuthenticatorPublicKeySet, PrimitiveError, TREE_DEPTH, merkle::MerkleInclusionProof,
     oprf::WorldIdRequestAuthError,
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
