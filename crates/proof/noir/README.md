@@ -5,7 +5,9 @@
 - `ownership-proof/` — World ID ownership proof. Compiled by `crates/proof/build.rs` with the repo-standard nargo (`1.0.0-beta.11`), proven with the `provekit-*` crates from crates.io.
 - `authenticator-assertion/` — WIP-106 Authenticator Attestation library (Trust Anchor Key Token + Authenticator Assertion Token verification). **🚧 Warning. This is extremely WIP and in active development, things may change significantly or even disappear altogether.**
 
-  The TAKT is **not** nested in the AAT. It travels in the AAT's `COSE_Sign1` unprotected header, which never enters the `Sig_structure` (RFC 9052 §4.4), so the circuit never reserializes it. The two tokens are bound by the shared `assertion_key`: `verify_takt` authenticates the TAKT under the provider's `trust_anchor_key`, and `verify_aat` then verifies the ES256 signature under the key that TAKT attests. That key equality is the *only* binding.
+  The TAKT is **not** part of the AAT — not nested in its claims and not in its `COSE_Sign1` headers. The two are fully separate objects, so the circuit never reserializes the TAKT's CBOR. They are bound by the shared `assertion_key`: `verify_takt` authenticates the TAKT under the provider's `trust_anchor_key`, and `verify_aat` then verifies the ES256 signature under the key that TAKT attests. That key equality is the *only* binding.
+
+  Because the binding is the key rather than the container, pairing the two on the wire is left to the carrying protocol. A verifier handed more than one candidate TAKT MUST use the one whose `cnf` key verifies the AAT — `verify_attestation` does this by construction, taking both tokens as independent inputs.
 
 ## Consuming `authenticator-assertion`
 

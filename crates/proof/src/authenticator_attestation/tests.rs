@@ -267,7 +267,8 @@ fn aat_claims_follow_deterministic_cbor_map_order() {
     let claims = sample_aat_claims();
 
     let token = AuthenticatorAssertionToken::new(claims, takt.clone()).unwrap();
-    let sign1 = CoseSign1::from_slice(&token.sign(&assertion_secret).unwrap()).unwrap();
+    let token_bytes = token.sign(&assertion_secret).unwrap();
+    let sign1 = CoseSign1::from_slice(&token_bytes).unwrap();
     let payload: Value = coset::cbor::from_reader(sign1.payload.unwrap().as_slice()).unwrap();
     let Value::Map(entries) = payload else {
         panic!("payload must be a CBOR map");
@@ -300,16 +301,20 @@ fn aat_claims_follow_deterministic_cbor_map_order() {
         Value::Bytes(FieldElement::from(10_u64).to_be_bytes().to_vec())
     );
 
-    // The TAKT is not in the payload at all (the exact key list above is what
-    // asserts that): it rides in the unprotected header, outside the AAT
-    // signature.
-    let header_takt = sign1
-        .unprotected
-        .rest
-        .iter()
-        .find(|(label, _)| *label == coset::Label::Text("takt".to_string()))
-        .expect("TAKT must be carried in the unprotected header");
-    assert_eq!(header_takt.1, Value::Bytes(takt));
+    // The TAKT is not in the token at all: not in the payload (the exact key
+    // list above asserts that) and not in either header bucket. It is a fully
+    // separate object, bound only by the shared assertion key, so the carrying
+    // protocol pairs the two.
+    assert!(
+        sign1.unprotected.rest.is_empty(),
+        "the AAT must not carry the TAKT, or anything else, in its headers"
+    );
+    assert!(
+        !token_bytes
+            .windows(takt.len())
+            .any(|w| w == takt.as_slice()),
+        "the TAKT's bytes must not appear anywhere in the encoded AAT"
+    );
 }
 
 /// Cross-implementation known-answer test: pins the exact COSE `Sig_structure`
