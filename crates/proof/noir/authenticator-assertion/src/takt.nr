@@ -4,10 +4,11 @@ use eddsa_poseidon2::verify_eddsa_poseidon2;
 use poseidon2::bn254::perm;
 
 /// The claims and signature of a Trust Anchor Key Token, as parsed from its
-/// `COSE_Sign1` encoding. The `trust_anchor_key` that signed it is *not* part of
-/// the token: it is identified only by the `kid` protected-header parameter,
-/// which WIP-106 leaves outside the signature, so verifiers supply the key they
-/// trust out of band (see `verify_takt`).
+/// `COSE_Sign1` encoding.
+///
+/// Note: The `trust_anchor_key` that signed it is *not* part of
+/// the token; it is identified only by the `kid` protected-header parameter,
+/// which WIP-106 leaves outside the signature scope.
 pub struct TrustAnchorKeyToken {
     /// Expiration as seconds since the Unix epoch (CWT `exp`).
     pub exp: Field,
@@ -27,16 +28,10 @@ pub struct TrustAnchorKeyToken {
 /// Verifies a Trust Anchor Key Token under the Authenticator Provider's
 /// `trust_anchor_key`.
 ///
-/// Crate-private on purpose: a TAKT on its own attests a key, but says nothing
-/// about the request that key signed. Consumers go through
-/// `attestation::verify_attestation`, which cannot be called without both
-/// tokens.
+/// Crate-private on purpose. Consumers should call `attestation::verify_attestation` instead.
 ///
 /// Both `trust_anchor_key_x` / `_y` and `now` are verifier-supplied and MUST be
-/// public inputs of the outer circuit. `trust_anchor_key` is the RP's entire
-/// trust decision -- taken from the provider's Authenticator Metadata and
-/// allowlisted by the RP. Left private, a prover could sign a TAKT with a key of
-/// its own choosing and the attestation would prove nothing.
+/// public inputs of the outer circuit.
 pub(crate) fn verify_takt(
     input: TrustAnchorKeyToken,
     trust_anchor_key_x: Field,

@@ -10,19 +10,13 @@ use noir_ecdsa::ecdsa::verify_secp256r1_ecdsa;
 /// `Signature1` framing, protected header, `external_aad`, and the six-entry
 /// CWT claims map.
 ///
-/// The TAKT is *not* part of this. It travels in the AAT's `COSE_Sign1`
-/// unprotected header, which never enters the `Sig_structure` (RFC 9052 section 4.4),
-/// so this circuit never reserializes it.
-///
 /// 19-byte prefix + 159-byte payload. The prefix is one byte shorter than it
 /// would be with the TAKT: a 159-byte payload takes the minimal 1-byte CBOR
 /// length (`0x58 0x9f`), where the old 417-byte payload needed the 2-byte form.
 pub global AAT_SIG_STRUCTURE_LEN: u32 = 178;
 
 /// The claims and signature of an Authenticator Assertion Token, as parsed from
-/// its `COSE_Sign1` encoding. The accompanying TAKT is *not* part of the token:
-/// it rides in the unprotected header, outside this signature, and is verified
-/// separately (see `attestation::verify_attestation`).
+/// its `COSE_Sign1` encoding.
 pub struct AuthenticatorAssertionToken {
     /// The `rpId` of the requesting RP (CWT `aud`). MUST require a 4-byte
     /// CBOR uint encoding (`2^16 <= aud < 2^32`) so offsets stay constant.
@@ -46,9 +40,9 @@ pub struct AuthenticatorAssertionToken {
 /// Verifies that `assertion_key` signed this AAT (`ES256` over the COSE
 /// `Sig_structure`) and that the token is unexpired.
 ///
-/// Crate-private on purpose: this proves only that *some* key signed these
-/// claims. Nothing here says the key is genuine -- that requires a TAKT
-/// attesting it, which is why consumers go through
+/// Crate-private on purpose. This proves only that *some* key signed these
+/// claims. The full verification requires a TAKT
+/// attesting it, which is why consumers must go through
 /// `attestation::verify_attestation` instead.
 ///
 /// `now` is the verifier-supplied Unix time (seconds) checked against CWT `exp`

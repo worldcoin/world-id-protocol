@@ -17,12 +17,7 @@ use crate::takt::{TrustAnchorKeyToken, verify_takt};
 ///
 /// Both tokens must be unexpired at `now`.
 ///
-/// The two tokens are bound *solely* by the shared `assertion_key`: the TAKT
-/// travels in the AAT's `COSE_Sign1` unprotected header and so is not covered by
-/// the AAT signature. That binding is enforced here by construction -- the key
-/// handed to `verify_aat` is read from the TAKT this function just verified, and
-/// there is no other way to supply it. `verify_takt` and `verify_aat` are
-/// crate-private for exactly this reason: neither half proves anything alone.
+/// The two tokens are bound *solely* by the shared `assertion_key`.
 ///
 /// # Public inputs
 /// `trust_anchor_key_x` / `_y` and `now` are verifier-supplied and MUST be
@@ -59,9 +54,6 @@ fn test_deterministic_attestation() {
 
 #[test(should_fail_with = "invalid AAT signature")]
 fn test_aat_key_not_attested() {
-    // A TAKT that is itself valid, but attests an unrelated assertion key, must
-    // not verify this AAT: the ES256 key comes from the TAKT, so swapping the
-    // TAKT swaps the key the AAT is checked against.
     verify_attestation(
         aat::test_deterministic_aat(),
         takt::test_deterministic_takt_unrelated_key(),
@@ -73,10 +65,6 @@ fn test_aat_key_not_attested() {
 
 #[test(should_fail_with = "invalid signature")]
 fn test_untrusted_trust_anchor_key_rejected() {
-    // The verifier's key is what the whole chain rests on: a TAKT signed by
-    // anyone else must not verify, even though every claim in it is well formed.
-    // Checked against the BabyJubJub prime-order subgroup generator, so the
-    // failure is the signature check and not a point validity assert.
     verify_attestation(
         aat::test_deterministic_aat(),
         takt::test_deterministic_takt(),
