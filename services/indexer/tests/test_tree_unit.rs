@@ -18,6 +18,7 @@ use world_id_indexer::{
     tree::{
         TreeState, VersionedTreeState,
         cached_tree::{init_tree, sync_from_db},
+        checkpoint::checkpoint_path,
     },
 };
 
@@ -606,6 +607,62 @@ async fn test_init_tree_corrupt_cache_rebuild_picks_up_db_state() {
     fs::write(&cache_path, b"corrupted").unwrap();
     let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     assert_eq!(tree_state.read().await.get_leaf(1), U256::from(100));
+
+    cleanup(&cache_path);
+}
+
+/// A DB error during restore (e.g. the connection pool going down) is not a
+/// cache problem — init_tree must propagate the error and leave the cache
+/// and checkpoint untouched, rather than deleting a perfectly good cache and
+/// paying for a full rebuild.
+#[tokio::test]
+async fn test_init_tree_db_error_preserves_cache() {
+    let test_db = create_unique_test_db().await;
+    let db = test_db.db();
+    let cache_path = temp_cache_path();
+
+    insert_test_account(db, 1, Address::ZERO, U256::from(100))
+        .await
+        .unwrap();
+
+    // Build a valid cache, then record its root so a later restore validates.
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let root = tree_state.root().await;
+    drop(tree_state);
+    insert_test_world_tree_root(db, 10, 0, root, U256::ZERO)
+        .await
+        .unwrap();
+
+    // One more successful restore so the checkpoint reflects the recorded root.
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    drop(tree_state);
+
+    let cache_bytes_before = fs::read(&cache_path).unwrap();
+    let meta_path = checkpoint_path(&cache_path);
+    assert!(
+        meta_path.exists(),
+        "checkpoint should exist before the failing call"
+    );
+    let checkpoint_bytes_before = fs::read(&meta_path).unwrap();
+
+    // Simulate a transient DB outage: close the pool so any query fails.
+    db.pool().close().await;
+
+    let result = unsafe { init_tree(db, &cache_path, 6).await };
+    assert!(
+        result.is_err(),
+        "init_tree should propagate a DB error instead of masking it with a rebuild"
+    );
+    assert_eq!(
+        fs::read(&cache_path).unwrap(),
+        cache_bytes_before,
+        "cache file must be untouched by a non-cache error"
+    );
+    assert_eq!(
+        fs::read(&meta_path).unwrap(),
+        checkpoint_bytes_before,
+        "checkpoint must be untouched by a non-cache error"
+    );
 
     cleanup(&cache_path);
 }

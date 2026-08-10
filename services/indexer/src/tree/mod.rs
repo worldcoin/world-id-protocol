@@ -48,6 +48,60 @@ pub enum TreeError {
     Db(#[from] crate::db::DBError),
 }
 
+impl TreeError {
+    /// Whether this error means the on-disk tree cache/checkpoint is itself
+    /// invalid (corrupt, unreadable, or stale relative to the DB) — in which
+    /// case deleting it and rebuilding from the DB in-process is the correct
+    /// recovery.
+    ///
+    /// `false` means the cache is probably fine and the failure came from
+    /// somewhere else (e.g. the database) — deleting the cache would not fix
+    /// it and could destroy a perfectly good cache, so the caller should
+    /// leave the cache untouched and propagate the error instead.
+    ///
+    /// `TreeError`'s own variants are matched exhaustively (no wildcard) so
+    /// adding one forces an explicit classification decision here — whoever
+    /// adds a `TreeError` variant is already working on tree-restore
+    /// semantics, so that's a cheap, correctly-targeted forcing function.
+    ///
+    /// `DBError` is a general-purpose error type used far beyond tree
+    /// restore, so its variants are matched with an explicit default instead
+    /// of exhaustively: forcing every future, unrelated `DBError` addition to
+    /// be classified here would mostly land on people with no context on
+    /// tree-restore recovery. Only the two known event-log decode failures
+    /// are special-cased; anything else (including future variants) falls
+    /// back to "not cache-invalidating," the safe direction — the failure
+    /// mode of under-classifying is a missed opportunity to self-heal via
+    /// rebuild, not a destroyed cache.
+    fn invalidates_cache(&self) -> bool {
+        match self {
+            TreeError::CacheRestore(_) => true,
+            TreeError::CacheCreate(_) => true,
+            TreeError::InvalidCacheFilePath => true,
+            TreeError::RootMismatch { .. } => true,
+            TreeError::StaleCache { .. } => true,
+            TreeError::LeafIndexOutOfRange { .. } => false,
+            TreeError::ZeroLeafIndex => false,
+            TreeError::SimulationMissingRoot => false,
+            TreeError::RollbackHistoryPruned { .. } => false,
+            TreeError::Db(inner) => match inner {
+                // Event-log decode failures: the mmap cache is fine, but
+                // replaying events hit a row that won't decode. A fallback
+                // rebuild reads the `accounts` snapshot instead (written in
+                // the same DB transaction as the offending row) and bypasses
+                // the bad row entirely, so it will very likely succeed where
+                // a bare restart would just hit the same row again.
+                crate::db::DBError::UnknownEventType(_)
+                | crate::db::DBError::MissingEventField { .. }
+                | crate::db::DBError::InvalidEventField { .. } => true,
+                // Sqlx/Migrate and anything added later: treat as infra —
+                // a rebuild needs the DB too, so it would fail the same way.
+                _ => false,
+            },
+        }
+    }
+}
+
 /// A tree that can accept leaf updates tied to an event ID.
 ///
 /// Implemented by both [`TreeState`] (which ignores the event ID) and
@@ -144,5 +198,126 @@ impl Hasher for PoseidonHasher {
         poseidon2::bn254::t2::permutation_in_place(&mut input);
         input[0] += feed_forward;
         input[0].into()
+    }
+}
+
+#[cfg(test)]
+mod invalidates_cache_tests {
+    use super::*;
+    use crate::db::DBError;
+
+    fn boxed_err() -> Box<dyn std::error::Error + Send + Sync> {
+        "boom".into()
+    }
+
+    #[test]
+    fn cache_restore_invalidates_cache() {
+        assert!(TreeError::CacheRestore(boxed_err()).invalidates_cache());
+    }
+
+    #[test]
+    fn cache_create_invalidates_cache() {
+        assert!(TreeError::CacheCreate(boxed_err()).invalidates_cache());
+    }
+
+    #[test]
+    fn invalid_cache_file_path_invalidates_cache() {
+        assert!(TreeError::InvalidCacheFilePath.invalidates_cache());
+    }
+
+    #[test]
+    fn root_mismatch_invalidates_cache() {
+        assert!(
+            TreeError::RootMismatch {
+                actual: "0x1".to_string(),
+                expected: "0x2".to_string(),
+            }
+            .invalidates_cache()
+        );
+    }
+
+    #[test]
+    fn stale_cache_invalidates_cache() {
+        assert!(
+            TreeError::StaleCache {
+                root: "0x1".to_string(),
+            }
+            .invalidates_cache()
+        );
+    }
+
+    #[test]
+    fn leaf_index_out_of_range_does_not_invalidate_cache() {
+        assert!(
+            !TreeError::LeafIndexOutOfRange {
+                leaf_index: 1,
+                tree_depth: 2,
+            }
+            .invalidates_cache()
+        );
+    }
+
+    #[test]
+    fn zero_leaf_index_does_not_invalidate_cache() {
+        assert!(!TreeError::ZeroLeafIndex.invalidates_cache());
+    }
+
+    #[test]
+    fn simulation_missing_root_does_not_invalidate_cache() {
+        assert!(!TreeError::SimulationMissingRoot.invalidates_cache());
+    }
+
+    #[test]
+    fn rollback_history_pruned_does_not_invalidate_cache() {
+        assert!(
+            !TreeError::RollbackHistoryPruned {
+                target: WorldIdRegistryEventId {
+                    block_number: 0,
+                    log_index: 0,
+                },
+            }
+            .invalidates_cache()
+        );
+    }
+
+    #[test]
+    fn db_unknown_event_type_invalidates_cache() {
+        assert!(TreeError::Db(DBError::UnknownEventType("bogus".to_string())).invalidates_cache());
+    }
+
+    #[test]
+    fn db_missing_event_field_invalidates_cache() {
+        assert!(
+            TreeError::Db(DBError::MissingEventField {
+                field: "root".to_string(),
+            })
+            .invalidates_cache()
+        );
+    }
+
+    #[test]
+    fn db_invalid_event_field_invalidates_cache() {
+        assert!(
+            TreeError::Db(DBError::InvalidEventField {
+                field: "root".to_string(),
+                reason: "not hex".to_string(),
+            })
+            .invalidates_cache()
+        );
+    }
+
+    #[test]
+    fn db_sqlx_error_does_not_invalidate_cache() {
+        assert!(!TreeError::Db(DBError::Sqlx(sqlx::Error::RowNotFound)).invalidates_cache());
+    }
+
+    #[test]
+    fn db_migrate_error_does_not_invalidate_cache() {
+        assert!(
+            !TreeError::Db(DBError::Migrate(
+                sqlx::migrate::MigrateError::VersionMissing(1)
+            ))
+            .invalidates_cache()
+        );
     }
 }

@@ -38,13 +38,20 @@ pub async unsafe fn init_tree(
     let (tree, last_event_id) = if cache_path.exists() {
         match try_restore(db, cache_path, tree_depth).await {
             Ok(result) => result,
-            Err(e) => {
-                tracing::error!(?e, "restore failed, rebuilding from database");
+            Err(e) if e.invalidates_cache() => {
+                tracing::error!(?e, "cache invalid, deleting and rebuilding from database");
                 if let Err(remove_err) = std::fs::remove_file(cache_path) {
                     tracing::error!(?remove_err, "failed to delete cache file");
                 }
                 checkpoint::delete_checkpoint(cache_path);
                 build_from_db_with_cache(db, cache_path, tree_depth).await?
+            }
+            Err(e) => {
+                tracing::error!(
+                    ?e,
+                    "restore failed for a reason unrelated to the cache; leaving cache on disk and propagating"
+                );
+                return Err(e.into());
             }
         }
     } else {
@@ -162,7 +169,7 @@ async fn try_restore(
     db: &DB,
     cache_path: &Path,
     tree_depth: usize,
-) -> eyre::Result<(MerkleTree, WorldIdRegistryEventId)> {
+) -> TreeResult<(MerkleTree, WorldIdRegistryEventId)> {
     let tree = restore_from_cache(cache_path, tree_depth)?;
     let restored_root = tree.root();
 
@@ -176,8 +183,7 @@ async fn try_restore(
     if !root_exists {
         return Err(TreeError::StaleCache {
             root: format!("0x{:x}", restored_root),
-        }
-        .into());
+        });
     }
 
     let genesis = WorldIdRegistryEventId {
@@ -217,9 +223,13 @@ async fn try_restore(
 }
 
 /// Restore tree from mmap file (no validation).
-fn restore_from_cache(cache_path: &Path, tree_depth: usize) -> eyre::Result<MerkleTree> {
-    let storage = unsafe { MmapVec::<U256>::restore_from_path(cache_path)? };
-    let tree = MerkleTree::restore(storage, tree_depth, &U256::ZERO)?;
+fn restore_from_cache(cache_path: &Path, tree_depth: usize) -> TreeResult<MerkleTree> {
+    let storage = unsafe {
+        MmapVec::<U256>::restore_from_path(cache_path)
+            .map_err(|e| TreeError::CacheRestore(e.into()))?
+    };
+    let tree = MerkleTree::restore(storage, tree_depth, &U256::ZERO)
+        .map_err(|e| TreeError::CacheRestore(e.into()))?;
     info!(
         cache_file = %cache_path.display(),
         root = %format!("0x{:x}", tree.root()),
