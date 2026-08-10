@@ -13,10 +13,8 @@ ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
 ark-groth16 = { workspace = true }
-ark-serde-compat = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["json", "macros"] }
-backon = { workspace = true, features = ["std", "tokio-sleep"] }
 chrono = { workspace = true }
 circom-types = { workspace = true, features = [
   "bn254",
@@ -31,8 +29,6 @@ humantime = { workspace = true }
 humantime-serde = { workspace = true }
 metrics = { workspace = true }
 moka = { workspace = true }
-oprf-accountant.workspace = true
-reqwest.workspace = true
 rustls = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -49,7 +45,6 @@ tokio = { workspace = true, features = [
   "time",
   "tokio-macros",
 ] }
-tokio-util = { workspace = true }
 tracing = { workspace = true, features = ["release_max_level_debug"] }
 uuid = { workspace = true, features = ["serde", "v4"] }
 world-id-primitives = { workspace = true }
