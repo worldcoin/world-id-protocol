@@ -21,6 +21,9 @@ pub enum CredentialVersion {
     /// - Signature scheme: `EdDSA` on `BabyJubJub` Curve
     /// - Curve (Base) Field (`Fq`): `BabyJubJub` Curve Field (also the BN254 Scalar Field)
     /// - Scalar Field (`Fr`): `BabyJubJub` Scalar Field
+    ///
+    /// **NOTE**: In V1, the `claims_hash` uses the last element (`element[15]`) of the Poseidon2
+    /// permutation as the capacity (value = `0`).
     #[default]
     V1 = 1,
 }
@@ -147,9 +150,12 @@ pub struct Credential {
     /// **For Future Use**. Concrete statements that the issuer attests about the receiver.
     ///
     /// They can be just commitments to data (e.g. passport image) or
-    /// the value directly (e.g. date of birth).
+    /// the value directly (e.g. encoded date of birth).
     ///
-    /// Currently these statements are not in use in the Proofs yet.
+    /// Currently these statements are not in use in proofs yet.
+    ///
+    /// Deserialization accepts at most [`Credential::MAX_CLAIMS`] claims.
+    #[serde(deserialize_with = "deserialize_claims")]
     pub claims: Vec<FieldElement>,
     /// The commitment to the Associated Data issued with the Credential.
     ///
@@ -175,7 +181,9 @@ pub struct Credential {
 
 impl Credential {
     /// The maximum number of claims that can be included in a credential.
-    pub const MAX_CLAIMS: usize = 16;
+    ///
+    /// While the Poseidon2 permutation is t=16, one element is reserved for capacity.
+    pub const MAX_CLAIMS: usize = 15;
 
     /// Initializes a new credential.
     ///
@@ -252,9 +260,10 @@ impl Credential {
     /// Set a claim hash for the credential at an index.
     ///
     /// # Errors
-    /// Will error if the index is out of bounds.
+    /// Will error if `index` is outside `0..Self::MAX_CLAIMS`. Note that for
+    /// [`CredentialVersion::V1`], `element[15]` is reserved for the capacity.
     pub fn claim_hash(mut self, index: usize, claim: U256) -> Result<Self, PrimitiveError> {
-        if index >= self.claims.len() {
+        if index >= self.claims.len() || index >= Self::MAX_CLAIMS {
             return Err(PrimitiveError::OutOfBounds);
         }
         self.claims[index] = claim.try_into().map_err(|_| PrimitiveError::NotInField)?;
@@ -270,9 +279,10 @@ impl Credential {
     /// * `claim` - Arbitrary bytes to hash (any length).
     ///
     /// # Errors
-    /// Will error if the data is empty and if the index is out of bounds.
+    /// Will error if the data is empty and if `index` is outside `0..Self::MAX_CLAIMS`. Note that
+    /// for [`CredentialVersion::V1`], `element[15]` is reserved for the capacity.
     pub fn claim(mut self, index: usize, claim: &[u8]) -> Result<Self, PrimitiveError> {
-        if index >= self.claims.len() {
+        if index >= self.claims.len() || index >= Self::MAX_CLAIMS {
             return Err(PrimitiveError::OutOfBounds);
         }
         self.claims[index] = hash_bytes_to_field_element(CLAIMS_HASH_DS_TAG, claim)?;
@@ -324,16 +334,18 @@ impl Credential {
     /// Get the claims hash of the credential.
     ///
     /// # Errors
-    /// Will error if there are more claims than the maximum allowed.
-    /// Will error if the claims cannot be lowered into the field. Should not occur in practice.
-    pub fn claims_hash(&self) -> Result<FieldElement, eyre::Error> {
+    /// - Returns [`PrimitiveError::OutOfBounds`] if the credential has more claims than the maximum allowed.
+    pub fn claims_hash(&self) -> Result<FieldElement, PrimitiveError> {
         if self.claims.len() > Self::MAX_CLAIMS {
-            eyre::bail!("There can be at most {} claims", Self::MAX_CLAIMS);
+            return Err(PrimitiveError::OutOfBounds);
         }
-        let mut input = [*FieldElement::ZERO; Self::MAX_CLAIMS];
+        let mut input = [*FieldElement::ZERO; Self::MAX_CLAIMS + 1]; // +1 is the capacity value
         for (i, claim) in self.claims.iter().enumerate() {
             input[i] = **claim;
         }
+
+        debug_assert_eq!(input[15], *FieldElement::ZERO);
+
         poseidon2::bn254::t16::permutation_in_place(&mut input);
         Ok(input[1].into())
     }
@@ -466,6 +478,29 @@ where
         .map_err(de::Error::custom)
 }
 
+/// Deserializes the credential claims, enforcing the [`Credential::MAX_CLAIMS`] boundary.
+fn deserialize_claims<'de, D>(deserializer: D) -> Result<Vec<FieldElement>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let mut claims = Vec::<FieldElement>::deserialize(deserializer)?;
+
+    // For V1, the `element[15]` is the capacity (`= 0`)
+    if claims.len() == Credential::MAX_CLAIMS + 1 && claims.last() == Some(&FieldElement::ZERO) {
+        claims.pop();
+    }
+
+    if claims.len() > Credential::MAX_CLAIMS {
+        return Err(de::Error::custom(format!(
+            "invalid credential: {} claims provided, at most {} are allowed",
+            claims.len(),
+            Credential::MAX_CLAIMS
+        )));
+    }
+
+    Ok(claims)
+}
+
 fn serialize_public_key<S>(public_key: &EdDSAPublicKey, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -559,6 +594,106 @@ mod tests {
 
         // Both should produce the same hash
         assert_eq!(credential.claims[0], direct_hash);
+    }
+
+    #[test]
+    fn test_v1_cannot_set_last_element_of_claims() {
+        let err = Credential::new()
+            .claim_hash(15, U256::from(42))
+            .unwrap_err();
+        assert!(matches!(err, PrimitiveError::OutOfBounds));
+
+        let err = Credential::new().claim(15, b"out of bounds").unwrap_err();
+        assert!(matches!(err, PrimitiveError::OutOfBounds));
+
+        // element[14] is valid
+        Credential::new().claim_hash(14, U256::from(42)).unwrap();
+    }
+
+    #[test]
+    fn test_v1_cannot_set_reserved_element_via_oversized_claims_vec() {
+        let mut cred = Credential::new();
+        cred.claims = vec![FieldElement::ZERO; Credential::MAX_CLAIMS + 5];
+
+        let err = cred.clone().claim_hash(15, U256::from(42)).unwrap_err();
+        assert!(matches!(err, PrimitiveError::OutOfBounds));
+
+        let err = cred.claim(15, b"out of bounds").unwrap_err();
+        assert!(matches!(err, PrimitiveError::OutOfBounds));
+    }
+
+    /// In [`CredentialVersion::V1`], the 15th-index is used for the sponge's
+    /// capacity and must be equal to [`FieldElement::ZERO`]
+    #[test]
+    fn test_claims_hash_rejects_more_than_15_claims_and_last_element_is_zero() {
+        let mut cred = Credential::new();
+        cred.claims = vec![FieldElement::from(42u64); Credential::MAX_CLAIMS];
+
+        // Reconstruct the permutation by hand: the 15 claims followed by a zero capacity element.
+        let mut expected = [*FieldElement::ZERO; Credential::MAX_CLAIMS + 1];
+        for element in expected.iter_mut().take(Credential::MAX_CLAIMS) {
+            *element = *FieldElement::from(42u64);
+        }
+        assert_eq!(expected[15], *FieldElement::ZERO);
+        poseidon2::bn254::t16::permutation_in_place(&mut expected);
+        assert_eq!(cred.claims_hash().unwrap(), FieldElement::from(expected[1]));
+
+        let mut cred = Credential::new();
+        cred.claims = vec![FieldElement::from(42u64); Credential::MAX_CLAIMS + 1];
+        let err = cred.claims_hash().unwrap_err();
+        assert!(matches!(err, PrimitiveError::OutOfBounds));
+    }
+
+    #[test]
+    fn test_claim_hash_rejects_value_above_field_modulus() {
+        let err = Credential::new().claim_hash(0, U256::MAX).unwrap_err();
+        assert!(matches!(err, PrimitiveError::NotInField));
+    }
+
+    #[test]
+    fn test_claim_rejects_empty_data() {
+        let err = Credential::new().claim(0, &[]).unwrap_err();
+        assert!(matches!(err, PrimitiveError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_deserialize_rejects_too_many_claims() {
+        let mut credential = Credential::new();
+        credential.claims = vec![FieldElement::from(7u64); Credential::MAX_CLAIMS];
+        let mut json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&credential).unwrap()).unwrap();
+
+        json["claims"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!(FieldElement::from(7u64).to_string()));
+
+        let err = serde_json::from_value::<Credential>(json).unwrap_err();
+        assert!(
+            err.to_string().contains("at most"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_deserialize_accepts_legacy_trailing_zero_claim() {
+        let signer = EdDSAPrivateKey::random(&mut rand::thread_rng());
+        let mut credential = Credential::new();
+        credential.id = 1;
+        credential.claims = vec![FieldElement::from(7u64); Credential::MAX_CLAIMS];
+        let credential = credential.sign(&signer).unwrap();
+
+        let mut json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&credential).unwrap()).unwrap();
+        json["claims"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!(FieldElement::ZERO.to_string()));
+
+        let decoded: Credential = serde_json::from_value(json).unwrap();
+        assert_eq!(decoded.claims.len(), Credential::MAX_CLAIMS);
+        assert_eq!(decoded.hash().unwrap(), credential.hash().unwrap());
+        assert!(decoded.verify_signature(&signer.public()).unwrap());
     }
 
     #[test]
