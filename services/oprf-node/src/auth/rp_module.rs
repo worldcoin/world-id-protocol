@@ -10,7 +10,6 @@
 //! state and branches on the kind at runtime.
 
 use crate::{
-    accountant_batcher::AccountantBatcherHandle,
     auth::{
         merkle_watcher::{MerkleWatcher, MerkleWatcherError},
         nonce_history::{DuplicateNonce, NonceHistory, NonceScope},
@@ -23,7 +22,6 @@ use ark_bn254::Bn254;
 use ark_groth16::PreparedVerifyingKey;
 use async_trait::async_trait;
 use chrono::Utc;
-use oprf_accountant::api::BillableRpRequest;
 use std::{fmt, sync::Arc, time::Duration};
 use taceo_nodes_common::web3;
 use taceo_oprf::types::{
@@ -40,28 +38,19 @@ use world_id_primitives::{
 pub(crate) mod wip101;
 
 /// Distinguishes the two RP-authenticated OPRF modules.
-#[derive(Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum RpModuleKind {
     /// Session module: action MSB must be `0x01` (seed) or `0x02` (action); action is NOT signed.
     Session,
     /// Uniqueness module: action MSB must be `0x00`; action IS signed.
-    Uniqueness(AccountantBatcherHandle),
-}
-
-impl fmt::Debug for RpModuleKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Session => write!(f, "Session"),
-            Self::Uniqueness(_) => write!(f, "Uniqueness"),
-        }
-    }
+    Uniqueness,
 }
 
 impl fmt::Display for RpModuleKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RpModuleKind::Session => write!(f, "session (action MSB must be 0x01 or 0x02)"),
-            RpModuleKind::Uniqueness(_) => write!(f, "uniqueness (action MSB must be 0x00)"),
+            RpModuleKind::Uniqueness => write!(f, "uniqueness (action MSB must be 0x00)"),
         }
     }
 }
@@ -239,11 +228,8 @@ impl RpModuleAuth {
     }
 
     /// Initializes a uniqueness-module authenticator.
-    pub(crate) fn new_uniqueness(
-        args: RpModuleAuthArgs,
-        accountant_batcher: AccountantBatcherHandle,
-    ) -> Self {
-        Self::new(RpModuleKind::Uniqueness(accountant_batcher), args)
+    pub(crate) fn new_uniqueness(args: RpModuleAuthArgs) -> Self {
+        Self::new(RpModuleKind::Uniqueness, args)
     }
 
     fn new(kind: RpModuleKind, args: RpModuleAuthArgs) -> Self {
@@ -320,7 +306,7 @@ impl RpModuleAuth {
             RpAccountType::Eoa => {
                 tracing::trace!("RP signer is EOA");
                 let action = match self.kind {
-                    RpModuleKind::Uniqueness(_) => Some(action),
+                    RpModuleKind::Uniqueness => Some(action),
                     RpModuleKind::Session => None,
                 };
                 rp.verify_eoa(action, request)
@@ -389,7 +375,7 @@ impl RpModuleAuth {
                     return Err(RpModuleError::InvalidActionSession { action });
                 }
             }
-            RpModuleKind::Uniqueness(_) => {
+            RpModuleKind::Uniqueness => {
                 metrics::auth_module::inc_nullifier();
                 if action.to_be_bytes()[0] != 0 {
                     return Err(RpModuleError::InvalidActionUniqueness { action });
@@ -449,11 +435,6 @@ impl OprfRequestAuthenticator for RpModuleAuth {
     ) -> Result<OprfKeyId, OprfRequestAuthenticatorError> {
         Ok(Box::pin(self.authenticate_inner(request))
             .await
-            .inspect(|_| {
-                if let RpModuleKind::Uniqueness(handle) = &self.kind {
-                    handle.record_request(BillableRpRequest::from(&request.auth));
-                }
-            })
             .map_err(|err| super::auth_module_error(err, "RP-module"))?)
     }
 }

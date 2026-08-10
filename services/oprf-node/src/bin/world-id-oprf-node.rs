@@ -11,17 +11,14 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-use std::{net::SocketAddr, process::ExitCode, sync::Arc, time::Duration};
+use std::{net::SocketAddr, process::ExitCode, sync::Arc};
 
 use config::{Config, Environment};
 use eyre::Context;
 use serde::Deserialize;
 use taceo_nodes_common::postgres::PostgresConfig;
 use taceo_oprf::service::secret_manager::{SecretManager, postgres::PostgresSecretManager};
-use world_id_oprf_node::{
-    accountant_batcher::{self, AccountantBatcherConfig},
-    config::WorldOprfNodeConfig,
-};
+use world_id_oprf_node::config::WorldOprfNodeConfig;
 
 #[derive(Clone, Debug, Deserialize)]
 struct FullWorldOprfNodeConfig {
@@ -34,12 +31,6 @@ struct FullWorldOprfNodeConfig {
     /// The postgres config for the secret-manager
     #[serde(rename = "postgres")]
     pub postgres_config: PostgresConfig,
-    /// The config for the accountant batcher worker
-    #[serde(rename = "batcher")]
-    pub accountant_batcher_config: AccountantBatcherConfig,
-    /// The timeout for the reqwest client that talks to the OPRF-accountant
-    #[serde(with = "humantime_serde", default = "default_http_accountant_timeout")]
-    pub http_accountant_timeout: Duration,
 }
 
 // we are not allowed to build an eyre::Report yet because telemetry-batteries expects to install
@@ -74,10 +65,6 @@ fn default_bind_addr() -> SocketAddr {
     "0.0.0.0:4321".parse().expect("valid SocketAddr")
 }
 
-fn default_http_accountant_timeout() -> Duration {
-    Duration::from_secs(30)
-}
-
 async fn run(config: FullWorldOprfNodeConfig) -> eyre::Result<()> {
     tracing::info!("{}", taceo_nodes_common::version_info!());
     tracing::info!("starting oprf-node with config: {config:#?}");
@@ -93,17 +80,6 @@ async fn run(config: FullWorldOprfNodeConfig) -> eyre::Result<()> {
     let (cancellation_token, _) =
         taceo_nodes_common::spawn_shutdown_task(taceo_nodes_common::default_shutdown_signal());
 
-    let client = reqwest::ClientBuilder::new()
-        .timeout(config.http_accountant_timeout)
-        .build()
-        .context("while building reqwest client")?;
-
-    let (accountant_batcher, accountant_batcher_task) = accountant_batcher::init(
-        &config.accountant_batcher_config,
-        client,
-        cancellation_token.clone(),
-    );
-
     // Clone the values we need afterwards
     let bind_addr = config.bind_addr;
 
@@ -113,23 +89,16 @@ async fn run(config: FullWorldOprfNodeConfig) -> eyre::Result<()> {
         .context("while loading node information")?;
 
     tracing::info!("starting world-node service...");
-    let oprf_service_router = world_id_oprf_node::start(
-        config.node_config,
-        secret_manager,
-        &node_information,
-        accountant_batcher.clone(),
-    )?;
+    let oprf_service_router =
+        world_id_oprf_node::start(config.node_config, secret_manager, &node_information)?;
 
     tracing::info!("starting axum server on {bind_addr}",);
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-    let serve_result = axum::serve(listener, oprf_service_router)
+    axum::serve(listener, oprf_service_router)
         .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
-        .await;
+        .await
+        .context("while serving axum")?;
     tracing::info!("axum server shutdown");
-    tracing::info!("waiting for accountant batcher to finish processing...");
-    accountant_batcher.close().await;
-    accountant_batcher_task.await?;
-    serve_result.context("while serving axum")?;
     Ok(())
 }
 

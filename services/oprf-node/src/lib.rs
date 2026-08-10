@@ -38,7 +38,6 @@ use taceo_oprf::{
 use world_id_primitives::oprf::OprfModule;
 
 use crate::{
-    accountant_batcher::AccountantBatcherHandle,
     auth::{
         credential_blinding_factor::CredentialBlindingFactorModuleAuth,
         merkle_watcher::MerkleWatcher,
@@ -53,7 +52,6 @@ use crate::{
 /// The embedded Groth16 verification key for OPRF query proofs.
 const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");
 
-pub mod accountant_batcher;
 pub(crate) mod auth;
 pub mod config;
 pub mod metrics;
@@ -98,7 +96,6 @@ pub fn start(
     config: WorldOprfNodeConfig,
     secret_manager: SecretManagerService,
     node_information: &NodeInformation,
-    accountant_batcher: AccountantBatcherHandle,
 ) -> eyre::Result<axum::Router> {
     let node_config = config.node_config;
     let started_services = StartedServices::default();
@@ -148,10 +145,8 @@ pub fn start(
         rpc_provider: http_rpc_provider.clone(),
         query_vk: Arc::clone(&query_vk),
     };
-    let nullifier_oprf_req_auth_service = Arc::new(RpModuleAuth::new_uniqueness(
-        rp_module_args.clone(),
-        accountant_batcher,
-    ));
+    let nullifier_oprf_req_auth_service =
+        Arc::new(RpModuleAuth::new_uniqueness(rp_module_args.clone()));
 
     tracing::info!("init session oprf request auth service..");
     let session_oprf_req_auth_service = Arc::new(RpModuleAuth::new_session(rp_module_args));

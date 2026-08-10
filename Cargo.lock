@@ -12671,35 +12671,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "world-id-oprf-accountant"
-version = "0.1.0"
-dependencies = [
- "alloy-primitives",
- "ark-serialize 0.5.0",
- "axum",
- "backon",
- "config",
- "eyre",
- "humantime-serde",
- "itertools 0.14.0",
- "metrics",
- "rustls",
- "serde",
- "serde_json",
- "sqlx",
- "taceo-ark-babyjubjub",
- "taceo-ark-serde-compat",
- "taceo-nodes-common",
- "telemetry-batteries",
- "thiserror 2.0.18",
- "tikv-jemallocator",
- "tokio",
- "tracing",
- "uuid",
- "world-id-primitives",
-]
-
-[[package]]
 name = "world-id-oprf-dev-client"
 version = "0.1.0"
 dependencies = [
@@ -12739,7 +12710,6 @@ dependencies = [
  "ark-serialize 0.5.0",
  "async-trait",
  "axum",
- "backon",
  "chrono",
  "config",
  "eyre",
@@ -12749,13 +12719,11 @@ dependencies = [
  "metrics",
  "moka",
  "rand 0.8.6",
- "reqwest 0.12.28",
  "rustls",
  "secrecy",
  "serde",
  "serde_json",
  "taceo-ark-babyjubjub",
- "taceo-ark-serde-compat",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
  "taceo-nodes-common",
@@ -12764,10 +12732,8 @@ dependencies = [
  "thiserror 2.0.18",
  "tikv-jemallocator",
  "tokio",
- "tokio-util",
  "tracing",
  "uuid",
- "world-id-oprf-accountant",
  "world-id-primitives",
  "world-id-proof",
  "world-id-registries",
