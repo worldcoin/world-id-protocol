@@ -16,19 +16,16 @@ use world_id_primitives::{
     rp::RpId,
 };
 
-use crate::{
-    accountant_batcher,
-    auth::{
-        rp_module::{
-            RpModuleAuth,
-            wip101::tests::{
-                NoERC165, NoWIP101, WIP101BrokenERC165, WIP101Correct, WIP101CorrectWhenAuxData,
-                WIP101PlainRevert, WIP101RevertsWithCode, WIP101TimeoutERC165, WIP101TimeoutVerify,
-                WIP101WrongMagic, WrongSignature,
-            },
+use crate::auth::{
+    rp_module::{
+        RpModuleAuth,
+        wip101::tests::{
+            NoERC165, NoWIP101, WIP101BrokenERC165, WIP101Correct, WIP101CorrectWhenAuxData,
+            WIP101PlainRevert, WIP101RevertsWithCode, WIP101TimeoutERC165, WIP101TimeoutVerify,
+            WIP101WrongMagic, WrongSignature,
         },
-        tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup, SetupKind},
     },
+    tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup, SetupKind},
 };
 
 pub(crate) struct RpModuleTestSetup {
@@ -133,8 +130,7 @@ impl RpModuleTestSetup {
 
     async fn new_uniqueness() -> eyre::Result<Self> {
         let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
-        let request_authenticator =
-            RpModuleAuth::new_uniqueness(infra.rp_module_args(), accountant_batcher::dev_null());
+        let request_authenticator = RpModuleAuth::new_uniqueness(infra.rp_module_args());
 
         // Uniqueness uses the fixture's pre-generated action (guaranteed 0x00 MSB)
         // and a signature that includes the action
