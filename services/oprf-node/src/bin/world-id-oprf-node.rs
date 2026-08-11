@@ -13,7 +13,6 @@ static GLOBAL: Jemalloc = Jemalloc;
 
 use std::{net::SocketAddr, process::ExitCode, sync::Arc};
 
-use config::{Config, Environment};
 use eyre::Context;
 use serde::Deserialize;
 use taceo_nodes_common::postgres::PostgresConfig;
@@ -35,16 +34,8 @@ struct FullWorldOprfNodeConfig {
 
 // we are not allowed to build an eyre::Report yet because telemetry-batteries expects to install
 // the color-eyre hook
-fn load_world_id_config() -> Result<FullWorldOprfNodeConfig, config::ConfigError> {
-    let cfg = Config::builder().add_source(
-        Environment::with_prefix("TACEO_OPRF_NODE")
-            .separator("__")
-            .list_separator(",")
-            .with_list_parse_key("service.rpc.http_urls")
-            .try_parsing(true),
-    );
-
-    let oprf_config = cfg.build()?.try_deserialize()?;
+fn load_world_id_config() -> Result<FullWorldOprfNodeConfig, serde_env::Error> {
+    let oprf_config = serde_env::from_env_with_prefix("TACEO_OPRF_NODE");
 
     // Unset all env vars with our prefix to prevent leakage to subprocesses.
     // Safety: this is called before any threads are spawned.
@@ -58,7 +49,7 @@ fn load_world_id_config() -> Result<FullWorldOprfNodeConfig, config::ConfigError
         }
     }
 
-    Ok(oprf_config)
+    oprf_config
 }
 
 fn default_bind_addr() -> SocketAddr {
