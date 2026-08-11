@@ -531,12 +531,14 @@ mod tests {
         error::AuthenticatorError,
         service_client::{ServiceClient, ServiceKind},
     };
-    use alloy::primitives::address;
-    use ruint::aliases::U256;
+    use alloy::primitives::{Signature, address};
+    use ruint::{aliases::U256, uint};
     use std::sync::Arc;
     use taceo_oprf::client::Connector;
     use world_id_primitives::{
-        Config, FieldElement, ServiceEndpoint, Signer, TREE_DEPTH, merkle::AccountInclusionProof,
+        Config, FieldElement, OprfKeyId, PrimitiveError, ProofRequest, ProofType, ServiceEndpoint,
+        SessionId, SessionRef, Signer, TREE_DEPTH, merkle::AccountInclusionProof,
+        request::RequestVersion, rp::RpId,
     };
     use world_id_proof::artifacts::{ZkArtifactSource, dummy::DummyZkArtifactSource};
     use world_id_test_utils::fixtures::single_leaf_merkle_fixture;
@@ -584,6 +586,66 @@ mod tests {
         };
 
         (authenticator, account_inclusion_proof)
+    }
+
+    fn existing_session_request(session_id: SessionId) -> ProofRequest {
+        ProofRequest {
+            id: "test-request".to_string(),
+            version: RequestVersion::V1,
+            proof_type: ProofType::Session,
+            created_at: 1,
+            expires_at: 2,
+            rp_id: RpId::new(1),
+            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
+            session_id: SessionRef::Existing(session_id),
+            action: None,
+            signature: Signature::new(U256::ZERO, U256::ZERO, false),
+            nonce: FieldElement::from(1u64),
+            requests: Vec::new(),
+            constraints: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_build_session_id_accepts_matching_cached_seed() {
+        let leaf_index = 1u64;
+        let r_seed = FieldElement::from(123u64);
+        let oprf_seed = SessionId::generate_oprf_seed(&mut rand::rngs::OsRng);
+        let expected_session_id =
+            SessionId::from_r_seed(leaf_index, r_seed, oprf_seed).expect("valid session id");
+        let request = existing_session_request(expected_session_id);
+        let (authenticator, _) =
+            build_test_authenticator(&[42u8; 32], leaf_index, Arc::new(DummyZkArtifactSource));
+
+        let (session_id, resolved_r_seed) = authenticator
+            .build_session_id(&request, Some(r_seed), None)
+            .await
+            .expect("matching cached seed should be accepted");
+
+        assert_eq!(session_id, expected_session_id);
+        assert_eq!(resolved_r_seed, r_seed);
+    }
+
+    #[tokio::test]
+    async fn test_build_session_id_rejects_mismatched_cached_seed() {
+        let leaf_index = 1u64;
+        let r_seed = FieldElement::from(123u64);
+        let oprf_seed = SessionId::generate_oprf_seed(&mut rand::rngs::OsRng);
+        let session_id =
+            SessionId::from_r_seed(leaf_index, r_seed, oprf_seed).expect("valid session id");
+        let request = existing_session_request(session_id);
+        let (authenticator, _) =
+            build_test_authenticator(&[42u8; 32], leaf_index, Arc::new(DummyZkArtifactSource));
+
+        let error = authenticator
+            .build_session_id(&request, Some(FieldElement::from(124u64)), None)
+            .await
+            .expect_err("mismatched cached seed should be rejected");
+
+        assert!(matches!(
+            error,
+            AuthenticatorError::PrimitiveError(PrimitiveError::SessionIdCommitmentMismatch)
+        ));
     }
 
     #[tokio::test]
