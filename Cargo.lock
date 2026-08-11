@@ -10249,8 +10249,27 @@ version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "15af1a54071def0649b8e55c8d87afff9cd537565345e939264313aeb7031fc1"
 dependencies = [
- "alloy",
  "axum",
+ "backon",
+ "git-version",
+ "humantime-serde",
+ "secrecy",
+ "serde",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tower-http 0.6.8",
+ "tracing",
+]
+
+[[package]]
+name = "taceo-nodes-common"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4bb8f84273a1c067e30723a7b2b61667c51c5c789a7202fe747f296d954a3f6"
+dependencies = [
+ "alloy",
  "backon",
  "futures",
  "git-version",
@@ -10262,7 +10281,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tower",
- "tower-http 0.6.8",
  "tracing",
 ]
 
@@ -10377,7 +10395,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "taceo-ark-babyjubjub",
- "taceo-nodes-common",
+ "taceo-nodes-common 0.7.4",
  "taceo-oprf-core",
  "taceo-oprf-types 0.15.0",
  "thiserror 2.0.18",
@@ -10407,7 +10425,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "taceo-ark-babyjubjub",
- "taceo-nodes-common",
+ "taceo-nodes-common 0.7.4",
  "taceo-oprf-core",
  "taceo-oprf-types 0.14.0",
  "testcontainers-modules",
@@ -12735,7 +12753,8 @@ dependencies = [
  "taceo-ark-babyjubjub",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
- "taceo-nodes-common",
+ "taceo-nodes-common 0.7.4",
+ "taceo-nodes-common 0.8.2",
  "taceo-oprf",
  "telemetry-batteries",
  "thiserror 2.0.18",
@@ -12910,7 +12929,8 @@ dependencies = [
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
- "taceo-nodes-common",
+ "taceo-nodes-common 0.7.4",
+ "taceo-nodes-common 0.8.2",
  "taceo-oprf",
  "taceo-oprf-test-utils",
  "taceo-poseidon2",

@@ -103,7 +103,7 @@ pub fn start(
     tracing::info!("connecting to RPC..");
     let http_rpc_provider =
         taceo_nodes_common::web3::HttpRpcProviderBuilder::with_config(&config.rpc_provider_config)
-            .environment(node_config.environment)
+            .environment(node_config.environment.to_string().parse()?)
             .build()
             .context("while init blockchain connection")?;
 

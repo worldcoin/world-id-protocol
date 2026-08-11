@@ -6,7 +6,8 @@ use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, ContextCompat as _, Result};
 use secrecy::SecretString;
 use semver::VersionReq;
-use taceo_nodes_common::{postgres::PostgresConfig, web3::HttpRpcProviderConfig};
+use taceo_nodes_common::web3::HttpRpcProviderConfig;
+use taceo_nodes_common_legacy::postgres::PostgresConfig;
 use taceo_oprf_test_utils::{
     OPRF_PEER_PRIVATE_KEY_0, OPRF_PEER_PRIVATE_KEY_1, OPRF_PEER_PRIVATE_KEY_2,
     OPRF_PEER_PRIVATE_KEY_3, OPRF_PEER_PRIVATE_KEY_4,
