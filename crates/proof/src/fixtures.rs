@@ -41,6 +41,8 @@ pub(crate) fn ownership_proof_fixture() -> OwnershipProofCircuitInput<TREE_DEPTH
 }
 
 mod ownership_proof_prover {
+    use serde::Serialize;
+
     use super::*;
 
     /// Every key the circuit ABI is expected to have, in `BTreeMap` (alphabetical) order. A circuit
@@ -67,7 +69,40 @@ mod ownership_proof_prover {
 #
 # GENERATED FILE. Do not edit by hand; regenerate with:
 #   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof prover_toml
+# Public inputs
 ";
+
+    #[derive(Serialize)]
+    struct ProverToml {
+        merkle_root: String,
+        depth: String,
+        nonce: String,
+        expected_commitment: String,
+        context: String,
+        inputs: PrivateInputs,
+    }
+
+    #[derive(Serialize)]
+    struct PrivateInputs {
+        user_pk: Vec<PublicKey>,
+        pk_index: String,
+        query_s: String,
+        query_r: Vec<String>,
+        merkle_proof: MerkleProof,
+        commitment_blinder: String,
+    }
+
+    #[derive(Serialize)]
+    struct PublicKey {
+        x: String,
+        y: String,
+    }
+
+    #[derive(Serialize)]
+    struct MerkleProof {
+        leaf_index: String,
+        siblings: Vec<String>,
+    }
 
     fn fixture_witness() -> InputMap {
         ownership_proof_fixture()
@@ -120,65 +155,56 @@ mod ownership_proof_prover {
             "circuit private inputs changed; update this renderer"
         );
 
-        let mut out = String::from(HEADER);
-
-        out.push_str("# Public inputs\n");
-        for key in [
-            "merkle_root",
-            "depth",
-            "nonce",
-            "expected_commitment",
-            "context",
-        ] {
-            out.push_str(&format!("{key} = \"{}\"\n", field(witness, key)));
-        }
-
-        out.push_str("\n[inputs]\nuser_pk = [\n");
-        for (index, key) in array(inputs, "user_pk").iter().enumerate() {
-            let path = format!("user_pk[{index}]");
-            let InputValue::Struct(coordinates) = key else {
-                panic!("expected `{path}` to be a struct, got {key:?}");
-            };
-            out.push_str(&format!(
-                "    {{ x = \"{}\", y = \"{}\" }},\n",
-                field(coordinates, "x"),
-                field(coordinates, "y")
-            ));
-        }
-        out.push_str("]\n");
-        out.push_str(&format!("pk_index = \"{}\"\n", field(inputs, "pk_index")));
-        out.push_str(&format!("query_s = \"{}\"\n", field(inputs, "query_s")));
-        out.push_str("query_r = [\n");
-        for (index, coordinate) in array(inputs, "query_r").iter().enumerate() {
-            out.push_str(&format!(
-                "    \"{}\",\n",
-                decimal(coordinate, &format!("query_r[{index}]"))
-            ));
-        }
-        out.push_str("]\n");
+        let user_pk = array(inputs, "user_pk")
+            .iter()
+            .enumerate()
+            .map(|(index, key)| {
+                let path = format!("user_pk[{index}]");
+                let InputValue::Struct(coordinates) = key else {
+                    panic!("expected `{path}` to be a struct, got {key:?}");
+                };
+                PublicKey {
+                    x: field(coordinates, "x"),
+                    y: field(coordinates, "y"),
+                }
+            })
+            .collect();
+        let query_r = array(inputs, "query_r")
+            .iter()
+            .enumerate()
+            .map(|(index, coordinate)| decimal(coordinate, &format!("query_r[{index}]")))
+            .collect();
 
         let merkle_proof = table(inputs, "merkle_proof");
-        out.push_str("\n# Merkle proof\n");
-        out.push_str(&format!(
-            "merkle_proof.leaf_index = \"{}\"\n",
-            field(merkle_proof, "leaf_index")
-        ));
-        out.push_str("merkle_proof.siblings = [\n");
-        for (index, sibling) in array(merkle_proof, "siblings").iter().enumerate() {
-            out.push_str(&format!(
-                "    \"{}\",\n",
-                decimal(sibling, &format!("siblings[{index}]"))
-            ));
-        }
-        out.push_str("]\n");
+        let siblings = array(merkle_proof, "siblings")
+            .iter()
+            .enumerate()
+            .map(|(index, sibling)| decimal(sibling, &format!("siblings[{index}]")))
+            .collect();
 
-        out.push_str("\n# Commitment blinder\n");
-        out.push_str(&format!(
-            "commitment_blinder = \"{}\"\n",
-            field(inputs, "commitment_blinder")
-        ));
+        let prover_toml = ProverToml {
+            merkle_root: field(witness, "merkle_root"),
+            depth: field(witness, "depth"),
+            nonce: field(witness, "nonce"),
+            expected_commitment: field(witness, "expected_commitment"),
+            context: field(witness, "context"),
+            inputs: PrivateInputs {
+                user_pk,
+                pk_index: field(inputs, "pk_index"),
+                query_s: field(inputs, "query_s"),
+                query_r,
+                merkle_proof: MerkleProof {
+                    leaf_index: field(merkle_proof, "leaf_index"),
+                    siblings,
+                },
+                commitment_blinder: field(inputs, "commitment_blinder"),
+            },
+        };
 
-        out
+        format!(
+            "{HEADER}{}",
+            toml::to_string_pretty(&prover_toml).expect("fixture serializes to TOML")
+        )
     }
 
     #[test]
