@@ -50,5 +50,10 @@ ignore = [
     "RUSTSEC-2026-0212", # `libcrux-secrets`/`libcrux-sha3` const-time swap on aarch64; via testcontainers->russh->libcrux-ml-kem; dev-only, no safe upgrade (2026-07-21)
     "RUSTSEC-2026-0153", # russh-cryptovec broken, via testcontainers, dev-only, does not affect our usage (2026-06-02)
     "RUSTSEC-2026-0154", # russh-cryptovec broken, via testcontainers, dev-only, does not affect our usage (2026-06-02)
-    "RUSTSEC-2026-0173"  # Unmaintained `proc-macro-error2`; transitive via alloy-sol-macro, no safe upgrade available (2026-06-08)
+    "RUSTSEC-2026-0173", # Unmaintained `proc-macro-error2`; transitive via alloy-sol-macro, no safe upgrade available (2026-06-08)
+    "RUSTSEC-2026-0248", # Unmaintained `im`; transitive via `provekit`, requires bumps on `provekit`, no safe upgrade available (2026-08-10)
+    "RUSTSEC-2026-0247", # Unmaintained `bitmaps`; pulled in by `im`, same chain (2026-08-10)
+    "RUSTSEC-2026-0251", # Unmaintained `sized-chunks`; pulled in by `im`, same chain (2026-08-10)
+    "RUSTSEC-2023-0126", # Unsound `im` OrdSet aliasing; same provekit chain, unmaintained so no fix will ever ship (2023-02-04)
+    "RUSTSEC-2026-0253"  # Unsound `lru` LruCache::pop panic safety; patched in >= 0.18.2, but alloy-provider pins `lru = "^0.16"` so it needs an alloy bump (2026-05-12)
 ]
