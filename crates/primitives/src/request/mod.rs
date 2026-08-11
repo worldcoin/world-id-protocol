@@ -6,7 +6,7 @@ mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
 use crate::{
-    FePrefix, FieldElement, Nullifier, PrefixedFieldElement as _, PrimitiveError, SessionId,
+    FieldElement, Nullifier, OprfPrefix, OprfPrefixedFieldElement as _, PrimitiveError, SessionId,
     SessionNullifier, SessionRef, ZeroKnowledgeProof, rp::RpId,
 };
 use serde::{Deserialize, Serialize, de::Error as _};
@@ -52,7 +52,7 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
 /// snake_case variant names and these discriminants are not serialized.
 ///
 /// The discriminants are the action prefixes the flow's action must carry — see
-/// [`Self::action_prefix`]. [`FePrefix::SessionOprfSeed`] (`0x01`) has no variant here
+/// [`Self::action_prefix`]. [`OprfPrefix::SessionOprfSeed`] (`0x01`) has no variant here
 /// because the session `oprf_seed` is not a proof flow of its own.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -64,10 +64,10 @@ pub enum ProofType {
     /// or omit session involvement entirely — see [`ProofRequest::binds_session`].
     /// Binding to an already existing session is not supported.
     #[default]
-    Uniqueness = FePrefix::Uniqueness as u8,
+    Uniqueness = OprfPrefix::Uniqueness as u8,
     /// Prove an RP-scoped session — either minting a fresh one
     /// (`session_id: "create"`) or an existing one (`session_id: "session_<hex>"`).
-    Session = FePrefix::SessionAction as u8,
+    Session = OprfPrefix::SessionAction as u8,
 }
 
 impl ProofType {
@@ -76,10 +76,10 @@ impl ProofType {
     /// This is the authoritative mapping between a proof flow and its action domain;
     /// the matching discriminants are an encoding convenience, not the contract.
     #[must_use]
-    pub const fn action_prefix(&self) -> FePrefix {
+    pub const fn action_prefix(&self) -> OprfPrefix {
         match self {
-            Self::Uniqueness => FePrefix::Uniqueness,
-            Self::Session => FePrefix::SessionAction,
+            Self::Uniqueness => OprfPrefix::Uniqueness,
+            Self::Session => OprfPrefix::SessionAction,
         }
     }
 
@@ -892,7 +892,7 @@ mod tests {
     }
 
     /// Creates a field element carrying the given domain prefix in its MSB
-    fn test_action_with_prefix(prefix: FePrefix, n: u64) -> FieldElement {
+    fn test_action_with_prefix(prefix: OprfPrefix, n: u64) -> FieldElement {
         use ruint::aliases::U256;
         let v = U256::from(n) | (U256::from(prefix as u8) << 248);
         FieldElement::try_from(v).expect("test value fits in field")
@@ -900,7 +900,7 @@ mod tests {
 
     /// Creates an action with the required `0x02` session prefix
     fn test_action(n: u64) -> FieldElement {
-        test_action_with_prefix(FePrefix::SessionAction, n)
+        test_action_with_prefix(OprfPrefix::SessionAction, n)
     }
 
     /// Creates a session id with a non-zero commitment and a `0x01`-prefixed oprf seed
@@ -2490,7 +2490,7 @@ mod tests {
         assert!(!plain_uniqueness.binds_session());
 
         // a uniqueness action must live in the uniqueness domain, not a session one
-        for prefix in [FePrefix::SessionOprfSeed, FePrefix::SessionAction] {
+        for prefix in [OprfPrefix::SessionOprfSeed, OprfPrefix::SessionAction] {
             let session_prefixed_action = ProofRequest {
                 action: Some(test_action_with_prefix(prefix, 42)),
                 ..uniqueness_with_create.clone()
@@ -2714,8 +2714,14 @@ mod tests {
         for proof_type in [ProofType::Uniqueness, ProofType::Session] {
             assert_eq!(proof_type.action_prefix() as u8, proof_type as u8);
         }
-        assert_eq!(ProofType::Uniqueness.action_prefix(), FePrefix::Uniqueness);
-        assert_eq!(ProofType::Session.action_prefix(), FePrefix::SessionAction);
+        assert_eq!(
+            ProofType::Uniqueness.action_prefix(),
+            OprfPrefix::Uniqueness
+        );
+        assert_eq!(
+            ProofType::Session.action_prefix(),
+            OprfPrefix::SessionAction
+        );
     }
 
     #[test]

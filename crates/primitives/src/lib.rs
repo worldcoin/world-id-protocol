@@ -46,6 +46,7 @@ pub mod api_types;
 
 /// Contains types specifically related to the OPRF services.
 pub mod oprf;
+pub use oprf::{OprfPrefix, OprfPrefixedFieldElement};
 
 /// A nullifier is a unique, one-time identifier. See [`Nullifier`] for more details.
 mod nullifier;
@@ -53,7 +54,7 @@ pub use nullifier::Nullifier;
 
 /// Contains types relevant for Session Proofs.
 mod session;
-pub use session::{FePrefix, PrefixedFieldElement, SessionId, SessionNullifier, SessionRef};
+pub use session::{SessionId, SessionNullifier, SessionRef};
 
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;

@@ -7,8 +7,65 @@ use taceo_oprf::types::api::{CloseFrameMessage, OprfRequestAuthenticatorError};
 
 use crate::{FieldElement, rp::RpId};
 
-#[expect(unused_imports, reason = "used in doc comments")]
-use crate::FePrefix;
+/// The most significant byte (MSB) of an OPRF input field element, which separates
+/// the domains in which the input may be used.
+///
+/// All three prefixes share one OPRF key and query structure, so the MSB is what keeps
+/// their outputs from colliding. The variants are exhaustive for the nullifier and
+/// session OPRF inputs.
+///
+/// The values match the [`crate::ProofType`] discriminants — see
+/// [`ProofType::action_prefix`](crate::ProofType::action_prefix), which is the
+/// authoritative mapping.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OprfPrefix {
+    /// The default domain: uniqueness actions, and any other OPRF input that is not
+    /// session-scoped.
+    ///
+    /// Unlike the session prefixes, `0x00` elements are not minted by the protocol —
+    /// uniqueness actions are chosen freely by the RP. Checking for this prefix
+    /// therefore only rules out session reuse; it implies nothing else about the value.
+    Uniqueness = 0x00,
+    /// The [`crate::SessionId::oprf_seed`].
+    SessionOprfSeed = 0x01,
+    /// The action used to compute the inner nullifier in a [`crate::SessionNullifier`].
+    SessionAction = 0x02,
+}
+
+/// Generation and validation of domain-prefixed OPRF inputs. See [`OprfPrefix`].
+pub trait OprfPrefixedFieldElement {
+    /// Generate a randomized field element carrying the given OPRF prefix.
+    ///
+    /// # Panics
+    /// Never — any 32-byte value whose MSB is one of the [`OprfPrefix`] variants is
+    /// below the babyjubjub modulus.
+    fn random_with_prefix<R: rand::CryptoRng + rand::RngCore>(
+        rng: &mut R,
+        prefix: OprfPrefix,
+    ) -> FieldElement;
+
+    /// Returns whether the field element carries the given OPRF prefix.
+    fn has_prefix(&self, prefix: OprfPrefix) -> bool;
+}
+
+impl OprfPrefixedFieldElement for FieldElement {
+    fn random_with_prefix<R: rand::CryptoRng + rand::RngCore>(
+        rng: &mut R,
+        prefix: OprfPrefix,
+    ) -> FieldElement {
+        let mut bytes = [0u8; 32];
+        rng.fill_bytes(&mut bytes);
+        bytes[0] = prefix as u8;
+        Self::from_be_bytes(&bytes).expect(
+            "should always fit in the field because with 0x02 or lower as the MSB, the field element < babyjubjub modulus",
+        )
+    }
+
+    fn has_prefix(&self, prefix: OprfPrefix) -> bool {
+        self.to_be_bytes()[0] == prefix as u8
+    }
+}
 
 /// A module identifier for OPRF evaluations.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -86,7 +143,7 @@ pub struct NullifierOprfRequestAuthV1 {
     /// Additional data needed to reconstruct the RP-signed message.
     ///
     /// Currently only valid on create-and-bind session-seed queries (see
-    /// [`FePrefix::SessionOprfSeed`]) from EOA-backed RPs.
+    /// [`OprfPrefix::SessionOprfSeed`]) from EOA-backed RPs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rp_signature_verification: Option<RpSignatureVerification>,
 }
@@ -187,7 +244,7 @@ pub enum WorldIdRequestAuthError {
     InvalidActionNullifier,
     /// **Only valid for Session Proofs**.
     ///
-    /// The provided action for the Session Proof is invalid. See [`FePrefix`] for the valid action
+    /// The provided action for the Session Proof is invalid. See [`OprfPrefix`] for the valid action
     /// prefixes.
     #[error("invalid_action_for_session")]
     InvalidActionSession,
@@ -531,6 +588,38 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ALL_PREFIXES: [OprfPrefix; 3] = [
+        OprfPrefix::Uniqueness,
+        OprfPrefix::SessionOprfSeed,
+        OprfPrefix::SessionAction,
+    ];
+
+    #[test]
+    fn prefix_bytes_are_stable() {
+        assert_eq!(OprfPrefix::Uniqueness as u8, 0x00);
+        assert_eq!(OprfPrefix::SessionOprfSeed as u8, 0x01);
+        assert_eq!(OprfPrefix::SessionAction as u8, 0x02);
+    }
+
+    #[test]
+    fn random_with_prefix_is_recognized_only_by_its_own_prefix() {
+        let mut rng = rand::rngs::OsRng;
+        for prefix in ALL_PREFIXES {
+            let field_element = FieldElement::random_with_prefix(&mut rng, prefix);
+            assert_eq!(field_element.to_be_bytes()[0], prefix as u8);
+            for other in ALL_PREFIXES {
+                assert_eq!(field_element.has_prefix(other), other == prefix);
+            }
+        }
+    }
+
+    #[test]
+    fn zero_carries_the_uniqueness_prefix() {
+        // The default domain is the absence of a session prefix, so it holds for values
+        // the protocol never mints — including zero.
+        assert!(FieldElement::ZERO.has_prefix(OprfPrefix::Uniqueness));
+    }
 
     /// A structurally valid Groth16 proof (BN254 generator points) for serde tests.
     fn test_proof() -> Proof<Bn254> {

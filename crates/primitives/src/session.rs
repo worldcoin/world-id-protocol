@@ -1,67 +1,10 @@
-use crate::{FieldElement, PrimitiveError};
+use crate::{
+    FieldElement, PrimitiveError,
+    oprf::{OprfPrefix, OprfPrefixedFieldElement as _},
+};
 use embed_doc_image::embed_doc_image;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
-
-/// The most significant byte (MSB) of a protocol field element, which separates the
-/// domains a field element may be used in.
-///
-/// All three prefixes share one OPRF key and query structure, so the MSB is what keeps
-/// their outputs from colliding. The variants are exhaustive: every valid protocol
-/// field element carries one of these as its MSB.
-///
-/// The values match the [`crate::ProofType`] discriminants — see
-/// [`ProofType::action_prefix`](crate::ProofType::action_prefix), which is the
-/// authoritative mapping.
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FePrefix {
-    /// The default domain: uniqueness actions, and any other field element that is not
-    /// session-scoped.
-    ///
-    /// Unlike the session prefixes, `0x00` elements are not minted by the protocol —
-    /// uniqueness actions are chosen freely by the RP. Checking for this prefix
-    /// therefore only rules out session reuse; it implies nothing else about the value.
-    Uniqueness = 0x00,
-    /// The [`SessionId::oprf_seed`]
-    SessionOprfSeed = 0x01,
-    /// The action used to compute the inner nullifier (in a [`SessionNullifier`]) for a Session Proof.
-    SessionAction = 0x02,
-}
-
-/// Generation and validation of domain-prefixed field elements. See [`FePrefix`].
-pub trait PrefixedFieldElement {
-    /// Generate a randomized field element carrying the given prefix.
-    ///
-    /// # Panics
-    /// Never — any 32-byte value whose MSB is one of the [`FePrefix`] variants is below
-    /// the babyjubjub modulus.
-    fn random_with_prefix<R: rand::CryptoRng + rand::RngCore>(
-        rng: &mut R,
-        prefix: FePrefix,
-    ) -> FieldElement;
-    /// Returns whether the field element carries the given prefix.
-    fn has_prefix(&self, prefix: FePrefix) -> bool;
-}
-
-impl PrefixedFieldElement for FieldElement {
-    fn random_with_prefix<R: rand::CryptoRng + rand::RngCore>(
-        rng: &mut R,
-        prefix: FePrefix,
-    ) -> FieldElement {
-        let mut bytes = [0u8; 32];
-        rng.fill_bytes(&mut bytes);
-        bytes[0] = prefix as u8;
-        let seed = U256::from_be_bytes(bytes);
-        Self::try_from(seed).expect(
-            "should always fit in the field because with 0x02 or lower as the MSB, the field element < babyjubjub modulus",
-        )
-    }
-
-    fn has_prefix(&self, prefix: FePrefix) -> bool {
-        self.to_be_bytes()[0] == prefix as u8
-    }
-}
 
 /// An identifier for a session (can be re-used).
 ///
@@ -123,7 +66,7 @@ impl SessionId {
         // OPRF Seeds must always start with a byte of `0x01`. See [`Self::oprf_seed`]
         // for details. Panic is acceptable as `oprf_seed` generation should
         // generally be done with `Self::from_r_seed`
-        if !oprf_seed.has_prefix(FePrefix::SessionOprfSeed) {
+        if !oprf_seed.has_prefix(OprfPrefix::SessionOprfSeed) {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "session_id".to_string(),
                 reason: "inner oprf_seed is not valid".to_string(),
@@ -154,7 +97,7 @@ impl SessionId {
     ) -> Result<Self, PrimitiveError> {
         let sub_ds = FieldElement::from_be_bytes_mod_order(Self::DS_C);
 
-        if !oprf_seed.has_prefix(FePrefix::SessionOprfSeed) {
+        if !oprf_seed.has_prefix(OprfPrefix::SessionOprfSeed) {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "session_id".to_string(),
                 reason: "inner oprf_seed is not valid".to_string(),
@@ -172,7 +115,7 @@ impl SessionId {
 
     /// Generates a new [`Self::oprf_seed`] to initialize a new Session.
     pub fn generate_oprf_seed<R: rand::CryptoRng + rand::RngCore>(rng: &mut R) -> FieldElement {
-        FieldElement::random_with_prefix(rng, FePrefix::SessionOprfSeed)
+        FieldElement::random_with_prefix(rng, OprfPrefix::SessionOprfSeed)
     }
 
     /// Returns the 64-byte big-endian representation (2 x 32-byte field elements).
@@ -201,7 +144,7 @@ impl SessionId {
         let oprf_seed = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
             .map_err(|e| format!("invalid oprf_seed: {e}"))?;
 
-        if bytes[32] != FePrefix::SessionOprfSeed as u8 {
+        if bytes[32] != OprfPrefix::SessionOprfSeed as u8 {
             return Err("invalid prefix for oprf_seed".to_string());
         }
 
@@ -215,7 +158,7 @@ impl SessionId {
 impl Default for SessionId {
     fn default() -> Self {
         let mut oprf_seed = [0u8; 32];
-        oprf_seed[0] = FePrefix::SessionOprfSeed as u8;
+        oprf_seed[0] = OprfPrefix::SessionOprfSeed as u8;
         let oprf_seed = U256::from_be_bytes(oprf_seed)
             .try_into()
             .expect("always fits in the field");
@@ -427,7 +370,7 @@ impl SessionNullifier {
 
     /// Creates a new session nullifier.
     pub fn new(nullifier: FieldElement, action: FieldElement) -> Result<Self, PrimitiveError> {
-        if !action.has_prefix(FePrefix::SessionAction) {
+        if !action.has_prefix(OprfPrefix::SessionAction) {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "session_nullifier".to_string(),
                 reason: "inner action is not valid".to_string(),
@@ -466,7 +409,7 @@ impl SessionNullifier {
         let action =
             FieldElement::try_from(value[1]).map_err(|e| format!("invalid action: {e}"))?;
 
-        if !action.has_prefix(FePrefix::SessionAction) {
+        if !action.has_prefix(OprfPrefix::SessionAction) {
             return Err("inner action is not valid".to_string());
         }
         Ok(Self { nullifier, action })
@@ -498,7 +441,7 @@ impl SessionNullifier {
         let action = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
             .map_err(|e| format!("invalid action: {e}"))?;
 
-        if bytes[32] != FePrefix::SessionAction as u8 {
+        if bytes[32] != OprfPrefix::SessionAction as u8 {
             return Err("invalid action. missing expected prefix.".to_string());
         }
 
@@ -509,7 +452,7 @@ impl SessionNullifier {
 impl Default for SessionNullifier {
     fn default() -> Self {
         let mut action = [0u8; 32];
-        action[0] = FePrefix::SessionAction as u8;
+        action[0] = OprfPrefix::SessionAction as u8;
         let action = U256::from_be_bytes(action)
             .try_into()
             .expect("always fits in the field");
@@ -561,43 +504,6 @@ impl<'de> Deserialize<'de> for SessionNullifier {
 impl From<SessionNullifier> for [U256; 2] {
     fn from(value: SessionNullifier) -> Self {
         value.as_ethereum_representation()
-    }
-}
-
-#[cfg(test)]
-mod fe_prefix_tests {
-    use super::*;
-
-    const ALL: [FePrefix; 3] = [
-        FePrefix::Uniqueness,
-        FePrefix::SessionOprfSeed,
-        FePrefix::SessionAction,
-    ];
-
-    #[test]
-    fn prefix_bytes_are_stable() {
-        assert_eq!(FePrefix::Uniqueness as u8, 0x00);
-        assert_eq!(FePrefix::SessionOprfSeed as u8, 0x01);
-        assert_eq!(FePrefix::SessionAction as u8, 0x02);
-    }
-
-    #[test]
-    fn random_with_prefix_is_recognized_only_by_its_own_prefix() {
-        let mut rng = rand::rngs::OsRng;
-        for prefix in ALL {
-            let fe = FieldElement::random_with_prefix(&mut rng, prefix);
-            assert_eq!(fe.to_be_bytes()[0], prefix as u8);
-            for other in ALL {
-                assert_eq!(fe.has_prefix(other), other == prefix);
-            }
-        }
-    }
-
-    #[test]
-    fn zero_carries_the_uniqueness_prefix() {
-        // The default domain is the absence of a session prefix, so it holds for values
-        // the protocol never mints — including zero.
-        assert!(FieldElement::ZERO.has_prefix(FePrefix::Uniqueness));
     }
 }
 
