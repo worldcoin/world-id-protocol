@@ -8,7 +8,7 @@ use taceo_oprf::types::api::{CloseFrameMessage, OprfRequestAuthenticatorError};
 use crate::{FieldElement, rp::RpId};
 
 #[expect(unused_imports, reason = "used in doc comments")]
-use crate::SessionFeType;
+use crate::FePrefix;
 
 /// A module identifier for OPRF evaluations.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -86,7 +86,7 @@ pub struct NullifierOprfRequestAuthV1 {
     /// Additional data needed to reconstruct the RP-signed message.
     ///
     /// Currently only valid on create-and-bind session-seed queries (see
-    /// [`SessionFeType::OprfSeed`]) from EOA-backed RPs.
+    /// [`FePrefix::SessionOprfSeed`]) from EOA-backed RPs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rp_signature_verification: Option<RpSignatureVerification>,
 }
@@ -187,7 +187,7 @@ pub enum WorldIdRequestAuthError {
     InvalidActionNullifier,
     /// **Only valid for Session Proofs**.
     ///
-    /// The provided action for the Session Proof is invalid. See [`SessionFeType`] for the valid action
+    /// The provided action for the Session Proof is invalid. See [`FePrefix`] for the valid action
     /// prefixes.
     #[error("invalid_action_for_session")]
     InvalidActionSession,

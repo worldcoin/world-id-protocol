@@ -11,7 +11,7 @@ use ark_ff::PrimeField as _;
 use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
 use uuid::Uuid;
 use world_id_primitives::{
-    FieldElement, SessionFeType, SessionFieldElement as _,
+    FePrefix, FieldElement, PrefixedFieldElement as _,
     oprf::{NullifierOprfRequestAuthV1, RpSignatureVerification, error_codes},
     rp::RpId,
 };
@@ -36,12 +36,12 @@ pub(crate) struct RpModuleTestSetup {
 
 impl RpModuleTestSetup {
     pub(crate) async fn new_session() -> eyre::Result<Self> {
-        Self::new_unbound_session_with_fe_type(SessionFeType::OprfSeed).await
+        Self::new_unbound_session_with_fe_type(FePrefix::SessionOprfSeed).await
     }
 
     /// Constructs a valid session test setup with the given session type.
     pub(crate) async fn new_unbound_session_with_fe_type(
-        session_type: SessionFeType,
+        session_type: FePrefix,
     ) -> eyre::Result<Self> {
         let mut rng = rand::thread_rng();
         let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
@@ -49,7 +49,7 @@ impl RpModuleTestSetup {
         let request_authenticator = RpModuleAuth::new_session(infra.rp_module_args());
 
         // Session action must have the correct prefix byte (0x01 or 0x02)
-        let session_action = FieldElement::random_for_session(&mut rng, session_type);
+        let session_action = FieldElement::random_with_prefix(&mut rng, session_type);
         let bundle = infra
             .generate_query_proof(session_action, infra.setup.rp_fixture.world_rp_id.into())?;
 
@@ -96,7 +96,7 @@ impl RpModuleTestSetup {
 
         let request_authenticator = RpModuleAuth::new_session(infra.rp_module_args());
 
-        let session_action = FieldElement::random_for_session(&mut rng, SessionFeType::OprfSeed);
+        let session_action = FieldElement::random_with_prefix(&mut rng, FePrefix::SessionOprfSeed);
         let bundle = infra
             .generate_query_proof(session_action, infra.setup.rp_fixture.world_rp_id.into())?;
 
@@ -652,7 +652,8 @@ async fn test_session_wip101_account_check_timeout() -> eyre::Result<()> {
 
 #[tokio::test]
 async fn test_session_success_action() -> eyre::Result<()> {
-    let setup = RpModuleTestSetup::new_unbound_session_with_fe_type(SessionFeType::Action).await?;
+    let setup =
+        RpModuleTestSetup::new_unbound_session_with_fe_type(FePrefix::SessionAction).await?;
     setup.assert_auth_ok().await
 }
 
