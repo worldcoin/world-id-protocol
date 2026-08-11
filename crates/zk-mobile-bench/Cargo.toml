@@ -15,7 +15,7 @@ path = "src/bin/uniffi-bindgen.rs"
 
 [dependencies]
 # Benchmarking
-mobench-sdk = "0.1.40"
+mobench-sdk = "0.2.0"
 inventory = "0.3"
 
 # World ID
@@ -45,4 +45,4 @@ rand_chacha = { workspace = true }
 thiserror = { workspace = true }
 
 # UniFFI for mobile bindings
-uniffi = { version = "0.31", features = ["cli"] }
+uniffi = { version = "0.32", features = ["cli"] }
