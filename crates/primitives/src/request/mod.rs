@@ -48,8 +48,8 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
 
 /// The high-level proof flow requested by an RP.
 ///
-/// Explicit discriminants reserve a stable one-byte protocol encoding for future
-/// signed request payloads. JSON serialization remains the snake_case variant name.
+/// Reserved for a possible future one-byte protocol encoding. Currently, JSON uses
+/// snake_case variant names and these discriminants are not serialized.
 ///
 /// The discriminants are the action prefixes the flow's action must carry — see
 /// [`Self::action_prefix`]. [`FePrefix::SessionOprfSeed`] (`0x01`) has no variant here
@@ -64,10 +64,10 @@ pub enum ProofType {
     /// or omit session involvement entirely — see [`ProofRequest::binds_session`].
     /// Binding to an already existing session is not supported.
     #[default]
-    Uniqueness = 0x00,
+    Uniqueness = FePrefix::Uniqueness as u8,
     /// Prove an RP-scoped session — either minting a fresh one
     /// (`session_id: "create"`) or an existing one (`session_id: "session_<hex>"`).
-    Session = 0x02,
+    Session = FePrefix::SessionAction as u8,
 }
 
 impl ProofType {
