@@ -245,11 +245,8 @@ impl Authenticator {
             SessionId::from_r_seed(self.leaf_index(), resolved_session_id_r_seed, oprf_seed)?;
 
         // Verify that the resolved (cached or freshly derived) matches the request session id.
-        if let SessionRef::Existing(request_session_id) = proof_request.session_id
-            && !request_session_id
-                .verify_commitment(self.leaf_index(), resolved_session_id_r_seed)?
-        {
-            return Err(AuthenticatorError::SessionIdMismatch);
+        if let SessionRef::Existing(request_session_id) = proof_request.session_id {
+            request_session_id.verify_commitment(self.leaf_index(), resolved_session_id_r_seed)?;
         }
 
         Ok((session_id, resolved_session_id_r_seed))
@@ -321,9 +318,7 @@ impl Authenticator {
             }
             SessionRef::Existing(session_id) => {
                 if let Some(seed) = session_id_r_seed {
-                    if !session_id.verify_commitment(self.leaf_index(), seed)? {
-                        return Err(AuthenticatorError::SessionIdMismatch);
-                    }
+                    session_id.verify_commitment(self.leaf_index(), seed)?;
                     (Some(session_id), Some(seed))
                 } else {
                     // Re-derive the same `r` from the existing session's `oprf_seed` when the

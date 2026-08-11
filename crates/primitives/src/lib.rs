@@ -324,6 +324,9 @@ pub enum PrimitiveError {
         /// The reason the input is invalid
         reason: String,
     },
+    /// A session ID commitment does not match the commitment derived from its inputs.
+    #[error("Session ID commitment does not match the derived commitment")]
+    SessionIdCommitmentMismatch,
 }
 
 #[cfg(test)]
