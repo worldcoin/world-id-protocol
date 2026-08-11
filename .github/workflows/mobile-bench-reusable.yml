@@ -76,7 +76,7 @@ on:
         description: "Mobench version to install"
         required: false
         type: string
-        default: "0.1.40"
+        default: "0.2.0"
       mobench_ref:
         description: "Git ref for mobile-bench-rs (overrides crates.io mobench_version when set)"
         required: false

@@ -5904,9 +5904,9 @@ dependencies = [
 
 [[package]]
 name = "mobench-macros"
-version = "0.1.40"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82a2620949467f1c0f7c468958fea01ee6b5d7aff67c42b35ca589e430881482"
+checksum = "9292a29a0a348a45a2dffdd17b1314b72753d86f3982573cbcd27e2e7a45a753"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5914,19 +5914,38 @@ dependencies = [
 ]
 
 [[package]]
-name = "mobench-sdk"
-version = "0.1.40"
+name = "mobench-process"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29cb9d7ff25e436fb310b428e81edee219a65b6414720c335a8c882ddcc29994"
+checksum = "d41aaad14d702725b6b79f390958da19a36a7c111a7944c6c71cba0b58d5edf4"
+dependencies = [
+ "libc",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "mobench-runtime"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "576579c727954c9f7f384e33c0602a8c49ef9634a7c91aa2d33e2fd17010c085"
+
+[[package]]
+name = "mobench-sdk"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4032d49ec97aab649d1a4d3f973631b7279b38ed91db8e595c7a3135dae3841"
 dependencies = [
  "include_dir",
  "inventory",
  "libc",
  "mobench-macros",
+ "mobench-process",
+ "mobench-runtime",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
  "toml 0.8.23",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -7117,7 +7136,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",

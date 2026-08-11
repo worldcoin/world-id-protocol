@@ -353,6 +353,39 @@ pub fn bench_nullifier_proof_generation() {
     std::hint::black_box((proof, public));
 }
 
+/// Prepare a nullifier proof input and proving material once, outside the
+/// measured iterations of the cached proof-generation benchmark.
+fn setup_nullifier_cached_proof() -> (
+    NullifierProofCircuitInput<TREE_DEPTH>,
+    CircomGroth16Material,
+) {
+    let (nullifier_input, nullifier_material, _rng) = generate_nullifier_input();
+    (nullifier_input, nullifier_material)
+}
+
+/// Benchmark: Nullifier/Uniqueness Proof (π2) generation from cached input
+///
+/// Measures Circom witness generation plus Groth16 proving for a prepared
+/// input. Fixture construction, including the prerequisite π1 query proof, is
+/// performed once by Mobench setup and excluded from measured iterations.
+#[benchmark(setup = setup_nullifier_cached_proof)]
+pub fn bench_nullifier_cached_proof_generation(
+    setup: &(
+        NullifierProofCircuitInput<TREE_DEPTH>,
+        CircomGroth16Material,
+    ),
+) {
+    let iter = PROOF_ONLY_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut rng = ChaCha20Rng::seed_from_u64(PROOF_ONLY_BASE_SEED ^ iter);
+    let (nullifier_input, nullifier_material) = setup;
+
+    let (proof, public) = nullifier_material
+        .generate_proof(nullifier_input, &mut rng)
+        .expect("nullifier proof generation");
+
+    std::hint::black_box((proof, public));
+}
+
 /// Benchmark: Nullifier/Uniqueness Proof (π2) witness generation only
 ///
 /// Measures only Circom witness generation (R1CS assignment), excluding Groth16 proving.
@@ -642,6 +675,7 @@ mod tests {
             "zk_mobile_bench::bench_query_witness_generation_only",
             "zk_mobile_bench::bench_query_proving_only",
             "zk_mobile_bench::bench_nullifier_proof_generation",
+            "zk_mobile_bench::bench_nullifier_cached_proof_generation",
             "zk_mobile_bench::bench_nullifier_witness_generation_only",
             "zk_mobile_bench::bench_nullifier_proving_only",
         ] {

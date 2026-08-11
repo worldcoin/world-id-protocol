@@ -7,7 +7,7 @@ Mobile benchmarks for World ID ZK proof generation using [mobench](https://githu
 Install mobench:
 
 ```bash
-cargo install mobench --version 0.1.40 --locked
+cargo install mobench --version 0.2.0 --locked
 ```
 
 Build and run locally:
@@ -33,7 +33,7 @@ cargo-mobench run \
 ```
 
 BrowserStack runs remain the right path for timing and memory benchmarks.
-BrowserStack native profiling is unsupported in `mobench` `0.1.40`; use the
+BrowserStack native profiling is unsupported in `mobench` `0.2.0`; use the
 local provider for native capture.
 
 Capture a local native profile:
@@ -77,6 +77,7 @@ Benchmark reports also preserve optional semantic `phases` emitted by
 | `bench_query_witness_generation_only` | π1 query | Circom witness generation only, with cached input/material |
 | `bench_query_proving_only` | π1 query | Groth16 proving only, from a cached witness |
 | `bench_nullifier_proof_generation` | π2 nullifier | Full measured path: fixture/input generation, witness generation, and Groth16 proving |
+| `bench_nullifier_cached_proof_generation` | π2 nullifier | Circom witness generation plus Groth16 proving from cached input/material; fixture setup is excluded |
 | `bench_nullifier_witness_generation_only` | π2 nullifier | Circom witness generation only, with cached input/material |
 | `bench_nullifier_proving_only` | π2 nullifier | Groth16 proving only, from a cached witness |
 
