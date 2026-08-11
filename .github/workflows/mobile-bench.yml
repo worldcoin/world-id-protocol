@@ -116,8 +116,11 @@ jobs:
       device_profile: ${{ inputs.device_profile }}
       ios_device: ${{ inputs.ios_device }}
       ios_os_version: ${{ inputs.ios_os_version }}
-      android_device: ${{ inputs.android_device }}
-      android_os_version: ${{ inputs.android_os_version }}
+      # mobench's low-spec profile still resolves to Moto G9 Play-10.0, which
+      # the current BrowserStack inventory no longer exposes. Keep manual
+      # overrides intact and use the available low-spec replacement by default.
+      android_device: ${{ inputs.android_device != '' && inputs.android_device || 'Motorola Moto G71 5G' }}
+      android_os_version: ${{ inputs.android_os_version != '' && inputs.android_os_version || '11.0' }}
       iterations: ${{ inputs.iterations }}
       warmup: ${{ inputs.warmup }}
       fetch_timeout_secs: ${{ inputs.fetch_timeout_secs }}
