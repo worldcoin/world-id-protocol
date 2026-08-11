@@ -147,7 +147,7 @@ jobs:
           ref: ${{ inputs.head_sha || github.sha }}
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.93.0
         with:
           targets: ${{ inputs.rust_targets_ios }}
 
