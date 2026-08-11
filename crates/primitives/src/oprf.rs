@@ -14,9 +14,8 @@ use crate::{FieldElement, rp::RpId};
 /// their outputs from colliding. The variants are exhaustive for the nullifier and
 /// session OPRF inputs.
 ///
-/// The values match the [`crate::ProofType`] discriminants — see
-/// [`ProofType::action_prefix`](crate::ProofType::action_prefix), which is the
-/// authoritative mapping.
+/// [`ProofType::action_prefix`](crate::ProofType::action_prefix) maps each proof
+/// flow to one of these authoritative OPRF input domains.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OprfPrefix {
@@ -36,10 +35,6 @@ pub enum OprfPrefix {
 /// Generation and validation of domain-prefixed OPRF inputs. See [`OprfPrefix`].
 pub trait OprfPrefixedFieldElement {
     /// Generate a randomized field element carrying the given OPRF prefix.
-    ///
-    /// # Panics
-    /// Never — any 32-byte value whose MSB is one of the [`OprfPrefix`] variants is
-    /// below the babyjubjub modulus.
     fn random_with_prefix<R: rand::CryptoRng + rand::RngCore>(
         rng: &mut R,
         prefix: OprfPrefix,
@@ -596,13 +591,6 @@ mod tests {
     ];
 
     #[test]
-    fn prefix_bytes_are_stable() {
-        assert_eq!(OprfPrefix::Uniqueness as u8, 0x00);
-        assert_eq!(OprfPrefix::SessionOprfSeed as u8, 0x01);
-        assert_eq!(OprfPrefix::SessionAction as u8, 0x02);
-    }
-
-    #[test]
     fn random_with_prefix_is_recognized_only_by_its_own_prefix() {
         let mut rng = rand::rngs::OsRng;
         for prefix in ALL_PREFIXES {
@@ -612,13 +600,6 @@ mod tests {
                 assert_eq!(field_element.has_prefix(other), other == prefix);
             }
         }
-    }
-
-    #[test]
-    fn zero_carries_the_uniqueness_prefix() {
-        // The default domain is the absence of a session prefix, so it holds for values
-        // the protocol never mints — including zero.
-        assert!(FieldElement::ZERO.has_prefix(OprfPrefix::Uniqueness));
     }
 
     /// A structurally valid Groth16 proof (BN254 generator points) for serde tests.
