@@ -14,8 +14,7 @@ use crate::{FieldElement, rp::RpId};
 /// their outputs from colliding. The variants are exhaustive for the nullifier and
 /// session OPRF inputs.
 ///
-/// [`ProofType::action_prefix`](crate::ProofType::action_prefix) maps each proof
-/// flow to one of these authoritative OPRF input domains.
+/// These variants are the authoritative OPRF input domains.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OprfPrefix {

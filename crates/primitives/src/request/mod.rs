@@ -51,9 +51,9 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
 /// Reserved for a possible future one-byte protocol encoding. Currently, JSON uses
 /// snake_case variant names and these discriminants are not serialized.
 ///
-/// The discriminants are the action prefixes the flow's action must carry — see
-/// [`Self::action_prefix`]. [`OprfPrefix::SessionOprfSeed`] (`0x01`) has no variant here
-/// because the session `oprf_seed` is not a proof flow of its own.
+/// The discriminants mirror the OPRF domains used by each proof flow.
+/// [`OprfPrefix::SessionOprfSeed`] (`0x01`) has no variant here because the session
+/// `oprf_seed` is not a proof flow of its own.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -71,18 +71,6 @@ pub enum ProofType {
 }
 
 impl ProofType {
-    /// The prefix the OPRF action must carry for this proof flow.
-    ///
-    /// This is the authoritative mapping between a proof flow and its action domain;
-    /// the matching discriminants are an encoding convenience, not the contract.
-    #[must_use]
-    pub const fn action_prefix(&self) -> OprfPrefix {
-        match self {
-            Self::Uniqueness => OprfPrefix::Uniqueness,
-            Self::Session => OprfPrefix::SessionAction,
-        }
-    }
-
     /// Returns true for the default uniqueness proof flow.
     #[must_use]
     pub const fn is_uniqueness(&self) -> bool {
@@ -480,9 +468,9 @@ impl ProofRequest {
     /// If `proof_type` was omitted during deserialization, it defaults to
     /// [`ProofType::Uniqueness`]. Session flows must opt in explicitly.
     ///
-    /// A present `action` must also carry the prefix its flow requires
-    /// ([`ProofType::action_prefix`]), so that an action from another domain is rejected
-    /// here rather than by the OPRF nodes after a round trip.
+    /// A uniqueness `action` must also carry [`OprfPrefix::Uniqueness`], so that an
+    /// action from another domain is rejected here rather than by the OPRF nodes after
+    /// a round trip.
     ///
     /// # Errors
     /// Returns [`PrimitiveError::InvalidInput`] when the request has an invalid
@@ -513,14 +501,13 @@ impl ProofRequest {
             _ => Ok(()),
         }?;
 
-        // Only reached with an `action` the flow actually scopes by; the arms above
-        // already rejected the flows that must omit it.
+        // Only uniqueness flows can reach this point with an action; session flows
+        // carrying one were rejected above.
         if let Some(action) = self.action {
-            let prefix = self.proof_type.action_prefix();
-            if !action.has_prefix(prefix) {
+            if !action.has_prefix(OprfPrefix::Uniqueness) {
                 return Err(PrimitiveError::InvalidInput {
                     attribute: "action".to_string(),
-                    reason: format!("MSB must be 0x{:02x}", prefix as u8),
+                    reason: format!("MSB must be 0x{:02x}", OprfPrefix::Uniqueness as u8),
                 });
             }
         }
@@ -2707,21 +2694,6 @@ mod tests {
         // `oprf_seed` rather than a proof flow.
         assert_eq!(ProofType::Uniqueness as u8, 0x00);
         assert_eq!(ProofType::Session as u8, 0x02);
-    }
-
-    #[test]
-    fn proof_type_action_prefix_matches_discriminant() {
-        for proof_type in [ProofType::Uniqueness, ProofType::Session] {
-            assert_eq!(proof_type.action_prefix() as u8, proof_type as u8);
-        }
-        assert_eq!(
-            ProofType::Uniqueness.action_prefix(),
-            OprfPrefix::Uniqueness
-        );
-        assert_eq!(
-            ProofType::Session.action_prefix(),
-            OprfPrefix::SessionAction
-        );
     }
 
     #[test]
