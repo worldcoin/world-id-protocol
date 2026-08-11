@@ -156,6 +156,23 @@ impl SessionId {
         FieldElement::random_for_session(rng, SessionFeType::OprfSeed)
     }
 
+    /// Returns whether `seed` re-derives to this session id's [`Self::commitment`].
+    ///
+    /// Used to check a `session_id_r_seed` (`r`) obtained from elsewhere (e.g. an
+    /// Authenticator's local cache) against an expected [`SessionId`], without
+    /// having to re-derive it via the OPRF nodes.
+    ///
+    /// # Errors
+    /// Propagates errors from [`Self::from_r_seed`] (e.g. an invalid [`Self::oprf_seed`]).
+    pub fn verify_r_seed(
+        &self,
+        leaf_index: u64,
+        seed: FieldElement,
+    ) -> Result<bool, PrimitiveError> {
+        let computed = Self::from_r_seed(leaf_index, seed, self.oprf_seed)?;
+        Ok(computed.commitment == self.commitment)
+    }
+
     /// Returns the 64-byte big-endian representation (2 x 32-byte field elements).
     #[must_use]
     pub fn to_compressed_bytes(&self) -> [u8; 64] {
@@ -699,6 +716,39 @@ mod session_id_tests {
             expected,
             "commitment snapashot for session commitment changed"
         );
+    }
+
+    #[test]
+    fn test_verify_r_seed_accepts_matching_seed() {
+        let leaf_index = 42u64;
+        let r_seed = test_field_element(123);
+        let oprf_seed = test_oprf_seed(456);
+        let session_id = SessionId::from_r_seed(leaf_index, r_seed, oprf_seed).unwrap();
+
+        assert!(session_id.verify_r_seed(leaf_index, r_seed).unwrap());
+    }
+
+    #[test]
+    fn test_verify_r_seed_rejects_wrong_seed() {
+        let leaf_index = 42u64;
+        let oprf_seed = test_oprf_seed(456);
+        let session_id =
+            SessionId::from_r_seed(leaf_index, test_field_element(123), oprf_seed).unwrap();
+
+        assert!(
+            !session_id
+                .verify_r_seed(leaf_index, test_field_element(124))
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_verify_r_seed_rejects_wrong_leaf_index() {
+        let r_seed = test_field_element(123);
+        let oprf_seed = test_oprf_seed(456);
+        let session_id = SessionId::from_r_seed(42, r_seed, oprf_seed).unwrap();
+
+        assert!(!session_id.verify_r_seed(43, r_seed).unwrap());
     }
 }
 
