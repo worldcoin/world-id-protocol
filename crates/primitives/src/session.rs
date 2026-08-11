@@ -156,19 +156,19 @@ impl SessionId {
         FieldElement::random_for_session(rng, SessionFeType::OprfSeed)
     }
 
-    /// Returns whether `seed` re-derives to this session id's [`Self::commitment`].
+    /// Returns whether `session_id_r_seed` re-derives to this session id's [`Self::commitment`].
     ///
     /// Checks an `r` seed obtained elsewhere (e.g. an Authenticator's cache) without
     /// re-deriving it via the OPRF nodes.
     ///
     /// # Errors
     /// If this session id's [`Self::oprf_seed`] is not valid.
-    pub fn verify_r_seed(
+    pub fn verify_commitment(
         &self,
         leaf_index: u64,
-        seed: FieldElement,
+        session_id_r_seed: FieldElement,
     ) -> Result<bool, PrimitiveError> {
-        let computed = Self::from_r_seed(leaf_index, seed, self.oprf_seed)?;
+        let computed = Self::from_r_seed(leaf_index, session_id_r_seed, self.oprf_seed)?;
         Ok(computed.commitment == self.commitment)
     }
 
@@ -718,15 +718,15 @@ mod session_id_tests {
     }
 
     #[test]
-    fn test_verify_r_seed() {
+    fn test_verify_commitment() {
         let leaf_index = 42u64;
         let r_seed = test_field_element(123);
         let session_id = SessionId::from_r_seed(leaf_index, r_seed, test_oprf_seed(456)).unwrap();
 
-        assert!(session_id.verify_r_seed(leaf_index, r_seed).unwrap());
+        assert!(session_id.verify_commitment(leaf_index, r_seed).unwrap());
         assert!(
             !session_id
-                .verify_r_seed(leaf_index, test_field_element(124))
+                .verify_commitment(leaf_index, test_field_element(124))
                 .unwrap()
         );
     }

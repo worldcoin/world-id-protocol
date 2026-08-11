@@ -204,7 +204,7 @@ impl Authenticator {
     pub async fn build_session_id(
         &self,
         proof_request: &ProofRequest,
-        session_id_r_seed: Option<FieldElement>,
+        cached_session_id_r_seed: Option<FieldElement>,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
         proof_request.validate_proof_type()?;
@@ -224,7 +224,7 @@ impl Authenticator {
             }
         };
 
-        let resolved_session_id_r_seed = match session_id_r_seed {
+        let resolved_session_id_r_seed = match cached_session_id_r_seed {
             Some(seed) => seed,
             None => {
                 let query_material = self
@@ -244,8 +244,10 @@ impl Authenticator {
         let session_id =
             SessionId::from_r_seed(self.leaf_index(), resolved_session_id_r_seed, oprf_seed)?;
 
+        // Verify that the resolved (cached or freshly derived) matches the request session id.
         if let SessionRef::Existing(request_session_id) = proof_request.session_id
-            && !request_session_id.verify_r_seed(self.leaf_index(), resolved_session_id_r_seed)?
+            && !request_session_id
+                .verify_commitment(self.leaf_index(), resolved_session_id_r_seed)?
         {
             return Err(AuthenticatorError::SessionIdMismatch);
         }
@@ -319,7 +321,7 @@ impl Authenticator {
             }
             SessionRef::Existing(session_id) => {
                 if let Some(seed) = session_id_r_seed {
-                    if !session_id.verify_r_seed(self.leaf_index(), seed)? {
+                    if !session_id.verify_commitment(self.leaf_index(), seed)? {
                         return Err(AuthenticatorError::SessionIdMismatch);
                     }
                     (Some(session_id), Some(seed))
