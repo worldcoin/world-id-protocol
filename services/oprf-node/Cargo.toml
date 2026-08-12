@@ -22,6 +22,7 @@ circom-types = { workspace = true, features = [
   "verification-key",
   "zkey"
 ] }
+config.workspace = true
 eyre = { workspace = true }
 futures = { workspace = true }
 humantime = { workspace = true }
@@ -31,7 +32,6 @@ moka = { workspace = true }
 rustls = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-serde-env.workspace = true
 serde_json = { workspace = true }
 taceo-nodes-common = { workspace = true, features = ["postgres", "web3"] }
 taceo-oprf = { workspace = true, features = ["postgres", "service"] }

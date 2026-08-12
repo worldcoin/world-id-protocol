@@ -9394,15 +9394,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde-env"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9d29a4f822b7a7e7eada47da087a9d29d9b266dba45edc375fdc700965860d7"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "serde-untagged"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12838,6 +12829,7 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
+ "config",
  "eyre",
  "futures",
  "humantime",
@@ -12848,7 +12840,6 @@ dependencies = [
  "rustls",
  "secrecy",
  "serde",
- "serde-env",
  "serde_json",
  "taceo-ark-babyjubjub",
  "taceo-circom-types",
