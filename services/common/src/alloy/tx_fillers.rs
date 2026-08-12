@@ -12,10 +12,53 @@ use ::alloy::{
 ///
 /// The fallback only needs to cover the cost of a basic revert while still
 /// allowing the transaction to be submitted to avoid nonce gaps.
-pub(crate) const GAS_ESTIMATION_FALLBACK: u64 = 500_000;
+pub const GAS_ESTIMATION_FALLBACK: u64 = 500_000;
 
 const GAS_ESTIMATION_MARGIN_NUMERATOR: u64 = 120;
 const GAS_ESTIMATION_MARGIN_DENOMINATOR: u64 = 100;
+
+const fn apply_margin(estimate: u64) -> u64 {
+    estimate.saturating_mul(GAS_ESTIMATION_MARGIN_NUMERATOR) / GAS_ESTIMATION_MARGIN_DENOMINATOR
+}
+
+/// Estimates the gas limit for `tx` via `eth_estimateGas`, applying a 20%
+/// margin, and falls back to [`GAS_ESTIMATION_FALLBACK`] when the node reports
+/// that the transaction would revert.
+///
+/// Transport / infrastructure errors are returned to the caller so they can be
+/// retried; only execution errors take the fallback.
+///
+/// Callers that set `gas_limit` themselves (for example to keep an explicit
+/// gas limit stable across re-broadcasts of the same nonce) need this directly,
+/// because setting the limit makes [`GasEstimateWithFallbackFiller`] a no-op.
+///
+/// # Errors
+///
+/// Returns the underlying transport error when `eth_estimateGas` fails for a
+/// reason other than execution revert.
+pub async fn estimate_gas_with_fallback<P, N>(provider: &P, tx: N::TransactionRequest) -> TransportResult<u64>
+where
+    P: Provider<N>,
+    N: Network,
+{
+    match provider.estimate_gas(tx).await {
+        Ok(estimate) => Ok(apply_margin(estimate)),
+        // JSON-RPC error: the node ran the transaction and it reverted.
+        // Use the fallback so we can still submit and record the failure.
+        Err(RpcError::ErrorResp(error)) => {
+            tracing::warn!(
+                %error,
+                gas_limit = GAS_ESTIMATION_FALLBACK,
+                "eth_estimateGas returned an execution error, \
+                 transaction will likely revert — using fallback gas limit"
+            );
+            Ok(GAS_ESTIMATION_FALLBACK)
+        }
+        // Transport / infrastructure error: propagate so the caller can
+        // retry or surface the failure.
+        Err(error) => Err(error),
+    }
+}
 
 /// A transaction filler that populates missing gas limits via
 /// `eth_estimateGas`, with a fallback when estimation fails.
@@ -35,12 +78,6 @@ const GAS_ESTIMATION_MARGIN_DENOMINATOR: u64 = 100;
 /// standard alloy `GasFiller`.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct GasEstimateWithFallbackFiller;
-
-impl GasEstimateWithFallbackFiller {
-    const fn apply_margin(estimate: u64) -> u64 {
-        estimate.saturating_mul(GAS_ESTIMATION_MARGIN_NUMERATOR) / GAS_ESTIMATION_MARGIN_DENOMINATOR
-    }
-}
 
 impl<N> TxFiller<N> for GasEstimateWithFallbackFiller
 where
@@ -67,25 +104,7 @@ where
     where
         P: Provider<N>,
     {
-        let gas_limit = match provider.estimate_gas(tx.clone()).await {
-            Ok(estimate) => Self::apply_margin(estimate),
-            // JSON-RPC error: the node ran the transaction and it reverted.
-            // Use the fallback so we can still submit and record the failure.
-            Err(RpcError::ErrorResp(error)) => {
-                tracing::warn!(
-                    %error,
-                    gas_limit = GAS_ESTIMATION_FALLBACK,
-                    "eth_estimateGas returned an execution error, \
-                     transaction will likely revert — using fallback gas limit"
-                );
-                GAS_ESTIMATION_FALLBACK
-            }
-            // Transport / infrastructure error: propagate so the caller can
-            // retry or surface the failure.
-            Err(error) => return Err(error),
-        };
-
-        Ok(gas_limit)
+        estimate_gas_with_fallback(provider, tx.clone()).await
     }
 
     async fn fill(

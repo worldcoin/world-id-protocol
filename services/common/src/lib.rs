@@ -10,6 +10,7 @@ pub use self::{
             METRICS_RPC_ENDPOINT_LATENCY_MS, METRICS_RPC_ENDPOINT_REQUESTS, RetryConfig,
             describe_provider_transport_metrics,
         },
+        tx_fillers::{GAS_ESTIMATION_FALLBACK, estimate_gas_with_fallback},
     },
     axum::server_layers::{
         Deprecation, DeprecationLayer, DeprecationService, METRICS_DEPRECATED_ENDPOINT_REQUESTS,

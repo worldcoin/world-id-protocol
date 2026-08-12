@@ -2,6 +2,7 @@ use std::{num::NonZeroUsize, path::Path, time::Duration};
 
 use ::alloy::{
     network::EthereumWallet,
+    primitives::Address,
     providers::{
         DynProvider, Provider, ProviderBuilder,
         fillers::{NonceManager, SimpleNonceManager},
@@ -299,16 +300,33 @@ impl ProviderArgs {
     pub async fn http(self) -> ProviderResult<DynProvider> {
         self.http_with_nonce_manager(SimpleNonceManager::default())
             .await
+            .map(|(provider, _)| provider)
+    }
+
+    /// Build a dynamic provider and also return the configured signer's
+    /// address, if a signer is configured.
+    ///
+    /// [`DynProvider`] erases the concrete filler stack, so the
+    /// `WalletProvider` impl — and with it `default_signer_address()` — is not
+    /// available on the returned provider. Callers that need to read chain
+    /// state for their own signer (transaction count, balance) must obtain the
+    /// address here instead.
+    pub async fn http_with_signer_address(self) -> ProviderResult<(DynProvider, Option<Address>)> {
+        self.http_with_nonce_manager(SimpleNonceManager::default())
+            .await
     }
 
     /// Build a dynamic provider using a caller-supplied [`NonceManager`].
     ///
     /// This allows injecting a distributed nonce manager (e.g. Redis-backed)
     /// for safe multi-replica transaction submission with a shared signer.
+    ///
+    /// Returns the provider alongside the signer address, if a signer is
+    /// configured.
     pub async fn http_with_nonce_manager<M: NonceManager + 'static>(
         self,
         nonce_manager: M,
-    ) -> ProviderResult<DynProvider> {
+    ) -> ProviderResult<(DynProvider, Option<Address>)> {
         let Some(http) = self.http else {
             return Err(ProviderError::NoHttpUrls);
         };
@@ -386,7 +404,8 @@ impl ProviderArgs {
             None
         };
 
-        let provider = if let Some(signer) = maybe_signer {
+        let (provider, signer_address) = if let Some(signer) = maybe_signer {
+            let signer_address = signer.default_signer().address();
             let provider = ProviderBuilder::default()
                 .with_gas_estimation() // It is important to have default run first
                 .filler(GasEstimateWithFallbackFiller) // And then our custom filler
@@ -396,13 +415,13 @@ impl ProviderArgs {
                 .wallet(signer)
                 .connect_client(client);
 
-            provider.erased()
+            (provider.erased(), Some(signer_address))
         } else {
             let provider = ProviderBuilder::default().connect_client(client);
-            provider.erased()
+            (provider.erased(), None)
         };
 
-        Ok(provider)
+        Ok((provider, signer_address))
     }
 }
 
