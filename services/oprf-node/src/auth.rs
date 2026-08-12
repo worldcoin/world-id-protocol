@@ -318,6 +318,8 @@ mod tests {
                 expires_at_max_difference: self.expires_at_max_difference,
                 timeout_external_eth_call: self.timeout_external_eth_call,
                 rpc_provider: self.http_rpc_provider.clone(),
+                rp_registry_address: self.setup.rp_registry,
+                chain_id: Arc::new(tokio::sync::OnceCell::new()),
                 query_vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
             }
         }

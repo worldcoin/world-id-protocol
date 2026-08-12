@@ -2,10 +2,10 @@
 //!
 //! Both the session and uniqueness modules share identical struct fields, init
 //! logic, and query-proof verification. They differ only in:
-//! - which [`OprfPrefix`] the action field must carry ([`OprfPrefix::Uniqueness`] for uniqueness vs
-//!   [`OprfPrefix::SessionOprfSeed`]/[`OprfPrefix::SessionAction`] for sessions)
-//! - whether the action is included in the RP signature. Some for uniqueness, none for session. For session-seed queries initiated by an RP request for a uniqueness proof,
-//!   the action of the uniqueness proof is part of the data the RP signs over and is included in the `rp_signature_verification` field.
+//! - how the action field is validated (`MSB == 0x00` for uniqueness vs `0x01/0x02` for sessions, via [`OprfPrefix`])
+//! - how the OPRF action is authorized. V1 signs the uniqueness action directly and uses
+//!   `rp_signature_verification` for create-and-bind seed queries. V2 carries an explicit typed
+//!   proof/session intent and operation matrix.
 //! - which [`WorldIdRequestAuthError`] variant is returned for an invalid action
 //!
 //! [`RpModuleKind`] captures these differences; [`RpModuleAuth`] holds the shared
@@ -19,7 +19,10 @@ use crate::{
     },
     metrics,
 };
-use alloy::primitives::Address;
+use alloy::{
+    primitives::Address,
+    providers::Provider as _,
+};
 use ark_bn254::Bn254;
 use ark_groth16::PreparedVerifyingKey;
 use async_trait::async_trait;
@@ -32,8 +35,9 @@ use taceo_oprf::types::{
 };
 use tracing::instrument;
 use world_id_primitives::{
-    FieldElement, OprfPrefix, OprfPrefixedFieldElement as _,
+    FieldElement, OprfPrefix, OprfPrefixedFieldElement as _, ProofType, RequestVersion,
     oprf::{NullifierOprfRequestAuthV1, RpSignatureVerification, WorldIdRequestAuthError},
+    rp::{RpId, RpRequestAuthorizationV2, RpRequestSessionMode, session_seed_authorization_v2},
 };
 
 pub(crate) mod wip101;
@@ -41,10 +45,8 @@ pub(crate) mod wip101;
 /// Distinguishes the two RP-authenticated OPRF modules.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum RpModuleKind {
-    /// Session module: action MSB must be `0x01` (seed) or `0x02` (action); action is NOT
-    /// signed. Seed queries may carry a uniqueness action as RP signature verification data,
-    /// in which case the signature is verified over the action-inclusive message
-    /// (create-and-bind).
+    /// Session module: action MSB must be `0x01` (seed) or `0x02` (action). V1 does not sign
+    /// session actions directly; V2 authorizes them through its typed session intent.
     Session,
     /// Uniqueness module: action MSB must be `0x00`; action IS signed.
     Uniqueness,
@@ -144,7 +146,10 @@ impl From<&RpModuleError> for WorldIdRequestAuthError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum RpAccountType {
     Eoa,
-    Contract,
+    Contract {
+        supports_v1: bool,
+        supports_v2: bool,
+    },
     IncompatibleWip101,
 }
 
@@ -152,7 +157,10 @@ impl fmt::Display for RpAccountType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RpAccountType::Eoa => write!(f, "eoa"),
-            RpAccountType::Contract => write!(f, "contract"),
+            RpAccountType::Contract {
+                supports_v1,
+                supports_v2,
+            } => write!(f, "contract (WIP-101 v1={supports_v1}, v2={supports_v2})"),
             RpAccountType::IncompatibleWip101 => write!(f, "incompatible wip101 contract"),
         }
     }
@@ -174,15 +182,15 @@ pub(crate) struct RpModuleAuth {
     timeout_external_eth_call: Duration,
     merkle_watcher: MerkleWatcher,
     rpc_provider: web3::HttpRpcProvider,
+    rp_registry_address: Address,
+    chain_id: Arc<tokio::sync::OnceCell<u64>>,
     query_vk: Arc<PreparedVerifyingKey<Bn254>>,
 }
 
 impl RelyingParty {
-    fn verify_eoa(
-        &self,
-        action: Option<ark_babyjubjub::Fq>,
+    fn signature(
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
-    ) -> Result<(), RpModuleError> {
+    ) -> Result<alloy::primitives::Signature, RpModuleError> {
         let signature = request
             .auth
             .signature
@@ -190,6 +198,15 @@ impl RelyingParty {
         if request.auth.wip101_data.is_some() {
             return Err(RpModuleError::Wip101(wip101::Wip101Error::AuxDataOnEoa));
         }
+        Ok(signature)
+    }
+
+    fn verify_eoa_v1(
+        &self,
+        action: Option<ark_babyjubjub::Fq>,
+        request: &OprfRequest<NullifierOprfRequestAuthV1>,
+    ) -> Result<(), RpModuleError> {
+        let signature = Self::signature(request)?;
         // check the RP nonce signature
         let msg = world_id_primitives::rp::compute_rp_signature_msg(
             request.auth.nonce,
@@ -200,6 +217,24 @@ impl RelyingParty {
 
         tracing::trace!("check RP signature...");
         let recovered = signature.recover_address_from_msg(msg)?;
+        if recovered != self.signer {
+            return Err(RpModuleError::InvalidSignature);
+        }
+        Ok(())
+    }
+
+    fn verify_eoa_v2(
+        &self,
+        authorization: &RpRequestAuthorizationV2,
+        chain_id: u64,
+        rp_registry_address: Address,
+        request: &OprfRequest<NullifierOprfRequestAuthV1>,
+    ) -> Result<(), RpModuleError> {
+        let signature = Self::signature(request)?;
+        let digest = authorization.signing_hash(chain_id, rp_registry_address);
+
+        tracing::trace!("check V2 EIP-712 RP signature...");
+        let recovered = signature.recover_address_from_prehash(&digest)?;
         if recovered != self.signer {
             return Err(RpModuleError::InvalidSignature);
         }
@@ -216,6 +251,8 @@ pub(crate) struct RpModuleAuthArgs {
     pub(crate) expires_at_max_difference: chrono::Duration,
     pub(crate) timeout_external_eth_call: Duration,
     pub(crate) rpc_provider: web3::HttpRpcProvider,
+    pub(crate) rp_registry_address: Address,
+    pub(crate) chain_id: Arc<tokio::sync::OnceCell<u64>>,
     pub(crate) query_vk: Arc<PreparedVerifyingKey<Bn254>>,
 }
 
@@ -239,6 +276,8 @@ impl RpModuleAuth {
             expires_at_max_difference,
             timeout_external_eth_call,
             rpc_provider,
+            rp_registry_address,
+            chain_id,
             query_vk,
         } = args;
         Self {
@@ -250,8 +289,24 @@ impl RpModuleAuth {
             timeout_external_eth_call,
             merkle_watcher,
             rpc_provider,
+            rp_registry_address,
+            chain_id,
             query_vk,
         }
+    }
+
+    async fn chain_id(&self) -> Result<u64, RpModuleError> {
+        let chain_id = self
+            .chain_id
+            .get_or_try_init(|| async {
+                self.rpc_provider
+                    .inner()
+                    .get_chain_id()
+                    .await
+                    .map_err(eyre::Report::from)
+            })
+            .await?;
+        Ok(*chain_id)
     }
 
     /// Checks that the signature has not expired and that the request timestamp
@@ -303,33 +358,65 @@ impl RpModuleAuth {
         match rp.account_type {
             RpAccountType::Eoa => {
                 tracing::trace!("RP signer is EOA");
-                let action = match self.kind {
-                    RpModuleKind::Uniqueness => Some(action),
-                    // Session RP signatures do not include the action, unless the request
-                    // carries a uniqueness action as verification data (create-and-bind).
-                    RpModuleKind::Session => request.auth.rp_signature_verification.map(
-                        |verification| match verification {
-                            RpSignatureVerification::UniquenessAction { action } => *action,
-                        },
-                    ),
-                };
-                rp.verify_eoa(action, request)
-            }
-            RpAccountType::Contract => {
-                // TODO(session-proofs): WIP-101 does not currently support session proofs.
-                if request.auth.rp_signature_verification.is_some() {
-                    return Err(RpModuleError::InvalidRpSignatureVerification {
-                        context: "not supported for WIP101 contract-backed RPs",
-                    });
+                if let Some(authorization) = &request.auth.rp_request_authorization {
+                    let chain_id = self.chain_id().await?;
+                    rp.verify_eoa_v2(authorization, chain_id, self.rp_registry_address, request)
+                } else {
+                    let action = match self.kind {
+                        RpModuleKind::Uniqueness => Some(action),
+                        // Session RP signatures do not include the action, unless the request
+                        // carries a uniqueness action as verification data (create-and-bind).
+                        RpModuleKind::Session => {
+                            request.auth.rp_signature_verification.map(|verification| {
+                                match verification {
+                                    RpSignatureVerification::UniquenessAction { action } => *action,
+                                }
+                            })
+                        }
+                    };
+                    rp.verify_eoa_v1(action, request)
                 }
-                Ok(rp
-                    .verify_wip101(
-                        action,
-                        &request.auth,
-                        &self.rpc_provider,
-                        self.timeout_external_eth_call,
-                    )
-                    .await?)
+            }
+            RpAccountType::Contract {
+                supports_v1,
+                supports_v2,
+            } => {
+                if let Some(authorization) = &request.auth.rp_request_authorization {
+                    if !supports_v2 {
+                        return Err(RpModuleError::Wip101(
+                            wip101::Wip101Error::UnsupportedVersion(RequestVersion::V2),
+                        ));
+                    }
+                    Ok(rp
+                        .verify_wip101_v2(
+                            action,
+                            authorization,
+                            &request.auth,
+                            &self.rpc_provider,
+                            self.timeout_external_eth_call,
+                        )
+                        .await?)
+                } else {
+                    if !supports_v1 {
+                        return Err(RpModuleError::Wip101(
+                            wip101::Wip101Error::UnsupportedVersion(RequestVersion::V1),
+                        ));
+                    }
+                    // Legacy auxiliary signature data has no WIP-101 V1 representation.
+                    if request.auth.rp_signature_verification.is_some() {
+                        return Err(RpModuleError::InvalidRpSignatureVerification {
+                            context: "not supported for WIP101 V1 contract-backed RPs",
+                        });
+                    }
+                    Ok(rp
+                        .verify_wip101(
+                            action,
+                            &request.auth,
+                            &self.rpc_provider,
+                            self.timeout_external_eth_call,
+                        )
+                        .await?)
+                }
             }
             RpAccountType::IncompatibleWip101 => {
                 tracing::trace!("RP signer is incompatible WIP101");
@@ -351,6 +438,14 @@ impl RpModuleAuth {
         // fetch the RP info
         let rp = self.rp_registry_watcher.get_rp(request.auth.rp_id).await?;
 
+        if let Some(authorization) = &request.auth.rp_request_authorization
+            && authorization.oprf_key_id != rp.oprf_key_id
+        {
+            return Err(RpModuleError::InvalidRpSignatureVerification {
+                context: "signed OPRF key does not match the RP registry",
+            });
+        }
+
         self.ensure_signature_valid(&rp, action, request).await?;
 
         tracing::trace!("RP signature authentication successful");
@@ -364,45 +459,13 @@ impl RpModuleAuth {
         tracing::trace!("Validating action for {}", self.kind);
         let action = FieldElement::from(request.auth.action);
 
+        Self::validate_authorization_transport(&request.auth)?;
+
         // Validate the action per kind and derive the nonce scope it consumes.
-        // RP signature verification data is only valid on session-seed queries
-        let nonce_scope = match self.kind {
-            RpModuleKind::Session => {
-                metrics::auth_module::inc_session();
-                if action.has_prefix(OprfPrefix::SessionOprfSeed) {
-                    if let Some(RpSignatureVerification::UniquenessAction {
-                        action: signed_action,
-                    }) = request.auth.rp_signature_verification
-                        && !signed_action.has_prefix(OprfPrefix::Uniqueness)
-                    {
-                        return Err(RpModuleError::InvalidRpSignatureVerification {
-                            context: "uniqueness action MSB must be 0x00",
-                        });
-                    }
-                    NonceScope::SessionOprfSeed
-                } else if action.has_prefix(OprfPrefix::SessionAction) {
-                    if request.auth.rp_signature_verification.is_some() {
-                        return Err(RpModuleError::InvalidRpSignatureVerification {
-                            context: "only allowed on session-seed queries",
-                        });
-                    }
-                    NonceScope::SessionAction
-                } else {
-                    return Err(RpModuleError::InvalidActionSession { action });
-                }
-            }
-            RpModuleKind::Uniqueness => {
-                metrics::auth_module::inc_nullifier();
-                if request.auth.rp_signature_verification.is_some() {
-                    return Err(RpModuleError::InvalidRpSignatureVerification {
-                        context: "only allowed on the session module",
-                    });
-                }
-                if !action.has_prefix(OprfPrefix::Uniqueness) {
-                    return Err(RpModuleError::InvalidActionUniqueness { action });
-                }
-                NonceScope::Uniqueness
-            }
+        let nonce_scope = if let Some(authorization) = &request.auth.rp_request_authorization {
+            self.validate_v2_action(authorization, action, &request.auth)?
+        } else {
+            self.validate_v1_action(action, &request.auth)?
         };
 
         let (verify_rp_signature_check, merkle_check) = tokio::join!(
@@ -434,6 +497,191 @@ impl RpModuleAuth {
             Ok(oprf_key_id)
         } else {
             Err(RpModuleError::InvalidQueryProof)
+        }
+    }
+
+    fn validate_authorization_transport(
+        auth: &NullifierOprfRequestAuthV1,
+    ) -> Result<(), RpModuleError> {
+        let Some(authorization) = &auth.rp_request_authorization else {
+            if auth.session_seed_opening.is_some() {
+                return Err(RpModuleError::InvalidRpSignatureVerification {
+                    context: "session-seed opening requires V2 authorization",
+                });
+            }
+            return Ok(());
+        };
+
+        if auth.rp_signature_verification.is_some() {
+            return Err(RpModuleError::InvalidRpSignatureVerification {
+                context: "legacy signature verification data is invalid with V2 authorization",
+            });
+        }
+        if authorization.request_version != RequestVersion::V2 {
+            return Err(RpModuleError::InvalidRpSignatureVerification {
+                context: "typed authorization must use request version 2",
+            });
+        }
+        if authorization.details_hash == alloy::primitives::B256::ZERO {
+            return Err(RpModuleError::InvalidRpSignatureVerification {
+                context: "V2 request-details commitment must be non-zero",
+            });
+        }
+        if authorization.rp_id != auth.rp_id
+            || *authorization.nonce != auth.nonce
+            || authorization.created_at != auth.created_at
+            || authorization.expires_at != auth.expires_at
+        {
+            return Err(RpModuleError::InvalidRpSignatureVerification {
+                context: "typed authorization does not match OPRF request metadata",
+            });
+        }
+
+        let valid_shape = matches!(
+            (
+                authorization.proof_type,
+                authorization.session_mode,
+                authorization.action,
+            ),
+            (
+                ProofType::Uniqueness,
+                RpRequestSessionMode::None | RpRequestSessionMode::Create,
+                Some(_),
+            ) | (
+                ProofType::Session,
+                RpRequestSessionMode::Create | RpRequestSessionMode::Existing,
+                None,
+            )
+        );
+        if !valid_shape {
+            return Err(RpModuleError::InvalidRpSignatureVerification {
+                context: "invalid proof, session, and action combination",
+            });
+        }
+
+        let has_existing_seed_authorization =
+            authorization.existing_session_seed_authorization != alloy::primitives::B256::ZERO;
+        if has_existing_seed_authorization
+            != matches!(authorization.session_mode, RpRequestSessionMode::Existing)
+        {
+            return Err(RpModuleError::InvalidRpSignatureVerification {
+                context: "existing-session seed authorization does not match session mode",
+            });
+        }
+        Ok(())
+    }
+
+    fn validate_v1_action(
+        &self,
+        action: FieldElement,
+        auth: &NullifierOprfRequestAuthV1,
+    ) -> Result<NonceScope, RpModuleError> {
+        // Legacy RP signature verification data is only valid on session-seed queries.
+        match self.kind {
+            RpModuleKind::Session => {
+                metrics::auth_module::inc_session();
+                if action.has_prefix(OprfPrefix::SessionOprfSeed) {
+                    if let Some(RpSignatureVerification::UniquenessAction {
+                        action: signed_action,
+                    }) = auth.rp_signature_verification
+                    {
+                        if !signed_action.has_prefix(OprfPrefix::Uniqueness) {
+                            return Err(RpModuleError::InvalidRpSignatureVerification {
+                                context: "uniqueness action MSB must be 0x00",
+                            });
+                        }
+                    }
+                    Ok(NonceScope::SessionOprfSeed)
+                } else if action.has_prefix(OprfPrefix::SessionAction) {
+                    if auth.rp_signature_verification.is_some() {
+                        return Err(RpModuleError::InvalidRpSignatureVerification {
+                            context: "only allowed on session-seed queries",
+                        });
+                    }
+                    Ok(NonceScope::SessionAction)
+                } else {
+                    Err(RpModuleError::InvalidActionSession { action })
+                }
+            }
+            RpModuleKind::Uniqueness => {
+                metrics::auth_module::inc_nullifier();
+                if auth.rp_signature_verification.is_some() {
+                    return Err(RpModuleError::InvalidRpSignatureVerification {
+                        context: "only allowed on the session module",
+                    });
+                }
+                if action.to_be_bytes()[0] != 0 {
+                    return Err(RpModuleError::InvalidActionUniqueness { action });
+                }
+                Ok(NonceScope::Uniqueness)
+            }
+        }
+    }
+
+    fn validate_v2_action(
+        &self,
+        authorization: &RpRequestAuthorizationV2,
+        action: FieldElement,
+        auth: &NullifierOprfRequestAuthV1,
+    ) -> Result<NonceScope, RpModuleError> {
+        match self.kind {
+            RpModuleKind::Uniqueness => {
+                metrics::auth_module::inc_nullifier();
+                if action.to_be_bytes()[0] != 0 {
+                    return Err(RpModuleError::InvalidActionUniqueness { action });
+                }
+                if authorization.proof_type != ProofType::Uniqueness
+                    || authorization.action != Some(action)
+                    || auth.session_seed_opening.is_some()
+                {
+                    return Err(RpModuleError::InvalidRpSignatureVerification {
+                        context: "V2 authorization does not permit this uniqueness query",
+                    });
+                }
+                Ok(NonceScope::Uniqueness)
+            }
+            RpModuleKind::Session => {
+                metrics::auth_module::inc_session();
+                if action.has_prefix(OprfPrefix::SessionOprfSeed) {
+                    let permitted = match (
+                        authorization.proof_type,
+                        authorization.session_mode,
+                        auth.session_seed_opening,
+                    ) {
+                        (
+                            ProofType::Uniqueness | ProofType::Session,
+                            RpRequestSessionMode::Create,
+                            None,
+                        ) => true,
+                        (ProofType::Session, RpRequestSessionMode::Existing, Some(opening)) => {
+                            session_seed_authorization_v2(opening, action)
+                                == authorization.existing_session_seed_authorization
+                        }
+                        _ => false,
+                    };
+                    if !permitted {
+                        return Err(RpModuleError::InvalidRpSignatureVerification {
+                            context: "V2 authorization does not permit this session-seed query",
+                        });
+                    }
+                    Ok(NonceScope::SessionOprfSeed)
+                } else if action.has_prefix(OprfPrefix::SessionAction) {
+                    if authorization.proof_type != ProofType::Session
+                        || !matches!(
+                            authorization.session_mode,
+                            RpRequestSessionMode::Create | RpRequestSessionMode::Existing
+                        )
+                        || auth.session_seed_opening.is_some()
+                    {
+                        return Err(RpModuleError::InvalidRpSignatureVerification {
+                            context: "V2 authorization does not permit this session-action query",
+                        });
+                    }
+                    Ok(NonceScope::SessionAction)
+                } else {
+                    Err(RpModuleError::InvalidActionSession { action })
+                }
+            }
         }
     }
 }

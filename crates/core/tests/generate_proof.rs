@@ -299,6 +299,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let proof_request = ProofRequest {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
+        request_salt: None,
         proof_type: ProofType::Uniqueness,
         created_at: rp_fixture.current_timestamp,
         expires_at: rp_fixture.expiration_timestamp,

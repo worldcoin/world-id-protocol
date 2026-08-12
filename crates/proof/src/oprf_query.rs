@@ -20,7 +20,8 @@ use taceo_oprf::{
 };
 
 use world_id_primitives::{
-    FieldElement, OprfPrefix, OprfPrefixedFieldElement, ProofRequest, ProofType, TREE_DEPTH,
+    FieldElement, OprfPrefix, OprfPrefixedFieldElement, ProofRequest, ProofType, RequestVersion,
+    SessionRef, TREE_DEPTH,
     oprf::{
         CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule,
         RpSignatureVerification,
@@ -259,6 +260,8 @@ impl<'a> OprfEntrypoint<'a> {
             rp_id: proof_request.rp_id,
             wip101_data: None,
             rp_signature_verification: None,
+            rp_request_authorization: rp_request_authorization(proof_request)?,
+            session_seed_opening: None,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(
@@ -302,10 +305,22 @@ impl<'a> OprfEntrypoint<'a> {
             rng,
         )?;
 
-        let rp_signature_verification = match (proof_request.proof_type, proof_request.action) {
-            (ProofType::Uniqueness, Some(action)) => {
+        let rp_signature_verification = match (
+            proof_request.version,
+            proof_request.proof_type,
+            proof_request.action,
+        ) {
+            (RequestVersion::V1, ProofType::Uniqueness, Some(action)) => {
                 Some(RpSignatureVerification::UniquenessAction { action })
             }
+            _ => None,
+        };
+        let session_seed_opening = match (proof_request.version, proof_request.session_id) {
+            (RequestVersion::V2, SessionRef::Existing(_)) => Some(
+                proof_request
+                    .session_seed_opening_v2()
+                    .map_err(|err| ProofError::GenerationError(err.to_string()))?,
+            ),
             _ => None,
         };
 
@@ -320,6 +335,8 @@ impl<'a> OprfEntrypoint<'a> {
             rp_id: proof_request.rp_id,
             wip101_data: None,
             rp_signature_verification,
+            rp_request_authorization: rp_request_authorization(proof_request)?,
+            session_seed_opening,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(
@@ -337,6 +354,18 @@ impl<'a> OprfEntrypoint<'a> {
             query_proof_input: result.query_proof_input,
             verifiable_oprf_output,
         })
+    }
+}
+
+fn rp_request_authorization(
+    proof_request: &ProofRequest,
+) -> Result<Option<world_id_primitives::rp::RpRequestAuthorizationV2>, ProofError> {
+    match proof_request.version {
+        RequestVersion::V1 => Ok(None),
+        RequestVersion::V2 => proof_request
+            .rp_authorization_v2()
+            .map(Some)
+            .map_err(|err| ProofError::GenerationError(err.to_string())),
     }
 }
 

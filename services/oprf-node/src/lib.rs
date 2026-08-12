@@ -137,6 +137,8 @@ pub fn start(
             .context("while building expires_at_max_difference")?,
         timeout_external_eth_call: config.timeout_external_eth_call,
         rpc_provider: http_rpc_provider.clone(),
+        rp_registry_address: config.rp_registry_contract,
+        chain_id: Arc::new(tokio::sync::OnceCell::new()),
         query_vk: Arc::clone(&query_vk),
     };
     let nullifier_oprf_req_auth_service =
