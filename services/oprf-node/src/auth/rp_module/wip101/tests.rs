@@ -7,13 +7,14 @@ use alloy::{
     sol_types::{SolError as _, SolValue as _},
 };
 use taceo_oprf::types::OprfKeyId;
+use world_id_primitives::{oprf::NullifierOprfRequestAuthV1, rp::RpId};
 
 use super::{IWIP101, Wip101Error};
-use crate::auth::rp_module::{RelyingParty, RpAccountType, tests::RpModuleTestSetup};
+use crate::auth::rp_module::{RelyingParty, RpAccountType};
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(1);
 
-fn provider_with_success<T: serde::Serialize>(
+pub(crate) fn provider_with_success<T: serde::Serialize>(
     value: &T,
 ) -> taceo_nodes_common::web3::HttpRpcProvider {
     let asserter = Asserter::new();
@@ -30,34 +31,52 @@ fn provider_with_revert(data: &Bytes) -> taceo_nodes_common::web3::HttpRpcProvid
     asserter.into()
 }
 
-fn relying_party() -> RelyingParty {
+pub(crate) fn relying_party(account_type: RpAccountType) -> RelyingParty {
     RelyingParty {
         signer: Address::ZERO,
         oprf_key_id: OprfKeyId::new(U160::ZERO),
-        account_type: RpAccountType::Contract,
+        account_type,
         is_blocked: false,
         fetched_at_block: U256::ZERO,
         fetched_at_timestamp: U256::ZERO,
     }
 }
 
-async fn request_auth() -> world_id_primitives::oprf::NullifierOprfRequestAuthV1 {
-    RpModuleTestSetup::new_session()
-        .await
-        .expect("should build request")
-        .request
-        .auth
+/// `verify_wip101` only reads `action`, `nonce`, `created_at`, `expires_at` and
+/// `wip101_data`; everything else is dummy data.
+pub(crate) fn dummy_auth() -> NullifierOprfRequestAuthV1 {
+    NullifierOprfRequestAuthV1 {
+        proof: circom_types::groth16::Proof {
+            pi_a: ark_bn254::G1Affine::default(),
+            pi_b: ark_bn254::G2Affine::default(),
+            pi_c: ark_bn254::G1Affine::default(),
+            protocol: "groth16".to_string(),
+            curve: "bn254".to_string(),
+        },
+        action: ark_babyjubjub::Fq::from(1u64),
+        nonce: ark_babyjubjub::Fq::from(2u64),
+        merkle_root: ark_babyjubjub::Fq::from(3u64),
+        created_at: 1,
+        expires_at: 2,
+        signature: None,
+        rp_id: RpId::new(0),
+        wip101_data: None,
+        rp_signature_verification: None,
+    }
+}
+
+pub(crate) fn success_magic_response() -> Bytes {
+    Bytes::from(FixedBytes::<4>::from(super::SUCCESS_MAGIC_VALUE).abi_encode())
 }
 
 #[tokio::test]
 async fn verify_success() {
-    let auth = request_auth().await;
-    let response = FixedBytes::<4>::from(super::SUCCESS_MAGIC_VALUE).abi_encode();
-    relying_party()
+    let auth = dummy_auth();
+    relying_party(RpAccountType::Contract)
         .verify_wip101(
             auth.action,
             &auth,
-            &provider_with_success(&Bytes::from(response)),
+            &provider_with_success(&success_magic_response()),
             TEST_TIMEOUT,
         )
         .await
@@ -66,9 +85,9 @@ async fn verify_success() {
 
 #[tokio::test]
 async fn verify_wrong_magic() {
-    let auth = request_auth().await;
+    let auth = dummy_auth();
     let response = FixedBytes::<4>::from([0xde, 0xad, 0xbe, 0xef]).abi_encode();
-    let error = relying_party()
+    let error = relying_party(RpAccountType::Contract)
         .verify_wip101(
             auth.action,
             &auth,
@@ -82,12 +101,12 @@ async fn verify_wrong_magic() {
 
 #[tokio::test]
 async fn verify_custom_error() {
-    let auth = request_auth().await;
+    let auth = dummy_auth();
     let revert = IWIP101::RpInvalidRequest {
         code: U256::from(42),
     }
     .abi_encode();
-    let error = relying_party()
+    let error = relying_party(RpAccountType::Contract)
         .verify_wip101(
             auth.action,
             &auth,
@@ -101,8 +120,8 @@ async fn verify_custom_error() {
 
 #[tokio::test]
 async fn verify_plain_revert() {
-    let auth = request_auth().await;
-    let error = relying_party()
+    let auth = dummy_auth();
+    let error = relying_party(RpAccountType::Contract)
         .verify_wip101(
             auth.action,
             &auth,
@@ -116,8 +135,8 @@ async fn verify_plain_revert() {
 
 #[tokio::test]
 async fn verify_empty_revert_is_incompatible() {
-    let auth = request_auth().await;
-    let error = relying_party()
+    let auth = dummy_auth();
+    let error = relying_party(RpAccountType::Contract)
         .verify_wip101(
             auth.action,
             &auth,
@@ -131,25 +150,44 @@ async fn verify_empty_revert_is_incompatible() {
 
 #[tokio::test]
 async fn verify_auxiliary_data_limits() {
-    let mut auth = request_auth().await;
+    let mut auth = dummy_auth();
     auth.wip101_data = Some(vec![0xab; super::MAX_AUX_DATA_SIZE]);
-    let response = FixedBytes::<4>::from(super::SUCCESS_MAGIC_VALUE).abi_encode();
-    relying_party()
+    relying_party(RpAccountType::Contract)
         .verify_wip101(
             auth.action,
             &auth,
-            &provider_with_success(&Bytes::from(response)),
+            &provider_with_success(&success_magic_response()),
             TEST_TIMEOUT,
         )
         .await
         .expect("maximum auxiliary data size should succeed");
 
     auth.wip101_data = Some(vec![0xab; super::MAX_AUX_DATA_SIZE + 1]);
-    let error = relying_party()
+    let error = relying_party(RpAccountType::Contract)
         .verify_wip101(auth.action, &auth, &Asserter::new().into(), TEST_TIMEOUT)
         .await
         .expect_err("oversized auxiliary data must fail");
     assert!(matches!(error, Wip101Error::AuxDataTooLarge));
+}
+
+#[tokio::test]
+async fn verify_timeout() {
+    // A listener that accepts but never answers keeps the RPC call pending
+    // until the timeout fires.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("can bind");
+    let url = format!("http://{}", listener.local_addr().expect("has local addr"));
+    let provider = taceo_nodes_common::web3::HttpRpcProviderBuilder::with_default_values([url])
+        .expect("can build provider builder")
+        .environment(taceo_nodes_common::Environment::Dev)
+        .build()
+        .expect("can build provider");
+
+    let auth = dummy_auth();
+    let error = relying_party(RpAccountType::Contract)
+        .verify_wip101(auth.action, &auth, &provider, Duration::from_millis(100))
+        .await
+        .expect_err("hanging RPC must time out");
+    assert!(matches!(error, Wip101Error::VerificationTimeout));
 }
 
 fn account_provider(
@@ -162,13 +200,23 @@ fn account_provider(
     asserter.into()
 }
 
+// The FIFO Asserter responses answer the three `supportsInterface` probes of
+// `erc165_supports_interface` in its `tokio::join!` poll order:
+// 1. the target interface (verifyRpRequest selector),
+// 2. the ERC-165 conformance probe (0x01ffc9a7, must be supported),
+// 3. the invalid-interface sanity probe (0xffffffff, must NOT be supported).
+
 #[tokio::test]
 async fn account_check_compatible_contract() {
-    let yes = Bytes::from(true.abi_encode());
-    let no = Bytes::from(false.abi_encode());
-    let account = super::account_check(Address::ZERO, &account_provider([yes.clone(), yes, no]))
-        .await
-        .expect("account check should succeed");
+    let supports_wip101 = Bytes::from(true.abi_encode());
+    let supports_erc165 = Bytes::from(true.abi_encode());
+    let supports_invalid_interface = Bytes::from(false.abi_encode());
+    let account = super::account_check(
+        Address::ZERO,
+        &account_provider([supports_wip101, supports_erc165, supports_invalid_interface]),
+    )
+    .await
+    .expect("account check should succeed");
     assert_eq!(account, RpAccountType::Contract);
 }
 
@@ -186,6 +234,7 @@ async fn account_check_incompatible_contract() {
 
 #[tokio::test]
 async fn account_check_eoa() {
+    // Empty return data on all three probes means no code at the address.
     let empty = Bytes::new();
     let account = super::account_check(
         Address::ZERO,

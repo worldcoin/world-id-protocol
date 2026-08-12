@@ -17,10 +17,7 @@ use world_id_primitives::{
     merkle::MerkleInclusionProof, rp::RpId as WorldRpId,
 };
 
-use crate::{
-    anvil::{OPRF_PEER_ADDRESSES, TestAnvil},
-    merkle::first_leaf_merkle_path,
-};
+use crate::{anvil::TestAnvil, merkle::first_leaf_merkle_path};
 
 /// Holds the default on-chain environment used by the E2E tests
 pub struct RegistryTestContext {
@@ -77,7 +74,7 @@ impl RegistryTestContext {
             .register_oprf_nodes(
                 oprf_key_registry,
                 deployer.clone(),
-                OPRF_PEER_ADDRESSES.to_vec(),
+                anvil.oprf_peer_addresses()?,
             )
             .await?;
 

@@ -1,8 +1,16 @@
 #![allow(clippy::large_futures, reason = "Is ok in tests")]
 #![allow(clippy::cast_sign_loss, reason = "Is ok in tests")]
 
-use alloy::signers::{SignerSync as _, local::LocalSigner};
+use std::{sync::Arc, time::Duration};
+
+use alloy::{
+    primitives::Address,
+    providers::mock::Asserter,
+    signers::{SignerSync as _, local::LocalSigner},
+};
+use ark_bn254::Bn254;
 use ark_ff::PrimeField as _;
+use circom_types::groth16::VerificationKey;
 use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
 use uuid::Uuid;
 use world_id_primitives::{
@@ -11,9 +19,19 @@ use world_id_primitives::{
     rp::RpId,
 };
 
-use crate::auth::{
-    rp_module::RpModuleAuth,
-    tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup, SetupKind},
+use crate::{
+    QUERY_VERIFICATION_KEY,
+    auth::{
+        merkle_watcher::MerkleWatcher,
+        nonce_history::NonceHistory,
+        rp_module::{
+            RpAccountType, RpModuleAuth, RpModuleAuthArgs, RpModuleError, wip101,
+            wip101::Wip101Error,
+        },
+        rp_registry_watcher::RpRegistryWatcher,
+        tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup, SetupKind},
+    },
+    config::WatcherCacheConfig,
 };
 
 pub(crate) struct RpModuleTestSetup {
@@ -554,4 +572,85 @@ async fn test_uniqueness_invalid_action_session_prefix() -> eyre::Result<()> {
             "invalid action for nullifier",
         )
         .await
+}
+
+const DISPATCH_TIMEOUT: Duration = Duration::from_secs(1);
+
+fn mock_session_auth(rpc_provider: taceo_nodes_common::web3::HttpRpcProvider) -> RpModuleAuth {
+    let vk: VerificationKey<Bn254> =
+        serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
+    RpModuleAuth::new_session(RpModuleAuthArgs {
+        merkle_watcher: MerkleWatcher::init(
+            Address::ZERO,
+            &rpc_provider,
+            WatcherCacheConfig::default(),
+        ),
+        rp_registry_watcher: RpRegistryWatcher::init(
+            Address::ZERO,
+            Address::ZERO,
+            rpc_provider.clone(),
+            DISPATCH_TIMEOUT,
+            WatcherCacheConfig::default(),
+        ),
+        nonce_history: NonceHistory::init(Duration::from_secs(60)),
+        created_at_max_difference: chrono::Duration::minutes(5),
+        expires_at_max_difference: chrono::Duration::minutes(5),
+        timeout_external_eth_call: DISPATCH_TIMEOUT,
+        rpc_provider,
+        query_vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
+    })
+}
+
+fn dispatch_request() -> OprfRequest<NullifierOprfRequestAuthV1> {
+    OprfRequest {
+        request_id: Uuid::new_v4(),
+        blinded_query: ark_babyjubjub::EdwardsAffine::default(),
+        auth: wip101::tests::dummy_auth(),
+    }
+}
+
+#[tokio::test]
+async fn test_dispatch_contract_signer_verifies_wip101() {
+    let authenticator = mock_session_auth(wip101::tests::provider_with_success(
+        &wip101::tests::success_magic_response(),
+    ));
+    let request = dispatch_request();
+    let rp = wip101::tests::relying_party(RpAccountType::Contract);
+    authenticator
+        .ensure_signature_valid(&rp, request.auth.action, &request)
+        .await
+        .expect("contract RP with valid WIP101 response should pass");
+}
+
+#[tokio::test]
+async fn test_dispatch_contract_signer_rejects_rp_signature_verification() {
+    let authenticator = mock_session_auth(Asserter::new().into());
+    let mut request = dispatch_request();
+    request.auth.rp_signature_verification = Some(RpSignatureVerification::UniquenessAction {
+        action: action_with_msb(0x00).into(),
+    });
+    let rp = wip101::tests::relying_party(RpAccountType::Contract);
+    let error = authenticator
+        .ensure_signature_valid(&rp, request.auth.action, &request)
+        .await
+        .expect_err("verification data on contract RP must fail");
+    assert!(matches!(
+        error,
+        RpModuleError::InvalidRpSignatureVerification { .. }
+    ));
+}
+
+#[tokio::test]
+async fn test_dispatch_incompatible_wip101_signer() {
+    let authenticator = mock_session_auth(Asserter::new().into());
+    let request = dispatch_request();
+    let rp = wip101::tests::relying_party(RpAccountType::IncompatibleWip101);
+    let error = authenticator
+        .ensure_signature_valid(&rp, request.auth.action, &request)
+        .await
+        .expect_err("incompatible WIP101 signer must fail");
+    assert!(matches!(
+        error,
+        RpModuleError::Wip101(Wip101Error::IncompatibleRpSigner)
+    ));
 }
