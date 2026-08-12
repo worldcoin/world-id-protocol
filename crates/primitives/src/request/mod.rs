@@ -503,13 +503,13 @@ impl ProofRequest {
 
         // Only uniqueness flows can reach this point with an action; session flows
         // carrying one were rejected above.
-        if let Some(action) = self.action {
-            if !action.has_prefix(OprfPrefix::Uniqueness) {
-                return Err(PrimitiveError::InvalidInput {
-                    attribute: "action".to_string(),
-                    reason: format!("MSB must be 0x{:02x}", OprfPrefix::Uniqueness as u8),
-                });
-            }
+        if let Some(action) = self.action
+            && !action.has_prefix(OprfPrefix::Uniqueness)
+        {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "action".to_string(),
+                reason: format!("MSB must be 0x{:02x}", OprfPrefix::Uniqueness as u8),
+            });
         }
 
         Ok(())
