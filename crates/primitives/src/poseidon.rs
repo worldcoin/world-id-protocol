@@ -139,6 +139,23 @@ pub fn hash<const N: usize>(ds: DomainSeparator, inputs: [FieldElement; N]) -> F
     }
 }
 
+/// Compresses a pair of field elements with the Poseidon2 `t2` permutation in
+/// **compression mode**: `left` is fed forward into the permuted state.
+///
+/// This is the node hash of the protocol's Merkle trees, matching
+/// `circom/merkle_tree/binary_merkle_root.circom`, which uses Poseidon2 in
+/// compression rather than sponge mode.
+///
+/// Unlike [`hash`], this has **no domain separator** and no capacity slot: the
+/// argument order is all that distinguishes a node from its mirror, so callers must
+/// pass the children in tree order.
+#[must_use]
+pub fn compress(left: FieldElement, right: FieldElement) -> FieldElement {
+    let mut state = poseidon2::bn254::t2::permutation(&[*left, *right]);
+    state[0] += *left;
+    state[0].into()
+}
+
 /// Runs the protocol's sponge layout at width `T`: domain separator in the capacity
 /// slot, inputs in the rate, digest squeezed from slot 1.
 fn hash_padded<const T: usize>(

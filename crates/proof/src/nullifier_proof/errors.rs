@@ -431,7 +431,7 @@ mod tests {
     use std::str::FromStr;
 
     use crate::nullifier_proof::errors::{
-        check_nullifier_input_validity, check_query_input_validity,
+        check_nullifier_input_validity, check_query_input_validity, poseidon,
     };
 
     // gotten these values by `dbg`-ing the struct in the e2e_authenticator_generate test
@@ -588,15 +588,11 @@ mod tests {
                 u64::try_from(world_id_primitives::FieldElement::from(inputs.mt_index)).unwrap();
             for (i, sibling) in inputs.siblings.iter().enumerate() {
                 let sibling_fr = *world_id_primitives::FieldElement::from(*sibling);
-                if (idx >> i) & 1 == 0 {
-                    let mut state = poseidon2::bn254::t2::permutation(&[current, sibling_fr]);
-                    state[0] += current;
-                    current = state[0];
+                current = if (idx >> i) & 1 == 0 {
+                    *poseidon::compress(current.into(), sibling_fr.into())
                 } else {
-                    let mut state = poseidon2::bn254::t2::permutation(&[sibling_fr, current]);
-                    state[0] += sibling_fr;
-                    current = state[0];
-                }
+                    *poseidon::compress(sibling_fr.into(), current.into())
+                };
             }
             inputs.merkle_root = current;
 
