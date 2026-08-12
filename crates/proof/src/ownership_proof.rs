@@ -281,16 +281,15 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
     }
 }
 
-/// Known-answer tests sharing their inputs and expected outputs with the Noir known-answer tests
-/// in `noir/ownership-proof/src/commitment.nr`. The authenticator derives the commitment and signs
-/// the message outside the circuit, so a divergence between the two implementations would make
-/// every proof unprovable; pinning both sides to the same constants catches it here.
 #[cfg(test)]
-mod known_answer_tests {
+mod input_validation_tests {
+    use super::*;
     use std::str::FromStr as _;
 
-    use super::*;
+    use crate::fixtures::ownership_proof_fixture;
 
+    /// Known-answer tests sharing their inputs and expected outputs with the Noir known-answer tests
+    /// in `noir/ownership-proof/src/commitment.nr`
     #[test]
     fn test_commitment_matches_the_circuit() {
         assert_eq!(
@@ -316,13 +315,6 @@ mod known_answer_tests {
             .unwrap()
         );
     }
-}
-
-#[cfg(test)]
-mod input_validation_tests {
-    use super::*;
-
-    use crate::fixtures::ownership_proof_fixture;
 
     #[test]
     fn test_accepts_the_valid_fixture() {

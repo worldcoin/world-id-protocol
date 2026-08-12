@@ -12,9 +12,6 @@ pub(crate) fn generate_message(commitment: Field, nonce: Field, context: Field) 
     state[1]
 }
 
-/// Known-answer test. Pins the commitment construction so any change to the domain separator, the
-/// input order, the permutation width or the squeezed state element is caught here. The same input
-/// and expected output are asserted against `Credential::compute_sub` on the Rust side.
 #[test]
 fn test_generate_commitment_known_answer() {
     assert_eq(
@@ -38,9 +35,6 @@ fn test_generate_commitment_is_not_symmetric() {
     assert(generate_commitment(1, 100) != generate_commitment(100, 1));
 }
 
-/// Known-answer test. The authenticator signs this message outside the circuit, so the two
-/// implementations must agree exactly; the same input and expected output are asserted against
-/// `world_id_proof::ownership_proof::message_digest` on the Rust side.
 #[test]
 fn test_generate_message_known_answer() {
     assert_eq(
