@@ -1091,3 +1091,102 @@ async fn test_dispatch_incompatible_wip101_signer() {
         RpModuleError::Wip101(Wip101Error::IncompatibleRpSigner)
     ));
 }
+// ── Cross-module nonce scoping ───────────────────────────────────────────
+//
+// One RP request can drive queries on both modules under its single nonce. Both
+// modules share one node-local nonce history, as node startup wires them, so these
+// pass only because each query consumes the nonce in its own scope.
+
+/// A session-seed query under the fixture nonce, carrying `signature` and `verification`.
+fn session_seed_request(
+    infra: &AuthModulesTestSetup,
+    signature: alloy::signers::Signature,
+    verification: RpSignatureVerification,
+) -> eyre::Result<OprfRequest<NullifierOprfRequestAuthV1>> {
+    let seed_action =
+        FieldElement::random_with_prefix(&mut rand::thread_rng(), OprfPrefix::SessionOprfSeed);
+    let bundle =
+        infra.generate_query_proof(seed_action, infra.setup.rp_fixture.world_rp_id.into())?;
+    Ok(OprfRequest {
+        request_id: Uuid::new_v4(),
+        blinded_query: bundle.blinded_query,
+        auth: NullifierOprfRequestAuthV1 {
+            proof: bundle.proof,
+            action: *seed_action,
+            nonce: bundle.nonce,
+            merkle_root: *infra.setup.merkle_inclusion_proof.root,
+            created_at: infra.setup.rp_fixture.current_timestamp,
+            expires_at: infra.setup.rp_fixture.expiration_timestamp,
+            signature: Some(signature),
+            rp_id: infra.setup.rp_fixture.world_rp_id,
+            wip101_data: None,
+            rp_signature_verification: Some(verification),
+        },
+    })
+}
+
+/// Accepts a nullifier-module query and a session-seed query under one nonce, then
+/// rejects a replay of each, so the test cannot pass with replay protection off.
+async fn assert_one_nonce_across_modules(
+    infra: &AuthModulesTestSetup,
+    nullifier_query: &OprfRequest<NullifierOprfRequestAuthV1>,
+    seed_query: &OprfRequest<NullifierOprfRequestAuthV1>,
+) {
+    assert_eq!(nullifier_query.auth.nonce, seed_query.auth.nonce);
+    // Cloned args hand both modules the same `NonceHistory`.
+    let nullifier_auth = RpModuleAuth::new_uniqueness(infra.rp_module_args());
+    let session_auth = RpModuleAuth::new_session(infra.rp_module_args());
+    let queries = [
+        (&nullifier_auth, nullifier_query),
+        (&session_auth, seed_query),
+    ];
+
+    for (authenticator, request) in queries {
+        authenticator
+            .authenticate(request)
+            .await
+            .expect("first use of the nonce in this scope");
+    }
+    for (authenticator, request) in queries {
+        let error = authenticator
+            .authenticate(request)
+            .await
+            .expect_err("replay within the same scope");
+        assert_eq!(error.code(), error_codes::DUPLICATE_NONCE);
+    }
+}
+
+#[tokio::test]
+async fn test_create_and_bind_shares_one_nonce_across_modules() -> eyre::Result<()> {
+    // Uniqueness nullifier plus session seed, both signed over the uniqueness action.
+    let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
+    let uniqueness = uniqueness_request(&infra)?;
+    let seed = session_seed_request(
+        &infra,
+        infra.setup.rp_fixture.signature,
+        RpSignatureVerification::UniquenessAction {
+            action: infra.setup.rp_fixture.action.into(),
+        },
+    )?;
+    assert_one_nonce_across_modules(&infra, &uniqueness, &seed).await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_billed_embedding_similarity_shares_one_nonce_across_modules() -> eyre::Result<()> {
+    // WIP-107 billing query plus session seed, both signed over one action with MSB 0x03.
+    let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
+    let billing = billing_request(&infra)?;
+    let Some(RpSignatureVerification::Billing { action, .. }) =
+        billing.auth.rp_signature_verification
+    else {
+        panic!("not a billing query");
+    };
+    let seed = session_seed_request(
+        &infra,
+        billing.auth.signature.expect("billing query is signed"),
+        RpSignatureVerification::EmbeddingSimilarityAction { action },
+    )?;
+    assert_one_nonce_across_modules(&infra, &billing, &seed).await;
+    Ok(())
+}
