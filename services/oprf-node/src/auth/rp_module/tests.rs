@@ -773,3 +773,93 @@ async fn test_uniqueness_invalid_action_session_prefix() -> eyre::Result<()> {
         )
         .await
 }
+
+// ── Cross-module nonce scoping ───────────────────────────────────────────
+
+/// A create-and-bind request drives two OPRF queries under a single RP nonce:
+/// the uniqueness nullifier and the session seed. Both modules share one
+/// node-local nonce history, so this only passes because they consume the nonce
+/// in different scopes.
+#[tokio::test]
+async fn test_create_and_bind_shares_one_nonce_across_modules() -> eyre::Result<()> {
+    let mut rng = rand::thread_rng();
+    let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
+
+    // Cloned args hand both modules the same `NonceHistory`, as node startup does.
+    let uniqueness_auth = RpModuleAuth::new_uniqueness(infra.rp_module_args());
+    let session_auth = RpModuleAuth::new_session(infra.rp_module_args());
+
+    let rp_id = infra.setup.rp_fixture.world_rp_id;
+    let uniqueness_action = infra.setup.rp_fixture.action;
+    let seed_action = FieldElement::random_with_prefix(&mut rng, OprfPrefix::SessionOprfSeed);
+
+    let uniqueness_bundle = infra.generate_query_proof(uniqueness_action.into(), rp_id.into())?;
+    let seed_bundle = infra.generate_query_proof(seed_action, rp_id.into())?;
+    assert_eq!(
+        uniqueness_bundle.nonce, seed_bundle.nonce,
+        "both queries carry the RP's single nonce"
+    );
+
+    // The RP signature covers the uniqueness action for both queries; the seed
+    // query declares it via `rp_signature_verification` so the node can
+    // reconstruct the same message.
+    let uniqueness_request = OprfRequest {
+        request_id: Uuid::new_v4(),
+        blinded_query: uniqueness_bundle.blinded_query,
+        auth: NullifierOprfRequestAuthV1 {
+            proof: uniqueness_bundle.proof,
+            action: uniqueness_action,
+            nonce: uniqueness_bundle.nonce,
+            merkle_root: *infra.setup.merkle_inclusion_proof.root,
+            created_at: infra.setup.rp_fixture.current_timestamp,
+            expires_at: infra.setup.rp_fixture.expiration_timestamp,
+            signature: Some(infra.setup.rp_fixture.signature),
+            rp_id,
+            wip101_data: None,
+            rp_signature_verification: None,
+        },
+    };
+
+    let seed_request = OprfRequest {
+        request_id: Uuid::new_v4(),
+        blinded_query: seed_bundle.blinded_query,
+        auth: NullifierOprfRequestAuthV1 {
+            proof: seed_bundle.proof,
+            action: *seed_action,
+            nonce: seed_bundle.nonce,
+            merkle_root: *infra.setup.merkle_inclusion_proof.root,
+            created_at: infra.setup.rp_fixture.current_timestamp,
+            expires_at: infra.setup.rp_fixture.expiration_timestamp,
+            signature: Some(infra.setup.rp_fixture.signature),
+            rp_id,
+            wip101_data: None,
+            rp_signature_verification: Some(RpSignatureVerification::UniquenessAction {
+                action: uniqueness_action.into(),
+            }),
+        },
+    };
+
+    uniqueness_auth
+        .authenticate(&uniqueness_request)
+        .await
+        .expect("uniqueness query is accepted");
+    session_auth
+        .authenticate(&seed_request)
+        .await
+        .expect("session seed query is accepted under the same nonce");
+
+    // Guards against a vacuous pass: the shared history is live, so replaying
+    // either query within its own scope is still rejected.
+    for (authenticator, request) in [
+        (&uniqueness_auth, &uniqueness_request),
+        (&session_auth, &seed_request),
+    ] {
+        let err = authenticator
+            .authenticate(request)
+            .await
+            .expect_err("replay within the same scope must fail");
+        assert_eq!(err.code(), error_codes::DUPLICATE_NONCE);
+    }
+
+    Ok(())
+}
