@@ -111,6 +111,8 @@ struct InflightTx {
     batch_type: &'static str,
     /// Priority fee of the most recent broadcast.
     priority_fee: u128,
+    /// Hash of the most recent broadcast, for logs and for inspection.
+    last_tx_hash: String,
     /// Number of escalations performed so far.
     escalations: u32,
     /// When the most recent broadcast happened.
@@ -163,6 +165,17 @@ impl TxSubmitter {
             next_nonce: AtomicU64::new(seed),
             inflight: Arc::new(Mutex::new(BTreeMap::new())),
         })
+    }
+
+    /// Snapshot of unconfirmed transactions as `(nonce, last broadcast hash)`,
+    /// ordered by nonce so the blocking one is first.
+    pub async fn inflight(&self) -> Vec<(u64, String)> {
+        self.inflight
+            .lock()
+            .await
+            .iter()
+            .map(|(nonce, tx)| (*nonce, tx.last_tx_hash.clone()))
+            .collect()
     }
 
     /// Whether another batch may be submitted right now.
@@ -279,11 +292,12 @@ impl TxSubmitter {
         let send_started = Instant::now();
         let result = self.provider.send_transaction(request.clone()).await;
 
-        let entry = InflightTx {
+        let mut entry = InflightTx {
             request,
             ids: ids.clone(),
             batch_type,
             priority_fee: fees.max_priority_fee_per_gas,
+            last_tx_hash: String::new(),
             escalations: 0,
             last_sent_at: Instant::now(),
             submitted_at,
@@ -313,6 +327,7 @@ impl TxSubmitter {
                     )
                     .await;
 
+                entry.last_tx_hash = tx_hash.clone();
                 self.inflight.lock().await.insert(nonce, entry);
                 spawn_receipt_watch(
                     Arc::clone(&self.inflight),
@@ -404,21 +419,38 @@ impl TxSubmitter {
         metrics::set_nonce_latest(latest);
 
         let due: Vec<u64> = {
-            let inflight = self.inflight.lock().await;
+            let mut inflight = self.inflight.lock().await;
+
+            // Nonces below `latest` are consumed on-chain. Normally the receipt
+            // watcher removes them; if it was lost (transport failure, restarted
+            // subscription) the entry would otherwise occupy in-flight capacity
+            // for the process lifetime and eventually wedge the cap. Request
+            // finalization for these is the orphan sweeper's job — it reads the
+            // receipt by hash — so dropping the entry here is safe.
+            let stale: Vec<u64> = inflight.range(..latest).map(|(nonce, _)| *nonce).collect();
+            for nonce in stale {
+                if let Some(tx) = inflight.remove(&nonce) {
+                    tracing::warn!(
+                        nonce,
+                        latest,
+                        batch_type = tx.batch_type,
+                        tx_hash = %tx.last_tx_hash,
+                        "escalation: pruning in-flight entry whose nonce is already consumed"
+                    );
+                }
+            }
+
             metrics::set_nonce_inflight(inflight.len());
             inflight
                 .iter()
-                .filter(|(nonce, tx)| {
-                    **nonce >= latest
-                        && tx.last_sent_at.elapsed()
-                            >= Duration::from_secs(self.config.escalation_interval_secs)
+                .filter(|(_, tx)| {
+                    tx.last_sent_at.elapsed()
+                        >= Duration::from_secs(self.config.escalation_interval_secs)
                 })
                 .map(|(nonce, _)| *nonce)
                 .collect()
         };
 
-        // Entries below `latest` were mined; the receipt watcher finalizes them
-        // and removes them. Nothing to do here.
         for nonce in due {
             self.escalate_one(nonce).await;
         }
@@ -509,6 +541,7 @@ impl TxSubmitter {
                 if let Some(tx) = self.inflight.lock().await.get_mut(&nonce) {
                     tx.request = request;
                     tx.priority_fee = priority_fee;
+                    tx.last_tx_hash = tx_hash.clone();
                     tx.escalations += 1;
                     tx.last_sent_at = Instant::now();
                 }
@@ -576,6 +609,7 @@ impl TxSubmitter {
         tracing::error!(
             nonce,
             batch_type = tx.batch_type,
+            tx_hash = %tx.last_tx_hash,
             reason = reason.as_str(),
             escalations = tx.escalations,
             request_count = tx.ids.len(),
