@@ -6,8 +6,8 @@ mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 
 use crate::{
-    FieldElement, Nullifier, PrimitiveError, SessionId, SessionNullifier, SessionRef,
-    ZeroKnowledgeProof, rp::RpId,
+    FieldElement, Nullifier, OprfPrefix, OprfPrefixedFieldElement as _, PrimitiveError, SessionId,
+    SessionNullifier, SessionRef, ZeroKnowledgeProof, rp::RpId,
 };
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
@@ -48,12 +48,12 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
 
 /// The high-level proof flow requested by an RP.
 ///
-/// Explicit discriminants reserve a stable one-byte protocol encoding for future
-/// signed request payloads. JSON serialization remains the snake_case variant name.
+/// Reserved for a possible future one-byte protocol encoding. Currently, JSON uses
+/// snake_case variant names and these discriminants are not serialized.
 ///
-/// The values match the action prefixes (see [`crate::SessionFeType`]): `0x00` for a
-/// uniqueness action, `0x02` for a session action. `0x01` is skipped because it prefixes
-/// the session `oprf_seed`, which is not a proof flow of its own.
+/// The discriminants mirror the OPRF domains used by each proof flow.
+/// [`OprfPrefix::SessionOprfSeed`] (`0x01`) has no variant here because the session
+/// `oprf_seed` is not a proof flow of its own.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -64,10 +64,10 @@ pub enum ProofType {
     /// or omit session involvement entirely — see [`ProofRequest::binds_session`].
     /// Binding to an already existing session is not supported.
     #[default]
-    Uniqueness = 0x00,
+    Uniqueness = OprfPrefix::Uniqueness as u8,
     /// Prove an RP-scoped session — either minting a fresh one
     /// (`session_id: "create"`) or an existing one (`session_id: "session_<hex>"`).
-    Session = 0x02,
+    Session = OprfPrefix::SessionAction as u8,
 }
 
 impl ProofType {
@@ -468,6 +468,10 @@ impl ProofRequest {
     /// If `proof_type` was omitted during deserialization, it defaults to
     /// [`ProofType::Uniqueness`]. Session flows must opt in explicitly.
     ///
+    /// A uniqueness `action` must also carry [`OprfPrefix::Uniqueness`], so that an
+    /// action from another domain is rejected here rather than by the OPRF nodes after
+    /// a round trip.
+    ///
     /// # Errors
     /// Returns [`PrimitiveError::InvalidInput`] when the request has an invalid
     /// combination of `proof_type`, `session_id`, and `action`.
@@ -495,7 +499,20 @@ impl ProofRequest {
                 })
             }
             _ => Ok(()),
+        }?;
+
+        // Only uniqueness flows can reach this point with an action; session flows
+        // carrying one were rejected above.
+        if let Some(action) = self.action
+            && !action.has_prefix(OprfPrefix::Uniqueness)
+        {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "action".to_string(),
+                reason: format!("MSB must be 0x{:02x}", OprfPrefix::Uniqueness as u8),
+            });
         }
+
+        Ok(())
     }
 
     /// Returns true if this request produces a Session proof.
@@ -861,12 +878,16 @@ mod tests {
         FieldElement::from(n)
     }
 
+    /// Creates a field element carrying the given domain prefix in its MSB
+    fn test_action_with_prefix(prefix: OprfPrefix, n: u64) -> FieldElement {
+        use ruint::aliases::U256;
+        let v = U256::from(n) | (U256::from(prefix as u8) << 248);
+        FieldElement::try_from(v).expect("test value fits in field")
+    }
+
     /// Creates an action with the required `0x02` session prefix
     fn test_action(n: u64) -> FieldElement {
-        use ruint::{aliases::U256, uint};
-        let v = U256::from(n)
-            | uint!(0x0200000000000000000000000000000000000000000000000000000000000000_U256);
-        FieldElement::try_from(v).expect("test value fits in field")
+        test_action_with_prefix(OprfPrefix::SessionAction, n)
     }
 
     /// Creates a session id with a non-zero commitment and a `0x01`-prefixed oprf seed
@@ -2454,6 +2475,18 @@ mod tests {
         };
         assert!(plain_uniqueness.validate_proof_type().is_ok());
         assert!(!plain_uniqueness.binds_session());
+
+        // a uniqueness action must live in the uniqueness domain, not a session one
+        for prefix in [OprfPrefix::SessionOprfSeed, OprfPrefix::SessionAction] {
+            let session_prefixed_action = ProofRequest {
+                action: Some(test_action_with_prefix(prefix, 42)),
+                ..uniqueness_with_create.clone()
+            };
+            assert!(matches!(
+                session_prefixed_action.validate_proof_type(),
+                Err(PrimitiveError::InvalidInput { attribute, .. }) if attribute == "action"
+            ));
+        }
 
         // uniqueness cannot bind an already existing session
         let uniqueness_with_existing = ProofRequest {

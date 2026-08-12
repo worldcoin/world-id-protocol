@@ -1,48 +1,10 @@
-use crate::{FieldElement, PrimitiveError};
+use crate::{
+    FieldElement, PrimitiveError,
+    oprf::{OprfPrefix, OprfPrefixedFieldElement as _},
+};
 use embed_doc_image::embed_doc_image;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
-
-/// Type of field elements for Session Proofs
-#[repr(u8)]
-pub enum SessionFeType {
-    /// The [`SessionId::oprf_seed`]
-    OprfSeed = 0x01,
-    /// The action used to compute the inner nullifier (in a [`SessionNullifier`]) for a Session Proof.
-    Action = 0x02,
-}
-
-/// Allows field element generation for Session Proofs
-pub trait SessionFieldElement {
-    /// Generate a randomized field element with a specific prefix used
-    /// only for Session Proofs. See [`SessionFeType`] for details.
-    fn random_for_session<R: rand::CryptoRng + rand::RngCore>(
-        rng: &mut R,
-        element_type: SessionFeType,
-    ) -> FieldElement;
-    /// Returns whether a Field Element is valid for Session Proof use, i.e. it has
-    /// the right prefix
-    fn is_valid_for_session(&self, element_type: SessionFeType) -> bool;
-}
-
-impl SessionFieldElement for FieldElement {
-    fn random_for_session<R: rand::CryptoRng + rand::RngCore>(
-        rng: &mut R,
-        element_type: SessionFeType,
-    ) -> FieldElement {
-        let mut bytes = [0u8; 32];
-        rng.fill_bytes(&mut bytes);
-        bytes[0] = element_type as u8;
-        let seed = U256::from_be_bytes(bytes);
-        Self::try_from(seed).expect(
-            "should always fit in the field because with 0x01 as the MSB, the field element < babyjubjub modulus",
-        )
-    }
-
-    fn is_valid_for_session(&self, element_type: SessionFeType) -> bool {
-        self.to_be_bytes()[0] == element_type as u8
-    }
-}
 
 /// An identifier for a session (can be re-used).
 ///
@@ -104,7 +66,7 @@ impl SessionId {
         // OPRF Seeds must always start with a byte of `0x01`. See [`Self::oprf_seed`]
         // for details. Panic is acceptable as `oprf_seed` generation should
         // generally be done with `Self::from_r_seed`
-        if !oprf_seed.is_valid_for_session(SessionFeType::OprfSeed) {
+        if !oprf_seed.has_prefix(OprfPrefix::SessionOprfSeed) {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "session_id".to_string(),
                 reason: "inner oprf_seed is not valid".to_string(),
@@ -135,7 +97,7 @@ impl SessionId {
     ) -> Result<Self, PrimitiveError> {
         let sub_ds = FieldElement::from_be_bytes_mod_order(Self::DS_C);
 
-        if !oprf_seed.is_valid_for_session(SessionFeType::OprfSeed) {
+        if !oprf_seed.has_prefix(OprfPrefix::SessionOprfSeed) {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "session_id".to_string(),
                 reason: "inner oprf_seed is not valid".to_string(),
@@ -153,7 +115,7 @@ impl SessionId {
 
     /// Generates a new [`Self::oprf_seed`] to initialize a new Session.
     pub fn generate_oprf_seed<R: rand::CryptoRng + rand::RngCore>(rng: &mut R) -> FieldElement {
-        FieldElement::random_for_session(rng, SessionFeType::OprfSeed)
+        FieldElement::random_with_prefix(rng, OprfPrefix::SessionOprfSeed)
     }
 
     /// Returns the 64-byte big-endian representation (2 x 32-byte field elements).
@@ -182,7 +144,7 @@ impl SessionId {
         let oprf_seed = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
             .map_err(|e| format!("invalid oprf_seed: {e}"))?;
 
-        if bytes[32] != SessionFeType::OprfSeed as u8 {
+        if bytes[32] != OprfPrefix::SessionOprfSeed as u8 {
             return Err("invalid prefix for oprf_seed".to_string());
         }
 
@@ -196,7 +158,7 @@ impl SessionId {
 impl Default for SessionId {
     fn default() -> Self {
         let mut oprf_seed = [0u8; 32];
-        oprf_seed[0] = SessionFeType::OprfSeed as u8;
+        oprf_seed[0] = OprfPrefix::SessionOprfSeed as u8;
         let oprf_seed = U256::from_be_bytes(oprf_seed)
             .try_into()
             .expect("always fits in the field");
@@ -408,7 +370,7 @@ impl SessionNullifier {
 
     /// Creates a new session nullifier.
     pub fn new(nullifier: FieldElement, action: FieldElement) -> Result<Self, PrimitiveError> {
-        if !action.is_valid_for_session(SessionFeType::Action) {
+        if !action.has_prefix(OprfPrefix::SessionAction) {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "session_nullifier".to_string(),
                 reason: "inner action is not valid".to_string(),
@@ -447,7 +409,7 @@ impl SessionNullifier {
         let action =
             FieldElement::try_from(value[1]).map_err(|e| format!("invalid action: {e}"))?;
 
-        if !action.is_valid_for_session(SessionFeType::Action) {
+        if !action.has_prefix(OprfPrefix::SessionAction) {
             return Err("inner action is not valid".to_string());
         }
         Ok(Self { nullifier, action })
@@ -479,7 +441,7 @@ impl SessionNullifier {
         let action = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
             .map_err(|e| format!("invalid action: {e}"))?;
 
-        if bytes[32] != SessionFeType::Action as u8 {
+        if bytes[32] != OprfPrefix::SessionAction as u8 {
             return Err("invalid action. missing expected prefix.".to_string());
         }
 
@@ -490,7 +452,7 @@ impl SessionNullifier {
 impl Default for SessionNullifier {
     fn default() -> Self {
         let mut action = [0u8; 32];
-        action[0] = SessionFeType::Action as u8;
+        action[0] = OprfPrefix::SessionAction as u8;
         let action = U256::from_be_bytes(action)
             .try_into()
             .expect("always fits in the field");

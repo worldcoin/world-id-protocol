@@ -2,7 +2,8 @@
 //!
 //! Both the session and uniqueness modules share identical struct fields, init
 //! logic, and query-proof verification. They differ only in:
-//! - how the action field is validated (`MSB == 0x00` for uniqueness vs `0x01/0x02` for sessions depending on the [`SessionFeType`])
+//! - which [`OprfPrefix`] the action field must carry ([`OprfPrefix::Uniqueness`] for uniqueness vs
+//!   [`OprfPrefix::SessionOprfSeed`]/[`OprfPrefix::SessionAction`] for sessions)
 //! - whether the action is included in the RP signature. Some for uniqueness, none for session. For session-seed queries initiated by an RP request for a uniqueness proof,
 //!   the action of the uniqueness proof is part of the data the RP signs over and is included in the `rp_signature_verification` field.
 //! - which [`WorldIdRequestAuthError`] variant is returned for an invalid action
@@ -31,7 +32,7 @@ use taceo_oprf::types::{
 };
 use tracing::instrument;
 use world_id_primitives::{
-    FieldElement, SessionFeType, SessionFieldElement as _,
+    FieldElement, OprfPrefix, OprfPrefixedFieldElement as _,
     oprf::{NullifierOprfRequestAuthV1, RpSignatureVerification, WorldIdRequestAuthError},
     rp::RpId,
 };
@@ -388,20 +389,18 @@ impl RpModuleAuth {
         let nonce_scope = match self.kind {
             RpModuleKind::Session => {
                 metrics::auth_module::inc_session();
-                if action.is_valid_for_session(SessionFeType::OprfSeed) {
+                if action.has_prefix(OprfPrefix::SessionOprfSeed) {
                     if let Some(RpSignatureVerification::UniquenessAction {
                         action: signed_action,
                     }) = request.auth.rp_signature_verification
+                        && !signed_action.has_prefix(OprfPrefix::Uniqueness)
                     {
-                        // TODO: Move this check to a function or trait on FieldElement. Potentially unify with is_valid_for_session.
-                        if signed_action.to_be_bytes()[0] != 0 {
-                            return Err(RpModuleError::InvalidRpSignatureVerification {
-                                context: "uniqueness action MSB must be 0x00",
-                            });
-                        }
+                        return Err(RpModuleError::InvalidRpSignatureVerification {
+                            context: "uniqueness action MSB must be 0x00",
+                        });
                     }
                     NonceScope::SessionOprfSeed
-                } else if action.is_valid_for_session(SessionFeType::Action) {
+                } else if action.has_prefix(OprfPrefix::SessionAction) {
                     if request.auth.rp_signature_verification.is_some() {
                         return Err(RpModuleError::InvalidRpSignatureVerification {
                             context: "only allowed on session-seed queries",
@@ -419,7 +418,7 @@ impl RpModuleAuth {
                         context: "only allowed on the session module",
                     });
                 }
-                if action.to_be_bytes()[0] != 0 {
+                if !action.has_prefix(OprfPrefix::Uniqueness) {
                     return Err(RpModuleError::InvalidActionUniqueness { action });
                 }
                 NonceScope::Uniqueness
