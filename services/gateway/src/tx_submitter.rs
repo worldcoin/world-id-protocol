@@ -21,14 +21,7 @@
 //! the node's transaction fee cap. Those errors are classified as terminal, so
 //! the nonce is released instead of being retried forever.
 
-use std::{
-    collections::BTreeMap,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::Duration,
-};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use alloy::{
     network::{Ethereum, TransactionBuilder},
@@ -127,44 +120,76 @@ pub struct TxSubmitter {
     signer: Address,
     config: TxSubmitterConfig,
     tracker: RequestTracker,
-    /// Next nonce to hand out. Seeded from the pending count, then owned here.
-    next_nonce: AtomicU64,
+    /// Next nonce to hand out, or `None` until it has been seeded.
+    ///
+    /// Seeded lazily on first use rather than at startup: a transient RPC
+    /// failure must not stop the service from booting, or a dependency blip
+    /// turns into a crash loop (`/health` backs both the liveness and the
+    /// readiness probe).
+    next_nonce: Mutex<Option<u64>>,
     inflight: Inflight,
 }
 
 impl TxSubmitter {
-    /// Creates a submitter and seeds the nonce counter.
-    ///
-    /// Seeded from the *pending* count rather than `latest`, so a replica that
-    /// restarts while its own earlier transactions are still in the mempool
-    /// does not hand out a nonce that collides with them.
-    ///
-    /// # Errors
-    ///
-    /// Returns the transport error if the initial transaction count cannot be
-    /// read — the gateway cannot submit anything without it.
-    pub async fn new(
+    /// Creates a submitter. The nonce counter is seeded on first use.
+    pub fn new(
         provider: Arc<DynProvider>,
         signer: Address,
         config: TxSubmitterConfig,
         tracker: RequestTracker,
-    ) -> Result<Self, alloy::transports::TransportError> {
-        let seed = provider.get_transaction_count(signer).pending().await?;
-
-        tracing::info!(
-            signer = %signer,
-            seed_nonce = seed,
-            "tx submitter seeded nonce counter from pending transaction count"
-        );
-
-        Ok(Self {
+    ) -> Self {
+        Self {
             provider,
             signer,
             config,
             tracker,
-            next_nonce: AtomicU64::new(seed),
+            next_nonce: Mutex::new(None),
             inflight: Arc::new(Mutex::new(BTreeMap::new())),
-        })
+        }
+    }
+
+    /// Reserves the next nonce, seeding the counter from the chain if needed.
+    ///
+    /// Seeded from the *pending* count rather than `latest`, so a replica that
+    /// restarts while its own earlier transactions are still in the mempool does
+    /// not hand out a nonce that collides with them.
+    ///
+    /// Returns `None` when the seed read fails; no nonce is consumed in that
+    /// case, so the caller can fail the batch without leaving a gap.
+    async fn reserve_nonce(&self) -> Option<u64> {
+        let mut guard = self.next_nonce.lock().await;
+
+        let nonce = match *guard {
+            Some(nonce) => nonce,
+            None => {
+                match self
+                    .provider
+                    .get_transaction_count(self.signer)
+                    .pending()
+                    .await
+                {
+                    Ok(seed) => {
+                        tracing::info!(
+                            signer = %self.signer,
+                            seed_nonce = seed,
+                            "seeded nonce counter from the pending transaction count"
+                        );
+                        seed
+                    }
+                    Err(err) => {
+                        tracing::error!(
+                            error = %err,
+                            signer = %self.signer,
+                            "failed to seed the nonce counter; cannot submit transactions yet"
+                        );
+                        return None;
+                    }
+                }
+            }
+        };
+
+        *guard = Some(nonce + 1);
+        Some(nonce)
     }
 
     /// Snapshot of unconfirmed transactions as `(nonce, last broadcast hash)`,
@@ -285,7 +310,12 @@ impl TxSubmitter {
         request.set_max_fee_per_gas(fees.max_fee_per_gas);
         request.set_max_priority_fee_per_gas(fees.max_priority_fee_per_gas);
 
-        let mut nonce = self.next_nonce.fetch_add(1, Ordering::SeqCst);
+        let Some(mut nonce) = self.reserve_nonce().await else {
+            metrics::record_batch_send_failed(batch_type, 0.0);
+            self.fail_requests(&ids, "nonce counter unavailable, RPC unreachable")
+                .await;
+            return;
+        };
         request.set_nonce(nonce);
         metrics::set_nonce_owned(nonce);
 
@@ -450,7 +480,7 @@ impl TxSubmitter {
         metrics::record_nonce_resync("resynced");
 
         // Hand out the nonce after this one to the next caller.
-        self.next_nonce.store(fresh + 1, Ordering::SeqCst);
+        *self.next_nonce.lock().await = Some(fresh + 1);
         Some(fresh)
     }
 

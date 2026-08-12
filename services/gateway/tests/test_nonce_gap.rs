@@ -65,11 +65,12 @@ impl Harness {
             .expect("failed to disable automine");
 
         let tracker = RequestTracker::new(redis_url, None, 600).await;
-        let submitter = Arc::new(
-            TxSubmitter::new(provider.clone(), signer, config, tracker.clone())
-                .await
-                .expect("failed to seed submitter"),
-        );
+        let submitter = Arc::new(TxSubmitter::new(
+            provider.clone(),
+            signer,
+            config,
+            tracker.clone(),
+        ));
 
         Self {
             submitter,

@@ -10,7 +10,7 @@ use crate::{
         BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig, RegistryVersion,
         TxSubmitterConfig,
     },
-    error::{GatewayError, GatewayErrorBody, GatewayErrorResponse, GatewayResult},
+    error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
     orphan_sweeper::run_orphan_sweeper,
     request::GatewayContext,
     request_tracker::RequestTracker,
@@ -106,16 +106,12 @@ pub(crate) async fn build_app(
     .await;
     let base_fee_cache = BaseFeeCache::default();
 
-    let submitter = Arc::new(
-        TxSubmitter::new(
-            registry.provider().clone(),
-            signer,
-            tx_submitter_config,
-            tracker.clone(),
-        )
-        .await
-        .map_err(GatewayError::NonceSeed)?,
-    );
+    let submitter = Arc::new(TxSubmitter::new(
+        registry.provider().clone(),
+        signer,
+        tx_submitter_config,
+        tracker.clone(),
+    ));
     tokio::spawn(run_escalation_loop(Arc::clone(&submitter)));
     tracing::info!(signer = %signer, "Tx submitter and escalation loop initialized");
 
