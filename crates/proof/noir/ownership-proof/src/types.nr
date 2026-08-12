@@ -13,9 +13,8 @@ pub struct MerkleProof<let MAX_DEPTH: u32> {
     pub siblings: [Field; MAX_DEPTH],
 }
 
-/// The private inputs of the Ownership Proof (WIP-103). The public inputs are declared
-/// directly on `main`.
-pub struct OwnershipProofInputs<let MAX_DEPTH: u32, let NUM_KEYS: u32> {
+/// The private inputs of the Ownership Proof (WIP-103).
+pub struct OwnershipProofPrivateInputs<let MAX_DEPTH: u32, let NUM_KEYS: u32> {
     /// The list of authenticator public keys registered in the `WorldIDRegistry`.
     pub user_pk: [PublicKey; NUM_KEYS],
     /// The index in `user_pk` of the key used for the signature.

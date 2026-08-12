@@ -281,6 +281,43 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
     }
 }
 
+/// Known-answer tests sharing their inputs and expected outputs with the Noir known-answer tests
+/// in `noir/ownership-proof/src/commitment.nr`. The authenticator derives the commitment and signs
+/// the message outside the circuit, so a divergence between the two implementations would make
+/// every proof unprovable; pinning both sides to the same constants catches it here.
+#[cfg(test)]
+mod known_answer_tests {
+    use std::str::FromStr as _;
+
+    use super::*;
+
+    #[test]
+    fn test_commitment_matches_the_circuit() {
+        assert_eq!(
+            Credential::compute_sub(1, FieldElement::from(100u64)),
+            FieldElement::from_str(
+                "0x26dc60a1544db4dad905da6967a536d6c37b3ae4b7cf951b925275096f5cbb1e"
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_message_digest_matches_the_circuit() {
+        assert_eq!(
+            message_digest(
+                FieldElement::from(1u64),
+                FieldElement::from(100u64),
+                FieldElement::from(7u64)
+            ),
+            FieldElement::from_str(
+                "0x0574b3d43408903579cd25e90b560aa74fb096d4c65ce65c3b178fc9292032f4"
+            )
+            .unwrap()
+        );
+    }
+}
+
 #[cfg(test)]
 mod input_validation_tests {
     use super::*;
@@ -327,6 +364,7 @@ mod input_validation_tests {
         let err = check_ownership_input_validity(&input).unwrap_err();
         assert!(matches!(err, ProofInputError::InvalidExpectedCommitment));
     }
+
     #[test]
     fn test_rejects_tampered_commitment_blinder() {
         let mut input = ownership_proof_fixture();

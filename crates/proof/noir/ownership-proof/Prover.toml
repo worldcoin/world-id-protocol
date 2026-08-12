@@ -2,6 +2,7 @@
 #
 # GENERATED FILE. Do not edit by hand; regenerate with:
 #   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof prover_toml
+
 # Public inputs
 merkle_root = "14215929515479009984751917935014344082150835663566579083007945264825305524498"
 depth = "30"

@@ -69,6 +69,7 @@ mod ownership_proof_prover {
 #
 # GENERATED FILE. Do not edit by hand; regenerate with:
 #   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof prover_toml
+
 # Public inputs
 ";
 

@@ -8,7 +8,7 @@ use constants::{MAX_DEPTH, NUM_KEYS};
 use eddsa_poseidon2::verify_eddsa_poseidon2;
 use merkle_proof::{compute_merkle_root_poseidon2, merkle_leaf};
 use std::field::bn254::assert_lt;
-use types::OwnershipProofInputs;
+use types::OwnershipProofPrivateInputs;
 
 pub fn main(
     merkle_root: pub Field,
@@ -16,7 +16,7 @@ pub fn main(
     nonce: pub Field,
     expected_commitment: pub Field,
     context: pub Field,
-    inputs: OwnershipProofInputs<MAX_DEPTH, NUM_KEYS>,
+    inputs: OwnershipProofPrivateInputs<MAX_DEPTH, NUM_KEYS>,
 ) {
     // 1. Per-spec, the `nonce` and `context` MUST not be `0`
     assert(nonce != 0, "nonce must not be zero");
@@ -56,7 +56,7 @@ mod tests {
     use super::constants::{MAX_DEPTH, NUM_KEYS};
     use super::main;
     use super::merkle_proof::{compute_merkle_root_poseidon2, merkle_leaf};
-    use super::types::{MerkleProof, OwnershipProofInputs, PublicKey};
+    use super::types::{MerkleProof, OwnershipProofPrivateInputs, PublicKey};
     use eddsa_poseidon2::verify_eddsa_poseidon2;
 
     // A signature cannot be produced inside the circuit, so the key and signature below are taken
@@ -130,11 +130,11 @@ mod tests {
     /// key must belong to (BabyJubJub has cofactor 8).
     global SMALL_ORDER_KEY: PublicKey = PublicKey { x: 0, y: 0 - 1 };
 
-    fn fixture_inputs() -> OwnershipProofInputs<MAX_DEPTH, NUM_KEYS> {
+    fn fixture_inputs() -> OwnershipProofPrivateInputs<MAX_DEPTH, NUM_KEYS> {
         let mut user_pk = [UNUSED_KEY; NUM_KEYS];
         user_pk[0] = PK;
 
-        OwnershipProofInputs {
+        OwnershipProofPrivateInputs {
             user_pk,
             pk_index: 0,
             query_s: QUERY_S,
@@ -149,7 +149,7 @@ mod tests {
     }
 
     /// The root the fixture's key set and sibling path hash up to at the full tree depth.
-    fn merkle_root_of(inputs: OwnershipProofInputs<MAX_DEPTH, NUM_KEYS>) -> Field {
+    fn merkle_root_of(inputs: OwnershipProofPrivateInputs<MAX_DEPTH, NUM_KEYS>) -> Field {
         compute_merkle_root_poseidon2(
             merkle_leaf(inputs.user_pk),
             DEPTH,
