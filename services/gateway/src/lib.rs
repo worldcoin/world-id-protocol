@@ -3,10 +3,11 @@
 pub use crate::{
     config::{
         BatchPolicyConfig, BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig,
-        RegistryVersion, defaults,
+        RegistryVersion, TxSubmitterConfig, defaults,
     },
     orphan_sweeper::sweep_once,
     request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
+    tx_submitter::TxSubmitter,
 };
 use crate::{routes::build_app, types::AppState};
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};
@@ -22,6 +23,7 @@ pub mod orphan_sweeper;
 mod request;
 pub mod request_tracker;
 mod routes;
+pub mod tx_submitter;
 mod types;
 
 // Re-export common types
@@ -51,8 +53,11 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     let batcher_config = cfg.batcher();
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
+    let tx_submitter_config = cfg.tx_submitter.clone();
 
-    let provider = Arc::new(cfg.provider.http().await?);
+    let (provider, signer) = cfg.provider.http_with_signer_address().await?;
+    let signer = signer.ok_or_else(|| GatewayError::Config("no signer configured".to_string()))?;
+    let provider = Arc::new(provider);
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
@@ -66,6 +71,8 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
         cfg.request_timeout_secs,
         sweeper_config,
         cfg.batch_policy.clone(),
+        tx_submitter_config,
+        signer,
     )
     .await?;
 
@@ -106,8 +113,11 @@ pub async fn run() -> GatewayResult<()> {
     let batcher_config = cfg.batcher();
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
+    let tx_submitter_config = cfg.tx_submitter.clone();
 
-    let provider = Arc::new(cfg.provider.http().await?);
+    let (provider, signer) = cfg.provider.http_with_signer_address().await?;
+    let signer = signer.ok_or_else(|| GatewayError::Config("no signer configured".to_string()))?;
+    let provider = Arc::new(provider);
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
@@ -115,6 +125,7 @@ pub async fn run() -> GatewayResult<()> {
 
     tracing::info!(
         registry_version = ?cfg.registry_version,
+        signer = %signer,
         "Config is ready. Building app..."
     );
     let app = build_app(
@@ -126,6 +137,8 @@ pub async fn run() -> GatewayResult<()> {
         cfg.request_timeout_secs,
         sweeper_config,
         cfg.batch_policy.clone(),
+        tx_submitter_config,
+        signer,
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)

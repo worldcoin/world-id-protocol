@@ -6,8 +6,8 @@ use testcontainers_modules::{
     testcontainers::{ContainerAsync, ImageExt as _, runners::AsyncRunner as _},
 };
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, GatewayHandle, RegistryVersion, SignerArgs, defaults,
-    spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, GatewayHandle, RegistryVersion, SignerArgs,
+    TxSubmitterConfig, defaults, spawn_gateway_for_tests,
 };
 use world_id_primitives::api_types::{GatewayRequestState, GatewayStatusResponse};
 use world_id_services_common::ProviderArgs;
@@ -109,6 +109,7 @@ async fn spawn_test_gateway_for_registry(
             stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
             stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
             batch_policy: BatchPolicyConfig::default(),
+            tx_submitter: TxSubmitterConfig::default(),
         },
         Some(ms) => {
             let max_wait_secs = (ms / 1000).max(1);
@@ -136,6 +137,7 @@ async fn spawn_test_gateway_for_registry(
                 sweeper_interval_secs: max_wait_secs + 1,
                 stale_queued_threshold_secs: max_wait_secs + 1,
                 stale_submitted_threshold_secs: 600,
+                tx_submitter: TxSubmitterConfig::default(),
             }
         }
     };

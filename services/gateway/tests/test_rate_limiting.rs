@@ -7,7 +7,8 @@ use alloy::{
 };
 use reqwest::{Client, StatusCode};
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, RegistryVersion, defaults, spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, TxSubmitterConfig, defaults,
+    spawn_gateway_for_tests,
 };
 use world_id_primitives::api_types::{InsertAuthenticatorRequest, UpdateAuthenticatorRequest};
 use world_id_registries::world_id::{InsertAuthenticatorTypedData, UpdateAuthenticatorTypedData};
@@ -63,6 +64,7 @@ async fn test_rate_limit_basic() {
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
+        tx_submitter: TxSubmitterConfig::default(),
         registry_addr,
         registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
@@ -271,6 +273,7 @@ async fn test_rate_limit_different_leaf_indexes() {
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
+        tx_submitter: TxSubmitterConfig::default(),
         registry_addr,
         registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
@@ -428,6 +431,7 @@ async fn test_rate_limit_sliding_window() {
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
+        tx_submitter: TxSubmitterConfig::default(),
         registry_addr,
         registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
@@ -582,6 +586,7 @@ async fn test_rate_limit_multiple_endpoints() {
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
+        tx_submitter: TxSubmitterConfig::default(),
         registry_addr,
         registry_version: RegistryVersion::V2,
         provider: ProviderArgs {

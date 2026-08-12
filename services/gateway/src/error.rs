@@ -20,6 +20,8 @@ pub enum GatewayError {
         source: Box<ProviderError>,
         backtrace: String,
     },
+    #[error("failed to read the signer's transaction count to seed the nonce counter: {0}")]
+    NonceSeed(alloy::transports::TransportError),
     #[error("failed to bind listener: {source}")]
     Bind {
         #[source]

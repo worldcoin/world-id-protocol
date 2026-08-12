@@ -34,6 +34,7 @@ use world_id_core::{
     requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
 };
 use world_id_gateway::{
+    TxSubmitterConfig,
     BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
     spawn_gateway_for_tests,
 };
@@ -82,6 +83,7 @@ async fn main() -> Result<()> {
     let gw_port: u16 = 4105;
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
+        tx_submitter: TxSubmitterConfig::default(),
         registry_addr: world_id_registry,
         registry_version: RegistryVersion::V2,
         provider: world_id_gateway::ProviderArgs {

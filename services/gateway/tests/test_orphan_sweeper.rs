@@ -11,7 +11,7 @@ use redis::{AsyncCommands, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, OrphanSweeperConfig, RegistryVersion, RequestRecord,
-    RequestTracker, defaults, now_unix_secs, request_tracker::BacklogScope,
+    RequestTracker, TxSubmitterConfig, defaults, now_unix_secs, request_tracker::BacklogScope,
     spawn_gateway_for_tests, sweep_once,
 };
 use world_id_primitives::api_types::{
@@ -684,6 +684,7 @@ async fn sweep_submitted_with_real_receipt() {
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
+        tx_submitter: TxSubmitterConfig::default(),
         registry_addr,
         registry_version: RegistryVersion::V2,
         provider: ProviderArgs {

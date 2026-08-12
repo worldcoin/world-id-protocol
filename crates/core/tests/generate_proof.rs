@@ -27,6 +27,7 @@ fn zk_artifact_source() -> Arc<dyn ZkArtifactSource> {
     Arc::new(world_id_core::artifacts::embedded::EmbeddedZkArtifacts.cached())
 }
 use world_id_gateway::{
+    TxSubmitterConfig,
     BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
     spawn_gateway_for_tests,
 };
@@ -85,6 +86,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     // Spawn the gateway wired to this Anvil instance.
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
+        tx_submitter: TxSubmitterConfig::default(),
         registry_addr: world_id_registry,
         registry_version: RegistryVersion::V2,
         provider: world_id_gateway::ProviderArgs {

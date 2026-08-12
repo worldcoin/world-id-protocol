@@ -9,11 +9,8 @@ pub(crate) use ops::{OpsBatcherHandle, OpsBatcherRunner, OpsEnvelope};
 
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
-use alloy::{network::Ethereum, primitives::Bytes, providers::DynProvider};
-use tokio::{
-    sync::{Mutex, mpsc},
-    time::Instant,
-};
+use alloy::{primitives::Bytes, providers::DynProvider, rpc::types::TransactionRequest};
+use tokio::{sync::mpsc, time::Instant};
 use uuid::Uuid;
 use world_id_primitives::api_types::{CreateAccountRequest, GatewayRequestState};
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
@@ -24,9 +21,9 @@ use crate::{
         BacklogUrgencyStats, BaseFeeCache, BatchPolicyEngine, DecisionReason, record_policy_metrics,
     },
     config::BatchPolicyConfig,
-    error::parse_contract_error,
     metrics,
     request_tracker::BacklogScope,
+    tx_submitter::TxSubmitter,
 };
 
 /// Unified batcher handle that routes to the appropriate batcher.
@@ -84,35 +81,22 @@ pub(crate) trait BatcherEnvelope: Send + 'static {
     fn request_id(&self) -> &str;
 }
 
-/// Return value from a successful [`BatchSubmitStrategy::send_batch`] call.
-pub(crate) struct PendingBatchTx {
-    // Hex formatted transaction hash
-    pub formatted_tx_hash: String,
-    // Handle for pending transaction tracking
-    pub builder: alloy::providers::PendingTransactionBuilder<Ethereum>,
-}
-
-impl PendingBatchTx {
-    pub fn new(builder: alloy::providers::PendingTransactionBuilder<Ethereum>) -> Self {
-        Self {
-            formatted_tx_hash: format!("0x{:x}", builder.tx_hash()),
-            builder,
-        }
-    }
-}
-
 /// Strategy trait that captures the only per-batcher differences:
 ///   - batch label / backlog scope (for metrics / policy)
-///   - the actual on-chain send call
+///   - how a batch is turned into a transaction
+///
+/// Strategies build the transaction but never send it: nonce, gas limit and
+/// fees are owned by [`TxSubmitter`], which needs them to stay fixed across
+/// re-broadcasts of the same nonce.
 pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>: Send + Default + 'static {
     fn batch_type(&self) -> &'static str;
     fn backlog_scope(&self) -> BacklogScope;
 
-    fn send_batch(
+    fn build_tx(
         &self,
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
         batch: Vec<E>,
-    ) -> impl Future<Output = Result<PendingBatchTx, alloy::contract::Error>> + Send;
+    ) -> TransactionRequest;
 }
 
 struct TimedEnvelope<T> {
@@ -137,7 +121,7 @@ where
     tracker: RequestTracker,
     batch_policy: BatchPolicyConfig,
     base_fee_cache: BaseFeeCache,
-    tx_send_lock: Arc<Mutex<()>>,
+    submitter: Arc<TxSubmitter>,
     strategy: S,
 }
 
@@ -155,7 +139,7 @@ where
         tracker: RequestTracker,
         batch_policy: BatchPolicyConfig,
         base_fee_cache: BaseFeeCache,
-        tx_send_lock: Arc<Mutex<()>>,
+        submitter: Arc<TxSubmitter>,
     ) -> Self {
         Self {
             rx,
@@ -165,7 +149,7 @@ where
             tracker,
             batch_policy,
             base_fee_cache,
-            tx_send_lock,
+            submitter,
             strategy: S::default(),
         }
     }
@@ -188,58 +172,10 @@ where
             .set_status_batch(&ids, GatewayRequestState::Batching)
             .await;
 
-        let _send_guard = self.tx_send_lock.lock().await;
-        let start = Instant::now();
-        match self.strategy.send_batch(&self.registry, batch).await {
-            Ok(sent) => {
-                // Record only the RPC send latency here.  The on-chain outcome
-                // (success / failure / confirmation latency) is recorded later
-                // in `spawn_receipt_tracker` once the receipt is obtained.
-                let send_latency_ms = start.elapsed().as_millis() as f64;
-                metrics::record_batch_send_latency(batch_type, send_latency_ms);
-
-                tracing::info!(
-                    tx_hash = %sent.formatted_tx_hash,
-                    batch_type,
-                    batch_size = ids.len(),
-                    send_latency_ms,
-                    "batch transaction submitted to RPC node"
-                );
-
-                self.tracker
-                    .set_status_batch(
-                        &ids,
-                        GatewayRequestState::Submitted {
-                            tx_hash: sent.formatted_tx_hash.clone(),
-                        },
-                    )
-                    .await;
-
-                self.tracker.spawn_receipt_tracker(
-                    ids,
-                    sent.builder,
-                    sent.formatted_tx_hash,
-                    batch_type,
-                    start,
-                );
-            }
-            Err(err) => {
-                let send_latency_ms = start.elapsed().as_millis() as f64;
-                metrics::record_batch_send_failed(batch_type, send_latency_ms);
-
-                let error_str = err.to_string();
-                tracing::error!(
-                    error = %error_str,
-                    batch_type,
-                    send_latency_ms,
-                    "{batch_type} batch failed to submit to RPC node"
-                );
-                let code = parse_contract_error(&error_str);
-                self.tracker
-                    .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
-                    .await;
-            }
-        }
+        let request = self.strategy.build_tx(&self.registry, batch);
+        self.submitter
+            .submit(request, ids, batch_type, Instant::now())
+            .await;
     }
 
     fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<E>>) {
@@ -336,6 +272,13 @@ where
                         {
                             self.handle_no_backlog(&mut queue);
                         }
+                        next_eval = Instant::now() + reeval_interval;
+                        continue;
+                    }
+
+                    // Capacity is checked before draining, so a batch refused
+                    // for backpressure stays queued instead of being lost.
+                    if !self.submitter.can_submit().await {
                         next_eval = Instant::now() + reeval_interval;
                         continue;
                     }

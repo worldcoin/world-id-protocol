@@ -14,6 +14,7 @@ fn dummy_zk_source() -> Arc<dyn ZkArtifactSource> {
     Arc::new(DummyZkArtifactSource)
 }
 use world_id_gateway::{
+    TxSubmitterConfig,
     BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
     spawn_gateway_for_tests,
 };
@@ -37,6 +38,7 @@ async fn test_authenticator_registration() {
     // Spawn gateway pointing to the same anvil instance
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
+        tx_submitter: TxSubmitterConfig::default(),
         registry_addr: registry_address,
         registry_version: RegistryVersion::V2,
         provider: world_id_gateway::ProviderArgs {

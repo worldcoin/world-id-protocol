@@ -7,7 +7,8 @@ use alloy::{
 use redis::{AsyncTypedCommands, IntegerReplyOrNoOp, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, RegistryVersion, defaults, spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, TxSubmitterConfig, defaults,
+    spawn_gateway_for_tests,
 };
 use world_id_primitives::api_types::GatewayStatusResponse;
 use world_id_services_common::{ProviderArgs, SignerArgs};
@@ -38,6 +39,7 @@ async fn redis_integration() {
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
+        tx_submitter: TxSubmitterConfig::default(),
         registry_addr,
         registry_version: RegistryVersion::V2,
         provider: ProviderArgs {

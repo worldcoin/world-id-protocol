@@ -36,7 +36,10 @@ const fn apply_margin(estimate: u64) -> u64 {
 ///
 /// Returns the underlying transport error when `eth_estimateGas` fails for a
 /// reason other than execution revert.
-pub async fn estimate_gas_with_fallback<P, N>(provider: &P, tx: N::TransactionRequest) -> TransportResult<u64>
+pub async fn estimate_gas_with_fallback<P, N>(
+    provider: &P,
+    tx: N::TransactionRequest,
+) -> TransportResult<u64>
 where
     P: Provider<N>,
     N: Network,
