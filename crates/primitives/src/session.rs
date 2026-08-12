@@ -1,6 +1,7 @@
 use crate::{
     FieldElement, PrimitiveError,
     oprf::{OprfPrefix, OprfPrefixedFieldElement as _},
+    poseidon::{self, ds},
 };
 use embed_doc_image::embed_doc_image;
 use ruint::aliases::U256;
@@ -53,10 +54,6 @@ pub struct SessionId {
 
 impl SessionId {
     const JSON_PREFIX: &str = "session_";
-    /// Domain separator for session id.
-    ///
-    /// TODO: Change DS to not use the same DS as the base Query Proof
-    const DS_C: &[u8] = b"H(id, r)";
 
     /// Creates a new session id. Most uses should default to `from_r_seed` instead.
     ///
@@ -95,8 +92,6 @@ impl SessionId {
         session_id_r_seed: FieldElement,
         oprf_seed: FieldElement,
     ) -> Result<Self, PrimitiveError> {
-        let sub_ds = FieldElement::from_be_bytes_mod_order(Self::DS_C);
-
         if !oprf_seed.has_prefix(OprfPrefix::SessionOprfSeed) {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "session_id".to_string(),
@@ -104,9 +99,10 @@ impl SessionId {
             });
         }
 
-        let mut input = [*sub_ds, leaf_index.into(), *session_id_r_seed];
-        poseidon2::bn254::t3::permutation_in_place(&mut input);
-        let commitment = input[1].into();
+        let commitment = poseidon::hash(
+            ds::SESSION_COMMITMENT,
+            [leaf_index.into(), session_id_r_seed],
+        );
         Ok(Self {
             commitment,
             oprf_seed,

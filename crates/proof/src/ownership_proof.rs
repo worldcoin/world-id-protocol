@@ -17,9 +17,6 @@ use crate::{
     circuit_inputs::OwnershipProofCircuitInput,
 };
 
-/// Domain separator for the Ownership Proof Hash Message.
-pub const DS_OWNERSHIP_PROOF: &[u8; 6] = b"WIP103";
-
 /// Loads an ownership proof prover from a reader containing PKP bytes.
 ///
 /// # Errors
@@ -236,7 +233,9 @@ mod tests {
 
     use eddsa_babyjubjub::EdDSAPrivateKey;
     use world_id_primitives::{
-        AuthenticatorPublicKeySet, Credential, TREE_DEPTH, merkle::MerkleInclusionProof,
+        AuthenticatorPublicKeySet, Credential, TREE_DEPTH,
+        merkle::MerkleInclusionProof,
+        poseidon::{self, ds},
     };
 
     const LEAF_INDEX: u64 = 1;
@@ -257,15 +256,10 @@ mod tests {
         let commitment_blinder = FieldElement::from(999u64);
         let commitment = Credential::compute_sub(LEAF_INDEX, commitment_blinder);
 
-        // The circuit signs `Poseidon2(DS_OWNERSHIP_PROOF, commitment, nonce)`, not the raw
+        // The circuit signs `Poseidon2(ds::OWNERSHIP_PROOF, commitment, nonce)`, not the raw
         // commitment. See `Authenticator::prove_credential_sub`.
-        let mut message = [
-            *FieldElement::from_be_bytes_mod_order(DS_OWNERSHIP_PROOF),
-            *commitment,
-            *nonce,
-        ];
-        poseidon2::bn254::t3::permutation_in_place(&mut message);
-        let signature = sk.sign(message[1]);
+        let message = poseidon::hash(ds::OWNERSHIP_PROOF, [commitment, nonce]);
+        let signature = sk.sign(*message);
 
         let circuit_input = OwnershipProofCircuitInput {
             key_index: 0,

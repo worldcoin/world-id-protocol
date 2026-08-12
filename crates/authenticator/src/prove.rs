@@ -480,7 +480,7 @@ impl Authenticator {
         sub: FieldElement,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<OwnershipProof, AuthenticatorError> {
-        use world_id_proof::ownership_proof::DS_OWNERSHIP_PROOF;
+        use world_id_primitives::poseidon::{self, ds};
 
         let authenticator_input = self
             .prepare_authenticator_input(account_inclusion_proof)
@@ -492,18 +492,13 @@ impl Authenticator {
             return Err(AuthenticatorError::InvalidSubOrBlindingFactor);
         }
 
-        let mut message = [
-            *FieldElement::from_be_bytes_mod_order(DS_OWNERSHIP_PROOF),
-            *commitment,
-            *nonce,
-        ];
-        poseidon2::bn254::t3::permutation_in_place(&mut message);
+        let message = poseidon::hash(ds::OWNERSHIP_PROOF, [commitment, nonce]);
 
         let signature = self
             .signer
             .offchain_signer_private_key()
             .expose_secret()
-            .sign(message[1]);
+            .sign(*message);
 
         let input = OwnershipProofCircuitInput {
             key_index: authenticator_input.key_index,

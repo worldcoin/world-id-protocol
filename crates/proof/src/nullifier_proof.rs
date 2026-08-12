@@ -30,8 +30,6 @@ use crate::oprf_query::FullOprfOutput;
 
 pub mod errors;
 
-pub(crate) const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
-
 /// The SHA-256 fingerprint of the `OPRFNullifier` `ZKey`.
 pub const NULLIFIER_ZKEY_FINGERPRINT: &str =
     "4247e6bfe1af211e72d3657346802e1af00e6071fb32429a200f9fc0a25a36f9";

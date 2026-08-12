@@ -31,6 +31,10 @@ pub use key_set::{
 mod config;
 pub use config::{Config, ServiceEndpoint};
 
+/// Domain-separated Poseidon2 hashing over a fixed number of field elements.
+pub mod poseidon;
+pub use poseidon::DomainSeparator;
+
 /// SAFE-style sponge utilities and helpers.
 pub mod sponge;
 

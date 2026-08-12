@@ -5,12 +5,11 @@ use rand::Rng;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
-use crate::{FieldElement, PrimitiveError, sponge::hash_bytes_to_field_element};
-
-/// Domain separation tag to avoid collisions with other Poseidon2 usages.
-const ASSOCIATED_DATA_COMMITMENT_DS_TAG: &[u8] = b"ASSOCIATED_DATA_HASH_V1";
-const CLAIMS_HASH_DS_TAG: &[u8] = b"CLAIMS_HASH_V1";
-const SUB_DS_TAG: &[u8] = b"H_CS(id, r)";
+use crate::{
+    FieldElement, PrimitiveError,
+    poseidon::{self, ds},
+    sponge::hash_bytes_to_field_element,
+};
 
 /// Version of the `Credential` object
 #[derive(Default, Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
@@ -285,7 +284,7 @@ impl Credential {
         if index >= self.claims.len() || index >= Self::MAX_CLAIMS {
             return Err(PrimitiveError::OutOfBounds);
         }
-        self.claims[index] = hash_bytes_to_field_element(CLAIMS_HASH_DS_TAG, claim)?;
+        self.claims[index] = hash_bytes_to_field_element(ds::CLAIMS_HASH_V1, claim)?;
         Ok(self)
     }
 
@@ -319,15 +318,20 @@ impl Credential {
         data: &[u8],
     ) -> Result<Self, PrimitiveError> {
         self.associated_data_commitment =
-            hash_bytes_to_field_element(ASSOCIATED_DATA_COMMITMENT_DS_TAG, data)?;
+            hash_bytes_to_field_element(ds::ASSOCIATED_DATA_V1, data)?;
         Ok(self)
     }
 
     /// Get the credential domain separator for the given version.
     #[must_use]
     pub fn get_cred_ds(&self) -> FieldElement {
+        self.cred_ds().as_field_element()
+    }
+
+    /// The domain separator of the credential hash for the given version.
+    const fn cred_ds(&self) -> crate::DomainSeparator {
         match self.version {
-            CredentialVersion::V1 => FieldElement::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ"),
+            CredentialVersion::V1 => ds::CREDENTIAL_V1,
         }
     }
 
@@ -362,18 +366,18 @@ impl Credential {
             CredentialVersion::V1 => {
                 let id_issuer_version = BigInt([self.id, self.issuer_version as u64, 0, 0]);
 
-                let mut input = [
-                    *self.get_cred_ds(),
-                    self.issuer_schema_id.into(),
-                    *self.sub,
-                    self.genesis_issued_at.into(),
-                    self.expires_at.into(),
-                    *self.claims_hash()?,
-                    *self.associated_data_commitment,
-                    id_issuer_version.into(),
-                ];
-                poseidon2::bn254::t8::permutation_in_place(&mut input);
-                Ok(input[1].into())
+                Ok(poseidon::hash(
+                    self.cred_ds(),
+                    [
+                        self.issuer_schema_id.into(),
+                        self.sub,
+                        self.genesis_issued_at.into(),
+                        self.expires_at.into(),
+                        self.claims_hash()?,
+                        self.associated_data_commitment,
+                        FieldElement::from(ark_babyjubjub::Fq::from(id_issuer_version)),
+                    ],
+                ))
             }
         }
     }
@@ -412,13 +416,7 @@ impl Credential {
     /// Compute the `sub` for a credential computed from `leaf_index` and a `blinding_factor`.
     #[must_use]
     pub fn compute_sub(leaf_index: u64, blinding_factor: FieldElement) -> FieldElement {
-        let mut input = [
-            *FieldElement::from_be_bytes_mod_order(SUB_DS_TAG),
-            leaf_index.into(),
-            *blinding_factor,
-        ];
-        poseidon2::bn254::t3::permutation_in_place(&mut input);
-        input[1].into()
+        poseidon::hash(ds::CREDENTIAL_SUB, [leaf_index.into(), blinding_factor])
     }
 }
 
@@ -563,8 +561,7 @@ mod tests {
             .unwrap();
 
         // Using the hash function directly
-        let direct_hash =
-            hash_bytes_to_field_element(ASSOCIATED_DATA_COMMITMENT_DS_TAG, &data).unwrap();
+        let direct_hash = hash_bytes_to_field_element(ds::ASSOCIATED_DATA_V1, &data).unwrap();
 
         // Both should produce the same hash
         assert_eq!(credential.associated_data_commitment, direct_hash);
@@ -590,7 +587,7 @@ mod tests {
         let credential = Credential::new().claim(0, &data).unwrap();
 
         // Using the hash function directly
-        let direct_hash = hash_bytes_to_field_element(CLAIMS_HASH_DS_TAG, &data).unwrap();
+        let direct_hash = hash_bytes_to_field_element(ds::CLAIMS_HASH_V1, &data).unwrap();
 
         // Both should produce the same hash
         assert_eq!(credential.claims[0], direct_hash);

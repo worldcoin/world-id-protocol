@@ -2,7 +2,7 @@ use ark_babyjubjub::Fq;
 use ark_ff::Zero;
 use sha3::{Digest, Sha3_256};
 
-use crate::{FieldElement, PrimitiveError};
+use crate::{DomainSeparator, FieldElement, PrimitiveError};
 
 /// Bytes per chunk when mapping arbitrary data into field elements.
 const CHUNK_SIZE_BYTES: usize = 31; // 248 bits < BN254 modulus
@@ -36,12 +36,13 @@ const IO_SQUEEZE_LEN_BYTES: u32 = 32;
 /// - Capacity portion (index 15): provides security, not directly modified by input
 ///
 /// # Arguments
+/// * `ds` - The domain separator of this hash, see [`crate::poseidon::ds`].
 /// * `data` - Arbitrary bytes to hash (any length).
 ///
 /// # Errors
 /// Will error if the data is empty.
 pub fn hash_bytes_to_field_element(
-    ds_tag: &[u8],
+    ds: DomainSeparator,
     data: &[u8],
 ) -> Result<FieldElement, PrimitiveError> {
     if data.is_empty() {
@@ -57,7 +58,7 @@ pub fn hash_bytes_to_field_element(
         });
     }
 
-    hash_bytes_with_poseidon2_t16_r15(data, ds_tag, "associated_data")
+    hash_bytes_with_poseidon2_t16_r15(data, ds.as_bytes(), "associated_data")
 }
 
 /// Convert arbitrary bytes into field elements using fixed-size chunks.
@@ -208,11 +209,13 @@ fn hash_bytes_with_poseidon2_t16_r15(
 
 #[cfg(test)]
 mod tests {
-    use crate::{FieldElement, PrimitiveError, sponge::hash_bytes_with_poseidon2_t16_r15};
+    use crate::{
+        DomainSeparator, FieldElement, PrimitiveError, sponge::hash_bytes_with_poseidon2_t16_r15,
+    };
 
     use super::hash_bytes_to_field_element;
 
-    const TEST_DS_TAG: &[u8] = b"TEST_DS_TAG";
+    const TEST_DS_TAG: DomainSeparator = DomainSeparator::new(b"TEST_DS_TAG");
 
     #[test]
     fn derive_tag_stable() {
