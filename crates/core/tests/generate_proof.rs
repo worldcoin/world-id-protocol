@@ -27,8 +27,7 @@ fn zk_artifact_source() -> Arc<dyn ZkArtifactSource> {
     Arc::new(world_id_core::artifacts::embedded::EmbeddedZkArtifacts.cached())
 }
 use world_id_gateway::{
-    TxSubmitterConfig,
-    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, TxSubmitterConfig, defaults,
     spawn_gateway_for_tests,
 };
 use world_id_primitives::{

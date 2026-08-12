@@ -285,12 +285,29 @@ impl TxSubmitter {
         request.set_max_fee_per_gas(fees.max_fee_per_gas);
         request.set_max_priority_fee_per_gas(fees.max_priority_fee_per_gas);
 
-        let nonce = self.next_nonce.fetch_add(1, Ordering::SeqCst);
+        let mut nonce = self.next_nonce.fetch_add(1, Ordering::SeqCst);
         request.set_nonce(nonce);
         metrics::set_nonce_owned(nonce);
 
         let send_started = Instant::now();
-        let result = self.provider.send_transaction(request.clone()).await;
+        let mut result = self.provider.send_transaction(request.clone()).await;
+
+        // The counter assumes this replica is the only sender for its signer.
+        // If something else used the address — a local setup sharing the key, an
+        // operator transaction — the counter is stale and every send from here
+        // on would fail. Reconcile against the chain and retry once rather than
+        // wedging.
+        let stale_counter = matches!(&result, Err(err) if is_nonce_too_low(&err.to_string()));
+        if let Some(resynced) = if stale_counter {
+            self.resync_nonce(nonce).await
+        } else {
+            None
+        } {
+            nonce = resynced;
+            request.set_nonce(nonce);
+            metrics::set_nonce_owned(nonce);
+            result = self.provider.send_transaction(request.clone()).await;
+        }
 
         let mut entry = InflightTx {
             request,
@@ -389,6 +406,52 @@ impl TxSubmitter {
                 .await;
             }
         }
+    }
+
+    /// Re-reads the pending transaction count and rewinds the counter to it.
+    ///
+    /// Called when the node reports `nonce too low`, which means the counter has
+    /// drifted ahead of reality — the address was used by something other than
+    /// this replica. Returns the nonce to retry with, or `None` if the count
+    /// could not be read or does not actually resolve the conflict.
+    async fn resync_nonce(&self, stale: u64) -> Option<u64> {
+        let fresh = match self
+            .provider
+            .get_transaction_count(self.signer)
+            .pending()
+            .await
+        {
+            Ok(fresh) => fresh,
+            Err(err) => {
+                tracing::error!(error = %err, "nonce resync failed to read transaction count");
+                metrics::record_nonce_resync("rpc_error");
+                return None;
+            }
+        };
+
+        if fresh <= stale {
+            // Not a stale counter after all — retrying would hit the same error.
+            tracing::error!(
+                stale,
+                fresh,
+                "node reported nonce too low but the pending count is not ahead"
+            );
+            metrics::record_nonce_resync("no_progress");
+            return None;
+        }
+
+        tracing::warn!(
+            stale,
+            fresh,
+            signer = %self.signer,
+            "nonce counter drifted behind the chain, resyncing; the signer is being \
+             used by something other than this replica"
+        );
+        metrics::record_nonce_resync("resynced");
+
+        // Hand out the nonce after this one to the next caller.
+        self.next_nonce.store(fresh + 1, Ordering::SeqCst);
+        Some(fresh)
     }
 
     /// Marks a batch's requests as failed.

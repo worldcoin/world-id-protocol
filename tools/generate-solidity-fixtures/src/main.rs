@@ -34,8 +34,7 @@ use world_id_core::{
     requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
 };
 use world_id_gateway::{
-    TxSubmitterConfig,
-    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, TxSubmitterConfig, defaults,
     spawn_gateway_for_tests,
 };
 use world_id_primitives::{

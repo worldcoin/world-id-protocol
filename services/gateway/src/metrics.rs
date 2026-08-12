@@ -45,6 +45,9 @@ pub const METRICS_NONCE_ESCALATION: &str = "nonce.escalation";
 pub const METRICS_NONCE_TERMINAL: &str = "nonce.terminal";
 /// Attempts to release a blocked nonce with a self-transfer, by outcome.
 pub const METRICS_NONCE_RELEASE: &str = "nonce.release";
+/// Nonce-counter resyncs against the chain, by outcome. A non-zero rate means
+/// the signer is being used by something other than this replica.
+pub const METRICS_NONCE_RESYNC: &str = "nonce.resync";
 /// Times the in-flight cap refused a batch.
 pub const METRICS_INFLIGHT_CAP_REACHED: &str = "nonce.inflight_cap_reached";
 /// Times submission was refused because the balance was below the floor.
@@ -169,6 +172,11 @@ pub fn describe_metrics() {
         "Attempts to release a blocked nonce, by outcome."
     );
     ::metrics::describe_counter!(
+        METRICS_NONCE_RESYNC,
+        ::metrics::Unit::Count,
+        "Nonce-counter resyncs against the chain, by outcome."
+    );
+    ::metrics::describe_counter!(
         METRICS_INFLIGHT_CAP_REACHED,
         ::metrics::Unit::Count,
         "Times the in-flight transaction cap refused a batch."
@@ -212,6 +220,11 @@ pub fn record_terminal(batch_type: &'static str, reason: &'static str) {
 
 pub fn record_nonce_release(outcome: &'static str) {
     ::metrics::counter!(METRICS_NONCE_RELEASE, "outcome" => outcome).increment(1);
+}
+
+/// Records a resync of the owned nonce counter against the chain.
+pub fn record_nonce_resync(outcome: &'static str) {
+    ::metrics::counter!(METRICS_NONCE_RESYNC, "outcome" => outcome).increment(1);
 }
 
 pub fn record_inflight_cap_reached() {

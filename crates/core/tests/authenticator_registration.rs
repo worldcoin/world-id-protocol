@@ -14,8 +14,7 @@ fn dummy_zk_source() -> Arc<dyn ZkArtifactSource> {
     Arc::new(DummyZkArtifactSource)
 }
 use world_id_gateway::{
-    TxSubmitterConfig,
-    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, TxSubmitterConfig, defaults,
     spawn_gateway_for_tests,
 };
 use world_id_primitives::{Config, ServiceEndpoint};

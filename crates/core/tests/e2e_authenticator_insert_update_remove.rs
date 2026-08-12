@@ -15,8 +15,7 @@ use world_id_core::{
     artifacts::{ZkArtifactSource, dummy::DummyZkArtifactSource},
 };
 use world_id_gateway::{
-    TxSubmitterConfig,
-    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, TxSubmitterConfig, defaults,
     spawn_gateway_for_tests,
 };
 use world_id_primitives::{Config, ServiceEndpoint, TREE_DEPTH, merkle::AccountInclusionProof};
