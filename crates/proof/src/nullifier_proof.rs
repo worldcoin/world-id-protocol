@@ -120,7 +120,9 @@ pub fn generate_nullifier_proof<R: Rng + CryptoRng>(
         issuer_schema_id: credential.issuer_schema_id.into(),
         cred_pk: credential.issuer.pk,
         cred_hashes: [
-            *credential.claims_hash()?,
+            *credential
+                .claims_hash()
+                .map_err(ProofError::CredentialError)?,
             *credential.associated_data_commitment,
         ],
         cred_genesis_issued_at: credential.genesis_issued_at.into(),

@@ -2,15 +2,16 @@
 //!
 //! Both the session and uniqueness modules share identical struct fields, init
 //! logic, and query-proof verification. They differ only in:
-//! - how the action field is validated (`MSB == 0x00` for uniqueness vs `0x01/0x02` for sessions depending on the [`SessionFeType`])
-//! - whether the action is included in the RP signature (`Some` for uniqueness, `None` for session)
+//! - which [`OprfPrefix`] the action field must carry ([`OprfPrefix::Uniqueness`] for uniqueness vs
+//!   [`OprfPrefix::SessionOprfSeed`]/[`OprfPrefix::SessionAction`] for sessions)
+//! - whether the action is included in the RP signature. Some for uniqueness, none for session. For session-seed queries initiated by an RP request for a uniqueness proof,
+//!   the action of the uniqueness proof is part of the data the RP signs over and is included in the `rp_signature_verification` field.
 //! - which [`WorldIdRequestAuthError`] variant is returned for an invalid action
 //!
 //! [`RpModuleKind`] captures these differences; [`RpModuleAuth`] holds the shared
 //! state and branches on the kind at runtime.
 
 use crate::{
-    accountant_batcher::AccountantBatcherHandle,
     auth::{
         merkle_watcher::{MerkleWatcher, MerkleWatcherError},
         nonce_history::{DuplicateNonce, NonceHistory, NonceScope},
@@ -23,7 +24,6 @@ use ark_bn254::Bn254;
 use ark_groth16::PreparedVerifyingKey;
 use async_trait::async_trait;
 use chrono::Utc;
-use oprf_accountant::api::BillableRpRequest;
 use std::{fmt, sync::Arc, time::Duration};
 use taceo_nodes_common::web3;
 use taceo_oprf::types::{
@@ -32,36 +32,30 @@ use taceo_oprf::types::{
 };
 use tracing::instrument;
 use world_id_primitives::{
-    FieldElement, SessionFeType, SessionFieldElement as _,
-    oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
+    FieldElement, OprfPrefix, OprfPrefixedFieldElement as _,
+    oprf::{NullifierOprfRequestAuthV1, RpSignatureVerification, WorldIdRequestAuthError},
     rp::RpId,
 };
 
 pub(crate) mod wip101;
 
 /// Distinguishes the two RP-authenticated OPRF modules.
-#[derive(Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum RpModuleKind {
-    /// Session module: action MSB must be `0x01` (seed) or `0x02` (action); action is NOT signed.
+    /// Session module: action MSB must be `0x01` (seed) or `0x02` (action); action is NOT
+    /// signed. Seed queries may carry a uniqueness action as RP signature verification data,
+    /// in which case the signature is verified over the action-inclusive message
+    /// (create-and-bind).
     Session,
     /// Uniqueness module: action MSB must be `0x00`; action IS signed.
-    Uniqueness(AccountantBatcherHandle),
-}
-
-impl fmt::Debug for RpModuleKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Session => write!(f, "Session"),
-            Self::Uniqueness(_) => write!(f, "Uniqueness"),
-        }
-    }
+    Uniqueness,
 }
 
 impl fmt::Display for RpModuleKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RpModuleKind::Session => write!(f, "session (action MSB must be 0x01 or 0x02)"),
-            RpModuleKind::Uniqueness(_) => write!(f, "uniqueness (action MSB must be 0x00)"),
+            RpModuleKind::Uniqueness => write!(f, "uniqueness (action MSB must be 0x00)"),
         }
     }
 }
@@ -73,6 +67,8 @@ pub(crate) enum RpModuleError {
 
     #[error("Invalid action for uniqueness (action MSB must be 0x00): {action}")]
     InvalidActionUniqueness { action: FieldElement },
+    #[error("Invalid RP signature verification data: {context}")]
+    InvalidRpSignatureVerification { context: &'static str },
     #[error("Could not verify query proof")]
     InvalidQueryProof,
     #[error(transparent)]
@@ -131,6 +127,9 @@ impl From<&RpModuleError> for WorldIdRequestAuthError {
         match value {
             RpModuleError::InvalidActionSession { .. } => Self::InvalidActionSession,
             RpModuleError::InvalidActionUniqueness { .. } => Self::InvalidActionNullifier,
+            RpModuleError::InvalidRpSignatureVerification { .. } => {
+                Self::InvalidRpSignatureVerification
+            }
             RpModuleError::InvalidQueryProof => Self::InvalidQueryProof,
             RpModuleError::MerkleWatcher(e) => Self::from(e.as_ref()),
             RpModuleError::RpRegistry(e) => Self::from(e.as_ref()),
@@ -239,11 +238,8 @@ impl RpModuleAuth {
     }
 
     /// Initializes a uniqueness-module authenticator.
-    pub(crate) fn new_uniqueness(
-        args: RpModuleAuthArgs,
-        accountant_batcher: AccountantBatcherHandle,
-    ) -> Self {
-        Self::new(RpModuleKind::Uniqueness(accountant_batcher), args)
+    pub(crate) fn new_uniqueness(args: RpModuleAuthArgs) -> Self {
+        Self::new(RpModuleKind::Uniqueness, args)
     }
 
     fn new(kind: RpModuleKind, args: RpModuleAuthArgs) -> Self {
@@ -320,13 +316,24 @@ impl RpModuleAuth {
             RpAccountType::Eoa => {
                 tracing::trace!("RP signer is EOA");
                 let action = match self.kind {
-                    RpModuleKind::Uniqueness(_) => Some(action),
-                    RpModuleKind::Session => None,
+                    RpModuleKind::Uniqueness => Some(action),
+                    // Session RP signatures do not include the action, unless the request
+                    // carries a uniqueness action as verification data (create-and-bind).
+                    RpModuleKind::Session => request.auth.rp_signature_verification.map(
+                        |verification| match verification {
+                            RpSignatureVerification::UniquenessAction { action } => *action,
+                        },
+                    ),
                 };
                 rp.verify_eoa(action, request)
             }
             RpAccountType::Contract => {
                 // TODO(session-proofs): WIP-101 does not currently support session proofs.
+                if request.auth.rp_signature_verification.is_some() {
+                    return Err(RpModuleError::InvalidRpSignatureVerification {
+                        context: "not supported for WIP101 contract-backed RPs",
+                    });
+                }
                 Ok(rp
                     .verify_wip101(
                         action,
@@ -378,20 +385,40 @@ impl RpModuleAuth {
         let action = FieldElement::from(request.auth.action);
 
         // Validate the action per kind and derive the nonce scope it consumes.
+        // RP signature verification data is only valid on session-seed queries
         let nonce_scope = match self.kind {
             RpModuleKind::Session => {
                 metrics::auth_module::inc_session();
-                if action.is_valid_for_session(SessionFeType::OprfSeed) {
+                if action.has_prefix(OprfPrefix::SessionOprfSeed) {
+                    if let Some(RpSignatureVerification::UniquenessAction {
+                        action: signed_action,
+                    }) = request.auth.rp_signature_verification
+                        && !signed_action.has_prefix(OprfPrefix::Uniqueness)
+                    {
+                        return Err(RpModuleError::InvalidRpSignatureVerification {
+                            context: "uniqueness action MSB must be 0x00",
+                        });
+                    }
                     NonceScope::SessionOprfSeed
-                } else if action.is_valid_for_session(SessionFeType::Action) {
+                } else if action.has_prefix(OprfPrefix::SessionAction) {
+                    if request.auth.rp_signature_verification.is_some() {
+                        return Err(RpModuleError::InvalidRpSignatureVerification {
+                            context: "only allowed on session-seed queries",
+                        });
+                    }
                     NonceScope::SessionAction
                 } else {
                     return Err(RpModuleError::InvalidActionSession { action });
                 }
             }
-            RpModuleKind::Uniqueness(_) => {
+            RpModuleKind::Uniqueness => {
                 metrics::auth_module::inc_nullifier();
-                if action.to_be_bytes()[0] != 0 {
+                if request.auth.rp_signature_verification.is_some() {
+                    return Err(RpModuleError::InvalidRpSignatureVerification {
+                        context: "only allowed on the session module",
+                    });
+                }
+                if !action.has_prefix(OprfPrefix::Uniqueness) {
                     return Err(RpModuleError::InvalidActionUniqueness { action });
                 }
                 NonceScope::Uniqueness
@@ -449,11 +476,6 @@ impl OprfRequestAuthenticator for RpModuleAuth {
     ) -> Result<OprfKeyId, OprfRequestAuthenticatorError> {
         Ok(Box::pin(self.authenticate_inner(request))
             .await
-            .inspect(|_| {
-                if let RpModuleKind::Uniqueness(handle) = &self.kind {
-                    handle.record_request(BillableRpRequest::from(&request.auth));
-                }
-            })
             .map_err(|err| super::auth_module_error(err, "RP-module"))?)
     }
 }

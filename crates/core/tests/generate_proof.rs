@@ -8,7 +8,7 @@ use std::{
 
 use alloy::{
     primitives::{U160, U256},
-    signers::local::LocalSigner,
+    signers::{SignerSync as _, local::LocalSigner},
 };
 use eyre::{Context as _, Result, eyre};
 use taceo_oprf::{
@@ -31,7 +31,8 @@ use world_id_gateway::{
     spawn_gateway_for_tests,
 };
 use world_id_primitives::{
-    Config, FieldElement, ServiceEndpoint, SessionId, TREE_DEPTH, merkle::AccountInclusionProof,
+    Config, FieldElement, ServiceEndpoint, SessionId, SessionRef, TREE_DEPTH,
+    merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
     anvil::WorldIDVerifierV3,
@@ -305,7 +306,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,
         oprf_key_id: rp_fixture.oprf_key_id,
-        session_id: None,
+        session_id: SessionRef::None,
         action: Some(rp_fixture.action.into()),
         signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
@@ -322,8 +323,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .generate_nullifier(&proof_request, None)
         .await?;
     assert_ne!(nullifier.oprf_output(), FieldElement::ZERO);
-    // reused below for the session-bound proof; `generate_proof` does not contact the nodes
-    let nullifier_for_binding = nullifier.clone();
 
     let credentials = [CredentialInput {
         credential: credential.clone(),
@@ -366,111 +365,96 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .await?;
     info!("on-chain proof verification succeeded");
 
-    // ── SESSION-BOUND UNIQUENESS PROOF ──
-    // Note: We mock a cached r here. This would be initially obtained from an OPRF query.
-    let session_id_r_seed = FieldElement::random(&mut rng);
-    let session_id = SessionId::from_r_seed(
-        leaf_index,
-        session_id_r_seed,
-        SessionId::generate_oprf_seed(&mut rng),
-    )?;
-    let bound_request = ProofRequest {
-        session_id: Some(session_id),
+    // ── UNIQUENESS + CREATE (atomic session mint and bound uniqueness proof) ──
+    let mut rng = rand::thread_rng();
+    let create_nonce = FieldElement::random(&mut rng);
+    let create_msg = world_id_primitives::rp::compute_rp_signature_msg(
+        *create_nonce,
+        rp_fixture.current_timestamp,
+        rp_fixture.expiration_timestamp,
+        Some(rp_fixture.action),
+    );
+    let create_signature = LocalSigner::from_signing_key(rp_fixture.signing_key.clone())
+        .sign_message_sync(&create_msg)?;
+    let create_request = ProofRequest {
+        id: "test_uniqueness_create".to_string(),
+        session_id: SessionRef::Create,
+        action: Some(rp_fixture.action.into()),
+        nonce: create_nonce,
+        signature: create_signature,
         ..proof_request.clone()
     };
-
-    // binding requires the cached seed
-    let err = authenticator
-        .generate_proof(
-            &bound_request,
-            nullifier_for_binding.clone(),
-            &credentials,
-            None,
-            None,
-        )
-        .await
-        .unwrap_err();
-    assert!(matches!(err, AuthenticatorError::SessionSeedRequired));
-
-    // a seed that does not match the session's commitment is rejected
-    let err = authenticator
-        .generate_proof(
-            &bound_request,
-            nullifier_for_binding.clone(),
-            &credentials,
-            None,
-            Some(FieldElement::random(&mut rng)),
-        )
-        .await
-        .unwrap_err();
-    assert!(matches!(err, AuthenticatorError::SessionIdMismatch));
-
-    let bound_result = authenticator
-        .generate_proof(
-            &bound_request,
-            nullifier_for_binding,
-            &credentials,
-            None,
-            Some(session_id_r_seed),
-        )
+    let create_nullifier = authenticator
+        .generate_nullifier(&create_request, None)
         .await?;
-    info!("generated session-bound uniqueness proof");
+    let create_result = authenticator
+        .generate_proof(&create_request, create_nullifier, &credentials, None, None)
+        .await?;
+    let created_session_id = create_result
+        .proof_response
+        .session_id
+        .expect("uniqueness create must mint a session id");
+    let created_session_seed = create_result
+        .session_id_r_seed
+        .expect("uniqueness create must return session seed");
+    let create_item = &create_result.proof_response.responses[0];
+    assert!(create_item.nullifier.is_some());
+    assert!(create_item.session_nullifier.is_none());
+    assert_eq!(
+        SessionId::from_r_seed(
+            leaf_index,
+            created_session_seed,
+            created_session_id.oprf_seed
+        )?,
+        created_session_id
+    );
 
-    assert_eq!(bound_result.proof_response.session_id, Some(session_id));
-    let bound_item = &bound_result.proof_response.responses[0];
-    assert!(bound_item.session_nullifier.is_none());
-    let bound_nullifier = bound_item
+    let create_nullifier = create_item
         .nullifier
-        .expect("bound proof is a uniqueness proof");
-    // same RP/action => same deterministic nullifier as the unbound proof
-    assert_eq!(bound_nullifier, response_item.nullifier.unwrap());
-
-    // `verify()` pins the sessionId signal to 0, so it must reject the bound proof
+        .expect("create uniqueness proof should have nullifier");
     let unbound_verify = world_id_verifier
         .verify(
-            bound_nullifier.into(),
+            create_nullifier.into(),
             rp_fixture.action.into(),
             rp_fixture.world_rp_id.into_inner(),
-            rp_fixture.nonce.into(),
+            create_nonce.into(),
             request_item.signal_hash().into(),
-            bound_item.expires_at_min,
+            create_item.expires_at_min,
             issuer_schema_id,
             request_item
                 .genesis_issued_at_min
                 .unwrap_or_default()
                 .try_into()
                 .expect("u64 fits into U256"),
-            bound_item.proof.as_ethereum_representation(),
+            create_item.proof.as_ethereum_representation(),
         )
         .call()
         .await;
     assert!(
         unbound_verify.is_err(),
-        "bound proof must not verify with sessionId = 0"
+        "create-bound proof must not verify with sessionId = 0"
     );
-    info!("session-bound proof correctly rejected by the sessionId=0 entry point");
 
-    // `verifyWithSession` checks the sessionId signal against the session's commitment
     world_id_verifier
         .verifyWithSession(
-            bound_nullifier.into(),
+            create_nullifier.into(),
             rp_fixture.action.into(),
             rp_fixture.world_rp_id.into_inner(),
-            rp_fixture.nonce.into(),
+            create_nonce.into(),
             request_item.signal_hash().into(),
-            bound_item.expires_at_min,
+            create_item.expires_at_min,
             issuer_schema_id,
             request_item
                 .genesis_issued_at_min
                 .unwrap_or_default()
                 .try_into()
                 .expect("u64 fits into U256"),
-            session_id.commitment.into(),
-            bound_item.proof.as_ethereum_representation(),
+            created_session_id.commitment.into(),
+            create_item.proof.as_ethereum_representation(),
         )
         .call()
         .await?;
-    info!("session-bound proof verified via verifyWithSession");
+    info!("uniqueness create proof verified via verifyWithSession");
 
     indexer_handle.abort();
     info!("e2e_authenticator_generate_proof finished successfully");

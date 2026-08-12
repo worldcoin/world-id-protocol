@@ -4,7 +4,7 @@ use eddsa_babyjubjub::EdDSAPrivateKey;
 use groth16_material::Groth16Error;
 
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, TREE_DEPTH, merkle::MerkleInclusionProof,
+    AuthenticatorPublicKeySet, PrimitiveError, TREE_DEPTH, merkle::MerkleInclusionProof,
     oprf::WorldIdRequestAuthError,
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -69,6 +69,9 @@ pub enum ProofError {
     /// Error verifying a Noir Proof with ProveKit. This usually means the proof is invalid.
     #[error("proof verification error: {0}")]
     Verification(String),
+    /// The proof cannot be generated because the credential has an error
+    #[error(transparent)]
+    CredentialError(#[from] PrimitiveError),
     /// Catch-all for other internal errors.
     #[error(transparent)]
     InternalError(#[from] eyre::Report),

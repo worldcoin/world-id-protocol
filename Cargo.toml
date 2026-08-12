@@ -11,7 +11,6 @@ members = [
   "services/indexer",
   "services/gateway",
   "services/oprf-node",
-  "services/oprf-accountant",
   "services/oprf-dev-client",
   "services/common",
   "services/faux-issuer",
@@ -155,7 +154,6 @@ tower = "0.5.3"
 p256 = { version = "0.13.2", default-features = false }
 
 # Internal
-oprf-accountant = { package="world-id-oprf-accountant", path = "services/oprf-accountant/" }
 world-id-core = { version = "0.13.0", default-features = false, path = "crates/core" }
 world-id-issuer = { version = "0.13.0", path = "crates/issuer" }
 world-id-proof = { version = "0.13.0", path = "crates/proof" }
@@ -163,7 +161,6 @@ world-id-registries = { version = "0.13.0", path = "crates/registries" }
 world-id-authenticator = { version = "0.13.0", path = "crates/authenticator" }
 world-id-primitives = { version = "0.13.0", path = "crates/primitives", default-features = false }
 world-id-oprf-node = { version = "1.2.0", path = "services/oprf-node" }
-world-id-oprf-accountant = { version = "0.1.0", path = "services/oprf-accountant" }
 world-id-test-utils = { path = "crates/test-utils" }
 world-id-services-common = { path = "services/common", version = "0.1.0" }
 world-id-relay = { path = "services/relay" }
