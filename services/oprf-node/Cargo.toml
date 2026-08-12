@@ -34,7 +34,6 @@ serde = { workspace = true, features = ["derive"] }
 serde-env.workspace = true
 serde_json = { workspace = true }
 taceo-nodes-common = { workspace = true, features = ["postgres", "web3"] }
-taceo-nodes-common-legacy = { package = "taceo-nodes-common", version = "=0.7.4", default-features = false, features = ["postgres"] }
 taceo-oprf = { workspace = true, features = ["postgres", "service"] }
 telemetry-batteries = { workspace = true }
 thiserror = { workspace = true }

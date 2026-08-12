@@ -12,13 +12,15 @@ use eyre::{Context as _, Result};
 use k256::ecdsa::SigningKey;
 use rand::{Rng, thread_rng};
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
-use taceo_oprf_test_utils::PEER_ADDRESSES;
 use world_id_primitives::{
     AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, credential::Credential,
     merkle::MerkleInclusionProof, rp::RpId as WorldRpId,
 };
 
-use crate::{anvil::TestAnvil, merkle::first_leaf_merkle_path};
+use crate::{
+    anvil::{OPRF_PEER_ADDRESSES, TestAnvil},
+    merkle::first_leaf_merkle_path,
+};
 
 /// Holds the default on-chain environment used by the E2E tests
 pub struct RegistryTestContext {
@@ -72,7 +74,11 @@ impl RegistryTestContext {
             .wrap_err("failed to deploy Verifier")?;
 
         anvil
-            .register_oprf_nodes(oprf_key_registry, deployer.clone(), PEER_ADDRESSES.to_vec())
+            .register_oprf_nodes(
+                oprf_key_registry,
+                deployer.clone(),
+                OPRF_PEER_ADDRESSES.to_vec(),
+            )
             .await?;
 
         // add RpRegistry as OprfKeyRegistry admin because it needs to init key-gens

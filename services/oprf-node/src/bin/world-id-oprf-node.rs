@@ -4,6 +4,7 @@
 //! It initializes tracing, metrics, and starts the node with configuration
 //! from command-line arguments or environment variables.
 
+use taceo_nodes_common::postgres::PostgresConfig;
 #[cfg(not(target_env = "msvc"))]
 use tikv_jemallocator::Jemalloc;
 
@@ -15,7 +16,6 @@ use std::{net::SocketAddr, process::ExitCode, sync::Arc};
 
 use eyre::Context;
 use serde::Deserialize;
-use taceo_nodes_common_legacy::postgres::PostgresConfig;
 use taceo_oprf::service::secret_manager::{SecretManager, postgres::PostgresSecretManager};
 use world_id_oprf_node::config::WorldOprfNodeConfig;
 

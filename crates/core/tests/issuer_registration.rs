@@ -1,9 +1,8 @@
 #![cfg(feature = "issuer")]
 
 use eyre::Result;
-use taceo_oprf_test_utils::PEER_ADDRESSES;
 use world_id_core::Issuer;
-use world_id_test_utils::anvil::{CredentialSchemaIssuerRegistry, TestAnvil};
+use world_id_test_utils::anvil::{CredentialSchemaIssuerRegistry, OPRF_PEER_ADDRESSES, TestAnvil};
 
 /// Complete test for registering an issuer schema
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -22,7 +21,7 @@ async fn test_register_issuer_schema() -> Result<()> {
         .register_oprf_nodes(
             oprf_key_registry,
             issuer_signer.clone(),
-            PEER_ADDRESSES.to_vec(),
+            OPRF_PEER_ADDRESSES.to_vec(),
         )
         .await?;
 

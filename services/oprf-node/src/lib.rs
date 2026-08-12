@@ -172,6 +172,7 @@ pub fn start(
         secret_manager,
         started_services,
         node_information,
+        taceo_nodes_common::version_info!(),
     )
     .module(
         &format!("/{}", OprfModule::Nullifier),
