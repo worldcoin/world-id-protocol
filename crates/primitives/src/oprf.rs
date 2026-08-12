@@ -1,11 +1,14 @@
 use crate::serde_utils;
-use alloy_primitives::U256;
+use alloy_primitives::{B256, U256};
 use ark_bn254::Bn254;
 use circom_types::groth16::Proof;
 use serde::{Deserialize, Serialize};
 use taceo_oprf::types::api::{CloseFrameMessage, OprfRequestAuthenticatorError};
 
-use crate::{FieldElement, rp::RpId};
+use crate::{
+    FieldElement,
+    rp::{RpId, RpRequestAuthorizationV2},
+};
 
 #[expect(unused_imports, reason = "used in doc comments")]
 use crate::SessionFeType;
@@ -65,7 +68,8 @@ pub struct NullifierOprfRequestAuthV1 {
     /// Expiration timestamp of the request (unix secs)
     #[serde(alias = "expiration_timestamp")]
     pub expires_at: u64,
-    /// The RP's signature on the request, see `compute_rp_signature_msg` for details.
+    /// The RP's signature on the request. V1 uses `compute_rp_signature_msg`; V2 uses the
+    /// EIP-712 hash represented by [`NullifierOprfRequestAuthV1::rp_request_authorization`].
     ///
     /// Can be `None` if the RP is a WIP101 conform contract.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -85,10 +89,22 @@ pub struct NullifierOprfRequestAuthV1 {
     pub wip101_data: Option<Vec<u8>>,
     /// Additional data needed to reconstruct the RP-signed message.
     ///
-    /// Currently only valid on create-and-bind session-seed queries (see
+    /// Only valid on legacy V1 create-and-bind session-seed queries (see
     /// [`SessionFeType::OprfSeed`]) from EOA-backed RPs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rp_signature_verification: Option<RpSignatureVerification>,
+    /// Typed V2 RP authorization.
+    ///
+    /// Absence selects the exact legacy V1 verification path. Nodes must never fall back to V1
+    /// after attempting to verify a present V2 authorization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rp_request_authorization: Option<RpRequestAuthorizationV2>,
+    /// Selective-disclosure opening for rederiving an existing V2 session seed.
+    ///
+    /// This is present only on an existing-session seed query. The signed authorization commits
+    /// to the opening and exact seed without exposing either on ordinary session-action queries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_seed_opening: Option<B256>,
 }
 
 /// A request sent by a client for OPRF credential blinding factor authentication.
@@ -531,6 +547,7 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ProofType, RequestVersion, rp::RpRequestSessionMode};
 
     /// A structurally valid Groth16 proof (BN254 generator points) for serde tests.
     fn test_proof() -> Proof<Bn254> {
@@ -568,6 +585,8 @@ mod tests {
             rp_id: RpId::new(6),
             wip101_data: None,
             rp_signature_verification,
+            rp_request_authorization: None,
+            session_seed_opening: None,
         }
     }
 
@@ -592,6 +611,38 @@ mod tests {
         ciborium::into_writer(&auth, &mut bytes).unwrap();
         let parsed: NullifierOprfRequestAuthV1 = ciborium::from_reader(bytes.as_slice()).unwrap();
         assert_eq!(parsed.rp_signature_verification, Some(verification));
+    }
+
+    #[test]
+    fn nullifier_auth_v2_json_and_cbor_roundtrip() {
+        let authorization = RpRequestAuthorizationV2 {
+            request_version: RequestVersion::V2,
+            rp_id: RpId::new(6),
+            oprf_key_id: taceo_oprf::types::OprfKeyId::new(ruint::uint!(7_U160)),
+            nonce: FieldElement::from(2_u64),
+            created_at: 4,
+            expires_at: 5,
+            proof_type: ProofType::Session,
+            session_mode: RpRequestSessionMode::Existing,
+            action: None,
+            existing_session_seed_authorization: B256::repeat_byte(0x42),
+            details_hash: B256::repeat_byte(0x43),
+        };
+        let opening = B256::repeat_byte(0x44);
+        let mut auth = test_auth(None);
+        auth.rp_request_authorization = Some(authorization);
+        auth.session_seed_opening = Some(opening);
+
+        let json = serde_json::to_string(&auth).unwrap();
+        let parsed: NullifierOprfRequestAuthV1 = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.rp_request_authorization, Some(authorization));
+        assert_eq!(parsed.session_seed_opening, Some(opening));
+
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&auth, &mut bytes).unwrap();
+        let parsed: NullifierOprfRequestAuthV1 = ciborium::from_reader(bytes.as_slice()).unwrap();
+        assert_eq!(parsed.rp_request_authorization, Some(authorization));
+        assert_eq!(parsed.session_seed_opening, Some(opening));
     }
 
     #[test]

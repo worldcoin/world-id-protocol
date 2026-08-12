@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add version 2 EIP-712 RP request authorization with a salted commitment to the complete semantic request.
+
+### Breaking Changes
+
+- Add the optional `request_salt` field to the Rust `ProofRequest` type; V1 wire encoding remains backwards-compatible.
+
 ## [0.13.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.12.0...world-id-primitives-v0.13.0) - 2026-07-08
 
 ### Added

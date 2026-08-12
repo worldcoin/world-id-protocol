@@ -23,14 +23,39 @@ alloy::sol!(
         ) external view returns (bytes4 magicValue);
     }
 
+    struct RpRequestIntentV2 {
+        uint8 requestVersion;
+        uint64 rpId;
+        uint160 oprfKeyId;
+        uint256 nonce;
+        uint64 createdAt;
+        uint64 expiresAt;
+        uint8 proofType;
+        uint8 sessionMode;
+        uint8 actionKind;
+        uint256 action;
+        bytes32 existingSessionSeedAuthorization;
+        bytes32 detailsHash;
+    }
+
+    interface IWIP101V2 is IERC165 {
+        function verifyRpRequestV2(
+            RpRequestIntentV2 calldata intent,
+            uint256 oprfAction,
+            bytes calldata data
+        ) external view returns (bytes4 magicValue);
+    }
+
     bytes4 constant WIP101_MAGIC_VALUE = 0x35dbc8de;
     bytes4 constant ERC165_INTERFACE_ID = type(IERC165).interfaceId;
     bytes4 constant IWIP101_INTERFACE_ID = type(IWIP101).interfaceId;
+    bytes4 constant IWIP101_V2_INTERFACE_ID = type(IWIP101V2).interfaceId;
 
-    #[sol(rpc, bytecode="6080806040523460155761016a908161001a8239f35b5f80fdfe6080806040526004361015610012575f80fd5b5f3560e01c90816301ffc9a7146100b357506335dbc8de14610032575f80fd5b346100af5760c03660031901126100af5760043560ff8116036100af57610057610106565b5061006061011d565b5060a43567ffffffffffffffff81116100af57366023820112156100af57806004013567ffffffffffffffff81116100af57369101602401116100af57604051631aede46f60e11b8152602090f35b5f80fd5b346100af5760203660031901126100af576004359063ffffffff60e01b82168092036100af57602091631aede46f60e11b81149081156100f5575b5015158152f35b6301ffc9a760e01b149050836100ee565b6044359067ffffffffffffffff821682036100af57565b6064359067ffffffffffffffff821682036100af5756fea264697066735822122096e7f4484e9ba9d2d42b676a61e28dadc5f2048086cf1e7b9c64dfccc0274c6c64736f6c634300081e0033")]
-    contract WIP101Correct is IWIP101 {
+    #[sol(rpc, bytecode="608080604052346015576102a9908161001a8239f35b5f80fdfe6080806040526004361015610012575f80fd5b5f3560e01c90816301ffc9a7146101605750806335dbc8de146100c75763450835eb1461003d575f80fd5b346100c3577ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc36016101c081126100c357610180136100c3576101a43567ffffffffffffffff81116100c35761009790369060040161027b565b505060206040517f450835eb000000000000000000000000000000000000000000000000000000008152f35b5f80fd5b346100c35760c07ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100c35760043560ff8116036100c35761010a61024d565b50610113610264565b5060a43567ffffffffffffffff81116100c35761013490369060040161027b565b505060206040517f35dbc8de000000000000000000000000000000000000000000000000000000008152f35b346100c35760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100c357600435907fffffffff0000000000000000000000000000000000000000000000000000000082168092036100c357817f35dbc8de0000000000000000000000000000000000000000000000000000000060209314908115610223575b81156101f9575b5015158152f35b7f01ffc9a700000000000000000000000000000000000000000000000000000000915014836101f2565b7f450835eb00000000000000000000000000000000000000000000000000000000811491506101eb565b6044359067ffffffffffffffff821682036100c357565b6064359067ffffffffffffffff821682036100c357565b9181601f840112156100c35782359167ffffffffffffffff83116100c357602083818601950101116100c35756")]
+    contract WIP101Correct is IWIP101, IWIP101V2 {
         function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-            return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
+            return interfaceId == IWIP101_INTERFACE_ID || interfaceId == IWIP101_V2_INTERFACE_ID
+                || interfaceId == ERC165_INTERFACE_ID;
         }
 
         function verifyRpRequest(
@@ -42,6 +67,15 @@ alloy::sol!(
             bytes calldata
         ) external pure override returns (bytes4) {
             return WIP101_MAGIC_VALUE;
+        }
+
+        function verifyRpRequestV2(RpRequestIntentV2 calldata, uint256, bytes calldata)
+            external
+            pure
+            override
+            returns (bytes4)
+        {
+            return IWIP101V2.verifyRpRequestV2.selector;
         }
     }
 
@@ -231,7 +265,13 @@ async fn test_confirm_success() {
         .await
         .expect("Should successfully get rp type");
 
-    assert_eq!(rp_type, RpAccountType::Contract);
+    assert_eq!(
+        rp_type,
+        RpAccountType::Contract {
+            supports_v1: true,
+            supports_v2: true,
+        }
+    );
 }
 
 #[tokio::test]

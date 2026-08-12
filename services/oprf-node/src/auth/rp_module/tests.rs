@@ -4,16 +4,16 @@
 use std::time::Duration;
 
 use alloy::{
-    primitives::Address,
+    primitives::{Address, B256},
     signers::{SignerSync as _, local::LocalSigner},
 };
 use ark_ff::PrimeField as _;
 use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
 use uuid::Uuid;
 use world_id_primitives::{
-    FieldElement, SessionFeType, SessionFieldElement as _,
+    FieldElement, ProofType, RequestVersion, SessionFeType, SessionFieldElement as _,
     oprf::{NullifierOprfRequestAuthV1, RpSignatureVerification, error_codes},
-    rp::RpId,
+    rp::{RpId, RpRequestAuthorizationV2, RpRequestSessionMode, session_seed_authorization_v2},
 };
 
 use crate::auth::{
@@ -74,6 +74,8 @@ impl RpModuleTestSetup {
             rp_id: infra.setup.rp_fixture.world_rp_id,
             wip101_data: None,
             rp_signature_verification: None,
+            rp_request_authorization: None,
+            session_seed_opening: None,
         };
 
         Ok(Self {
@@ -115,6 +117,8 @@ impl RpModuleTestSetup {
             rp_signature_verification: Some(RpSignatureVerification::UniquenessAction {
                 action: infra.setup.rp_fixture.action.into(),
             }),
+            rp_request_authorization: None,
+            session_seed_opening: None,
         };
 
         Ok(Self {
@@ -150,6 +154,8 @@ impl RpModuleTestSetup {
             rp_id: infra.setup.rp_fixture.world_rp_id,
             wip101_data: None,
             rp_signature_verification: None,
+            rp_request_authorization: None,
+            session_seed_opening: None,
         };
 
         Ok(Self {
@@ -211,6 +217,41 @@ impl RpModuleTestSetup {
         assert_eq!(auth_error.code(), code);
         assert_eq!(auth_error.message(), msg);
         Ok(())
+    }
+
+    fn authorize_v2(
+        &mut self,
+        proof_type: ProofType,
+        session_mode: RpRequestSessionMode,
+        action: Option<FieldElement>,
+        session_seed_opening: Option<B256>,
+    ) {
+        let existing_session_seed_authorization = session_seed_opening
+            .map_or(B256::ZERO, |opening| {
+                session_seed_authorization_v2(opening, self.request.auth.action.into())
+            });
+        let authorization = RpRequestAuthorizationV2 {
+            request_version: RequestVersion::V2,
+            rp_id: self.request.auth.rp_id,
+            oprf_key_id: self.setup.rp_fixture.oprf_key_id,
+            nonce: self.request.auth.nonce.into(),
+            created_at: self.request.auth.created_at,
+            expires_at: self.request.auth.expires_at,
+            proof_type,
+            session_mode,
+            action,
+            existing_session_seed_authorization,
+            details_hash: B256::repeat_byte(0x42),
+        };
+        let signer = LocalSigner::from_signing_key(self.setup.rp_fixture.signing_key.clone());
+        let signature = signer
+            .sign_hash_sync(&authorization.signing_hash(31_337, self.setup.rp_registry))
+            .expect("can sign V2 authorization");
+
+        self.request.auth.signature = Some(signature);
+        self.request.auth.rp_signature_verification = None;
+        self.request.auth.rp_request_authorization = Some(authorization);
+        self.request.auth.session_seed_opening = session_seed_opening;
     }
 }
 
@@ -492,6 +533,39 @@ async fn test_session_wip101_success() -> eyre::Result<()> {
 }
 
 #[tokio::test]
+async fn test_v2_uniqueness_wip101_success() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_uniqueness().await?;
+    setup.authorize_v2(
+        ProofType::Uniqueness,
+        RpRequestSessionMode::None,
+        Some(setup.request.auth.action.into()),
+        None,
+    );
+    let addr = deploy!(WIP101Correct, setup);
+    setup.set_contract_signer(addr, None).await;
+    setup.assert_auth_ok().await
+}
+
+#[tokio::test]
+async fn test_v2_rejects_v1_only_wip101_signer() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_uniqueness().await?;
+    setup.authorize_v2(
+        ProofType::Uniqueness,
+        RpRequestSessionMode::None,
+        Some(setup.request.auth.action.into()),
+        None,
+    );
+    let addr = deploy!(WIP101CorrectWhenAuxData, setup);
+    setup.set_contract_signer(addr, None).await;
+    setup
+        .assert_auth_err(
+            error_codes::WIP101_INCOMPATIBLE_RP_SIGNER,
+            "RP has a contract backed signer but doesn't conform to WIP101",
+        )
+        .await
+}
+
+#[tokio::test]
 async fn test_session_wip101_success_max_data() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
     let addr = deploy!(WIP101Correct, setup);
@@ -744,6 +818,112 @@ async fn test_uniqueness_rejects_rp_signature_verification() -> eyre::Result<()>
 #[tokio::test]
 async fn test_uniqueness_success() -> eyre::Result<()> {
     check_success(RpModuleTestSetup::new_uniqueness().await?).await
+}
+
+#[tokio::test]
+async fn test_v2_uniqueness_success() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_uniqueness().await?;
+    setup.authorize_v2(
+        ProofType::Uniqueness,
+        RpRequestSessionMode::None,
+        Some(setup.request.auth.action.into()),
+        None,
+    );
+    setup.assert_auth_ok().await
+}
+
+#[tokio::test]
+async fn test_v2_does_not_fall_back_to_v1() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_uniqueness().await?;
+    setup.authorize_v2(
+        ProofType::Uniqueness,
+        RpRequestSessionMode::None,
+        Some(setup.request.auth.action.into()),
+        None,
+    );
+    setup.request.auth.rp_request_authorization = None;
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_SIGNATURE,
+            "signature from RP cannot be verified",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_v2_uniqueness_requires_exact_signed_action() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_uniqueness().await?;
+    setup.authorize_v2(
+        ProofType::Uniqueness,
+        RpRequestSessionMode::None,
+        Some(FieldElement::from(42_u64)),
+        None,
+    );
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
+            "Invalid RP signature verification data",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_v2_uniqueness_without_session_cannot_derive_seed() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_bound_session_seed().await?;
+    setup.authorize_v2(
+        ProofType::Uniqueness,
+        RpRequestSessionMode::None,
+        Some(setup.setup.rp_fixture.action.into()),
+        None,
+    );
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
+            "Invalid RP signature verification data",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_v2_uniqueness_create_can_derive_seed() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_bound_session_seed().await?;
+    setup.authorize_v2(
+        ProofType::Uniqueness,
+        RpRequestSessionMode::Create,
+        Some(setup.setup.rp_fixture.action.into()),
+        None,
+    );
+    setup.assert_auth_ok().await
+}
+
+#[tokio::test]
+async fn test_v2_existing_session_requires_exact_seed_opening() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
+    setup.authorize_v2(
+        ProofType::Session,
+        RpRequestSessionMode::Existing,
+        None,
+        Some(B256::repeat_byte(0x24)),
+    );
+    setup.request.auth.session_seed_opening = Some(B256::repeat_byte(0x25));
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
+            "Invalid RP signature verification data",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_v2_existing_session_seed_success() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
+    setup.authorize_v2(
+        ProofType::Session,
+        RpRequestSessionMode::Existing,
+        None,
+        Some(B256::repeat_byte(0x24)),
+    );
+    setup.assert_auth_ok().await
 }
 
 #[tokio::test]

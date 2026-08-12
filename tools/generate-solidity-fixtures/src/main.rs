@@ -266,6 +266,7 @@ async fn main() -> Result<()> {
     let uniqueness_request = ProofRequest {
         id: "fixture_uniqueness".to_string(),
         version: RequestVersion::V1,
+        request_salt: None,
         proof_type: ProofType::Uniqueness,
         created_at: rp_fixture.current_timestamp,
         expires_at: rp_fixture.expiration_timestamp,

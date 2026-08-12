@@ -308,6 +308,7 @@ fn create_proof_request<R: Rng + CryptoRng>(
     Ok(ProofRequest {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
+        request_salt: None,
         proof_type,
         created_at: current_timestamp,
         expires_at: expiration_timestamp,
@@ -361,6 +362,8 @@ fn generate_oprf_auth_request(
         rp_id: proof_request.rp_id,
         wip101_data: None,
         rp_signature_verification: None,
+        rp_request_authorization: None,
+        session_seed_opening: None,
     };
 
     Ok(auth)
