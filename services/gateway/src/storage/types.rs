@@ -1,4 +1,5 @@
 use alloy::primitives::{Address, B256, Bytes, TxHash, U256};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use world_id_primitives::api_types::CreateAccountRequest;
 
@@ -9,18 +10,18 @@ pub(crate) type Timestamp = u64;
 ///
 /// The `gw_` prefix used by HTTP responses is presentation only and is not
 /// stored as part of this UUID.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub(crate) struct RequestId(pub(crate) Uuid);
 
 /// Identity of one immutable sealed batch.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub(crate) struct BatchId(pub(crate) Uuid);
 
 /// Resource whose conflicting requests must not execute concurrently.
 ///
 /// A lock is acquired when a request is accepted and released only when that
 /// request reaches a terminal state.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub(crate) enum ResourceLock {
     /// Authenticator address reserved by an account-creation request.
     Authenticator(Address),
@@ -29,7 +30,7 @@ pub(crate) enum ResourceLock {
 }
 
 /// Complete validated request data needed to rebuild a batch after restart.
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) enum RequestPayload {
     /// Original account-creation request used to build `createManyAccounts`.
     CreateAccount(CreateAccountRequest),
@@ -38,7 +39,7 @@ pub(crate) enum RequestPayload {
 }
 
 /// Durable lifecycle of an accepted gateway request.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) enum RequestState {
     /// Persisted and available in its ordered batching queue.
     Queued,
@@ -67,7 +68,7 @@ pub(crate) struct NewRequest {
 }
 
 /// Source-of-truth record stored at `gateway:request:<request-id>`.
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct StoredRequest {
     /// Stable internal request identity.
     pub(crate) id: RequestId,
@@ -84,7 +85,7 @@ pub(crate) struct StoredRequest {
 }
 
 /// Transaction construction strategy for a batch.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) enum BatchKind {
     /// Direct `WorldIDRegistry.createManyAccounts` transaction.
     CreateAccounts,
@@ -96,7 +97,7 @@ pub(crate) enum BatchKind {
 ///
 /// The submitter adds the assigned wallet, nonce, chain ID, and EIP-1559 fee
 /// fields before signing the single transaction for this batch.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct TransactionIntent {
     /// Registry or Multicall3 destination.
     pub(crate) to: Address,
@@ -124,7 +125,7 @@ pub(crate) struct NewBatch {
 }
 
 /// Durable submission lifecycle of a sealed batch.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) enum BatchState {
     /// Published to the ready queue with no assigned wallet.
     Ready,
@@ -142,6 +143,8 @@ pub(crate) enum BatchState {
     },
     /// The transaction has a receipt but has not reached safe confirmation.
     Included {
+        /// Wallet reserved until the receipt reaches safe confirmation.
+        wallet: Address,
         /// Hash of the included batch transaction.
         tx_hash: TxHash,
         /// Block hash used to detect a reorganization.
@@ -160,7 +163,7 @@ pub(crate) enum BatchState {
 /// `request_ids` and `transaction` become immutable when the record is created.
 /// State, the optional prepared submission, and `updated_at` change as
 /// submission progresses.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct Batch {
     /// Stable batch identity.
     pub(crate) id: BatchId,
@@ -185,7 +188,7 @@ pub(crate) struct Batch {
 /// Signed bytes form the submission write-ahead log. They allow another worker
 /// to query the locally computed hash and rebroadcast the exact transaction
 /// after an ambiguous RPC response or process crash.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct PreparedSubmission {
     /// Wallet nonce encoded in `signed_transaction`.
     pub(crate) nonce: u64,
@@ -211,7 +214,7 @@ pub(crate) struct PreparedSubmission {
 ///
 /// Wallet credentials and assignment eligibility remain in local gateway
 /// configuration and are deliberately absent from this persisted model.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) struct Assignment {
     /// Locally configured address assigned to the batch.
     pub(crate) wallet: Address,

@@ -7,6 +7,8 @@ mod rate_limiter;
 mod request_repository;
 mod types;
 
+use redis::{Client, aio::ConnectionManager};
+
 use crate::error::GatewayResult;
 
 pub(crate) use assignment_repository::AssignmentRepository;
@@ -40,6 +42,14 @@ impl Storage {
     /// caller supplies locally enabled wallet addresses when assigning work and
     /// inspecting assignments.
     pub(crate) async fn connect(redis_url: &str) -> GatewayResult<Self> {
-        unimplemented!()
+        let client = Client::open(redis_url)?;
+        let manager = ConnectionManager::new(client).await?;
+
+        Ok(Self {
+            requests: RequestRepository::new(manager.clone()),
+            batches: BatchRepository::new(manager.clone()),
+            assignments: AssignmentRepository::new(manager.clone()),
+            rate_limiter: RateLimiter::new(manager),
+        })
     }
 }

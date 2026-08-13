@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use redis::aio::ConnectionManager;
+use redis::{Script, aio::ConnectionManager};
 
 use crate::{
     error::GatewayResult,
@@ -37,7 +37,7 @@ impl RateLimiter {
     ///
     /// This does not read or modify any Redis key.
     pub(crate) fn new(manager: ConnectionManager) -> Self {
-        unimplemented!()
+        Self { manager }
     }
 
     /// Atomically checks and conditionally records a request for one account.
@@ -59,6 +59,44 @@ impl RateLimiter {
         window: Duration,
         max_requests: u64,
     ) -> GatewayResult<RateLimitOutcome> {
-        unimplemented!()
+        let window_secs = window.as_secs();
+        let mut manager = self.manager.clone();
+        let count: i64 = Script::new(
+            r#"
+            local now = tonumber(ARGV[1])
+            local window = tonumber(ARGV[2])
+            local limit = tonumber(ARGV[3])
+            local oldest = now - window
+
+            redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', oldest)
+            local current = redis.call('ZCARD', KEYS[1])
+            if current >= limit then
+                return -1
+            end
+
+            redis.call('ZADD', KEYS[1], now, ARGV[4])
+            redis.call('EXPIRE', KEYS[1], window)
+            return current + 1
+            "#,
+        )
+        .key(rate_limit_key(leaf_index))
+        .arg(now)
+        .arg(window_secs)
+        .arg(max_requests)
+        .arg(request_id.0.to_string())
+        .invoke_async(&mut manager)
+        .await?;
+
+        if count < 0 {
+            Ok(RateLimitOutcome::Exceeded)
+        } else {
+            Ok(RateLimitOutcome::Allowed {
+                current_count: count as u64,
+            })
+        }
     }
+}
+
+fn rate_limit_key(leaf_index: u64) -> String {
+    format!("gateway:ratelimit:leaf:{leaf_index}")
 }
