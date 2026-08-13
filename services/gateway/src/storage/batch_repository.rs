@@ -167,7 +167,56 @@ impl BatchRepository {
     /// When `kind` is set, batch records are inspected to count only that kind;
     /// otherwise this returns the sorted-set cardinality.
     pub(crate) async fn ready_len(&self, kind: Option<BatchKind>) -> GatewayResult<usize> {
-        unimplemented!()
+        let mut manager = self.manager.clone();
+        let Some(kind) = kind else {
+            return Ok(redis::cmd("ZCARD")
+                .arg(READY_BATCHES_KEY)
+                .query_async(&mut manager)
+                .await?);
+        };
+
+        const PAGE_SIZE: usize = 128;
+        let mut offset = 0;
+        let mut count = 0;
+        loop {
+            let members: Vec<String> = redis::cmd("ZRANGE")
+                .arg(READY_BATCHES_KEY)
+                .arg(offset)
+                .arg(offset + PAGE_SIZE - 1)
+                .query_async(&mut manager)
+                .await?;
+            if members.is_empty() {
+                break;
+            }
+            offset += members.len();
+
+            let keys: Vec<String> = members
+                .iter()
+                .map(|id| format!("gateway:batch:{id}"))
+                .collect();
+            let batches: Vec<Option<String>> = redis::cmd("MGET")
+                .arg(keys)
+                .query_async(&mut manager)
+                .await?;
+            for (member, serialized) in members.iter().zip(batches) {
+                let Some(serialized) = serialized else {
+                    continue;
+                };
+                let batch: Batch = serde_json::from_str(&serialized)?;
+                if member == &batch.id.0.to_string()
+                    && batch.kind == kind
+                    && batch.state == BatchState::Ready
+                {
+                    count += 1;
+                }
+            }
+
+            if members.len() < PAGE_SIZE {
+                break;
+            }
+        }
+
+        Ok(count)
     }
 
     /// Persists the batch's signed transaction before broadcast.
@@ -257,6 +306,7 @@ mod tests {
     use alloy::primitives::{Bytes, U256, address};
     use redis::aio::ConnectionManager;
     use uuid::Uuid;
+    use world_id_primitives::api_types::CreateAccountRequest;
 
     use super::{BatchRepository, READY_BATCHES_KEY, SealBatchOutcome};
     use crate::storage::{
@@ -287,9 +337,13 @@ mod tests {
     }
 
     fn batch(id: u128, request_ids: Vec<RequestId>) -> NewBatch {
+        batch_of_kind(id, BatchKind::Operations, request_ids)
+    }
+
+    fn batch_of_kind(id: u128, kind: BatchKind, request_ids: Vec<RequestId>) -> NewBatch {
         NewBatch {
             id: BatchId(Uuid::from_u128(id)),
-            kind: BatchKind::Operations,
+            kind,
             request_ids,
             transaction: TransactionIntent {
                 to: address!("1111111111111111111111111111111111111111"),
@@ -413,5 +467,65 @@ mod tests {
         assert_eq!(queued.updated_at, 100);
         assert!(batches.load(batch_id).await.unwrap().is_none());
         assert_eq!(requests.queue_len(BatchKind::Operations).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn counts_ready_batches_by_kind() {
+        let (redis_url, _redis) = start_redis().await;
+        let (requests, batches) = connect_repositories(&redis_url).await;
+        let operation = request(1, 10, 100);
+        let operation_id = operation.id;
+        requests.accept(operation).await.unwrap();
+        batches.seal(batch(2, vec![operation_id])).await.unwrap();
+        let create_id = RequestId(Uuid::from_u128(3));
+        requests
+            .accept(NewRequest {
+                id: create_id,
+                payload: RequestPayload::CreateAccount(CreateAccountRequest {
+                    recovery_address: None,
+                    authenticator_addresses: vec![],
+                    authenticator_pubkeys: vec![],
+                    offchain_signer_commitment: U256::ZERO,
+                }),
+                accepted_at: 200,
+                resource_locks: vec![],
+            })
+            .await
+            .unwrap();
+        batches
+            .seal(batch_of_kind(4, BatchKind::CreateAccounts, vec![create_id]))
+            .await
+            .unwrap();
+
+        assert_eq!(batches.ready_len(None).await.unwrap(), 2);
+        assert_eq!(
+            batches
+                .ready_len(Some(BatchKind::Operations))
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            batches
+                .ready_len(Some(BatchKind::CreateAccounts))
+                .await
+                .unwrap(),
+            1
+        );
+
+        let mut manager = batches.manager.clone();
+        let _: usize = redis::cmd("DEL")
+            .arg(BatchId(Uuid::from_u128(2)).redis_key())
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        assert_eq!(batches.ready_len(None).await.unwrap(), 2);
+        assert_eq!(
+            batches
+                .ready_len(Some(BatchKind::Operations))
+                .await
+                .unwrap(),
+            0
+        );
     }
 }
