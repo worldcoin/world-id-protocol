@@ -37,7 +37,7 @@ impl BatchRepository {
     ///
     /// This does not read or modify any Redis key.
     pub(crate) fn new(manager: ConnectionManager) -> Self {
-        unimplemented!()
+        Self { manager }
     }
 
     /// Seals queued requests into an immutable batch and publishes it as ready.

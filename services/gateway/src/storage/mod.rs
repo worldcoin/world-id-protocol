@@ -56,3 +56,24 @@ impl Storage {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{BatchKind, Storage, test_support::start_redis};
+
+    #[tokio::test]
+    async fn connects_all_repositories() {
+        let (redis_url, _redis) = start_redis().await;
+
+        let storage = Storage::connect(&redis_url).await.unwrap();
+
+        assert_eq!(
+            storage
+                .requests
+                .queue_len(BatchKind::CreateAccounts)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+}

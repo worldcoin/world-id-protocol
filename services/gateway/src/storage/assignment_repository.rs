@@ -30,7 +30,7 @@ impl AssignmentRepository {
     ///
     /// This does not read or modify any Redis key.
     pub(crate) fn new(manager: ConnectionManager) -> Self {
-        unimplemented!()
+        Self { manager }
     }
 
     /// Assigns one ready batch to one unassigned local wallet address.
