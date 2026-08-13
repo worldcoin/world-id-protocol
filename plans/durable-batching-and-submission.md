@@ -13,7 +13,7 @@ Every gateway replica runs the same roles:
 1. Accept and validate API requests.
 2. Build create-account and operation batches.
 3. Submit ready batches using any configured gateway KMS wallet.
-4. Reconcile abandoned work after another replica crashes.
+4. Resume its own assigned transactions after restart.
 
 Redis is the shared source of truth. Tokio tasks perform work from Redis state, but do not own durable state.
 
@@ -107,7 +107,7 @@ struct TransactionIntent {
 }
 ```
 
-Once sealed, `request_ids` and `transaction` are immutable. Fee replacements reuse the same wallet, nonce, destination, calldata, value, and gas limit.
+Once sealed, `request_ids` and `transaction` are immutable. Each batch produces one signed transaction; the gateway does not create fee replacements or cancellation transactions.
 
 Both batch builders publish to one submission queue:
 
@@ -115,59 +115,38 @@ Both batch builders publish to one submission queue:
 gateway:batches:ready
 ```
 
-### Every replica can use every configured KMS wallet
+### Each gateway owns a private wallet pool
 
-The wallet pool is service configuration, not Redis configuration. Each gateway replica receives the same comma-separated list of KMS key IDs through `AWS_KMS_KEY_IDS`. KMS permission provisioning is outside the scope of this design.
+Each gateway process slot receives its own KMS key configuration. Wallet sets are disjoint by deployment configuration. KMS permission provisioning and wallet-set validation are outside the Redis model.
 
 ```rust
 struct WalletConfig {
     kms_key_id: KmsKeyId,
     address: Address,
+    enabled: bool,
 }
 ```
 
-Redis stores runtime state for configured wallet addresses only:
+Redis stores no wallet configuration or runtime state. It stores only active transaction ownership:
 
-```rust
-struct WalletRuntimeState {
-    state: WalletState,
-}
-
-enum WalletState {
-    Idle,
-    Assigned { batch_id: BatchId },
-    Quarantined { reason: String },
-}
+```text
+gateway:wallet-assignment:<address> = batch_id
 ```
 
-At startup, a replica loads `AWS_KMS_KEY_IDS`, resolves each key's address, and reconciles the configured set with Redis. Redis must not introduce a wallet that is absent from service configuration. Replicas compare a deterministic fingerprint of the configured key IDs so mismatched configurations fail readiness.
+The reciprocal batch record contains the wallet address, nonce, hash, and signed bytes. Creating and deleting the assignment key is atomic with the corresponding batch transition. Its existence prevents an address from receiving two batches.
+
+A disabled wallet is omitted from new-assignment candidates but remains in the gateway's local recovery set while it owns an assignment. Once that assignment is terminal and its Redis key is deleted, a later config update can remove the wallet.
 
 Configuration changes require care:
 
-- Adding a wallet is safe after its chain nonce is reconciled and Redis initializes it as idle.
-- Removing an idle wallet is safe.
-- A wallet with an assigned or unresolved transaction must remain configured until that nonce reaches the required confirmation level or is manually reconciled.
-- Replicas with different wallet configurations must fail readiness rather than operate on inconsistent pools.
+- Adding a wallet is safe after its `latest` and `pending` nonces are reconciled.
+- Disabling an unassigned wallet stops assignment immediately.
+- Disabling an assigned wallet lets its transaction finish but prevents another assignment.
+- Removing a wallet is safe only when `gateway:wallet-assignment:<address>` is absent.
+- A gateway restart must restore every KMS key that still has an assignment.
+- Configuring one wallet in multiple gateways violates the deployment contract. The assignment key still prevents concurrent batches, but either gateway could progress the transaction.
 
-A wallet handles at most one unresolved transaction at a time. This avoids nonce pipelines and nonce collisions while gaining throughput from multiple wallets.
-
-### Separate wallet assignment from worker lease
-
-Wallet assignment is durable:
-
-```text
-wallet A is assigned to batch B until B's nonce is resolved
-```
-
-A worker lease is temporary:
-
-```text
-replica R is currently responsible for progressing batch B
-```
-
-If a replica crashes, its lease expires but the wallet remains assigned. Another replica claims the lease and resumes the same batch and nonce.
-
-A Redis lease must never make a wallet idle when it expires.
+A wallet handles at most one active transaction. If its gateway crashes, the assignment waits in Redis until a process with that KMS key restarts.
 
 ## State machines
 
@@ -185,7 +164,7 @@ Resource locks are acquired when the request is accepted and released only when 
 ```text
 Ready
   -> Assigned(wallet)
-  -> Pending(wallet, nonce, attempts)
+  -> Pending(wallet, nonce)
   -> Included(tx_hash, block)
   -> Finalized(tx_hash)
 ```
@@ -194,110 +173,78 @@ Failure paths:
 
 ```text
 Ready -> Failed(pre-broadcast failure)
+Pending -> Failed(receipt timeout)
 Pending -> Included -> Failed(reverted)
-Pending -> Stalled(replacement policy exhausted)
-Pending -> Cancelling -> Failed(cancel transaction finalized)
 ```
 
-A pending batch cannot be declared safely failed merely because it disappeared from one node's mempool or exceeded a retry limit. Its original transaction may still be accepted later.
+The initial implementation waits for a receipt until a large configurable timeout measured from the durable submission timestamp. If no receipt exists when the timeout expires, it assumes the transaction was globally dropped and fails the batch. This is a deliberate simplification: global mempool disappearance cannot be proven through standard RPC.
 
-### Wallet
+### Wallet availability (local, not persisted)
 
 ```text
-Idle -> Assigned -> Idle
-                -> Quarantined
+Available -> Assigned -> Available
+                     -> Blocked
 ```
 
-A wallet returns to `Idle` only after its assigned nonce is resolved by:
+The gateway derives `Assigned` from `gateway:wallet-assignment:<address>` and derives `Blocked` from nonce reconciliation. A restart recomputes both states. A wallet becomes available after:
 
-- A successful transaction reaching the required confirmation level.
-- A reverted transaction reaching the required confirmation level.
-- A cancellation transaction using the same nonce reaching the required confirmation level.
+- A successful transaction reaches the required confirmation level.
+- A reverted transaction reaches the required confirmation level.
+- The configured receipt timeout expires with no receipt.
 
 ## Submitter behavior
 
-The submitter is a Tokio task inside every gateway replica. It operates only through persisted Redis state.
+The submitter is a Tokio task inside every gateway process. Durable transaction data comes from Redis; wallet configuration and availability policy remain local.
 
 ### Assignment
 
 A Lua script atomically:
 
 1. Selects one ready batch.
-2. Selects one idle wallet.
-3. Assigns the batch to the wallet.
-4. Removes the batch and wallet from their available indexes.
-5. Creates the initial worker lease.
+2. Selects the first locally supplied enabled address without an assignment key.
+3. Assigns the batch to that address.
+4. Removes the batch from the ready index and creates `gateway:wallet-assignment:<address>`.
 
 ### Initial submission
 
 For a newly assigned batch:
 
 1. Fetch both `eth_getTransactionCount(wallet, "latest")` and `eth_getTransactionCount(wallet, "pending")`.
-2. Reconcile both chain nonces with persisted wallet state. Do not broadcast if they reveal unexplained wallet activity.
-3. Persist the selected pending nonce on the batch.
-4. Fill gas limit and EIP-1559 fee fields.
-5. Sign with the assigned KMS key.
-6. Compute the transaction hash locally from the signed bytes.
-7. Persist the signed transaction, local hash, and attempt metadata as `Prepared`.
-8. Read the persisted attempt back or otherwise require a confirmed Redis write.
-9. Broadcast the exact signed bytes with `eth_sendRawTransaction`.
-10. Mark the attempt `Broadcast` after the RPC call. Failure to persist this final transition is recoverable because the signed bytes and hash were stored before broadcast.
+2. Reconcile both chain nonces with the batch assignment and prepared submission, if present. Do not broadcast if they reveal unexplained wallet activity.
+3. Select the pending nonce and fill gas limit and EIP-1559 fee fields.
+4. Sign with the assigned KMS key.
+5. Compute the transaction hash locally from the signed bytes.
+6. Atomically persist the nonce, signed transaction, local hash, and submission metadata as `Prepared`, transitioning the batch from `Assigned` to `Pending`.
+7. Read the persisted submission back or otherwise require a confirmed Redis write.
+8. Broadcast the exact signed bytes with `eth_sendRawTransaction`.
+9. Mark the submission `Broadcast` after the RPC call. Failure to persist this final transition is recoverable because the nonce, signed bytes, and hash were stored before broadcast.
 
-Fetching `pending` nonce happens only for initial assignment. Every replacement uses the persisted nonce.
-
-### Attempt history
+### Prepared submission
 
 ```rust
-struct SubmissionAttempt {
+struct PreparedSubmission {
+    nonce: u64,
     tx_hash: TxHash,
     signed_transaction: Bytes,
     max_fee_per_gas: U256,
     max_priority_fee_per_gas: U256,
-    broadcast_at: Timestamp,
+    submitted_at: Timestamp,
+    broadcast_at: Option<Timestamp>,
 }
 ```
 
 Persisting signed bytes before broadcast is the submission write-ahead log. It closes the dangerous send-before-save gap:
 
 - If persisting `Prepared` fails, do not broadcast.
-- If the Redis response is ambiguous, reconnect and read the attempt by ID before deciding whether to broadcast.
-- If the process crashes during or after the RPC call, another worker queries the locally known hash and may rebroadcast the exact signed bytes. Rebroadcast is idempotent at the transaction level.
-- An RPC response hash must equal the locally computed hash. A mismatch is a fatal provider-integrity error and quarantines the wallet.
+- If the Redis response is ambiguous, reconnect and read the batch's prepared submission before deciding whether to broadcast.
+- If the process crashes during or after the RPC call, the restarted gateway queries the locally known hash and may rebroadcast the exact signed bytes. Rebroadcast is idempotent at the transaction level.
+- An RPC response hash must equal the locally computed hash. A mismatch blocks that wallet locally until reconciliation.
 
 The post-broadcast Redis update is advisory for progress, not required to rediscover the transaction.
 
-### Replacement policy
+### No automatic replacement
 
-A configurable policy determines when and how fees are increased. Its values are supplied through service configuration:
-
-```rust
-struct ReplacementPolicy {
-    check_interval: Duration,
-    replace_after: Duration,
-    fee_multiplier_bps: u64,
-    max_attempts: u32,
-    max_total_age: Duration,
-    max_fee_cap: U256,
-}
-```
-
-A replacement changes fee fields only. "Gas bump" means increasing `max_fee_per_gas` and `max_priority_fee_per_gas`, not increasing the gas limit.
-
-When the policy is exhausted, mark the batch `Stalled` and quarantine the wallet. Continue checking known attempts. Do not release the wallet immediately.
-
-### Cancellation after replacement exhaustion
-
-A pending transaction cannot be declared failed safely just because the replacement policy ended. A copy may still exist in another node's mempool and execute later.
-
-A cancellation transaction is a new transaction from the same wallet using the same nonce, usually a zero-value transfer to the wallet itself, with a fee high enough to replace the batch transaction. Whichever transaction is included first consumes the nonce:
-
-- If a batch attempt is included, process its success or revert normally.
-- If the cancellation is included and reaches `safe`, mark the batch failed and release the wallet.
-- If neither is included, keep the batch stalled and the wallet quarantined.
-
-Cancellation starts automatically when the configured batch replacement policy is exhausted. The submitter persists and broadcasts a same-nonce self-transfer, then tracks the cancellation and every prior batch attempt concurrently. If a prior batch attempt wins the race, process its success or revert normally. If the cancellation reaches `safe`, mark the batch failed and release the wallet.
-
-Cancellation has its own configurable replacement interval, attempt limit, total age, and fee cap. If its policy is also exhausted without resolving the nonce, keep the batch `Stalled` and the wallet quarantined for operator reconciliation.
+The gateway signs and broadcasts one transaction per batch. It does not bump fees or submit a same-nonce cancellation. The submitter polls for a receipt until the configurable receipt timeout expires. On timeout, it performs one final receipt and nonce check. It fails the batch and releases the assignment only when no receipt exists and the latest nonce has not advanced past the submitted nonce. An advanced nonce without the known receipt is an inconsistency that blocks automatic wallet reuse.
 
 ### Confirmation
 
@@ -305,7 +252,7 @@ Receipt inclusion is insufficient to release a wallet because the containing blo
 
 The submitter must:
 
-1. Find a receipt for any known attempt.
+1. Find the receipt for the persisted submission.
 2. Record its block hash and block number.
 3. Verify the receipt remains canonical.
 4. Wait until the receipt block reaches the configured confirmation level.
@@ -313,33 +260,44 @@ The submitter must:
 
 The confirmation level is `safe`. The submitter releases a wallet only after the receipt's canonical block is at or below the chain's safe head. Support for a configurable `finalized` mode may be added later if required.
 
+### Transaction metrics
+
+Emit metrics at durable state transitions, using batch kind and terminal outcome as bounded labels. Do not label metrics by request ID, batch ID, wallet address, or transaction hash.
+
+Minimum measurements:
+
+- Submission-to-inclusion duration.
+- Inclusion-to-safe duration.
+- Submission-to-terminal duration, split by finalized, reverted, and timed out.
+- Current assigned transaction count and age of the oldest pending submission.
+- Receipt-timeout, reorg, rebroadcast, and nonce-inconsistency counters.
+
+`PreparedSubmission.submitted_at` is the common latency origin. Transition timestamps passed to `mark_included`, `finalize`, and `fail` provide the endpoints. Metrics are operational output rather than durable scheduler state.
+
 ## RPC checks and reconciliation
 
-RPC state is a safety check and reconciliation source, not the primary submission queue. A node cannot reliably answer "does this wallet have any transaction in flight?" with enough detail to replace Redis:
+RPC state is a safety check and reconciliation source, not the primary submission queue. `eth_getTransactionCount(address, "pending") > eth_getTransactionCount(address, "latest")` indicates pending nonce consumption but does not identify the transaction or its intended batch.
 
-- `eth_getTransactionCount(address, "pending") > eth_getTransactionCount(address, "latest")` indicates pending nonce consumption visible to that node, but does not identify the transaction or its intended batch.
-- Mempool visibility differs between RPC nodes. A transaction sent through one provider may be absent from another provider's pending view.
-- `txpool_*` methods are non-standard and commonly unavailable on hosted RPC services.
-- A dropped transaction may disappear from the queried node while remaining in another mempool.
+Receipt-timeout expiry is treated as global drop. This first version accepts that mempool visibility differs across providers and does not try to prove global disappearance.
 
-Before first broadcast, the submitter still checks `latest` and `pending`. For an idle wallet they must agree with the expected next nonce. An unexplained difference quarantines the wallet. This guard catches many inconsistencies but does not prove globally that no transaction is in flight.
+Before first broadcast, the submitter still checks `latest` and `pending`. For an unassigned wallet they must agree. An unexplained difference blocks the wallet locally. This guard catches many inconsistencies but does not prove globally that no transaction is in flight.
 
-Every replica runs a periodic reconciler. It claims expired worker leases and resumes batches from Redis.
+Every gateway runs a periodic reconciler for its own wallet set and resumes its assignments from Redis after restart.
 
-For each assigned wallet:
+For each of its assigned wallets:
 
-1. Load its active batch, persisted nonce, and attempt history.
-2. For each `Prepared` attempt, query its locally computed hash and rebroadcast the persisted signed bytes when needed.
-3. Check receipts for every known transaction hash.
+1. Load its active batch and prepared submission.
+2. If the submission is only `Prepared`, query its locally computed hash and rebroadcast the persisted signed bytes when needed.
+3. Check the receipt for the persisted transaction hash.
 4. Compare `latest` and `pending` transaction counts with the persisted nonce.
-5. Resume receipt tracking, rebroadcast, fee replacement, cancellation, or quarantine.
+5. Resume receipt and timeout tracking, or block the wallet on unexplained nonce state.
 
 Safety cases:
 
-- Redis says a wallet is idle but `pending nonce > latest nonce`: quarantine it because an unknown transaction is pending.
-- A wallet nonce has advanced past the assigned nonce but no known attempt has a receipt: quarantine and reconcile chain history before reuse.
-- A worker lease expires: reassign the worker lease, not the wallet.
-- Redis loses pending submission state: quarantine affected wallets until chain state is reconciled.
+- No assignment exists but `pending nonce > latest nonce`: keep the wallet out of local assignment candidates because an unknown transaction is pending.
+- A wallet nonce has advanced past the assigned nonce but the persisted transaction has no receipt: block it and reconcile chain history before reuse.
+- A gateway is offline: its assignment remains untouched until a process with that wallet's KMS key restarts.
+- Redis loses pending submission state: keep affected wallets out of assignment until chain state is reconciled.
 
 The current orphan sweeper should eventually be replaced by batch and wallet reconciliation. Recovery should operate on persisted batches rather than infer batches by grouping request records by transaction hash.
 
@@ -355,11 +313,10 @@ gateway:requests:ops               ordered operation request queue
 gateway:batch:<batch-id>           immutable intent and mutable state
 gateway:batches:ready               ordered ready-batch queue
 
-gateway:wallet:<address>           runtime state for a configured wallet
-gateway:wallets:idle               available configured-wallet index
+gateway:wallet-assignment:<address> batch assigned to a wallet address
 
-gateway:lease:<batch-id>           worker lease with TTL
-gateway:resource:<resource-id>      conflicting-request lock
+gateway:resource:<resource-id>            conflicting-request lock
+gateway:ratelimit:leaf:<leaf-index>       sliding-window admission set
 ```
 
 The deployment uses one Redis instance, not Redis Cluster. Atomic Lua scripts can therefore access these keys without cluster hash tags.
@@ -385,17 +342,17 @@ RequestRepository
 BatchRepository
     inspect queues, atomically seal batches, and queue transaction intents
 
-WalletPool
-    atomically assign wallets and manage durable assignment state
+AssignmentRepository
+    atomically map locally supplied wallet addresses to ready batches
 
 Submitter
-    sign, broadcast, replace, and track one assigned transaction
+    sign, broadcast, and track one transaction using a locally owned wallet
 
 Reconciler
-    recover expired leases and resolve Redis/chain inconsistencies
+    resume this gateway's assignments and resolve Redis/chain inconsistencies
 
 RateLimiter
-    enforce request admission limits independently of request tracking
+    atomically check and record per-account sliding-window admission independently of request tracking
 ```
 
 Tokio channels or Redis pub/sub may wake workers for low latency. Workers must also poll because wakeups are not durable.
@@ -406,12 +363,12 @@ Tokio channels or Redis pub/sub may wake workers for low latency. Workers must a
 2. A sealed batch's transaction intent never changes.
 3. A wallet has at most one assigned batch.
 4. An assigned batch uses exactly one wallet and nonce.
-5. Every replacement preserves wallet, nonce, destination, calldata, value, and gas limit.
-6. Worker lease expiry never releases a wallet.
-7. A wallet is reusable only after its nonce is resolved at the configured confirmation level.
-8. Request terminal transitions, resource-lock release, batch finalization, and wallet release happen atomically in Redis.
+5. A batch has at most one prepared signed transaction.
+6. Gateways supply assignment candidates from local configuration; Redis never supplies wallet addresses.
+7. A wallet is reusable after safe success, safe revert, or receipt-timeout expiry with no receipt and no unexplained nonce advancement.
+8. Request terminal transitions, resource-lock release, batch finalization, and assignment-key deletion happen atomically in Redis.
 9. A failed Redis write cannot be treated as a successful state transition.
-10. Any unexplained wallet nonce state causes quarantine rather than automatic reuse.
+10. Any unexplained wallet nonce state removes the wallet from local assignment candidates until reconciliation.
 
 ## Migration sequence
 
@@ -429,13 +386,9 @@ Implement atomic create and ops batch sealing. Persist immutable transaction int
 
 ### Phase 4: durable multi-wallet submitter
 
-Read the complete gateway KMS wallet pool from `AWS_KMS_KEY_IDS`. Require every replica to load the same configuration fingerprint. Add startup wallet reconciliation, atomic batch/wallet assignment, persisted nonces, signed attempts, worker leases, and safe-block confirmation tracking.
+Give each gateway process slot a disjoint KMS wallet pool. Add atomic assignment using locally supplied enabled addresses, persisted signed submissions, receipt-timeout tracking, and safe-block confirmation tracking.
 
-### Phase 5: replacement and cancellation
-
-Implement configurable EIP-1559 fee replacement. When the batch replacement policy is exhausted, automatically start a configurable same-nonce cancellation policy. Quarantine the wallet if cancellation cannot resolve the nonce.
-
-### Phase 6: reconciliation and cleanup
+### Phase 5: reconciliation and cleanup
 
 Add startup and periodic reconciliation. Remove process-local receipt trackers, the global send mutex, and the request-level orphan sweeper after durable batch recovery covers their responsibilities.
 
@@ -457,26 +410,26 @@ If the legacy pipeline cannot drain a request, resolve or explicitly fail it bef
 ### Deploy durable gateway
 
 1. Remove legacy gateway request-tracking keys after the backup, or use a fresh key namespace for the durable schema.
-2. Deploy all replicas with the same binary and `AWS_KMS_KEY_IDS` value while external traffic remains disabled.
-3. On startup, resolve every configured KMS key to its address and verify the wallet-configuration fingerprint is identical across replicas.
-4. Reconcile each wallet's `latest` and `pending` nonce. Initialize it in Redis only when no unexplained transaction is in flight; otherwise quarantine it.
+2. Deploy all gateways with the same binary and disjoint KMS wallet sets while external traffic remains disabled.
+3. On startup, resolve each gateway's configured KMS keys and load any `gateway:wallet-assignment:<address>` records for those addresses.
+4. Reconcile each wallet's `latest` and `pending` nonce. Keep any wallet with unexplained activity out of local assignment candidates.
 5. Run Redis schema and Lua-script self-checks.
-6. Verify queues are empty, no wallet is unexpectedly assigned, and at least one wallet is idle.
+6. Verify queues are empty, no wallet is unexpectedly assigned, and at least one wallet is locally available.
 7. Enable external traffic.
-8. Submit a controlled request and observe persistence, batch sealing, wallet assignment, prepared-attempt persistence, broadcast, safe confirmation, and wallet release.
-9. Monitor queue age, stalled batches, quarantined wallets, Redis errors, replacement attempts, and safe-confirmation latency.
+8. Submit a controlled request and observe persistence, batch sealing, wallet assignment, prepared-submission persistence, broadcast, safe confirmation, and wallet release.
+9. Monitor queue age, receipt timeouts, locally blocked wallets, Redis errors, submission-to-inclusion latency, submission-to-finalization latency, and safe-confirmation latency.
 
 ### Rollback
 
 - Before external traffic is enabled, stop the durable deployment and restore the legacy binary and Redis backup.
 - After durable requests are accepted but before any broadcast, stop admission and workers, then either discard test requests explicitly or migrate their persisted payloads with a reviewed one-off procedure.
-- After any durable transaction is broadcast, do not restore transaction ownership to the legacy submitter. Keep the durable submitter and reconciler running until every assigned nonce reaches `safe`. Roll forward with a fixed durable binary if needed.
+- After any durable transaction is broadcast, do not restore transaction ownership to the legacy submitter. Keep the durable submitter and reconciler running until every assigned transaction is terminal. Roll forward with a fixed durable binary if needed.
 
 Keep a submitter-only recovery mode so API admission and batch building can remain disabled while outstanding durable transactions are resolved.
 
 ### Future schema changes
 
-Treat later Redis schema changes as expand-and-contract migrations. Never deploy a schema version that an older submitter could misinterpret while it may still own a wallet lease.
+Treat later Redis schema changes as expand-and-contract migrations. Never deploy a schema version that an older submitter could misinterpret while it still owns a wallet assignment.
 
 ## Tests
 
@@ -484,23 +437,21 @@ Minimum integration scenarios:
 
 1. Two replicas attempt to seal the same queued requests; each request appears in one batch.
 2. Two replicas attempt to claim the same wallet; only one succeeds.
-3. A submitter crashes before broadcast, during an ambiguous RPC send, after broadcast but before updating Redis, and after inclusion; another replica resumes from the prepared signed bytes.
-4. Redis rejects or ambiguously acknowledges the prepared-attempt write; no unpersisted transaction is broadcast.
-5. A transaction is dropped and replaced several times with the same nonce and increasing fees.
-6. Replacement policy exhaustion starts automatic cancellation without releasing the wallet.
-7. A reverted transaction reaches safe state and fails every request in its batch.
-8. A short reorg removes an included receipt; the wallet remains assigned and tracking resumes.
-9. Redis reports an idle wallet with an unexplained pending nonce; reconciliation quarantines it.
-10. Different RPC nodes disagree about pending visibility; the persisted attempt remains authoritative.
-11. Create and ops queues seal independently and produce `createManyAccounts` and `aggregate3` intents respectively.
-12. Registration fees enabled: direct create batches continue to charge the KMS wallet correctly.
+3. A gateway crashes before broadcast, during an ambiguous RPC send, after broadcast but before updating Redis, and after inclusion; a process restored with that wallet's KMS key resumes from the prepared signed bytes.
+4. Redis rejects or ambiguously acknowledges the prepared-submission write; no unpersisted transaction is broadcast.
+5. No receipt appears before the configured timeout; final receipt and nonce checks are consistent with a drop, then the batch and requests fail and the assignment is released.
+6. A reverted transaction reaches safe state and fails every request in its batch.
+7. A short reorg removes an included receipt; the wallet remains assigned and tracking resumes.
+8. An unassigned wallet has an unexplained pending nonce; reconciliation keeps it out of assignment candidates.
+9. A transaction remains pending before its timeout; its requests, locks, and assignment remain intact.
+10. Create and ops queues seal independently and produce `createManyAccounts` and `aggregate3` intents respectively.
+11. Registration fees enabled: direct create batches continue to charge the KMS wallet correctly.
 
 ## Configuration defaults
 
 - Confirmation level: `safe`.
 - Terminal request and batch retention: configurable, default one day after reaching a terminal state.
-- Batch replacement timing, fee bump, attempt limit, total age, and fee cap: configurable.
-- Cancellation: automatic after batch replacement policy exhaustion.
-- Cancellation replacement timing, attempt limit, total age, and fee cap: configurable.
-- Wallet pool: comma-separated KMS key IDs in `AWS_KMS_KEY_IDS`.
+- Transaction polling interval and receipt timeout: configurable.
+- Automatic fee replacement and cancellation are not supported.
+- Wallet pool: a disjoint set of KMS key IDs configured per gateway process slot.
 - Atomic Redis transitions: Lua scripts shipped with the gateway.
