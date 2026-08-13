@@ -23,6 +23,12 @@ impl RequestId {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub(crate) struct BatchId(pub(crate) Uuid);
 
+impl BatchId {
+    pub(super) fn redis_key(self) -> String {
+        format!("gateway:batch:{}", self.0)
+    }
+}
+
 /// Resource whose conflicting requests must not execute concurrently.
 ///
 /// A lock is acquired when a request is accepted and released only when that
