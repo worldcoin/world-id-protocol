@@ -5,7 +5,7 @@
 //!
 //! The proof generation workflow for Uniqueness Proofs consists of:
 //! 1. Loading circuit proving material (zkeys and witness graphs)
-//! 2. Signing OPRF queries and generating a Query Proof `π1` (see [`crate::oprf_query`])
+//! 2. Signing OPRF queries and generating a Query Proof `π1` (see `crate::oprf_query`)
 //! 3. Interacting with OPRF services to obtain challenge responses
 //! 4. Verifying `DLog` equality proofs from OPRF nodes
 //! 5. Generating the final Uniqueness Proof `π2`

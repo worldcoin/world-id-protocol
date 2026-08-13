@@ -232,7 +232,7 @@ impl TrustAnchorKeyToken {
     ///
     /// The message is derived from the encoded claims set: each claim value in
     /// deterministic CBOR map-key order (RFC 8949 §4.2.1) is lowered into zero
-    /// or more field elements (see [`claim_field_elements`]; non-field-element
+    /// or more field elements (see `claim_field_elements`; non-field-element
     /// claims such as `eat_profile` are excluded per WIP-106), preceded by a
     /// domain-separator element in the Poseidon2 t8 permutation; the digest is
     /// element 1 of the permuted state.

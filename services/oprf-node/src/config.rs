@@ -31,15 +31,15 @@ pub struct WorldOprfNodeConfig {
     #[serde(rename = "rpc")]
     pub rpc_provider_config: web3::HttpRpcProviderConfig,
 
-    /// Cache configuration for the [`MerkleWatcher`](crate::auth::merkle_watcher::MerkleWatcher)
+    /// Cache configuration for the `MerkleWatcher`
     #[serde(default)]
     pub merkle_cache_config: WatcherCacheConfig,
 
-    /// Cache configuration for the [`RpRegistryWatcher`](crate::auth::rp_registry_watcher::RpRegistryWatcher)
+    /// Cache configuration for the `RpRegistryWatcher`
     #[serde(default)]
     pub rp_cache_config: WatcherCacheConfig,
 
-    /// Cache configuration for the [`SchemaIssuerRegistryWatcher`](crate::auth::schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher)
+    /// Cache configuration for the `SchemaIssuerRegistryWatcher`
     #[serde(default)]
     pub issuer_cache_config: WatcherCacheConfig,
 

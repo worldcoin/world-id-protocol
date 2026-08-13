@@ -2,7 +2,7 @@
 //!
 //! Every protocol hash of this shape uses one layout, mirroring the circuits (see
 //! `circom/client_side_proofs/oprf_nullifier.circom`, *"capacity element at 0, so we
-//! take [1] below"*):
+//! take `[1]` below"*):
 //!
 //! - slot `0` is the capacity and holds the domain separator,
 //! - slots `1..t` are the rate and hold the inputs, zero-padded,
@@ -106,7 +106,8 @@ impl<const N: usize> DomainSeparator<N> {
     /// Defines a domain separator from its raw tag.
     ///
     /// # Panics
-    /// See [`checked_tag`].
+    /// Panics if the tag is empty or longer than 31 bytes; in a `const` context —
+    /// the intended usage — this is a compile-time error.
     #[must_use]
     pub const fn new(tag: &'static [u8]) -> Self {
         Self(checked_tag(tag))
@@ -138,7 +139,8 @@ impl VariableLengthDomainSeparator {
     /// Defines a domain separator from its raw tag.
     ///
     /// # Panics
-    /// See [`checked_tag`].
+    /// Panics if the tag is empty or longer than 31 bytes; in a `const` context —
+    /// the intended usage — this is a compile-time error.
     #[must_use]
     pub const fn new(tag: &'static [u8]) -> Self {
         Self(checked_tag(tag))
