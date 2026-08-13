@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.13.0...world-id-primitives-v0.14.0) - 2026-08-13
+
+### Added
+
+- allow binding uniqueness proofs to an existing session ([#855](https://github.com/worldcoin/world-id-protocol/pull/855))
+- *(node)* check expires_at max difference ([#853](https://github.com/worldcoin/world-id-protocol/pull/853))
+- add is_blocked at node ([#848](https://github.com/worldcoin/world-id-protocol/pull/848))
+- add verifyWithSession verifier entry point for session-bound proofs ([#862](https://github.com/worldcoin/world-id-protocol/pull/862))
+- WIP-106 tokens generation & circuits ([#852](https://github.com/worldcoin/world-id-protocol/pull/852))
+
+### Fixed
+
+- set claims hash capacity ([#892](https://github.com/worldcoin/world-id-protocol/pull/892))
+
+### Other
+
+- [**breaking**] unify field element domain prefixes into FePrefix ([#912](https://github.com/worldcoin/world-id-protocol/pull/912))
+- [**breaking**] collapse create_session proof type into session x create ([#866](https://github.com/worldcoin/world-id-protocol/pull/866))
+- *(oprf)* bump to oprf version 0.18.1. Also remove test-utils and use alloy mock asserter over compiled solidity mocks ([#913](https://github.com/worldcoin/world-id-protocol/pull/913))
+- [**breaking**] rename proof module to nullifier_proof ([#847](https://github.com/worldcoin/world-id-protocol/pull/847))
+- update the Noir Prover.toml example from fixture ([#870](https://github.com/worldcoin/world-id-protocol/pull/870))
+
 ## [0.13.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.12.0...world-id-primitives-v0.13.0) - 2026-07-08
 
 ### Added
