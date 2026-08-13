@@ -235,7 +235,56 @@ impl RequestRepository {
         reason: String,
         failed_at: Timestamp,
     ) -> GatewayResult<()> {
-        unimplemented!()
+        let Some(request) = self.load(request_id).await? else {
+            return Err(redis::RedisError::from((
+                redis::ErrorKind::Client,
+                "request does not exist",
+            ))
+            .into());
+        };
+        let failed_state = serde_json::to_string(&RequestState::Failed(reason))?;
+        let mut manager = self.manager.clone();
+        let script = Script::new(
+            r#"
+            local record = redis.call('GET', KEYS[1])
+            if not record then
+                return redis.error_reply('request does not exist')
+            end
+
+            local decoded = cjson.decode(record)
+            if decoded.state ~= 'Queued' then
+                return redis.error_reply('request is not queued')
+            end
+
+            decoded.state = cjson.decode(ARGV[2])
+            decoded.updated_at = tonumber(ARGV[3])
+            redis.call('SET', KEYS[1], cjson.encode(decoded))
+            redis.call('ZREM', KEYS[2], ARGV[1])
+
+            for i = 3, #KEYS do
+                if redis.call('GET', KEYS[i]) == ARGV[1] then
+                    redis.call('DEL', KEYS[i])
+                end
+            end
+
+            return redis.status_reply('OK')
+            "#,
+        );
+        let mut invocation = script.prepare_invoke();
+        invocation
+            .key(request_id.redis_key())
+            .key(request.payload.batch_kind().queue_key());
+        for resource in &request.resource_locks {
+            invocation.key(resource.redis_key());
+        }
+
+        let _: () = invocation
+            .arg(request_id.0.to_string())
+            .arg(failed_state)
+            .arg(failed_at)
+            .invoke_async(&mut manager)
+            .await?;
+        Ok(())
     }
 }
 
@@ -249,7 +298,9 @@ mod tests {
     use super::{AcceptRequestOutcome, RequestRepository};
     use crate::storage::{
         test_support::start_redis,
-        types::{BatchKind, NewRequest, RequestId, RequestPayload, RequestState, ResourceLock},
+        types::{
+            BatchId, BatchKind, NewRequest, RequestId, RequestPayload, RequestState, ResourceLock,
+        },
     };
 
     const ACCEPTED_AT: u64 = 100;
@@ -470,5 +521,101 @@ mod tests {
             .unwrap();
         assert_eq!(oldest.len(), 1);
         assert_eq!(oldest[0].id, queued_id);
+    }
+
+    #[tokio::test]
+    async fn failing_queued_request_updates_state_and_releases_owned_locks() {
+        let (redis_url, _redis) = start_redis().await;
+        let repository = connect_repository(&redis_url).await;
+        let request_id = RequestId(Uuid::from_u128(1));
+        let other_id = RequestId(Uuid::from_u128(2));
+        repository
+            .accept(NewRequest {
+                id: request_id,
+                payload: RequestPayload::Operation(Bytes::from_static(&[1, 2, 3])),
+                accepted_at: 100,
+                resource_locks: vec![ResourceLock::Account(10), ResourceLock::Account(20)],
+            })
+            .await
+            .unwrap();
+
+        let mut manager = repository.manager.clone();
+        let _: () = redis::cmd("SET")
+            .arg(ResourceLock::Account(20).redis_key())
+            .arg(other_id.0.to_string())
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+
+        repository
+            .fail_queued(request_id, "validation expired".to_string(), 300)
+            .await
+            .unwrap();
+
+        let failed = repository.load(request_id).await.unwrap().unwrap();
+        assert_eq!(
+            failed.state,
+            RequestState::Failed("validation expired".to_string())
+        );
+        assert_eq!(failed.updated_at, 300);
+        assert_eq!(
+            repository.queue_len(BatchKind::Operations).await.unwrap(),
+            0
+        );
+        let released: Option<String> = redis::cmd("GET")
+            .arg(ResourceLock::Account(10).redis_key())
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        assert!(released.is_none());
+        let retained: String = redis::cmd("GET")
+            .arg(ResourceLock::Account(20).redis_key())
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        assert_eq!(retained, other_id.0.to_string());
+    }
+
+    #[tokio::test]
+    async fn refuses_to_fail_request_that_is_no_longer_queued() {
+        let (redis_url, _redis) = start_redis().await;
+        let repository = connect_repository(&redis_url).await;
+        let request_id = RequestId(Uuid::from_u128(1));
+        repository
+            .accept(operation_request_at(request_id, 10, 100))
+            .await
+            .unwrap();
+
+        let mut stored = repository.load(request_id).await.unwrap().unwrap();
+        let batch_id = BatchId(Uuid::from_u128(2));
+        stored.state = RequestState::Batched(batch_id);
+        let mut manager = repository.manager.clone();
+        let _: () = redis::cmd("SET")
+            .arg(request_id.redis_key())
+            .arg(serde_json::to_string(&stored).unwrap())
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+
+        assert!(
+            repository
+                .fail_queued(request_id, "too late".to_string(), 300)
+                .await
+                .is_err()
+        );
+
+        let unchanged = repository.load(request_id).await.unwrap().unwrap();
+        assert_eq!(unchanged.state, RequestState::Batched(batch_id));
+        assert_eq!(unchanged.updated_at, 100);
+        assert_eq!(
+            repository.queue_len(BatchKind::Operations).await.unwrap(),
+            1
+        );
+        let lock_owner: String = redis::cmd("GET")
+            .arg(ResourceLock::Account(10).redis_key())
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        assert_eq!(lock_owner, request_id.0.to_string());
     }
 }
