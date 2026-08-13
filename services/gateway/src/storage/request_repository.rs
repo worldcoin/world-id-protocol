@@ -146,13 +146,69 @@ impl RequestRepository {
     ///
     /// Reads IDs from `gateway:requests:create` or `gateway:requests:ops`, then
     /// loads their `gateway:request:<request-id>` records. This is an inspection
-    /// operation: it does not reserve or remove requests from the queue.
+    /// operation: it does not reserve or remove requests from the queue. Stale
+    /// index members whose record is missing, no longer queued, or belongs to a
+    /// different queue are skipped.
     pub(crate) async fn oldest_queued(
         &self,
         kind: BatchKind,
         limit: usize,
     ) -> GatewayResult<Vec<StoredRequest>> {
-        unimplemented!()
+        const PAGE_SIZE: usize = 128;
+
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut manager = self.manager.clone();
+        let mut offset = 0;
+        let mut requests = Vec::with_capacity(limit);
+
+        while requests.len() < limit {
+            let members: Vec<String> = redis::cmd("ZRANGE")
+                .arg(kind.queue_key())
+                .arg(offset)
+                .arg(offset + PAGE_SIZE - 1)
+                .query_async(&mut manager)
+                .await?;
+            if members.is_empty() {
+                break;
+            }
+            offset += members.len();
+
+            let keys: Vec<String> = members
+                .iter()
+                .map(|id| format!("gateway:request:{id}"))
+                .collect();
+            let records: Vec<Option<String>> = redis::cmd("MGET")
+                .arg(keys)
+                .query_async(&mut manager)
+                .await?;
+
+            for (member, serialized) in members.iter().zip(records) {
+                let Some(serialized) = serialized else {
+                    continue;
+                };
+                let request: StoredRequest = serde_json::from_str(&serialized)?;
+                if member != &request.id.0.to_string()
+                    || request.state != RequestState::Queued
+                    || request.payload.batch_kind() != kind
+                {
+                    continue;
+                }
+
+                requests.push(request);
+                if requests.len() == limit {
+                    break;
+                }
+            }
+
+            if members.len() < PAGE_SIZE {
+                break;
+            }
+        }
+
+        Ok(requests)
     }
 
     /// Counts members in the sorted queue for `kind`.
@@ -204,13 +260,17 @@ mod tests {
         RequestRepository::new(manager)
     }
 
-    fn operation_request(id: RequestId, account: u64) -> NewRequest {
+    fn operation_request_at(id: RequestId, account: u64, accepted_at: u64) -> NewRequest {
         NewRequest {
             id,
             payload: RequestPayload::Operation(Bytes::from_static(&[1, 2, 3])),
-            accepted_at: ACCEPTED_AT,
+            accepted_at,
             resource_locks: vec![ResourceLock::Account(account)],
         }
+    }
+
+    fn operation_request(id: RequestId, account: u64) -> NewRequest {
+        operation_request_at(id, account, ACCEPTED_AT)
     }
 
     #[tokio::test]
@@ -318,5 +378,97 @@ mod tests {
         assert!(loaded[1].is_none());
         assert_eq!(loaded[2].as_ref().unwrap().id, first_id);
         assert!(repository.load_many(&[]).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn returns_oldest_requests_for_each_queue() {
+        let (redis_url, _redis) = start_redis().await;
+        let repository = connect_repository(&redis_url).await;
+        let first_id = RequestId(Uuid::from_u128(1));
+        let second_id = RequestId(Uuid::from_u128(2));
+        let later_id = RequestId(Uuid::from_u128(3));
+        let create_id = RequestId(Uuid::from_u128(4));
+
+        repository
+            .accept(operation_request_at(later_id, 3, 200))
+            .await
+            .unwrap();
+        repository
+            .accept(operation_request_at(second_id, 2, 100))
+            .await
+            .unwrap();
+        repository
+            .accept(operation_request_at(first_id, 1, 100))
+            .await
+            .unwrap();
+        repository
+            .accept(NewRequest {
+                id: create_id,
+                payload: RequestPayload::CreateAccount(CreateAccountRequest {
+                    recovery_address: None,
+                    authenticator_addresses: vec![],
+                    authenticator_pubkeys: vec![],
+                    offchain_signer_commitment: U256::ZERO,
+                }),
+                accepted_at: 50,
+                resource_locks: vec![],
+            })
+            .await
+            .unwrap();
+
+        let oldest_ops = repository
+            .oldest_queued(BatchKind::Operations, 2)
+            .await
+            .unwrap();
+        assert_eq!(
+            oldest_ops
+                .iter()
+                .map(|request| request.id)
+                .collect::<Vec<_>>(),
+            vec![first_id, second_id]
+        );
+        assert!(
+            repository
+                .oldest_queued(BatchKind::Operations, 0)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        let oldest_create = repository
+            .oldest_queued(BatchKind::CreateAccounts, 1)
+            .await
+            .unwrap();
+        assert_eq!(oldest_create[0].id, create_id);
+    }
+
+    #[tokio::test]
+    async fn skips_stale_queue_members() {
+        let (redis_url, _redis) = start_redis().await;
+        let repository = connect_repository(&redis_url).await;
+        let stale_id = RequestId(Uuid::from_u128(1));
+        let queued_id = RequestId(Uuid::from_u128(2));
+        repository
+            .accept(operation_request_at(stale_id, 1, 100))
+            .await
+            .unwrap();
+        repository
+            .accept(operation_request_at(queued_id, 2, 200))
+            .await
+            .unwrap();
+
+        let mut manager = repository.manager.clone();
+        let _: usize = redis::cmd("DEL")
+            .arg(stale_id.redis_key())
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+
+        let oldest = repository
+            .oldest_queued(BatchKind::Operations, 1)
+            .await
+            .unwrap();
+        assert_eq!(oldest.len(), 1);
+        assert_eq!(oldest[0].id, queued_id);
     }
 }
