@@ -180,15 +180,15 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
-    let (_postgres, connection_string) = taceo_oprf_test_utils::postgres_testcontainer().await?;
+    let connection_string = world_id_test_utils::shared_postgres_testcontainer().await?;
 
     let node_secret_managers =
-        world_id_test_utils::stubs::init_test_secret_managers(connection_string.clone().into())
+        world_id_test_utils::stubs::init_test_secret_managers(connection_string.to_string().into())
             .await?;
 
     // OPRF key-gen instances
     let oprf_key_gens =
-        world_id_test_utils::stubs::spawn_key_gens(&anvil, &connection_string, oprf_key_registry)
+        world_id_test_utils::stubs::spawn_key_gens(&anvil, connection_string, oprf_key_registry)
             .await?;
 
     // OPRF nodes

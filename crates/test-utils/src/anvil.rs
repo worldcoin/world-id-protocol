@@ -12,7 +12,7 @@ use alloy_node_bindings::{Anvil, AnvilInstance};
 use ark_ff::PrimeField as _;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::{Context, ContextCompat, Result};
-use taceo_oprf_test_utils::TestOprfKeyRegistry;
+use taceo_oprf::anvil::OprfKeyRegistry;
 use world_id_primitives::{FieldElement, TREE_DEPTH, rp::RpId};
 
 /// Canonical Multicall3 address (same on all EVM chains).
@@ -404,6 +404,12 @@ impl TestAnvil {
         Ok(PrivateKeySigner::from(key))
     }
 
+    /// Addresses of anvil accounts 5-9, used as the five-node OPRF committee
+    /// (must match the signers used by `stubs::spawn_key_gens`).
+    pub fn oprf_peer_addresses(&self) -> Result<Vec<Address>> {
+        (5..10).map(|i| Ok(self.signer(i)?.address())).collect()
+    }
+
     /// Creates a read-only provider connected to the `anvil` instance.
     #[allow(dead_code)]
     pub fn provider(&self) -> Result<DynProvider> {
@@ -675,12 +681,9 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        taceo_oprf_test_utils::deploy_anvil::deploy_oprf_key_registry_25(
-            provider.erased(),
-            signer.address(),
-        )
-        .await
-        .context("failed to deploy OprfKeyRegistry contract")
+        taceo_oprf::anvil::deploy_oprf_key_registry_25(provider.erased(), signer.address())
+            .await
+            .context("failed to deploy OprfKeyRegistry contract")
     }
 
     /// Deploys a lightweight mock `OprfKeyRegistry` used by auth tests.
@@ -746,7 +749,7 @@ impl TestAnvil {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
-        let oprf_key_registry = TestOprfKeyRegistry::new(oprf_key_registry_contract, provider);
+        let oprf_key_registry = OprfKeyRegistry::new(oprf_key_registry_contract, provider);
         let receipt = oprf_key_registry
             .registerOprfPeers(node_addresses)
             .send()
@@ -769,7 +772,7 @@ impl TestAnvil {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
-        let oprf_key_registry = TestOprfKeyRegistry::new(oprf_key_registry_contract, provider);
+        let oprf_key_registry = OprfKeyRegistry::new(oprf_key_registry_contract, provider);
         let receipt = oprf_key_registry
             .addKeyGenAdmin(admin)
             .send()

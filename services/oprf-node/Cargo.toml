@@ -54,6 +54,7 @@ world-id-registries = { workspace = true }
 ark-serialize.workspace = true
 eddsa-babyjubjub = { workspace = true }
 rand.workspace = true
+taceo-nodes-common = { workspace = true, features = ["web3-asserter"] }
 world-id-proof = { workspace = true, features = ["embed-zkeys"] }
 world-id-test-utils = { workspace = true }
 

@@ -217,12 +217,6 @@ impl RpRegistryWatcher {
 
         Ok(relying_party)
     }
-
-    #[allow(dead_code, reason = "is only used in tests")]
-    #[cfg(test)]
-    pub(crate) fn set_timeout_external_eth_call(&mut self, duration: Duration) {
-        self.timeout_external_eth_call = duration;
-    }
 }
 
 #[cfg(test)]

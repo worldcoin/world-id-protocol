@@ -1,16 +1,15 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::primitives::{Address, U256};
+use alloy::{
+    primitives::{Address, U256},
+    signers::local::PrivateKeySigner,
+};
 use ark_serialize::CanonicalSerialize;
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
 use eyre::{Context as _, ContextCompat as _, Result};
 use secrecy::SecretString;
 use semver::VersionReq;
 use taceo_nodes_common::{postgres::PostgresConfig, web3::HttpRpcProviderConfig};
-use taceo_oprf_test_utils::{
-    OPRF_PEER_PRIVATE_KEY_0, OPRF_PEER_PRIVATE_KEY_1, OPRF_PEER_PRIVATE_KEY_2,
-    OPRF_PEER_PRIVATE_KEY_3, OPRF_PEER_PRIVATE_KEY_4,
-};
 use testcontainers::{
     ContainerAsync, GenericImage, ImageExt,
     core::{IntoContainerPort, WaitFor, wait::HttpWaitStrategy},
@@ -344,7 +343,7 @@ async fn spawn_key_gen_container(
     chain_http_rpc_url: &str,
     chain_ws_rpc_url: &str,
     postgres_connection_string: &str,
-    wallet_private_key: &str,
+    wallet_private_key: PrivateKeySigner,
     schema: &str,
     oprf_key_registry_contract: Address,
 ) -> Result<(String, ContainerAsync<GenericImage>)> {
@@ -382,7 +381,7 @@ async fn spawn_key_gen_container(
         )
         .with_env_var(
             "TACEO_OPRF_KEY_GEN__SERVICE__WALLET_PRIVATE_KEY",
-            wallet_private_key,
+            alloy::hex::encode_prefixed(wallet_private_key.to_bytes()),
         )
         .with_env_var("TACEO_OPRF_KEY_GEN__SERVICE__EXPECTED_NUM_PEERS", "5")
         .with_env_var("TACEO_OPRF_KEY_GEN__SERVICE__EXPECTED_THRESHOLD", "3")
@@ -425,7 +424,7 @@ pub async fn spawn_key_gens(
             anvil.endpoint(),
             anvil.ws_endpoint(),
             postgres_connection_string,
-            OPRF_PEER_PRIVATE_KEY_0,
+            anvil.signer(5).expect("anvil has signer 5"),
             "node0",
             key_gen_contract,
         ),
@@ -434,7 +433,7 @@ pub async fn spawn_key_gens(
             anvil.endpoint(),
             anvil.ws_endpoint(),
             postgres_connection_string,
-            OPRF_PEER_PRIVATE_KEY_1,
+            anvil.signer(6).expect("anvil has signer 6"),
             "node1",
             key_gen_contract,
         ),
@@ -443,7 +442,7 @@ pub async fn spawn_key_gens(
             anvil.endpoint(),
             anvil.ws_endpoint(),
             postgres_connection_string,
-            OPRF_PEER_PRIVATE_KEY_2,
+            anvil.signer(7).expect("anvil has signer 7"),
             "node2",
             key_gen_contract,
         ),
@@ -452,7 +451,7 @@ pub async fn spawn_key_gens(
             anvil.endpoint(),
             anvil.ws_endpoint(),
             postgres_connection_string,
-            OPRF_PEER_PRIVATE_KEY_3,
+            anvil.signer(8).expect("anvil has signer 8"),
             "node3",
             key_gen_contract,
         ),
@@ -461,7 +460,7 @@ pub async fn spawn_key_gens(
             anvil.endpoint(),
             anvil.ws_endpoint(),
             postgres_connection_string,
-            OPRF_PEER_PRIVATE_KEY_4,
+            anvil.signer(9).expect("anvil has signer 9"),
             "node4",
             key_gen_contract,
         ),
