@@ -7,6 +7,9 @@ mod rate_limiter;
 mod request_repository;
 mod types;
 
+#[cfg(test)]
+mod test_support;
+
 use redis::{Client, aio::ConnectionManager};
 
 use crate::error::GatewayResult;

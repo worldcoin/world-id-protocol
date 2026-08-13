@@ -54,6 +54,7 @@ reqwest = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+test-case = { workspace = true }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
 

@@ -100,3 +100,62 @@ impl RateLimiter {
 fn rate_limit_key(leaf_index: u64) -> String {
     format!("gateway:ratelimit:leaf:{leaf_index}")
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use redis::aio::ConnectionManager;
+    use test_case::test_case;
+    use uuid::Uuid;
+
+    use super::{RateLimitOutcome, RateLimiter};
+    use crate::storage::{test_support::start_redis, types::RequestId};
+
+    async fn connect_limiter(redis_url: &str) -> RateLimiter {
+        let client = redis::Client::open(redis_url).unwrap();
+        let manager = ConnectionManager::new(client).await.unwrap();
+        RateLimiter::new(manager)
+    }
+
+    #[test_case(&[], 100 => RateLimitOutcome::Allowed { current_count: 1 }; "allows first request")]
+    #[test_case(&[100], 101 => RateLimitOutcome::Allowed { current_count: 2 }; "counts request in window")]
+    #[test_case(&[100, 101], 109 => RateLimitOutcome::Exceeded; "rejects full window")]
+    #[test_case(&[100, 101], 110 => RateLimitOutcome::Allowed { current_count: 2 }; "expires inclusive boundary")]
+    #[tokio::test]
+    async fn enforces_sliding_window_against_redis(
+        existing_timestamps: &[u64],
+        now: u64,
+    ) -> RateLimitOutcome {
+        const LEAF_INDEX: u64 = 7;
+        const WINDOW: Duration = Duration::from_secs(10);
+        const MAX_REQUESTS: u64 = 2;
+
+        let (redis_url, _redis) = start_redis().await;
+        let limiter = connect_limiter(&redis_url).await;
+
+        for timestamp in existing_timestamps {
+            limiter
+                .check_and_record(
+                    LEAF_INDEX,
+                    RequestId(Uuid::new_v4()),
+                    *timestamp,
+                    WINDOW,
+                    MAX_REQUESTS,
+                )
+                .await
+                .unwrap();
+        }
+
+        limiter
+            .check_and_record(
+                LEAF_INDEX,
+                RequestId(Uuid::new_v4()),
+                now,
+                WINDOW,
+                MAX_REQUESTS,
+            )
+            .await
+            .unwrap()
+    }
+}
