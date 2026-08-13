@@ -466,10 +466,8 @@ impl Authenticator {
     ///
     /// # Arguments
     /// - `nonce`: The nonce of the request provided by the Issuer.
-    /// - `context`: The field element the Issuer assigns to the operation being authorized (e.g. one value for
-    ///   credential deletion, a different one for renewal). The Issuer defines the encoding, which may be arbitrary
-    ///   bytes reduced into the field, and MUST enforce the `context` it receives is the one for the operation it
-    ///   is executing.
+    /// - `context`: Identifies the specific operation which the user is performing with the issuer. Provided by the issuer, it is
+    ///   RECOMMENDED to use a hashing function to lower arbitrary bytes into the field avoiding collisions, e.g. [`FieldElement::from_arbitrary_raw_bytes`]
     /// - `credential_blinding_factor`: The blinding factor generated for the credential.
     /// - `sub`: The expected `sub` of the Credential in question.
     /// - `account_inclusion_proof`: An optionally cached account inclusion proof. If not provided, a new inclusion proof will be fetched.
