@@ -104,6 +104,15 @@ pub enum ProofInputError {
     /// The proof's expires_at is greater than the created_at.
     #[error("The proof's expires_at {expires_at} happens before the created_at {created_at}.")]
     InvalidExpiresAt { created_at: u64, expires_at: u64 },
+    /// A value that the circuit requires to be non-zero was zero.
+    #[error("The value '{name}' must not be zero.")]
+    ValueMustNotBeZero {
+        /// Name of the value for error message.
+        name: &'static str,
+    },
+    /// The provided commitment does not match the one derived from the leaf index and blinder.
+    #[error("The provided expected commitment does not match the derived commitment")]
+    InvalidExpectedCommitment,
 }
 
 /// This method checks the validity of the input parameters by emulating the operations that are proved in ZK and raising Errors that would result in an invalid proof.

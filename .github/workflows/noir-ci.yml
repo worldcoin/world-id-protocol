@@ -25,6 +25,7 @@ jobs:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
           toolchain: v1.0.0-beta.11
       - run: nargo fmt --check && nargo test
+      - run: nargo execute --pedantic-solving
 
   authenticator-assertion:
     name: Noir CI (authenticator-assertion)

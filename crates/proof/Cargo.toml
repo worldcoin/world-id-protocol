@@ -11,7 +11,6 @@ rust-version.workspace = true
 repository.workspace = true
 include = [
     "src/**/*",
-    "tests/**/*",
     "noir/**/*",
     "build.rs",
     "Cargo.toml",
@@ -81,4 +80,5 @@ provekit-common = { workspace = true }
 provekit-r1cs-compiler = { workspace = true, optional = true }
 
 [dev-dependencies]
+toml = { workspace = true }
 world-id-test-utils = { workspace = true }
