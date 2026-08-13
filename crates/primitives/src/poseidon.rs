@@ -69,13 +69,13 @@ pub mod ds {
 /// Validates a raw domain separator tag, returning it unchanged.
 ///
 /// # Panics
-/// Panics if the tag is empty or longer than [`MAX_TAG_LEN_BYTES`], which would be
-/// reduced modulo the field and could therefore alias a different tag. In a `const`
+/// Panics if the tag is empty, longer than [`MAX_TAG_LEN_BYTES`] or starts with a zero byte,
+/// which would be reduced modulo the field and could therefore alias a different tag. In a `const`
 /// context — the intended usage — this is a compile-time error.
 const fn checked_tag(tag: &'static [u8]) -> &'static [u8] {
     assert!(
-        !tag.is_empty() && tag.len() <= MAX_TAG_LEN_BYTES,
-        "a domain separator must be between 1 and 31 bytes"
+        !tag.is_empty() && tag.len() <= MAX_TAG_LEN_BYTES && tag[0] != 0,
+        "a domain separator must be between 1 and 31 bytes, and not start with a zero byte"
     );
     tag
 }
