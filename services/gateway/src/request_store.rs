@@ -249,10 +249,7 @@ impl RequestStore {
 
         let keys: Vec<String> = ids.iter().map(|id| Self::request_key(id)).collect();
         let mut manager = self.manager.clone();
-        let values: Vec<Option<String>> = redis::cmd("MGET")
-            .arg(keys)
-            .query_async(&mut manager)
-            .await?;
+        let values: Vec<Option<String>> = manager.mget(keys).await?;
 
         Ok(ids
             .iter()
