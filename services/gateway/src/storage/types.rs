@@ -13,6 +13,12 @@ pub(crate) type Timestamp = u64;
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub(crate) struct RequestId(pub(crate) Uuid);
 
+impl RequestId {
+    pub(super) fn redis_key(self) -> String {
+        format!("gateway:request:{}", self.0)
+    }
+}
+
 /// Identity of one immutable sealed batch.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub(crate) struct BatchId(pub(crate) Uuid);
@@ -29,6 +35,17 @@ pub(crate) enum ResourceLock {
     Account(u64),
 }
 
+impl ResourceLock {
+    pub(super) fn redis_key(self) -> String {
+        match self {
+            Self::Authenticator(address) => {
+                format!("gateway:resource:authenticator:{address:#x}")
+            }
+            Self::Account(index) => format!("gateway:resource:account:{index}"),
+        }
+    }
+}
+
 /// Complete validated request data needed to rebuild a batch after restart.
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) enum RequestPayload {
@@ -36,6 +53,15 @@ pub(crate) enum RequestPayload {
     CreateAccount(CreateAccountRequest),
     /// Encoded registry call used as one item in an operations multicall.
     Operation(Bytes),
+}
+
+impl RequestPayload {
+    pub(super) const fn batch_kind(&self) -> BatchKind {
+        match self {
+            Self::CreateAccount(_) => BatchKind::CreateAccounts,
+            Self::Operation(_) => BatchKind::Operations,
+        }
+    }
 }
 
 /// Durable lifecycle of an accepted gateway request.
@@ -91,6 +117,15 @@ pub(crate) enum BatchKind {
     CreateAccounts,
     /// `Multicall3.aggregate3` transaction containing account operations.
     Operations,
+}
+
+impl BatchKind {
+    pub(super) const fn queue_key(self) -> &'static str {
+        match self {
+            Self::CreateAccounts => "gateway:requests:create",
+            Self::Operations => "gateway:requests:ops",
+        }
+    }
 }
 
 /// Immutable transaction fields produced when a batch is sealed.
