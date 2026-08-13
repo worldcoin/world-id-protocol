@@ -329,7 +329,7 @@ impl Credential {
     }
 
     /// The domain separator of the credential hash for the given version.
-    const fn cred_ds(&self) -> crate::DomainSeparator {
+    const fn cred_ds(&self) -> crate::DomainSeparator<7> {
         match self.version {
             CredentialVersion::V1 => ds::CREDENTIAL_V1,
         }

@@ -10,74 +10,106 @@
 //!
 //! Prefer [`hash`] over calling `poseidon2::bn254::t*::permutation*` directly: it
 //! selects the permutation width, places the domain separator, and squeezes the
-//! right element. Arbitrary-length byte inputs are hashed with
-//! [`sponge::hash_bytes_to_field_element`](crate::sponge::hash_bytes_to_field_element)
-//! instead, which uses the same [`DomainSeparator`] type but a different layout.
+//! right element. A [`DomainSeparator`] declares how many inputs its message takes,
+//! so the width follows from the separator alone and a call site cannot silently
+//! change it by passing a different number of inputs.
+//!
+//! Arbitrary-length byte inputs use a different construction and a separate
+//! separator type: see [`VariableLengthDomainSeparator`] and
+//! [`sponge::hash_bytes_to_field_element`](crate::sponge::hash_bytes_to_field_element).
 
 use ark_babyjubjub::Fq;
 use ark_ff::AdditiveGroup as _;
 
 use crate::FieldElement;
 
+/// The largest tag that is guaranteed to survive lowering into the field unreduced
+/// (248 bits < the BN254 scalar field modulus).
+const MAX_TAG_LEN_BYTES: usize = 31;
+
 /// The domain separators of every Poseidon2 hash in the protocol.
 ///
 /// Domain separators are part of the protocol's wire format: they are hashed into
-/// the circuits, so a tag may never be edited in place. Add a new constant instead.
+/// the circuits, so neither a tag nor its input count may be edited in place. Add a
+/// new constant instead.
 pub mod ds {
-    use super::DomainSeparator;
+    use super::{DomainSeparator, VariableLengthDomainSeparator};
 
     /// Separates the canonical hash of a [`CredentialVersion::V1`](crate::CredentialVersion) credential.
-    pub const CREDENTIAL_V1: DomainSeparator = DomainSeparator::new(b"POSEIDON2+EDDSA-BJJ");
+    pub const CREDENTIAL_V1: DomainSeparator<7> = DomainSeparator::new(b"POSEIDON2+EDDSA-BJJ");
     /// Separates the blinded subject (`sub`) of a credential.
-    pub const CREDENTIAL_SUB: DomainSeparator = DomainSeparator::new(b"H_CS(id, r)");
+    pub const CREDENTIAL_SUB: DomainSeparator<2> = DomainSeparator::new(b"H_CS(id, r)");
     /// Separates the commitment of a [`SessionId`](crate::SessionId).
     ///
     /// TODO: Change DS to not use the same DS as the base Query Proof
-    pub const SESSION_COMMITMENT: DomainSeparator = DomainSeparator::new(b"H(id, r)");
+    pub const SESSION_COMMITMENT: DomainSeparator<2> = DomainSeparator::new(b"H(id, r)");
     /// Separates the registry leaf hash of an
-    /// [`AuthenticatorPublicKeySet`](crate::AuthenticatorPublicKeySet).
-    pub const AUTHENTICATOR_KEY_SET: DomainSeparator = DomainSeparator::new(b"World ID PK");
+    /// [`AuthenticatorPublicKeySet`](crate::AuthenticatorPublicKeySet): the affine
+    /// coordinates of [`MAX_AUTHENTICATOR_KEYS`](crate::MAX_AUTHENTICATOR_KEYS) keys.
+    pub const AUTHENTICATOR_KEY_SET: DomainSeparator<14> = DomainSeparator::new(b"World ID PK");
     /// Separates the OPRF query digest, and is the OPRF evaluation's own separator.
-    pub const OPRF_QUERY: DomainSeparator = DomainSeparator::new(b"World ID Query");
+    pub const OPRF_QUERY: DomainSeparator<3> = DomainSeparator::new(b"World ID Query");
     /// Separates the OPRF finalization hash (the nullifier), and is the separator
     /// handed to the OPRF nodes for the nullifier module.
-    pub const OPRF_PROOF: DomainSeparator = DomainSeparator::new(b"World ID Proof");
+    pub const OPRF_PROOF: DomainSeparator<3> = DomainSeparator::new(b"World ID Proof");
     /// Separates the message an authenticator signs for an ownership proof (WIP-103).
-    pub const OWNERSHIP_PROOF: DomainSeparator = DomainSeparator::new(b"WIP103");
-    /// Separates the digest of a trust anchor key token (WIP-106).
-    pub const TRUST_ANCHOR_KEY_TOKEN: DomainSeparator = DomainSeparator::new(b"WORLD_ID_TAKT_V1");
+    pub const OWNERSHIP_PROOF: DomainSeparator<2> = DomainSeparator::new(b"WIP103");
+    /// Separates the digest of a trust anchor key token (WIP-106). A token carries at
+    /// most 7 field-element claims and is zero-padded to that width.
+    pub const TRUST_ANCHOR_KEY_TOKEN: DomainSeparator<7> =
+        DomainSeparator::new(b"WORLD_ID_TAKT_V1");
     /// Separates the hash of a single raw-bytes credential claim.
-    pub const CLAIMS_HASH_V1: DomainSeparator = DomainSeparator::new(b"CLAIMS_HASH_V1");
+    pub const CLAIMS_HASH_V1: VariableLengthDomainSeparator =
+        VariableLengthDomainSeparator::new(b"CLAIMS_HASH_V1");
     /// Separates the hash of a credential's associated data.
-    pub const ASSOCIATED_DATA_V1: DomainSeparator =
-        DomainSeparator::new(b"ASSOCIATED_DATA_HASH_V1");
+    pub const ASSOCIATED_DATA_V1: VariableLengthDomainSeparator =
+        VariableLengthDomainSeparator::new(b"ASSOCIATED_DATA_HASH_V1");
 }
 
-/// A domain separator, lowered into a single field element when hashed.
+/// Validates a raw domain separator tag, returning it unchanged.
 ///
-/// Construct these as `const` items in [`ds`] so that the length invariant is
-/// checked at compile time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct DomainSeparator(&'static [u8]);
+/// # Panics
+/// Panics if the tag is empty or longer than [`MAX_TAG_LEN_BYTES`], which would be
+/// reduced modulo the field and could therefore alias a different tag. In a `const`
+/// context — the intended usage — this is a compile-time error.
+const fn checked_tag(tag: &'static [u8]) -> &'static [u8] {
+    assert!(
+        !tag.is_empty() && tag.len() <= MAX_TAG_LEN_BYTES,
+        "a domain separator must be between 1 and 31 bytes"
+    );
+    tag
+}
 
-impl DomainSeparator {
-    /// The largest tag that is guaranteed to survive lowering into the field
-    /// unreduced (248 bits < the BN254 scalar field modulus).
-    const MAX_LEN_BYTES: usize = 31;
+/// A domain separator for a message of exactly `N` field elements, lowered into a
+/// single field element when hashed.
+///
+/// `N` is what [`hash`] dispatches the permutation width on, so it is as much a part
+/// of the hash's definition as the tag itself. Passing a different number of inputs
+/// than the separator declares does not compile.
+///
+/// Construct these as `const` items in [`ds`] so that the tag invariant is checked at
+/// compile time. `N` must be between 1 and 15; any other value fails the build at the
+/// [`hash`] call site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct DomainSeparator<const N: usize>(&'static [u8]);
+
+impl<const N: usize> DomainSeparator<N> {
+    /// Referencing this from [`hash`] turns an unsupported input count into a
+    /// build failure (a post-monomorphization const error, so it surfaces on
+    /// `cargo build`/`test` rather than `cargo check`), which keeps the width
+    /// dispatch total.
+    const ARITY_SUPPORTED: () = assert!(
+        N >= 1 && N <= 15,
+        "a domain-separated Poseidon2 hash takes between 1 and 15 inputs"
+    );
 
     /// Defines a domain separator from its raw tag.
     ///
     /// # Panics
-    /// Panics if the tag is empty or longer than 31 bytes, which would be reduced
-    /// modulo the field and could therefore alias a different tag. In a `const`
-    /// context — the intended usage — this is a compile-time error.
+    /// See [`checked_tag`].
     #[must_use]
     pub const fn new(tag: &'static [u8]) -> Self {
-        assert!(
-            !tag.is_empty() && tag.len() <= Self::MAX_LEN_BYTES,
-            "a domain separator must be between 1 and 31 bytes"
-        );
-        Self(tag)
+        Self(checked_tag(tag))
     }
 
     /// Returns the raw tag.
@@ -93,27 +125,42 @@ impl DomainSeparator {
     }
 }
 
-/// Compile-time guard on the input count accepted by [`hash`].
-struct Arity<const N: usize>;
+/// A domain separator for a message of arbitrary length, used by the SAFE-style byte
+/// sponge in [`crate::sponge`].
+///
+/// That construction absorbs the input length into its tag, so it needs no
+/// compile-time input count — and it is deliberately not interchangeable with
+/// [`DomainSeparator`], whose layout it does not share.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct VariableLengthDomainSeparator(&'static [u8]);
 
-impl<const N: usize> Arity<N> {
-    /// Referencing this from [`hash`] turns an unsupported arity into a compile error.
-    const CHECK: () = assert!(
-        N >= 1 && N <= 15,
-        "a domain-separated Poseidon2 hash takes between 1 and 15 inputs"
-    );
+impl VariableLengthDomainSeparator {
+    /// Defines a domain separator from its raw tag.
+    ///
+    /// # Panics
+    /// See [`checked_tag`].
+    #[must_use]
+    pub const fn new(tag: &'static [u8]) -> Self {
+        Self(checked_tag(tag))
+    }
+
+    /// Returns the raw tag, which the sponge binds into its SAFE tag.
+    #[must_use]
+    pub const fn as_bytes(self) -> &'static [u8] {
+        self.0
+    }
 }
 
-/// Hashes a fixed number of field elements under a domain separator.
+/// Hashes the `N` field elements of a message under its domain separator.
 ///
 /// The permutation width is the smallest supported width larger than `N` (so
 /// `N + 1` rounded up to one of `2, 3, 4, 8, 12, 16`); unused rate slots are zero.
-/// The input count is fixed per call site by the array's length, so the width
-/// cannot vary with runtime data.
+/// Since `N` comes from the separator, the width is fixed by the message's
+/// definition and cannot vary with runtime data.
 ///
-/// Inputs longer than 15 elements, or empty, are a compile error. Hashing a
-/// variable number of inputs at a *pinned* width — where padding is load-bearing —
-/// is not expressible here and must keep building the state explicitly.
+/// Hashing a variable number of inputs at a *pinned* width — where padding is
+/// load-bearing — is expressed by zero-filling an array of the separator's `N`, as
+/// `TrustAnchorKeyToken::message_hash` does.
 ///
 /// ```
 /// use world_id_primitives::{FieldElement, poseidon::{self, ds}};
@@ -125,8 +172,8 @@ impl<const N: usize> Arity<N> {
 /// assert_ne!(sub, FieldElement::ZERO);
 /// ```
 #[must_use]
-pub fn hash<const N: usize>(ds: DomainSeparator, inputs: [FieldElement; N]) -> FieldElement {
-    let () = Arity::<N>::CHECK;
+pub fn hash<const N: usize>(ds: DomainSeparator<N>, inputs: [FieldElement; N]) -> FieldElement {
+    let () = DomainSeparator::<N>::ARITY_SUPPORTED;
 
     let ds = *ds.as_field_element();
     match N {
@@ -180,36 +227,34 @@ mod tests {
 
     use ark_ff::AdditiveGroup as _;
 
-    use super::{DomainSeparator, FieldElement, Fq, ds, hash};
+    use super::{DomainSeparator, FieldElement, Fq, MAX_TAG_LEN_BYTES, ds, hash};
 
-    const TEST_DS: DomainSeparator = DomainSeparator::new(b"TEST_DS");
+    const TEST_TAG: &[u8] = b"TEST_DS";
+    const TEST_DS: DomainSeparator<2> = DomainSeparator::new(TEST_TAG);
 
-    /// Every constant in [`ds`], to keep the collision and length checks exhaustive.
-    const ALL_DS: [DomainSeparator; 10] = [
-        ds::CREDENTIAL_V1,
-        ds::CREDENTIAL_SUB,
-        ds::SESSION_COMMITMENT,
-        ds::AUTHENTICATOR_KEY_SET,
-        ds::OPRF_QUERY,
-        ds::OPRF_PROOF,
-        ds::OWNERSHIP_PROOF,
-        ds::TRUST_ANCHOR_KEY_TOKEN,
-        ds::CLAIMS_HASH_V1,
-        ds::ASSOCIATED_DATA_V1,
+    /// The raw tag of every constant in [`ds`], across both separator types, to keep
+    /// the collision and length checks exhaustive.
+    const ALL_TAGS: [&[u8]; 10] = [
+        ds::CREDENTIAL_V1.as_bytes(),
+        ds::CREDENTIAL_SUB.as_bytes(),
+        ds::SESSION_COMMITMENT.as_bytes(),
+        ds::AUTHENTICATOR_KEY_SET.as_bytes(),
+        ds::OPRF_QUERY.as_bytes(),
+        ds::OPRF_PROOF.as_bytes(),
+        ds::OWNERSHIP_PROOF.as_bytes(),
+        ds::TRUST_ANCHOR_KEY_TOKEN.as_bytes(),
+        ds::CLAIMS_HASH_V1.as_bytes(),
+        ds::ASSOCIATED_DATA_V1.as_bytes(),
     ];
 
     #[test]
     fn domain_separators_are_distinct_and_unreduced() {
         let mut seen = HashSet::new();
-        for separator in ALL_DS {
+        for tag in ALL_TAGS {
+            assert!(!tag.is_empty() && tag.len() <= MAX_TAG_LEN_BYTES);
             assert!(
-                !separator.as_bytes().is_empty()
-                    && separator.as_bytes().len() <= DomainSeparator::MAX_LEN_BYTES
-            );
-            assert!(
-                seen.insert(separator.as_field_element()),
-                "duplicate domain separator: {:?}",
-                separator.as_bytes()
+                seen.insert(FieldElement::from_be_bytes_mod_order(tag)),
+                "duplicate domain separator: {tag:?}"
             );
         }
     }
@@ -232,7 +277,7 @@ mod tests {
     #[test]
     fn hash_matches_hand_rolled_layout() {
         let inputs: [FieldElement; 15] = std::array::from_fn(|i| FieldElement::from(i as u64 + 1));
-        let ds_element = *TEST_DS.as_field_element();
+        let ds_element = *FieldElement::from_be_bytes_mod_order(TEST_TAG);
 
         macro_rules! assert_width {
             ($n:literal, $t:literal, $module:ident) => {{
@@ -245,7 +290,7 @@ mod tests {
 
                 let expected = FieldElement::from(state[1]);
                 let actual = hash(
-                    TEST_DS,
+                    DomainSeparator::<$n>::new(TEST_TAG),
                     <[FieldElement; $n]>::try_from(&inputs[..$n]).unwrap(),
                 );
                 assert_eq!(actual, expected, "width {} mismatch", $t);

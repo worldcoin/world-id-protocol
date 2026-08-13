@@ -2,7 +2,7 @@ use ark_babyjubjub::Fq;
 use ark_ff::Zero;
 use sha3::{Digest, Sha3_256};
 
-use crate::{DomainSeparator, FieldElement, PrimitiveError};
+use crate::{FieldElement, PrimitiveError, VariableLengthDomainSeparator};
 
 /// Bytes per chunk when mapping arbitrary data into field elements.
 const CHUNK_SIZE_BYTES: usize = 31; // 248 bits < BN254 modulus
@@ -42,7 +42,7 @@ const IO_SQUEEZE_LEN_BYTES: u32 = 32;
 /// # Errors
 /// Will error if the data is empty.
 pub fn hash_bytes_to_field_element(
-    ds: DomainSeparator,
+    ds: VariableLengthDomainSeparator,
     data: &[u8],
 ) -> Result<FieldElement, PrimitiveError> {
     if data.is_empty() {
@@ -210,12 +210,14 @@ fn hash_bytes_with_poseidon2_t16_r15(
 #[cfg(test)]
 mod tests {
     use crate::{
-        DomainSeparator, FieldElement, PrimitiveError, sponge::hash_bytes_with_poseidon2_t16_r15,
+        FieldElement, PrimitiveError, VariableLengthDomainSeparator,
+        sponge::hash_bytes_with_poseidon2_t16_r15,
     };
 
     use super::hash_bytes_to_field_element;
 
-    const TEST_DS_TAG: DomainSeparator = DomainSeparator::new(b"TEST_DS_TAG");
+    const TEST_DS_TAG: VariableLengthDomainSeparator =
+        VariableLengthDomainSeparator::new(b"TEST_DS_TAG");
 
     #[test]
     fn derive_tag_stable() {
