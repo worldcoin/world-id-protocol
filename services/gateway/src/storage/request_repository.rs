@@ -182,3 +182,141 @@ impl RequestRepository {
         unimplemented!()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use alloy::primitives::{Bytes, U256, address};
+    use redis::aio::ConnectionManager;
+    use uuid::Uuid;
+    use world_id_primitives::api_types::CreateAccountRequest;
+
+    use super::{AcceptRequestOutcome, RequestRepository};
+    use crate::storage::{
+        test_support::start_redis,
+        types::{BatchKind, NewRequest, RequestId, RequestPayload, RequestState, ResourceLock},
+    };
+
+    const ACCEPTED_AT: u64 = 100;
+
+    async fn connect_repository(redis_url: &str) -> RequestRepository {
+        let client = redis::Client::open(redis_url).unwrap();
+        let manager = ConnectionManager::new(client).await.unwrap();
+        RequestRepository::new(manager)
+    }
+
+    fn operation_request(id: RequestId, account: u64) -> NewRequest {
+        NewRequest {
+            id,
+            payload: RequestPayload::Operation(Bytes::from_static(&[1, 2, 3])),
+            accepted_at: ACCEPTED_AT,
+            resource_locks: vec![ResourceLock::Account(account)],
+        }
+    }
+
+    #[tokio::test]
+    async fn persists_complete_create_request() {
+        let (redis_url, _redis) = start_redis().await;
+        let repository = connect_repository(&redis_url).await;
+        let id = RequestId(Uuid::new_v4());
+        let authenticator = address!("1111111111111111111111111111111111111111");
+        let request = NewRequest {
+            id,
+            payload: RequestPayload::CreateAccount(CreateAccountRequest {
+                recovery_address: None,
+                authenticator_addresses: vec![authenticator],
+                authenticator_pubkeys: vec![U256::from(10)],
+                offchain_signer_commitment: U256::from(20),
+            }),
+            accepted_at: ACCEPTED_AT,
+            resource_locks: vec![ResourceLock::Authenticator(authenticator)],
+        };
+
+        assert_eq!(
+            repository.accept(request).await.unwrap(),
+            AcceptRequestOutcome::Accepted
+        );
+        let stored = repository.load(id).await.unwrap().unwrap();
+
+        assert_eq!(stored.id, id);
+        assert_eq!(stored.state, RequestState::Queued);
+        assert_eq!(stored.accepted_at, ACCEPTED_AT);
+        assert_eq!(stored.updated_at, ACCEPTED_AT);
+        assert_eq!(
+            stored.resource_locks,
+            vec![ResourceLock::Authenticator(authenticator)]
+        );
+        let RequestPayload::CreateAccount(payload) = stored.payload else {
+            panic!("expected create-account payload");
+        };
+        assert_eq!(payload.authenticator_addresses, vec![authenticator]);
+        assert_eq!(payload.authenticator_pubkeys, vec![U256::from(10)]);
+        assert_eq!(payload.offchain_signer_commitment, U256::from(20));
+        assert_eq!(
+            repository
+                .queue_len(BatchKind::CreateAccounts)
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            repository.queue_len(BatchKind::Operations).await.unwrap(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn lock_contention_does_not_persist_or_enqueue_request() {
+        let (redis_url, _redis) = start_redis().await;
+        let repository = connect_repository(&redis_url).await;
+        let first_id = RequestId(Uuid::new_v4());
+        let blocked_id = RequestId(Uuid::new_v4());
+
+        assert_eq!(
+            repository
+                .accept(operation_request(first_id, 42))
+                .await
+                .unwrap(),
+            AcceptRequestOutcome::Accepted
+        );
+        assert_eq!(
+            repository
+                .accept(operation_request(blocked_id, 42))
+                .await
+                .unwrap(),
+            AcceptRequestOutcome::ResourceLocked(ResourceLock::Account(42))
+        );
+
+        assert!(repository.load(blocked_id).await.unwrap().is_none());
+        assert_eq!(
+            repository.queue_len(BatchKind::Operations).await.unwrap(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn load_many_preserves_order_and_missing_records() {
+        let (redis_url, _redis) = start_redis().await;
+        let repository = connect_repository(&redis_url).await;
+        let first_id = RequestId(Uuid::new_v4());
+        let missing_id = RequestId(Uuid::new_v4());
+        let second_id = RequestId(Uuid::new_v4());
+        repository
+            .accept(operation_request(first_id, 1))
+            .await
+            .unwrap();
+        repository
+            .accept(operation_request(second_id, 2))
+            .await
+            .unwrap();
+
+        let loaded = repository
+            .load_many(&[second_id, missing_id, first_id])
+            .await
+            .unwrap();
+
+        assert_eq!(loaded[0].as_ref().unwrap().id, second_id);
+        assert!(loaded[1].is_none());
+        assert_eq!(loaded[2].as_ref().unwrap().id, first_id);
+        assert!(repository.load_many(&[]).await.unwrap().is_empty());
+    }
+}
