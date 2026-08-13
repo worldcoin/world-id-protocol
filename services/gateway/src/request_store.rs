@@ -348,3 +348,185 @@ impl RequestStore {
         format!("gateway:ratelimit:leaf:{leaf_index}")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use redis::AsyncTypedCommands;
+    use testcontainers_modules::{
+        redis::{REDIS_PORT, Redis},
+        testcontainers::{ContainerAsync, ImageExt as _, runners::AsyncRunner as _},
+    };
+    use world_id_primitives::api_types::GatewayErrorCode;
+
+    use super::*;
+
+    async fn store() -> (RequestStore, ContainerAsync<Redis>) {
+        let container = Redis::default()
+            .with_tag("latest")
+            .start()
+            .await
+            .expect("failed to start Redis container");
+        let host = container
+            .get_host()
+            .await
+            .expect("failed to get Redis host");
+        let port = container
+            .get_host_port_ipv4(REDIS_PORT)
+            .await
+            .expect("failed to get Redis port");
+        let store = RequestStore::connect(&format!("redis://{host}:{port}")).await;
+        (store, container)
+    }
+
+    #[tokio::test]
+    async fn request_lifecycle_is_atomic() {
+        let (store, _redis) = store().await;
+        let lock = "0x1234".to_string();
+
+        assert_eq!(
+            store
+                .create_request(
+                    "request-1",
+                    GatewayRequestKind::CreateAccount,
+                    std::slice::from_ref(&lock),
+                    10,
+                )
+                .await
+                .unwrap(),
+            CreateRequestOutcome::Created
+        );
+        assert_eq!(
+            store.pending_request_ids().await.unwrap(),
+            ["request-1".to_string()]
+        );
+
+        let record = store.request("request-1").await.unwrap().unwrap();
+        assert!(matches!(record.status, GatewayRequestState::Queued));
+        assert_eq!(record.updated_at, 10);
+        assert_eq!(record.inflight_keys, ["gateway:inflight:create:0x1234"]);
+
+        store
+            .update_status("request-1", &GatewayRequestState::Batching, 20)
+            .await
+            .unwrap();
+        assert_eq!(
+            store.pending_request_ids().await.unwrap(),
+            ["request-1".to_string()]
+        );
+
+        store
+            .update_status(
+                "request-1",
+                &GatewayRequestState::Finalized {
+                    tx_hash: "0xabc".to_string(),
+                },
+                30,
+            )
+            .await
+            .unwrap();
+        assert!(store.pending_request_ids().await.unwrap().is_empty());
+
+        let mut manager = store.manager.clone();
+        let lock_exists: bool = manager
+            .exists("gateway:inflight:create:0x1234")
+            .await
+            .unwrap();
+        assert!(!lock_exists);
+    }
+
+    #[tokio::test]
+    async fn duplicate_lock_does_not_partially_create_request() {
+        let (store, _redis) = store().await;
+        let shared_lock = "7".to_string();
+
+        store
+            .create_request(
+                "request-1",
+                GatewayRequestKind::UpdateAuthenticator,
+                std::slice::from_ref(&shared_lock),
+                10,
+            )
+            .await
+            .unwrap();
+        let outcome = store
+            .create_request(
+                "request-2",
+                GatewayRequestKind::RemoveAuthenticator,
+                std::slice::from_ref(&shared_lock),
+                11,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            outcome,
+            CreateRequestOutcome::DuplicateInflight("gateway:inflight:leaf:7".to_string())
+        );
+        assert!(store.request("request-2").await.unwrap().is_none());
+        assert_eq!(
+            store.pending_request_ids().await.unwrap(),
+            ["request-1".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn batched_reads_preserve_order_and_missing_entries() {
+        let (store, _redis) = store().await;
+
+        store
+            .create_terminal_request(
+                "request-1",
+                GatewayRequestKind::CreateAccount,
+                GatewayRequestState::failed("rejected", Some(GatewayErrorCode::BadRequest)),
+                10,
+            )
+            .await
+            .unwrap();
+
+        let records = store
+            .requests(&["missing".to_string(), "request-1".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(records[0].0, "missing");
+        assert!(records[0].1.is_none());
+        assert_eq!(records[1].0, "request-1");
+        assert!(matches!(
+            records[1].1.as_ref().map(|record| &record.status),
+            Some(GatewayRequestState::Failed { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn rate_limit_window_is_enforced_and_expires_inclusively() {
+        let (store, _redis) = store().await;
+
+        assert_eq!(
+            store
+                .check_rate_limit(7, "request-1", 100, 10, 2)
+                .await
+                .unwrap(),
+            RateLimitOutcome::Allowed(1)
+        );
+        assert_eq!(
+            store
+                .check_rate_limit(7, "request-2", 101, 10, 2)
+                .await
+                .unwrap(),
+            RateLimitOutcome::Allowed(2)
+        );
+        assert_eq!(
+            store
+                .check_rate_limit(7, "request-3", 102, 10, 2)
+                .await
+                .unwrap(),
+            RateLimitOutcome::Exceeded
+        );
+        assert_eq!(
+            store
+                .check_rate_limit(7, "request-4", 110, 10, 2)
+                .await
+                .unwrap(),
+            RateLimitOutcome::Allowed(2)
+        );
+    }
+}
