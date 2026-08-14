@@ -572,12 +572,11 @@ impl RpModuleAuth {
                     if let Some(RpSignatureVerification::UniquenessAction {
                         action: signed_action,
                     }) = auth.rp_signature_verification
+                        && !signed_action.has_prefix(OprfPrefix::Uniqueness)
                     {
-                        if !signed_action.has_prefix(OprfPrefix::Uniqueness) {
-                            return Err(RpModuleError::InvalidRpSignatureVerification {
-                                context: "uniqueness action MSB must be 0x00",
-                            });
-                        }
+                        return Err(RpModuleError::InvalidRpSignatureVerification {
+                            context: "uniqueness action MSB must be 0x00",
+                        });
                     }
                     Ok(NonceScope::SessionOprfSeed)
                 } else if action.has_prefix(OprfPrefix::SessionAction) {

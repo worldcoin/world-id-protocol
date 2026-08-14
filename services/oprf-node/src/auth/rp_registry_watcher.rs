@@ -94,6 +94,11 @@ pub(crate) struct RpRegistryWatcher {
 }
 
 impl RpRegistryWatcher {
+    #[cfg(test)]
+    pub(crate) fn set_timeout_external_eth_call(&mut self, timeout: Duration) {
+        self.timeout_external_eth_call = timeout;
+    }
+
     #[instrument(level = "info", skip_all)]
     pub(crate) fn init(
         rp_registry_address: Address,

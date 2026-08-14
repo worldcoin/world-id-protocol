@@ -707,7 +707,7 @@ async fn test_session_wip101_account_check_timeout() -> eyre::Result<()> {
     setup
         .request_authenticator
         .rp_registry_watcher
-        .set_timeout_external_eth_call(Duration::from_secs(0));
+        .set_timeout_external_eth_call(Duration::ZERO);
     let addr = deploy!(WIP101TimeoutERC165, setup);
     setup.set_contract_signer(addr, None).await;
     setup
