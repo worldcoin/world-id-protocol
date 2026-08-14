@@ -466,6 +466,8 @@ impl Authenticator {
     ///
     /// # Arguments
     /// - `nonce`: The nonce of the request provided by the Issuer.
+    /// - `context`: Identifies the specific operation which the user is performing with the issuer. Provided by the issuer, it is
+    ///   RECOMMENDED to use a hashing function to lower arbitrary bytes into the field avoiding collisions, e.g. [`FieldElement::from_arbitrary_raw_bytes`]
     /// - `credential_blinding_factor`: The blinding factor generated for the credential.
     /// - `sub`: The expected `sub` of the Credential in question.
     /// - `account_inclusion_proof`: An optionally cached account inclusion proof. If not provided, a new inclusion proof will be fetched.
@@ -476,6 +478,7 @@ impl Authenticator {
     pub async fn prove_credential_sub(
         &self,
         nonce: FieldElement,
+        context: FieldElement,
         credential_blinding_factor: FieldElement,
         sub: FieldElement,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
@@ -492,7 +495,7 @@ impl Authenticator {
             return Err(AuthenticatorError::InvalidSubOrBlindingFactor);
         }
 
-        let message = poseidon::hash(ds::OWNERSHIP_PROOF, [commitment, nonce]);
+        let message = poseidon::hash(ds::OWNERSHIP_PROOF, [commitment, nonce, context]);
 
         let signature = self
             .signer
@@ -505,6 +508,8 @@ impl Authenticator {
             key_set: authenticator_input.key_set.clone(),
             inclusion_proof: authenticator_input.inclusion_proof.clone(),
             nonce,
+            expected_commitment: commitment,
+            context,
             signature,
             commitment_blinder: credential_blinding_factor,
         };
@@ -605,6 +610,7 @@ mod tests {
         let result = authenticator
             .prove_credential_sub(
                 FieldElement::from(1_234_567_890u64),
+                FieldElement::from(42u64),
                 blinding_factor,
                 wrong_sub,
                 Some(inclusion_proof),
@@ -635,9 +641,16 @@ mod tests {
         let blinding_factor = FieldElement::from(999u64);
         let correct_sub = Credential::compute_sub(leaf_index, blinding_factor);
         let nonce = FieldElement::from(1_234_567_890u64);
+        let context = FieldElement::from(42u64);
 
         authenticator
-            .prove_credential_sub(nonce, blinding_factor, correct_sub, Some(inclusion_proof))
+            .prove_credential_sub(
+                nonce,
+                context,
+                blinding_factor,
+                correct_sub,
+                Some(inclusion_proof),
+            )
             .await
             .expect("proof generation should succeed");
     }

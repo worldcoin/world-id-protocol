@@ -9,14 +9,7 @@ authors.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-include = [
-    "src/**/*",
-    "tests/**/*",
-    "noir/**/*",
-    "build.rs",
-    "Cargo.toml",
-    "README.md",
-]
+include = ["src/**/*", "noir/**/*", "build.rs", "Cargo.toml", "README.md"]
 
 [features]
 default = []
@@ -44,7 +37,11 @@ ark-ff = { workspace = true }
 ark-ec = { workspace = true }
 ark-groth16 = { workspace = true }
 ark-serialize = { workspace = true, optional = true }
-circom-types = { workspace = true, features = ["bn254", "groth16", "zkey"], optional = true }
+circom-types = { workspace = true, features = [
+ "bn254",
+ "groth16",
+ "zkey",
+], optional = true }
 tar = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
@@ -80,5 +77,5 @@ provekit-common = { workspace = true }
 provekit-r1cs-compiler = { workspace = true, optional = true }
 
 [dev-dependencies]
-poseidon2 = { workspace = true }
+toml = { workspace = true }
 world-id-test-utils = { workspace = true }
