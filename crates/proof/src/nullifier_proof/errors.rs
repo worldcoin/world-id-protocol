@@ -2,13 +2,14 @@
 //!
 //! These are intended to assist in producing more helpful error messages for a given proof.
 //! If the circuits change in any way, these checks may also need to be updated to match the new logic.
-use ark_bn254::Fr;
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{PrimeField, Zero};
+use ark_ff::Zero;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use taceo_oprf::core::{dlog_equality::DLogEqualityProof, oprf::BlindingFactor};
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, FieldElement, MAX_AUTHENTICATOR_KEYS, merkle::MerkleInclusionProof,
+    AuthenticatorPublicKeySet, FieldElement, MAX_AUTHENTICATOR_KEYS,
+    merkle::MerkleInclusionProof,
+    poseidon::{self, ds},
 };
 
 use crate::circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput};
@@ -393,25 +394,19 @@ pub fn check_nullifier_input_validity<const TREE_DEPTH: usize>(
 
 // Recompute the blinded subject, copied from credential
 fn sub(leaf_index: FieldElement, blinding_factor: FieldElement) -> FieldElement {
-    let sub_ds = Fr::from_be_bytes_mod_order(b"H_CS(id, r)");
-    let mut input = [sub_ds, *leaf_index, *blinding_factor];
-    poseidon2::bn254::t3::permutation_in_place(&mut input);
-    input[1].into()
+    poseidon::hash(ds::CREDENTIAL_SUB, [leaf_index, blinding_factor])
 }
 // Recompute the OPRF finalization hash
 fn oprf_finalize_hash(query: BaseField, oprf_response: Affine) -> FieldElement {
-    let finalize_ds = Fr::from_be_bytes_mod_order(super::OPRF_PROOF_DS);
-    let mut input = [finalize_ds, query, oprf_response.x, oprf_response.y];
-    poseidon2::bn254::t4::permutation_in_place(&mut input);
-    input[1].into()
+    poseidon::hash(
+        ds::OPRF_PROOF,
+        [query.into(), oprf_response.x.into(), oprf_response.y.into()],
+    )
 }
 
 // Recompute the session_id_commitment
 fn session_id_commitment(user_id: FieldElement, commitment_rand: FieldElement) -> FieldElement {
-    let sub_ds = Fr::from_be_bytes_mod_order(b"H(id, r)");
-    let mut input = [sub_ds, *user_id, *commitment_rand];
-    poseidon2::bn254::t3::permutation_in_place(&mut input);
-    input[1].into()
+    poseidon::hash(ds::SESSION_COMMITMENT, [user_id, commitment_rand])
 }
 
 // Recompute the credential hash, copied from credential
@@ -424,19 +419,18 @@ fn hash_credential(
     associated_data_commitment: FieldElement,
     id: FieldElement,
 ) -> FieldElement {
-    let cred_ds = Fr::from_be_bytes_mod_order(b"POSEIDON2+EDDSA-BJJ");
-    let mut input = [
-        cred_ds,
-        *issuer_schema_id,
-        *sub,
-        *genesis_issued_at,
-        *expires_at,
-        *claims_hash,
-        *associated_data_commitment,
-        *id,
-    ];
-    poseidon2::bn254::t8::permutation_in_place(&mut input);
-    input[1].into()
+    poseidon::hash(
+        ds::CREDENTIAL_V1,
+        [
+            issuer_schema_id,
+            sub,
+            genesis_issued_at,
+            expires_at,
+            claims_hash,
+            associated_data_commitment,
+            id,
+        ],
+    )
 }
 
 #[cfg(test)]
@@ -446,7 +440,7 @@ mod tests {
     use std::str::FromStr;
 
     use crate::nullifier_proof::errors::{
-        check_nullifier_input_validity, check_query_input_validity,
+        check_nullifier_input_validity, check_query_input_validity, poseidon,
     };
 
     // gotten these values by `dbg`-ing the struct in the e2e_authenticator_generate test
@@ -603,15 +597,11 @@ mod tests {
                 u64::try_from(world_id_primitives::FieldElement::from(inputs.mt_index)).unwrap();
             for (i, sibling) in inputs.siblings.iter().enumerate() {
                 let sibling_fr = *world_id_primitives::FieldElement::from(*sibling);
-                if (idx >> i) & 1 == 0 {
-                    let mut state = poseidon2::bn254::t2::permutation(&[current, sibling_fr]);
-                    state[0] += current;
-                    current = state[0];
+                current = if (idx >> i) & 1 == 0 {
+                    *poseidon::compress(current.into(), sibling_fr.into())
                 } else {
-                    let mut state = poseidon2::bn254::t2::permutation(&[sibling_fr, current]);
-                    state[0] += sibling_fr;
-                    current = state[0];
-                }
+                    *poseidon::compress(sibling_fr.into(), current.into())
+                };
             }
             inputs.merkle_root = current;
 

@@ -4152,10 +4152,11 @@ dependencies = [
 
 [[package]]
 name = "eyre"
-version = "0.6.12"
+version = "0.6.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cd915d99f24784cdc19fd37ef22b97e3ff0ae756c7e492e9fbfe897d61e2aec"
+checksum = "c08309dbcc659c5549a24ddb9b27027640641b282ef5768267c7e675558986a3"
 dependencies = [
+ "autocfg",
  "indenter",
  "once_cell",
 ]
@@ -12946,7 +12947,6 @@ dependencies = [
  "taceo-groth16-material",
  "taceo-groth16-sol",
  "taceo-oprf",
- "taceo-poseidon2",
  "tar",
  "thiserror 2.0.18",
  "toml 1.0.6+spec-1.1.0",
@@ -13045,7 +13045,6 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "taceo-nodes-common",
  "taceo-oprf",
- "taceo-poseidon2",
  "testcontainers",
  "tokio",
  "tokio-util",
@@ -13280,7 +13279,6 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
  "taceo-oprf",
- "taceo-poseidon2",
  "thiserror 2.0.18",
  "uniffi",
  "world-id-core",

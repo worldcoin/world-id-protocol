@@ -5,7 +5,7 @@
 //!
 //! The proof generation workflow for Uniqueness Proofs consists of:
 //! 1. Loading circuit proving material (zkeys and witness graphs)
-//! 2. Signing OPRF queries and generating a Query Proof `π1` (see [`crate::oprf_query`])
+//! 2. Signing OPRF queries and generating a Query Proof `π1` (see `crate::oprf_query`)
 //! 3. Interacting with OPRF services to obtain challenge responses
 //! 4. Verifying `DLog` equality proofs from OPRF nodes
 //! 5. Generating the final Uniqueness Proof `π2`
@@ -29,8 +29,6 @@ use world_id_primitives::SessionId;
 use crate::oprf_query::FullOprfOutput;
 
 pub mod errors;
-
-pub(crate) const OPRF_PROOF_DS: &[u8] = b"World ID Proof";
 
 /// The SHA-256 fingerprint of the `OPRFNullifier` `ZKey`.
 pub const NULLIFIER_ZKEY_FINGERPRINT: &str =

@@ -30,7 +30,6 @@ ark-ff = { workspace = true }
 ark-ec = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 groth16-material = { workspace = true, features = ["circom"] }
-poseidon2 = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
