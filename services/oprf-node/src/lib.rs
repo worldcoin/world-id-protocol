@@ -28,6 +28,7 @@
 //! For details on the OPRF protocol, see the [design document](https://github.com/TaceoLabs/nullifier-oracle-service/blob/491416de204dcad8d46ee1296d59b58b5be54ed9/docs/oprf.pdf).
 use std::sync::Arc;
 
+use alloy::providers::Provider as _;
 use ark_bn254::Bn254;
 use circom_types::groth16::VerificationKey;
 use eyre::Context;
@@ -63,6 +64,7 @@ pub mod metrics;
 /// the HTTP router.
 ///
 /// The initialization flow consists of:
+/// - Connecting to the RPC provider and resolving the chain id
 /// - Initializing on-chain watchers:
 ///   - Merkle tree watcher (for identity commitments)
 ///   - RP registry watcher
@@ -87,7 +89,7 @@ pub mod metrics;
     clippy::missing_panics_doc,
     reason = "Can realistically not panic as we embed the key at compile time"
 )]
-pub fn start(
+pub async fn start(
     config: WorldOprfNodeConfig,
     secret_manager: SecretManagerService,
     node_information: &NodeInformation,
@@ -101,6 +103,17 @@ pub fn start(
             .environment(node_config.environment)
             .build()
             .context("while init blockchain connection")?;
+
+    // The chain is a binding parameter of the V2 RP request EIP-712 domain, so resolve it once
+    // here instead of on the request path.
+    let chain_id = tokio::time::timeout(
+        config.timeout_external_eth_call,
+        http_rpc_provider.inner().get_chain_id(),
+    )
+    .await
+    .context("timed out while fetching chain id")?
+    .context("while fetching chain id")?;
+    tracing::info!("connected to chain {chain_id}");
 
     tracing::info!("init merkle watcher..");
     let merkle_watcher = MerkleWatcher::init(
@@ -138,7 +151,7 @@ pub fn start(
         timeout_external_eth_call: config.timeout_external_eth_call,
         rpc_provider: http_rpc_provider.clone(),
         rp_registry_address: config.rp_registry_contract,
-        chain_id: Arc::new(tokio::sync::OnceCell::new()),
+        chain_id,
         query_vk: Arc::clone(&query_vk),
     };
     let nullifier_oprf_req_auth_service =

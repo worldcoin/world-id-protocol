@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Verify version 2 EIP-712 RP authorizations and WIP-101 V2 contract signers without V1 fallback.
 
+### Breaking Changes
+
+- `start` is now `async`. It resolves the RPC chain id at startup, so the V2 EIP-712 domain no longer
+  depends on a lazy call on the request path.
+
 ## [1.2.0](https://github.com/worldcoin/world-id-protocol/releases/tag/v1.2.0) - 2026-06-09
 
 ### Added

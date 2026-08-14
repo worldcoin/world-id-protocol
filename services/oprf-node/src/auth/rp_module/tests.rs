@@ -32,6 +32,8 @@ pub(crate) struct RpModuleTestSetup {
     pub(crate) setup: OprfRequestAuthTestSetup,
     pub(crate) request_authenticator: RpModuleAuth,
     pub(crate) request: OprfRequest<NullifierOprfRequestAuthV1>,
+    /// Chain the authenticator under test is bound to, for V2 EIP-712 signing.
+    pub(crate) chain_id: u64,
 }
 
 impl RpModuleTestSetup {
@@ -81,6 +83,7 @@ impl RpModuleTestSetup {
         Ok(Self {
             setup: infra.setup,
             request_authenticator,
+            chain_id: infra.chain_id,
             request: OprfRequest {
                 request_id: Uuid::new_v4(),
                 blinded_query: bundle.blinded_query,
@@ -125,6 +128,7 @@ impl RpModuleTestSetup {
         Ok(Self {
             setup: infra.setup,
             request_authenticator,
+            chain_id: infra.chain_id,
             request: OprfRequest {
                 request_id: Uuid::new_v4(),
                 blinded_query: bundle.blinded_query,
@@ -162,6 +166,7 @@ impl RpModuleTestSetup {
         Ok(Self {
             setup: infra.setup,
             request_authenticator,
+            chain_id: infra.chain_id,
             request: OprfRequest {
                 request_id: Uuid::new_v4(),
                 blinded_query: bundle.blinded_query,
@@ -246,7 +251,7 @@ impl RpModuleTestSetup {
         };
         let signer = LocalSigner::from_signing_key(self.setup.rp_fixture.signing_key.clone());
         let signature = signer
-            .sign_hash_sync(&authorization.signing_hash(31_337, self.setup.rp_registry))
+            .sign_hash_sync(&authorization.signing_hash(self.chain_id, self.setup.rp_registry))
             .expect("can sign V2 authorization");
 
         self.request.auth.signature = Some(signature);

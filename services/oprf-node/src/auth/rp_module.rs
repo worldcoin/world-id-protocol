@@ -19,10 +19,7 @@ use crate::{
     },
     metrics,
 };
-use alloy::{
-    primitives::Address,
-    providers::Provider as _,
-};
+use alloy::primitives::Address;
 use ark_bn254::Bn254;
 use ark_groth16::PreparedVerifyingKey;
 use async_trait::async_trait;
@@ -183,7 +180,7 @@ pub(crate) struct RpModuleAuth {
     merkle_watcher: MerkleWatcher,
     rpc_provider: web3::HttpRpcProvider,
     rp_registry_address: Address,
-    chain_id: Arc<tokio::sync::OnceCell<u64>>,
+    chain_id: u64,
     query_vk: Arc<PreparedVerifyingKey<Bn254>>,
 }
 
@@ -252,7 +249,8 @@ pub(crate) struct RpModuleAuthArgs {
     pub(crate) timeout_external_eth_call: Duration,
     pub(crate) rpc_provider: web3::HttpRpcProvider,
     pub(crate) rp_registry_address: Address,
-    pub(crate) chain_id: Arc<tokio::sync::OnceCell<u64>>,
+    /// Chain of the RP registry, resolved once at startup and bound into the V2 EIP-712 domain.
+    pub(crate) chain_id: u64,
     pub(crate) query_vk: Arc<PreparedVerifyingKey<Bn254>>,
 }
 
@@ -293,20 +291,6 @@ impl RpModuleAuth {
             chain_id,
             query_vk,
         }
-    }
-
-    async fn chain_id(&self) -> Result<u64, RpModuleError> {
-        let chain_id = self
-            .chain_id
-            .get_or_try_init(|| async {
-                self.rpc_provider
-                    .inner()
-                    .get_chain_id()
-                    .await
-                    .map_err(eyre::Report::from)
-            })
-            .await?;
-        Ok(*chain_id)
     }
 
     /// Checks that the signature has not expired and that the request timestamp
@@ -359,8 +343,12 @@ impl RpModuleAuth {
             RpAccountType::Eoa => {
                 tracing::trace!("RP signer is EOA");
                 if let Some(authorization) = &request.auth.rp_request_authorization {
-                    let chain_id = self.chain_id().await?;
-                    rp.verify_eoa_v2(authorization, chain_id, self.rp_registry_address, request)
+                    rp.verify_eoa_v2(
+                        authorization,
+                        self.chain_id,
+                        self.rp_registry_address,
+                        request,
+                    )
                 } else {
                     let action = match self.kind {
                         RpModuleKind::Uniqueness => Some(action),
