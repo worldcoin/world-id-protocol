@@ -98,8 +98,9 @@ impl RequestStore {
     /// Atomically creates a queued request, pending entry, and in-flight locks.
     ///
     /// Returns [`CreateRequestOutcome::DuplicateInflight`] without changing
-    /// storage when any requested lock already exists. The request record uses
-    /// [`REQUESTS_TTL`], while lock entries use [`INFLIGHT_TTL`].
+    /// storage when any requested lock already exists. Each lock stores the
+    /// owning request ID. The request record uses [`REQUESTS_TTL`], while lock
+    /// entries use [`INFLIGHT_TTL`].
     pub(crate) async fn create_request(
         &self,
         id: &str,
@@ -132,13 +133,15 @@ impl RequestStore {
             end
 
             for i = inflight_start, #KEYS do
-                redis.call('SET', KEYS[i], '1', 'EX', inflight_ttl)
+                redis.call('SET', KEYS[i], ARGV[3], 'EX', inflight_ttl)
             end
 
             local ok = redis.call('SET', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[2])
             if not ok then
                 for i = inflight_start, #KEYS do
-                    redis.call('DEL', KEYS[i])
+                    if redis.call('GET', KEYS[i]) == ARGV[3] then
+                        redis.call('DEL', KEYS[i])
+                    end
                 end
                 return redis.error_reply('request already exists')
             end
@@ -208,7 +211,9 @@ impl RequestStore {
                 local inflight = decoded.inflight_keys
                 if inflight then
                     for _, k in ipairs(inflight) do
-                        redis.call('DEL', k)
+                        if redis.call('GET', k) == ARGV[3] then
+                            redis.call('DEL', k)
+                        end
                     end
                 end
             end
@@ -494,6 +499,51 @@ mod tests {
             store.pending_request_ids().await.unwrap(),
             ["request-1".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn old_request_does_not_release_reacquired_inflight_lock() {
+        let (store, _redis) = store().await;
+        let shared_lock = "7".to_string();
+        let redis_lock = "gateway:inflight:leaf:7";
+
+        store
+            .create_request(
+                "request-1",
+                GatewayRequestKind::UpdateAuthenticator,
+                std::slice::from_ref(&shared_lock),
+                10,
+            )
+            .await
+            .unwrap();
+
+        // Simulate request-1's lock expiring without waiting for its TTL.
+        let mut manager = store.manager.clone();
+        let _: usize = manager.del(redis_lock).await.unwrap();
+
+        store
+            .create_request(
+                "request-2",
+                GatewayRequestKind::UpdateAuthenticator,
+                &[shared_lock],
+                311,
+            )
+            .await
+            .unwrap();
+
+        store
+            .update_status(
+                "request-1",
+                &GatewayRequestState::Finalized {
+                    tx_hash: "0xabc".to_string(),
+                },
+                312,
+            )
+            .await
+            .unwrap();
+
+        let lock_owner: Option<String> = manager.get(redis_lock).await.unwrap();
+        assert_eq!(lock_owner.as_deref(), Some("request-2"));
     }
 
     #[tokio::test]
