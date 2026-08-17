@@ -63,8 +63,12 @@ pub enum ProviderError {
         "exactly one of wallet_private_key, aws_kms_key_id, or aws_kms_key_ids must be provided"
     )]
     SignerConfigMissing,
-    #[error("pod ordinal {ordinal} is out of range: AWS_KMS_KEY_IDS contains {key_count} key(s)")]
+    #[error(
+        "pod ordinal {ordinal} is out of range: AWS_KMS_KEY_IDS contains {key_count} gateway slot(s)"
+    )]
     OrdinalOutOfRange { ordinal: usize, key_count: usize },
+    #[error("AWS_KMS_KEY_IDS gateway slot {ordinal} contains an empty KMS key ID")]
+    EmptyKmsKeyId { ordinal: usize },
     #[error(
         "AWS_KMS_KEY_IDS is set but pod ordinal could not be resolved from HOSTNAME \
          (got: {hostname:?}); ensure the pod hostname follows the StatefulSet convention \
@@ -116,9 +120,12 @@ pub struct SignerArgs {
     #[arg(long, env = "AWS_KMS_KEY_ID")]
     aws_kms_key_id: Option<String>,
 
-    /// Comma-separated list of AWS KMS key ARNs for per-replica signing (StatefulSet).
-    /// Pod ordinal is derived from the trailing numeric suffix of `HOSTNAME`
-    /// (e.g. `world-id-gateway-2` → ordinal 2 → third key in the list).
+    /// AWS KMS keys grouped by StatefulSet replica.
+    ///
+    /// Commas separate pod ordinals and semicolons separate wallets assigned to
+    /// one pod. For example, `key-a1;key-a2,key-b1;key-b2` assigns two wallets
+    /// to pod 0 and two to pod 1. The legacy `key-a,key-b` form still assigns
+    /// exactly one wallet to each pod.
     /// Mutually exclusive with `AWS_KMS_KEY_ID`.
     #[arg(long, env = "AWS_KMS_KEY_IDS")]
     aws_kms_key_ids: Option<String>,
@@ -135,6 +142,21 @@ fn pod_ordinal() -> Option<usize> {
     parse_ordinal(&std::env::var("HOSTNAME").ok()?)
 }
 
+fn kms_keys_for_ordinal(key_ids: &str, ordinal: usize) -> ProviderResult<Vec<String>> {
+    let groups: Vec<&str> = key_ids.split(',').collect();
+    let group = groups
+        .get(ordinal)
+        .ok_or(ProviderError::OrdinalOutOfRange {
+            ordinal,
+            key_count: groups.len(),
+        })?;
+    let keys: Vec<String> = group.split(';').map(|key| key.trim().to_string()).collect();
+    if keys.is_empty() || keys.iter().any(String::is_empty) {
+        return Err(ProviderError::EmptyKmsKeyId { ordinal });
+    }
+    Ok(keys)
+}
+
 /// Strips the url to leave only the host & port
 fn endpoint_label(url: &Url) -> String {
     let host = url.host_str().unwrap_or("unknown");
@@ -146,7 +168,8 @@ fn endpoint_label(url: &Url) -> String {
 }
 
 impl SignerArgs {
-    async fn signer(&self, rpc_url: &Url) -> ProviderResult<EthereumWallet> {
+    /// Build every signer assigned to this process.
+    pub async fn signers(&self, rpc_url: &Url) -> ProviderResult<Vec<EthereumWallet>> {
         match (
             &self.wallet_private_key,
             &self.aws_kms_key_id,
@@ -155,37 +178,28 @@ impl SignerArgs {
             (Some(s), None, None) => {
                 // PrivateKey: No RPC call needed
                 let signer = s.parse::<PrivateKeySigner>()?;
-                Ok(EthereumWallet::from(signer))
+                Ok(vec![EthereumWallet::from(signer)])
             }
             (None, Some(key_id), None) => {
                 tracing::info!("Initializing AWS KMS signer with key_id: {}", key_id);
-                Self::aws_kms_wallet(key_id, rpc_url).await
+                Ok(vec![Self::aws_kms_wallet(key_id, rpc_url).await?])
             }
             (None, None, Some(key_ids)) => {
                 let ordinal = pod_ordinal().ok_or_else(|| ProviderError::OrdinalUnresolvable {
                     hostname: std::env::var("HOSTNAME").ok(),
                 })?;
-                let keys: Vec<&str> = key_ids.split(',').map(str::trim).collect();
-                let key_id = keys.get(ordinal).copied().ok_or_else(|| {
-                    tracing::error!(
-                        ordinal,
-                        key_count = keys.len(),
-                        "Pod ordinal is out of range for AWS_KMS_KEY_IDS; \
-                         check that the key list has an entry for every replica"
-                    );
-                    ProviderError::OrdinalOutOfRange {
-                        ordinal,
-                        key_count: keys.len(),
-                    }
-                })?;
-                tracing::info!(ordinal, key_id, "Initializing per-replica AWS KMS signer");
-                Self::aws_kms_wallet(key_id, rpc_url).await
+                let keys = kms_keys_for_ordinal(key_ids, ordinal)?;
+                let mut wallets = Vec::with_capacity(keys.len());
+                for key_id in keys {
+                    tracing::info!(ordinal, key_id, "Initializing per-replica AWS KMS signer");
+                    wallets.push(Self::aws_kms_wallet(&key_id, rpc_url).await?);
+                }
+                Ok(wallets)
             }
-            // (None, None, None) — no signer configured at all.
+            (None, None, None) => Ok(Vec::new()),
             // Any multi-field combo is prevented at parse time by the clap
-            // `#[group(multiple = false)]` attribute; direct construction that
-            // reaches here is a programming error, but SignerConfigMissing is
-            // still the most actionable error for callers.
+            // `#[group(multiple = false)]` attribute. Direct construction that
+            // reaches here is a programming error.
             _ => Err(ProviderError::SignerConfigMissing),
         }
     }
@@ -237,8 +251,8 @@ impl SignerArgs {
         }
     }
 
-    /// Create a new `SignerArgs` with a comma-separated list of per-replica
-    /// AWS KMS key IDs (`AWS_KMS_KEY_IDS`).
+    /// Create `SignerArgs` with comma-separated replica slots and optional
+    /// semicolon-separated wallets inside each slot (`AWS_KMS_KEY_IDS`).
     pub fn from_aws_per_replica(aws_kms_key_ids: String) -> Self {
         Self {
             wallet_private_key: None,
@@ -351,40 +365,46 @@ impl ProviderArgs {
         self
     }
 
-    /// Build a dynamic provider from the configuration using the default
-    /// [`SimpleNonceManager`].
+    /// Build a provider for each signer assigned to this process using the
+    /// default [`SimpleNonceManager`]. Configurations without a signer return
+    /// one read-only provider.
     ///
     /// The simple manager fetches the pending transaction count for each
     /// transaction instead of incrementing a process-local nonce cache.
-    pub async fn http(self) -> ProviderResult<DynProvider> {
+    pub async fn http(self) -> ProviderResult<Vec<DynProvider>> {
         self.http_with_nonce_manager(SimpleNonceManager::default())
             .await
     }
 
-    /// Builds a signer-backed provider wallet.
-    pub async fn http_wallet(self) -> ProviderResult<ProviderWallet> {
+    /// Builds one provider wallet for each signer assigned to this process.
+    pub async fn http_wallets(self) -> ProviderResult<Vec<ProviderWallet>> {
         self.http_with_nonce_manager_and_address(SimpleNonceManager::default())
             .await?
-            .try_into_wallet()
+            .into_iter()
+            .map(ConfiguredProvider::try_into_wallet)
+            .collect()
     }
 
-    /// Build a dynamic provider using a caller-supplied [`NonceManager`].
-    ///
-    /// This allows injecting a distributed nonce manager (e.g. Redis-backed)
-    /// for safe multi-replica transaction submission with a shared signer.
-    pub async fn http_with_nonce_manager<M: NonceManager + 'static>(
+    /// Build a provider for each signer using a caller-supplied [`NonceManager`].
+    /// Configurations without a signer return one read-only provider.
+    pub async fn http_with_nonce_manager<M: NonceManager + Clone + 'static>(
         self,
         nonce_manager: M,
-    ) -> ProviderResult<DynProvider> {
+    ) -> ProviderResult<Vec<DynProvider>> {
         self.http_with_nonce_manager_and_address(nonce_manager)
             .await
-            .map(ConfiguredProvider::into_provider)
+            .map(|providers| {
+                providers
+                    .into_iter()
+                    .map(ConfiguredProvider::into_provider)
+                    .collect()
+            })
     }
 
-    async fn http_with_nonce_manager_and_address<M: NonceManager + 'static>(
+    async fn http_with_nonce_manager_and_address<M: NonceManager + Clone + 'static>(
         self,
         nonce_manager: M,
-    ) -> ProviderResult<ConfiguredProvider> {
+    ) -> ProviderResult<Vec<ConfiguredProvider>> {
         if self.http.is_empty() {
             return Err(ProviderError::NoHttpUrls);
         }
@@ -456,34 +476,35 @@ impl ProviderArgs {
             RpcClient::builder().transport(transport, false)
         };
 
-        let maybe_signer = if self.signer.signer_config().is_some() {
-            // Pass the first URL to the signer - it will only make RPC calls if needed (AWS KMS)
-            Some(self.signer.signer(&first_url).await?)
-        } else {
-            None
-        };
+        // Pass the first URL to the signers - it will only make RPC calls if needed (AWS KMS)
+        let signers = self.signer.signers(&first_url).await?;
 
-        if let Some(wallet) = maybe_signer {
-            let provider = ProviderBuilder::default()
-                .with_gas_estimation() // It is important to have default run first
-                .filler(GasEstimateWithFallbackFiller) // And then our custom filler
-                .with_blob_gas_estimation()
-                .with_nonce_management(nonce_manager)
-                .fetch_chain_id()
-                .wallet(wallet.clone())
-                .connect_client(client);
-
-            Ok(ConfiguredProvider {
-                provider: provider.erased(),
-                wallet: Some(wallet),
-            })
-        } else {
+        if signers.is_empty() {
             let provider = ProviderBuilder::default().connect_client(client);
-            Ok(ConfiguredProvider {
+            return Ok(vec![ConfiguredProvider {
                 provider: provider.erased(),
                 wallet: None,
-            })
+            }]);
         }
+
+        Ok(signers
+            .into_iter()
+            .map(|wallet| {
+                let provider = ProviderBuilder::default()
+                    .with_gas_estimation()
+                    .filler(GasEstimateWithFallbackFiller)
+                    .with_blob_gas_estimation()
+                    .with_nonce_management(nonce_manager.clone())
+                    .fetch_chain_id()
+                    .wallet(wallet.clone())
+                    .connect_client(client.clone());
+
+                ConfiguredProvider {
+                    provider: provider.erased(),
+                    wallet: Some(wallet),
+                }
+            })
+            .collect())
     }
 }
 
@@ -599,6 +620,33 @@ mod tests {
         assert_eq!(parse_ordinal("gateway"), None);
     }
 
+    #[test]
+    fn kms_keys_for_ordinal_supports_multiple_wallets_per_slot() {
+        assert_eq!(
+            kms_keys_for_ordinal("key-a1; key-a2,key-b1;key-b2", 0).unwrap(),
+            ["key-a1", "key-a2"]
+        );
+        assert_eq!(
+            kms_keys_for_ordinal("key-a1; key-a2,key-b1;key-b2", 1).unwrap(),
+            ["key-b1", "key-b2"]
+        );
+    }
+
+    #[test]
+    fn kms_keys_for_ordinal_rejects_invalid_slots() {
+        assert!(matches!(
+            kms_keys_for_ordinal("key-a1;;key-a2,key-b", 0),
+            Err(ProviderError::EmptyKmsKeyId { ordinal: 0 })
+        ));
+        assert!(matches!(
+            kms_keys_for_ordinal("key-a,key-b", 2),
+            Err(ProviderError::OrdinalOutOfRange {
+                ordinal: 2,
+                key_count: 2
+            })
+        ));
+    }
+
     // ── SignerArgs::is_per_replica_signer() ──────────────────────────────────
 
     #[test]
@@ -646,21 +694,21 @@ mod tests {
     async fn http_wallet_exposes_signer_address() {
         let private_key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
         let signer: PrivateKeySigner = private_key.parse().unwrap();
-        let wallet = ProviderArgs::new()
+        let wallets = ProviderArgs::new()
             .with_http_urls(["http://127.0.0.1:8545"])
             .with_signer(SignerArgs::from_wallet(private_key.to_string()))
-            .http_wallet()
+            .http_wallets()
             .await
             .unwrap();
 
-        assert_eq!(wallet.address, signer.address());
+        assert_eq!(wallets[0].address, signer.address());
     }
 
     #[tokio::test]
     async fn http_wallet_requires_signer() {
         let result = ProviderArgs::new()
             .with_http_urls(["http://127.0.0.1:8545"])
-            .http_wallet()
+            .http_wallets()
             .await;
 
         assert!(matches!(result, Err(ProviderError::SignerConfigMissing)));
