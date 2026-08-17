@@ -378,6 +378,32 @@ mod tests {
         (store, container)
     }
 
+    #[test]
+    fn request_record_serializes_to_expected_json() {
+        let record = RequestRecord {
+            kind: GatewayRequestKind::CreateAccount,
+            status: GatewayRequestState::Queued,
+            updated_at: 42,
+            inflight_keys: vec!["gateway:inflight:create:0x1234".to_string()],
+        };
+
+        assert_eq!(
+            serde_json::to_string_pretty(&record).unwrap(),
+            indoc::indoc! {r#"
+                {
+                  "kind": "create_account",
+                  "status": {
+                    "state": "queued"
+                  },
+                  "updated_at": 42,
+                  "inflight_keys": [
+                    "gateway:inflight:create:0x1234"
+                  ]
+                }
+            "#}
+        );
+    }
+
     #[tokio::test]
     async fn request_lifecycle_is_atomic() {
         let (store, _redis) = store().await;
