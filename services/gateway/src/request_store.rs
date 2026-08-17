@@ -123,30 +123,36 @@ impl RequestStore {
 
         let script = redis::Script::new(
             r#"
-            local inflight_start = 3
+            local request_key = KEYS[1]
+            local pending_set_key = KEYS[2]
+            local inflight_keys = { unpack(KEYS, 3) }
+
+            local payload = ARGV[1]
+            local requests_ttl = tonumber(ARGV[2])
+            local request_id = ARGV[3]
             local inflight_ttl = tonumber(ARGV[4])
 
-            for i = inflight_start, #KEYS do
-                if redis.call('EXISTS', KEYS[i]) == 1 then
-                    return KEYS[i]
+            for _, inflight_key in ipairs(inflight_keys) do
+                if redis.call('EXISTS', inflight_key) == 1 then
+                    return inflight_key
                 end
             end
 
-            for i = inflight_start, #KEYS do
-                redis.call('SET', KEYS[i], ARGV[3], 'EX', inflight_ttl)
+            for _, inflight_key in ipairs(inflight_keys) do
+                redis.call('SET', inflight_key, request_id, 'EX', inflight_ttl)
             end
 
-            local ok = redis.call('SET', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[2])
+            local ok = redis.call('SET', request_key, payload, 'NX', 'EX', requests_ttl)
             if not ok then
-                for i = inflight_start, #KEYS do
-                    if redis.call('GET', KEYS[i]) == ARGV[3] then
-                        redis.call('DEL', KEYS[i])
+                for _, inflight_key in ipairs(inflight_keys) do
+                    if redis.call('GET', inflight_key) == request_id then
+                        redis.call('DEL', inflight_key)
                     end
                 end
                 return redis.error_reply('request already exists')
             end
 
-            redis.call('SADD', KEYS[2], ARGV[3])
+            redis.call('SADD', pending_set_key, request_id)
             return nil
             "#,
         );
@@ -193,27 +199,34 @@ impl RequestStore {
 
         let _: () = redis::Script::new(
             r#"
-            local record = redis.call('GET', KEYS[1])
+            local request_key = KEYS[1]
+            local pending_set_key = KEYS[2]
+
+            local status = ARGV[1]
+            local updated_at = tonumber(ARGV[2])
+            local request_id = ARGV[3]
+
+            local record = redis.call('GET', request_key)
             if not record then
                 return redis.error_reply('attempted to update inexistent request')
             end
 
             local decoded = cjson.decode(record)
-            decoded.status = cjson.decode(ARGV[1])
-            decoded.updated_at = tonumber(ARGV[2])
+            decoded.status = cjson.decode(status)
+            decoded.updated_at = updated_at
             local updated = cjson.encode(decoded)
 
-            redis.call('SET', KEYS[1], updated, 'KEEPTTL')
+            redis.call('SET', request_key, updated, 'KEEPTTL')
 
             local state = decoded.status.state
             if state == 'finalized' or state == 'failed' then
-                redis.call('SREM', KEYS[2], ARGV[3])
+                redis.call('SREM', pending_set_key, request_id)
                 local inflight = decoded.inflight_keys
                 if inflight then
                     for _, k in ipairs(inflight) do
                         local owner = redis.call('GET', k)
                         -- Gateway versions predating lock ownership stored literal 1.
-                        if owner == ARGV[3] or owner == '1' then
+                        if owner == request_id or owner == '1' then
                             redis.call('DEL', k)
                         end
                     end
