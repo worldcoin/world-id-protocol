@@ -85,7 +85,7 @@ const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
 #[expect(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-    wallet: ProviderWallet,
+    wallets: Vec<ProviderWallet>,
     registry_version: RegistryVersion,
     batcher_config: BatcherConfig,
     redis_url: String,
@@ -97,7 +97,7 @@ pub(crate) async fn build_app(
     let tracker = RequestTracker::new(redis_url.clone(), rate_limit).await;
     let submitter = TransactionSubmitter::connect(
         *registry.address(),
-        wallet,
+        wallets,
         &redis_url,
         tracker.clone(),
         Duration::from_secs(orphan_sweeper_config.interval_secs),

@@ -1,13 +1,21 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use alloy::{primitives::Address, providers::Provider, rpc::types::TransactionRequest};
+use tokio::sync::Notify;
 use uuid::Uuid;
 use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestState};
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 use world_id_services_common::ProviderWallet;
 
 use crate::{
-    error::GatewayResult,
+    error::{GatewayError, GatewayResult},
     metrics,
     request_tracker::{RequestTracker, now_unix_secs},
     storage::wallet_store::{WalletStore, WalletTransaction},
@@ -22,14 +30,16 @@ struct WalletEntry {
 }
 
 struct TransactionSubmitterInner {
-    wallet: WalletEntry,
+    wallets: Vec<WalletEntry>,
     store: WalletStore,
     tracker: RequestTracker,
+    next: AtomicUsize,
+    released: Notify,
     receipt_timeout: Duration,
     tracker_interval: Duration,
 }
 
-/// Signs, persists, broadcasts, and tracks transactions for the configured wallet.
+/// Signs, persists, broadcasts, and tracks transactions for configured wallets.
 #[derive(Clone)]
 pub(crate) struct TransactionSubmitter {
     inner: Arc<TransactionSubmitterInner>,
@@ -39,24 +49,40 @@ impl TransactionSubmitter {
     /// Creates a submitter and starts its persistent receipt tracker.
     pub(crate) async fn connect(
         registry_address: Address,
-        wallet: ProviderWallet,
+        wallets: Vec<ProviderWallet>,
         redis_url: &str,
         tracker: RequestTracker,
         tracker_interval: Duration,
         receipt_timeout: Duration,
     ) -> GatewayResult<Self> {
-        let wallet = WalletEntry {
-            registry: Arc::new(WorldIdRegistryInstance::new(
-                registry_address,
-                Arc::new(wallet.provider.clone()),
-            )),
-            wallet,
-        };
+        if wallets.is_empty() {
+            return Err(GatewayError::Config(
+                "at least one transaction wallet must be configured".to_string(),
+            ));
+        }
+        let addresses: HashSet<Address> = wallets.iter().map(|wallet| wallet.address).collect();
+        if addresses.len() != wallets.len() {
+            return Err(GatewayError::Config(
+                "transaction wallet addresses must be unique".to_string(),
+            ));
+        }
+        let wallets = wallets
+            .into_iter()
+            .map(|wallet| WalletEntry {
+                registry: Arc::new(WorldIdRegistryInstance::new(
+                    registry_address,
+                    Arc::new(wallet.provider.clone()),
+                )),
+                wallet,
+            })
+            .collect();
         let submitter = Self {
             inner: Arc::new(TransactionSubmitterInner {
-                wallet,
+                wallets,
                 store: WalletStore::connect(redis_url).await?,
                 tracker,
+                next: AtomicUsize::new(0),
+                released: Notify::new(),
                 receipt_timeout,
                 tracker_interval,
             }),
@@ -180,22 +206,26 @@ impl TransactionSubmitter {
 
     async fn acquire(&self) -> GatewayResult<TransactionLease> {
         loop {
-            let entry = self.inner.wallet.clone();
-            let reservation_id = Uuid::new_v4();
-            if self
-                .inner
-                .store
-                .reserve(entry.wallet.address, reservation_id)
-                .await?
-            {
-                return Ok(TransactionLease {
-                    submitter: self.clone(),
-                    entry,
-                    reservation_id,
-                });
+            let start = self.inner.next.fetch_add(1, Ordering::Relaxed);
+            for offset in 0..self.inner.wallets.len() {
+                let entry = self.inner.wallets[(start + offset) % self.inner.wallets.len()].clone();
+                let reservation_id = Uuid::new_v4();
+                if self
+                    .inner
+                    .store
+                    .reserve(entry.wallet.address, reservation_id)
+                    .await?
+                {
+                    return Ok(TransactionLease {
+                        submitter: self.clone(),
+                        entry,
+                        reservation_id,
+                    });
+                }
             }
 
-            tokio::time::sleep(WALLET_RECHECK_INTERVAL).await;
+            let notified = self.inner.released.notified();
+            let _ = tokio::time::timeout(WALLET_RECHECK_INTERVAL, notified).await;
         }
     }
 
@@ -209,15 +239,18 @@ impl TransactionSubmitter {
     }
 
     async fn track_transactions(&self) -> GatewayResult<()> {
-        let entry = &self.inner.wallet;
-        let transactions = self
+        let addresses: Vec<Address> = self
             .inner
-            .store
-            .transactions(&[entry.wallet.address])
-            .await?;
-        if let Some(Some(transaction @ WalletTransaction::Submitted { .. })) =
-            transactions.into_iter().next()
-        {
+            .wallets
+            .iter()
+            .map(|entry| entry.wallet.address)
+            .collect();
+        let transactions = self.inner.store.transactions(&addresses).await?;
+
+        for (entry, transaction) in self.inner.wallets.iter().zip(transactions) {
+            let Some(transaction @ WalletTransaction::Submitted { .. }) = transaction else {
+                continue;
+            };
             self.track_transaction(entry, transaction).await;
         }
         Ok(())
@@ -337,6 +370,8 @@ impl TransactionSubmitter {
             .await
         {
             tracing::error!(%error, %wallet, "failed to release tracked wallet transaction");
+        } else {
+            self.inner.released.notify_one();
         }
     }
 }
@@ -361,6 +396,8 @@ impl TransactionLease {
                 wallet = %self.entry.wallet.address,
                 "failed to release wallet reservation"
             );
+        } else {
+            self.submitter.inner.released.notify_one();
         }
     }
 }
@@ -407,6 +444,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn submitter_cycles_through_available_wallets() {
+        let (url, _redis) = redis_url().await;
+        let tracker = RequestTracker::new(url.clone(), None).await;
+        let first = address!("1111111111111111111111111111111111111111");
+        let second = address!("2222222222222222222222222222222222222222");
+        let submitter = TransactionSubmitter::connect(
+            Address::ZERO,
+            vec![provider_wallet(first), provider_wallet(second)],
+            &url,
+            tracker,
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+        )
+        .await
+        .unwrap();
+
+        let first_lease = submitter.acquire().await.unwrap();
+        let second_lease = submitter.acquire().await.unwrap();
+        assert_eq!(first_lease.entry.wallet.address, first);
+        assert_eq!(second_lease.entry.wallet.address, second);
+
+        first_lease.release_reservation().await;
+        let next_lease = submitter.acquire().await.unwrap();
+        assert_eq!(next_lease.entry.wallet.address, first);
+        next_lease.release_reservation().await;
+        second_lease.release_reservation().await;
+    }
+
+    #[tokio::test]
     async fn tracker_fails_timed_out_transaction_and_releases_wallet() {
         let (url, _redis) = redis_url().await;
         let tracker = RequestTracker::new(url.clone(), None).await;
@@ -421,7 +487,7 @@ mod tests {
         let wallet = address!("1111111111111111111111111111111111111111");
         let submitter = TransactionSubmitter::connect(
             Address::ZERO,
-            provider_wallet(wallet),
+            vec![provider_wallet(wallet)],
             &url,
             tracker.clone(),
             Duration::from_secs(60),

@@ -52,15 +52,15 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
 
-    let wallet = cfg.provider.clone().http_wallet().await?;
-    let provider = Arc::new(wallet.provider.clone());
+    let wallets = cfg.provider.clone().http_wallets().await?;
+    let provider = Arc::new(wallets[0].provider.clone());
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
     ));
     let app = build_app(
         registry,
-        wallet,
+        wallets,
         cfg.registry_version,
         batcher_config,
         cfg.redis_url,
@@ -109,8 +109,8 @@ pub async fn run() -> GatewayResult<()> {
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
 
-    let wallet = cfg.provider.clone().http_wallet().await?;
-    let provider = Arc::new(wallet.provider.clone());
+    let wallets = cfg.provider.clone().http_wallets().await?;
+    let provider = Arc::new(wallets[0].provider.clone());
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
@@ -121,7 +121,7 @@ pub async fn run() -> GatewayResult<()> {
     );
     let app = build_app(
         registry,
-        wallet,
+        wallets,
         cfg.registry_version,
         batcher_config,
         cfg.redis_url,
