@@ -1,5 +1,9 @@
 use std::{
-    sync::Arc,
+    collections::HashSet,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -8,6 +12,7 @@ use alloy::{
     providers::Provider,
     rpc::types::TransactionRequest,
 };
+use tokio::sync::Notify;
 use uuid::Uuid;
 use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
@@ -18,7 +23,7 @@ use crate::{
     batch_policy::BacklogUrgencyStats,
     batch_type::BatchType,
     config::RateLimitConfig,
-    error::{GatewayErrorResponse, GatewayResult},
+    error::{GatewayError, GatewayErrorResponse, GatewayResult},
     metrics,
     storage::{
         request_store::{CreateRequestOutcome, RateLimitOutcome, RequestStore},
@@ -35,13 +40,20 @@ pub fn now_unix_secs() -> u64 {
         .as_secs()
 }
 
-/// Signs, persists, broadcasts, and tracks transactions for the configured wallet.
-pub(crate) struct TransactionSubmitter {
+#[derive(Clone)]
+struct WalletEntry {
     wallet: ProviderWallet,
     registry: Arc<WorldIdRegistryInstance<Arc<alloy::providers::DynProvider>>>,
+}
+
+/// Signs, persists, broadcasts, and tracks transactions for the configured wallets.
+pub(crate) struct TransactionSubmitter {
+    wallets: Vec<WalletEntry>,
     wallet_store: WalletStore,
     request_store: RequestStore,
     rate_limit: Option<RateLimitConfig>,
+    next_wallet: AtomicUsize,
+    wallet_released: Notify,
     receipt_timeout: Duration,
     tracker_interval: Duration,
 }
@@ -50,23 +62,43 @@ impl TransactionSubmitter {
     /// Creates a submitter and starts its persistent receipt tracker.
     pub(crate) async fn connect(
         registry_address: Address,
-        wallet: ProviderWallet,
+        wallets: Vec<ProviderWallet>,
         redis_url: &str,
         rate_limit: Option<RateLimitConfig>,
         tracker_interval: Duration,
         receipt_timeout: Duration,
     ) -> GatewayResult<Arc<Self>> {
-        let registry = Arc::new(WorldIdRegistryInstance::new(
-            registry_address,
-            Arc::new(wallet.provider.clone()),
-        ));
+        if wallets.is_empty() {
+            return Err(GatewayError::Config(
+                "at least one transaction wallet must be configured".to_string(),
+            ));
+        }
+
+        let addresses: HashSet<Address> = wallets.iter().map(|wallet| wallet.address).collect();
+        if addresses.len() != wallets.len() {
+            return Err(GatewayError::Config(
+                "transaction wallet addresses must be unique".to_string(),
+            ));
+        }
+
+        let wallets = wallets
+            .into_iter()
+            .map(|wallet| WalletEntry {
+                registry: Arc::new(WorldIdRegistryInstance::new(
+                    registry_address,
+                    Arc::new(wallet.provider.clone()),
+                )),
+                wallet,
+            })
+            .collect();
 
         let submitter = Arc::new(Self {
-            wallet,
-            registry,
+            wallets,
             wallet_store: WalletStore::connect(redis_url).await?,
             request_store: RequestStore::connect(redis_url).await,
             rate_limit,
+            next_wallet: AtomicUsize::new(0),
+            wallet_released: Notify::new(),
             receipt_timeout,
             tracker_interval,
         });
@@ -303,25 +335,25 @@ impl TransactionSubmitter {
         request_ids: Vec<String>,
         batch_type: BatchType,
     ) -> GatewayResult<()> {
-        let reservation_id = match self.acquire().await {
-            Ok(reservation_id) => reservation_id,
+        let (entry, reservation_id) = match self.acquire().await {
+            Ok(reservation) => reservation,
             Err(error) => {
                 tracing::error!(%error, %batch_type, "failed to reserve a transaction wallet");
                 return Err(error);
             }
         };
 
-        let wallet = self.wallet.address;
+        let wallet = entry.wallet.address;
         let started_at = tokio::time::Instant::now();
 
         // NOTE: We sign and persist the transaction hash BEFORE broadcasting it.
         //       This ensures that we don't end up broadcasting a tx without persisting it
         //       which could result in nonce gaps or transaction overwrites.
-        let signed = match self.wallet.sign_transaction(transaction).await {
+        let signed = match entry.wallet.sign_transaction(transaction).await {
             Ok(signed) => signed,
             Err(error) => {
                 tracing::error!(%error, %wallet, %batch_type, "failed to sign batch transaction");
-                self.release_reservation(reservation_id).await;
+                self.release_reservation(wallet, reservation_id).await;
                 return Err(error.into());
             }
         };
@@ -344,7 +376,7 @@ impl TransactionSubmitter {
             Ok(_) => {}
             Err(error) => {
                 tracing::error!(%error, %wallet, tx_hash = %formatted_tx_hash, %batch_type, "failed to persist signed batch transaction");
-                self.release_reservation(reservation_id).await;
+                self.release_reservation(wallet, reservation_id).await;
                 return Err(error);
             }
         };
@@ -365,7 +397,7 @@ impl TransactionSubmitter {
             "batch transaction persisted before broadcast"
         );
 
-        match self.registry.provider().send_tx_envelope(signed).await {
+        match entry.registry.provider().send_tx_envelope(signed).await {
             Ok(pending) => {
                 debug_assert_eq!(*pending.tx_hash(), tx_hash);
                 let send_latency_ms = started_at.elapsed().as_millis() as f64;
@@ -380,7 +412,6 @@ impl TransactionSubmitter {
                 );
             }
             Err(error) => {
-                // TODO: This will make more sense once we support multiple wallets
                 let send_latency_ms = started_at.elapsed().as_millis() as f64;
                 metrics::record_batch_send_failed(batch_type, send_latency_ms);
                 tracing::warn!(
@@ -399,18 +430,24 @@ impl TransactionSubmitter {
         Ok(())
     }
 
-    async fn acquire(&self) -> GatewayResult<Uuid> {
+    async fn acquire(&self) -> GatewayResult<(WalletEntry, Uuid)> {
         loop {
-            let reservation_id = Uuid::new_v4();
-            if self
-                .wallet_store
-                .reserve(self.wallet.address, reservation_id)
-                .await?
-            {
-                return Ok(reservation_id);
+            let start = self.next_wallet.fetch_add(1, Ordering::Relaxed);
+            for offset in 0..self.wallets.len() {
+                let index = start.wrapping_add(offset) % self.wallets.len();
+                let entry = self.wallets[index].clone();
+                let reservation_id = Uuid::new_v4();
+                if self
+                    .wallet_store
+                    .reserve(entry.wallet.address, reservation_id)
+                    .await?
+                {
+                    return Ok((entry, reservation_id));
+                }
             }
 
-            tokio::time::sleep(WALLET_RECHECK_INTERVAL).await;
+            let notified = self.wallet_released.notified();
+            let _ = tokio::time::timeout(WALLET_RECHECK_INTERVAL, notified).await;
         }
     }
 
@@ -424,19 +461,24 @@ impl TransactionSubmitter {
     }
 
     async fn track_transactions(&self) -> GatewayResult<()> {
-        let transactions = self
-            .wallet_store
-            .transactions(&[self.wallet.address])
-            .await?;
+        let addresses: Vec<Address> = self
+            .wallets
+            .iter()
+            .map(|entry| entry.wallet.address)
+            .collect();
+        let transactions = self.wallet_store.transactions(&addresses).await?;
 
-        for transaction in transactions.into_iter().flatten() {
-            self.track_transaction(transaction).await;
+        for (entry, transaction) in self.wallets.iter().zip(transactions) {
+            let Some(transaction @ WalletTransaction::Submitted { .. }) = transaction else {
+                continue;
+            };
+            self.track_transaction(entry, transaction).await;
         }
 
         Ok(())
     }
 
-    async fn track_transaction(&self, transaction: WalletTransaction) {
+    async fn track_transaction(&self, entry: &WalletEntry, transaction: WalletTransaction) {
         let WalletTransaction::Submitted {
             reservation_id,
             tx_hash,
@@ -448,7 +490,7 @@ impl TransactionSubmitter {
             return;
         };
 
-        let wallet = &self.wallet;
+        let wallet = &entry.wallet;
         let formatted_tx_hash = format!("0x{tx_hash:x}");
         let receipt = wallet.provider.get_transaction_receipt(tx_hash).await;
 
@@ -474,7 +516,8 @@ impl TransactionSubmitter {
             }
             self.finalize_from_receipt(&request_ids, confirmed, &formatted_tx_hash)
                 .await;
-            self.release_submission(reservation_id, tx_hash).await;
+            self.release_submission(wallet.address, reservation_id, tx_hash)
+                .await;
             return;
         }
 
@@ -497,7 +540,8 @@ impl TransactionSubmitter {
                 ),
             )
             .await;
-            self.release_submission(reservation_id, tx_hash).await;
+            self.release_submission(wallet.address, reservation_id, tx_hash)
+                .await;
             return;
         }
 
@@ -512,31 +556,27 @@ impl TransactionSubmitter {
         }
     }
 
-    async fn release_reservation(&self, reservation_id: Uuid) {
+    async fn release_reservation(&self, wallet: Address, reservation_id: Uuid) {
         if let Err(error) = self
             .wallet_store
-            .release_reservation(self.wallet.address, reservation_id)
+            .release_reservation(wallet, reservation_id)
             .await
         {
-            tracing::error!(
-                %error,
-                wallet = %self.wallet.address,
-                "failed to release wallet reservation"
-            );
+            tracing::error!(%error, %wallet, "failed to release wallet reservation");
+        } else {
+            self.wallet_released.notify_one();
         }
     }
 
-    async fn release_submission(&self, reservation_id: Uuid, tx_hash: TxHash) {
+    async fn release_submission(&self, wallet: Address, reservation_id: Uuid, tx_hash: TxHash) {
         if let Err(error) = self
             .wallet_store
-            .release_submission(self.wallet.address, reservation_id, tx_hash)
+            .release_submission(wallet, reservation_id, tx_hash)
             .await
         {
-            tracing::error!(
-                %error,
-                wallet = %self.wallet.address,
-                "failed to release tracked wallet transaction"
-            );
+            tracing::error!(%error, %wallet, "failed to release tracked wallet transaction");
+        } else {
+            self.wallet_released.notify_one();
         }
     }
 }
@@ -599,12 +639,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn submitter_cycles_through_available_wallets() {
+        let (url, _redis) = redis_url().await;
+        let first = address!("1111111111111111111111111111111111111111");
+        let second = address!("2222222222222222222222222222222222222222");
+        let submitter = TransactionSubmitter::connect(
+            Address::ZERO,
+            vec![provider_wallet(first), provider_wallet(second)],
+            &url,
+            None,
+            Duration::from_secs(60),
+            Duration::from_secs(60),
+        )
+        .await
+        .unwrap();
+
+        let (first_entry, first_reservation) = submitter.acquire().await.unwrap();
+        let (second_entry, second_reservation) = submitter.acquire().await.unwrap();
+        assert_eq!(first_entry.wallet.address, first);
+        assert_eq!(second_entry.wallet.address, second);
+
+        submitter
+            .release_reservation(first, first_reservation)
+            .await;
+        let (next_entry, next_reservation) = submitter.acquire().await.unwrap();
+        assert_eq!(next_entry.wallet.address, first);
+        submitter.release_reservation(first, next_reservation).await;
+        submitter
+            .release_reservation(second, second_reservation)
+            .await;
+    }
+
+    #[tokio::test]
     async fn submitter_fails_timed_out_transaction_and_releases_wallet() {
         let (url, _redis) = redis_url().await;
         let wallet = address!("1111111111111111111111111111111111111111");
         let submitter = TransactionSubmitter::connect(
             Address::ZERO,
-            provider_wallet(wallet),
+            vec![provider_wallet(wallet)],
             &url,
             None,
             Duration::from_secs(60),
