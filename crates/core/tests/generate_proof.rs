@@ -65,7 +65,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         anvil,
         world_id_registry,
         rp_registry,
-        billing_contract,
         oprf_key_registry,
         world_id_verifier,
         credential_registry,
@@ -197,7 +196,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         node_secret_managers,
         world_id_registry,
         rp_registry,
-        billing_contract,
         credential_registry,
     )
     .await;

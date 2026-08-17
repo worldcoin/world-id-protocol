@@ -17,9 +17,6 @@ pub struct WorldOprfNodeConfig {
     /// The address of the `RpRegistry` smart contract
     pub rp_registry_contract: Address,
 
-    /// The address of the `Billing` smart contract
-    pub billing_contract: Address,
-
     /// The address of the `CredentialSchemaIssuerRegistry` smart contract
     pub credential_schema_issuer_registry_contract: Address,
 
@@ -51,8 +48,6 @@ pub struct WorldOprfNodeConfig {
     pub created_at_max_difference: Duration,
 
     /// Maximum allowed delta between `expires_at` and `created_at` on RP signatures.
-    ///
-    /// According to WIP107 §3.1 nodes must check that the difference of the `expires_at` and the `created_at` on RP signatures must not be larger than `expires_at_max_difference`.
     #[serde(
         default = "WorldOprfNodeConfig::default_expires_at_max_difference",
         with = "humantime_serde"
@@ -168,13 +163,11 @@ impl WorldOprfNodeConfig {
         let WorldIdNodeContracts {
             world_id_registry_contract,
             rp_registry_contract,
-            billing_contract,
             credential_schema_issuer_registry_contract,
         } = contracts;
         Self {
             world_id_registry_contract,
             rp_registry_contract,
-            billing_contract,
             credential_schema_issuer_registry_contract,
             rpc_provider_config,
             created_at_max_difference: Self::default_created_at_max_difference(),
@@ -200,8 +193,6 @@ pub struct WorldIdNodeContracts {
     pub world_id_registry_contract: Address,
     /// Address of the `RpRegistry` contract.
     pub rp_registry_contract: Address,
-    /// Address of the `Billing` contract.
-    pub billing_contract: Address,
     /// Address of the `CredentialSchemaIssuerRegistry` contract.
     pub credential_schema_issuer_registry_contract: Address,
 }

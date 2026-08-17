@@ -26,7 +26,6 @@ pub struct RegistryTestContext {
     pub oprf_key_registry: Address,
     pub credential_registry: Address,
     pub rp_registry: Address,
-    pub billing_contract: Address,
     pub world_id_verifier: Address,
 }
 
@@ -56,10 +55,6 @@ impl RegistryTestContext {
             .deploy_rp_registry(deployer.clone(), oprf_key_registry)
             .await
             .wrap_err("failed to deploy RpRegistry")?;
-        let billing_contract = anvil
-            .deploy_billing_contract(deployer.clone())
-            .await
-            .wrap_err("failed to deploy billing contract")?;
         let world_id_verifier = anvil
             .deploy_world_id_verifier(
                 deployer.clone(),
@@ -95,7 +90,6 @@ impl RegistryTestContext {
             oprf_key_registry,
             credential_registry,
             rp_registry,
-            billing_contract,
             world_id_verifier,
         })
     }
