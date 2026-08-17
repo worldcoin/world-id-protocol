@@ -29,6 +29,30 @@ pub const METRICS_BATCH_POLICY_TARGET_SIZE: &str = "batch.policy.target_size";
 // Request rejection metrics
 pub const METRICS_REQUEST_REJECTED: &str = "request.rejected";
 
+// Nonce / transaction submission metrics
+/// Highest nonce the gateway has handed out.
+pub const METRICS_NONCE_OWNED: &str = "nonce.owned";
+/// Confirmed transaction count of the signer. Stops advancing during a stall.
+pub const METRICS_NONCE_LATEST: &str = "nonce.latest";
+/// Batch transactions submitted but not yet confirmed.
+pub const METRICS_NONCE_INFLIGHT: &str = "nonce.inflight";
+/// Signer balance, so escalation cannot silently drain it.
+pub const METRICS_SIGNER_BALANCE_WEI: &str = "signer.balance_wei";
+/// Re-broadcasts of an unconfirmed batch transaction at the same nonce.
+pub const METRICS_NONCE_ESCALATION: &str = "nonce.escalation";
+/// Batches abandoned without landing, by reason. Any increase means requests
+/// were dropped.
+pub const METRICS_NONCE_TERMINAL: &str = "nonce.terminal";
+/// Attempts to release a blocked nonce with a self-transfer, by outcome.
+pub const METRICS_NONCE_RELEASE: &str = "nonce.release";
+/// Nonce-counter resyncs against the chain, by outcome. A non-zero rate means
+/// the signer is being used by something other than this replica.
+pub const METRICS_NONCE_RESYNC: &str = "nonce.resync";
+/// Times the in-flight cap refused a batch.
+pub const METRICS_INFLIGHT_CAP_REACHED: &str = "nonce.inflight_cap_reached";
+/// Times submission was refused because the balance was below the floor.
+pub const METRICS_BALANCE_FLOOR: &str = "nonce.balance_floor";
+
 pub fn describe_metrics() {
     world_id_services_common::describe_http_request_metrics();
     world_id_services_common::describe_deprecated_endpoint_metrics();
@@ -112,7 +136,103 @@ pub fn describe_metrics() {
         "Number of rejected requests by reason."
     );
 
+    ::metrics::describe_gauge!(
+        METRICS_NONCE_OWNED,
+        ::metrics::Unit::Count,
+        "Highest nonce handed out by the gateway."
+    );
+    ::metrics::describe_gauge!(
+        METRICS_NONCE_LATEST,
+        ::metrics::Unit::Count,
+        "Confirmed transaction count of the signer."
+    );
+    ::metrics::describe_gauge!(
+        METRICS_NONCE_INFLIGHT,
+        ::metrics::Unit::Count,
+        "Batch transactions submitted but not yet confirmed."
+    );
+    ::metrics::describe_gauge!(
+        METRICS_SIGNER_BALANCE_WEI,
+        ::metrics::Unit::Count,
+        "Signer balance in wei."
+    );
+    ::metrics::describe_counter!(
+        METRICS_NONCE_ESCALATION,
+        ::metrics::Unit::Count,
+        "Re-broadcasts of an unconfirmed batch transaction at the same nonce."
+    );
+    ::metrics::describe_counter!(
+        METRICS_NONCE_TERMINAL,
+        ::metrics::Unit::Count,
+        "Batches abandoned without landing, by reason."
+    );
+    ::metrics::describe_counter!(
+        METRICS_NONCE_RELEASE,
+        ::metrics::Unit::Count,
+        "Attempts to release a blocked nonce, by outcome."
+    );
+    ::metrics::describe_counter!(
+        METRICS_NONCE_RESYNC,
+        ::metrics::Unit::Count,
+        "Nonce-counter resyncs against the chain, by outcome."
+    );
+    ::metrics::describe_counter!(
+        METRICS_INFLIGHT_CAP_REACHED,
+        ::metrics::Unit::Count,
+        "Times the in-flight transaction cap refused a batch."
+    );
+    ::metrics::describe_counter!(
+        METRICS_BALANCE_FLOOR,
+        ::metrics::Unit::Count,
+        "Times submission was refused because the signer balance was below the floor."
+    );
+
     world_id_services_common::describe_provider_transport_metrics();
+}
+
+pub fn set_nonce_owned(nonce: u64) {
+    ::metrics::gauge!(METRICS_NONCE_OWNED).set(nonce as f64);
+}
+
+pub fn set_nonce_latest(nonce: u64) {
+    ::metrics::gauge!(METRICS_NONCE_LATEST).set(nonce as f64);
+}
+
+pub fn set_nonce_inflight(count: usize) {
+    ::metrics::gauge!(METRICS_NONCE_INFLIGHT).set(count as f64);
+}
+
+pub fn set_signer_balance_wei(balance: f64) {
+    ::metrics::gauge!(METRICS_SIGNER_BALANCE_WEI).set(balance);
+}
+
+pub fn record_escalation(batch_type: &'static str, outcome: &'static str) {
+    ::metrics::counter!(METRICS_NONCE_ESCALATION, "type" => batch_type, "outcome" => outcome)
+        .increment(1);
+}
+
+/// Records that a batch was abandoned without landing. Requests were dropped,
+/// so this should be alerted on.
+pub fn record_terminal(batch_type: &'static str, reason: &'static str) {
+    ::metrics::counter!(METRICS_NONCE_TERMINAL, "type" => batch_type, "reason" => reason)
+        .increment(1);
+}
+
+pub fn record_nonce_release(outcome: &'static str) {
+    ::metrics::counter!(METRICS_NONCE_RELEASE, "outcome" => outcome).increment(1);
+}
+
+/// Records a resync of the owned nonce counter against the chain.
+pub fn record_nonce_resync(outcome: &'static str) {
+    ::metrics::counter!(METRICS_NONCE_RESYNC, "outcome" => outcome).increment(1);
+}
+
+pub fn record_inflight_cap_reached() {
+    ::metrics::counter!(METRICS_INFLIGHT_CAP_REACHED).increment(1);
+}
+
+pub fn record_balance_floor_hit() {
+    ::metrics::counter!(METRICS_BALANCE_FLOOR).increment(1);
 }
 
 pub fn increment_root_cache_hit() {

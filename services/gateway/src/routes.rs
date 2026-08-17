@@ -8,6 +8,7 @@ use crate::{
     },
     config::{
         BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig, RegistryVersion,
+        TxSubmitterConfig,
     },
     error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
     orphan_sweeper::run_orphan_sweeper,
@@ -28,9 +29,10 @@ use crate::{
         update_authenticator::update_authenticator,
         update_recovery_agent::update_recovery_agent,
     },
+    tx_submitter::{TxSubmitter, run_escalation_loop},
     types::RootExpiry,
 };
-use alloy::providers::DynProvider;
+use alloy::{primitives::Address, providers::DynProvider};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -39,7 +41,7 @@ use axum::{
     routing::{get, post},
 };
 use moka::future::Cache;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use utoipa::OpenApi;
 use world_id_primitives::api_types::{
     CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
@@ -92,6 +94,8 @@ pub(crate) async fn build_app(
     request_timeout_secs: u64,
     orphan_sweeper_config: OrphanSweeperConfig,
     batch_policy_config: BatchPolicyConfig,
+    tx_submitter_config: TxSubmitterConfig,
+    signer: Address,
 ) -> GatewayResult<Router> {
     let tracker = RequestTracker::new(
         redis_url,
@@ -101,7 +105,15 @@ pub(crate) async fn build_app(
     )
     .await;
     let base_fee_cache = BaseFeeCache::default();
-    let tx_send_lock = Arc::new(Mutex::new(()));
+
+    let submitter = Arc::new(TxSubmitter::new(
+        registry.provider().clone(),
+        signer,
+        tx_submitter_config,
+        tracker.clone(),
+    ));
+    tokio::spawn(run_escalation_loop(Arc::clone(&submitter)));
+    tracing::info!(signer = %signer, "Tx submitter and escalation loop initialized");
 
     spawn_base_fee_sampler(
         registry.provider().clone(),
@@ -119,7 +131,7 @@ pub(crate) async fn build_app(
         tracker.clone(),
         batch_policy_config.clone(),
         base_fee_cache.clone(),
-        tx_send_lock.clone(),
+        Arc::clone(&submitter),
     );
     tokio::spawn(runner.run());
 
@@ -134,7 +146,7 @@ pub(crate) async fn build_app(
         tracker.clone(),
         batch_policy_config,
         base_fee_cache,
-        tx_send_lock,
+        submitter,
     );
     tokio::spawn(ops_runner.run());
 

@@ -15,7 +15,7 @@ use world_id_core::{
     artifacts::{ZkArtifactSource, dummy::DummyZkArtifactSource},
 };
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, TxSubmitterConfig, defaults,
     spawn_gateway_for_tests,
 };
 use world_id_primitives::{Config, ServiceEndpoint, TREE_DEPTH, merkle::AccountInclusionProof};
@@ -117,6 +117,7 @@ async fn e2e_authenticator_insert_update_remove() {
 
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
+        tx_submitter: TxSubmitterConfig::default(),
         registry_addr: registry_address,
         registry_version: RegistryVersion::V1,
         provider: world_id_gateway::ProviderArgs {

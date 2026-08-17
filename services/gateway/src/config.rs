@@ -14,6 +14,62 @@ pub mod defaults {
     pub const SWEEPER_INTERVAL_SECS: u64 = 30;
     pub const STALE_QUEUED_THRESHOLD_SECS: u64 = 60;
     pub const STALE_SUBMITTED_THRESHOLD_SECS: u64 = 600;
+
+    /// How long an unconfirmed batch transaction waits before it is
+    /// re-broadcast with a higher priority fee. Well above the ~2s block time,
+    /// so a normally-confirming transaction is never escalated.
+    pub const ESCALATION_INTERVAL_SECS: u64 = 30;
+    /// Priority fee multiplier per escalation, as a percentage. Must exceed the
+    /// node's replacement price bump (`--txpool.pricebump`, 10% on geth) for the
+    /// replacement to be accepted.
+    pub const ESCALATION_FACTOR_PERCENT: u32 = 125;
+    /// Escalations before the batch is abandoned and its nonce released.
+    /// Bounded because each bump raises `max_fee * gas_limit` and would
+    /// eventually hit the balance or the node's fee cap anyway.
+    pub const MAX_ESCALATIONS: u32 = 6;
+    /// Unconfirmed batch transactions allowed at once. Bounds how much piles up
+    /// behind a nonce that is not making progress. The happy path never reaches
+    /// this at a 2s reevaluation cadence against 2s blocks.
+    pub const MAX_INFLIGHT_TXS: usize = 4;
+    /// Signer balance below which submission stops: 0.05 ETH.
+    pub const MIN_BALANCE_WEI: u128 = 50_000_000_000_000_000;
+}
+
+/// Nonce ownership, escalation and backpressure configuration for the
+/// transaction submitter.
+#[derive(Clone, Debug, clap::Args)]
+pub struct TxSubmitterConfig {
+    /// How long an unconfirmed batch transaction waits before re-broadcast.
+    #[arg(long, env = "ESCALATION_INTERVAL_SECS", default_value_t = defaults::ESCALATION_INTERVAL_SECS)]
+    pub escalation_interval_secs: u64,
+
+    /// Priority fee multiplier per escalation, as a percentage of the previous fee.
+    #[arg(long, env = "ESCALATION_FACTOR_PERCENT", default_value_t = defaults::ESCALATION_FACTOR_PERCENT)]
+    pub escalation_factor_percent: u32,
+
+    /// Escalations before a batch is abandoned and its nonce released.
+    #[arg(long, env = "MAX_ESCALATIONS", default_value_t = defaults::MAX_ESCALATIONS)]
+    pub max_escalations: u32,
+
+    /// Unconfirmed batch transactions allowed at once. 0 disables the cap.
+    #[arg(long, env = "MAX_INFLIGHT_TXS", default_value_t = defaults::MAX_INFLIGHT_TXS)]
+    pub max_inflight_txs: usize,
+
+    /// Signer balance in wei below which transaction submission stops.
+    #[arg(long, env = "MIN_BALANCE_WEI", default_value_t = defaults::MIN_BALANCE_WEI)]
+    pub min_balance_wei: u128,
+}
+
+impl Default for TxSubmitterConfig {
+    fn default() -> Self {
+        Self {
+            escalation_interval_secs: defaults::ESCALATION_INTERVAL_SECS,
+            escalation_factor_percent: defaults::ESCALATION_FACTOR_PERCENT,
+            max_escalations: defaults::MAX_ESCALATIONS,
+            max_inflight_txs: defaults::MAX_INFLIGHT_TXS,
+            min_balance_wei: defaults::MIN_BALANCE_WEI,
+        }
+    }
 }
 
 /// WorldIDRegistry implementation version to use for gateway request routing.
@@ -182,6 +238,9 @@ pub struct GatewayConfig {
     /// Staleness threshold for Submitted requests with no receipt (seconds).
     #[arg(long, env = "STALE_SUBMITTED_THRESHOLD_SECS", default_value_t = defaults::STALE_SUBMITTED_THRESHOLD_SECS)]
     pub stale_submitted_threshold_secs: u64,
+
+    #[command(flatten)]
+    pub tx_submitter: TxSubmitterConfig,
 }
 
 impl GatewayConfig {
@@ -253,6 +312,29 @@ impl GatewayConfig {
         if self.sweeper().stale_queued_threshold_secs <= self.batch_policy.max_wait_secs {
             return Err(GatewayError::Config(
                 "STALE_QUEUED_THRESHOLD_SECS must be greater than BATCH_MAX_WAIT_SECS".to_string(),
+            ));
+        }
+
+        if self.tx_submitter.escalation_interval_secs == 0 {
+            return Err(GatewayError::Config(
+                "ESCALATION_INTERVAL_SECS must be greater than 0".to_string(),
+            ));
+        }
+
+        // A replacement transaction must outbid its predecessor by the node's
+        // price bump (10% on geth), otherwise every escalation is rejected with
+        // `replacement transaction underpriced` and the nonce never clears.
+        if self.tx_submitter.escalation_factor_percent <= 110 {
+            return Err(GatewayError::Config(
+                "ESCALATION_FACTOR_PERCENT must be greater than 110 to clear the \
+                 replacement price bump"
+                    .to_string(),
+            ));
+        }
+
+        if self.tx_submitter.max_escalations == 0 {
+            return Err(GatewayError::Config(
+                "MAX_ESCALATIONS must be greater than 0".to_string(),
             ));
         }
 
@@ -439,6 +521,58 @@ mod tests {
         let err = result.unwrap_err().to_string();
         assert!(err.contains("BATCH_COST_HIGH_RATIO"));
         assert!(err.contains("finite"));
+    }
+
+    #[test]
+    fn escalation_factor_must_clear_the_replacement_price_bump() {
+        let mut config = parse_valid_config();
+        config.tx_submitter.escalation_factor_percent = 105;
+
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("ESCALATION_FACTOR_PERCENT"));
+    }
+
+    #[test]
+    fn escalation_interval_must_be_non_zero() {
+        let mut config = parse_valid_config();
+        config.tx_submitter.escalation_interval_secs = 0;
+
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("ESCALATION_INTERVAL_SECS")
+        );
+    }
+
+    #[test]
+    fn max_escalations_must_be_non_zero() {
+        let mut config = parse_valid_config();
+        config.tx_submitter.max_escalations = 0;
+
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("MAX_ESCALATIONS"));
+    }
+
+    #[test]
+    fn tx_submitter_defaults_are_parsed() {
+        let submitter = parse_valid_config().tx_submitter;
+
+        assert_eq!(
+            submitter.escalation_interval_secs,
+            defaults::ESCALATION_INTERVAL_SECS
+        );
+        assert_eq!(submitter.max_escalations, defaults::MAX_ESCALATIONS);
+        assert_eq!(submitter.max_inflight_txs, defaults::MAX_INFLIGHT_TXS);
+        assert!(
+            submitter.escalation_factor_percent > 110,
+            "default factor must clear the replacement price bump"
+        );
     }
 
     #[test]
