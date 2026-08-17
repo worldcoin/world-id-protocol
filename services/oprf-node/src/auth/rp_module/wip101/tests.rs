@@ -36,9 +36,6 @@ pub(crate) fn relying_party(account_type: RpAccountType) -> RelyingParty {
         signer: Address::ZERO,
         oprf_key_id: OprfKeyId::new(U160::ZERO),
         account_type,
-        is_blocked: false,
-        fetched_at_block: U256::ZERO,
-        fetched_at_timestamp: U256::ZERO,
     }
 }
 

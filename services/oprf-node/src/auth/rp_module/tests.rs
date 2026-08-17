@@ -329,16 +329,6 @@ async fn test_session_invalid_rp_id() -> eyre::Result<()> {
 }
 
 #[tokio::test]
-async fn test_session_blocked_rp_id() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_session().await?;
-    // 42 is the blocked RP in the mock
-    setup.request.auth.rp_id = setup.setup.blocked_rp;
-    setup
-        .assert_auth_err(error_codes::BLOCKED_RP, "RP blocked by billing contract")
-        .await
-}
-
-#[tokio::test]
 async fn test_session_invalid_signer() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.nonce = rand::random();
@@ -588,7 +578,6 @@ fn mock_session_auth(rpc_provider: taceo_nodes_common::web3::HttpRpcProvider) ->
             WatcherCacheConfig::default(),
         ),
         rp_registry_watcher: RpRegistryWatcher::init(
-            Address::ZERO,
             Address::ZERO,
             rpc_provider.clone(),
             DISPATCH_TIMEOUT,

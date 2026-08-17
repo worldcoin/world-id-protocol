@@ -174,9 +174,6 @@ pub enum WorldIdRequestAuthError {
     /// request proofs. If you are the RP, call `updateRp` to re-activate.
     #[error("inactive_rp")]
     InactiveRp,
-    /// Blocked RP. The RP is marked as blocked in the billing contract. Blocked RPs cannot request proofs. If you are the RP, call `pay` at the billing contract to re-activate.
-    #[error("blocked_rp")]
-    BlockedRp,
     /// **Only valid for Credential Blinding Factor generation**.
     ///
     /// The `issuerSchemaId` provided to generate a blinding factor is not valid. The
@@ -303,7 +300,6 @@ impl WorldIdRequestAuthError {
         match self {
             Self::UnknownRp
             | Self::InactiveRp
-            | Self::BlockedRp
             | Self::CreatedAtTooOld
             | Self::CreatedAtTooFarInFuture
             | Self::ExpiresAtTooFarInFuture
@@ -335,7 +331,6 @@ impl From<u16> for WorldIdRequestAuthError {
     fn from(value: u16) -> Self {
         match value {
             error_codes::UNKNOWN_RP => Self::UnknownRp,
-            error_codes::BLOCKED_RP => Self::BlockedRp,
             error_codes::INACTIVE_RP => Self::InactiveRp,
             error_codes::CREATED_AT_TOO_OLD => Self::CreatedAtTooOld,
             error_codes::INVALID_RP_SIGNATURE => Self::InvalidRpSignature,
@@ -368,7 +363,6 @@ impl From<WorldIdRequestAuthError> for u16 {
     fn from(value: WorldIdRequestAuthError) -> Self {
         match value {
             WorldIdRequestAuthError::UnknownRp => error_codes::UNKNOWN_RP,
-            WorldIdRequestAuthError::BlockedRp => error_codes::BLOCKED_RP,
             WorldIdRequestAuthError::InactiveRp => error_codes::INACTIVE_RP,
             WorldIdRequestAuthError::CreatedAtTooOld => error_codes::CREATED_AT_TOO_OLD,
             WorldIdRequestAuthError::ExpiresAtTooFarInFuture => {
@@ -464,8 +458,6 @@ pub mod error_codes {
     pub const WIP101_VERIFICATION_TIMEOUT: u16 = 4520;
     /// Error code for [`super::WorldIdRequestAuthError::Wip101AccountCheckTimeout`]
     pub const WIP101_ACCOUNT_CHECK_TIMEOUT: u16 = 4521;
-    /// Error code for [`super::WorldIdRequestAuthError::BlockedRp`].
-    pub const BLOCKED_RP: u16 = 4522;
     /// Error code for [`super::WorldIdRequestAuthError::ExpiresAtTooFarInFuture`].
     pub const EXPIRES_AT_TOO_FAR_IN_FUTURE: u16 = 4523;
     /// Error code for [`super::WorldIdRequestAuthError::InvalidRpSignatureVerification`].
@@ -480,9 +472,6 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
         let msg = match value {
             WorldIdRequestAuthError::UnknownRp => {
                 taceo_oprf::types::close_frame_message!("unknown RP")
-            }
-            WorldIdRequestAuthError::BlockedRp => {
-                taceo_oprf::types::close_frame_message!("RP blocked by billing contract")
             }
             WorldIdRequestAuthError::CreatedAtTooOld => {
                 taceo_oprf::types::close_frame_message!("created_at too old")
@@ -667,7 +656,6 @@ mod tests {
     fn error_code_roundtrip() {
         let codes: &[u16] = &[
             error_codes::UNKNOWN_RP,
-            error_codes::BLOCKED_RP,
             error_codes::CREATED_AT_TOO_OLD,
             error_codes::CREATED_AT_TOO_FAR_IN_FUTURE,
             error_codes::INVALID_RP_SIGNATURE,
