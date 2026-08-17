@@ -67,11 +67,11 @@ pub struct ProviderArgs {
     /// HTTP RPC endpoints (in priority order).
     #[arg(long = "rpc-url", value_delimiter = ',', env = "RPC_URL")]
     #[serde(default)]
-    pub http: Option<Vec<Url>>,
+    pub http: Vec<Url>,
 
     #[command(flatten)]
     #[serde(default)]
-    pub signer: Option<SignerArgs>,
+    pub signer: SignerArgs,
 
     #[command(flatten)]
     #[serde(default)]
@@ -79,13 +79,13 @@ pub struct ProviderArgs {
 
     #[command(flatten)]
     #[serde(default)]
-    pub retry: Option<RetryConfig>,
+    pub retry: RetryConfig,
 }
 
 /// Secrets for the signer.
 /// Exactly one of `wallet_private_key`, `aws_kms_key_id`, or `aws_kms_key_ids` may be
 /// provided. When none is set, no signer is configured.
-#[derive(Args, Debug, Clone, Deserialize)]
+#[derive(Args, Debug, Clone, Default, Deserialize)]
 #[group(required = false, multiple = false)]
 pub struct SignerArgs {
     /// The signer wallet private key (hex) that will submit transactions (pays for gas)
@@ -270,7 +270,7 @@ impl ProviderArgs {
 
     /// Add multiple HTTP RPC endpoints.
     pub fn with_http_urls(mut self, urls: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
-        self.http.get_or_insert_with(Vec::new).extend(
+        self.http.extend(
             urls.into_iter()
                 .map(|u| Url::parse(u.as_ref()).expect("invalid URL")),
         );
@@ -279,15 +279,13 @@ impl ProviderArgs {
 
     /// Set the signer configuration.
     pub fn with_signer(mut self, signer: SignerArgs) -> Self {
-        self.signer = Some(signer);
+        self.signer = signer;
         self
     }
 
     /// Set the maximum number of RPC retries. Set to 0 to disable retries.
     pub fn with_max_rpc_retries(mut self, max_retries: u32) -> Self {
-        self.retry
-            .get_or_insert_with(RetryConfig::default)
-            .max_retries = max_retries;
+        self.retry.max_retries = max_retries;
         self
     }
 
@@ -309,14 +307,15 @@ impl ProviderArgs {
         self,
         nonce_manager: M,
     ) -> ProviderResult<DynProvider> {
-        let Some(http) = self.http else {
+        if self.http.is_empty() {
             return Err(ProviderError::NoHttpUrls);
-        };
+        }
 
         // Save first URL for signer (needed for AWS KMS chain_id lookup)
-        let first_url = http.first().cloned().ok_or(ProviderError::NoHttpUrls)?;
+        let first_url = self.http[0].clone();
+        let http = self.http;
 
-        let retry_cfg = self.retry.unwrap_or_default();
+        let retry_cfg = self.retry;
 
         // Per-request timeout configured at the HTTP client level so that
         // hanging connections surface errors for the retry layer to act on.
@@ -379,9 +378,9 @@ impl ProviderArgs {
             RpcClient::builder().transport(transport, false)
         };
 
-        let maybe_signer = if let Some(signer) = &self.signer {
+        let maybe_signer = if self.signer.signer_config().is_some() {
             // Pass the first URL to the signer - it will only make RPC calls if needed (AWS KMS)
-            Some(signer.signer(&first_url).await?)
+            Some(self.signer.signer(&first_url).await?)
         } else {
             None
         };
@@ -423,7 +422,7 @@ mod tests {
         file.write_all(config.as_bytes()).unwrap();
 
         let args = ProviderArgs::from_file(file.path()).unwrap();
-        let urls = args.http.unwrap();
+        let urls = args.http;
         assert_eq!(urls.len(), 3);
         assert_eq!(urls[0].as_str(), "https://rpc1.example.com/");
         assert_eq!(urls[1].as_str(), "https://rpc2.example.com/");
@@ -444,9 +443,8 @@ mod tests {
         file.write_all(config.as_bytes()).unwrap();
 
         let args = ProviderArgs::from_file(file.path()).unwrap();
-        let signer = args.signer.unwrap();
         assert!(matches!(
-            signer.signer_config(),
+            args.signer.signer_config(),
             Some(SignerConfig::PrivateKey(_))
         ));
     }
@@ -465,9 +463,8 @@ mod tests {
         file.write_all(config.as_bytes()).unwrap();
 
         let args = ProviderArgs::from_file(file.path()).unwrap();
-        let signer = args.signer.unwrap();
         assert!(matches!(
-            signer.signer_config(),
+            args.signer.signer_config(),
             Some(SignerConfig::AwsKms(_))
         ));
     }
@@ -489,7 +486,7 @@ mod tests {
         file.write_all(config.as_bytes()).unwrap();
 
         let args = ProviderArgs::from_file(file.path()).unwrap();
-        let retry = args.retry.unwrap();
+        let retry = args.retry;
         assert_eq!(retry.max_retries, 3);
         assert_eq!(retry.initial_backoff_ms, 500);
         assert_eq!(retry.max_backoff_ms, 30000);

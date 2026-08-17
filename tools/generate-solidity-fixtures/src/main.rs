@@ -85,8 +85,8 @@ async fn main() -> Result<()> {
         registry_addr: world_id_registry,
         registry_version: RegistryVersion::V2,
         provider: world_id_gateway::ProviderArgs {
-            http: Some(vec![anvil.endpoint().parse().unwrap()]),
-            signer: Some(signer_args),
+            http: vec![anvil.endpoint().parse().unwrap()],
+            signer: signer_args,
             ..Default::default()
         },
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, gw_port).into(),

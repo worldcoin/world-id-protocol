@@ -20,9 +20,9 @@ mod error;
 pub mod metrics;
 pub mod orphan_sweeper;
 mod request;
-mod request_store;
 pub mod request_tracker;
 mod routes;
+mod storage;
 mod types;
 
 // Re-export common types
