@@ -64,7 +64,8 @@ impl RequestStore {
         Self { manager }
     }
 
-    /// Stores a terminal request record without adding pending or in-flight entries.
+    /// Stores a terminal request record under `gateway:request:{id}` without
+    /// adding pending or in-flight entries.
     ///
     /// The record expires after [`REQUESTS_TTL`]. If `id` already exists, the
     /// existing record is preserved.
@@ -97,6 +98,8 @@ impl RequestStore {
 
     /// Atomically creates a queued request, pending entry, and in-flight locks.
     ///
+    /// The operation writes `gateway:request:{id}`, adds `id` to
+    /// [`PENDING_SET_KEY`], and creates `gateway:inflight:{scope}:{value}` keys.
     /// Returns [`CreateRequestOutcome::DuplicateInflight`] without changing
     /// storage when any requested lock already exists. The request record uses
     /// [`REQUESTS_TTL`], while lock entries use [`INFLIGHT_TTL`].
@@ -165,7 +168,7 @@ impl RequestStore {
         })
     }
 
-    /// Loads and deserializes one request record by ID.
+    /// Loads and deserializes `gateway:request:{id}`.
     ///
     /// Returns `Ok(None)` when the record does not exist.
     pub(crate) async fn request(&self, id: &str) -> GatewayResult<Option<RequestRecord>> {
@@ -175,10 +178,11 @@ impl RequestStore {
             .transpose()
     }
 
-    /// Atomically updates a request's status and timestamp while preserving its TTL.
+    /// Atomically updates `gateway:request:{id}` while preserving its TTL.
     ///
-    /// Terminal statuses also remove the request from the pending set and delete
-    /// its in-flight locks. Returns an error when the request does not exist.
+    /// Terminal statuses also remove `id` from [`PENDING_SET_KEY`] and delete
+    /// the `gateway:inflight:{scope}:{value}` keys recorded on the request.
+    /// Returns an error when the request does not exist.
     pub(crate) async fn update_status(
         &self,
         id: &str,
@@ -226,7 +230,7 @@ impl RequestStore {
         Ok(())
     }
 
-    /// Returns every request ID in the pending set.
+    /// Returns every request ID in the [`PENDING_SET_KEY`] Redis set.
     ///
     /// The returned order is unspecified.
     pub(crate) async fn pending_request_ids(&self) -> GatewayResult<Vec<String>> {
@@ -235,7 +239,7 @@ impl RequestStore {
         Ok(ids.into_iter().collect())
     }
 
-    /// Loads multiple request records in one Redis round trip.
+    /// Loads multiple `gateway:request:{id}` records in one Redis round trip.
     ///
     /// Results preserve the order of `ids`. Missing or malformed records are
     /// represented as `None`; malformed records are also logged.
@@ -267,7 +271,7 @@ impl RequestStore {
             .collect())
     }
 
-    /// Removes a request ID from the pending set.
+    /// Removes a request ID from the [`PENDING_SET_KEY`] Redis set.
     ///
     /// Succeeds when the ID was not present, making cleanup idempotent.
     pub(crate) async fn remove_pending_request(&self, id: &str) -> GatewayResult<()> {
@@ -276,7 +280,8 @@ impl RequestStore {
         Ok(())
     }
 
-    /// Atomically checks and records a request in a leaf's sliding time window.
+    /// Atomically checks and records a request in the
+    /// `gateway:ratelimit:leaf:{leaf_index}` sorted set.
     ///
     /// Entries at or before `now - window_secs` are removed before counting.
     /// Allowed requests are inserted with `request_id` as the sorted-set member;

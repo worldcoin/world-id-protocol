@@ -5,7 +5,6 @@ pub use crate::{
         BatchPolicyConfig, BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig,
         RegistryVersion, defaults,
     },
-    orphan_sweeper::sweep_once,
     request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
 };
 use crate::{routes::build_app, types::AppState};
@@ -18,16 +17,16 @@ mod batcher;
 mod config;
 mod error;
 pub mod metrics;
-pub mod orphan_sweeper;
 mod request;
 pub mod request_tracker;
 mod routes;
 mod storage;
+mod transaction_submitter;
 mod types;
 
 // Re-export common types
 pub use crate::error::{GatewayError, GatewayResult};
-pub use world_id_services_common::{ProviderArgs, SignerArgs, SignerConfig};
+pub use world_id_services_common::{ProviderArgs, SignerArgs};
 
 #[derive(Debug)]
 pub struct GatewayHandle {
@@ -53,13 +52,15 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
 
-    let provider = Arc::new(cfg.provider.http().await?);
+    let wallet = cfg.provider.clone().http_wallet().await?;
+    let provider = Arc::new(wallet.provider.clone());
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
     ));
     let app = build_app(
         registry,
+        wallet,
         cfg.registry_version,
         batcher_config,
         cfg.redis_url,
@@ -108,18 +109,19 @@ pub async fn run() -> GatewayResult<()> {
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
 
-    let provider = Arc::new(cfg.provider.http().await?);
+    let wallet = cfg.provider.clone().http_wallet().await?;
+    let provider = Arc::new(wallet.provider.clone());
     let registry = Arc::new(WorldIdRegistryInstance::new(
         cfg.registry_addr,
         provider.clone(),
     ));
-
     tracing::info!(
         registry_version = ?cfg.registry_version,
         "Config is ready. Building app..."
     );
     let app = build_app(
         registry,
+        wallet,
         cfg.registry_version,
         batcher_config,
         cfg.redis_url,

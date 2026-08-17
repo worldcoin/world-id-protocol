@@ -9,13 +9,14 @@ use std::sync::Arc;
 use alloy::{
     primitives::{Address, Bytes, address},
     providers::DynProvider,
+    rpc::types::TransactionRequest,
 };
 use tokio::sync::mpsc;
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::request_tracker::BacklogScope;
 
-use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx};
+use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner};
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
@@ -60,11 +61,11 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
         BacklogScope::Ops
     }
 
-    async fn send_batch(
+    fn build_tx(
         &self,
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
         batch: Vec<OpsEnvelope>,
-    ) -> Result<PendingBatchTx, alloy::contract::Error> {
+    ) -> TransactionRequest {
         let mc = Multicall3::new(MULTICALL3_ADDR, registry.provider().clone());
 
         let calls: Vec<Multicall3::Call3> = batch
@@ -79,9 +80,7 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
         // No explicit gas limit — the GasEstimateWithFallbackFiller in the
         // shared provider stack will call eth_estimateGas on the assembled
         // Multicall3 batch and apply a 20 % margin automatically.
-        let builder = mc.aggregate3(calls).send().await?;
-
-        Ok(PendingBatchTx::new(builder))
+        mc.aggregate3(calls).into_transaction_request()
     }
 }
 
