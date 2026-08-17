@@ -94,8 +94,8 @@ async fn spawn_test_gateway_for_registry(
             registry_addr,
             registry_version,
             provider: ProviderArgs {
-                http: Some(vec![rpc_url.parse().unwrap()]),
-                signer: Some(signer_args),
+                http: vec![rpc_url.parse().unwrap()],
+                signer: signer_args,
                 ..Default::default()
             },
             max_create_batch_size: 10,
@@ -117,8 +117,8 @@ async fn spawn_test_gateway_for_registry(
                 registry_addr,
                 registry_version,
                 provider: ProviderArgs {
-                    http: Some(vec![rpc_url.parse().unwrap()]),
-                    signer: Some(signer_args),
+                    http: vec![rpc_url.parse().unwrap()],
+                    signer: signer_args,
                     ..Default::default()
                 },
                 batch_policy: BatchPolicyConfig {

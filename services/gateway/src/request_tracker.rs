@@ -4,13 +4,13 @@ use alloy::{network::Ethereum, providers::PendingTransactionBuilder};
 use tokio::time::Instant;
 use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
 
-pub use crate::request_store::RequestRecord;
+pub use crate::storage::request_store::RequestRecord;
 use crate::{
     batch_policy::BacklogUrgencyStats,
     config::RateLimitConfig,
     error::{GatewayErrorResponse, GatewayResult},
     metrics,
-    request_store::{CreateRequestOutcome, RateLimitOutcome, RequestStore},
+    storage::request_store::{CreateRequestOutcome, RateLimitOutcome, RequestStore},
 };
 
 /// Scope used to compute queued backlog stats for a specific batcher.
