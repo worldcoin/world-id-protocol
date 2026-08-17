@@ -7,7 +7,7 @@ use world_id_registries::world_id::WorldIdRegistry::{
 };
 use world_id_services_common::ProviderError;
 
-use alloy::sol_types::SolError;
+use alloy::{sol_types::SolError, transports::TransportError};
 use axum::{http::StatusCode, response::IntoResponse};
 
 pub type GatewayResult<T> = Result<T, GatewayError>;
@@ -50,6 +50,12 @@ pub enum GatewayError {
         source: redis::RedisError,
         backtrace: String,
     },
+    #[error("RPC error: {source}")]
+    Rpc {
+        #[source]
+        source: TransportError,
+        backtrace: String,
+    },
     #[error("join error: {source}")]
     Join {
         #[source]
@@ -81,6 +87,15 @@ impl From<serde_json::Error> for GatewayError {
 impl From<redis::RedisError> for GatewayError {
     fn from(source: redis::RedisError) -> Self {
         Self::Redis {
+            source,
+            backtrace: Backtrace::capture().to_string(),
+        }
+    }
+}
+
+impl From<TransportError> for GatewayError {
+    fn from(source: TransportError) -> Self {
+        Self::Rpc {
             source,
             backtrace: Backtrace::capture().to_string(),
         }

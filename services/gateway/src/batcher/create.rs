@@ -3,6 +3,7 @@ use std::sync::Arc;
 use alloy::{
     primitives::{Address, U256},
     providers::DynProvider,
+    rpc::types::TransactionRequest,
 };
 use tokio::sync::mpsc;
 use world_id_primitives::api_types::CreateAccountRequest;
@@ -10,7 +11,7 @@ use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::request_tracker::BacklogScope;
 
-use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx};
+use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner};
 
 #[derive(Clone)]
 pub struct CreateBatcherHandle {
@@ -41,11 +42,11 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
         BacklogScope::Create
     }
 
-    async fn send_batch(
+    fn build_tx(
         &self,
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
         batch: Vec<CreateReqEnvelope>,
-    ) -> Result<PendingBatchTx, alloy::contract::Error> {
+    ) -> TransactionRequest {
         let mut recovery_addresses: Vec<Address> = Vec::new();
         let mut auths: Vec<Vec<Address>> = Vec::new();
         let mut pubkeys: Vec<Vec<U256>> = Vec::new();
@@ -58,12 +59,9 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
             commits.push(env.req.offchain_signer_commitment);
         }
 
-        let builder = registry
+        registry
             .createManyAccounts(recovery_addresses, auths, pubkeys, commits)
-            .send()
-            .await?;
-
-        Ok(PendingBatchTx::new(builder))
+            .into_transaction_request()
     }
 }
 
