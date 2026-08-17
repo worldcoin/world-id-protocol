@@ -104,7 +104,7 @@ pub async fn start(
             .build()
             .context("while init blockchain connection")?;
 
-    // The chain is a binding parameter of the V2 RP request EIP-712 domain, so resolve it once
+    // The chain is a binding parameter of the RP request EIP-712 domain, so resolve it once
     // here instead of on the request path.
     let chain_id = tokio::time::timeout(
         config.timeout_external_eth_call,
@@ -113,7 +113,6 @@ pub async fn start(
     .await
     .context("timed out while fetching chain id")?
     .context("while fetching chain id")?;
-    tracing::info!("connected to chain {chain_id}");
 
     tracing::info!("init merkle watcher..");
     let merkle_watcher = MerkleWatcher::init(

@@ -110,7 +110,7 @@ Diagram of components for the World ID 4.0 Protocol.
 
 ## Technical Details
 
-See [RP request authorization](rp-request-authorization.md) for the version 2 EIP-712 signing format, privacy-preserving request-details commitment, and migration rules.
+See [RP request authorization](rp-request-authorization.md) for the EIP-712 signing format, privacy-preserving request-details commitment, and rollout rules.
 
 ### Uniqueness Proofs
 

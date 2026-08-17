@@ -9,20 +9,7 @@ interface IERC165 {
     function supportsInterface(bytes4 interfaceId) external view returns (bool);
 }
 
-interface IWIP101 is IERC165 {
-    error RpInvalidRequest(uint256 code);
-
-    function verifyRpRequest(
-        uint8 version,
-        uint256 nonce,
-        uint64 createdAt,
-        uint64 expiresAt,
-        uint256 action,
-        bytes calldata data
-    ) external view returns (bytes4 magicValue);
-}
-
-struct RpRequestIntentV2 {
+struct RpRequestIntent {
     uint8 requestVersion;
     uint64 rpId;
     uint160 oprfKeyId;
@@ -37,42 +24,33 @@ struct RpRequestIntentV2 {
     bytes32 detailsHash;
 }
 
-interface IWIP101V2 is IERC165 {
-    function verifyRpRequestV2(RpRequestIntentV2 calldata intent, uint256 oprfAction, bytes calldata data)
+interface IWIP101 is IERC165 {
+    error RpInvalidRequest(uint256 code);
+
+    function verifyRpRequest(RpRequestIntent calldata intent, uint256 oprfAction, bytes calldata data)
         external
         view
         returns (bytes4 magicValue);
 }
 
-bytes4 constant WIP101_MAGIC_VALUE = 0x35dbc8de;
+bytes4 constant WIP101_MAGIC_VALUE = IWIP101.verifyRpRequest.selector;
 bytes4 constant ERC165_INTERFACE_ID = type(IERC165).interfaceId;
 bytes4 constant IWIP101_INTERFACE_ID = type(IWIP101).interfaceId;
-bytes4 constant IWIP101_V2_INTERFACE_ID = type(IWIP101V2).interfaceId;
 
 // --- Contracts ---
 
-contract WIP101Correct is IWIP101, IWIP101V2 {
+contract WIP101Correct is IWIP101 {
     function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-        return interfaceId == IWIP101_INTERFACE_ID || interfaceId == IWIP101_V2_INTERFACE_ID
-            || interfaceId == ERC165_INTERFACE_ID;
+        return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
     }
 
-    function verifyRpRequest(uint8, uint256, uint64, uint64, uint256, bytes calldata)
+    function verifyRpRequest(RpRequestIntent calldata, uint256, bytes calldata)
         external
         pure
         override
         returns (bytes4)
     {
         return WIP101_MAGIC_VALUE;
-    }
-
-    function verifyRpRequestV2(RpRequestIntentV2 calldata, uint256, bytes calldata)
-        external
-        pure
-        override
-        returns (bytes4)
-    {
-        return IWIP101V2.verifyRpRequestV2.selector;
     }
 }
 
@@ -81,7 +59,7 @@ contract WIP101CorrectWhenAuxData is IWIP101 {
         return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
     }
 
-    function verifyRpRequest(uint8, uint256, uint64, uint64, uint256, bytes calldata data)
+    function verifyRpRequest(RpRequestIntent calldata, uint256, bytes calldata data)
         external
         pure
         override

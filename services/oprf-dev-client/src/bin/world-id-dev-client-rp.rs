@@ -1,8 +1,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy::{
-    primitives::Address,
-    providers::DynProvider,
+    primitives::{Address, B256, Signature, U256},
+    providers::{DynProvider, Provider as _},
     signers::{SignerSync as _, k256::ecdsa::SigningKey, local::LocalSigner},
 };
 use ark_ff::UniformRand as _;
@@ -59,6 +59,7 @@ struct WorldIdRpDevClient {
 struct WorldIdRpDevClientSetup {
     rp_id: RpId,
     rp_oprf_public_key: OprfPublicKey,
+    chain_id: u64,
 
     inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     key_set: AuthenticatorPublicKeySet,
@@ -93,9 +94,15 @@ impl DevClient for WorldIdRpDevClient {
         .context("cannot setup RP in time")?
         .context("while setup of RP")?;
 
+        let chain_id = provider
+            .get_chain_id()
+            .await
+            .context("while fetching chain id")?;
+
         Ok(WorldIdRpDevClientSetup {
             rp_id: RpId::from(self.rp_id),
             rp_oprf_public_key,
+            chain_id,
             inclusion_proof,
             key_set,
             key_index,
@@ -112,6 +119,7 @@ impl DevClient for WorldIdRpDevClient {
         let proof_request_uniqueness = create_proof_request(
             &setup,
             &self.components.signer,
+            self.rp_registry_contract,
             OprfModule::Nullifier,
             &mut rng,
         )
@@ -119,6 +127,7 @@ impl DevClient for WorldIdRpDevClient {
         let proof_request_session = create_proof_request(
             &setup,
             &self.components.signer,
+            self.rp_registry_contract,
             OprfModule::Session,
             &mut rng,
         )
@@ -175,8 +184,14 @@ impl DevClient for WorldIdRpDevClient {
             OprfModule::Session
         };
 
-        let proof_request = create_proof_request(setup, &self.components.signer, module, rng)
-            .context("while creating proof request")?;
+        let proof_request = create_proof_request(
+            setup,
+            &self.components.signer,
+            self.rp_registry_contract,
+            module,
+            rng,
+        )
+        .context("while creating proof request")?;
 
         let request_id = Uuid::new_v4();
         let action = proof_request
@@ -275,6 +290,7 @@ impl WorldIdRpDevClient {
 fn create_proof_request<R: Rng + CryptoRng>(
     setup: &WorldIdRpDevClientSetup,
     signer: &LocalSigner<SigningKey>,
+    rp_registry: Address,
     auth: OprfModule,
     rng: &mut R,
 ) -> eyre::Result<ProofRequest> {
@@ -288,7 +304,6 @@ fn create_proof_request<R: Rng + CryptoRng>(
             (ProofType::Uniqueness, Some(*a), SessionRef::None)
         }
         OprfModule::Session => {
-            // Session RP signature does NOT include action
             let session_id = SessionId::from_r_seed(
                 setup.key_index,
                 FieldElement::random(rng),
@@ -307,18 +322,16 @@ fn create_proof_request<R: Rng + CryptoRng>(
         .as_secs();
     let expiration_timestamp = current_timestamp + 300; // 5 minutes from now
 
-    let msg = world_id_primitives::rp::compute_rp_signature_msg(
-        nonce,
-        current_timestamp,
-        expiration_timestamp,
-        action,
-    );
-    let signature = signer.sign_message_sync(&msg)?;
+    let mut salt_bytes = [0_u8; 32];
+    rng.fill(&mut salt_bytes);
+    if salt_bytes == [0_u8; 32] {
+        salt_bytes[31] = 1;
+    }
 
-    Ok(ProofRequest {
+    let mut request = ProofRequest {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
-        request_salt: None,
+        request_salt: B256::from(salt_bytes),
         proof_type,
         created_at: current_timestamp,
         expires_at: expiration_timestamp,
@@ -326,7 +339,7 @@ fn create_proof_request<R: Rng + CryptoRng>(
         oprf_key_id: OprfKeyId::from(setup.rp_id.into_inner()),
         session_id,
         action: action.map(FieldElement::from),
-        signature,
+        signature: Signature::new(U256::ZERO, U256::ZERO, false),
         nonce: FieldElement::from(nonce),
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
@@ -336,7 +349,10 @@ fn create_proof_request<R: Rng + CryptoRng>(
             expires_at_min: None,
         }],
         constraints: None,
-    })
+    };
+    request.signature =
+        signer.sign_hash_sync(&request.eip712_signing_hash(setup.chain_id, rp_registry)?)?;
+    Ok(request)
 }
 
 fn generate_oprf_auth_request(
@@ -371,8 +387,7 @@ fn generate_oprf_auth_request(
         signature: Some(proof_request.signature),
         rp_id: proof_request.rp_id,
         wip101_data: None,
-        rp_signature_verification: None,
-        rp_request_authorization: None,
+        rp_request_authorization: proof_request.rp_authorization()?,
         session_seed_opening: None,
     };
 

@@ -7,7 +7,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::{U160, U256},
+    primitives::{B256, U160, U256},
     signers::{SignerSync as _, local::LocalSigner},
 };
 use eyre::{Context as _, Result, eyre};
@@ -296,10 +296,10 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     credential.signature = Some(issuer_sk.sign(*credential_hash));
 
     // Create a ProofRequest
-    let proof_request = ProofRequest {
+    let mut proof_request = ProofRequest {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
-        request_salt: None,
+        request_salt: B256::repeat_byte(0x42),
         proof_type: ProofType::Uniqueness,
         created_at: rp_fixture.current_timestamp,
         expires_at: rp_fixture.expiration_timestamp,
@@ -318,6 +318,9 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         }],
         constraints: None,
     };
+    proof_request.signature = rp_signer.sign_hash_sync(
+        &proof_request.eip712_signing_hash(anvil.instance.chain_id(), rp_registry)?,
+    )?;
     let nullifier = authenticator
         .generate_nullifier(&proof_request, None)
         .await?;
@@ -367,22 +370,18 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     // ── UNIQUENESS + CREATE (atomic session mint and bound uniqueness proof) ──
     let mut rng = rand::thread_rng();
     let create_nonce = FieldElement::random(&mut rng);
-    let create_msg = world_id_primitives::rp::compute_rp_signature_msg(
-        *create_nonce,
-        rp_fixture.current_timestamp,
-        rp_fixture.expiration_timestamp,
-        Some(rp_fixture.action),
-    );
-    let create_signature = LocalSigner::from_signing_key(rp_fixture.signing_key.clone())
-        .sign_message_sync(&create_msg)?;
-    let create_request = ProofRequest {
+    let mut create_request = ProofRequest {
         id: "test_uniqueness_create".to_string(),
+        request_salt: B256::repeat_byte(0x43),
         session_id: SessionRef::Create,
         action: Some(rp_fixture.action.into()),
         nonce: create_nonce,
-        signature: create_signature,
+        signature: rp_fixture.signature,
         ..proof_request.clone()
     };
+    create_request.signature = rp_signer.sign_hash_sync(
+        &create_request.eip712_signing_hash(anvil.instance.chain_id(), rp_registry)?,
+    )?;
     let create_nullifier = authenticator
         .generate_nullifier(&create_request, None)
         .await?;

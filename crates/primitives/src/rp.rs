@@ -6,7 +6,6 @@ use alloy::{
     primitives::{Address, B256, U256, keccak256},
     sol_types::{Eip712Domain, SolStruct, eip712_domain},
 };
-use ark_ff::{BigInteger as _, PrimeField as _};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use taceo_oprf::types::OprfKeyId;
 
@@ -15,16 +14,14 @@ use crate::{
     RequestVersion, SessionRef,
 };
 
-const RP_SIGNATURE_MSG_VERSION: u8 = 0x01;
-
-const SESSION_SEED_OPENING_DOMAIN: &[u8] = b"World ID RP Request V2 session seed opening";
+const SESSION_SEED_OPENING_DOMAIN: &[u8] = b"World ID RP Request session seed opening";
 
 mod sol_types {
     use alloy::sol;
 
     sol! {
-        /// EIP-712 payload signed by an EOA-backed RP for a V2 proof request.
-        struct RpRequestV2 {
+        /// EIP-712 payload signed by an EOA-backed RP for a proof request.
+        struct RpRequest {
             uint8 requestVersion;
             uint64 rpId;
             uint160 oprfKeyId;
@@ -39,7 +36,7 @@ mod sol_types {
             bytes32 detailsHash;
         }
 
-        struct RpRequestDetailsV2 {
+        struct RpRequestDetails {
             bytes32 privacySalt;
             string requestId;
             bytes32 sessionRefHash;
@@ -47,13 +44,13 @@ mod sol_types {
             bytes32 constraintsHash;
         }
 
-        struct SessionRefV2 {
+        struct SessionRefDetails {
             uint8 kind;
             uint256 commitment;
             uint256 oprfSeed;
         }
 
-        struct RpRequestItemV2 {
+        struct RpRequestItem {
             string identifier;
             uint64 issuerSchemaId;
             uint8 signalKind;
@@ -62,35 +59,35 @@ mod sol_types {
             uint64 expiresAtMin;
         }
 
-        struct RpRequestItemsV2 {
+        struct RpRequestItems {
             bytes32[] items;
         }
 
-        struct ConstraintNodeV2 {
+        struct ConstraintNodeDetails {
             uint8 kind;
             string identifier;
             bytes32 expressionHash;
         }
 
-        struct ConstraintExprV2 {
+        struct ConstraintExprDetails {
             uint8 kind;
             bytes32[] children;
         }
 
-        struct ConstraintRootV2 {
+        struct ConstraintRootDetails {
             bool present;
             bytes32 expressionHash;
         }
 
-        struct SessionSeedAuthorizationV2 {
+        struct SessionSeedAuthorization {
             bytes32 opening;
             uint256 oprfSeed;
         }
     }
 }
 
-/// EIP-712 typed-data payload signed by an EOA-backed RP for a V2 request.
-pub type RpRequestTypedDataV2 = sol_types::RpRequestV2;
+/// EIP-712 typed-data payload signed by an EOA-backed RP request.
+pub type RpRequestTypedData = sol_types::RpRequest;
 
 /// The session behavior authorized by an RP request.
 #[repr(u8)]
@@ -115,11 +112,11 @@ impl From<SessionRef> for RpRequestSessionMode {
     }
 }
 
-/// Public, typed V2 RP authorization forwarded to OPRF nodes.
+/// Public, typed RP authorization forwarded to OPRF nodes.
 ///
 /// Private request details are represented only by [`Self::details_hash`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RpRequestAuthorizationV2 {
+pub struct RpRequestAuthorization {
     /// Request schema and authorization version.
     pub request_version: RequestVersion,
     /// Registered relying-party identifier.
@@ -144,16 +141,16 @@ pub struct RpRequestAuthorizationV2 {
     pub details_hash: B256,
 }
 
-impl RpRequestAuthorizationV2 {
+impl RpRequestAuthorization {
     /// Converts this authorization into its canonical EIP-712 typed-data payload.
     #[must_use]
-    pub fn typed_data(&self) -> RpRequestTypedDataV2 {
+    pub fn typed_data(&self) -> RpRequestTypedData {
         let (action_kind, action) = match self.action {
             Some(action) => (1, field_element_to_u256(action)),
             None => (0, U256::ZERO),
         };
 
-        RpRequestTypedDataV2 {
+        RpRequestTypedData {
             requestVersion: self.request_version as u8,
             rpId: self.rp_id.into_inner(),
             oprfKeyId: self.oprf_key_id.into_inner(),
@@ -173,16 +170,16 @@ impl RpRequestAuthorizationV2 {
     #[must_use]
     pub fn signing_hash(&self, chain_id: u64, rp_registry: Address) -> B256 {
         self.typed_data()
-            .eip712_signing_hash(&rp_request_domain_v2(chain_id, rp_registry))
+            .eip712_signing_hash(&rp_request_domain(chain_id, rp_registry))
     }
 }
 
-/// Returns the EIP-712 domain for V2 RP request authorization.
+/// Returns the EIP-712 domain for RP request authorization.
 #[must_use]
-pub const fn rp_request_domain_v2(chain_id: u64, rp_registry: Address) -> Eip712Domain {
+pub const fn rp_request_domain(chain_id: u64, rp_registry: Address) -> Eip712Domain {
     eip712_domain!(
         name: "World ID RP Request",
-        version: "2",
+        version: "1",
         chain_id: chain_id,
         verifying_contract: rp_registry,
     )
@@ -190,8 +187,8 @@ pub const fn rp_request_domain_v2(chain_id: u64, rp_registry: Address) -> Eip712
 
 /// Computes the commitment used to authorize one exact existing-session seed.
 #[must_use]
-pub fn session_seed_authorization_v2(opening: B256, oprf_seed: FieldElement) -> B256 {
-    sol_types::SessionSeedAuthorizationV2 {
+pub fn session_seed_authorization(opening: B256, oprf_seed: FieldElement) -> B256 {
+    sol_types::SessionSeedAuthorization {
         opening,
         oprfSeed: field_element_to_u256(oprf_seed),
     }
@@ -199,27 +196,21 @@ pub fn session_seed_authorization_v2(opening: B256, oprf_seed: FieldElement) -> 
 }
 
 impl ProofRequest {
-    /// Builds the public V2 authorization committed to by the RP signature.
+    /// Builds the public authorization committed to by the RP signature.
     ///
     /// # Errors
-    /// Returns an error if the request is not a structurally valid V2 request.
-    pub fn rp_authorization_v2(&self) -> Result<RpRequestAuthorizationV2, PrimitiveError> {
+    /// Returns an error if the request is not structurally valid.
+    pub fn rp_authorization(&self) -> Result<RpRequestAuthorization, PrimitiveError> {
         self.validate_proof_type()?;
-        if self.version != RequestVersion::V2 {
-            return Err(PrimitiveError::InvalidInput {
-                attribute: "version".to_string(),
-                reason: "V2 authorization requires request version 2".to_string(),
-            });
-        }
 
         let existing_session_seed_authorization = match self.session_id {
             SessionRef::Existing(session_id) => {
-                session_seed_authorization_v2(self.session_seed_opening_v2()?, session_id.oprf_seed)
+                session_seed_authorization(self.session_seed_opening()?, session_id.oprf_seed)
             }
             SessionRef::None | SessionRef::Create => B256::ZERO,
         };
 
-        Ok(RpRequestAuthorizationV2 {
+        Ok(RpRequestAuthorization {
             request_version: self.version,
             rp_id: self.rp_id,
             oprf_key_id: self.oprf_key_id,
@@ -230,22 +221,20 @@ impl ProofRequest {
             session_mode: self.session_id.into(),
             action: self.action,
             existing_session_seed_authorization,
-            details_hash: self.request_details_hash_v2()?,
+            details_hash: self.request_details_hash(),
         })
     }
 
-    /// Computes the EIP-712 signing hash for this V2 request.
+    /// Computes the EIP-712 signing hash for this request.
     ///
     /// # Errors
-    /// Returns an error if the request is not a structurally valid V2 request.
-    pub fn eip712_signing_hash_v2(
+    /// Returns an error if the request is not structurally valid.
+    pub fn eip712_signing_hash(
         &self,
         chain_id: u64,
         rp_registry: Address,
     ) -> Result<B256, PrimitiveError> {
-        Ok(self
-            .rp_authorization_v2()?
-            .signing_hash(chain_id, rp_registry))
+        Ok(self.rp_authorization()?.signing_hash(chain_id, rp_registry))
     }
 
     /// Returns the selective-disclosure opening for an existing session seed.
@@ -253,47 +242,35 @@ impl ProofRequest {
     /// The opening is sent to OPRF nodes only when the existing seed must be rederived.
     ///
     /// # Errors
-    /// Returns an error if the request is not V2 or has no request salt.
-    pub fn session_seed_opening_v2(&self) -> Result<B256, PrimitiveError> {
-        if self.version != RequestVersion::V2 {
+    /// Returns an error if the request salt is zero.
+    pub fn session_seed_opening(&self) -> Result<B256, PrimitiveError> {
+        if self.request_salt == B256::ZERO {
             return Err(PrimitiveError::InvalidInput {
-                attribute: "version".to_string(),
-                reason: "session-seed openings require request version 2".to_string(),
+                attribute: "request_salt".to_string(),
+                reason: "must be non-zero".to_string(),
             });
         }
-        let salt = self
-            .request_salt
-            .ok_or_else(|| PrimitiveError::InvalidInput {
-                attribute: "request_salt".to_string(),
-                reason: "must be present for V2 requests".to_string(),
-            })?;
 
-        let mut input = Vec::with_capacity(SESSION_SEED_OPENING_DOMAIN.len() + salt.len());
+        let mut input =
+            Vec::with_capacity(SESSION_SEED_OPENING_DOMAIN.len() + self.request_salt.len());
         input.extend_from_slice(SESSION_SEED_OPENING_DOMAIN);
-        input.extend_from_slice(salt.as_slice());
+        input.extend_from_slice(self.request_salt.as_slice());
         Ok(keccak256(input))
     }
 
-    fn request_details_hash_v2(&self) -> Result<B256, PrimitiveError> {
-        let privacy_salt = self
-            .request_salt
-            .ok_or_else(|| PrimitiveError::InvalidInput {
-                attribute: "request_salt".to_string(),
-                reason: "must be present for V2 requests".to_string(),
-            })?;
-
+    fn request_details_hash(&self) -> B256 {
         let session_ref_hash = match self.session_id {
-            SessionRef::None => sol_types::SessionRefV2 {
+            SessionRef::None => sol_types::SessionRefDetails {
                 kind: RpRequestSessionMode::None as u8,
                 commitment: U256::ZERO,
                 oprfSeed: U256::ZERO,
             },
-            SessionRef::Create => sol_types::SessionRefV2 {
+            SessionRef::Create => sol_types::SessionRefDetails {
                 kind: RpRequestSessionMode::Create as u8,
                 commitment: U256::ZERO,
                 oprfSeed: U256::ZERO,
             },
-            SessionRef::Existing(session_id) => sol_types::SessionRefV2 {
+            SessionRef::Existing(session_id) => sol_types::SessionRefDetails {
                 kind: RpRequestSessionMode::Existing as u8,
                 commitment: field_element_to_u256(session_id.commitment),
                 oprfSeed: field_element_to_u256(session_id.oprf_seed),
@@ -309,7 +286,7 @@ impl ProofRequest {
                     Some(signal) => (1, keccak256(signal)),
                     None => (0, B256::ZERO),
                 };
-                sol_types::RpRequestItemV2 {
+                sol_types::RpRequestItem {
                     identifier: item.identifier.clone(),
                     issuerSchemaId: item.issuer_schema_id,
                     signalKind: signal_kind,
@@ -320,23 +297,23 @@ impl ProofRequest {
                 .eip712_hash_struct()
             })
             .collect();
-        let request_items_hash = sol_types::RpRequestItemsV2 { items }.eip712_hash_struct();
+        let request_items_hash = sol_types::RpRequestItems { items }.eip712_hash_struct();
 
         let constraints_hash = constraint_root_hash(self.constraints.as_ref());
 
-        Ok(sol_types::RpRequestDetailsV2 {
-            privacySalt: privacy_salt,
+        sol_types::RpRequestDetails {
+            privacySalt: self.request_salt,
             requestId: self.id.clone(),
             sessionRefHash: session_ref_hash,
             requestItemsHash: request_items_hash,
             constraintsHash: constraints_hash,
         }
-        .eip712_hash_struct())
+        .eip712_hash_struct()
     }
 }
 
 fn constraint_root_hash(constraints: Option<&ConstraintExpr<'_>>) -> B256 {
-    sol_types::ConstraintRootV2 {
+    sol_types::ConstraintRootDetails {
         present: constraints.is_some(),
         expressionHash: constraints.map_or(B256::ZERO, constraint_expr_hash),
     }
@@ -350,17 +327,17 @@ fn constraint_expr_hash(expr: &ConstraintExpr<'_>) -> B256 {
         ConstraintExpr::Enumerate { enumerate } => (2, enumerate),
     };
     let children = nodes.iter().map(constraint_node_hash).collect();
-    sol_types::ConstraintExprV2 { kind, children }.eip712_hash_struct()
+    sol_types::ConstraintExprDetails { kind, children }.eip712_hash_struct()
 }
 
 fn constraint_node_hash(node: &ConstraintNode<'_>) -> B256 {
     match node {
-        ConstraintNode::Type(identifier) => sol_types::ConstraintNodeV2 {
+        ConstraintNode::Type(identifier) => sol_types::ConstraintNodeDetails {
             kind: 0,
             identifier: identifier.to_string(),
             expressionHash: B256::ZERO,
         },
-        ConstraintNode::Expr(expr) => sol_types::ConstraintNodeV2 {
+        ConstraintNode::Expr(expr) => sol_types::ConstraintNodeDetails {
             kind: 1,
             identifier: String::new(),
             expressionHash: constraint_expr_hash(expr),
@@ -451,39 +428,6 @@ impl<'de> Deserialize<'de> for RpId {
     }
 }
 
-/// Computes the legacy V1 message signed by an RP for a [`ProofRequest`].
-///
-/// The message format is: `version || nonce || created_at || expires_at || action` (49 - 81 bytes total).
-/// - `version`: 1 byte (currently hardcoded to `0x01`)
-/// - `nonce`: 32 bytes (big-endian)
-/// - `created_at`: 8 bytes (big-endian)
-/// - `expires_at`: 8 bytes (big-endian)
-/// - `action`: optional (see Session Proofs for more details); 32 bytes (big-endian)
-///
-/// # Session Proofs
-/// V1 Session Proofs don't require the RP to specify an `action`, so the `action` is not included
-/// in the signature. For other V1 proofs, the action must always be included, otherwise the OPRF
-/// Nodes will reject the request. V2 requests use [`ProofRequest::eip712_signing_hash_v2`].
-#[must_use]
-pub fn compute_rp_signature_msg(
-    nonce: ark_babyjubjub::Fq,
-    created_at: u64,
-    expires_at: u64,
-    action: Option<ark_babyjubjub::Fq>,
-) -> Vec<u8> {
-    let mut msg = Vec::with_capacity(81);
-    msg.push(RP_SIGNATURE_MSG_VERSION);
-    msg.extend(nonce.into_bigint().to_bytes_be());
-    msg.extend(created_at.to_be_bytes());
-    msg.extend(expires_at.to_be_bytes());
-
-    if let Some(action) = action {
-        msg.extend(action.into_bigint().to_bytes_be());
-    }
-
-    msg
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -495,11 +439,11 @@ mod tests {
 
     use crate::{ConstraintExpr, ConstraintNode, RequestItem, SessionId};
 
-    fn test_v2_request() -> ProofRequest {
+    fn test_request() -> ProofRequest {
         ProofRequest {
             id: "request-123".to_string(),
-            version: RequestVersion::V2,
-            request_salt: Some(B256::repeat_byte(0x42)),
+            version: RequestVersion::V1,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             created_at: 1_700_000_000,
             expires_at: 1_700_000_900,
@@ -593,57 +537,10 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_rp_signature_msg_fixed_length() {
-        // Test with small values that would have leading zeros in variable-length encoding
-        // to ensure we always get fixed 32-byte field elements
-        let nonce = ark_babyjubjub::Fq::from(1u64);
-        let created_at = 1000u64;
-        let expires_at = 2000u64;
-
-        let msg = compute_rp_signature_msg(nonce, created_at, expires_at, None);
-
-        // Message must always be exactly 49 bytes if no action is used
-        // 1 (version) + 32 (nonce) + 8 (created_at) + 8 (expires_at)
-        assert_eq!(
-            msg.len(),
-            49,
-            "RP signature message must be exactly 49 bytes"
-        );
-        assert_eq!(
-            msg[0], RP_SIGNATURE_MSG_VERSION,
-            "RP signature message version must be 0x01"
-        );
-    }
-
-    #[test]
-    fn test_compute_rp_signature_msg_with_action() {
-        // Test with small values that would have leading zeros in variable-length encoding
-        // to ensure we always get fixed 32-byte field elements
-        let nonce = ark_babyjubjub::Fq::from(1u64);
-        let created_at = 1000u64;
-        let expires_at = 2000u64;
-        let action = ark_babyjubjub::Fq::from(2u64);
-
-        let msg = compute_rp_signature_msg(nonce, created_at, expires_at, Some(action));
-
-        // Message must be exactly 81 bytes when an action is provided:
-        // 1 (version) + 32 (nonce) + 8 (created_at) + 8 (expires_at) + 32 (action)
-        assert_eq!(
-            msg.len(),
-            81,
-            "RP signature message must be exactly 81 bytes"
-        );
-        assert_eq!(
-            msg[0], RP_SIGNATURE_MSG_VERSION,
-            "RP signature message version must be 0x01"
-        );
-    }
-
-    #[test]
-    fn v2_eip712_golden_vector() {
-        let request = test_v2_request();
+    fn eip712_golden_vector() {
+        let request = test_request();
         let rp_registry = address!("1111111111111111111111111111111111111111");
-        let digest = request.eip712_signing_hash_v2(480, rp_registry).unwrap();
+        let digest = request.eip712_signing_hash(480, rp_registry).unwrap();
         let signer = PrivateKeySigner::from_str(
             "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         )
@@ -652,11 +549,11 @@ mod tests {
 
         assert_eq!(
             hex::encode(digest),
-            "6186351c03c9588d002b7489ff55c567d50b2cecadca2729573fcc2bd750866b"
+            "ca749586327d7fe36d165c63e886d01c5d57723e89e4c146f0dc0e342dcd8e92"
         );
         assert_eq!(
             signature.to_string(),
-            "0x75e63e6e1874aa4575298bf818cae4be901c4995b9f6719eced33669bdcb128c2fc6734f386b4ded49e54887238840b3722182fa1adf30ee8b4253fdf05406371b"
+            "0x24319295fcaebf1d02ac63e392cbc6f05428e59e85e6ccf1879374cfbb07f17b3f87daf15ad02f857d4c84a0ad4b9eaf36337a2970ab62f5e2ae635b17e91a101c"
         );
         assert_eq!(
             signature.recover_address_from_prehash(&digest).unwrap(),
@@ -665,54 +562,50 @@ mod tests {
     }
 
     #[test]
-    fn v2_public_semantic_mutations_change_signing_hash() {
-        let request = test_v2_request();
+    fn public_semantic_mutations_change_signing_hash() {
+        let request = test_request();
         let rp_registry = address!("1111111111111111111111111111111111111111");
-        let authorization = request.rp_authorization_v2().unwrap();
+        let authorization = request.rp_authorization().unwrap();
         let original = authorization.signing_hash(480, rp_registry);
 
         let mutations = [
-            RpRequestAuthorizationV2 {
-                request_version: RequestVersion::V1,
-                ..authorization
-            },
-            RpRequestAuthorizationV2 {
+            RpRequestAuthorization {
                 rp_id: RpId::new(8),
                 ..authorization
             },
-            RpRequestAuthorizationV2 {
+            RpRequestAuthorization {
                 oprf_key_id: OprfKeyId::new(ruint::uint!(10_U160)),
                 ..authorization
             },
-            RpRequestAuthorizationV2 {
+            RpRequestAuthorization {
                 nonce: FieldElement::from(14_u64),
                 ..authorization
             },
-            RpRequestAuthorizationV2 {
+            RpRequestAuthorization {
                 created_at: authorization.created_at + 1,
                 ..authorization
             },
-            RpRequestAuthorizationV2 {
+            RpRequestAuthorization {
                 expires_at: authorization.expires_at + 1,
                 ..authorization
             },
-            RpRequestAuthorizationV2 {
+            RpRequestAuthorization {
                 proof_type: ProofType::Session,
                 ..authorization
             },
-            RpRequestAuthorizationV2 {
+            RpRequestAuthorization {
                 session_mode: RpRequestSessionMode::Create,
                 ..authorization
             },
-            RpRequestAuthorizationV2 {
+            RpRequestAuthorization {
                 action: Some(FieldElement::from(12_u64)),
                 ..authorization
             },
-            RpRequestAuthorizationV2 {
+            RpRequestAuthorization {
                 existing_session_seed_authorization: B256::repeat_byte(0x44),
                 ..authorization
             },
-            RpRequestAuthorizationV2 {
+            RpRequestAuthorization {
                 details_hash: B256::repeat_byte(0x45),
                 ..authorization
             },
@@ -729,79 +622,52 @@ mod tests {
     }
 
     #[test]
-    fn v2_private_semantic_mutations_change_details_hash() {
-        let request = test_v2_request();
-        let original = request.rp_authorization_v2().unwrap().details_hash;
+    fn private_semantic_mutations_change_details_hash() {
+        let request = test_request();
+        let original = request.rp_authorization().unwrap().details_hash;
 
         let mut changed = request.clone();
         changed.id.push_str("-changed");
-        assert_ne!(
-            changed.rp_authorization_v2().unwrap().details_hash,
-            original
-        );
+        assert_ne!(changed.rp_authorization().unwrap().details_hash, original);
 
         let mut changed = request.clone();
         changed.requests.swap(0, 1);
-        assert_ne!(
-            changed.rp_authorization_v2().unwrap().details_hash,
-            original
-        );
+        assert_ne!(changed.rp_authorization().unwrap().details_hash, original);
 
         let mut changed = request.clone();
         changed.requests[0].identifier.push_str("-changed");
-        assert_ne!(
-            changed.rp_authorization_v2().unwrap().details_hash,
-            original
-        );
+        assert_ne!(changed.rp_authorization().unwrap().details_hash, original);
 
         let mut changed = request.clone();
         changed.requests[0].issuer_schema_id += 1;
-        assert_ne!(
-            changed.rp_authorization_v2().unwrap().details_hash,
-            original
-        );
+        assert_ne!(changed.rp_authorization().unwrap().details_hash, original);
 
         let mut changed = request.clone();
         changed.requests[0].signal.as_mut().unwrap().push(0);
-        assert_ne!(
-            changed.rp_authorization_v2().unwrap().details_hash,
-            original
-        );
+        assert_ne!(changed.rp_authorization().unwrap().details_hash, original);
 
         let mut changed = request.clone();
         changed.requests[0].genesis_issued_at_min = Some(20);
-        assert_ne!(
-            changed.rp_authorization_v2().unwrap().details_hash,
-            original
-        );
+        assert_ne!(changed.rp_authorization().unwrap().details_hash, original);
 
         let mut changed = request.clone();
         changed.requests[0].expires_at_min = Some(request.created_at + 1);
-        assert_ne!(
-            changed.rp_authorization_v2().unwrap().details_hash,
-            original
-        );
+        assert_ne!(changed.rp_authorization().unwrap().details_hash, original);
 
         let mut changed = request.clone();
         if let Some(ConstraintExpr::Any { any }) = changed.constraints.as_mut() {
             any.swap(0, 1);
         }
-        assert_ne!(
-            changed.rp_authorization_v2().unwrap().details_hash,
-            original
-        );
+        assert_ne!(changed.rp_authorization().unwrap().details_hash, original);
 
         let mut changed = request;
-        changed.request_salt = Some(B256::repeat_byte(0x43));
-        assert_ne!(
-            changed.rp_authorization_v2().unwrap().details_hash,
-            original
-        );
+        changed.request_salt = B256::repeat_byte(0x43);
+        assert_ne!(changed.rp_authorization().unwrap().details_hash, original);
     }
 
     #[test]
-    fn v2_effective_timestamp_defaults_are_canonical() {
-        let mut implicit = test_v2_request();
+    fn effective_timestamp_defaults_are_canonical() {
+        let mut implicit = test_request();
         implicit.requests[0].genesis_issued_at_min = None;
         implicit.requests[0].expires_at_min = None;
 
@@ -810,13 +676,13 @@ mod tests {
         explicit.requests[0].expires_at_min = Some(explicit.created_at);
 
         assert_eq!(
-            implicit.rp_authorization_v2().unwrap().details_hash,
-            explicit.rp_authorization_v2().unwrap().details_hash
+            implicit.rp_authorization().unwrap().details_hash,
+            explicit.rp_authorization().unwrap().details_hash
         );
     }
 
     #[test]
-    fn v2_existing_session_commits_to_both_fields() {
+    fn existing_session_commits_to_both_fields() {
         let mut seed_bytes = [0u8; 32];
         seed_bytes[0] = 1;
         seed_bytes[31] = 5;
@@ -826,21 +692,18 @@ mod tests {
         )
         .unwrap();
 
-        let mut request = test_v2_request();
+        let mut request = test_request();
         request.proof_type = ProofType::Session;
         request.session_id = SessionRef::Existing(session_id);
         request.action = None;
-        let authorization = request.rp_authorization_v2().unwrap();
+        let authorization = request.rp_authorization().unwrap();
 
         let mut changed_commitment = request.clone();
         changed_commitment.session_id = SessionRef::Existing(
             SessionId::new(FieldElement::from(30u64), session_id.oprf_seed).unwrap(),
         );
         assert_ne!(
-            changed_commitment
-                .rp_authorization_v2()
-                .unwrap()
-                .details_hash,
+            changed_commitment.rp_authorization().unwrap().details_hash,
             authorization.details_hash
         );
 
@@ -854,7 +717,7 @@ mod tests {
             )
             .unwrap(),
         );
-        let changed_authorization = changed_seed.rp_authorization_v2().unwrap();
+        let changed_authorization = changed_seed.rp_authorization().unwrap();
         assert_ne!(
             changed_authorization.details_hash,
             authorization.details_hash

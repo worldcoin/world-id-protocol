@@ -1,13 +1,13 @@
 # RP request authorization
 
-`ProofRequest` version 2 uses EIP-712 to bind an RP's authorization to the complete semantic request. Version 1 remains byte-for-byte compatible during migration, but it only signs the nonce, timestamps, and uniqueness action.
+`ProofRequest` version 1 uses EIP-712 to bind an RP's authorization to the complete semantic request.
 
 ## EIP-712 domain
 
-The V2 domain is:
+The domain is:
 
 - `name`: `World ID RP Request`
-- `version`: `2`
+- `version`: `1`
 - `chainId`: the chain containing the RP registry
 - `verifyingContract`: the RP registry proxy address
 
@@ -15,10 +15,10 @@ The chain and registry bindings prevent a signature from being replayed against 
 
 ## Public authorization
 
-EOA-backed RPs sign the following typed data. Contract-backed RPs receive the same fields through WIP-101 V2.
+EOA-backed RPs sign the following typed data. Contract-backed RPs receive the same fields through WIP-101.
 
 ```solidity
-struct RpRequestV2 {
+struct RpRequest {
     uint8 requestVersion;
     uint64 rpId;
     uint160 oprfKeyId;
@@ -36,7 +36,7 @@ struct RpRequestV2 {
 
 These fields authorize what an OPRF node is allowed to compute:
 
-- `requestVersion` selects V2 without a heuristic fallback to V1.
+- `requestVersion` identifies the request schema. Its only supported value is `1`.
 - `rpId` prevents replay between RPs that use the same signer.
 - `oprfKeyId` is checked against the key derived from the RP registry, preventing an unsigned key substitution.
 - `nonce`, `createdAt`, and `expiresAt` provide replay and lifetime bounds.
@@ -59,10 +59,10 @@ Any other combination is invalid. In particular, an ordinary uniqueness request 
 
 ## Private details commitment
 
-`detailsHash` is the EIP-712 struct hash of `RpRequestDetailsV2`:
+`detailsHash` is the EIP-712 struct hash of `RpRequestDetails`:
 
 ```solidity
-struct RpRequestDetailsV2 {
+struct RpRequestDetails {
     bytes32 privacySalt;
     string requestId;
     bytes32 sessionRefHash;
@@ -88,15 +88,13 @@ For an existing session, the Authenticator discloses a request-specific opening 
 
 ```text
 existingSessionSeedAuthorization =
-    hash(SessionSeedAuthorizationV2(opening, requestedOprfSeed))
+    hash(SessionSeedAuthorization(opening, requestedOprfSeed))
 ```
 
 The full existing session reference remains bound inside `detailsHash`; ordinary session-action calls expose neither it nor the salt.
 
 The same public authorization is necessarily attached to each OPRF operation belonging to one proof request, so a node can correlate those operations as one short-lived request. With a fresh salt and nonce, the authorization itself does not create a stable handle across requests. An existing session's OPRF seed is still visible to nodes when its blinding factor is explicitly rederived, so repeated rederivations remain linkable as the same RP session; caching the blinding factor avoids that call, and ordinary session-action calls do not expose the seed. Strict unlinkability even between operations in one composite request would require separate domain-separated capabilities, independent nonces, and unlinkable transport; that is a larger protocol mode than one RP request signature.
 
-## Migration
+## Rollout
 
-Nodes distinguish V1 from V2 by the presence of the typed V2 authorization carried in the OPRF authentication envelope. A present V2 authorization is verified only as V2; failed V2 verification never falls back to V1. Deploy V2-capable nodes before enabling V2 clients. V1 remains accepted during the compatibility window and can be retired after the maximum outstanding V1 request lifetime.
-
-During that compatibility window, V1 remains an independently valid protocol request. EOA-backed RPs control this by no longer issuing V1 signatures. Contract-backed RPs that advertise both WIP-101 interfaces MUST keep their V1 policy at least as restrictive as V2, or stop advertising V1 after their outstanding V1 requests expire; an untrusted client can otherwise choose to submit a separate V1 request.
+This is an in-place replacement of the unreleased request authorization format, not a parallel version. Clients, OPRF nodes, and WIP-101 contracts must roll out together: legacy signatures and the former WIP-101 calldata shape are no longer accepted. A rollback therefore requires rolling back all three components to the previous commit as one coordinated change.

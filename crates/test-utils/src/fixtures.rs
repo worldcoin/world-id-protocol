@@ -1,9 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use alloy::{
-    primitives::{Address, U160},
-    signers::{Signature, SignerSync, local::PrivateKeySigner},
-};
+use alloy::primitives::{Address, Signature, U160, U256};
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::UniformRand;
@@ -171,15 +168,9 @@ pub fn generate_rp_fixture() -> RpFixture {
     let expiration_timestamp = current_timestamp + 300; // 5 minutes from now
 
     let signing_key = SigningKey::random(&mut rng);
-    let signer = PrivateKeySigner::from_signing_key(signing_key.clone());
-
-    let msg = world_id_primitives::rp::compute_rp_signature_msg(
-        nonce,
-        current_timestamp,
-        expiration_timestamp,
-        Some(*action),
-    );
-    let signature = signer.sign_message_sync(&msg).expect("can sign");
+    // Request-specific EIP-712 signatures are produced after the request and RP registry address
+    // are known. Keep a well-formed placeholder for tests that only need fixture structure.
+    let signature = Signature::new(U256::ZERO, U256::ZERO, false);
 
     let rp_session_id_r_seed = FieldElement::from(Fq::rand(&mut rng));
 

@@ -22,8 +22,6 @@ use uuid as _;
 pub enum RequestVersion {
     /// Version 1
     V1 = 1,
-    /// Version 2, which binds the complete semantic request to a typed RP authorization.
-    V2 = 2,
 }
 
 impl serde::Serialize for RequestVersion {
@@ -44,7 +42,6 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
         let v = u8::deserialize(deserializer)?;
         match v {
             1 => Ok(Self::V1),
-            2 => Ok(Self::V2),
             _ => Err(serde::de::Error::custom("unsupported version")),
         }
     }
@@ -52,7 +49,7 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
 
 /// The high-level proof flow requested by an RP.
 ///
-/// Explicit discriminants provide a stable one-byte protocol and V2 signing encoding.
+/// Explicit discriminants provide a stable one-byte protocol and signing encoding.
 /// JSON serialization remains the snake_case variant name.
 ///
 /// The discriminants mirror the OPRF domains used by each proof flow.
@@ -96,13 +93,12 @@ pub struct ProofRequest {
     pub id: String,
     /// Version of the request.
     pub version: RequestVersion,
-    /// Random salt used by V2 to hide the preimage of the private request-details commitment
-    /// from OPRF nodes.
+    /// Random salt used to hide the preimage of the private request-details commitment from OPRF
+    /// nodes.
     ///
-    /// This is required for V2 and must be omitted for V1. It is carried between the RP and
-    /// Authenticator, but is never forwarded to OPRF nodes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub request_salt: Option<B256>,
+    /// This must be non-zero. It is carried between the RP and Authenticator, but is never
+    /// forwarded to OPRF nodes.
+    pub request_salt: B256,
     /// Requested high-level proof flow.
     ///
     /// If omitted, the request is strictly treated as a [`ProofType::Uniqueness`] request.
@@ -446,41 +442,6 @@ impl ProofRequest {
         now > self.expires_at
     }
 
-    /// Computes the legacy V1 digest hash of this request.
-    ///
-    /// # Returns
-    /// A 32-byte hash representing the legacy V1 signature message.
-    ///
-    /// # Errors
-    /// Returns a `PrimitiveError` for V2 requests, which must use
-    /// [`Self::eip712_signing_hash_v2`] instead.
-    ///
-    /// The digest is computed as: `SHA256(version || nonce || created_at || expires_at || action)`.
-    /// This mirrors the RP signature message format from `rp::compute_rp_signature_msg`.
-    /// Note: the timestamp is encoded as big-endian to mirror the RP-side signing
-    /// performed in test fixtures and the OPRF stub.
-    pub fn digest_hash(&self) -> Result<[u8; 32], PrimitiveError> {
-        use crate::rp::compute_rp_signature_msg;
-        use sha2::{Digest, Sha256};
-
-        if self.version != RequestVersion::V1 {
-            return Err(PrimitiveError::InvalidInput {
-                attribute: "version".to_string(),
-                reason: "V2 requests use EIP-712 signing".to_string(),
-            });
-        }
-
-        let msg = compute_rp_signature_msg(
-            *self.nonce,
-            self.created_at,
-            self.expires_at,
-            self.action.map(|v| *v),
-        );
-        let mut hasher = Sha256::new();
-        hasher.update(&msg);
-        Ok(hasher.finalize().into())
-    }
-
     /// Validates that the request fields match the explicit proof type.
     ///
     /// If `proof_type` was omitted during deserialization, it defaults to
@@ -494,27 +455,11 @@ impl ProofRequest {
     /// Returns [`PrimitiveError::InvalidInput`] when the request has an invalid
     /// combination of `proof_type`, `session_id`, and `action`.
     pub fn validate_proof_type(&self) -> Result<(), PrimitiveError> {
-        match (self.version, self.request_salt) {
-            (RequestVersion::V1, None) => {}
-            (RequestVersion::V1, Some(_)) => {
-                return Err(PrimitiveError::InvalidInput {
-                    attribute: "request_salt".to_string(),
-                    reason: "must be omitted for V1 requests".to_string(),
-                });
-            }
-            (RequestVersion::V2, None) => {
-                return Err(PrimitiveError::InvalidInput {
-                    attribute: "request_salt".to_string(),
-                    reason: "must be present for V2 requests".to_string(),
-                });
-            }
-            (RequestVersion::V2, Some(salt)) if salt == B256::ZERO => {
-                return Err(PrimitiveError::InvalidInput {
-                    attribute: "request_salt".to_string(),
-                    reason: "must be non-zero for V2 requests".to_string(),
-                });
-            }
-            (RequestVersion::V2, Some(_)) => {}
+        if self.request_salt == B256::ZERO {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "request_salt".to_string(),
+                reason: "must be non-zero".to_string(),
+            });
         }
 
         match (self.proof_type, self.session_id, self.action) {
@@ -1040,53 +985,11 @@ mod tests {
     }
 
     #[test]
-    fn test_digest_hash() {
-        let request = ProofRequest {
-            id: "test_request".into(),
-            version: RequestVersion::V1,
-            request_salt: None,
-            proof_type: ProofType::Uniqueness,
-            session_id: SessionRef::None,
-            action: Some(FieldElement::ZERO),
-            created_at: 1_700_000_000,
-            expires_at: 1_700_100_000,
-            rp_id: RpId::new(1),
-            oprf_key_id: OprfKeyId::new(uint!(1_U160)),
-            signature: test_signature(),
-            nonce: test_nonce(),
-            requests: vec![RequestItem {
-                identifier: "orb".into(),
-                issuer_schema_id: 1,
-                signal: Some("test_signal".into()),
-                genesis_issued_at_min: None,
-                expires_at_min: None,
-            }],
-            constraints: None,
-        };
-
-        let digest1 = request.digest_hash().unwrap();
-        // Verify it returns a 32-byte hash
-        assert_eq!(digest1.len(), 32);
-
-        // Verify deterministic: same request produces same hash
-        let digest2 = request.digest_hash().unwrap();
-        assert_eq!(digest1, digest2);
-
-        // Verify different request nonces produce different hashes
-        let request2 = ProofRequest {
-            nonce: test_field_element(3),
-            ..request
-        };
-        let digest3 = request2.digest_hash().unwrap();
-        assert_ne!(digest1, digest3);
-    }
-
-    #[test]
     fn proof_request_signature_serializes_as_hex_string() {
         let request = ProofRequest {
             id: "test".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(FieldElement::ZERO),
@@ -1129,7 +1032,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_1".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(FieldElement::ZERO),
@@ -1276,7 +1179,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_2".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(test_field_element(1)),
@@ -1345,7 +1248,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_nodes_ok".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(test_field_element(5)),
@@ -1489,7 +1392,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_nodes_too_many".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(test_field_element(1)),
@@ -1598,7 +1501,7 @@ mod tests {
         let req = ProofRequest {
             id: "req_18c0f7f03e7d".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Session,
             session_id: SessionRef::Existing(SessionId::default()),
             action: None,
@@ -1643,7 +1546,7 @@ mod tests {
         let req = ProofRequest {
             id: "req_18c0f7f03e7d".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(test_field_element(1)),
@@ -1701,7 +1604,7 @@ mod tests {
         let req = ProofRequest {
             id: "req_18c0f7f03e7d".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(test_field_element(1)),
@@ -1779,7 +1682,7 @@ mod tests {
         let req = ProofRequest {
             id: "req_enum".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(test_field_element(1)),
@@ -1847,6 +1750,7 @@ mod tests {
         let with_signal = r#"{
   "id": "req_abc123",
   "version": 1,
+  "request_salt": "0x4242424242424242424242424242424242424242424242424242424242424242",
   "created_at": 1725381192,
   "expires_at": 1725381492,
   "rp_id": "rp_0000000000000001",
@@ -1876,6 +1780,7 @@ mod tests {
         let without_signal = r#"{
   "id": "req_abc123",
   "version": 1,
+  "request_salt": "0x4242424242424242424242424242424242424242424242424242424242424242",
   "created_at": 1725381192,
   "expires_at": 1725381492,
   "rp_id": "rp_0000000000000001",
@@ -1954,7 +1859,7 @@ mod tests {
         let req = ProofRequest {
             id: "req_dup".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(test_field_element(5)),
@@ -1998,7 +1903,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_error".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(FieldElement::ZERO),
@@ -2065,7 +1970,7 @@ mod tests {
         let req = ProofRequest {
             id: "req".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(test_field_element(5)),
@@ -2114,7 +2019,7 @@ mod tests {
         let req = ProofRequest {
             id: "req".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(test_field_element(1)),
@@ -2188,7 +2093,7 @@ mod tests {
         let req = ProofRequest {
             id: "req".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(test_field_element(1)),
@@ -2256,7 +2161,7 @@ mod tests {
         let req = ProofRequest {
             id: "req".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(test_field_element(1)),
@@ -2366,7 +2271,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_expires_test".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(test_field_element(1)),
@@ -2494,7 +2399,7 @@ mod tests {
         let uniqueness_with_create = ProofRequest {
             id: "req_bound_uniqueness".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::Create,
             action: Some(FieldElement::ZERO),
@@ -2604,11 +2509,11 @@ mod tests {
     }
 
     #[test]
-    fn test_request_salt_is_versioned() {
-        let v1 = ProofRequest {
-            id: "req_v2".into(),
+    fn test_request_salt_is_required_and_nonzero() {
+        let request = ProofRequest {
+            id: "req".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(FieldElement::ZERO),
@@ -2622,44 +2527,24 @@ mod tests {
             constraints: None,
         };
 
-        let v1_with_salt = ProofRequest {
-            request_salt: Some(B256::repeat_byte(0x42)),
-            ..v1.clone()
+        assert!(request.validate_proof_type().is_ok());
+
+        let request_with_zero_salt = ProofRequest {
+            request_salt: B256::ZERO,
+            ..request.clone()
         };
         assert!(matches!(
-            v1_with_salt.validate_proof_type(),
+            request_with_zero_salt.validate_proof_type(),
             Err(PrimitiveError::InvalidInput { attribute, .. }) if attribute == "request_salt"
         ));
 
-        let v2_without_salt = ProofRequest {
-            version: RequestVersion::V2,
-            ..v1.clone()
-        };
-        assert!(matches!(
-            v2_without_salt.validate_proof_type(),
-            Err(PrimitiveError::InvalidInput { attribute, .. }) if attribute == "request_salt"
-        ));
-
-        let v2 = ProofRequest {
-            version: RequestVersion::V2,
-            request_salt: Some(B256::repeat_byte(0x42)),
-            ..v1
-        };
-        assert!(v2.validate_proof_type().is_ok());
-
-        let v2_with_zero_salt = ProofRequest {
-            request_salt: Some(B256::ZERO),
-            ..v2.clone()
-        };
-        assert!(matches!(
-            v2_with_zero_salt.validate_proof_type(),
-            Err(PrimitiveError::InvalidInput { attribute, .. }) if attribute == "request_salt"
-        ));
-
-        let json = v2.to_json().unwrap();
+        let json = request.to_json().unwrap();
         let roundtrip = ProofRequest::from_json(&json).unwrap();
-        assert_eq!(roundtrip, v2);
-        assert!(v2.digest_hash().is_err());
+        assert_eq!(roundtrip, request);
+
+        let mut missing_salt = serde_json::to_value(request).unwrap();
+        missing_salt.as_object_mut().unwrap().remove("request_salt");
+        assert!(serde_json::from_value::<ProofRequest>(missing_salt).is_err());
     }
 
     #[test]
@@ -2667,7 +2552,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_bound".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::Create,
             action: Some(FieldElement::ZERO),
@@ -2701,7 +2586,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_plain".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(FieldElement::ZERO),
@@ -2739,7 +2624,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_bound".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::Existing(session_id),
             action: Some(FieldElement::ZERO),
@@ -2822,7 +2707,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_create_session".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Session,
             session_id: SessionRef::Create,
             action: None,
@@ -2872,7 +2757,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_uniqueness_create".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::Create,
             action: Some(FieldElement::ZERO),
@@ -2923,7 +2808,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_session".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Session,
             session_id: SessionRef::Existing(SessionId::default()),
             action: None,
@@ -2970,7 +2855,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_session".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Session,
             session_id: SessionRef::Existing(SessionId::default()),
             action: None,
@@ -3020,7 +2905,7 @@ mod tests {
         let request = ProofRequest {
             id: "req_uniqueness".into(),
             version: RequestVersion::V1,
-            request_salt: None,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Uniqueness,
             session_id: SessionRef::None,
             action: Some(test_field_element(42)),
