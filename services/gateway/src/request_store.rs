@@ -112,6 +112,8 @@ impl RequestStore {
             .iter()
             .map(|raw| Self::inflight_key(kind, raw))
             .collect();
+
+        // TODO: Consider using HSET to set fields of this struct individually
         let record = RequestRecord {
             kind,
             status: GatewayRequestState::Queued,
