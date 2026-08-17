@@ -28,6 +28,20 @@ pub struct TrustAnchorKeyToken {
 /// `now` is the verifier-supplied Unix time (seconds) against which CWT `exp`
 /// freshness is checked (`now < exp`). It MUST be a public input of any outer
 /// proof that calls this function.
+///
+/// # Trust anchor
+///
+/// `trust_anchor_key_x` / `trust_anchor_key_y` come from the witness, so this
+/// function proves only that *some* key signed the token, not that the key
+/// belongs to an approved Authenticator Provider. A prover can mint a keypair
+/// and self-attest any assertion key and any `sec_flags`. Establishing that
+/// binding is the outer proof's responsibility, and it MUST do so by either:
+/// - proving the anchor's membership in an approved provider registry
+///   in-circuit, or
+/// - exposing the anchor as a public input the verifier checks against that
+///   registry. Note this reveals which provider attested the authenticator,
+///   narrowing the anonymity set; prefer in-circuit membership where the
+///   provider set is not already public per proof.
 pub fn verify_takt(input: TrustAnchorKeyToken, now: Field) {
     // CBOR uint32 encoding of `exp` is checked later in `serialize_takt`.
     assert_not_expired(input.exp, now);

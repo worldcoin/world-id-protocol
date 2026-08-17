@@ -46,6 +46,11 @@ pub struct AuthenticatorAssertionToken {
 /// freshness on both the AAT and its nested TAKT (`now < exp`). It MUST be a
 /// public input of any outer proof that calls this function.
 ///
+/// The chain is only as trustworthy as its root: the TAKT's `trust_anchor_key`
+/// is witness-selected, so an outer proof MUST bind it to an approved
+/// Authenticator Provider. See `verify_takt` for what that binding requires.
+/// Without it, this function accepts a self-attested chain.
+///
 /// This is the primary entrypoint; the TAKT digest is computed exactly once
 /// along this path (inside `verify_takt`).
 pub fn verify_aat(aat: AuthenticatorAssertionToken, now: Field) {
