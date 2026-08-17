@@ -211,7 +211,9 @@ impl RequestStore {
                 local inflight = decoded.inflight_keys
                 if inflight then
                     for _, k in ipairs(inflight) do
-                        if redis.call('GET', k) == ARGV[3] then
+                        local owner = redis.call('GET', k)
+                        -- Gateway versions predating lock ownership stored literal 1.
+                        if owner == ARGV[3] or owner == '1' then
                             redis.call('DEL', k)
                         end
                     end
@@ -499,6 +501,41 @@ mod tests {
             store.pending_request_ids().await.unwrap(),
             ["request-1".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn terminal_request_releases_legacy_inflight_lock() {
+        let (store, _redis) = store().await;
+        let lock = "7".to_string();
+        let redis_lock = "gateway:inflight:leaf:7";
+
+        store
+            .create_request(
+                "request-1",
+                GatewayRequestKind::UpdateAuthenticator,
+                &[lock],
+                10,
+            )
+            .await
+            .unwrap();
+
+        // Simulate a lock created by a gateway version that predates lock ownership.
+        let mut manager = store.manager.clone();
+        let _: () = manager.set(redis_lock, "1").await.unwrap();
+
+        store
+            .update_status(
+                "request-1",
+                &GatewayRequestState::Finalized {
+                    tx_hash: "0xabc".to_string(),
+                },
+                20,
+            )
+            .await
+            .unwrap();
+
+        let lock_exists: bool = manager.exists(redis_lock).await.unwrap();
+        assert!(!lock_exists);
     }
 
     #[tokio::test]
