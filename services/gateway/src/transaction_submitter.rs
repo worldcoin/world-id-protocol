@@ -85,6 +85,9 @@ impl TransactionSubmitter {
         let wallet = lease.entry.wallet.address;
         let started_at = tokio::time::Instant::now();
 
+        // NOTE: We sign and persist the transaction hash BEFORE broadcasting it.
+        //       This ensures that we don't end up broadcasting a tx without persisting it
+        //       which could result in nonce gaps or transaction overwrites.
         let signed = match lease.entry.wallet.sign_transaction(transaction).await {
             Ok(signed) => signed,
             Err(error) => {
