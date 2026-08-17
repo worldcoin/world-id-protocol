@@ -1,12 +1,13 @@
 use std::{num::NonZeroUsize, path::Path, time::Duration};
 
 use ::alloy::{
-    network::EthereumWallet,
+    network::{Ethereum, EthereumWallet, NetworkWallet},
+    primitives::Address,
     providers::{
         DynProvider, Provider, ProviderBuilder,
         fillers::{NonceManager, SimpleNonceManager},
     },
-    rpc::{client::RpcClient, json_rpc::RpcError},
+    rpc::{client::RpcClient, json_rpc::RpcError, types::TransactionRequest},
     signers::{
         Signer,
         aws::{AwsSigner, AwsSignerError, aws_config::BehaviorVersion},
@@ -33,6 +34,24 @@ use crate::alloy::{
 };
 
 pub type ProviderResult<T> = Result<T, ProviderError>;
+
+#[derive(Clone, Debug)]
+struct ConfiguredProvider {
+    provider: DynProvider,
+    wallet: Option<EthereumWallet>,
+}
+
+impl ConfiguredProvider {
+    fn into_provider(self) -> DynProvider {
+        self.provider
+    }
+
+    fn try_into_wallet(self) -> ProviderResult<ProviderWallet> {
+        let wallet = self.wallet.ok_or(ProviderError::SignerConfigMissing)?;
+        let address = <EthereumWallet as NetworkWallet<Ethereum>>::default_signer_address(&wallet);
+        Ok(ProviderWallet::new(address, self.provider, wallet))
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum ProviderError {
@@ -251,6 +270,49 @@ pub enum SignerConfig {
     AwsKmsPerReplica(String),
 }
 
+/// A transaction signer paired with the provider stack that fills its transactions.
+#[derive(Clone, Debug)]
+pub struct ProviderWallet {
+    pub address: Address,
+    pub provider: DynProvider,
+    wallet: EthereumWallet,
+}
+
+impl ProviderWallet {
+    /// Creates a provider wallet from its provider and signer.
+    pub fn new(address: Address, provider: DynProvider, wallet: EthereumWallet) -> Self {
+        Self {
+            address,
+            provider,
+            wallet,
+        }
+    }
+
+    /// Fills and signs a transaction without broadcasting it.
+    ///
+    /// This reconstructs the filler stack as a workaround until
+    /// <https://github.com/alloy-rs/alloy/issues/4150> is resolved.
+    pub async fn sign_transaction(
+        &self,
+        transaction: TransactionRequest,
+    ) -> Result<::alloy::consensus::TxEnvelope, TransportError> {
+        ProviderBuilder::default()
+            .with_gas_estimation()
+            .filler(GasEstimateWithFallbackFiller)
+            .with_blob_gas_estimation()
+            .with_nonce_management(SimpleNonceManager::default())
+            .fetch_chain_id()
+            .wallet(self.wallet.clone())
+            .connect_provider(self.provider.clone())
+            .fill(transaction)
+            .await?
+            .try_into_envelope()
+            .map_err(|_| {
+                RpcError::local_usage_str("wallet provider did not produce a signed transaction")
+            })
+    }
+}
+
 impl ProviderArgs {
     /// Create a new provider configuration with sensible defaults.
     pub fn new() -> Self {
@@ -299,6 +361,13 @@ impl ProviderArgs {
             .await
     }
 
+    /// Builds a signer-backed provider wallet.
+    pub async fn http_wallet(self) -> ProviderResult<ProviderWallet> {
+        self.http_with_nonce_manager_and_address(SimpleNonceManager::default())
+            .await?
+            .try_into_wallet()
+    }
+
     /// Build a dynamic provider using a caller-supplied [`NonceManager`].
     ///
     /// This allows injecting a distributed nonce manager (e.g. Redis-backed)
@@ -307,6 +376,15 @@ impl ProviderArgs {
         self,
         nonce_manager: M,
     ) -> ProviderResult<DynProvider> {
+        self.http_with_nonce_manager_and_address(nonce_manager)
+            .await
+            .map(ConfiguredProvider::into_provider)
+    }
+
+    async fn http_with_nonce_manager_and_address<M: NonceManager + 'static>(
+        self,
+        nonce_manager: M,
+    ) -> ProviderResult<ConfiguredProvider> {
         if self.http.is_empty() {
             return Err(ProviderError::NoHttpUrls);
         }
@@ -385,23 +463,27 @@ impl ProviderArgs {
             None
         };
 
-        let provider = if let Some(signer) = maybe_signer {
+        if let Some(wallet) = maybe_signer {
             let provider = ProviderBuilder::default()
                 .with_gas_estimation() // It is important to have default run first
                 .filler(GasEstimateWithFallbackFiller) // And then our custom filler
                 .with_blob_gas_estimation()
                 .with_nonce_management(nonce_manager)
                 .fetch_chain_id()
-                .wallet(signer)
+                .wallet(wallet.clone())
                 .connect_client(client);
 
-            provider.erased()
+            Ok(ConfiguredProvider {
+                provider: provider.erased(),
+                wallet: Some(wallet),
+            })
         } else {
             let provider = ProviderBuilder::default().connect_client(client);
-            provider.erased()
-        };
-
-        Ok(provider)
+            Ok(ConfiguredProvider {
+                provider: provider.erased(),
+                wallet: None,
+            })
+        }
     }
 }
 
@@ -558,6 +640,30 @@ mod tests {
             args.signer_config(),
             Some(SignerConfig::AwsKms(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn http_wallet_exposes_signer_address() {
+        let private_key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+        let signer: PrivateKeySigner = private_key.parse().unwrap();
+        let wallet = ProviderArgs::new()
+            .with_http_urls(["http://127.0.0.1:8545"])
+            .with_signer(SignerArgs::from_wallet(private_key.to_string()))
+            .http_wallet()
+            .await
+            .unwrap();
+
+        assert_eq!(wallet.address, signer.address());
+    }
+
+    #[tokio::test]
+    async fn http_wallet_requires_signer() {
+        let result = ProviderArgs::new()
+            .with_http_urls(["http://127.0.0.1:8545"])
+            .http_wallet()
+            .await;
+
+        assert!(matches!(result, Err(ProviderError::SignerConfigMissing)));
     }
 
     #[test]
