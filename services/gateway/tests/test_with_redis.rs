@@ -137,6 +137,14 @@ async fn redis_integration() {
         "finalized request should have been removed from the pending set"
     );
 
+    let gateway_signer: PrivateKeySigner = GW_PRIVATE_KEY.parse().unwrap();
+    let wallet_transaction_key = format!("gateway:wallet_transaction:{}", gateway_signer.address());
+    let wallet_transaction: Option<String> = redis.get(wallet_transaction_key).await.unwrap();
+    assert!(
+        wallet_transaction.is_none(),
+        "confirmed transaction should release its gateway wallet"
+    );
+
     // Cleanup
     let _ = gw.shutdown().await;
 }

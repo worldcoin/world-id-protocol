@@ -1,7 +1,4 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-use alloy::{network::Ethereum, providers::PendingTransactionBuilder};
-use tokio::time::Instant;
+use std::time::{SystemTime, UNIX_EPOCH};
 use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
 
 pub use crate::storage::request_store::RequestRecord;
@@ -44,8 +41,6 @@ pub struct RequestTracker {
     store: RequestStore,
     /// Rate limiting configuration, if enabled.
     rate_limit: Option<RateLimitConfig>,
-    /// Safety timeout for receipt polling tasks so they don't run forever.
-    receipt_timeout_secs: u64,
 }
 
 impl RequestTracker {
@@ -53,15 +48,10 @@ impl RequestTracker {
     ///
     /// # Panics
     /// If the connection to Redis fails.
-    pub async fn new(
-        redis_url: String,
-        rate_limit: Option<RateLimitConfig>,
-        receipt_timeout_secs: u64,
-    ) -> Self {
+    pub async fn new(redis_url: String, rate_limit: Option<RateLimitConfig>) -> Self {
         Self {
             store: RequestStore::connect(&redis_url).await,
             rate_limit,
-            receipt_timeout_secs,
         }
     }
 
@@ -162,81 +152,37 @@ impl RequestTracker {
         self.set_status_batch(ids, status).await;
     }
 
-    /// Spawns a background task that awaits a pending transaction receipt and
-    /// finalizes the associated requests based on the outcome.
-    ///
-    /// `batch_type` and `submitted_at` are used to record on-chain confirmation
-    /// metrics (`batch.success`, `batch.failure`, `batch.latency_ms`) once the
-    /// receipt is obtained.  Success and failure metrics are intentionally
-    /// deferred to this point so they reflect the actual on-chain outcome
-    /// rather than the RPC submission result.
-    pub fn spawn_receipt_tracker(
+    /// Finalizes pending requests associated with a legacy transaction record.
+    pub(crate) async fn finalize_submitted_transaction(
         &self,
-        ids: Vec<String>,
-        builder: PendingTransactionBuilder<Ethereum>,
-        tx_hash: String,
-        batch_type: &'static str,
-        submitted_at: Instant,
+        receipt_succeeded: bool,
+        tx_hash: &str,
     ) {
-        let tracker = self.clone();
-        let timeout = Duration::from_secs(self.receipt_timeout_secs);
-        tokio::spawn(async move {
-            let result = tokio::time::timeout(timeout, builder.get_receipt()).await;
-            match result {
-                Ok(Ok(receipt)) => {
-                    let confirmed = receipt.status();
-                    let latency_ms = submitted_at.elapsed().as_millis() as f64;
-                    metrics::record_batch_confirmed(batch_type, confirmed, latency_ms);
-
-                    if confirmed {
-                        tracing::info!(
-                            tx_hash = %tx_hash,
-                            batch_type,
-                            latency_ms,
-                            "batch transaction confirmed on-chain"
-                        );
-                    } else {
-                        tracing::error!(
-                            tx_hash = %tx_hash,
-                            batch_type,
-                            "batch transaction reverted on-chain"
-                        );
-                    }
-
-                    tracker
-                        .finalize_from_receipt(&ids, confirmed, &tx_hash)
-                        .await;
-                }
-                Ok(Err(err)) => {
-                    let latency_ms = submitted_at.elapsed().as_millis() as f64;
-                    metrics::record_batch_confirmed(batch_type, false, latency_ms);
-
-                    tracing::error!(
-                        tx_hash = %tx_hash,
-                        batch_type,
-                        error = %err,
-                        "batch transaction confirmation error"
-                    );
-
-                    tracker
-                        .set_status_batch(
-                            &ids,
-                            GatewayRequestState::failed(
-                                format!("transaction confirmation error: {err}"),
-                                Some(GatewayErrorCode::ConfirmationError),
-                            ),
-                        )
-                        .await;
-                }
-                Err(_) => {
-                    tracing::warn!(
-                        tx_hash = %tx_hash,
-                        batch_type,
-                        "receipt polling timed out, orphan sweeper will handle cleanup",
-                    );
-                }
+        let ids = match self.get_pending_requests().await {
+            Ok(ids) => ids,
+            Err(error) => {
+                tracing::error!(%error, %tx_hash, "failed to load requests for tracked transaction");
+                return;
             }
-        });
+        };
+        let records = match self.snapshot_batch(&ids).await {
+            Ok(records) => records,
+            Err(error) => {
+                tracing::error!(%error, %tx_hash, "failed to inspect requests for tracked transaction");
+                return;
+            }
+        };
+        let matching: Vec<String> = records
+            .into_iter()
+            .filter_map(|(id, record)| match record.map(|record| record.status) {
+                Some(GatewayRequestState::Submitted {
+                    tx_hash: request_hash,
+                }) if request_hash == tx_hash => Some(id),
+                _ => None,
+            })
+            .collect();
+        self.finalize_from_receipt(&matching, receipt_succeeded, tx_hash)
+            .await;
     }
 
     /// Returns a snapshot of the current state of a request, if it exists.
@@ -260,7 +206,7 @@ impl RequestTracker {
     }
 
     // =========================================================================
-    // Pending-set helpers (used by orphan_sweeper)
+    // Pending-set helpers
     // =========================================================================
 
     /// Returns all request IDs currently in the pending set.
