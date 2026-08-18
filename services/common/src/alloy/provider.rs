@@ -111,7 +111,8 @@ pub struct ProviderArgs {
 #[derive(Args, Debug, Clone, Default, Deserialize)]
 #[group(required = false, multiple = false)]
 pub struct SignerArgs {
-    /// The signer wallet private key (hex) that will submit transactions (pays for gas)
+    /// Semicolon-separated signer wallet private keys (hex) that will submit
+    /// transactions and pay for gas
     #[arg(long, env = "WALLET_PRIVATE_KEY")]
     wallet_private_key: Option<String>,
 
@@ -175,11 +176,16 @@ impl SignerArgs {
             &self.aws_kms_key_id,
             &self.aws_kms_key_ids,
         ) {
-            (Some(s), None, None) => {
-                // PrivateKey: No RPC call needed
-                let signer = s.parse::<PrivateKeySigner>()?;
-                Ok(vec![EthereumWallet::from(signer)])
-            }
+            (Some(private_keys), None, None) => private_keys
+                .split(';')
+                .map(str::trim)
+                .map(|private_key| {
+                    private_key
+                        .parse::<PrivateKeySigner>()
+                        .map(EthereumWallet::from)
+                        .map_err(ProviderError::from)
+                })
+                .collect(),
             (None, Some(key_id), None) => {
                 tracing::info!("Initializing AWS KMS signer with key_id: {}", key_id);
                 Ok(vec![Self::aws_kms_wallet(key_id, rpc_url).await?])
@@ -233,13 +239,23 @@ impl SignerArgs {
         self.aws_kms_key_ids.is_some()
     }
 
-    /// Create a new `SignerArgs` with the provided wallet private key.
+    /// Create `SignerArgs` with one private key or a semicolon-separated pool.
     pub fn from_wallet(wallet_private_key: String) -> Self {
         Self {
             wallet_private_key: Some(wallet_private_key),
             aws_kms_key_id: None,
             aws_kms_key_ids: None,
         }
+    }
+
+    /// Create `SignerArgs` with a pool of private keys.
+    pub fn from_wallets(wallet_private_keys: impl IntoIterator<Item = String>) -> Self {
+        Self::from_wallet(
+            wallet_private_keys
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join(";"),
+        )
     }
 
     /// Create a new `SignerArgs` with the provided aws kms key id
@@ -702,6 +718,32 @@ mod tests {
             .unwrap();
 
         assert_eq!(wallets[0].address, signer.address());
+    }
+
+    #[tokio::test]
+    async fn http_wallets_exposes_all_private_key_signers() {
+        let private_keys = [
+            "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+            "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+        ];
+        let expected_addresses: Vec<Address> = private_keys
+            .iter()
+            .map(|private_key| private_key.parse::<PrivateKeySigner>().unwrap().address())
+            .collect();
+        let wallets = ProviderArgs::new()
+            .with_http_urls(["http://127.0.0.1:8545"])
+            .with_signer(SignerArgs::from_wallets(private_keys.map(str::to_string)))
+            .http_wallets()
+            .await
+            .unwrap();
+
+        assert_eq!(
+            wallets
+                .into_iter()
+                .map(|wallet| wallet.address)
+                .collect::<Vec<_>>(),
+            expected_addresses
+        );
     }
 
     #[tokio::test]
