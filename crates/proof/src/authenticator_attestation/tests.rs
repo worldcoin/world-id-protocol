@@ -41,14 +41,6 @@ fn sample_aat_claims() -> AuthenticatorAssertionClaims {
     }
 }
 
-/// Builds a signed Trust Anchor Key Token attesting the given assertion key.
-fn signed_takt(assertion_key: p256::PublicKey, trust_anchor_key: &EdDSAPrivateKey) -> Vec<u8> {
-    TrustAnchorKeyToken::new(sample_claims(assertion_key))
-        .unwrap()
-        .sign(trust_anchor_key)
-        .unwrap()
-}
-
 fn to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -247,9 +239,7 @@ fn aat_signature_verifies_with_es256() {
 
 #[test]
 fn aat_claims_follow_deterministic_cbor_map_order() {
-    let trust_anchor_key = EdDSAPrivateKey::random(&mut OsRng);
     let assertion_secret = p256::SecretKey::random(&mut OsRng);
-    let takt = signed_takt(assertion_secret.public_key(), &trust_anchor_key);
     let claims = sample_aat_claims();
 
     let token = AuthenticatorAssertionToken::new(claims).unwrap();
