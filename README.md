@@ -38,7 +38,7 @@ The [World Foundation](https://foundation.world.org/) maintains a set of referen
 
 | Service            | Environment | URL                                                   |
 | ------------------ | ----------- | ----------------------------------------------------- |
-| `world-id-indexer` | Staging  | `https://indexer.us.id-infra.worldcoin.org`<br />`https://indexer.eu.id-infra.worldcoin.dev`<br />`https://indexer.ap.id-infra.worldcoin.dev` |
+| `world-id-indexer` | Staging  | `https://indexer.us.id-infra.worldcoin.dev`<br />`https://indexer.eu.id-infra.worldcoin.dev`<br />`https://indexer.ap.id-infra.worldcoin.dev` |
 | `world-id-gateway` | Staging     | `https://gateway.id-infra.worldcoin.dev` |
 | `world-id-indexer` | Production  | `https://indexer.us.id-infra.world.org`<br />`https://indexer.eu.id-infra.world.org`<br />`https://indexer.ap.id-infra.world.org` |
 | `world-id-gateway` | Production     | `https://gateway.id-infra.world.org` |
