@@ -1,31 +1,37 @@
 #![allow(clippy::large_futures, reason = "Is ok in tests")]
 #![allow(clippy::cast_sign_loss, reason = "Is ok in tests")]
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use alloy::{
     primitives::Address,
+    providers::mock::Asserter,
     signers::{SignerSync as _, local::LocalSigner},
 };
+use ark_bn254::Bn254;
 use ark_ff::PrimeField as _;
+use circom_types::groth16::VerificationKey;
 use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
 use uuid::Uuid;
 use world_id_primitives::{
-    FieldElement, SessionFeType, SessionFieldElement as _,
+    FieldElement, OprfPrefix, OprfPrefixedFieldElement as _,
     oprf::{NullifierOprfRequestAuthV1, RpSignatureVerification, error_codes},
     rp::RpId,
 };
 
-use crate::auth::{
-    rp_module::{
-        RpModuleAuth,
-        wip101::tests::{
-            NoERC165, NoWIP101, WIP101BrokenERC165, WIP101Correct, WIP101CorrectWhenAuxData,
-            WIP101PlainRevert, WIP101RevertsWithCode, WIP101TimeoutERC165, WIP101TimeoutVerify,
-            WIP101WrongMagic, WrongSignature,
+use crate::{
+    QUERY_VERIFICATION_KEY,
+    auth::{
+        merkle_watcher::MerkleWatcher,
+        nonce_history::NonceHistory,
+        rp_module::{
+            RpAccountType, RpModuleAuth, RpModuleAuthArgs, RpModuleError, wip101,
+            wip101::Wip101Error,
         },
+        rp_registry_watcher::RpRegistryWatcher,
+        tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup, SetupKind},
     },
-    tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup, SetupKind},
+    config::WatcherCacheConfig,
 };
 
 pub(crate) struct RpModuleTestSetup {
@@ -36,12 +42,12 @@ pub(crate) struct RpModuleTestSetup {
 
 impl RpModuleTestSetup {
     pub(crate) async fn new_session() -> eyre::Result<Self> {
-        Self::new_unbound_session_with_fe_type(SessionFeType::OprfSeed).await
+        Self::new_unbound_session_with_fe_type(OprfPrefix::SessionOprfSeed).await
     }
 
     /// Constructs a valid session test setup with the given session type.
     pub(crate) async fn new_unbound_session_with_fe_type(
-        session_type: SessionFeType,
+        session_type: OprfPrefix,
     ) -> eyre::Result<Self> {
         let mut rng = rand::thread_rng();
         let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
@@ -49,7 +55,7 @@ impl RpModuleTestSetup {
         let request_authenticator = RpModuleAuth::new_session(infra.rp_module_args());
 
         // Session action must have the correct prefix byte (0x01 or 0x02)
-        let session_action = FieldElement::random_for_session(&mut rng, session_type);
+        let session_action = FieldElement::random_with_prefix(&mut rng, session_type);
         let bundle = infra
             .generate_query_proof(session_action, infra.setup.rp_fixture.world_rp_id.into())?;
 
@@ -96,7 +102,8 @@ impl RpModuleTestSetup {
 
         let request_authenticator = RpModuleAuth::new_session(infra.rp_module_args());
 
-        let session_action = FieldElement::random_for_session(&mut rng, SessionFeType::OprfSeed);
+        let session_action =
+            FieldElement::random_with_prefix(&mut rng, OprfPrefix::SessionOprfSeed);
         let bundle = infra
             .generate_query_proof(session_action, infra.setup.rp_fixture.world_rp_id.into())?;
 
@@ -163,33 +170,6 @@ impl RpModuleTestSetup {
         })
     }
 
-    /// Points the RP's registered signer at `address` (a deployed WIP101 mock
-    /// contract) and switches the request to contract-based auth.
-    pub(crate) async fn set_contract_signer(&mut self, address: Address, data: Option<Vec<u8>>) {
-        let signer = self
-            .setup
-            .anvil
-            .signer(0)
-            .expect("Should have an anvil signer");
-        self.setup
-            .anvil
-            .update_rp(
-                self.setup.rp_registry,
-                signer,
-                self.setup.rp_fixture.signing_key.clone().into(),
-                self.setup.rp_fixture.world_rp_id,
-                false,
-                address,
-                address,
-                "some domain".to_owned(),
-            )
-            .await
-            .expect("Should be able to update RP signer");
-
-        self.request.auth.signature = None;
-        self.request.auth.wip101_data = data;
-    }
-
     /// Authenticates the request and asserts it succeeds with the fixture's OPRF key id.
     async fn assert_auth_ok(&self) -> eyre::Result<()> {
         let oprf_key_id = self
@@ -224,35 +204,10 @@ fn action_with_msb(msb: u8) -> ark_babyjubjub::Fq {
     ark_babyjubjub::Fq::from_be_bytes_mod_order(&bytes)
 }
 
-/// Deploys a WIP101 mock contract and returns its address.
-macro_rules! deploy {
-    ($contract:ident, $setup:expr) => {
-        *$contract::deploy($setup.request_authenticator.rpc_provider.inner())
-            .await
-            .expect("Should be able to deploy contract")
-            .address()
-    };
-}
-
 // ── Shared test helpers ──────────────────────────────────────────────────
 
 async fn check_success(setup: RpModuleTestSetup) -> eyre::Result<()> {
     setup.assert_auth_ok().await
-}
-
-/// Shared assertion for the WIP101-incompatible-signer checks below: the
-/// message string appears once here instead of four times.
-async fn assert_wip101_incompatible(
-    mut setup: RpModuleTestSetup,
-    addr: Address,
-) -> eyre::Result<()> {
-    setup.set_contract_signer(addr, None).await;
-    setup
-        .assert_auth_err(
-            error_codes::WIP101_INCOMPATIBLE_RP_SIGNER,
-            "RP has a contract backed signer but doesn't conform to WIP101",
-        )
-        .await
 }
 
 // ── Session tests ────────────────────────────────────────────────────────
@@ -374,16 +329,6 @@ async fn test_session_invalid_rp_id() -> eyre::Result<()> {
 }
 
 #[tokio::test]
-async fn test_session_blocked_rp_id() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_session().await?;
-    // 42 is the blocked RP in the mock
-    setup.request.auth.rp_id = setup.setup.blocked_rp;
-    setup
-        .assert_auth_err(error_codes::BLOCKED_RP, "RP blocked by billing contract")
-        .await
-}
-
-#[tokio::test]
 async fn test_session_invalid_signer() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.nonce = rand::random();
@@ -484,109 +429,6 @@ async fn test_session_inactive_rp() -> eyre::Result<()> {
 }
 
 #[tokio::test]
-async fn test_session_wip101_success() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_session().await?;
-    let addr = deploy!(WIP101Correct, setup);
-    setup.set_contract_signer(addr, None).await;
-    setup.assert_auth_ok().await
-}
-
-#[tokio::test]
-async fn test_session_wip101_success_max_data() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_session().await?;
-    let addr = deploy!(WIP101Correct, setup);
-    // should still work
-    setup
-        .set_contract_signer(addr, Some(vec![0xAB; 1024]))
-        .await;
-    setup.assert_auth_ok().await
-}
-
-#[tokio::test]
-async fn test_session_wip101_success_if_data() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_session().await?;
-    let addr = deploy!(WIP101CorrectWhenAuxData, setup);
-    setup
-        .set_contract_signer(addr, Some(vec![0xC0, 0xFF, 0xEE]))
-        .await;
-    setup.assert_auth_ok().await
-}
-
-#[tokio::test]
-async fn test_session_wip101_no_data_failure() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_session().await?;
-    let addr = deploy!(WIP101CorrectWhenAuxData, setup);
-    setup.set_contract_signer(addr, None).await;
-    // this should be the custom error as hex
-    setup
-        .assert_auth_err(error_codes::WIP101_VERIFICATION_FAILED, "0x1")
-        .await
-}
-
-#[tokio::test]
-async fn test_session_wip101_wrong_magic() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_session().await?;
-    let addr = deploy!(WIP101WrongMagic, setup);
-    setup.set_contract_signer(addr, None).await;
-    setup
-        .assert_auth_err(error_codes::WIP101_VERIFICATION_FAILED, "")
-        .await
-}
-
-#[tokio::test]
-async fn test_session_wip101_reverts_with_code() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_session().await?;
-    let addr = deploy!(WIP101RevertsWithCode, setup);
-    setup.set_contract_signer(addr, None).await;
-    // this should be the custom error as hex
-    setup
-        .assert_auth_err(error_codes::WIP101_VERIFICATION_FAILED, "0x2a")
-        .await
-}
-
-#[tokio::test]
-async fn test_session_wip101_plain_revert() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_session().await?;
-    let addr = deploy!(WIP101PlainRevert, setup);
-    setup.set_contract_signer(addr, None).await;
-    setup
-        .assert_auth_err(
-            error_codes::WIP101_CUSTOM_REVERT,
-            "RP signer contract reverted with custom error (and not error RpInvalidRequest(uint256 code);)",
-        )
-        .await
-}
-
-#[tokio::test]
-async fn test_session_wip101_broken_erc165() -> eyre::Result<()> {
-    let setup = RpModuleTestSetup::new_session().await?;
-    let addr = deploy!(WIP101BrokenERC165, setup);
-    // whether the contract calls confirm to WIP101 as reported by ERC165 is irrelevant here
-    assert_wip101_incompatible(setup, addr).await
-}
-
-#[tokio::test]
-async fn test_session_wip101_no_erc165() -> eyre::Result<()> {
-    let setup = RpModuleTestSetup::new_session().await?;
-    let addr = deploy!(NoERC165, setup);
-    assert_wip101_incompatible(setup, addr).await
-}
-
-#[tokio::test]
-async fn test_session_wip101_no_verify_rp_request() -> eyre::Result<()> {
-    let setup = RpModuleTestSetup::new_session().await?;
-    let addr = deploy!(NoWIP101, setup);
-    assert_wip101_incompatible(setup, addr).await
-}
-
-#[tokio::test]
-async fn test_session_wip101_wrong_method_signature() -> eyre::Result<()> {
-    let setup = RpModuleTestSetup::new_session().await?;
-    let addr = deploy!(WrongSignature, setup);
-    assert_wip101_incompatible(setup, addr).await
-}
-
-#[tokio::test]
 async fn test_session_wip101_aux_data_on_eoa() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
     // EOA signer (default). Setting aux data should be rejected before any contract call.
@@ -599,60 +441,12 @@ async fn test_session_wip101_aux_data_on_eoa() -> eyre::Result<()> {
         .await
 }
 
-#[tokio::test]
-async fn test_session_wip101_aux_data_too_large() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_session().await?;
-    let addr = deploy!(WIP101Correct, setup);
-    // 1025 bytes exceeds MAX_AUX_DATA_SIZE (1024)
-    setup
-        .set_contract_signer(addr, Some(vec![0xAB; 1025]))
-        .await;
-    setup
-        .assert_auth_err(
-            error_codes::WIP101_AUX_DATA_TOO_LARGE,
-            "Auxiliary data for WIP101 contract too large - max 1024 bytes",
-        )
-        .await
-}
-
-#[tokio::test]
-async fn test_session_wip101_verification_timeout() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_session().await?;
-    let addr = deploy!(WIP101TimeoutVerify, setup);
-    setup.set_contract_signer(addr, None).await;
-    // set timeout to 0
-    setup.request_authenticator.timeout_external_eth_call = Duration::from_secs(0);
-    setup
-        .assert_auth_err(
-            error_codes::WIP101_VERIFICATION_TIMEOUT,
-            "WIP101 verification ran into timeout",
-        )
-        .await
-}
-
-#[tokio::test]
-async fn test_session_wip101_account_check_timeout() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_session().await?;
-    // set timeout to 0
-    setup
-        .request_authenticator
-        .rp_registry_watcher
-        .set_timeout_external_eth_call(Duration::from_secs(0));
-    let addr = deploy!(WIP101TimeoutERC165, setup);
-    setup.set_contract_signer(addr, None).await;
-    setup
-        .assert_auth_err(
-            error_codes::WIP101_ACCOUNT_CHECK_TIMEOUT,
-            "Ran into timeout while doing WIP101/ERC165 check on RP's signer",
-        )
-        .await
-}
-
 // ── Session-specific tests ───────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_session_success_action() -> eyre::Result<()> {
-    let setup = RpModuleTestSetup::new_unbound_session_with_fe_type(SessionFeType::Action).await?;
+    let setup =
+        RpModuleTestSetup::new_unbound_session_with_fe_type(OprfPrefix::SessionAction).await?;
     setup.assert_auth_ok().await
 }
 
@@ -770,4 +564,84 @@ async fn test_uniqueness_invalid_action_session_prefix() -> eyre::Result<()> {
             "invalid action for nullifier",
         )
         .await
+}
+
+const DISPATCH_TIMEOUT: Duration = Duration::from_secs(1);
+
+fn mock_session_auth(rpc_provider: taceo_nodes_common::web3::HttpRpcProvider) -> RpModuleAuth {
+    let vk: VerificationKey<Bn254> =
+        serde_json::from_str(QUERY_VERIFICATION_KEY).expect("can deserialize embedded vk");
+    RpModuleAuth::new_session(RpModuleAuthArgs {
+        merkle_watcher: MerkleWatcher::init(
+            Address::ZERO,
+            &rpc_provider,
+            WatcherCacheConfig::default(),
+        ),
+        rp_registry_watcher: RpRegistryWatcher::init(
+            Address::ZERO,
+            rpc_provider.clone(),
+            DISPATCH_TIMEOUT,
+            WatcherCacheConfig::default(),
+        ),
+        nonce_history: NonceHistory::init(Duration::from_secs(60)),
+        created_at_max_difference: chrono::Duration::minutes(5),
+        expires_at_max_difference: chrono::Duration::minutes(5),
+        timeout_external_eth_call: DISPATCH_TIMEOUT,
+        rpc_provider,
+        query_vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
+    })
+}
+
+fn dispatch_request() -> OprfRequest<NullifierOprfRequestAuthV1> {
+    OprfRequest {
+        request_id: Uuid::new_v4(),
+        blinded_query: ark_babyjubjub::EdwardsAffine::default(),
+        auth: wip101::tests::dummy_auth(),
+    }
+}
+
+#[tokio::test]
+async fn test_dispatch_contract_signer_verifies_wip101() {
+    let authenticator = mock_session_auth(wip101::tests::provider_with_success(
+        &wip101::tests::success_magic_response(),
+    ));
+    let request = dispatch_request();
+    let rp = wip101::tests::relying_party(RpAccountType::Contract);
+    authenticator
+        .ensure_signature_valid(&rp, request.auth.action, &request)
+        .await
+        .expect("contract RP with valid WIP101 response should pass");
+}
+
+#[tokio::test]
+async fn test_dispatch_contract_signer_rejects_rp_signature_verification() {
+    let authenticator = mock_session_auth(Asserter::new().into());
+    let mut request = dispatch_request();
+    request.auth.rp_signature_verification = Some(RpSignatureVerification::UniquenessAction {
+        action: action_with_msb(0x00).into(),
+    });
+    let rp = wip101::tests::relying_party(RpAccountType::Contract);
+    let error = authenticator
+        .ensure_signature_valid(&rp, request.auth.action, &request)
+        .await
+        .expect_err("verification data on contract RP must fail");
+    assert!(matches!(
+        error,
+        RpModuleError::InvalidRpSignatureVerification { .. }
+    ));
+}
+
+#[tokio::test]
+async fn test_dispatch_incompatible_wip101_signer() {
+    let authenticator = mock_session_auth(Asserter::new().into());
+    let request = dispatch_request();
+    let rp = wip101::tests::relying_party(RpAccountType::IncompatibleWip101);
+    let error = authenticator
+        .ensure_signature_valid(&rp, request.auth.action, &request)
+        .await
+        .expect_err("incompatible WIP101 signer must fail");
+    assert!(matches!(
+        error,
+        RpModuleError::Wip101(Wip101Error::IncompatibleRpSigner)
+    ));
 }

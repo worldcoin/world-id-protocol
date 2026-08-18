@@ -8,7 +8,6 @@ use std::{
 };
 
 use ark_bn254::Bn254;
-use ark_ff::PrimeField;
 use ark_groth16::Proof;
 use eyre::Context;
 use groth16_material::circom::{CircomGroth16Material, CircomGroth16MaterialBuilder};
@@ -21,7 +20,7 @@ use taceo_oprf::{
 };
 
 use world_id_primitives::{
-    FieldElement, ProofRequest, ProofType, SessionFeType, SessionFieldElement, TREE_DEPTH,
+    FieldElement, OprfPrefix, OprfPrefixedFieldElement, ProofRequest, ProofType, TREE_DEPTH,
     oprf::{
         CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule,
         RpSignatureVerification,
@@ -30,10 +29,8 @@ use world_id_primitives::{
 
 use crate::circuit_inputs::QueryProofCircuitInput;
 
-use crate::{
-    AuthenticatorProofInput, ProofError,
-    nullifier_proof::{OPRF_PROOF_DS, errors},
-};
+use crate::{AuthenticatorProofInput, ProofError, nullifier_proof::errors};
+use world_id_primitives::poseidon::ds;
 
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::SessionNullifier;
@@ -212,7 +209,7 @@ impl<'a> OprfEntrypoint<'a> {
         let (action, module) = if proof_request.is_session_proof() {
             // For session proofs a random action is used internally. This is opaque to RPs who receive
             // it within the encoded `SessionNullifier`
-            let action = FieldElement::random_for_session(rng, SessionFeType::Action);
+            let action = FieldElement::random_with_prefix(rng, OprfPrefix::SessionAction);
             (action, OprfModule::Session)
         } else {
             // If the RP didn't provide an action, we provide a default.
@@ -417,7 +414,7 @@ impl<'a> OprfEntrypoint<'a> {
             threshold,
             query_hash,
             blinding_factor,
-            ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_PROOF_DS),
+            *ds::OPRF_PROOF.as_field_element(),
             auth,
             connector,
         )

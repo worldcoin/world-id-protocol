@@ -12,7 +12,6 @@ use eyre::{Context as _, Result};
 use k256::ecdsa::SigningKey;
 use rand::{Rng, thread_rng};
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
-use taceo_oprf_test_utils::PEER_ADDRESSES;
 use world_id_primitives::{
     AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, credential::Credential,
     merkle::MerkleInclusionProof, rp::RpId as WorldRpId,
@@ -27,7 +26,6 @@ pub struct RegistryTestContext {
     pub oprf_key_registry: Address,
     pub credential_registry: Address,
     pub rp_registry: Address,
-    pub billing_contract: Address,
     pub world_id_verifier: Address,
 }
 
@@ -57,10 +55,6 @@ impl RegistryTestContext {
             .deploy_rp_registry(deployer.clone(), oprf_key_registry)
             .await
             .wrap_err("failed to deploy RpRegistry")?;
-        let billing_contract = anvil
-            .deploy_billing_contract(deployer.clone())
-            .await
-            .wrap_err("failed to deploy billing contract")?;
         let world_id_verifier = anvil
             .deploy_world_id_verifier(
                 deployer.clone(),
@@ -72,7 +66,11 @@ impl RegistryTestContext {
             .wrap_err("failed to deploy Verifier")?;
 
         anvil
-            .register_oprf_nodes(oprf_key_registry, deployer.clone(), PEER_ADDRESSES.to_vec())
+            .register_oprf_nodes(
+                oprf_key_registry,
+                deployer.clone(),
+                anvil.oprf_peer_addresses()?,
+            )
             .await?;
 
         // add RpRegistry as OprfKeyRegistry admin because it needs to init key-gens
@@ -92,7 +90,6 @@ impl RegistryTestContext {
             oprf_key_registry,
             credential_registry,
             rp_registry,
-            billing_contract,
             world_id_verifier,
         })
     }

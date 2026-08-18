@@ -15,6 +15,10 @@ pub mod artifacts;
 /// Circuit input types for Circom/Groth16 circuits (query, nullifier, ownership proofs).
 pub mod circuit_inputs;
 
+/// Static circuit input fixtures shared by the tests and the generated circuit examples.
+#[cfg(test)]
+mod fixtures;
+
 pub mod compress;
 pub use compress::ProofCompression;
 pub(crate) mod oprf_query;

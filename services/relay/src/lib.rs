@@ -24,7 +24,7 @@
 //!
 //! ### Data flow
 //!
-//! 1. **[`stream`]** — Watches World Chain registry contracts for events
+//! 1. **`stream`** — Watches World Chain registry contracts for events
 //!    (`RootRecorded`, `ChainCommitted`, issuer/OPRF key updates) and back-fills
 //!    historical events on startup.
 //!
@@ -85,9 +85,10 @@ pub mod bindings;
 
 /// CLI entry point and per-chain configuration structs.
 ///
-/// [`Cli`] is the top-level clap parser. [`WorldChainConfig`] and
-/// [`SatelliteConfig`] carry the addresses, RPC endpoints, and tuning
-/// knobs for each chain the relay connects to.
+/// [`Cli`] is the top-level clap parser. [`WorldChainConfig`] and the per-satellite
+/// gateway configs ([`PermissionedGatewayConfig`], [`EthereumMptGatewayConfig`])
+/// carry the addresses, RPC endpoints, and tuning knobs for each chain the relay
+/// connects to.
 pub mod cli;
 
 /// The relay engine — event loop, propagation ticks, and satellite management.

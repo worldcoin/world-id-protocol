@@ -71,7 +71,6 @@ async fn main() -> Result<()> {
         oprf_key_registry,
         world_id_verifier,
         credential_registry,
-        billing_contract,
     } = RegistryTestContext::new().await?;
 
     let deployer = anvil
@@ -85,8 +84,8 @@ async fn main() -> Result<()> {
         registry_addr: world_id_registry,
         registry_version: RegistryVersion::V2,
         provider: world_id_gateway::ProviderArgs {
-            http: Some(vec![anvil.endpoint().parse().unwrap()]),
-            signer: Some(signer_args),
+            http: vec![anvil.endpoint().parse().unwrap()],
+            signer: signer_args,
             ..Default::default()
         },
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, gw_port).into(),
@@ -153,14 +152,14 @@ async fn main() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
-    let (_postgres, connection_string) = taceo_oprf_test_utils::postgres_testcontainer().await?;
+    let connection_string = world_id_test_utils::shared_postgres_testcontainer().await?;
 
     let node_secret_managers =
-        world_id_test_utils::stubs::init_test_secret_managers(connection_string.clone().into())
+        world_id_test_utils::stubs::init_test_secret_managers(connection_string.to_string().into())
             .await?;
 
     let oprf_key_gens =
-        world_id_test_utils::stubs::spawn_key_gens(&anvil, &connection_string, oprf_key_registry)
+        world_id_test_utils::stubs::spawn_key_gens(&anvil, connection_string, oprf_key_registry)
             .await?;
 
     let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
@@ -168,7 +167,6 @@ async fn main() -> Result<()> {
         node_secret_managers,
         world_id_registry,
         rp_registry,
-        billing_contract,
         credential_registry,
     )
     .await;

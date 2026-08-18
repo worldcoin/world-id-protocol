@@ -31,6 +31,9 @@ pub use key_set::{
 mod config;
 pub use config::{Config, ServiceEndpoint};
 
+pub mod poseidon;
+pub use poseidon::{DomainSeparator, VariableLengthDomainSeparator};
+
 /// SAFE-style sponge utilities and helpers.
 pub mod sponge;
 
@@ -46,6 +49,7 @@ pub mod api_types;
 
 /// Contains types specifically related to the OPRF services.
 pub mod oprf;
+pub use oprf::{OprfPrefix, OprfPrefixedFieldElement};
 
 /// A nullifier is a unique, one-time identifier. See [`Nullifier`] for more details.
 mod nullifier;
@@ -53,7 +57,7 @@ pub use nullifier::Nullifier;
 
 /// Contains types relevant for Session Proofs.
 mod session;
-pub use session::{SessionFeType, SessionFieldElement, SessionId, SessionNullifier, SessionRef};
+pub use session::{SessionId, SessionNullifier, SessionRef};
 
 /// Contains the quintessential zero-knowledge proof type.
 pub mod proof;
@@ -129,9 +133,10 @@ impl FieldElement {
     /// # Warning
     /// Use this function carefully. This function will perform modulo reduction on the input, which may
     /// lead to unexpected results if the input should not be reduced. For example, this is **not** appropriate
-    /// when parsing a canonical field-element encoding.
+    /// when parsing a canonical field-element encoding. Because of the potential footgun, it is not exposed beyond
+    /// this crate.
     #[must_use]
-    pub fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
+    pub(crate) fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
         let field_element = Fq::from_be_bytes_mod_order(bytes);
         Self(field_element)
     }
