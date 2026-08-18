@@ -17,7 +17,7 @@ use world_id_test_utils::anvil::TestAnvil;
 /// key, not a real secret.
 pub(crate) const GW_PRIVATE_KEY: &str =
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-pub(crate) const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
+pub(crate) const RPC_FORK_URL: &str = "https://ethereum.reth.rs/rpc";
 
 /// A running gateway + anvil + Redis stack for integration tests.
 ///

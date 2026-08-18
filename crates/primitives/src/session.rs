@@ -114,6 +114,26 @@ impl SessionId {
         FieldElement::random_with_prefix(rng, OprfPrefix::SessionOprfSeed)
     }
 
+    /// Verifies that `session_id_r_seed` re-derives to this session id's [`Self::commitment`].
+    ///
+    /// Checks an `r` seed obtained elsewhere (e.g. an Authenticator's cache) without
+    /// re-deriving it via the OPRF nodes.
+    ///
+    /// # Errors
+    /// - If this session id's [`Self::oprf_seed`] is not valid.
+    /// - If the derived commitment does not match [`Self::commitment`].
+    pub fn verify_commitment(
+        &self,
+        leaf_index: u64,
+        session_id_r_seed: FieldElement,
+    ) -> Result<(), PrimitiveError> {
+        let computed = Self::from_r_seed(leaf_index, session_id_r_seed, self.oprf_seed)?;
+        if computed.commitment != self.commitment {
+            return Err(PrimitiveError::SessionIdCommitmentMismatch);
+        }
+        Ok(())
+    }
+
     /// Returns the 64-byte big-endian representation (2 x 32-byte field elements).
     #[must_use]
     pub fn to_compressed_bytes(&self) -> [u8; 64] {
@@ -656,6 +676,21 @@ mod session_id_tests {
             session_id.commitment.to_u256(),
             expected,
             "commitment snapashot for session commitment changed"
+        );
+    }
+
+    #[test]
+    fn test_verify_commitment() {
+        let leaf_index = 42u64;
+        let r_seed = test_field_element(123);
+        let session_id = SessionId::from_r_seed(leaf_index, r_seed, test_oprf_seed(456)).unwrap();
+
+        session_id.verify_commitment(leaf_index, r_seed).unwrap();
+        assert_eq!(
+            session_id
+                .verify_commitment(leaf_index, test_field_element(124))
+                .unwrap_err(),
+            PrimitiveError::SessionIdCommitmentMismatch
         );
     }
 }
