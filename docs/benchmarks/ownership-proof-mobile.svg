@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Ownership proof mobile benchmark medians</title>
+  <desc id="desc">Median witness generation, proving, and combined ownership proof times across three Android and three iOS devices, with 30 samples per fixture.</desc>
+  <style>
+    text { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #202124; }
+    .title { font-size: 26px; font-weight: 700; }
+    .subtitle { font-size: 14px; fill: #5f6368; }
+    .panel { font-size: 20px; font-weight: 650; }
+    .device { font-size: 13px; font-weight: 600; }
+    .value { font-size: 11px; fill: #3c4043; }
+    .axis { stroke: #dadce0; stroke-width: 1; }
+    .tick { font-size: 11px; fill: #80868b; }
+    .legend { font-size: 12px; }
+  </style>
+
+  <rect width="1200" height="760" fill="#ffffff"/>
+  <text x="48" y="48" class="title">Ownership proof mobile benchmark</text>
+  <text x="48" y="75" class="subtitle">Median wall time · 30 measured runs · 5 warmups · lower is better</text>
+
+  <rect x="48" y="96" width="12" height="12" rx="2" fill="#4285f4"/>
+  <text x="67" y="107" class="legend">Witness generation</text>
+  <rect x="210" y="96" width="12" height="12" rx="2" fill="#f9ab00"/>
+  <text x="229" y="107" class="legend">Proving</text>
+  <rect x="304" y="96" width="12" height="12" rx="2" fill="#34a853"/>
+  <text x="323" y="107" class="legend">Combined</text>
+
+  <!-- Android panel: 180 px = 1000 ms -->
+  <text x="48" y="154" class="panel">Android</text>
+  <text x="48" y="181" class="device">Moto G71 5G · Android 11</text>
+  <rect x="48" y="194" width="239.2" height="15" rx="3" fill="#4285f4"/>
+  <text x="294" y="206" class="value">1328.91 ms</text>
+  <rect x="48" y="215" width="159.4" height="15" rx="3" fill="#f9ab00"/>
+  <text x="214" y="227" class="value">885.44 ms</text>
+  <rect x="48" y="236" width="397.8" height="15" rx="3" fill="#34a853"/>
+  <text x="453" y="248" class="value">2210.23 ms</text>
+
+  <text x="48" y="286" class="device">Pixel 7 · Android 13</text>
+  <rect x="48" y="299" width="170.3" height="15" rx="3" fill="#4285f4"/>
+  <text x="225" y="311" class="value">945.85 ms</text>
+  <rect x="48" y="320" width="130.2" height="15" rx="3" fill="#f9ab00"/>
+  <text x="185" y="332" class="value">723.44 ms</text>
+  <rect x="48" y="341" width="308.1" height="15" rx="3" fill="#34a853"/>
+  <text x="363" y="353" class="value">1711.53 ms</text>
+
+  <text x="48" y="391" class="device">Galaxy S24 · Android 14</text>
+  <rect x="48" y="404" width="19.7" height="15" rx="3" fill="#4285f4"/>
+  <text x="74" y="416" class="value">109.56 ms</text>
+  <rect x="48" y="425" width="114.4" height="15" rx="3" fill="#f9ab00"/>
+  <text x="169" y="437" class="value">635.54 ms</text>
+  <rect x="48" y="446" width="131.3" height="15" rx="3" fill="#34a853"/>
+  <text x="186" y="458" class="value">729.39 ms</text>
+
+  <line x1="48" y1="490" x2="498" y2="490" class="axis"/>
+  <line x1="48" y1="486" x2="48" y2="494" class="axis"/>
+  <line x1="228" y1="486" x2="228" y2="494" class="axis"/>
+  <line x1="408" y1="486" x2="408" y2="494" class="axis"/>
+  <line x1="498" y1="486" x2="498" y2="494" class="axis"/>
+  <text x="48" y="512" class="tick" text-anchor="middle">0</text>
+  <text x="228" y="512" class="tick" text-anchor="middle">1000</text>
+  <text x="408" y="512" class="tick" text-anchor="middle">2000</text>
+  <text x="498" y="512" class="tick" text-anchor="middle">2500 ms</text>
+
+  <!-- iOS panel: 130 px = 100 ms -->
+  <text x="648" y="154" class="panel">iOS</text>
+  <text x="648" y="181" class="device">iPhone SE 2022 · iOS 15</text>
+  <rect x="648" y="194" width="160.7" height="15" rx="3" fill="#4285f4"/>
+  <text x="816" y="206" class="value">123.59 ms</text>
+  <rect x="648" y="215" width="205.5" height="15" rx="3" fill="#f9ab00"/>
+  <text x="861" y="227" class="value">158.05 ms</text>
+  <rect x="648" y="236" width="362.9" height="15" rx="3" fill="#34a853"/>
+  <text x="1018" y="248" class="value">279.16 ms</text>
+
+  <text x="648" y="286" class="device">iPhone 14 · iOS 16</text>
+  <rect x="648" y="299" width="175.4" height="15" rx="3" fill="#4285f4"/>
+  <text x="831" y="311" class="value">134.95 ms</text>
+  <rect x="648" y="320" width="207.6" height="15" rx="3" fill="#f9ab00"/>
+  <text x="863" y="332" class="value">159.67 ms</text>
+  <rect x="648" y="341" width="382.6" height="15" rx="3" fill="#34a853"/>
+  <text x="1038" y="353" class="value">294.29 ms</text>
+
+  <text x="648" y="391" class="device">iPhone 16 Pro · iOS 18</text>
+  <rect x="648" y="404" width="83.0" height="15" rx="3" fill="#4285f4"/>
+  <text x="738" y="416" class="value">63.88 ms</text>
+  <rect x="648" y="425" width="147.3" height="15" rx="3" fill="#f9ab00"/>
+  <text x="802" y="437" class="value">113.32 ms</text>
+  <rect x="648" y="446" width="230.6" height="15" rx="3" fill="#34a853"/>
+  <text x="886" y="458" class="value">177.41 ms</text>
+
+  <line x1="648" y1="490" x2="1103" y2="490" class="axis"/>
+  <line x1="648" y1="486" x2="648" y2="494" class="axis"/>
+  <line x1="778" y1="486" x2="778" y2="494" class="axis"/>
+  <line x1="908" y1="486" x2="908" y2="494" class="axis"/>
+  <line x1="1038" y1="486" x2="1038" y2="494" class="axis"/>
+  <line x1="1103" y1="486" x2="1103" y2="494" class="axis"/>
+  <text x="648" y="512" class="tick" text-anchor="middle">0</text>
+  <text x="778" y="512" class="tick" text-anchor="middle">100</text>
+  <text x="908" y="512" class="tick" text-anchor="middle">200</text>
+  <text x="1038" y="512" class="tick" text-anchor="middle">300</text>
+  <text x="1103" y="512" class="tick" text-anchor="middle">350 ms</text>
+
+  <rect x="48" y="552" width="1104" height="146" rx="10" fill="#f8f9fa" stroke="#e8eaed"/>
+  <text x="72" y="584" class="panel">Timing boundaries</text>
+  <text x="72" y="616" class="subtitle">Witness generation: ProveKit ACIR witness generation from a prebuilt deterministic InputMap.</text>
+  <text x="72" y="644" class="subtitle">Proving: ProveKit proof generation from a precomputed ACIR witness.</text>
+  <text x="72" y="672" class="subtitle">Combined: witness generation followed by proving; fixture construction and prover loading are untimed.</text>
+  <text x="48" y="732" class="subtitle">Source: Mobench 0.2.0 BrowserStack runs at commit 802619a700c1862f65fdd43f4c06ecf5794bf568</text>
+</svg>
