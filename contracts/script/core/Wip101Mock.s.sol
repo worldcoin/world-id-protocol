@@ -9,7 +9,7 @@ interface IERC165 {
     function supportsInterface(bytes4 interfaceId) external view returns (bool);
 }
 
-struct RpRequestIntent {
+struct RpRequest {
     uint8 requestVersion;
     uint64 rpId;
     uint160 oprfKeyId;
@@ -27,7 +27,7 @@ struct RpRequestIntent {
 interface IWIP101 is IERC165 {
     error RpInvalidRequest(uint256 code);
 
-    function verifyRpRequest(RpRequestIntent calldata intent, uint256 oprfAction, bytes calldata data)
+    function verifyRpRequest(RpRequest calldata intent, uint256 oprfAction, bytes calldata data)
         external
         view
         returns (bytes4 magicValue);
@@ -44,7 +44,7 @@ contract WIP101Correct is IWIP101 {
         return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
     }
 
-    function verifyRpRequest(RpRequestIntent calldata, uint256, bytes calldata)
+    function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
         external
         pure
         override
@@ -59,7 +59,7 @@ contract WIP101CorrectWhenAuxData is IWIP101 {
         return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
     }
 
-    function verifyRpRequest(RpRequestIntent calldata, uint256, bytes calldata data)
+    function verifyRpRequest(RpRequest calldata, uint256, bytes calldata data)
         external
         pure
         override

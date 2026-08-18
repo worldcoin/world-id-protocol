@@ -1,7 +1,10 @@
 use std::time::Duration;
 
 use alloy::{
+    network::TransactionBuilder as _,
     primitives::{Address, Bytes, U256},
+    providers::Provider as _,
+    rpc::types::TransactionRequest,
     sol_types::SolCall as _,
 };
 use taceo_nodes_common::web3::{self, erc165::ERC165ConfirmError};
@@ -9,10 +12,10 @@ use tracing::instrument;
 use world_id_primitives::{
     FieldElement,
     oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
-    rp::RpRequestAuthorization,
+    rp::{IWIP101, RpRequestAuthorization},
 };
 
-use crate::auth::rp_module::{RelyingParty, RpAccountType, wip101::IWIP101::IWIP101Instance};
+use crate::auth::rp_module::{RelyingParty, RpAccountType};
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -59,35 +62,6 @@ impl From<Wip101Error> for WorldIdRequestAuthError {
 /// Max size of the auxiliary data according to WIP101.
 const MAX_AUX_DATA_SIZE: usize = 1024;
 
-alloy::sol!(
-  struct RpRequestIntent {
-      uint8 requestVersion;
-      uint64 rpId;
-      uint160 oprfKeyId;
-      uint256 nonce;
-      uint64 createdAt;
-      uint64 expiresAt;
-      uint8 proofType;
-      uint8 sessionMode;
-      uint8 actionKind;
-      uint256 action;
-      bytes32 existingSessionSeedAuthorization;
-      bytes32 detailsHash;
-  }
-
-  #[sol(rpc)]
-  interface IWIP101 is IERC165 {
-
-      error RpInvalidRequest(uint256 code);
-
-      function verifyRpRequest(
-          RpRequestIntent calldata intent,
-          uint256 oprfAction,
-          bytes calldata data
-      ) external view returns (bytes4 magicValue);
-  }
-);
-
 impl RelyingParty {
     pub(crate) async fn verify_wip101(
         &self,
@@ -98,39 +72,33 @@ impl RelyingParty {
         timeout: Duration,
     ) -> Result<(), Wip101Error> {
         tracing::trace!("RP signer is WIP101");
-        let iwip101 = IWIP101Instance::new(self.signer, rpc_provider.inner());
-        let auxiliary_data = auxiliary_data(auth)?;
-        let typed_data = authorization.typed_data();
-        let intent = RpRequestIntent {
-            requestVersion: typed_data.requestVersion,
-            rpId: typed_data.rpId,
-            oprfKeyId: typed_data.oprfKeyId,
-            nonce: typed_data.nonce,
-            createdAt: typed_data.createdAt,
-            expiresAt: typed_data.expiresAt,
-            proofType: typed_data.proofType,
-            sessionMode: typed_data.sessionMode,
-            actionKind: typed_data.actionKind,
-            action: typed_data.action,
-            existingSessionSeedAuthorization: typed_data.existingSessionSeedAuthorization,
-            detailsHash: typed_data.detailsHash,
+        // The intent is the signed authorization payload itself, so a contract-backed RP cannot be
+        // handed a different request than an EOA-backed RP signs.
+        let call = IWIP101::verifyRpRequestCall {
+            intent: authorization.typed_data(),
+            oprfAction: FieldElement::from(oprf_action).into(),
+            data: auxiliary_data(auth)?,
         };
-        let call = iwip101.verifyRpRequest(
-            intent,
-            field_element_to_u256(FieldElement::from(oprf_action)),
-            auxiliary_data,
-        );
+        let request = TransactionRequest::default()
+            .with_to(self.signer)
+            .with_input(call.abi_encode());
 
-        match tokio::time::timeout(timeout, call.call())
+        let verification = async {
+            let returned = rpc_provider
+                .inner()
+                .call(request)
+                .await
+                .map_err(alloy::contract::Error::from)?;
+            IWIP101::verifyRpRequestCall::abi_decode_returns(&returned)
+                .map_err(alloy::contract::Error::from)
+        };
+
+        match tokio::time::timeout(timeout, verification)
             .await
             .map_err(|_| Wip101Error::VerificationTimeout)?
         {
             Ok(x) if x == IWIP101::verifyRpRequestCall::SELECTOR => Ok(()),
             Ok(_) => Err(Wip101Error::VerificationFailed(None)),
-            Err(
-                alloy::contract::Error::UnknownFunction(_)
-                | alloy::contract::Error::UnknownSelector(_),
-            ) => Err(Wip101Error::IncompatibleRpSigner),
             Err(err) => {
                 if let Some(IWIP101::RpInvalidRequest { code }) =
                     err.as_decoded_error::<IWIP101::RpInvalidRequest>()
@@ -163,10 +131,6 @@ fn auxiliary_data(auth: &NullifierOprfRequestAuthV1) -> Result<Bytes, Wip101Erro
         .clone()
         .map(Bytes::from)
         .unwrap_or_default())
-}
-
-fn field_element_to_u256(value: FieldElement) -> U256 {
-    U256::from_be_bytes(value.to_be_bytes())
 }
 
 #[instrument(level = "debug", skip_all, fields(signer=%signer))]

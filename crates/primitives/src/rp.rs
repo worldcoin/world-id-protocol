@@ -20,7 +20,8 @@ mod sol_types {
     use alloy::sol;
 
     sol! {
-        /// EIP-712 payload signed by an EOA-backed RP for a proof request.
+        /// EIP-712 payload signed by an EOA-backed RP for a proof request, and the calldata
+        /// struct a WIP-101 contract receives for the same request.
         struct RpRequest {
             uint8 requestVersion;
             uint64 rpId;
@@ -34,6 +35,27 @@ mod sol_types {
             uint256 action;
             bytes32 existingSessionSeedAuthorization;
             bytes32 detailsHash;
+        }
+
+        /// WIP-101 authorization interface implemented by contract-backed RPs.
+        ///
+        /// Declared alongside [`RpRequest`] so that the authorization a contract validates is the
+        /// same type an EOA signs; the two cannot drift apart.
+        ///
+        /// `IERC165` is intentionally not inherited here: Solidity excludes inherited functions
+        /// from `type(IWIP101).interfaceId`, so the interface id is the `verifyRpRequest`
+        /// selector either way.
+        interface IWIP101 {
+            /// The request is not authorized. `code` is RP-defined and only used for debugging.
+            error RpInvalidRequest(uint256 code);
+
+            /// Returns the `verifyRpRequest` selector as `magicValue` when `intent` is
+            /// authorized, and reverts otherwise.
+            function verifyRpRequest(
+                RpRequest calldata intent,
+                uint256 oprfAction,
+                bytes calldata data
+            ) external view returns (bytes4 magicValue);
         }
 
         struct RpRequestDetails {
@@ -87,7 +109,16 @@ mod sol_types {
 }
 
 /// EIP-712 typed-data payload signed by an EOA-backed RP request.
-pub type RpRequestTypedData = sol_types::RpRequest;
+///
+/// This is also the `intent` calldata struct passed to [`IWIP101::verifyRpRequestCall`], so a
+/// contract-backed RP validates exactly the authorization an EOA-backed RP signs.
+pub use sol_types::RpRequest as RpRequestTypedData;
+
+/// WIP-101 contract interface used to authorize requests from contract-backed RPs.
+///
+/// [`IWIP101::verifyRpRequestCall::SELECTOR`] is both the ERC-165 interface id and the magic
+/// value a conforming contract returns.
+pub use sol_types::IWIP101;
 
 /// The session behavior authorized by an RP request.
 #[repr(u8)]

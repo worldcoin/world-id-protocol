@@ -10,7 +10,7 @@ alloy::sol!(
         function supportsInterface(bytes4 interfaceId) external view returns (bool);
     }
 
-    struct RpRequestIntent {
+    struct RpRequest {
         uint8 requestVersion;
         uint64 rpId;
         uint160 oprfKeyId;
@@ -29,7 +29,7 @@ alloy::sol!(
         error RpInvalidRequest(uint256 code);
 
         function verifyRpRequest(
-            RpRequestIntent calldata intent,
+            RpRequest calldata intent,
             uint256 oprfAction,
             bytes calldata data
         ) external view returns (bytes4 magicValue);
@@ -45,7 +45,7 @@ alloy::sol!(
             return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
         }
 
-        function verifyRpRequest(RpRequestIntent calldata, uint256, bytes calldata)
+        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
             external
             pure
             override
@@ -61,7 +61,7 @@ alloy::sol!(
             return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
         }
 
-        function verifyRpRequest(RpRequestIntent calldata, uint256, bytes calldata data)
+        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata data)
             external pure override returns (bytes4) {
             if (data.length == 3) {
                return WIP101_MAGIC_VALUE;
@@ -77,7 +77,7 @@ alloy::sol!(
         }
 
 
-        function verifyRpRequest(RpRequestIntent calldata, uint256, bytes calldata)
+        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
             external pure override returns (bytes4) {
             return 0xdeadbeef;
         }
@@ -90,7 +90,7 @@ alloy::sol!(
         }
 
 
-        function verifyRpRequest(RpRequestIntent calldata, uint256, bytes calldata)
+        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
             external pure override returns (bytes4) {
             revert RpInvalidRequest(42);
         }
@@ -103,7 +103,7 @@ alloy::sol!(
         }
 
 
-        function verifyRpRequest(RpRequestIntent calldata, uint256, bytes calldata)
+        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
             external pure override returns (bytes4) {
             revert("no reason");
         }
@@ -115,7 +115,7 @@ alloy::sol!(
             return false;
         }
 
-        function verifyRpRequest(RpRequestIntent calldata, uint256, bytes calldata)
+        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
             external pure override returns (bytes4) {
             return WIP101_MAGIC_VALUE;
         }
@@ -159,7 +159,7 @@ alloy::sol!(
             return fib(n - 1) + fib(n - 2);
         }
 
-        function verifyRpRequest(RpRequestIntent calldata, uint256, bytes calldata)
+        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
             external
             pure
             override
@@ -182,7 +182,7 @@ alloy::sol!(
             return fib(n - 1) + fib(n - 2);
         }
 
-        function verifyRpRequest(RpRequestIntent calldata, uint256, bytes calldata)
+        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
             external
             pure
             override
@@ -193,6 +193,26 @@ alloy::sol!(
         }
     }
 );
+
+/// The mock contracts above are compiled from their own `sol!` declaration, so they are the one
+/// remaining copy of the WIP-101 shapes. They must stay identical to the shared declaration in
+/// `world-id-primitives`: a mock that drifts would still pass every test below while proving
+/// nothing about the calldata a real RP contract receives.
+#[test]
+fn mocks_match_shared_wip101_declaration() {
+    use alloy::sol_types::{SolCall as _, SolStruct as _};
+
+    assert_eq!(
+        RpRequest::eip712_encode_type(),
+        world_id_primitives::rp::RpRequestTypedData::eip712_encode_type(),
+        "mock intent struct drifted from the signed authorization payload"
+    );
+    assert_eq!(
+        IWIP101::verifyRpRequestCall::SELECTOR,
+        super::IWIP101::verifyRpRequestCall::SELECTOR,
+        "mock verifyRpRequest selector drifted from the shared interface"
+    );
+}
 
 #[tokio::test]
 async fn test_confirm_success() {

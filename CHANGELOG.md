@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Export `rp::IWIP101`, declared from the same `sol!` as the signed `RpRequest` payload, so a WIP-101
+  contract's `intent` argument cannot drift from the EIP-712 struct an EOA-backed RP signs.
+
 ### Breaking Changes
 
 - Replace RP request signatures with EIP-712 authorization that binds the complete semantic request.

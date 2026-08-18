@@ -15,7 +15,7 @@ The chain and registry bindings prevent a signature from being replayed against 
 
 ## Public authorization
 
-EOA-backed RPs sign the following typed data. Contract-backed RPs receive the same fields through WIP-101.
+EOA-backed RPs sign the following typed data. Contract-backed RPs receive this same struct as the `intent` argument of [WIP-101](../WIPs/wip-101.md)'s `verifyRpRequest` — not a parallel copy of it — so the authorization a contract validates is byte-for-byte the one an EOA signs.
 
 ```solidity
 struct RpRequest {
