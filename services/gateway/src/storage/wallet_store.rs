@@ -5,7 +5,7 @@ use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::error::GatewayResult;
+use crate::{batch_type::BatchType, error::GatewayResult};
 
 const RESERVATION_TTL: Duration = Duration::from_secs(60);
 
@@ -18,11 +18,8 @@ pub(crate) enum WalletTransaction {
     Submitted {
         reservation_id: Uuid,
         tx_hash: TxHash,
-        #[serde(default)]
         request_ids: Vec<String>,
-        #[serde(default)]
-        batch_type: String,
-        #[serde(default)]
+        batch_type: BatchType,
         submitted_at: u64,
     },
 }
@@ -75,7 +72,7 @@ impl WalletStore {
         reservation_id: Uuid,
         tx_hash: TxHash,
         request_ids: Vec<String>,
-        batch_type: &str,
+        batch_type: BatchType,
         submitted_at: u64,
     ) -> GatewayResult<WalletTransaction> {
         let expected = serde_json::to_string(&WalletTransaction::Reserved { reservation_id })?;
@@ -83,7 +80,7 @@ impl WalletStore {
             reservation_id,
             tx_hash,
             request_ids,
-            batch_type: batch_type.to_string(),
+            batch_type,
             submitted_at,
         };
         let submitted = serde_json::to_string(&transaction)?;
@@ -237,6 +234,26 @@ mod tests {
         (store, container)
     }
 
+    #[test]
+    fn submitted_records_require_batch_metadata() {
+        let transaction = WalletTransaction::Submitted {
+            reservation_id: Uuid::new_v4(),
+            tx_hash: TxHash::repeat_byte(0x22),
+            request_ids: vec!["request-1".to_string()],
+            batch_type: BatchType::Ops,
+            submitted_at: 100,
+        };
+        let value = serde_json::to_value(transaction).unwrap();
+        assert_eq!(value["batch_type"], "ops");
+        assert_eq!(value["submitted_at"], 100);
+
+        for field in ["batch_type", "submitted_at"] {
+            let mut missing = value.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            assert!(serde_json::from_value::<WalletTransaction>(missing).is_err());
+        }
+    }
+
     #[tokio::test]
     async fn reservations_transition_to_hash_and_release_conditionally() {
         let (store, _redis) = store().await;
@@ -259,7 +276,7 @@ mod tests {
                 reservation_id,
                 tx_hash,
                 vec!["request-1".to_string()],
-                "ops",
+                BatchType::Ops,
                 100,
             )
             .await

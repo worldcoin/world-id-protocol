@@ -5,7 +5,7 @@ pub use crate::{
         BatchPolicyConfig, BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig,
         RegistryVersion, defaults,
     },
-    request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
+    transaction_submitter::{RequestRecord, now_unix_secs},
 };
 use crate::{routes::build_app, types::AppState};
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};
@@ -13,12 +13,12 @@ use tokio::sync::oneshot;
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 mod batch_policy;
+mod batch_type;
 mod batcher;
 mod config;
 mod error;
 pub mod metrics;
 mod request;
-pub mod request_tracker;
 mod routes;
 mod storage;
 mod transaction_submitter;

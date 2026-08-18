@@ -16,14 +16,13 @@ use world_id_primitives::api_types::{CreateAccountRequest, GatewayRequestState};
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::{
-    RequestTracker,
     batch_policy::{
         BacklogUrgencyStats, BaseFeeCache, BatchPolicyEngine, DecisionReason, record_policy_metrics,
     },
+    batch_type::BatchType,
     config::BatchPolicyConfig,
     error::parse_contract_error,
     metrics,
-    request_tracker::BacklogScope,
     transaction_submitter::TransactionSubmitter,
 };
 
@@ -82,12 +81,9 @@ pub(crate) trait BatcherEnvelope: Send + 'static {
     fn request_id(&self) -> &str;
 }
 
-/// Strategy trait that captures the only per-batcher differences:
-///   - batch label / backlog scope (for metrics / policy)
-///   - construction of the transaction request
+/// Strategy trait that captures the per-batcher transaction construction.
 pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>: Send + Default + 'static {
-    fn batch_type(&self) -> &'static str;
-    fn backlog_scope(&self) -> BacklogScope;
+    fn batch_type(&self) -> BatchType;
 
     fn build_tx(
         &self,
@@ -113,10 +109,9 @@ where
 {
     rx: mpsc::Receiver<E>,
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-    submitter: TransactionSubmitter,
+    submitter: Arc<TransactionSubmitter>,
     max_batch_size: usize,
     local_queue_limit: usize,
-    tracker: RequestTracker,
     batch_policy: BatchPolicyConfig,
     base_fee_cache: BaseFeeCache,
     strategy: S,
@@ -130,11 +125,10 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-        submitter: TransactionSubmitter,
+        submitter: Arc<TransactionSubmitter>,
         max_batch_size: usize,
         local_queue_limit: usize,
         rx: mpsc::Receiver<E>,
-        tracker: RequestTracker,
         batch_policy: BatchPolicyConfig,
         base_fee_cache: BaseFeeCache,
     ) -> Self {
@@ -144,7 +138,6 @@ where
             submitter,
             max_batch_size,
             local_queue_limit: local_queue_limit.max(1),
-            tracker,
             batch_policy,
             base_fee_cache,
             strategy: S::default(),
@@ -165,7 +158,7 @@ where
 
         metrics::record_batch_submitted(batch_type, ids.len());
 
-        self.tracker
+        self.submitter
             .set_status_batch(&ids, GatewayRequestState::Batching)
             .await;
 
@@ -175,7 +168,7 @@ where
             .submit(transaction, ids.clone(), batch_type)
             .await
         {
-            self.tracker
+            self.submitter
                 .set_status_batch(
                     &ids,
                     GatewayRequestState::failed(
@@ -190,7 +183,7 @@ where
     fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<E>>) {
         let dropped = queue.len();
         tracing::warn!(
-            batch_type = self.strategy.batch_type(),
+            batch_type = %self.strategy.batch_type(),
             dropped,
             "redis reports no queued backlog, dropping local queue entries to resync state"
         );
@@ -208,7 +201,7 @@ where
         while rx_open || !queue.is_empty() {
             if queue.len() >= self.local_queue_limit {
                 tracing::warn!(
-                    batch_type = self.strategy.batch_type(),
+                    batch_type = %self.strategy.batch_type(),
                     queue_len = queue.len(),
                     local_queue_limit = self.local_queue_limit,
                     "{} policy queue reached local capacity, pausing intake for backpressure",
@@ -255,14 +248,14 @@ where
                         .unwrap_or_default();
 
                     let stats = match self
-                        .tracker
-                        .queued_backlog_stats_for_scope(self.strategy.backlog_scope())
+                        .submitter
+                        .queued_backlog_stats(self.strategy.batch_type())
                         .await
                     {
                         Ok(stats) => stats,
                         Err(err) => {
                             tracing::warn!(
-                                batch_type = self.strategy.batch_type(),
+                                batch_type = %self.strategy.batch_type(),
                                 error = %err,
                                 "failed to read queued backlog stats; using local fallback"
                             );

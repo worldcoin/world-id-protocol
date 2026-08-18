@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 use world_id_primitives::api_types::CreateAccountRequest;
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
-use crate::request_tracker::BacklogScope;
+use crate::batch_type::BatchType;
 
 use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner};
 
@@ -34,12 +34,8 @@ impl BatcherEnvelope for CreateReqEnvelope {
 pub(crate) struct CreateStrategy;
 
 impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
-    fn batch_type(&self) -> &'static str {
-        "create"
-    }
-
-    fn backlog_scope(&self) -> BacklogScope {
-        BacklogScope::Create
+    fn batch_type(&self) -> BatchType {
+        BatchType::Create
     }
 
     fn build_tx(

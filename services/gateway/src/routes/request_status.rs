@@ -19,7 +19,7 @@ pub(crate) async fn request_status(
     let raw_id = id.as_str_without_prefix();
     let record = state
         .ctx
-        .tracker
+        .submitter
         .snapshot(raw_id)
         .await
         .ok_or_else(GatewayErrorResponse::not_found)?;

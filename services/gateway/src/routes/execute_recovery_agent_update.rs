@@ -44,7 +44,7 @@ pub(crate) async fn execute_recovery_agent_update(
 
             state
                 .ctx
-                .tracker
+                .submitter
                 .new_terminal_request_with_id(id.to_string(), kind, status.clone())
                 .await?;
 

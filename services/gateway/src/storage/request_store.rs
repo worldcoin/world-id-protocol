@@ -293,15 +293,6 @@ impl RequestStore {
             .collect())
     }
 
-    /// Removes a request ID from the [`PENDING_SET_KEY`] Redis set.
-    ///
-    /// Succeeds when the ID was not present, making cleanup idempotent.
-    pub(crate) async fn remove_pending_request(&self, id: &str) -> GatewayResult<()> {
-        let mut manager = self.manager.clone();
-        let _: usize = manager.srem(PENDING_SET_KEY, id).await?;
-        Ok(())
-    }
-
     /// Atomically checks and records a request in the
     /// `gateway:ratelimit:leaf:{leaf_index}` sorted set.
     ///

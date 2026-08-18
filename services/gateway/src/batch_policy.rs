@@ -8,7 +8,7 @@ use alloy::{
     providers::{DynProvider, Provider},
 };
 
-use crate::{config::BatchPolicyConfig, metrics};
+use crate::{batch_type::BatchType, config::BatchPolicyConfig, metrics};
 
 /// Aggregated queued backlog pressure from Redis.
 #[derive(Debug, Clone, Copy, Default)]
@@ -264,7 +264,7 @@ impl BatchPolicyEngine {
 }
 
 /// Emits policy metrics for a decision.
-pub fn record_policy_metrics(batch_type: &'static str, decision: &PolicyDecision) {
+pub fn record_policy_metrics(batch_type: BatchType, decision: &PolicyDecision) {
     metrics::record_policy_scores(
         batch_type,
         decision.cost_score,

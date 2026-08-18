@@ -14,7 +14,7 @@ use alloy::{
 use tokio::sync::mpsc;
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
-use crate::request_tracker::BacklogScope;
+use crate::batch_type::BatchType;
 
 use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner};
 
@@ -53,12 +53,8 @@ impl BatcherEnvelope for OpsEnvelope {
 pub(crate) struct OpsStrategy;
 
 impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
-    fn batch_type(&self) -> &'static str {
-        "ops"
-    }
-
-    fn backlog_scope(&self) -> BacklogScope {
-        BacklogScope::Ops
+    fn batch_type(&self) -> BatchType {
+        BatchType::Ops
     }
 
     fn build_tx(

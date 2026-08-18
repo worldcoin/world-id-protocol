@@ -11,7 +11,6 @@ use crate::{
     },
     error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
     request::GatewayContext,
-    request_tracker::RequestTracker,
     routes::{
         cancel_recovery_agent_update::cancel_recovery_agent_update,
         create_account::create_account,
@@ -94,12 +93,11 @@ pub(crate) async fn build_app(
     orphan_sweeper_config: OrphanSweeperConfig,
     batch_policy_config: BatchPolicyConfig,
 ) -> GatewayResult<Router> {
-    let tracker = RequestTracker::new(redis_url.clone(), rate_limit).await;
     let submitter = TransactionSubmitter::connect(
         *registry.address(),
         wallet,
         &redis_url,
-        tracker.clone(),
+        rate_limit,
         Duration::from_secs(orphan_sweeper_config.interval_secs),
         Duration::from_secs(orphan_sweeper_config.stale_submitted_threshold_secs),
     )
@@ -120,7 +118,6 @@ pub(crate) async fn build_app(
         batcher_config.max_create_batch_size,
         CREATE_BATCHER_CHANNEL_CAPACITY,
         rx,
-        tracker.clone(),
         batch_policy_config.clone(),
         base_fee_cache.clone(),
     );
@@ -131,11 +128,10 @@ pub(crate) async fn build_app(
     let ops_batcher = OpsBatcherHandle { tx: otx };
     let ops_runner = OpsBatcherRunner::new(
         registry.clone(),
-        submitter,
+        submitter.clone(),
         batcher_config.max_ops_batch_size,
         OPS_BATCHER_CHANNEL_CAPACITY,
         orx,
-        tracker.clone(),
         batch_policy_config,
         base_fee_cache,
     );
@@ -155,7 +151,7 @@ pub(crate) async fn build_app(
     let ctx = GatewayContext {
         registry: registry.clone(),
         registry_version,
-        tracker,
+        submitter,
         batcher: batcher_handle,
         root_cache,
     };

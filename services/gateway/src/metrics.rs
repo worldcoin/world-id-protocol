@@ -1,5 +1,7 @@
 //! Metrics definitions and helpers for the world-id-gateway.
 
+use crate::batch_type::BatchType;
+
 // HTTP metrics
 pub use world_id_services_common::METRICS_HTTP_LATENCY_MS;
 
@@ -123,7 +125,8 @@ pub fn increment_root_cache_miss() {
     ::metrics::counter!(METRICS_ROOT_CACHE_MISSES).increment(1);
 }
 
-pub fn record_batch_submitted(batch_type: &'static str, batch_size: usize) {
+pub(crate) fn record_batch_submitted(batch_type: BatchType, batch_size: usize) {
+    let batch_type = batch_type.as_str();
     ::metrics::counter!(METRICS_BATCH_SUBMITTED, "type" => batch_type).increment(1);
     ::metrics::histogram!(METRICS_BATCH_SIZE, "type" => batch_type).record(batch_size as f64);
 }
@@ -133,14 +136,16 @@ pub fn record_batch_submitted(batch_type: &'static str, batch_size: usize) {
 /// This reflects whether the transaction was accepted by the node, **not**
 /// whether it was confirmed on-chain. Use [`record_batch_confirmed`] for
 /// on-chain outcomes.
-pub fn record_batch_send_failed(batch_type: &'static str, send_latency_ms: f64) {
+pub(crate) fn record_batch_send_failed(batch_type: BatchType, send_latency_ms: f64) {
+    let batch_type = batch_type.as_str();
     ::metrics::histogram!(METRICS_BATCH_SEND_LATENCY_MS, "type" => batch_type)
         .record(send_latency_ms);
     ::metrics::counter!(METRICS_BATCH_SEND_FAILED, "type" => batch_type).increment(1);
 }
 
 /// Records the RPC send latency after a successful submission to the node.
-pub fn record_batch_send_latency(batch_type: &'static str, send_latency_ms: f64) {
+pub(crate) fn record_batch_send_latency(batch_type: BatchType, send_latency_ms: f64) {
+    let batch_type = batch_type.as_str();
     ::metrics::histogram!(METRICS_BATCH_SEND_LATENCY_MS, "type" => batch_type)
         .record(send_latency_ms);
 }
@@ -151,7 +156,8 @@ pub fn record_batch_send_latency(batch_type: &'static str, send_latency_ms: f64)
 /// `false` when it reverted or could not be confirmed.
 /// `latency_ms` is measured from when the batch was first submitted to the
 /// RPC node until the receipt was obtained.
-pub fn record_batch_confirmed(batch_type: &'static str, success: bool, latency_ms: f64) {
+pub(crate) fn record_batch_confirmed(batch_type: BatchType, success: bool, latency_ms: f64) {
+    let batch_type = batch_type.as_str();
     ::metrics::histogram!(METRICS_BATCH_LATENCY_MS, "type" => batch_type).record(latency_ms);
 
     if success {
@@ -161,12 +167,13 @@ pub fn record_batch_confirmed(batch_type: &'static str, success: bool, latency_m
     }
 }
 
-pub fn record_policy_scores(
-    batch_type: &'static str,
+pub(crate) fn record_policy_scores(
+    batch_type: BatchType,
     cost_score: f64,
     urgency_score: f64,
     target_batch_size: usize,
 ) {
+    let batch_type = batch_type.as_str();
     ::metrics::histogram!(METRICS_BATCH_POLICY_COST_SCORE, "type" => batch_type).record(cost_score);
     ::metrics::histogram!(METRICS_BATCH_POLICY_URGENCY_SCORE, "type" => batch_type)
         .record(urgency_score);
@@ -174,12 +181,13 @@ pub fn record_policy_scores(
         .record(target_batch_size as f64);
 }
 
-pub fn increment_policy_force_send(batch_type: &'static str) {
-    ::metrics::counter!(METRICS_BATCH_POLICY_FORCE_SEND, "type" => batch_type).increment(1);
+pub(crate) fn increment_policy_force_send(batch_type: BatchType) {
+    ::metrics::counter!(METRICS_BATCH_POLICY_FORCE_SEND, "type" => batch_type.as_str())
+        .increment(1);
 }
 
-pub fn increment_policy_defer(batch_type: &'static str, reason: &'static str) {
-    ::metrics::counter!(METRICS_BATCH_POLICY_DEFER, "type" => batch_type, "reason" => reason)
+pub(crate) fn increment_policy_defer(batch_type: BatchType, reason: &'static str) {
+    ::metrics::counter!(METRICS_BATCH_POLICY_DEFER, "type" => batch_type.as_str(), "reason" => reason)
         .increment(1);
 }
 
