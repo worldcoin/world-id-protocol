@@ -9,6 +9,7 @@ import {WorldIDRegistry} from "./WorldIDRegistry.sol";
 import {Verifier} from "./Verifier.sol";
 import {IWorldIDVerifier} from "./interfaces/IWorldIDVerifier.sol";
 import {WorldIDBase} from "./abstract/WorldIDBase.sol";
+import {WorldIDVerification} from "./libraries/WorldIDVerification.sol";
 
 /**
  * @title WorldIDVerifier
@@ -160,53 +161,40 @@ contract WorldIDVerifier is WorldIDBase, IWorldIDVerifier {
         uint256 sessionId,
         uint256[5] calldata zeroKnowledgeProof
     ) public view virtual onlyProxy onlyInitialized {
-        uint256 worldIdRegistryMerkleRoot = zeroKnowledgeProof[4];
-        if (!_worldIDRegistry.isValidRoot(worldIdRegistryMerkleRoot)) {
+        if (!_worldIDRegistry.isValidRoot(zeroKnowledgeProof[4])) {
             revert InvalidMerkleRoot();
         }
 
         ICredentialSchemaIssuerRegistry.Pubkey memory credentialIssuerPubkey =
             _credentialSchemaIssuerRegistry.issuerSchemaIdToPubkey(issuerSchemaId);
-        if (credentialIssuerPubkey.x == 0 || credentialIssuerPubkey.y == 0) {
-            revert UnregisteredIssuerSchemaId();
-        }
 
         // NOTICE: Currently the `oprfKeyId` is the same as the `rpId`. This may change in the future in the `RpRegistry` contract
-        uint160 oprfKeyId = uint160(rpId);
-        BabyJubJub.Affine memory oprfPublicKey = _oprfKeyRegistry.getOprfPublicKey(oprfKeyId);
+        // The registry reverts on an unknown or deleted id, so the pubkey returned here is never empty.
+        BabyJubJub.Affine memory oprfPublicKey = _oprfKeyRegistry.getOprfPublicKey(uint160(rpId));
 
-        // The proof guarantees the credential's private `expires_at` is greater than
-        // the public `expiresAtMin` input. Reject if that lower bound is more than
-        // `_minExpirationThreshold` older than the current block timestamp, preventing
-        // proofs that only show the credential expires after a timestamp too far in the past.
-        if (uint256(expiresAtMin + _minExpirationThreshold) < block.timestamp) {
-            revert ExpirationTooOld();
-        }
-
-        uint256[15] memory pubSignals;
-
-        pubSignals[0] = nullifier;
-        pubSignals[1] = issuerSchemaId;
-        pubSignals[2] = credentialIssuerPubkey.x;
-        pubSignals[3] = credentialIssuerPubkey.y;
-        pubSignals[4] = uint256(expiresAtMin);
-        pubSignals[5] = credentialGenesisIssuedAtMin;
-        pubSignals[6] = worldIdRegistryMerkleRoot;
-        pubSignals[7] = _treeDepth;
-        pubSignals[8] = uint256(rpId);
-        pubSignals[9] = action;
-        pubSignals[10] = oprfPublicKey.x;
-        pubSignals[11] = oprfPublicKey.y;
-        pubSignals[12] = signalHash;
-        pubSignals[13] = nonce;
-        pubSignals[14] = sessionId;
-
-        uint256[4] memory groth16CompressedProof;
-        for (uint256 i = 0; i < 4; i++) {
-            groth16CompressedProof[i] = zeroKnowledgeProof[i];
-        }
-
-        _verifier.verifyCompressedProof(groth16CompressedProof, pubSignals);
+        WorldIDVerification.verify(
+            WorldIDVerification.Context({
+                verifier: _verifier,
+                treeDepth: _treeDepth,
+                minExpirationThreshold: _minExpirationThreshold,
+                issuerPubkeyX: credentialIssuerPubkey.x,
+                issuerPubkeyY: credentialIssuerPubkey.y,
+                oprfPubkeyX: oprfPublicKey.x,
+                oprfPubkeyY: oprfPublicKey.y
+            }),
+            WorldIDVerification.Signals({
+                nullifier: nullifier,
+                action: action,
+                rpId: rpId,
+                nonce: nonce,
+                signalHash: signalHash,
+                expiresAtMin: expiresAtMin,
+                issuerSchemaId: issuerSchemaId,
+                credentialGenesisIssuedAtMin: credentialGenesisIssuedAtMin,
+                sessionId: sessionId
+            }),
+            zeroKnowledgeProof
+        );
     }
 
     /// @inheritdoc IWorldIDVerifier

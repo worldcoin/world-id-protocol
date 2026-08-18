@@ -5,6 +5,7 @@ import {IWorldID} from "@world-id-bridge/interfaces/IWorldID.sol";
 import {Lib} from "@world-id-bridge/lib/Lib.sol";
 import {StateBridge} from "@world-id-bridge/lib/StateBridge.sol";
 import {Verifier} from "@world-id-core/Verifier.sol";
+import {WorldIDVerification} from "@world-id-core/libraries/WorldIDVerification.sol";
 import {ERC7786Recipient} from "@openzeppelin/contracts/crosschain/ERC7786Recipient.sol";
 
 import "@world-id-bridge/Error.sol";
@@ -63,7 +64,7 @@ contract WorldIDSatellite is IWorldID, ERC7786Recipient, StateBridge {
         uint256 credentialGenesisIssuedAtMin,
         uint256[5] calldata zeroKnowledgeProof
     ) external view virtual {
-        if (uint8(action >> 248) != uint8(0)) revert InvalidAction();
+        WorldIDVerification.requireUniquenessDomain(action);
 
         verifyProofAndSignals(
             nullifier,
@@ -94,8 +95,8 @@ contract WorldIDSatellite is IWorldID, ERC7786Recipient, StateBridge {
         uint256[5] calldata zeroKnowledgeProof
     ) external view virtual {
         uint256 action = sessionNullifier[1];
-        if (uint8(action >> 248) != uint8(2)) revert InvalidAction();
-        if (sessionId == 0) revert InvalidSessionId();
+        WorldIDVerification.requireSessionDomain(action);
+        WorldIDVerification.requireSessionId(sessionId);
 
         verifyProofAndSignals(
             sessionNullifier[0],
@@ -124,37 +125,34 @@ contract WorldIDSatellite is IWorldID, ERC7786Recipient, StateBridge {
         uint256 sessionId,
         uint256[5] calldata proofExt
     ) public view virtual {
-        uint256 root = proofExt[4];
-
-        if (!isValidRoot(root)) revert InvalidMerkleRoot();
-        if (expiresAtMin < block.timestamp - MIN_EXPIRATION_THRESHOLD) revert ExpirationTooOld();
+        if (!isValidRoot(proofExt[4])) revert InvalidMerkleRoot();
 
         ProvenPubKeyInfo memory issuerPubKeyInfo = issuerSchemaIdToPubkeyAndProofId(issuerSchemaId);
-        if (issuerPubKeyInfo.pubKey.x == 0 && issuerPubKeyInfo.pubKey.y == 0) revert UnregisteredIssuerSchemaId();
-
         ProvenPubKeyInfo memory oprfPubKeyInfo = oprfKeyIdToPubkeyAndProofId(uint160(rpId));
-        if (oprfPubKeyInfo.pubKey.x == 0 && oprfPubKeyInfo.pubKey.y == 0) revert UnregisteredOprfKeyId();
 
-        uint256[4] memory proof = [proofExt[0], proofExt[1], proofExt[2], proofExt[3]];
-        uint256[15] memory input = [
-            nullifier,
-            issuerSchemaId,
-            issuerPubKeyInfo.pubKey.x,
-            issuerPubKeyInfo.pubKey.y,
-            uint256(expiresAtMin),
-            credentialGenesisIssuedAtMin,
-            root,
-            TREE_DEPTH,
-            uint256(rpId),
-            action,
-            oprfPubKeyInfo.pubKey.x,
-            oprfPubKeyInfo.pubKey.y,
-            signalHash,
-            nonce,
-            sessionId
-        ];
-
-        VERIFIER.verifyCompressedProof(proof, input);
+        WorldIDVerification.verify(
+            WorldIDVerification.Context({
+                verifier: VERIFIER,
+                treeDepth: TREE_DEPTH,
+                minExpirationThreshold: MIN_EXPIRATION_THRESHOLD,
+                issuerPubkeyX: issuerPubKeyInfo.pubKey.x,
+                issuerPubkeyY: issuerPubKeyInfo.pubKey.y,
+                oprfPubkeyX: oprfPubKeyInfo.pubKey.x,
+                oprfPubkeyY: oprfPubKeyInfo.pubKey.y
+            }),
+            WorldIDVerification.Signals({
+                nullifier: nullifier,
+                action: action,
+                rpId: rpId,
+                nonce: nonce,
+                signalHash: signalHash,
+                expiresAtMin: expiresAtMin,
+                issuerSchemaId: issuerSchemaId,
+                credentialGenesisIssuedAtMin: credentialGenesisIssuedAtMin,
+                sessionId: sessionId
+            }),
+            proofExt
+        );
     }
 
     /// @inheritdoc IWorldID

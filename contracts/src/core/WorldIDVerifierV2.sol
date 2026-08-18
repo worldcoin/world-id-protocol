@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {WorldIDVerifier} from "./WorldIDVerifier.sol";
 import {IWorldIDVerifier} from "./interfaces/IWorldIDVerifier.sol";
 import {IWorldIDVerifierV2} from "./interfaces/IWorldIDVerifierV2.sol";
+import {WorldIDVerification} from "./libraries/WorldIDVerification.sol";
 
 /**
  * @title WorldIDVerifier
@@ -26,9 +27,7 @@ contract WorldIDVerifierV2 is IWorldIDVerifierV2, WorldIDVerifier {
         uint256 credentialGenesisIssuedAtMin,
         uint256[5] calldata zeroKnowledgeProof
     ) external view virtual override(IWorldIDVerifier, WorldIDVerifier) onlyProxy onlyInitialized {
-        if (uint8(action >> 248) != uint8(0)) {
-            revert InvalidAction();
-        }
+        WorldIDVerification.requireUniquenessDomain(action);
 
         verifyProofAndSignals(
             nullifier,
@@ -59,9 +58,7 @@ contract WorldIDVerifierV2 is IWorldIDVerifierV2, WorldIDVerifier {
         uint256[5] calldata zeroKnowledgeProof
     ) external view virtual override(IWorldIDVerifier, WorldIDVerifier) onlyProxy onlyInitialized {
         uint256 action = sessionNullifier[1];
-        if (uint8(action >> 248) != uint8(2)) {
-            revert InvalidAction();
-        }
+        WorldIDVerification.requireSessionDomain(action);
 
         verifyProofAndSignals(
             sessionNullifier[0],
