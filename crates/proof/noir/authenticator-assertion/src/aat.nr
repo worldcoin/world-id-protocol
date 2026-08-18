@@ -46,13 +46,24 @@ pub struct AuthenticatorAssertionToken {
 /// freshness on both the AAT and its nested TAKT (`now < exp`). It MUST be a
 /// public input of any outer proof that calls this function.
 ///
-/// The chain is only as trustworthy as its root: the TAKT's `trust_anchor_key`
-/// is witness-selected, so an outer proof MUST bind it to an approved
-/// Authenticator Provider. See `verify_takt` for what that binding requires.
-/// Without it, this function accepts a self-attested chain.
-///
 /// This is the primary entrypoint; the TAKT digest is computed exactly once
 /// along this path (inside `verify_takt`).
+///
+/// # Trust anchor
+///
+/// The chain is only as trustworthy as its root, and this function does not
+/// establish that root. The nested TAKT's `trust_anchor_key` comes from the
+/// witness, so a verified chain proves only that *some* key attested the
+/// assertion key, not that the key belongs to an approved Authenticator
+/// Provider: a prover can mint a keypair and self-attest any assertion key
+/// with any `sec_flags`, and this function will accept the result. Any outer
+/// proof MUST establish that binding itself, by either:
+/// - proving the anchor's membership in an approved provider registry
+///   in-circuit, or
+/// - exposing the anchor as a public input the verifier checks against that
+///   registry. Note this reveals which provider attested the authenticator,
+///   narrowing the anonymity set; prefer in-circuit membership where the
+///   provider set is not already public per proof.
 pub fn verify_aat(aat: AuthenticatorAssertionToken, now: Field) {
     // CBOR uint32 encoding of `exp` is checked later in `aat_sig_structure`.
     assert_not_expired(aat.exp, now);
