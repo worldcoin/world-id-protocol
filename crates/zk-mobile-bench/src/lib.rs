@@ -1,10 +1,14 @@
 //! Mobile benchmarks for World ID ZK proof generation.
 //!
-//! This crate provides benchmarks for the two main ZK proof generation functions:
+//! This crate provides benchmarks for the main ZK proof generation functions:
 //! - Query Proof (`π1`) - proves knowledge of a valid OPRF query
 //! - Nullifier/Uniqueness Proof (`π2`) - proves uniqueness without revealing identity
+//! - Ownership Proof (WIP-103) - split into witness, proving, and combined timings
 
 use mobench_sdk::benchmark;
+use provekit_acir::native_types::WitnessMap;
+use provekit_common::{InputMap, NoirElement, Prover};
+use provekit_prover::Prove;
 
 mod fixtures;
 
@@ -27,11 +31,15 @@ use world_id_primitives::{
     AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, authenticator::oprf_query_digest,
 };
 use world_id_proof::{
-    artifacts::embedded::zkeys,
+    NoirCircuitInput,
+    artifacts::{
+        ZkArtifactSource,
+        embedded::{EmbeddedZkArtifacts, zkeys},
+    },
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
 };
 
-use fixtures::{first_leaf_merkle_path, generate_rp_fixture};
+use fixtures::{first_leaf_merkle_path, generate_rp_fixture, ownership_proof_fixture};
 
 // ============================================================================
 // Fixture Generation (deterministic for reproducible benchmarks)
@@ -255,6 +263,59 @@ thread_local! {
         const { RefCell::new(None) };
     static NULLIFIER_WITNESS_CACHE: RefCell<Option<(CircomGroth16Material, Vec<ark_bn254::Fr>)>> =
         const { RefCell::new(None) };
+}
+
+fn ownership_prover() -> Prover {
+    EmbeddedZkArtifacts
+        .ownership_prover()
+        .expect("embedded ownership prover")
+}
+
+fn setup_ownership_witness_generation() -> (Prover, InputMap) {
+    let input_map = ownership_proof_fixture()
+        .into_witness()
+        .expect("ownership input map");
+    (ownership_prover(), input_map)
+}
+
+fn setup_ownership_proving() -> (Prover, WitnessMap<NoirElement>) {
+    let (mut prover, input_map) = setup_ownership_witness_generation();
+    let witness = prover
+        .generate_witness(input_map)
+        .expect("ownership witness generation");
+    (prover, witness)
+}
+
+/// Benchmark: WIP-103 ownership-proof witness generation only.
+///
+/// Deterministic input construction and prover loading happen in untimed setup.
+#[benchmark(setup = setup_ownership_witness_generation, per_iteration)]
+pub fn bench_ownership_witness_generation((mut prover, input_map): (Prover, InputMap)) {
+    let witness = prover
+        .generate_witness(input_map)
+        .expect("ownership witness generation");
+    std::hint::black_box(witness);
+}
+
+/// Benchmark: WIP-103 ownership proving from a precomputed ACIR witness.
+///
+/// Input construction, prover loading, and witness generation happen in untimed setup.
+#[benchmark(setup = setup_ownership_proving, per_iteration)]
+pub fn bench_ownership_proving((prover, witness): (Prover, WitnessMap<NoirElement>)) {
+    let proof = prover
+        .prove_with_witness(witness)
+        .expect("ownership proof generation");
+    std::hint::black_box(proof);
+}
+
+/// Benchmark: WIP-103 ownership witness generation plus proving.
+///
+/// This is the combined measurement; deterministic input construction and
+/// prover loading happen in untimed setup.
+#[benchmark(setup = setup_ownership_witness_generation, per_iteration)]
+pub fn bench_ownership_proof_generation((prover, input_map): (Prover, InputMap)) {
+    let proof = prover.prove(input_map).expect("ownership proof generation");
+    std::hint::black_box(proof);
 }
 
 /// Benchmark: Query Proof (π1) generation from cached input
