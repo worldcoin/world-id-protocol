@@ -22,8 +22,8 @@ use world_id_core::{
 };
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, ProofRequest, ProofType, RequestItem, RequestVersion, SessionFeType,
-    SessionFieldElement as _, SessionId, TREE_DEPTH,
+    AuthenticatorPublicKeySet, OprfPrefix, OprfPrefixedFieldElement as _, ProofRequest, ProofType,
+    RequestItem, RequestVersion, SessionId, SessionRef, TREE_DEPTH,
     merkle::MerkleInclusionProof,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
     rp::RpId,
@@ -153,6 +153,16 @@ impl DevClient for WorldIdRpDevClient {
         )))
     }
 
+    async fn run_delegate_oprf(
+        &self,
+        _config: &DevClientConfig,
+        _setup: Self::Setup,
+        _delegate_service: Option<String>,
+        _client: &reqwest_13::Client,
+    ) -> eyre::Result<ShareEpoch> {
+        eyre::bail!("delegated OPRF is not supported by the World ID RP dev client")
+    }
+
     async fn prepare_stress_test_item<R: Rng + CryptoRng + Send>(
         &self,
         setup: &Self::Setup,
@@ -171,7 +181,7 @@ impl DevClient for WorldIdRpDevClient {
         let request_id = Uuid::new_v4();
         let action = proof_request
             .action
-            .unwrap_or_else(|| FieldElement::random_for_session(rng, SessionFeType::Action));
+            .unwrap_or_else(|| FieldElement::random_with_prefix(rng, OprfPrefix::SessionAction));
         let query_hash = world_id_primitives::authenticator::oprf_query_digest(
             leaf_index,
             action,
@@ -275,17 +285,17 @@ fn create_proof_request<R: Rng + CryptoRng>(
             rng.fill(&mut bytes[1..]);
             bytes[0] = 0x00;
             let a = FieldElement::from_be_bytes(&bytes).expect("Works");
-            (ProofType::Uniqueness, Some(*a), None)
+            (ProofType::Uniqueness, Some(*a), SessionRef::None)
         }
         OprfModule::Session => {
             // Session RP signature does NOT include action
             let session_id = SessionId::from_r_seed(
                 setup.key_index,
                 FieldElement::random(rng),
-                FieldElement::random_for_session(rng, SessionFeType::OprfSeed),
+                FieldElement::random_with_prefix(rng, OprfPrefix::SessionOprfSeed),
             )
             .context("while building SessionId")?;
-            (ProofType::Session, None, Some(session_id))
+            (ProofType::Session, None, SessionRef::Existing(session_id))
         }
         _ => unreachable!("only have session and nullifier modules here"),
     };
@@ -360,6 +370,7 @@ fn generate_oprf_auth_request(
         signature: Some(proof_request.signature),
         rp_id: proof_request.rp_id,
         wip101_data: None,
+        rp_signature_verification: None,
     };
 
     Ok(auth)

@@ -19,7 +19,6 @@ alloy-node-bindings = { workspace = true }
 eyre = { workspace = true }
 hex = { workspace = true }
 serde_json = { workspace = true }
-poseidon2 = { workspace = true }
 ark-babyjubjub = { workspace = true }
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
@@ -27,9 +26,8 @@ eddsa-babyjubjub = { workspace = true }
 k256 = { workspace = true, features = ["ecdsa"] }
 rand = { workspace = true }
 ark-ec = { workspace = true }
-taceo-oprf = { workspace = true, features = ["full"] }
-taceo-oprf-test-utils = { workspace = true, features = ["deploy-anvil", "postgres-test-container"] }
-taceo-nodes-common = { workspace = true, features=["web3"] }
+taceo-oprf = { workspace = true, features = ["full", "anvil"] }
+taceo-nodes-common = { workspace = true, features = ["test-utils", "web3"] }
 axum = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync"] }
 tokio-util = { workspace = true }

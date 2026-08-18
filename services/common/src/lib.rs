@@ -5,7 +5,9 @@ pub mod axum;
 
 pub use self::{
     alloy::{
-        provider::{ProviderArgs, ProviderError, ProviderResult, SignerArgs, SignerConfig},
+        provider::{
+            ProviderArgs, ProviderError, ProviderResult, ProviderWallet, SignerArgs, SignerConfig,
+        },
         provider_layers::{
             METRICS_RPC_ENDPOINT_LATENCY_MS, METRICS_RPC_ENDPOINT_REQUESTS, RetryConfig,
             describe_provider_transport_metrics,

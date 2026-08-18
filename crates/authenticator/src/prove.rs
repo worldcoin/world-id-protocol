@@ -1,7 +1,7 @@
 use secrecy::ExposeSecret;
 use world_id_primitives::{
     Credential, FieldElement, ProofRequest, ProofResponse, ProofType, RequestItem, ResponseItem,
-    SessionId, SessionNullifier, ZeroKnowledgeProof,
+    SessionId, SessionNullifier, SessionRef, ZeroKnowledgeProof,
 };
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofCompression,
@@ -208,20 +208,20 @@ impl Authenticator {
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
         proof_request.validate_proof_type()?;
-        if !proof_request.is_session_proof() {
-            return Err(AuthenticatorError::PrimitiveError(
-                world_id_primitives::PrimitiveError::InvalidInput {
-                    attribute: "proof_type".to_string(),
-                    reason: "must be create_session or session".to_string(),
-                },
-            ));
-        }
-
         let mut rng = rand::rngs::OsRng;
 
         let oprf_seed = match proof_request.session_id {
-            Some(session_id) => session_id.oprf_seed,
-            None => SessionId::generate_oprf_seed(&mut rng),
+            SessionRef::Existing(session_id) => session_id.oprf_seed,
+            SessionRef::Create => SessionId::generate_oprf_seed(&mut rng),
+            SessionRef::None => {
+                return Err(AuthenticatorError::PrimitiveError(
+                    world_id_primitives::PrimitiveError::InvalidInput {
+                        attribute: "session_id".to_string(),
+                        reason: "session_id must be \"create\" or an existing session id"
+                            .to_string(),
+                    },
+                ));
+            }
         };
 
         let resolved_session_id_r_seed = match session_id_r_seed {
@@ -244,7 +244,7 @@ impl Authenticator {
         let session_id =
             SessionId::from_r_seed(self.leaf_index(), resolved_session_id_r_seed, oprf_seed)?;
 
-        if let Some(request_session_id) = proof_request.session_id {
+        if let SessionRef::Existing(request_session_id) = proof_request.session_id {
             self.validate_cached_session_r_seed(resolved_session_id_r_seed, request_session_id)?;
         }
 
@@ -274,9 +274,9 @@ impl Authenticator {
     /// - `credentials` — one [`CredentialInput`] per credential to prove,
     ///   matched to request items by `issuer_schema_id`.
     /// - `account_inclusion_proof` — a cached inclusion proof if available (a fresh one will be fetched otherwise)
-    /// - `session_id_r_seed` — a cached session `r` seed. For Session Proofs it is re-computed
-    ///   if unavailable; for session-bound Uniqueness Proofs ([`ProofRequest::binds_session`])
-    ///   it is required and the call fails with [`AuthenticatorError::SessionSeedRequired`] otherwise.
+    /// - `session_id_r_seed` — a cached session `r` seed. For requests using an existing
+    ///   session it is re-derived if unavailable. Create flows mint a fresh session and return
+    ///   the new `session_id_r_seed` for caching.
     ///
     /// # Caller Responsibilities
     /// 1. The caller must ensure the request can be fulfilled with the credentials which the user has available,
@@ -307,26 +307,15 @@ impl Authenticator {
             .ok_or(AuthenticatorError::UnfullfilableRequest)?;
 
         // 2. Resolve session seed
-        let (resolved_session_id, resolved_session_seed) = match proof_request.proof_type {
-            ProofType::Uniqueness => match proof_request.session_id {
-                // Bind the proof to the existing session. Requires the cached `r`.
-                Some(session_id) => {
-                    let seed = session_id_r_seed.ok_or(AuthenticatorError::SessionSeedRequired)?;
-                    self.validate_cached_session_r_seed(seed, session_id)?;
-                    (Some(session_id), Some(seed))
-                }
-                None => (None, None),
-            },
-            ProofType::CreateSession => {
+        let (resolved_session_id, resolved_session_r_seed) = match proof_request.session_id {
+            SessionRef::None => (None, None),
+            SessionRef::Create => {
                 let (session_id, seed) = self
                     .build_session_id(proof_request, None, account_inclusion_proof)
                     .await?;
                 (Some(session_id), Some(seed))
             }
-            ProofType::Session => {
-                let session_id = proof_request
-                    .session_id
-                    .expect("session proof must have session_id");
+            SessionRef::Existing(session_id) => {
                 if let Some(seed) = session_id_r_seed {
                     self.validate_cached_session_r_seed(seed, session_id)?;
                     (Some(session_id), Some(seed))
@@ -362,7 +351,7 @@ impl Authenticator {
                 request_item,
                 &cred_input.credential,
                 cred_input.blinding_factor,
-                resolved_session_seed,
+                resolved_session_r_seed,
                 resolved_session_id,
                 proof_request.proof_type,
                 proof_request.created_at,
@@ -382,7 +371,7 @@ impl Authenticator {
         // 5. Validate and return response
         proof_request.validate_response(&proof_response)?;
         Ok(ProofResult {
-            session_id_r_seed: resolved_session_seed,
+            session_id_r_seed: resolved_session_r_seed,
             proof_response,
         })
     }
@@ -477,6 +466,8 @@ impl Authenticator {
     ///
     /// # Arguments
     /// - `nonce`: The nonce of the request provided by the Issuer.
+    /// - `context`: Identifies the specific operation which the user is performing with the issuer. Provided by the issuer, it is
+    ///   RECOMMENDED to use a hashing function to lower arbitrary bytes into the field avoiding collisions, e.g. [`FieldElement::from_arbitrary_raw_bytes`]
     /// - `credential_blinding_factor`: The blinding factor generated for the credential.
     /// - `sub`: The expected `sub` of the Credential in question.
     /// - `account_inclusion_proof`: An optionally cached account inclusion proof. If not provided, a new inclusion proof will be fetched.
@@ -487,11 +478,12 @@ impl Authenticator {
     pub async fn prove_credential_sub(
         &self,
         nonce: FieldElement,
+        context: FieldElement,
         credential_blinding_factor: FieldElement,
         sub: FieldElement,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<OwnershipProof, AuthenticatorError> {
-        use world_id_proof::ownership_proof::DS_OWNERSHIP_PROOF;
+        use world_id_primitives::poseidon::{self, ds};
 
         let authenticator_input = self
             .prepare_authenticator_input(account_inclusion_proof)
@@ -503,24 +495,21 @@ impl Authenticator {
             return Err(AuthenticatorError::InvalidSubOrBlindingFactor);
         }
 
-        let mut message = [
-            *FieldElement::from_be_bytes_mod_order(DS_OWNERSHIP_PROOF),
-            *commitment,
-            *nonce,
-        ];
-        poseidon2::bn254::t3::permutation_in_place(&mut message);
+        let message = poseidon::hash(ds::OWNERSHIP_PROOF, [commitment, nonce, context]);
 
         let signature = self
             .signer
             .offchain_signer_private_key()
             .expose_secret()
-            .sign(message[1]);
+            .sign(*message);
 
         let input = OwnershipProofCircuitInput {
             key_index: authenticator_input.key_index,
             key_set: authenticator_input.key_set.clone(),
             inclusion_proof: authenticator_input.inclusion_proof.clone(),
             nonce,
+            expected_commitment: commitment,
+            context,
             signature,
             commitment_blinder: credential_blinding_factor,
         };
@@ -621,6 +610,7 @@ mod tests {
         let result = authenticator
             .prove_credential_sub(
                 FieldElement::from(1_234_567_890u64),
+                FieldElement::from(42u64),
                 blinding_factor,
                 wrong_sub,
                 Some(inclusion_proof),
@@ -651,9 +641,16 @@ mod tests {
         let blinding_factor = FieldElement::from(999u64);
         let correct_sub = Credential::compute_sub(leaf_index, blinding_factor);
         let nonce = FieldElement::from(1_234_567_890u64);
+        let context = FieldElement::from(42u64);
 
         authenticator
-            .prove_credential_sub(nonce, blinding_factor, correct_sub, Some(inclusion_proof))
+            .prove_credential_sub(
+                nonce,
+                context,
+                blinding_factor,
+                correct_sub,
+                Some(inclusion_proof),
+            )
             .await
             .expect("proof generation should succeed");
     }

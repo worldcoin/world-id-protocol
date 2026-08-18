@@ -9,7 +9,11 @@ use coset::{
 };
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use p256::{ecdsa::signature::Signer, elliptic_curve::sec1::ToEncodedPoint};
-use world_id_primitives::{FieldElement, rp::RpId};
+use world_id_primitives::{
+    FieldElement,
+    poseidon::{self, ds},
+    rp::RpId,
+};
 
 /// COSE algorithm identifier for `BabyJubJub-EdDSA-Poseidon2` (defined in WIP-106).
 pub const COSE_ALG_BABYJUBJUB_EDDSA_POSEIDON2: i64 = -65537;
@@ -35,9 +39,6 @@ pub const MAX_SEC_META: u8 = 0xF;
 
 /// Maximum value for the provider-defined bits of `authenticator_meta` (2 bits).
 pub const MAX_PROVIDER_BITS: u8 = 0b11;
-
-/// Domain separator for the Trust Anchor Key Token `Poseidon2` message hash.
-const TRUST_ANCHOR_KEY_DS: &[u8] = b"WORLD_ID_TAKT_V1";
 
 /// CWT claim key for `aud` (RFC 8392).
 const CWT_CLAIM_AUD: i64 = 3;
@@ -230,7 +231,7 @@ impl TrustAnchorKeyToken {
     ///
     /// The message is derived from the encoded claims set: each claim value in
     /// deterministic CBOR map-key order (RFC 8949 §4.2.1) is lowered into zero
-    /// or more field elements (see [`claim_field_elements`]; non-field-element
+    /// or more field elements (see `claim_field_elements`; non-field-element
     /// claims such as `eat_profile` are excluded per WIP-106), preceded by a
     /// domain-separator element in the Poseidon2 t8 permutation; the digest is
     /// element 1 of the permuted state.
@@ -252,24 +253,25 @@ impl TrustAnchorKeyToken {
             ));
         };
 
-        let mut state = [*FieldElement::ZERO; 8];
-        // The domain separator fits the field (16 bytes); `mod_order` cannot
-        // reduce here but is the spec-mandated lowering.
-        state[0] = *FieldElement::from_be_bytes_mod_order(TRUST_ANCHOR_KEY_DS);
-        let mut slot = 1;
+        // The claim count varies per token, so the input is a fixed 7 elements — the
+        // rate of the t8 permutation — left zero where a token carries fewer claims.
+        // The width must stay pinned regardless of the claim count, so the array size
+        // is not derived from `entries`.
+        let mut inputs = [FieldElement::ZERO; 7];
+        let mut slot = 0;
         for (key, value) in &entries {
             for element in claim_field_elements(key, value)? {
-                let Some(target) = state.get_mut(slot) else {
+                let Some(target) = inputs.get_mut(slot) else {
                     return Err(AttestationError::ClaimHashing(
                         "claim values exceed the Poseidon2 t8 width".to_string(),
                     ));
                 };
-                *target = *element;
+                *target = element;
                 slot += 1;
             }
         }
-        poseidon2::bn254::t8::permutation_in_place(&mut state);
-        Ok(state[1].into())
+
+        Ok(poseidon::hash(ds::TRUST_ANCHOR_KEY_TOKEN, inputs))
     }
 
     /// Signs the token with the Authenticator Provider's `trust_anchor_key` and

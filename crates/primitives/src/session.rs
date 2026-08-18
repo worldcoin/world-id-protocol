@@ -1,48 +1,11 @@
-use crate::{FieldElement, PrimitiveError};
+use crate::{
+    FieldElement, PrimitiveError,
+    oprf::{OprfPrefix, OprfPrefixedFieldElement as _},
+    poseidon::{self, ds},
+};
 use embed_doc_image::embed_doc_image;
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
-
-/// Type of field elements for Session Proofs
-#[repr(u8)]
-pub enum SessionFeType {
-    /// The [`SessionId::oprf_seed`]
-    OprfSeed = 0x01,
-    /// The action used to compute the inner nullifier (in a [`SessionNullifier`]) for a Session Proof.
-    Action = 0x02,
-}
-
-/// Allows field element generation for Session Proofs
-pub trait SessionFieldElement {
-    /// Generate a randomized field element with a specific prefix used
-    /// only for Session Proofs. See [`SessionFeType`] for details.
-    fn random_for_session<R: rand::CryptoRng + rand::RngCore>(
-        rng: &mut R,
-        element_type: SessionFeType,
-    ) -> FieldElement;
-    /// Returns whether a Field Element is valid for Session Proof use, i.e. it has
-    /// the right prefix
-    fn is_valid_for_session(&self, element_type: SessionFeType) -> bool;
-}
-
-impl SessionFieldElement for FieldElement {
-    fn random_for_session<R: rand::CryptoRng + rand::RngCore>(
-        rng: &mut R,
-        element_type: SessionFeType,
-    ) -> FieldElement {
-        let mut bytes = [0u8; 32];
-        rng.fill_bytes(&mut bytes);
-        bytes[0] = element_type as u8;
-        let seed = U256::from_be_bytes(bytes);
-        Self::try_from(seed).expect(
-            "should always fit in the field because with 0x01 as the MSB, the field element < babyjubjub modulus",
-        )
-    }
-
-    fn is_valid_for_session(&self, element_type: SessionFeType) -> bool {
-        self.to_be_bytes()[0] == element_type as u8
-    }
-}
 
 /// An identifier for a session (can be re-used).
 ///
@@ -91,10 +54,6 @@ pub struct SessionId {
 
 impl SessionId {
     const JSON_PREFIX: &str = "session_";
-    /// Domain separator for session id.
-    ///
-    /// TODO: Change DS to not use the same DS as the base Query Proof
-    const DS_C: &[u8] = b"H(id, r)";
 
     /// Creates a new session id. Most uses should default to `from_r_seed` instead.
     ///
@@ -104,7 +63,7 @@ impl SessionId {
         // OPRF Seeds must always start with a byte of `0x01`. See [`Self::oprf_seed`]
         // for details. Panic is acceptable as `oprf_seed` generation should
         // generally be done with `Self::from_r_seed`
-        if !oprf_seed.is_valid_for_session(SessionFeType::OprfSeed) {
+        if !oprf_seed.has_prefix(OprfPrefix::SessionOprfSeed) {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "session_id".to_string(),
                 reason: "inner oprf_seed is not valid".to_string(),
@@ -133,18 +92,17 @@ impl SessionId {
         session_id_r_seed: FieldElement,
         oprf_seed: FieldElement,
     ) -> Result<Self, PrimitiveError> {
-        let sub_ds = FieldElement::from_be_bytes_mod_order(Self::DS_C);
-
-        if !oprf_seed.is_valid_for_session(SessionFeType::OprfSeed) {
+        if !oprf_seed.has_prefix(OprfPrefix::SessionOprfSeed) {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "session_id".to_string(),
                 reason: "inner oprf_seed is not valid".to_string(),
             });
         }
 
-        let mut input = [*sub_ds, leaf_index.into(), *session_id_r_seed];
-        poseidon2::bn254::t3::permutation_in_place(&mut input);
-        let commitment = input[1].into();
+        let commitment = poseidon::hash(
+            ds::SESSION_COMMITMENT,
+            [leaf_index.into(), session_id_r_seed],
+        );
         Ok(Self {
             commitment,
             oprf_seed,
@@ -153,7 +111,7 @@ impl SessionId {
 
     /// Generates a new [`Self::oprf_seed`] to initialize a new Session.
     pub fn generate_oprf_seed<R: rand::CryptoRng + rand::RngCore>(rng: &mut R) -> FieldElement {
-        FieldElement::random_for_session(rng, SessionFeType::OprfSeed)
+        FieldElement::random_with_prefix(rng, OprfPrefix::SessionOprfSeed)
     }
 
     /// Returns the 64-byte big-endian representation (2 x 32-byte field elements).
@@ -182,7 +140,7 @@ impl SessionId {
         let oprf_seed = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
             .map_err(|e| format!("invalid oprf_seed: {e}"))?;
 
-        if bytes[32] != SessionFeType::OprfSeed as u8 {
+        if bytes[32] != OprfPrefix::SessionOprfSeed as u8 {
             return Err("invalid prefix for oprf_seed".to_string());
         }
 
@@ -196,7 +154,7 @@ impl SessionId {
 impl Default for SessionId {
     fn default() -> Self {
         let mut oprf_seed = [0u8; 32];
-        oprf_seed[0] = SessionFeType::OprfSeed as u8;
+        oprf_seed[0] = OprfPrefix::SessionOprfSeed as u8;
         let oprf_seed = U256::from_be_bytes(oprf_seed)
             .try_into()
             .expect("always fits in the field");
@@ -245,6 +203,137 @@ impl<'de> Deserialize<'de> for SessionId {
     }
 }
 
+/// How a proof request refers to a session.
+///
+/// Wire encoding (the request's `session_id` field): absent or `null` → [`Self::None`],
+/// `"create"` → [`Self::Create`], a `"session_"`-prefixed id → [`Self::Existing`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum SessionRef {
+    /// No session involvement.
+    #[default]
+    None,
+    /// Mint a fresh session. For [`crate::ProofType::Session`] this proves the new
+    /// session in the same response; for [`crate::ProofType::Uniqueness`] this
+    /// returns a uniqueness proof committed to the newly minted session.
+    Create,
+    /// Refer to an existing session. Only valid for [`crate::ProofType::Session`].
+    Existing(SessionId),
+}
+
+impl SessionRef {
+    const CREATE_TOKEN: &str = "create";
+
+    /// Returns true if the request involves no session.
+    #[must_use]
+    pub const fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    /// Returns true if the request asks to mint a fresh session.
+    #[must_use]
+    pub const fn is_create(&self) -> bool {
+        matches!(self, Self::Create)
+    }
+
+    /// Returns the referenced existing session id, if any.
+    #[must_use]
+    pub const fn existing(&self) -> Option<SessionId> {
+        match self {
+            Self::Existing(id) => Some(*id),
+            _ => None,
+        }
+    }
+}
+
+impl From<SessionId> for SessionRef {
+    fn from(id: SessionId) -> Self {
+        Self::Existing(id)
+    }
+}
+
+impl Serialize for SessionRef {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::None => serializer.serialize_none(),
+            Self::Create => {
+                if serializer.is_human_readable() {
+                    serializer.serialize_str(Self::CREATE_TOKEN)
+                } else {
+                    // Binary: 6-byte token, cannot collide with the 64-byte `SessionId` encoding
+                    serializer.serialize_bytes(Self::CREATE_TOKEN.as_bytes())
+                }
+            }
+            Self::Existing(id) => id.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SessionRef {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct SessionRefVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for SessionRefVisitor {
+            type Value = SessionRef;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(
+                    formatter,
+                    "null, \"{}\", or a '{}'-prefixed session id",
+                    SessionRef::CREATE_TOKEN,
+                    SessionId::JSON_PREFIX
+                )
+            }
+
+            fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(SessionRef::None)
+            }
+
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(SessionRef::None)
+            }
+
+            fn visit_some<D2>(self, deserializer: D2) -> Result<Self::Value, D2::Error>
+            where
+                D2: Deserializer<'de>,
+            {
+                if deserializer.is_human_readable() {
+                    let value = String::deserialize(deserializer)?;
+                    if value == SessionRef::CREATE_TOKEN {
+                        return Ok(SessionRef::Create);
+                    }
+                    let hex_str = value.strip_prefix(SessionId::JSON_PREFIX).ok_or_else(|| {
+                        D2::Error::custom(format!(
+                            "session_id must be \"{}\" or start with '{}'",
+                            SessionRef::CREATE_TOKEN,
+                            SessionId::JSON_PREFIX
+                        ))
+                    })?;
+                    let bytes = hex::decode(hex_str).map_err(D2::Error::custom)?;
+                    SessionId::from_compressed_bytes(&bytes)
+                        .map(SessionRef::Existing)
+                        .map_err(D2::Error::custom)
+                } else {
+                    let bytes = Vec::<u8>::deserialize(deserializer)?;
+                    if bytes == SessionRef::CREATE_TOKEN.as_bytes() {
+                        return Ok(SessionRef::Create);
+                    }
+                    SessionId::from_compressed_bytes(&bytes)
+                        .map(SessionRef::Existing)
+                        .map_err(D2::Error::custom)
+                }
+            }
+        }
+
+        deserializer.deserialize_option(SessionRefVisitor)
+    }
+}
+
 /// A session nullifier for World ID Session proofs. It is analogous to a request nonce,
 /// it **does NOT guarantee uniqueness of a World ID** as a `Nullifier` does.
 ///
@@ -277,7 +366,7 @@ impl SessionNullifier {
 
     /// Creates a new session nullifier.
     pub fn new(nullifier: FieldElement, action: FieldElement) -> Result<Self, PrimitiveError> {
-        if !action.is_valid_for_session(SessionFeType::Action) {
+        if !action.has_prefix(OprfPrefix::SessionAction) {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "session_nullifier".to_string(),
                 reason: "inner action is not valid".to_string(),
@@ -316,7 +405,7 @@ impl SessionNullifier {
         let action =
             FieldElement::try_from(value[1]).map_err(|e| format!("invalid action: {e}"))?;
 
-        if !action.is_valid_for_session(SessionFeType::Action) {
+        if !action.has_prefix(OprfPrefix::SessionAction) {
             return Err("inner action is not valid".to_string());
         }
         Ok(Self { nullifier, action })
@@ -348,7 +437,7 @@ impl SessionNullifier {
         let action = FieldElement::from_be_bytes(bytes[32..].try_into().unwrap())
             .map_err(|e| format!("invalid action: {e}"))?;
 
-        if bytes[32] != SessionFeType::Action as u8 {
+        if bytes[32] != OprfPrefix::SessionAction as u8 {
             return Err("invalid action. missing expected prefix.".to_string());
         }
 
@@ -359,7 +448,7 @@ impl SessionNullifier {
 impl Default for SessionNullifier {
     fn default() -> Self {
         let mut action = [0u8; 32];
-        action[0] = SessionFeType::Action as u8;
+        action[0] = OprfPrefix::SessionAction as u8;
         let action = U256::from_be_bytes(action)
             .try_into()
             .expect("always fits in the field");
@@ -568,6 +657,103 @@ mod session_id_tests {
             expected,
             "commitment snapashot for session commitment changed"
         );
+    }
+}
+
+#[cfg(test)]
+mod session_ref_tests {
+    use super::*;
+    use ruint::uint;
+
+    fn test_session_id() -> SessionId {
+        let oprf_seed = U256::from(42u64)
+            | uint!(0x0100000000000000000000000000000000000000000000000000000000000000_U256);
+        SessionId::new(
+            FieldElement::from(1001u64),
+            FieldElement::try_from(oprf_seed).expect("test value fits in field"),
+        )
+        .expect("valid session id")
+    }
+
+    #[test]
+    fn test_default_is_none() {
+        assert_eq!(SessionRef::default(), SessionRef::None);
+        assert!(SessionRef::None.is_none());
+        assert!(SessionRef::Create.is_create());
+        assert_eq!(
+            SessionRef::Existing(test_session_id()).existing(),
+            Some(test_session_id())
+        );
+        assert_eq!(
+            SessionRef::from(test_session_id()).existing(),
+            Some(test_session_id())
+        );
+    }
+
+    #[test]
+    fn test_deserialize_create_token() {
+        let parsed: SessionRef = serde_json::from_str("\"create\"").unwrap();
+        assert_eq!(parsed, SessionRef::Create);
+    }
+
+    #[test]
+    fn test_deserialize_existing_matches_session_id_parse() {
+        let id = test_session_id();
+        let json = serde_json::to_string(&id).unwrap();
+        let parsed: SessionRef = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, SessionRef::Existing(id));
+    }
+
+    #[test]
+    fn test_deserialize_null_is_none() {
+        let parsed: SessionRef = serde_json::from_str("null").unwrap();
+        assert_eq!(parsed, SessionRef::None);
+    }
+
+    #[test]
+    fn test_rejects_unknown_strings() {
+        for input in ["\"Create\"", "\"creat\"", "\"snil_00\"", "\"\""] {
+            let result = serde_json::from_str::<SessionRef>(input);
+            let err = result.expect_err(input).to_string();
+            assert!(
+                err.contains("create") || err.contains("session_"),
+                "error for {input} should name the accepted forms: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_json_roundtrip_all_states() {
+        let cases = [
+            (SessionRef::None, "null"),
+            (SessionRef::Create, "\"create\""),
+        ];
+        for (state, expected_json) in cases {
+            let json = serde_json::to_string(&state).unwrap();
+            assert_eq!(json, expected_json);
+            let parsed: SessionRef = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, state);
+        }
+
+        let existing = SessionRef::Existing(test_session_id());
+        let json = serde_json::to_string(&existing).unwrap();
+        assert!(json.starts_with("\"session_"));
+        let parsed: SessionRef = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, existing);
+    }
+
+    #[test]
+    fn test_cbor_roundtrip_all_states() {
+        for state in [
+            SessionRef::None,
+            SessionRef::Create,
+            SessionRef::Existing(test_session_id()),
+        ] {
+            let mut buffer = Vec::new();
+            ciborium::into_writer(&state, &mut buffer).unwrap();
+            let decoded: SessionRef = ciborium::from_reader(&buffer[..]).unwrap();
+            assert_eq!(state, decoded);
+        }
     }
 }
 

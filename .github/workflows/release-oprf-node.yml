@@ -48,13 +48,14 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Generate release notes
         id: notes
-        uses: orhun/git-cliff-action@v4
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5 # v4.8.0 https://github.com/orhun/git-cliff-action/releases/tag/v4.8.0
         with:
           config: services/oprf-node/cliff.toml
           args: --include-path "services/oprf-node/**" --latest --strip all

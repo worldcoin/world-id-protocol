@@ -125,6 +125,16 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
         Ok(share_epoch)
     }
 
+    async fn run_delegate_oprf(
+        &self,
+        _config: &DevClientConfig,
+        _setup: Self::Setup,
+        _delegate_service: Option<String>,
+        _client: &reqwest_13::Client,
+    ) -> eyre::Result<ShareEpoch> {
+        eyre::bail!("delegated OPRF is not supported by the World ID issuer dev client")
+    }
+
     async fn prepare_stress_test_item<R: Rng + CryptoRng + Send>(
         &self,
         setup: &Self::Setup,

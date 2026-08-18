@@ -306,7 +306,7 @@ impl GlobalConfig {
         let provider = ProviderCli::try_parse_from(["indexer"])
             .map_err(|e| ConfigError::Provider(e.to_string()))?
             .provider;
-        if provider.http.is_none() {
+        if provider.http.is_empty() {
             return Err(ConfigError::MissingRpcUrl);
         }
 
@@ -589,7 +589,7 @@ mod tests {
         // Verify all environment variables were loaded correctly
         assert_eq!(config.environment, Environment::Development);
         assert_eq!(config.db_url, "postgresql://localhost/test");
-        assert!(config.provider.http.is_some());
+        assert!(!config.provider.http.is_empty());
         assert_eq!(
             config.registry_address.to_string(),
             "0x0000000000000000000000000000000000000001"

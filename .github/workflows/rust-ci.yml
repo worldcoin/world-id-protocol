@@ -28,11 +28,13 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Cache contract artifacts
         id: cache-contracts
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0 https://github.com/actions/cache/releases/tag/v4.3.0
         with:
           path: |
             contracts/out/
@@ -44,14 +46,14 @@ jobs:
 
       - name: Install Foundry
         if: steps.cache-contracts.outputs.cache-hit != 'true'
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
 
       - name: Build contracts and extract ABIs
         if: steps.cache-contracts.outputs.cache-hit != 'true'
         run: make sol-build
 
       - name: Upload contract ABIs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2 https://github.com/actions/upload-artifact/releases/tag/v4.6.2
         with:
           name: contract-abis
           path: |
@@ -61,7 +63,7 @@ jobs:
           retention-days: 1
 
       - name: Upload compiled contracts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2 https://github.com/actions/upload-artifact/releases/tag/v4.6.2
         with:
           name: contract-build-output
           path: contracts/out/
@@ -77,14 +79,16 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: nightly
           components: rustfmt
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
           components: clippy
@@ -93,12 +97,12 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
 
       - name: Download contract ABIs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
         with:
           name: contract-abis
 
       - name: Download compiled contracts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
         with:
           name: contract-build-output
           path: contracts/out
@@ -106,7 +110,7 @@ jobs:
       - name: Check code formatting
         run: cargo +nightly fmt --all -- --check
 
-      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
           toolchain: v1.0.0-beta.11
@@ -114,7 +118,7 @@ jobs:
       - name: Run clippy
         env:
           CONTRACTS_PREBUILT: "1"
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 
   msrv:
     name: MSRV
@@ -125,13 +129,15 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: 1.93.0
 
-      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
           toolchain: v1.0.0-beta.11
@@ -140,12 +146,12 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
 
       - name: Download contract ABIs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
         with:
           name: contract-abis
 
       - name: Download compiled contracts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
         with:
           name: contract-build-output
           path: contracts/out
@@ -154,7 +160,7 @@ jobs:
         env:
           CONTRACTS_PREBUILT: "1"
         run: |
-          cargo check --workspace --all-features
+          cargo check --locked --workspace --all-features
 
   feature-resolution:
     name: Feature Resolution (cargo-hack)
@@ -165,9 +171,11 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
 
@@ -175,11 +183,11 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
 
       - name: Download contract ABIs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
         with:
           name: contract-abis
 
-      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
           toolchain: v1.0.0-beta.11
@@ -189,6 +197,7 @@ jobs:
         with:
           tool: cargo-hack
 
+        # no locked, the cargo.lock explicitly changes for this check
       - name: Check Features
         run: |
           cargo hack check --each-feature --no-dev-deps --exclude world-id-test-utils --exclude generate-solidity-fixtures --exclude world-id-oprf-dev-client --exclude world-id-faux-issuer --exclude world-id-relay --exclude world-id-services-common
@@ -210,16 +219,18 @@ jobs:
 
     steps:
       - name: Log in to Docker Hub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0 https://github.com/docker/login-action/releases/tag/v3.6.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0 https://github.com/docker/login-action/releases/tag/v4.6.0
         if: ${{ env.IS_DOCKER_TOKEN_SET == 'true' }}
         with:
           username: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN }}
 
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: ${{ matrix.toolchain }}
 
@@ -227,21 +238,21 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
         # Anvil is used for integration tests
 
-      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
           toolchain: v1.0.0-beta.11
 
       - name: Download contract ABIs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
         with:
           name: contract-abis
 
       - name: Download compiled contracts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
         with:
           name: contract-build-output
           path: contracts/out
@@ -261,8 +272,8 @@ jobs:
           CONTRACTS_PREBUILT: "1"
           TESTS_RPC_FORK_URL: ${{ secrets.TESTS_RPC_FORK_URL }}
         run: |
-          cargo nextest run --profile ci --all-features --workspace
-          cargo test --doc --all-features --workspace
+          cargo nextest run --locked --profile ci --all-features --workspace
+          cargo test --locked --doc --all-features --workspace
 
       - name: Clean up services
         run: |
@@ -281,16 +292,18 @@ jobs:
 
     steps:
       - name: Log in to Docker Hub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0 https://github.com/docker/login-action/releases/tag/v3.6.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0 https://github.com/docker/login-action/releases/tag/v4.6.0
         if: ${{ env.IS_DOCKER_TOKEN_SET == 'true' }}
         with:
           username: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN }}
 
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
 
@@ -298,9 +311,9 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
 
-      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
           toolchain: v1.0.0-beta.11
@@ -333,16 +346,18 @@ jobs:
 
     steps:
       - name: Log in to Docker Hub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0 https://github.com/docker/login-action/releases/tag/v3.6.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0 https://github.com/docker/login-action/releases/tag/v4.6.0
         if: ${{ env.IS_DOCKER_TOKEN_SET == 'true' }}
         with:
           username: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN }}
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: EmbarkStudios/cargo-deny-action@v2.0.14
+      - uses: EmbarkStudios/cargo-deny-action@76cd80eb775d7bbbd2d80292136d74d39e1b4918 # v2.0.14 https://github.com/EmbarkStudios/cargo-deny-action/releases/tag/v2.0.14
         with:
           command: check ${{ matrix.checks }}
 
@@ -364,20 +379,22 @@ jobs:
 
     steps:
       - name: Log in to Docker Hub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0 https://github.com/docker/login-action/releases/tag/v3.6.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0 https://github.com/docker/login-action/releases/tag/v4.6.0
         if: ${{ env.IS_DOCKER_TOKEN_SET == 'true' }}
         with:
           username: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN }}
 
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0 https://github.com/docker/setup-buildx-action/releases/tag/v3.12.0
 
       - name: Build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2 https://github.com/docker/build-push-action/releases/tag/v6.19.2
         id: docker_build
         with:
           push: false
@@ -420,20 +437,22 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
 
       - name: Check primitives compiles for WASM
-        run: cargo check -p world-id-primitives --target wasm32-unknown-unknown
+        run: cargo check --locked -p world-id-primitives --target wasm32-unknown-unknown
         env:
           RUSTUP_TOOLCHAIN: stable
 
       - name: Check authenticator compiles for WASM
-        run: cargo check -p world-id-authenticator --target wasm32-unknown-unknown
+        run: cargo check --locked -p world-id-authenticator --target wasm32-unknown-unknown
         env:
           RUSTUP_TOOLCHAIN: stable
 
@@ -445,11 +464,13 @@ jobs:
     env:
       RUSTDOCFLAGS: -Dwarnings
     steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
         with:
           toolchain: nightly
-      - uses: dtolnay/install@cargo-docs-rs
+      - uses: dtolnay/install@982daea0f5d846abc3c83e01a6a1d73c040047c1 # cargo-docs-rs branch https://github.com/dtolnay/install/commit/982daea0f5d846abc3c83e01a6a1d73c040047c1
       - run: |
           cargo +nightly docs-rs -p world-id-primitives
           cargo +nightly docs-rs -p world-id-authenticator
