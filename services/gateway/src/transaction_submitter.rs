@@ -70,7 +70,11 @@ impl TransactionSubmitter {
             receipt_timeout,
             tracker_interval,
         });
+
+        // TODO: We should move task spawning to app initialization
+        //       and track each task's JoinHandle to catch panics
         tokio::spawn(submitter.clone().run_tracker());
+
         Ok(submitter)
     }
 
