@@ -21,7 +21,18 @@ inventory = "0.3"
 # World ID
 world-id-core = { workspace = true, default-features = false, features = ["authenticator", "embed-zkeys", "issuer"] }
 world-id-primitives = { workspace = true }
-world-id-proof = { workspace = true }
+world-id-proof = { workspace = true, features = ["embed-ownership-prover"] }
+
+# ProveKit's split witness/proving API is used to keep ownership benchmark
+# timing boundaries explicit.
+provekit-common = { workspace = true }
+provekit-prover = { workspace = true }
+provekit-acir = { package = "provekit_acir", version = "=1.0.0-beta.11-alpha.2" }
+# These exact Noir prereleases are part of ProveKit 0.1.4's compatible graph.
+# Pin them for Mobench's generated standalone host/mobile harnesses, which do
+# not inherit the workspace lockfile.
+provekit-noirc-arena = { package = "provekit_noirc_arena", version = "=1.0.0-beta.11-alpha.1" }
+provekit-noirc-errors = { package = "provekit_noirc_errors", version = "=1.0.0-beta.11-alpha.1" }
 
 # ZK dependencies
 ark-babyjubjub = { workspace = true }
