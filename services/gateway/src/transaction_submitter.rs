@@ -15,10 +15,10 @@ use crate::{
 
 const WALLET_RECHECK_INTERVAL: Duration = Duration::from_secs(1);
 
+/// Signs, persists, broadcasts, and tracks transactions for the configured wallet.
 #[derive(Clone)]
-struct WalletEntry {
-    wallet: ProviderWallet,
-    registry: Arc<WorldIdRegistryInstance<Arc<alloy::providers::DynProvider>>>,
+pub(crate) struct TransactionSubmitter {
+    inner: Arc<TransactionSubmitterInner>,
 }
 
 struct TransactionSubmitterInner {
@@ -29,10 +29,10 @@ struct TransactionSubmitterInner {
     tracker_interval: Duration,
 }
 
-/// Signs, persists, broadcasts, and tracks transactions for the configured wallet.
 #[derive(Clone)]
-pub(crate) struct TransactionSubmitter {
-    inner: Arc<TransactionSubmitterInner>,
+struct WalletEntry {
+    wallet: ProviderWallet,
+    registry: Arc<WorldIdRegistryInstance<Arc<alloy::providers::DynProvider>>>,
 }
 
 impl TransactionSubmitter {
