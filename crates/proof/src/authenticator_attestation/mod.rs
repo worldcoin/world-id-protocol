@@ -1,7 +1,7 @@
 //! Authenticator Attestations (WIP-106).
 
 use coset::{
-    AsCborValue, CborSerializable, CoseKeyBuilder, CoseSign1, CoseSign1Builder, Header,
+    AsCborValue, CborSerializable, CoseKeyBuilder, CoseSign1Builder, Header,
     RegisteredLabelWithPrivate,
     cbor::value::Value,
     cwt::{ClaimsSet, ClaimsSetBuilder, Timestamp},
@@ -48,10 +48,8 @@ const CWT_CLAIM_EXP: i64 = 4;
 const CWT_CLAIM_NONCE: i64 = 10;
 /// CWT claim key for `eat_profile` (RFC 9711).
 const CWT_CLAIM_EAT_PROFILE: i64 = 265;
-/// CWT claim key for `submods` (RFC 9711).
-const CWT_CLAIM_SUBMODS: i64 = 266;
-/// CWT claim key for `signal` (WIP-106).
-const CWT_CLAIM_SIGNAL: i64 = -80_000;
+/// CWT claim key for `cdh` (client data hash, WIP-106).
+const CWT_CLAIM_CDH: i64 = -80_000;
 /// CWT claim key for `authenticator_meta` (WIP-106).
 const CWT_CLAIM_AUTHENTICATOR_META: i64 = -80_001;
 /// CWT claim key for `sec_flags` (WIP-106).
@@ -59,9 +57,6 @@ const CWT_CLAIM_SEC_FLAGS: i64 = -70_000;
 
 /// `cnf` confirmation method label for a `COSE_Key` (RFC 8747 §3.1).
 const CNF_COSE_KEY: i64 = 1;
-
-/// Label of the Trust Anchor Key Token within the `submods` map.
-const SUBMOD_TAKT: &str = "takt";
 
 /// Bit offsets of the `sec_flags` sub-fields (LSB-first packing).
 const SEC_FLAGS_SEC_LEVEL_SHIFT: u64 = 8;
@@ -140,8 +135,9 @@ impl AuthenticatorMeta {
 /// Claims carried by a Trust Anchor Key Token.
 #[derive(Debug, Clone, Copy)]
 pub struct TrustAnchorKeyClaims {
-    /// Expiration as seconds since the Unix epoch.
-    pub exp: u64,
+    /// Expiration as seconds since the Unix epoch; MUST be in `[2^16, 2^32)`
+    /// for its fixed-width encoding.
+    pub exp: u32,
     /// The attested `assertion_key`, carried as a `COSE_Key` in the `cnf` claim.
     pub assertion_key: p256::PublicKey,
     /// Security level of the `assertion_key` (`sec_flags` bits 8-15).
@@ -181,9 +177,9 @@ pub enum AttestationError {
     /// `aud` cannot use the fixed 4-byte CBOR encoding.
     #[error("aud {0} must be in [2^16, 2^32) for its fixed-width encoding")]
     AudOutOfRange(u64),
-    /// `exp` cannot be represented as a CWT numeric date.
-    #[error("exp {0} exceeds the representable CWT numeric date range")]
-    ExpirationOutOfRange(u64),
+    /// `exp` cannot use the fixed 4-byte CBOR encoding.
+    #[error("exp {0} must be in [2^16, 2^32) for its fixed-width encoding")]
+    ExpirationOutOfRange(u32),
     /// Key material could not be serialized.
     #[error("failed to encode key material: {0}")]
     KeyEncoding(String),
@@ -193,12 +189,16 @@ pub enum AttestationError {
     /// A claim value could not be lowered into Poseidon2 field elements.
     #[error("failed to lower claims into field elements: {0}")]
     ClaimHashing(String),
-    /// The nested Trust Anchor Key Token could not be parsed.
-    #[error("invalid Trust Anchor Key Token: {0}")]
-    InvalidTrustAnchorKeyToken(String),
-    /// The signing key is not the key attested by the Trust Anchor Key Token.
-    #[error("assertion key does not match the key attested by the Trust Anchor Key Token")]
-    AssertionKeyMismatch,
+}
+
+/// Validates that `exp` fits the fixed 4-byte CBOR uint encoding mandated by
+/// WIP-106 (`2^16 <= exp < 2^32`, i.e. any instant from 1970-01-01T18:12:16Z up
+/// to 2106), so the claim offsets the circuits rely on stay constant.
+fn validate_exp_fixed_width(exp: u32) -> Result<(), AttestationError> {
+    if u16::try_from(exp).is_ok() {
+        return Err(AttestationError::ExpirationOutOfRange(exp));
+    }
+    Ok(())
 }
 
 /// A Trust Anchor Key Token (TAKT, WIP-106): an EAT attesting an
@@ -217,14 +217,13 @@ impl TrustAnchorKeyToken {
     ///
     /// # Errors
     /// - [`AttestationError::SecMetaTooLarge`] if `sec_meta` carries more than 4 bits.
-    /// - [`AttestationError::ExpirationOutOfRange`] if `exp` is not a valid CWT numeric date.
+    /// - [`AttestationError::ExpirationOutOfRange`] if `exp` cannot use the
+    ///   fixed 4-byte CBOR encoding.
     pub fn new(claims: TrustAnchorKeyClaims) -> Result<Self, AttestationError> {
         if claims.sec_meta > MAX_SEC_META {
             return Err(AttestationError::SecMetaTooLarge(claims.sec_meta));
         }
-        if i64::try_from(claims.exp).is_err() {
-            return Err(AttestationError::ExpirationOutOfRange(claims.exp));
-        }
+        validate_exp_fixed_width(claims.exp)?;
         Ok(Self { claims })
     }
 
@@ -322,8 +321,7 @@ impl TrustAnchorKeyToken {
     /// so the proving circuit can use constant offsets. `sec_flags` is an 8-byte
     /// byte string (64-bit big-endian packed bitfield) per WIP-106.
     fn claims_set(&self) -> Result<ClaimsSet, AttestationError> {
-        let exp = i64::try_from(self.claims.exp)
-            .map_err(|_| AttestationError::ExpirationOutOfRange(self.claims.exp))?;
+        let exp = i64::from(self.claims.exp);
         let (x, y) = assertion_key_coordinates(&self.claims.assertion_key)?;
         let assertion_cose_key =
             CoseKeyBuilder::new_ec2_pub_key(iana::EllipticCurve::P_256, x.to_vec(), y.to_vec())
@@ -357,19 +355,23 @@ impl TrustAnchorKeyToken {
 pub struct AuthenticatorAssertionClaims {
     /// The `rpId` of the requesting RP (CWT `aud`); MUST be in `[2^16, 2^32)`.
     pub aud: RpId,
-    /// Expiration as seconds since the Unix epoch.
-    pub exp: u64,
+    /// Expiration as seconds since the Unix epoch; MUST be in `[2^16, 2^32)`
+    /// for its fixed-width encoding.
+    pub exp: u32,
     /// The `ProofRequest` nonce binding the token to a specific request.
     pub nonce: FieldElement,
-    /// Hash of the signal the proof commits to; zero when no signal is present.
-    pub signal: FieldElement,
+    /// Client data hash: an arbitrary commitment binding the token to its
+    /// upstream use case. A nil value is 32 zero bytes.
+    pub cdh: FieldElement,
     /// Structured integrity metadata for the proof.
     pub authenticator_meta: AuthenticatorMeta,
 }
 
-/// An Authenticator Assertion Token (AAT, WIP-106): the outer EAT signed by the
-/// `assertion_key` with `ES256`, carrying the Trust Anchor Key Token that
-/// attests that key under `submods.takt`.
+/// An Authenticator Assertion Token (AAT, WIP-106): the EAT signed by the
+/// `assertion_key` with `ES256`.
+///
+/// The Trust Anchor Key Token attesting the assertion key is a separate object.
+/// The authenticator implementation is responsible for pairing the two tokens.
 ///
 /// Construct with [`AuthenticatorAssertionToken::new`];
 /// [`AuthenticatorAssertionToken::sign`] signs the token with the
@@ -377,32 +379,19 @@ pub struct AuthenticatorAssertionClaims {
 #[derive(Debug, Clone)]
 pub struct AuthenticatorAssertionToken {
     claims: AuthenticatorAssertionClaims,
-    /// Serialized `COSE_Sign1` Trust Anchor Key Token, embedded under
-    /// `submods.takt`.
-    trust_anchor_key_token: Vec<u8>,
-    /// Coordinates of the assertion key attested by the Trust Anchor Key
-    /// Token's `cnf` claim; the signing key must match.
-    attested_key: ([u8; 32], [u8; 32]),
 }
 
 impl AuthenticatorAssertionToken {
-    /// Creates an Authenticator Assertion Token from validated claims and a
-    /// signed Trust Anchor Key Token (as produced by
-    /// [`TrustAnchorKeyToken::sign`]).
+    /// Creates an Authenticator Assertion Token from validated claims.
     ///
     /// # Errors
     /// - [`AttestationError::ProviderBitsTooLarge`] if the `authenticator_meta`
     ///   provider bits carry more than 2 bits.
     /// - [`AttestationError::AudOutOfRange`] if `aud` cannot use the fixed
     ///   4-byte CBOR encoding.
-    /// - [`AttestationError::ExpirationOutOfRange`] if `exp` is not a valid CWT
-    ///   numeric date.
-    /// - [`AttestationError::InvalidTrustAnchorKeyToken`] if the Trust Anchor
-    ///   Key Token cannot be parsed or carries no `cnf` claim.
-    pub fn new(
-        claims: AuthenticatorAssertionClaims,
-        trust_anchor_key_token: Vec<u8>,
-    ) -> Result<Self, AttestationError> {
+    /// - [`AttestationError::ExpirationOutOfRange`] if `exp` cannot use the
+    ///   fixed 4-byte CBOR encoding.
+    pub fn new(claims: AuthenticatorAssertionClaims) -> Result<Self, AttestationError> {
         if claims.authenticator_meta.provider_bits > MAX_PROVIDER_BITS {
             return Err(AttestationError::ProviderBitsTooLarge(
                 claims.authenticator_meta.provider_bits,
@@ -412,15 +401,8 @@ impl AuthenticatorAssertionToken {
         if u16::try_from(aud).is_ok() || u32::try_from(aud).is_err() {
             return Err(AttestationError::AudOutOfRange(aud));
         }
-        if i64::try_from(claims.exp).is_err() {
-            return Err(AttestationError::ExpirationOutOfRange(claims.exp));
-        }
-        let attested_key = attested_key_coordinates(&trust_anchor_key_token)?;
-        Ok(Self {
-            claims,
-            trust_anchor_key_token,
-            attested_key,
-        })
+        validate_exp_fixed_width(claims.exp)?;
+        Ok(Self { claims })
     }
 
     /// Signs the token with the `assertion_key` and serializes it as an untagged
@@ -431,13 +413,8 @@ impl AuthenticatorAssertionToken {
     /// `external_aad`, encoded as `r || s` (low-S normalized).
     ///
     /// # Errors
-    /// - [`AttestationError::AssertionKeyMismatch`] if `assertion_key` is not the
-    ///   key attested by the Trust Anchor Key Token's `cnf` claim.
     /// - [`AttestationError::CborEncoding`] on serialization failure.
     pub fn sign(&self, assertion_key: &p256::SecretKey) -> Result<Vec<u8>, AttestationError> {
-        if assertion_key_coordinates(&assertion_key.public_key())? != self.attested_key {
-            return Err(AttestationError::AssertionKeyMismatch);
-        }
         let signing_key = p256::ecdsa::SigningKey::from(assertion_key);
         let protected = Header {
             alg: Some(RegisteredLabelWithPrivate::Assigned(iana::Algorithm::ES256)),
@@ -466,8 +443,7 @@ impl AuthenticatorAssertionToken {
     /// because coset's `ClaimsSet` only supports text values for `aud`, while this
     /// profile requires the `rpId`.
     fn encode_claims(&self) -> Result<Vec<u8>, AttestationError> {
-        let exp = i64::try_from(self.claims.exp)
-            .map_err(|_| AttestationError::ExpirationOutOfRange(self.claims.exp))?;
+        let exp = i64::from(self.claims.exp);
         let meta = FieldElement::from(self.claims.authenticator_meta.packed());
         let claims = Value::Map(vec![
             (
@@ -487,15 +463,8 @@ impl AuthenticatorAssertionToken {
                 Value::Text(EAT_PROFILE_AUTHENTICATOR_ASSERTION.to_string()),
             ),
             (
-                Value::Integer(CWT_CLAIM_SUBMODS.into()),
-                Value::Map(vec![(
-                    Value::Text(SUBMOD_TAKT.to_string()),
-                    Value::Bytes(self.trust_anchor_key_token.clone()),
-                )]),
-            ),
-            (
-                Value::Integer(CWT_CLAIM_SIGNAL.into()),
-                Value::Bytes(self.claims.signal.to_be_bytes().to_vec()),
+                Value::Integer(CWT_CLAIM_CDH.into()),
+                Value::Bytes(self.claims.cdh.to_be_bytes().to_vec()),
             ),
             (
                 Value::Integer(CWT_CLAIM_AUTHENTICATOR_META.into()),
@@ -507,26 +476,6 @@ impl AuthenticatorAssertionToken {
             .map_err(|e| AttestationError::CborEncoding(e.to_string()))?;
         Ok(payload)
     }
-}
-
-/// Extracts the attested key coordinates from the `cnf` claim of a serialized
-/// Trust Anchor Key Token.
-fn attested_key_coordinates(token: &[u8]) -> Result<([u8; 32], [u8; 32]), AttestationError> {
-    let error = |reason: &str| AttestationError::InvalidTrustAnchorKeyToken(reason.to_string());
-    let sign1 = CoseSign1::from_slice(token)
-        .map_err(|e| AttestationError::InvalidTrustAnchorKeyToken(e.to_string()))?;
-    let payload = sign1.payload.ok_or_else(|| error("missing payload"))?;
-    let claims: Value = coset::cbor::from_reader(payload.as_slice())
-        .map_err(|e| AttestationError::InvalidTrustAnchorKeyToken(e.to_string()))?;
-    let entries = claims
-        .as_map()
-        .ok_or_else(|| error("claims set is not a CBOR map"))?;
-    let cnf = entries
-        .iter()
-        .find(|(key, _)| key.as_integer() == Some((iana::CwtClaimName::Cnf as i64).into()))
-        .map(|(_, value)| value)
-        .ok_or_else(|| error("missing cnf claim"))?;
-    cnf_coordinates(cnf).map_err(|e| AttestationError::InvalidTrustAnchorKeyToken(e.to_string()))
 }
 
 /// Lowers one claim value into field elements per WIP-106.

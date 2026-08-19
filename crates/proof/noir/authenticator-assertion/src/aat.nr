@@ -1,57 +1,59 @@
 // Verification of an Authenticator Assertion Token (AAT): a token
 // representing integrity of a specific environment through an environment-bound
 // key which is attested by a Trust Anchor Key Token (TAKT).
-use super::takt::{serialize_takt, TAKT_TOKEN_LEN, TrustAnchorKeyToken, verify_takt};
 use super::utils::{assert_cbor_uint32, assert_not_expired};
 use bigcurve::curves::secp256r1::{Secp256r1_Fq, Secp256r1_Fr};
 use bignum::BigNum;
 use noir_ecdsa::ecdsa::verify_secp256r1_ecdsa;
 
-/// Bytes of the COSE `Sig_structure` that are not the embedded TAKT:
-/// the `Signature1` framing, protected header, `external_aad`, and the
-/// CWT claims map around the `submods.takt` blob.
-pub global AAT_SIG_STRUCTURE_OVERHEAD: u32 = 190;
+/// Total length of the COSE `Sig_structure` signed by the assertion key: the
+/// `Signature1` framing, protected header, `external_aad`, and the six-entry
+/// CWT claims map.
+///
+/// 19-byte prefix + 159-byte payload. The prefix is one byte shorter than it
+/// would be with the TAKT: a 159-byte payload takes the minimal 1-byte CBOR
+/// length (`0x58 0x9f`), where the old 417-byte payload needed the 2-byte form.
+pub global AAT_SIG_STRUCTURE_LEN: u32 = 178;
 
-/// Total length of the COSE `Sig_structure` signed by the assertion key.
-pub global AAT_SIG_STRUCTURE_LEN: u32 = AAT_SIG_STRUCTURE_OVERHEAD + TAKT_TOKEN_LEN;
-
+/// The claims and signature of an Authenticator Assertion Token, as parsed from
+/// its `COSE_Sign1` encoding.
 pub struct AuthenticatorAssertionToken {
     /// The `rpId` of the requesting RP (CWT `aud`). MUST require a 4-byte
     /// CBOR uint encoding (`2^16 <= aud < 2^32`) so offsets stay constant.
-    aud: Field,
+    pub aud: Field,
     /// Expiration as seconds since the Unix epoch (CWT `exp`). MUST require a
-    /// 4-byte CBOR uint encoding (holds for dates between 1971 and 2106).
-    exp: Field,
+    /// 4-byte CBOR uint encoding (`2^16 <= exp < 2^32`), i.e. any instant from
+    /// 1970-01-01T18:12:16Z up to 2106.
+    pub exp: Field,
     /// The `ProofRequest` nonce binding the token to a specific request.
-    nonce: Field,
-    /// Hash of the signal the proof commits to; zero when no signal is present.
-    signal: Field,
+    pub nonce: Field,
+    /// Client data hash (CWT `cdh`): an arbitrary commitment binding the token
+    /// to its upstream use case. A nil value is 32 zero bytes.
+    pub cdh: Field,
     /// Structured integrity metadata: user presence (bits 0-2) and
     /// provider-defined bits (3-4); all other bits are reserved (zero).
-    authenticator_meta: Field,
-    /// The parsed TAKT attesting the assertion key. Its serialized form
-    /// (embedded under `submods.takt`) is deduced in-circuit via
-    /// `serialize_takt`, so the signed payload provably embeds this exact TAKT.
-    takt: TrustAnchorKeyToken,
+    pub authenticator_meta: Field,
     /// ES256 signature over the COSE `Sig_structure` (`r || s`, low-S).
-    signature: [u8; 64],
+    pub signature: [u8; 64],
 }
 
-/// Verifies the full WIP-106 attestation chain:
-/// 1. the TAKT attests the assertion key (`BabyJubJub-EdDSA-Poseidon2`), and
-/// 2. the attested assertion key signs the AAT (`ES256` over the COSE
-///    `Sig_structure`).
+/// Verifies that `assertion_key` signed this AAT (`ES256` over the COSE
+/// `Sig_structure`) and that the token is unexpired.
 ///
-/// `now` is the verifier-supplied Unix time (seconds) used for CWT `exp`
-/// freshness on both the AAT and its nested TAKT (`now < exp`). It MUST be a
-/// public input of any outer proof that calls this function.
+/// Crate-private on purpose. This proves only that *some* key signed these
+/// claims. The full verification requires a TAKT attesting that key, which is
+/// why consumers must go through the crate-root `verify_attestation` instead.
 ///
-/// This is the primary entrypoint; the TAKT digest is computed exactly once
-/// along this path (inside `verify_takt`).
-pub fn verify_aat(aat: AuthenticatorAssertionToken, now: Field) {
+/// `now` is the verifier-supplied Unix time (seconds) checked against CWT `exp`
+/// (`now < exp`), and MUST be a public input of the outer circuit.
+pub(crate) fn verify_aat(
+    aat: AuthenticatorAssertionToken,
+    assertion_key_x: [u8; 32],
+    assertion_key_y: [u8; 32],
+    now: Field,
+) {
     // CBOR uint32 encoding of `exp` is checked later in `aat_sig_structure`.
     assert_not_expired(aat.exp, now);
-    verify_takt(aat.takt, now);
 
     let message = aat_sig_structure(aat);
     let digest = sha256::digest(message);
@@ -60,8 +62,8 @@ pub fn verify_aat(aat: AuthenticatorAssertionToken, now: Field) {
     // `ecdsa_secp256r1` black box: provekit does not implement it, so the
     // black box passes `nargo test` but cannot be proven. Only black boxes
     // from provekit's allowlist may be used here; see crates/proof/noir/README.md.
-    let public_key_x = Secp256r1_Fq::from_be_bytes(aat.takt.assertion_key_x);
-    let public_key_y = Secp256r1_Fq::from_be_bytes(aat.takt.assertion_key_y);
+    let assertion_key_x_fq = Secp256r1_Fq::from_be_bytes(assertion_key_x);
+    let assertion_key_y_fq = Secp256r1_Fq::from_be_bytes(assertion_key_y);
     let r = signature_scalar(aat.signature, 0);
     let s = signature_scalar(aat.signature, 32);
 
@@ -72,7 +74,7 @@ pub fn verify_aat(aat: AuthenticatorAssertionToken, now: Field) {
     // key. `s == 0` is already rejected by the `s * s^-1 == 1` constraint.
     assert(r != Secp256r1_Fr::zero(), "AAT signature r value is zero");
 
-    let is_valid = verify_secp256r1_ecdsa(public_key_x, public_key_y, digest, (r, s));
+    let is_valid = verify_secp256r1_ecdsa(assertion_key_x_fq, assertion_key_y_fq, digest, (r, s));
     assert(is_valid, "invalid AAT signature");
 }
 
@@ -87,10 +89,10 @@ fn signature_scalar(signature: [u8; 64], offset: u32) -> Secp256r1_Fr {
 
 /// Rebuilds the COSE `Sig_structure` (RFC 9052 section 4.4) signed by the
 /// assertion key: a constant deterministic-CBOR template with the claim values
-/// and the reserialized TAKT spliced in at fixed offsets.
+/// written at fixed offsets.
 fn aat_sig_structure(input: AuthenticatorAssertionToken) -> [u8; AAT_SIG_STRUCTURE_LEN] {
-    // The payload is everything after the 20-byte Sig_structure prefix.
-    let payload_len: u32 = AAT_SIG_STRUCTURE_LEN - 20;
+    // The payload is everything after the 19-byte Sig_structure prefix.
+    let payload_len: u32 = AAT_SIG_STRUCTURE_LEN - 19;
 
     // Fixed-width claim encodings; see the struct field requirements.
     assert_cbor_uint32(input.aud);
@@ -98,14 +100,12 @@ fn aat_sig_structure(input: AuthenticatorAssertionToken) -> [u8; AAT_SIG_STRUCTU
     let aud_bytes: [u8; 4] = input.aud.to_be_bytes();
     let exp_bytes: [u8; 4] = input.exp.to_be_bytes();
     let nonce_bytes: [u8; 32] = input.nonce.to_be_bytes();
-    let signal_bytes: [u8; 32] = input.signal.to_be_bytes();
+    let cdh_bytes: [u8; 32] = input.cdh.to_be_bytes();
     let meta_bytes: [u8; 32] = input.authenticator_meta.to_be_bytes();
     assert(meta_bytes[31] < 32, "authenticator_meta bits 5+ are reserved");
     for i in 0..31 {
         assert(meta_bytes[i] == 0, "authenticator_meta bits 5+ are reserved");
     }
-
-    let takt_token = serialize_takt(input.takt);
 
     let mut msg: [u8; AAT_SIG_STRUCTURE_LEN] = [0; AAT_SIG_STRUCTURE_LEN];
 
@@ -121,118 +121,151 @@ fn aat_sig_structure(input: AuthenticatorAssertionToken) -> [u8; AAT_SIG_STRUCTU
     msg[14] = 0x01; // alg:
     msg[15] = 0x26; // ES256 (-7)
     msg[16] = 0x40; // bytes(0): empty external_aad
-    msg[17] = 0x59; // bytes(2-byte length): payload
-    msg[18] = (payload_len >> 8) as u8;
-    msg[19] = (payload_len & 0xff) as u8;
+    msg[17] = 0x58; // bytes(1-byte length): payload
+    msg[18] = payload_len as u8;
 
     // Payload: the CWT claims map in deterministic CBOR map-key order.
-    msg[20] = 0xa7; // map(7)
-    msg[21] = 0x03; // aud (3):
-    msg[22] = 0x1a; // uint32
+    msg[19] = 0xa6; // map(6)
+    msg[20] = 0x03; // aud (3):
+    msg[21] = 0x1a; // uint32
     for i in 0..4 {
-        msg[23 + i] = aud_bytes[i];
+        msg[22 + i] = aud_bytes[i];
     }
-    msg[27] = 0x04; // exp (4):
-    msg[28] = 0x1a; // uint32
+    msg[26] = 0x04; // exp (4):
+    msg[27] = 0x1a; // uint32
     for i in 0..4 {
-        msg[29 + i] = exp_bytes[i];
+        msg[28 + i] = exp_bytes[i];
     }
-    msg[33] = 0x0a; // nonce (10):
-    msg[34] = 0x58; // bytes(1-byte length)
-    msg[35] = 0x20; // 32
+    msg[32] = 0x0a; // nonce (10):
+    msg[33] = 0x58; // bytes(1-byte length)
+    msg[34] = 0x20; // 32
     for i in 0..32 {
-        msg[36 + i] = nonce_bytes[i];
+        msg[35 + i] = nonce_bytes[i];
     }
-    msg[68] = 0x19; // eat_profile (265, 2-byte uint):
-    msg[69] = 0x01;
-    msg[70] = 0x09;
-    msg[71] = 0x78; // text(1-byte length)
-    msg[72] = 0x1c; // 28
+    msg[67] = 0x19; // eat_profile (265, 2-byte uint):
+    msg[68] = 0x01;
+    msg[69] = 0x09;
+    msg[70] = 0x78; // text(1-byte length)
+    msg[71] = 0x1c; // 28
     let profile = "https://world.org/eat/aat/v1".as_bytes();
     for i in 0..28 {
-        msg[73 + i] = profile[i];
+        msg[72 + i] = profile[i];
     }
-    msg[101] = 0x19; // submods (266, 2-byte uint):
+    msg[100] = 0x3a; // cdh (-80000, 4-byte negative):
+    msg[101] = 0x00;
     msg[102] = 0x01;
-    msg[103] = 0x0a;
-    msg[104] = 0xa1; // map(1)
-    msg[105] = 0x64; // text(4)
-    let takt_label = "takt".as_bytes();
-    for i in 0..4 {
-        msg[106 + i] = takt_label[i];
-    }
-    msg[110] = 0x58; // bytes(1-byte length): TAKT token (fixed 247 bytes)
-    msg[111] = TAKT_TOKEN_LEN as u8;
-    for i in 0..TAKT_TOKEN_LEN {
-        msg[112 + i] = takt_token[i];
-    }
-    msg[112 + TAKT_TOKEN_LEN] = 0x3a; // signal (-80000, 4-byte negative):
-    msg[113 + TAKT_TOKEN_LEN] = 0x00;
-    msg[114 + TAKT_TOKEN_LEN] = 0x01;
-    msg[115 + TAKT_TOKEN_LEN] = 0x38;
-    msg[116 + TAKT_TOKEN_LEN] = 0x7f;
-    msg[117 + TAKT_TOKEN_LEN] = 0x58; // bytes(1-byte length)
-    msg[118 + TAKT_TOKEN_LEN] = 0x20; // 32
+    msg[103] = 0x38;
+    msg[104] = 0x7f;
+    msg[105] = 0x58; // bytes(1-byte length)
+    msg[106] = 0x20; // 32
     for i in 0..32 {
-        msg[119 + TAKT_TOKEN_LEN + i] = signal_bytes[i];
+        msg[107 + i] = cdh_bytes[i];
     }
-    msg[151 + TAKT_TOKEN_LEN] = 0x3a; // authenticator_meta (-80001):
-    msg[152 + TAKT_TOKEN_LEN] = 0x00;
-    msg[153 + TAKT_TOKEN_LEN] = 0x01;
-    msg[154 + TAKT_TOKEN_LEN] = 0x38;
-    msg[155 + TAKT_TOKEN_LEN] = 0x80;
-    msg[156 + TAKT_TOKEN_LEN] = 0x58; // bytes(1-byte length)
-    msg[157 + TAKT_TOKEN_LEN] = 0x20; // 32
+    msg[139] = 0x3a; // authenticator_meta (-80001):
+    msg[140] = 0x00;
+    msg[141] = 0x01;
+    msg[142] = 0x38;
+    msg[143] = 0x80;
+    msg[144] = 0x58; // bytes(1-byte length)
+    msg[145] = 0x20; // 32
     for i in 0..32 {
-        msg[158 + TAKT_TOKEN_LEN + i] = meta_bytes[i];
+        msg[146 + i] = meta_bytes[i];
     }
 
     msg
 }
 
-/// Known-answer test companion to `test_deterministic_takt`: the same TAKT,
-/// wrapped in an AAT signed by the assertion key (`ES256`, RFC 6979
-/// deterministic, low-S normalized). Values generated by the Rust
-/// implementation.
-fn test_deterministic_aat() -> AuthenticatorAssertionToken {
+/// Known-answer test companion to `test_deterministic_takt`: an AAT signed by
+/// the key that fixture attests (`ES256`, RFC 6979 deterministic, low-S
+/// normalized). The signature fixture comes from
+/// `crates/proof/src/authenticator_attestation/tests.rs::
+/// aat_known_answer_sig_structure_and_signature`; an intentional change to
+/// that Rust expectation must update the signature below.
+pub(crate) fn test_deterministic_aat() -> AuthenticatorAssertionToken {
     AuthenticatorAssertionToken {
         aud: 1928118,
         exp: super::takt::TEST_EXP,
         nonce: 0x11d223ce7b91ac21,
-        signal: 0x9f2c1abc,
+        cdh: 0x9f2c1abc,
         // presence PresentBiometric (0b010) | provider 0b01 << 3
         authenticator_meta: 10,
-        takt: super::takt::test_deterministic_takt(),
         signature: [
-            0xb6, 0x49, 0xe1, 0x3d, 0x96, 0xe9, 0x41, 0x83, 0x70, 0xe4, 0xa4, 0xb3, 0xfe, 0x33,
-            0x0b, 0xea, 0xbf, 0x8a, 0xc4, 0xbd, 0x87, 0x53, 0x1a, 0x98, 0x22, 0x7b, 0x4e, 0x91,
-            0xe9, 0x45, 0x3c, 0xc2, 0x7b, 0x22, 0x5b, 0x10, 0x96, 0x84, 0xfd, 0x4f, 0x8b, 0x26,
-            0xa7, 0x98, 0x4e, 0x83, 0xf4, 0xbc, 0xb7, 0xf7, 0x76, 0xad, 0x5c, 0xd4, 0x68, 0xab,
-            0x5a, 0x32, 0xa8, 0x1d, 0xe6, 0x48, 0x13, 0xdf,
+            0x33, 0x07, 0x2e, 0x05, 0x70, 0x4c, 0x92, 0x7b, 0x97, 0x54, 0xdc, 0x49, 0x4c, 0x0d,
+            0x31, 0xbc, 0x87, 0x5e, 0x03, 0xa2, 0x03, 0x35, 0x83, 0xc2, 0xa6, 0x03, 0x46, 0xee,
+            0xc5, 0x71, 0x8b, 0xed, 0x0f, 0x3c, 0x9d, 0x76, 0x19, 0x27, 0xda, 0x77, 0x2c, 0x8a,
+            0x64, 0x02, 0xaa, 0xe1, 0xcb, 0x5f, 0x13, 0x8e, 0xea, 0xdf, 0xd5, 0xab, 0x33, 0x4d,
+            0xa0, 0x0f, 0x0d, 0x4b, 0xee, 0xe7, 0x32, 0xc3,
         ],
     }
 }
 
+/// Pins the exact `Sig_structure` emitted by the Rust implementation.
+///
+/// Source fixture: the hex expectation in
+/// `crates/proof/src/authenticator_attestation/tests.rs::
+/// aat_known_answer_sig_structure_and_signature`. An intentional
+/// change to the Rust fixture must update this array.
+#[test]
+fn test_aat_sig_structure_matches_rust_fixture() {
+    let expected: [u8; AAT_SIG_STRUCTURE_LEN] = [
+        0x84, 0x6a, 0x53, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x31, 0x43, 0xa1, 0x01,
+        0x26, 0x40, 0x58, 0x9f, 0xa6, 0x03, 0x1a, 0x00, 0x1d, 0x6b, 0xb6, 0x04, 0x1a, 0x6a, 0x4d,
+        0x3d, 0x8d, 0x0a, 0x58, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11,
+        0xd2, 0x23, 0xce, 0x7b, 0x91, 0xac, 0x21, 0x19, 0x01, 0x09, 0x78, 0x1c, 0x68, 0x74, 0x74,
+        0x70, 0x73, 0x3a, 0x2f, 0x2f, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x2e, 0x6f, 0x72, 0x67, 0x2f,
+        0x65, 0x61, 0x74, 0x2f, 0x61, 0x61, 0x74, 0x2f, 0x76, 0x31, 0x3a, 0x00, 0x01, 0x38, 0x7f,
+        0x58, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x9f, 0x2c, 0x1a, 0xbc, 0x3a, 0x00, 0x01, 0x38, 0x80, 0x58, 0x20, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a,
+    ];
+    let actual = aat_sig_structure(test_deterministic_aat());
+
+    for i in 0..AAT_SIG_STRUCTURE_LEN {
+        assert(actual[i] == expected[i], "AAT Sig_structure differs from Rust fixture");
+    }
+}
+
+/// The assertion key attested by `test_deterministic_takt`, which signed
+/// `test_deterministic_aat`.
+fn test_assertion_key() -> ([u8; 32], [u8; 32]) {
+    let takt = super::takt::test_deterministic_takt();
+    (takt.assertion_key_x, takt.assertion_key_y)
+}
+
 #[test]
 fn test_deterministic_aat_verification() {
-    verify_aat(test_deterministic_aat(), super::takt::TEST_NOW);
+    let (key_x, key_y) = test_assertion_key();
+    verify_aat(
+        test_deterministic_aat(),
+        key_x,
+        key_y,
+        super::takt::TEST_NOW,
+    );
 }
 
 #[test(should_fail_with = "invalid AAT signature")]
 fn test_aat_tampered_claim() {
+    let (key_x, key_y) = test_assertion_key();
     let mut aat = test_deterministic_aat();
     aat.nonce += 1;
-    verify_aat(aat, super::takt::TEST_NOW);
+    verify_aat(aat, key_x, key_y, super::takt::TEST_NOW);
 }
 
 #[test(should_fail_with = "invalid AAT signature")]
-fn test_aat_key_not_attested() {
-    // A valid TAKT attesting a different assertion key must not verify this
-    // AAT: the embedded TAKT bytes and the ES256 verification key are both
-    // derived from the (wrong) attested key.
-    let mut aat = test_deterministic_aat();
-    aat.takt = super::takt::test_deterministic_takt_unrelated_key();
-    verify_aat(aat, super::takt::TEST_NOW);
+fn test_aat_wrong_assertion_key() {
+    // Verifying under any key other than the one that signed must fail. The
+    // composite entrypoint is what guarantees the key came from a TAKT; see
+    // `test_aat_key_not_attested` in `lib.nr`.
+    let unrelated = super::takt::test_deterministic_takt_unrelated_key();
+    verify_aat(
+        test_deterministic_aat(),
+        unrelated.assertion_key_x,
+        unrelated.assertion_key_y,
+        super::takt::TEST_NOW,
+    );
 }
 
 #[test(should_fail_with = "AAT signature r value is zero")]
@@ -240,22 +273,30 @@ fn test_aat_zero_r_rejected() {
     // Guards the check `noir_ecdsa` only gained in v0.4.1; we pin v0.2.9, so
     // without our explicit assertion an `r = 0` signature would verify against
     // any public key. Delete this test only if the pin moves to >= v0.4.1.
+    let (key_x, key_y) = test_assertion_key();
     let mut aat = test_deterministic_aat();
     for i in 0..32 {
         aat.signature[i] = 0;
     }
-    verify_aat(aat, super::takt::TEST_NOW);
+    verify_aat(aat, key_x, key_y, super::takt::TEST_NOW);
 }
 
 #[test(should_fail_with = "authenticator_meta bits 5+ are reserved")]
 fn test_aat_reserved_meta_bits_rejected() {
+    let (key_x, key_y) = test_assertion_key();
     let mut aat = test_deterministic_aat();
     aat.authenticator_meta = 32; // bit 5 set
-    verify_aat(aat, super::takt::TEST_NOW);
+    verify_aat(aat, key_x, key_y, super::takt::TEST_NOW);
 }
 
-#[test(should_fail)]
+#[test(should_fail_with = "token is expired")]
 fn test_expired_aat_rejected() {
     // At `exp` the token is already expired (RFC 8392: "on or after").
-    verify_aat(test_deterministic_aat(), super::takt::TEST_EXP);
+    let (key_x, key_y) = test_assertion_key();
+    verify_aat(
+        test_deterministic_aat(),
+        key_x,
+        key_y,
+        super::takt::TEST_EXP,
+    );
 }
