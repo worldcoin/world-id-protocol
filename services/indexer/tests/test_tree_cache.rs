@@ -869,15 +869,12 @@ async fn test_replay_root_matches_contract() {
 /// Test that corrupted cache triggers full rebuild instead of failing
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
-async fn test_corrupted_cache_returns_error() {
-    // Use tree_depth=6 to match create_temp_cache_config()
+async fn test_corrupted_cache_falls_back_to_rebuild() {
     let setup = TestSetup::new_with_tree_depth(6).await;
     let (tree_cache_config, cache_path) = create_temp_cache_config();
 
-    // Ensure no cache files exist
     cleanup_cache_files(&cache_path);
 
-    // Create initial accounts on-chain
     setup
         .create_account(
             address!("0x0000000000000000000000000000000000000041"),
@@ -894,7 +891,7 @@ async fn test_corrupted_cache_returns_error() {
         )
         .await;
 
-    // Start indexer to build initial cache
+    // Build initial cache
     let cfg1 = GlobalConfig {
         environment: Environment::Development,
         run_mode: RunMode::Both {
@@ -922,7 +919,6 @@ async fn test_corrupted_cache_returns_error() {
         unsafe { world_id_indexer::run_indexer(cfg1).await }.unwrap();
     });
 
-    // Wait for accounts to be indexed
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     loop {
         let c = query_count(&setup.pool).await;
@@ -940,10 +936,10 @@ async fn test_corrupted_cache_returns_error() {
 
     assert!(cache_path.exists(), "Cache file should exist");
 
-    // CORRUPT THE CACHE - truncate the mmap file to simulate corruption
+    // Corrupt the cache file to simulate on-disk corruption
     fs::write(&cache_path, b"corrupted data").expect("Should write corrupted cache");
 
-    // Start indexer in HttpOnly mode - should fail due to corrupted cache
+    // Restart in HttpOnly mode: corrupted cache → fallback rebuild → success.
     let cfg2 = GlobalConfig {
         environment: Environment::Development,
         run_mode: RunMode::HttpOnly {
@@ -960,16 +956,20 @@ async fn test_corrupted_cache_returns_error() {
         tree_cache: tree_cache_config.clone(),
     };
 
-    let result = unsafe { world_id_indexer::run_indexer(cfg2).await };
-    assert!(
-        result.is_err(),
-        "Corrupted cache should cause run_indexer to fail"
-    );
+    let indexer_task2 = tokio::spawn(async move {
+        unsafe { world_id_indexer::run_indexer(cfg2).await }.unwrap();
+    });
 
-    // Cache file should have been deleted so next restart can do a clean rebuild
+    // Health endpoint coming up proves the fallback rebuild succeeded and the
+    // HTTP server started normally.
+    TestSetup::wait_for_health("http://127.0.0.1:8104").await;
+
+    indexer_task2.abort();
+
+    // Cache must have been recreated by the fallback rebuild.
     assert!(
-        !cache_path.exists(),
-        "Cache file should be deleted on corruption"
+        cache_path.exists(),
+        "Cache file should be recreated after fallback rebuild"
     );
 
     cleanup_cache_files(&cache_path);

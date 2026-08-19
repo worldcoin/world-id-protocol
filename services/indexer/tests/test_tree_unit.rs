@@ -18,6 +18,7 @@ use world_id_indexer::{
     tree::{
         TreeState, VersionedTreeState,
         cached_tree::{init_tree, sync_from_db},
+        checkpoint::checkpoint_path,
     },
 };
 
@@ -50,34 +51,30 @@ async fn test_init_tree_empty_db() {
 // Tree Restoration tests
 // ============================================================================
 
-/// When the cached root is not in world_tree_roots (stale), init_tree
-/// returns an error and deletes the cache file.
+/// When the mmap root is not recorded in world_id_registry_events (stale),
+/// init_tree falls back to a full rebuild from DB and succeeds.
 #[tokio::test]
-async fn test_stale_cache_returns_error() {
+async fn test_stale_cache_falls_back_to_rebuild() {
     let test_db = create_unique_test_db().await;
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    // First init: builds cache from one account
+    // First init: builds cache from one account. No RootRecorded event is
+    // inserted, so the mmap root will not be found in world_id_registry_events.
     insert_test_account(db, 1, Address::ZERO, U256::from(100))
         .await
         .unwrap();
 
     let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
     drop(tree_state);
-    assert!(cache_path.exists());
 
-    // Second init: cache root is NOT in world_tree_roots → StaleCache → error
-    let result = unsafe { init_tree(db, &cache_path, 6).await };
+    // Second init: try_restore → StaleCache → fallback rebuild → success.
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await }
+        .expect("init_tree should fall back to rebuild when cache root is not in DB");
+    assert_eq!(tree_state.read().await.get_leaf(1), U256::from(100));
     assert!(
-        result.is_err(),
-        "init_tree should fail when cache root is not in DB"
-    );
-
-    // Cache file should have been deleted
-    assert!(
-        !cache_path.exists(),
-        "cache file should be deleted on restore failure"
+        cache_path.exists(),
+        "cache file should be recreated after fallback rebuild"
     );
 
     cleanup(&cache_path);
@@ -570,34 +567,35 @@ async fn test_handle_registry_event_root_match() {
 }
 
 // ============================================================================
-// init_tree error propagation tests
+// init_tree fallback behavior tests
 // ============================================================================
 
-/// init_tree deletes the cache file and returns error when restore fails.
+/// When restore fails due to a corrupted mmap, init_tree deletes the bad file,
+/// falls back to a fresh build from DB, and succeeds.
 #[tokio::test]
-async fn test_init_tree_restore_failure_deletes_cache() {
+async fn test_init_tree_restore_failure_falls_back_to_rebuild() {
     let test_db = create_unique_test_db().await;
     let db = test_db.db();
     let cache_path = temp_cache_path();
 
-    // Write garbage to the cache file to simulate corruption
     fs::write(&cache_path, b"not a valid mmap file").unwrap();
-    assert!(cache_path.exists());
 
     let result = unsafe { init_tree(db, &cache_path, 6).await };
-    assert!(result.is_err(), "should fail with corrupted cache");
     assert!(
-        !cache_path.exists(),
-        "cache file should be deleted after restore failure"
+        result.is_ok(),
+        "init_tree should fall back to rebuild on corrupted cache"
+    );
+    assert!(
+        cache_path.exists(),
+        "a new cache file should be created after fallback rebuild"
     );
 
     cleanup(&cache_path);
 }
 
-/// After init_tree fails and deletes cache, a subsequent call succeeds
-/// by doing a fresh build from DB (the single rebuild path).
+/// A corrupted cache fallback rebuild correctly picks up existing DB state.
 #[tokio::test]
-async fn test_init_tree_recovers_after_cache_deletion() {
+async fn test_init_tree_corrupt_cache_rebuild_picks_up_db_state() {
     let test_db = create_unique_test_db().await;
     let db = test_db.db();
     let cache_path = temp_cache_path();
@@ -606,16 +604,65 @@ async fn test_init_tree_recovers_after_cache_deletion() {
         .await
         .unwrap();
 
-    // First call: corrupted cache → error + cache deleted
     fs::write(&cache_path, b"corrupted").unwrap();
-    let result = unsafe { init_tree(db, &cache_path, 6).await };
-    assert!(result.is_err());
-    assert!(!cache_path.exists());
-
-    // Second call: no cache file → fresh build from DB
     let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
-    let tree = tree_state.read().await;
-    assert_eq!(tree.get_leaf(1), U256::from(100));
+    assert_eq!(tree_state.read().await.get_leaf(1), U256::from(100));
+
+    cleanup(&cache_path);
+}
+
+/// A DB error during restore (e.g. the connection pool going down) is not a
+/// cache problem — init_tree must propagate the error and leave the cache
+/// and checkpoint untouched, rather than deleting a perfectly good cache and
+/// paying for a full rebuild.
+#[tokio::test]
+async fn test_init_tree_db_error_preserves_cache() {
+    let test_db = create_unique_test_db().await;
+    let db = test_db.db();
+    let cache_path = temp_cache_path();
+
+    insert_test_account(db, 1, Address::ZERO, U256::from(100))
+        .await
+        .unwrap();
+
+    // Build a valid cache, then record its root so a later restore validates.
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    let root = tree_state.root().await;
+    drop(tree_state);
+    insert_test_world_tree_root(db, 10, 0, root, U256::ZERO)
+        .await
+        .unwrap();
+
+    // One more successful restore so the checkpoint reflects the recorded root.
+    let tree_state = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
+    drop(tree_state);
+
+    let cache_bytes_before = fs::read(&cache_path).unwrap();
+    let meta_path = checkpoint_path(&cache_path);
+    assert!(
+        meta_path.exists(),
+        "checkpoint should exist before the failing call"
+    );
+    let checkpoint_bytes_before = fs::read(&meta_path).unwrap();
+
+    // Simulate a transient DB outage: close the pool so any query fails.
+    db.pool().close().await;
+
+    let result = unsafe { init_tree(db, &cache_path, 6).await };
+    assert!(
+        result.is_err(),
+        "init_tree should propagate a DB error instead of masking it with a rebuild"
+    );
+    assert_eq!(
+        fs::read(&cache_path).unwrap(),
+        cache_bytes_before,
+        "cache file must be untouched by a non-cache error"
+    );
+    assert_eq!(
+        fs::read(&meta_path).unwrap(),
+        checkpoint_bytes_before,
+        "checkpoint must be untouched by a non-cache error"
+    );
 
     cleanup(&cache_path);
 }

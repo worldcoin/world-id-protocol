@@ -261,6 +261,19 @@ impl VersionedTreeState {
         self.inner.tree.set_last_synced_event_id(id).await
     }
 
+    /// Delegate: persist a local checkpoint at `cursor`.
+    ///
+    /// Called by the writer after a batch is committed and applied to the tree, so
+    /// a restart can replay only events after `cursor`.
+    pub async fn persist_checkpoint(&self, cursor: WorldIdRegistryEventId) {
+        self.inner.tree.persist_checkpoint(cursor).await
+    }
+
+    /// Delegate: delete the local checkpoint (used on reorg/rollback).
+    pub fn invalidate_checkpoint(&self) {
+        self.inner.tree.invalidate_checkpoint()
+    }
+
     /// Expose the inner [`TreeState`] for operations not covered here
     /// (e.g. `replace`, `update_commitment`).
     pub fn tree_state(&self) -> &TreeState {
