@@ -107,7 +107,7 @@ zstd = "0.13"
 axum = { version = "0.8", features = ["macros", "json"] }
 moka = { version = "0.12.13", features = ["future"] }
 dashmap = { version = "6.1.0" }
-parking_lot = { version = "0.12.5"}
+parking_lot = { version = "0.12.5" }
 metrics = "0.24"
 metrics-util = "0.20"
 secrecy = "0.10"
@@ -117,7 +117,11 @@ arrayvec = "0.7"
 async-stream = "0.3"
 async-trait = "0.1"
 aws-config = "1"
-aws-sdk-kms = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio", "behavior-version-latest"] }
+aws-sdk-kms = { version = "1", default-features = false, features = [
+  "default-https-client",
+  "rt-tokio",
+  "behavior-version-latest",
+] }
 chrono = "0.4"
 clap = "4.5.59"
 config = "0.15.19"
@@ -128,6 +132,7 @@ governor = "0.10.4"
 http = "1"
 humantime = "2"
 humantime-serde = "1"
+indicatif = "0.18"
 indoc = "2"
 once_cell = "1"
 provekit-common = { version = "0.1.4" }
@@ -141,7 +146,10 @@ semaphore-rs-hasher = "0.5.0"
 semaphore-rs-trees = "0.5.0"
 semaphore-rs-storage = "0.5.0"
 serial_test = "3"
-testcontainers = { version = "0.27", features = ["http_wait_plain", "host-port-exposure"] }
+testcontainers = { version = "0.27", features = [
+  "http_wait_plain",
+  "host-port-exposure",
+] }
 testcontainers-modules = { version = "0.15", features = ["redis"] }
 sqlx = "0.8"
 take_mut = "0.2.2"
