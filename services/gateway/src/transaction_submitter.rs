@@ -460,6 +460,10 @@ impl TransactionSubmitter {
                     );
                 }
 
+                // TODO: finalize_from_receipt calls under RequestStore::update_status under the hood
+                //       which can fail and only log an error. So there's a chance we release a
+                //       submission without actually finalizing the requests - we should be smarter
+                //       about error handling here.
                 self.finalize_from_receipt(&request_ids, confirmed, &formatted_tx_hash)
                     .await;
                 self.release_submission(wallet.address, reservation_id, tx_hash)
