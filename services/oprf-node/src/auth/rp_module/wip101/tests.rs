@@ -1,272 +1,296 @@
-use world_id_test_utils::anvil::TestAnvil;
+use std::time::Duration;
 
-use crate::auth::{self, rp_module::RpAccountType};
+use alloy::{
+    primitives::{Address, B256, Bytes, FixedBytes, U160, U256},
+    providers::mock::Asserter,
+    rpc::json_rpc::ErrorPayload,
+    sol_types::{SolCall as _, SolError as _, SolValue as _},
+};
+use taceo_oprf::types::OprfKeyId;
+use world_id_primitives::{
+    FieldElement, ProofType, RequestVersion,
+    oprf::NullifierOprfRequestAuthV1,
+    rp::{IWIP101, RpId, RpRequestAuthorization, RpRequestSessionMode},
+};
 
-alloy::sol!(
-    // SPDX-License-Identifier: MIT
-    pragma solidity ^0.8.20;
+use super::Wip101Error;
+use crate::auth::rp_module::{RelyingParty, RpAccountType};
 
-    interface IERC165 {
-        function supportsInterface(bytes4 interfaceId) external view returns (bool);
-    }
+const TEST_TIMEOUT: Duration = Duration::from_secs(1);
 
-    struct RpRequest {
-        uint8 requestVersion;
-        uint64 rpId;
-        uint160 oprfKeyId;
-        uint256 nonce;
-        uint64 createdAt;
-        uint64 expiresAt;
-        uint8 proofType;
-        uint8 sessionMode;
-        uint8 actionKind;
-        uint256 action;
-        bytes32 existingSessionSeedAuthorization;
-        bytes32 detailsHash;
-    }
+pub(crate) fn provider_with_success<T: serde::Serialize>(
+    value: &T,
+) -> taceo_nodes_common::web3::HttpRpcProvider {
+    let asserter = Asserter::new();
+    asserter.push_success(value);
+    asserter.into()
+}
 
-    interface IWIP101 is IERC165 {
-        error RpInvalidRequest(uint256 code);
-
-        function verifyRpRequest(
-            RpRequest calldata intent,
-            uint256 oprfAction,
-            bytes calldata data
-        ) external view returns (bytes4 magicValue);
-    }
-
-    bytes4 constant WIP101_MAGIC_VALUE = IWIP101.verifyRpRequest.selector;
-    bytes4 constant ERC165_INTERFACE_ID = type(IERC165).interfaceId;
-    bytes4 constant IWIP101_INTERFACE_ID = type(IWIP101).interfaceId;
-
-    #[sol(rpc, bytecode="60808060405234601557610192908161001a8239f35b5f80fdfe6080806040526004361015610012575f80fd5b5f3560e01c90816301ffc9a7146100d6575063d7e3f32c14610032575f80fd5b346100d2577ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc36016101c081126100d257610180136100d2576101a43567ffffffffffffffff81116100d257366023820112156100d257806004013567ffffffffffffffff81116100d257369101602401116100d25760206040517fd7e3f32c000000000000000000000000000000000000000000000000000000008152f35b5f80fd5b346100d25760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100d257600435907fffffffff0000000000000000000000000000000000000000000000000000000082168092036100d257817fd7e3f32c0000000000000000000000000000000000000000000000000000000060209314908115610168575b5015158152f35b7f01ffc9a7000000000000000000000000000000000000000000000000000000009150148361016156")]
-    contract WIP101Correct is IWIP101 {
-        function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-            return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
-        }
-
-        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
-            external
-            pure
-            override
-            returns (bytes4)
-        {
-            return WIP101_MAGIC_VALUE;
-        }
-    }
-
-    #[sol(rpc, bytecode="608080604052346015576101fc908161001a8239f35b5f80fdfe6080806040526004361015610012575f80fd5b5f3560e01c90816301ffc9a7146100e7575063d7e3f32c14610032575f80fd5b346100e3577ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc36016101c081126100e357610180136100e3576101a43567ffffffffffffffff81116100e357366023820112156100e35780600401359067ffffffffffffffff82116100e35736602483830101116100e35760209160246100b992016101a3565b7fffffffff0000000000000000000000000000000000000000000000000000000060405191168152f35b5f80fd5b346100e35760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100e357600435907fffffffff0000000000000000000000000000000000000000000000000000000082168092036100e357817fd7e3f32c0000000000000000000000000000000000000000000000000000000060209314908115610179575b5015158152f35b7f01ffc9a70000000000000000000000000000000000000000000000000000000091501483610172565b506003146101d8577f5927c5d1000000000000000000000000000000000000000000000000000000005f52600160045260245ffd5b7fd7e3f32c000000000000000000000000000000000000000000000000000000009056")]
-    contract WIP101CorrectWhenAuxData is IWIP101 {
-        function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-            return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
-        }
-
-        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata data)
-            external pure override returns (bytes4) {
-            if (data.length == 3) {
-               return WIP101_MAGIC_VALUE;
-            }
-            revert IWIP101.RpInvalidRequest(1);
-        }
-    }
-
-    #[sol(rpc, bytecode="60808060405234601557610192908161001a8239f35b5f80fdfe6080806040526004361015610012575f80fd5b5f3560e01c90816301ffc9a7146100d6575063d7e3f32c14610032575f80fd5b346100d2577ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc36016101c081126100d257610180136100d2576101a43567ffffffffffffffff81116100d257366023820112156100d257806004013567ffffffffffffffff81116100d257369101602401116100d25760206040517fdeadbeef000000000000000000000000000000000000000000000000000000008152f35b5f80fd5b346100d25760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100d257600435907fffffffff0000000000000000000000000000000000000000000000000000000082168092036100d257817fd7e3f32c0000000000000000000000000000000000000000000000000000000060209314908115610168575b5015158152f35b7f01ffc9a7000000000000000000000000000000000000000000000000000000009150148361016156")]
-    contract WIP101WrongMagic is IWIP101 {
-        function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-            return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
-        }
-
-
-        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
-            external pure override returns (bytes4) {
-            return 0xdeadbeef;
-        }
-    }
-
-    #[sol(rpc, bytecode="60808060405234601557610195908161001a8239f35b5f80fdfe6080806040526004361015610012575f80fd5b5f3560e01c90816301ffc9a7146100d9575063d7e3f32c14610032575f80fd5b346100d5577ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc36016101c081126100d557610180136100d5576101a43567ffffffffffffffff81116100d557366023820112156100d557806004013567ffffffffffffffff81116100d557369101602401116100d5577f5927c5d1000000000000000000000000000000000000000000000000000000005f52602a60045260245ffd5b5f80fd5b346100d55760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100d557600435907fffffffff0000000000000000000000000000000000000000000000000000000082168092036100d557817fd7e3f32c000000000000000000000000000000000000000000000000000000006020931490811561016b575b5015158152f35b7f01ffc9a7000000000000000000000000000000000000000000000000000000009150148361016456")]
-    contract WIP101RevertsWithCode is IWIP101 {
-        function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-            return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
-        }
-
-
-        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
-            external pure override returns (bytes4) {
-            revert RpInvalidRequest(42);
-        }
-    }
-
-    #[sol(rpc, bytecode="608080604052346015576101c6908161001a8239f35b5f80fdfe6080806040526004361015610012575f80fd5b5f3560e01c90816301ffc9a71461010a575063d7e3f32c14610032575f80fd5b34610106577ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc36016101c081126101065761018013610106576101a43567ffffffffffffffff8111610106573660238201121561010657806004013567ffffffffffffffff811161010657369101602401116101065760646040517f08c379a000000000000000000000000000000000000000000000000000000000815260206004820152600960248201527f6e6f20726561736f6e00000000000000000000000000000000000000000000006044820152fd5b5f80fd5b346101065760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc36011261010657600435907fffffffff00000000000000000000000000000000000000000000000000000000821680920361010657817fd7e3f32c000000000000000000000000000000000000000000000000000000006020931490811561019c575b5015158152f35b7f01ffc9a7000000000000000000000000000000000000000000000000000000009150148361019556")]
-    contract WIP101PlainRevert is IWIP101 {
-        function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-            return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
-        }
-
-
-        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
-            external pure override returns (bytes4) {
-            revert("no reason");
-        }
-    }
-
-    #[sol(rpc, bytecode="60808060405234601557610138908161001a8239f35b5f80fdfe6080806040526004361015610012575f80fd5b5f3560e01c90816301ffc9a7146100d6575063d7e3f32c14610032575f80fd5b346100d2577ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc36016101c081126100d257610180136100d2576101a43567ffffffffffffffff81116100d257366023820112156100d257806004013567ffffffffffffffff81116100d257369101602401116100d25760206040517fd7e3f32c000000000000000000000000000000000000000000000000000000008152f35b5f80fd5b346100d25760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100d2576004357fffffffff000000000000000000000000000000000000000000000000000000008116036100d257805f60209252f3")]
-    contract WIP101BrokenERC165 is IWIP101 {
-        function supportsInterface(bytes4) external pure override returns (bool) {
-            return false;
-        }
-
-        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
-            external pure override returns (bytes4) {
-            return WIP101_MAGIC_VALUE;
-        }
-    }
-
-    #[sol(rpc, bytecode="608080604052346013576003908160188239f35b5f80fdfe5f80fd")]
-    contract NoERC165 {}
-
-    #[sol(rpc, bytecode="6080806040523460135760de908160188239f35b5f80fdfe60808060405260043610156011575f80fd5b5f3560e01c6301ffc9a7146023575f80fd5b3460da5760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc36011260da57600435907fffffffff00000000000000000000000000000000000000000000000000000000821680920360da57817fd7e3f32c000000000000000000000000000000000000000000000000000000006020931490811560b1575b5015158152f35b7f01ffc9a7000000000000000000000000000000000000000000000000000000009150145f60aa565b5f80fd")]
-    contract NoWIP101 {
-        // no verifyRpRequest
-        function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-            return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
-        }
-
-    }
-
-    #[sol(rpc, bytecode="60808060405234601557610187908161001a8239f35b5f80fdfe6080806040526004361015610012575f80fd5b5f3560e01c90816301ffc9a7146100cb575063dfafdcdf14610032575f80fd5b346100c75760607ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100c75760443567ffffffffffffffff81116100c757366023820112156100c757806004013567ffffffffffffffff81116100c757369101602401116100c75760206040517fd7e3f32c000000000000000000000000000000000000000000000000000000008152f35b5f80fd5b346100c75760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100c757600435907fffffffff0000000000000000000000000000000000000000000000000000000082168092036100c757817fd7e3f32c000000000000000000000000000000000000000000000000000000006020931490811561015d575b5015158152f35b7f01ffc9a7000000000000000000000000000000000000000000000000000000009150148361015656")]
-    contract WrongSignature {
-        function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
-            return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
-        }
-
-        function verifyRpRequest(uint256, uint256, bytes calldata)
-            external pure returns (bytes4) {
-            return WIP101_MAGIC_VALUE;
-        }
-    }
-
-    #[sol(rpc, bytecode="60808060405234601557610298908161001a8239f35b5f80fdfe60806040526004361015610011575f80fd5b5f3560e01c806301ffc9a714610122578063c6c2ea17146100de5763d7e3f32c1461003a575f80fd5b346100da577ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc36016101c081126100da57610180136100da576101a43567ffffffffffffffff81116100da57366023820112156100da57806004013567ffffffffffffffff81116100da57369101602401116100da5760206040517fd7e3f32c000000000000000000000000000000000000000000000000000000008152f35b5f80fd5b346100da5760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100da57602061011a6004356101ec565b604051908152f35b346100da5760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100da576004357fffffffff0000000000000000000000000000000000000000000000000000000081168091036100da5760209061018b60326101ec565b507fd7e3f32c0000000000000000000000000000000000000000000000000000000081149081156101c2575b506040519015158152f35b7f01ffc9a700000000000000000000000000000000000000000000000000000000915014826101b7565b6001811115610295577fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff810181811161026857610228906101ec565b907ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe81019081116102685761025c906101ec565b81018091116102685790565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b9056")]
-    contract WIP101TimeoutERC165 is IWIP101 {
-        function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-            fib(50);
-            return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
-        }
-
-        function fib(uint256 n) public pure returns (uint256) {
-            if (n <= 1) {
-                return n;
-            }
-            return fib(n - 1) + fib(n - 2);
-        }
-
-        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
-            external
-            pure
-            override
-            returns (bytes4)
-        {
-            return WIP101_MAGIC_VALUE;
-        }
-    }
-
-    #[sol(rpc, bytecode="60808060405234601557610298908161001a8239f35b5f80fdfe6080806040526004361015610012575f80fd5b5f3560e01c90816301ffc9a71461013057508063c6c2ea17146100ec5763d7e3f32c1461003d575f80fd5b346100e8577ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc36016101c081126100e857610180136100e8576101a43567ffffffffffffffff81116100e857366023820112156100e857806004013567ffffffffffffffff81116100e857369101602401116100e8576100bd60326101ec565b5060206040517fd7e3f32c000000000000000000000000000000000000000000000000000000008152f35b5f80fd5b346100e85760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100e85760206101286004356101ec565b604051908152f35b346100e85760207ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc3601126100e857600435907fffffffff0000000000000000000000000000000000000000000000000000000082168092036100e857817fd7e3f32c00000000000000000000000000000000000000000000000000000000602093149081156101c2575b5015158152f35b7f01ffc9a700000000000000000000000000000000000000000000000000000000915014836101bb565b6001811115610295577fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff810181811161026857610228906101ec565b907ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe81019081116102685761025c906101ec565b81018091116102685790565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b9056")]
-    contract WIP101TimeoutVerify is IWIP101 {
-        function supportsInterface(bytes4 interfaceId) external pure override returns (bool) {
-            return interfaceId == IWIP101_INTERFACE_ID || interfaceId == ERC165_INTERFACE_ID;
-        }
-
-        function fib(uint256 n) public pure returns (uint256) {
-            if (n <= 1) {
-                return n;
-            }
-            return fib(n - 1) + fib(n - 2);
-        }
-
-        function verifyRpRequest(RpRequest calldata, uint256, bytes calldata)
-            external
-            pure
-            override
-            returns (bytes4)
-        {
-            fib(50);
-            return WIP101_MAGIC_VALUE;
-        }
-    }
-);
-
-/// The mock contracts above are compiled from their own `sol!` declaration, so they are the one
-/// remaining copy of the WIP-101 shapes. They must stay identical to the shared declaration in
-/// `world-id-primitives`: a mock that drifts would still pass every test below while proving
-/// nothing about the calldata a real RP contract receives.
-#[test]
-fn mocks_match_shared_wip101_declaration() {
-    use alloy::sol_types::{SolCall as _, SolStruct as _};
-
-    assert_eq!(
-        RpRequest::eip712_encode_type(),
-        world_id_primitives::rp::RpRequestTypedData::eip712_encode_type(),
-        "mock intent struct drifted from the signed authorization payload"
+fn provider_with_revert(data: &Bytes) -> taceo_nodes_common::web3::HttpRpcProvider {
+    let asserter = Asserter::new();
+    let json = format!(r#"{{"code":3,"message":"execution reverted","data":"{data}"}}"#);
+    asserter.push_failure(
+        serde_json::from_str::<ErrorPayload>(&json).expect("revert payload should be valid JSON"),
     );
-    assert_eq!(
-        IWIP101::verifyRpRequestCall::SELECTOR,
-        super::IWIP101::verifyRpRequestCall::SELECTOR,
-        "mock verifyRpRequest selector drifted from the shared interface"
-    );
+    asserter.into()
+}
+
+pub(crate) fn relying_party(account_type: RpAccountType) -> RelyingParty {
+    RelyingParty {
+        signer: Address::ZERO,
+        oprf_key_id: OprfKeyId::new(U160::ZERO),
+        account_type,
+    }
+}
+
+fn dummy_authorization() -> RpRequestAuthorization {
+    RpRequestAuthorization {
+        request_version: RequestVersion::V1,
+        rp_id: RpId::new(0),
+        oprf_key_id: OprfKeyId::new(U160::ZERO),
+        nonce: FieldElement::from(2u64),
+        created_at: 1,
+        expires_at: 2,
+        proof_type: ProofType::Uniqueness,
+        session_mode: RpRequestSessionMode::None,
+        action: Some(FieldElement::from(1u64)),
+        existing_session_seed_authorization: B256::ZERO,
+        details_hash: B256::repeat_byte(0x42),
+    }
+}
+
+pub(crate) fn dummy_auth() -> NullifierOprfRequestAuthV1 {
+    NullifierOprfRequestAuthV1 {
+        proof: circom_types::groth16::Proof {
+            pi_a: ark_bn254::G1Affine::default(),
+            pi_b: ark_bn254::G2Affine::default(),
+            pi_c: ark_bn254::G1Affine::default(),
+            protocol: "groth16".to_string(),
+            curve: "bn254".to_string(),
+        },
+        action: ark_babyjubjub::Fq::from(1u64),
+        nonce: ark_babyjubjub::Fq::from(2u64),
+        merkle_root: ark_babyjubjub::Fq::from(3u64),
+        created_at: 1,
+        expires_at: 2,
+        signature: None,
+        rp_id: RpId::new(0),
+        wip101_data: None,
+        rp_request_authorization: dummy_authorization(),
+        session_seed_opening: None,
+    }
+}
+
+pub(crate) fn success_magic_response() -> Bytes {
+    Bytes::from(FixedBytes::<4>::from(IWIP101::verifyRpRequestCall::SELECTOR).abi_encode())
 }
 
 #[tokio::test]
-async fn test_confirm_success() {
-    let anvil = TestAnvil::spawn_auto_mine().expect("Should spawn anvil");
-    let rpc_provider = auth::tests::build_http_provider(&anvil.instance);
-    let wip101_instance = WIP101Correct::deploy(rpc_provider.inner())
+async fn verify_success() {
+    let auth = dummy_auth();
+    relying_party(RpAccountType::Contract)
+        .verify_wip101(
+            auth.action,
+            &auth.rp_request_authorization,
+            &auth,
+            &provider_with_success(&success_magic_response()),
+            TEST_TIMEOUT,
+        )
         .await
-        .expect("Should be able to deploy contract");
-    let rp_type = super::account_check(*wip101_instance.address(), &rpc_provider)
-        .await
-        .expect("Should successfully get rp type");
-
-    assert_eq!(rp_type, RpAccountType::Contract);
+        .expect("valid response should succeed");
 }
 
 #[tokio::test]
-async fn test_no_contract() {
-    let anvil = TestAnvil::spawn_auto_mine().expect("Should spawn anvil");
-    let rpc_provider = auth::tests::build_http_provider(&anvil.instance);
-    let zero_address = alloy::primitives::address!("0x0000000000000000000000000000000000000000");
-
-    let rp_type = super::account_check(zero_address, &rpc_provider)
+async fn verify_wrong_magic() {
+    let auth = dummy_auth();
+    let response = FixedBytes::<4>::from([0xde, 0xad, 0xbe, 0xef]).abi_encode();
+    let error = relying_party(RpAccountType::Contract)
+        .verify_wip101(
+            auth.action,
+            &auth.rp_request_authorization,
+            &auth,
+            &provider_with_success(&Bytes::from(response)),
+            TEST_TIMEOUT,
+        )
         .await
-        .expect("Should successfully get rp type");
-
-    assert_eq!(rp_type, RpAccountType::Eoa);
+        .expect_err("wrong magic must fail");
+    assert!(matches!(error, Wip101Error::VerificationFailed(None)));
 }
 
 #[tokio::test]
-async fn test_contract_broken_erc165() {
-    let anvil = TestAnvil::spawn_auto_mine().expect("Should spawn anvil");
-    let rpc_provider = auth::tests::build_http_provider(&anvil.instance);
-    let wip101_instance = WIP101BrokenERC165::deploy(rpc_provider.inner())
+async fn verify_custom_error() {
+    let auth = dummy_auth();
+    let revert = IWIP101::RpInvalidRequest {
+        code: U256::from(42),
+    }
+    .abi_encode();
+    let error = relying_party(RpAccountType::Contract)
+        .verify_wip101(
+            auth.action,
+            &auth.rp_request_authorization,
+            &auth,
+            &provider_with_revert(&revert.into()),
+            TEST_TIMEOUT,
+        )
         .await
-        .expect("Should be able to deploy contract");
-
-    let rp_type = super::account_check(*wip101_instance.address(), &rpc_provider)
-        .await
-        .expect("Should successfully get rp type");
-
-    assert_eq!(rp_type, RpAccountType::IncompatibleWip101);
+        .expect_err("custom error must fail");
+    assert!(matches!(error, Wip101Error::VerificationFailed(Some(code)) if code == U256::from(42)));
 }
 
 #[tokio::test]
-async fn test_contract_no_method() {
-    let anvil = TestAnvil::spawn_auto_mine().expect("Should spawn anvil");
-    let rpc_provider = auth::tests::build_http_provider(&anvil.instance);
-    let wip101_instance = NoERC165::deploy(rpc_provider.inner())
+async fn verify_plain_revert() {
+    let auth = dummy_auth();
+    let error = relying_party(RpAccountType::Contract)
+        .verify_wip101(
+            auth.action,
+            &auth.rp_request_authorization,
+            &auth,
+            &provider_with_revert(&Bytes::from_static(b"reason")),
+            TEST_TIMEOUT,
+        )
         .await
-        .expect("Should be able to deploy contract");
+        .expect_err("plain revert must fail");
+    assert!(matches!(error, Wip101Error::CustomRevert));
+}
 
-    let rp_type = super::account_check(*wip101_instance.address(), &rpc_provider)
+#[tokio::test]
+async fn verify_empty_revert_is_incompatible() {
+    let auth = dummy_auth();
+    let error = relying_party(RpAccountType::Contract)
+        .verify_wip101(
+            auth.action,
+            &auth.rp_request_authorization,
+            &auth,
+            &provider_with_revert(&Bytes::new()),
+            TEST_TIMEOUT,
+        )
         .await
-        .expect("Should successfully get rp type");
+        .expect_err("empty revert must fail");
+    assert!(matches!(error, Wip101Error::IncompatibleRpSigner));
+}
 
-    assert_eq!(rp_type, RpAccountType::IncompatibleWip101);
+#[tokio::test]
+async fn verify_empty_response_is_incompatible() {
+    let auth = dummy_auth();
+    let error = relying_party(RpAccountType::Contract)
+        .verify_wip101(
+            auth.action,
+            &auth.rp_request_authorization,
+            &auth,
+            &provider_with_success(&Bytes::new()),
+            TEST_TIMEOUT,
+        )
+        .await
+        .expect_err("empty response must fail");
+    assert!(matches!(error, Wip101Error::IncompatibleRpSigner));
+}
+
+#[tokio::test]
+async fn verify_auxiliary_data_limits() {
+    let mut auth = dummy_auth();
+    auth.wip101_data = Some(vec![0xab; super::MAX_AUX_DATA_SIZE]);
+    relying_party(RpAccountType::Contract)
+        .verify_wip101(
+            auth.action,
+            &auth.rp_request_authorization,
+            &auth,
+            &provider_with_success(&success_magic_response()),
+            TEST_TIMEOUT,
+        )
+        .await
+        .expect("maximum auxiliary data size should succeed");
+
+    auth.wip101_data = Some(vec![0xab; super::MAX_AUX_DATA_SIZE + 1]);
+    let error = relying_party(RpAccountType::Contract)
+        .verify_wip101(
+            auth.action,
+            &auth.rp_request_authorization,
+            &auth,
+            &Asserter::new().into(),
+            TEST_TIMEOUT,
+        )
+        .await
+        .expect_err("oversized auxiliary data must fail");
+    assert!(matches!(error, Wip101Error::AuxDataTooLarge));
+}
+
+#[tokio::test]
+async fn verify_timeout() {
+    // A listener that accepts but never answers keeps the RPC call pending
+    // until the timeout fires.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("can bind");
+    let url = format!("http://{}", listener.local_addr().expect("has local addr"));
+    let provider = taceo_nodes_common::web3::HttpRpcProviderBuilder::with_default_values([url])
+        .expect("can build provider builder")
+        .environment(taceo_nodes_common::Environment::Dev)
+        .build()
+        .expect("can build provider");
+
+    let auth = dummy_auth();
+    let error = relying_party(RpAccountType::Contract)
+        .verify_wip101(
+            auth.action,
+            &auth.rp_request_authorization,
+            &auth,
+            &provider,
+            Duration::from_millis(100),
+        )
+        .await
+        .expect_err("hanging RPC must time out");
+    assert!(matches!(error, Wip101Error::VerificationTimeout));
+}
+
+fn account_provider(
+    responses: impl IntoIterator<Item = Bytes>,
+) -> taceo_nodes_common::web3::HttpRpcProvider {
+    let asserter = Asserter::new();
+    for response in responses {
+        asserter.push_success(&response);
+    }
+    asserter.into()
+}
+
+// The FIFO Asserter responses answer the three `supportsInterface` probes of
+// `erc165_supports_interface` in its `tokio::join!` poll order:
+// 1. the target interface (verifyRpRequest selector),
+// 2. the ERC-165 conformance probe (0x01ffc9a7, must be supported),
+// 3. the invalid-interface sanity probe (0xffffffff, must NOT be supported).
+
+#[tokio::test]
+async fn account_check_compatible_contract() {
+    let supports_wip101 = Bytes::from(true.abi_encode());
+    let supports_erc165 = Bytes::from(true.abi_encode());
+    let supports_invalid_interface = Bytes::from(false.abi_encode());
+    let account = super::account_check(
+        Address::ZERO,
+        &account_provider([supports_wip101, supports_erc165, supports_invalid_interface]),
+    )
+    .await
+    .expect("account check should succeed");
+    assert_eq!(account, RpAccountType::Contract);
+}
+
+#[tokio::test]
+async fn account_check_incompatible_contract() {
+    let no = Bytes::from(false.abi_encode());
+    let account = super::account_check(
+        Address::ZERO,
+        &account_provider([no.clone(), no.clone(), no]),
+    )
+    .await
+    .expect("account check should succeed");
+    assert_eq!(account, RpAccountType::IncompatibleWip101);
+}
+
+#[tokio::test]
+async fn account_check_eoa() {
+    // Empty return data on all three probes means no code at the address.
+    let empty = Bytes::new();
+    let account = super::account_check(
+        Address::ZERO,
+        &account_provider([empty.clone(), empty.clone(), empty]),
+    )
+    .await
+    .expect("account check should succeed");
+    assert_eq!(account, RpAccountType::Eoa);
 }

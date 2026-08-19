@@ -89,7 +89,11 @@ impl RelyingParty {
                 .call(request)
                 .await
                 .map_err(alloy::contract::Error::from)?;
+            if returned.is_empty() {
+                return Ok(None);
+            }
             IWIP101::verifyRpRequestCall::abi_decode_returns(&returned)
+                .map(Some)
                 .map_err(alloy::contract::Error::from)
         };
 
@@ -97,8 +101,9 @@ impl RelyingParty {
             .await
             .map_err(|_| Wip101Error::VerificationTimeout)?
         {
-            Ok(x) if x == IWIP101::verifyRpRequestCall::SELECTOR => Ok(()),
-            Ok(_) => Err(Wip101Error::VerificationFailed(None)),
+            Ok(Some(x)) if x == IWIP101::verifyRpRequestCall::SELECTOR => Ok(()),
+            Ok(Some(_)) => Err(Wip101Error::VerificationFailed(None)),
+            Ok(None) => Err(Wip101Error::IncompatibleRpSigner),
             Err(err) => {
                 if let Some(IWIP101::RpInvalidRequest { code }) =
                     err.as_decoded_error::<IWIP101::RpInvalidRequest>()
