@@ -53,6 +53,7 @@ taceo-oprf = { workspace = true }
 # Utilities
 rand = { workspace = true }
 rand_chacha = { workspace = true }
+rayon = { workspace = true }
 thiserror = { workspace = true }
 
 # UniFFI for mobile bindings

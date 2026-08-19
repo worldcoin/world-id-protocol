@@ -21,7 +21,10 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use std::{
     cell::RefCell,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Once,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 use taceo_oprf::core::{
     dlog_equality::DLogEqualityProof,
@@ -265,6 +268,24 @@ thread_local! {
         const { RefCell::new(None) };
 }
 
+const OWNERSHIP_RAYON_THREADS: usize = 4;
+static OWNERSHIP_RAYON_POOL: Once = Once::new();
+
+fn configure_ownership_rayon_pool() {
+    OWNERSHIP_RAYON_POOL.call_once(|| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(OWNERSHIP_RAYON_THREADS)
+            .build_global()
+            .expect("ownership benchmark must initialize the Rayon pool first");
+    });
+
+    assert_eq!(
+        rayon::current_num_threads(),
+        OWNERSHIP_RAYON_THREADS,
+        "ownership benchmarks require a fixed four-thread Rayon pool"
+    );
+}
+
 fn ownership_prover() -> Prover {
     EmbeddedZkArtifacts
         .ownership_prover()
@@ -272,6 +293,7 @@ fn ownership_prover() -> Prover {
 }
 
 fn setup_ownership_witness_generation() -> (Prover, InputMap) {
+    configure_ownership_rayon_pool();
     let input_map = ownership_proof_fixture()
         .into_witness()
         .expect("ownership input map");
