@@ -146,7 +146,7 @@ impl fmt::Display for RpAccountType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RpAccountType::Eoa => write!(f, "eoa"),
-            RpAccountType::Contract => write!(f, "contract"),
+            RpAccountType::Contract => write!(f, "contract (WIP-101)"),
             RpAccountType::IncompatibleWip101 => write!(f, "incompatible wip101 contract"),
         }
     }

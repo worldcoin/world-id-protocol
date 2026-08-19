@@ -234,8 +234,7 @@ pub enum WorldIdRequestAuthError {
     /// The typed RP authorization is malformed, inconsistent with the OPRF request metadata,
     /// or does not permit the requested OPRF operation.
     ///
-    /// See [`RpRequestAuthorization`](crate::rp::RpRequestAuthorization) for the authorized
-    /// operation matrix.
+    /// See [`RpRequestAuthorization`] for the authorized operation matrix.
     #[error("invalid_rp_authorization")]
     InvalidRpAuthorization,
     /// The RP signer is a contract but does not implement the WIP101 interface.
