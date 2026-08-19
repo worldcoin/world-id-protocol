@@ -90,8 +90,6 @@ async fn verify_success() {
     let auth = dummy_auth();
     relying_party(RpAccountType::Contract)
         .verify_wip101(
-            auth.action,
-            &auth.rp_request_authorization,
             &auth,
             &provider_with_success(&success_magic_response()),
             TEST_TIMEOUT,
@@ -106,8 +104,6 @@ async fn verify_wrong_magic() {
     let response = FixedBytes::<4>::from([0xde, 0xad, 0xbe, 0xef]).abi_encode();
     let error = relying_party(RpAccountType::Contract)
         .verify_wip101(
-            auth.action,
-            &auth.rp_request_authorization,
             &auth,
             &provider_with_success(&Bytes::from(response)),
             TEST_TIMEOUT,
@@ -125,13 +121,7 @@ async fn verify_custom_error() {
     }
     .abi_encode();
     let error = relying_party(RpAccountType::Contract)
-        .verify_wip101(
-            auth.action,
-            &auth.rp_request_authorization,
-            &auth,
-            &provider_with_revert(&revert.into()),
-            TEST_TIMEOUT,
-        )
+        .verify_wip101(&auth, &provider_with_revert(&revert.into()), TEST_TIMEOUT)
         .await
         .expect_err("custom error must fail");
     assert!(matches!(error, Wip101Error::VerificationFailed(Some(code)) if code == U256::from(42)));
@@ -142,8 +132,6 @@ async fn verify_plain_revert() {
     let auth = dummy_auth();
     let error = relying_party(RpAccountType::Contract)
         .verify_wip101(
-            auth.action,
-            &auth.rp_request_authorization,
             &auth,
             &provider_with_revert(&Bytes::from_static(b"reason")),
             TEST_TIMEOUT,
@@ -157,13 +145,7 @@ async fn verify_plain_revert() {
 async fn verify_empty_revert_is_incompatible() {
     let auth = dummy_auth();
     let error = relying_party(RpAccountType::Contract)
-        .verify_wip101(
-            auth.action,
-            &auth.rp_request_authorization,
-            &auth,
-            &provider_with_revert(&Bytes::new()),
-            TEST_TIMEOUT,
-        )
+        .verify_wip101(&auth, &provider_with_revert(&Bytes::new()), TEST_TIMEOUT)
         .await
         .expect_err("empty revert must fail");
     assert!(matches!(error, Wip101Error::IncompatibleRpSigner));
@@ -173,13 +155,7 @@ async fn verify_empty_revert_is_incompatible() {
 async fn verify_empty_response_is_incompatible() {
     let auth = dummy_auth();
     let error = relying_party(RpAccountType::Contract)
-        .verify_wip101(
-            auth.action,
-            &auth.rp_request_authorization,
-            &auth,
-            &provider_with_success(&Bytes::new()),
-            TEST_TIMEOUT,
-        )
+        .verify_wip101(&auth, &provider_with_success(&Bytes::new()), TEST_TIMEOUT)
         .await
         .expect_err("empty response must fail");
     assert!(matches!(error, Wip101Error::IncompatibleRpSigner));
@@ -191,8 +167,6 @@ async fn verify_auxiliary_data_limits() {
     auth.wip101_data = Some(vec![0xab; super::MAX_AUX_DATA_SIZE]);
     relying_party(RpAccountType::Contract)
         .verify_wip101(
-            auth.action,
-            &auth.rp_request_authorization,
             &auth,
             &provider_with_success(&success_magic_response()),
             TEST_TIMEOUT,
@@ -202,13 +176,7 @@ async fn verify_auxiliary_data_limits() {
 
     auth.wip101_data = Some(vec![0xab; super::MAX_AUX_DATA_SIZE + 1]);
     let error = relying_party(RpAccountType::Contract)
-        .verify_wip101(
-            auth.action,
-            &auth.rp_request_authorization,
-            &auth,
-            &Asserter::new().into(),
-            TEST_TIMEOUT,
-        )
+        .verify_wip101(&auth, &Asserter::new().into(), TEST_TIMEOUT)
         .await
         .expect_err("oversized auxiliary data must fail");
     assert!(matches!(error, Wip101Error::AuxDataTooLarge));
@@ -228,13 +196,7 @@ async fn verify_timeout() {
 
     let auth = dummy_auth();
     let error = relying_party(RpAccountType::Contract)
-        .verify_wip101(
-            auth.action,
-            &auth.rp_request_authorization,
-            &auth,
-            &provider,
-            Duration::from_millis(100),
-        )
+        .verify_wip101(&auth, &provider, Duration::from_millis(100))
         .await
         .expect_err("hanging RPC must time out");
     assert!(matches!(error, Wip101Error::VerificationTimeout));

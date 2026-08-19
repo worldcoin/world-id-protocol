@@ -7,7 +7,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::{B256, U160, U256},
+    primitives::{B256, Signature, U160, U256},
     signers::{SignerSync as _, local::LocalSigner},
 };
 use eyre::{Context as _, Result, eyre};
@@ -307,7 +307,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         oprf_key_id: rp_fixture.oprf_key_id,
         session_id: SessionRef::None,
         action: Some(rp_fixture.action.into()),
-        signature: rp_fixture.signature,
+        // Replaced below: the EIP-712 signature covers the fully-populated request.
+        signature: Signature::new(U256::ZERO, U256::ZERO, false),
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
@@ -376,7 +377,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         session_id: SessionRef::Create,
         action: Some(rp_fixture.action.into()),
         nonce: create_nonce,
-        signature: rp_fixture.signature,
         ..proof_request.clone()
     };
     create_request.signature = rp_signer.sign_hash_sync(

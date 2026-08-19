@@ -17,7 +17,7 @@ use crate::{
     },
     metrics,
 };
-use alloy::primitives::Address;
+use alloy::primitives::{Address, B256};
 use ark_bn254::Bn254;
 use ark_groth16::PreparedVerifyingKey;
 use async_trait::async_trait;
@@ -32,7 +32,7 @@ use tracing::instrument;
 use world_id_primitives::{
     FieldElement, OprfPrefix, OprfPrefixedFieldElement as _, ProofType, RequestVersion,
     oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
-    rp::{RpRequestAuthorization, RpRequestSessionMode, session_seed_authorization},
+    rp::{RpRequestSessionMode, session_seed_authorization},
 };
 
 pub(crate) mod wip101;
@@ -62,8 +62,8 @@ pub(crate) enum RpModuleError {
 
     #[error("Invalid action for uniqueness (action MSB must be 0x00): {action}")]
     InvalidActionUniqueness { action: FieldElement },
-    #[error("Invalid RP signature verification data: {context}")]
-    InvalidRpSignatureVerification { context: &'static str },
+    #[error("Invalid RP request authorization: {context}")]
+    InvalidRpAuthorization { context: &'static str },
     #[error("Could not verify query proof")]
     InvalidQueryProof,
     #[error(transparent)]
@@ -115,9 +115,7 @@ impl From<&RpModuleError> for WorldIdRequestAuthError {
         match value {
             RpModuleError::InvalidActionSession { .. } => Self::InvalidActionSession,
             RpModuleError::InvalidActionUniqueness { .. } => Self::InvalidActionNullifier,
-            RpModuleError::InvalidRpSignatureVerification { .. } => {
-                Self::InvalidRpSignatureVerification
-            }
+            RpModuleError::InvalidRpAuthorization { .. } => Self::InvalidRpAuthorization,
             RpModuleError::InvalidQueryProof => Self::InvalidQueryProof,
             RpModuleError::MerkleWatcher(e) => Self::from(e.as_ref()),
             RpModuleError::RpRegistry(e) => Self::from(e.as_ref()),
@@ -148,7 +146,7 @@ impl fmt::Display for RpAccountType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RpAccountType::Eoa => write!(f, "eoa"),
-            RpAccountType::Contract => write!(f, "contract (WIP-101)"),
+            RpAccountType::Contract => write!(f, "contract"),
             RpAccountType::IncompatibleWip101 => write!(f, "incompatible wip101 contract"),
         }
     }
@@ -176,9 +174,12 @@ pub(crate) struct RpModuleAuth {
 }
 
 impl RelyingParty {
-    fn signature(
+    fn verify_eoa(
+        &self,
+        chain_id: u64,
+        rp_registry_address: Address,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
-    ) -> Result<alloy::primitives::Signature, RpModuleError> {
+    ) -> Result<(), RpModuleError> {
         let signature = request
             .auth
             .signature
@@ -186,18 +187,10 @@ impl RelyingParty {
         if request.auth.wip101_data.is_some() {
             return Err(RpModuleError::Wip101(wip101::Wip101Error::AuxDataOnEoa));
         }
-        Ok(signature)
-    }
-
-    fn verify_eoa(
-        &self,
-        authorization: &RpRequestAuthorization,
-        chain_id: u64,
-        rp_registry_address: Address,
-        request: &OprfRequest<NullifierOprfRequestAuthV1>,
-    ) -> Result<(), RpModuleError> {
-        let signature = Self::signature(request)?;
-        let digest = authorization.signing_hash(chain_id, rp_registry_address);
+        let digest = request
+            .auth
+            .rp_request_authorization
+            .signing_hash(chain_id, rp_registry_address);
 
         tracing::trace!("checking EIP-712 RP signature");
         let recovered = signature.recover_address_from_prehash(&digest)?;
@@ -305,23 +298,15 @@ impl RpModuleAuth {
     async fn ensure_signature_valid(
         &self,
         rp: &RelyingParty,
-        action: ark_babyjubjub::Fq,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
     ) -> Result<(), RpModuleError> {
         match rp.account_type {
             RpAccountType::Eoa => {
                 tracing::trace!("RP signer is EOA");
-                rp.verify_eoa(
-                    &request.auth.rp_request_authorization,
-                    self.chain_id,
-                    self.rp_registry_address,
-                    request,
-                )
+                rp.verify_eoa(self.chain_id, self.rp_registry_address, request)
             }
             RpAccountType::Contract => Ok(rp
                 .verify_wip101(
-                    action,
-                    &request.auth.rp_request_authorization,
                     &request.auth,
                     &self.rpc_provider,
                     self.timeout_external_eth_call,
@@ -338,7 +323,6 @@ impl RpModuleAuth {
 
     async fn verify_rp_signature(
         &self,
-        action: ark_babyjubjub::Fq,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
     ) -> Result<OprfKeyId, RpModuleError> {
         self.validate_timestamps(&request.auth)?;
@@ -348,12 +332,12 @@ impl RpModuleAuth {
         let rp = self.rp_registry_watcher.get_rp(request.auth.rp_id).await?;
 
         if request.auth.rp_request_authorization.oprf_key_id != rp.oprf_key_id {
-            return Err(RpModuleError::InvalidRpSignatureVerification {
+            return Err(RpModuleError::InvalidRpAuthorization {
                 context: "signed OPRF key does not match the RP registry",
             });
         }
 
-        self.ensure_signature_valid(&rp, action, request).await?;
+        self.ensure_signature_valid(&rp, request).await?;
 
         tracing::trace!("RP signature authentication successful");
         Ok(rp.oprf_key_id)
@@ -369,14 +353,10 @@ impl RpModuleAuth {
         Self::validate_authorization_transport(&request.auth)?;
 
         // Validate the action per kind and derive the nonce scope it consumes.
-        let nonce_scope = self.validate_action(
-            &request.auth.rp_request_authorization,
-            action,
-            &request.auth,
-        )?;
+        let nonce_scope = self.validate_action(action, &request.auth)?;
 
         let (verify_rp_signature_check, merkle_check) = tokio::join!(
-            self.verify_rp_signature(request.auth.action, request),
+            self.verify_rp_signature(request),
             self.merkle_watcher
                 .ensure_root_valid(FieldElement::from(request.auth.merkle_root))
         );
@@ -412,12 +392,12 @@ impl RpModuleAuth {
     ) -> Result<(), RpModuleError> {
         let authorization = &auth.rp_request_authorization;
         if authorization.request_version != RequestVersion::V1 {
-            return Err(RpModuleError::InvalidRpSignatureVerification {
+            return Err(RpModuleError::InvalidRpAuthorization {
                 context: "typed authorization must use request version 1",
             });
         }
-        if authorization.details_hash == alloy::primitives::B256::ZERO {
-            return Err(RpModuleError::InvalidRpSignatureVerification {
+        if authorization.details_hash == B256::ZERO {
+            return Err(RpModuleError::InvalidRpAuthorization {
                 context: "request-details commitment must be non-zero",
             });
         }
@@ -426,7 +406,7 @@ impl RpModuleAuth {
             || authorization.created_at != auth.created_at
             || authorization.expires_at != auth.expires_at
         {
-            return Err(RpModuleError::InvalidRpSignatureVerification {
+            return Err(RpModuleError::InvalidRpAuthorization {
                 context: "typed authorization does not match OPRF request metadata",
             });
         }
@@ -448,17 +428,17 @@ impl RpModuleAuth {
             )
         );
         if !valid_shape {
-            return Err(RpModuleError::InvalidRpSignatureVerification {
+            return Err(RpModuleError::InvalidRpAuthorization {
                 context: "invalid proof, session, and action combination",
             });
         }
 
         let has_existing_seed_authorization =
-            authorization.existing_session_seed_authorization != alloy::primitives::B256::ZERO;
+            authorization.existing_session_seed_authorization != B256::ZERO;
         if has_existing_seed_authorization
             != matches!(authorization.session_mode, RpRequestSessionMode::Existing)
         {
-            return Err(RpModuleError::InvalidRpSignatureVerification {
+            return Err(RpModuleError::InvalidRpAuthorization {
                 context: "existing-session seed authorization does not match session mode",
             });
         }
@@ -467,21 +447,21 @@ impl RpModuleAuth {
 
     fn validate_action(
         &self,
-        authorization: &RpRequestAuthorization,
         action: FieldElement,
         auth: &NullifierOprfRequestAuthV1,
     ) -> Result<NonceScope, RpModuleError> {
+        let authorization = &auth.rp_request_authorization;
         match self.kind {
             RpModuleKind::Uniqueness => {
                 metrics::auth_module::inc_nullifier();
-                if action.to_be_bytes()[0] != 0 {
+                if !action.has_prefix(OprfPrefix::Uniqueness) {
                     return Err(RpModuleError::InvalidActionUniqueness { action });
                 }
                 if authorization.proof_type != ProofType::Uniqueness
                     || authorization.action != Some(action)
                     || auth.session_seed_opening.is_some()
                 {
-                    return Err(RpModuleError::InvalidRpSignatureVerification {
+                    return Err(RpModuleError::InvalidRpAuthorization {
                         context: "authorization does not permit this uniqueness query",
                     });
                 }
@@ -507,7 +487,7 @@ impl RpModuleAuth {
                         _ => false,
                     };
                     if !permitted {
-                        return Err(RpModuleError::InvalidRpSignatureVerification {
+                        return Err(RpModuleError::InvalidRpAuthorization {
                             context: "authorization does not permit this session-seed query",
                         });
                     }
@@ -520,7 +500,7 @@ impl RpModuleAuth {
                         )
                         || auth.session_seed_opening.is_some()
                     {
-                        return Err(RpModuleError::InvalidRpSignatureVerification {
+                        return Err(RpModuleError::InvalidRpAuthorization {
                             context: "authorization does not permit this session-action query",
                         });
                     }

@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use alloy::primitives::{Address, Signature, U160, U256};
+use alloy::primitives::{Address, U160};
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::UniformRand;
@@ -142,14 +142,17 @@ pub struct RpFixture {
     pub nonce: Fq,
     pub current_timestamp: u64,
     pub expiration_timestamp: u64,
-    pub signature: Signature,
     pub rp_session_id_r_seed: FieldElement,
     pub signing_key: SigningKey,
     pub rp_secret: Fr,
     pub rp_nullifier_point: EdwardsAffine,
 }
 
-/// Generates RP identifiers, signatures, and ancillary inputs shared across tests.
+/// Generates RP identifiers, keys, and ancillary inputs shared across tests.
+///
+/// Request signatures are not part of the fixture: an EIP-712 RP signature depends on the
+/// concrete request and on the chain and RP registry it is bound to, so callers sign with
+/// [`RpFixture::signing_key`] once those are known.
 pub fn generate_rp_fixture() -> RpFixture {
     let mut rng = thread_rng();
     let rp_id_value: u64 = rng.r#gen();
@@ -168,9 +171,6 @@ pub fn generate_rp_fixture() -> RpFixture {
     let expiration_timestamp = current_timestamp + 300; // 5 minutes from now
 
     let signing_key = SigningKey::random(&mut rng);
-    // Request-specific EIP-712 signatures are produced after the request and RP registry address
-    // are known. Keep a well-formed placeholder for tests that only need fixture structure.
-    let signature = Signature::new(U256::ZERO, U256::ZERO, false);
 
     let rp_session_id_r_seed = FieldElement::from(Fq::rand(&mut rng));
 
@@ -185,7 +185,6 @@ pub fn generate_rp_fixture() -> RpFixture {
         nonce,
         current_timestamp,
         expiration_timestamp,
-        signature,
         rp_session_id_r_seed,
         signing_key,
         rp_secret,

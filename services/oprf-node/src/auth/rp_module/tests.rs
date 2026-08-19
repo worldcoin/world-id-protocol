@@ -4,7 +4,7 @@
 use std::{sync::Arc, time::Duration};
 
 use alloy::{
-    primitives::{Address, B256},
+    primitives::{Address, B256, Signature},
     providers::mock::Asserter,
     signers::{SignerSync as _, local::LocalSigner},
 };
@@ -61,6 +61,19 @@ impl RpModuleTestSetup {
         let bundle = infra
             .generate_query_proof(session_action, infra.setup.rp_fixture.world_rp_id.into())?;
 
+        let (authorization, signature) = signed_authorization(
+            &infra.setup,
+            infra.chain_id,
+            bundle.nonce,
+            *session_action,
+            AuthorizedOperation {
+                proof_type: ProofType::Session,
+                session_mode: RpRequestSessionMode::Create,
+                action: None,
+                session_seed_opening: None,
+            },
+        );
+
         let auth = NullifierOprfRequestAuthV1 {
             proof: bundle.proof,
             action: *session_action,
@@ -68,14 +81,14 @@ impl RpModuleTestSetup {
             merkle_root: *infra.setup.merkle_inclusion_proof.root,
             created_at: infra.setup.rp_fixture.current_timestamp,
             expires_at: infra.setup.rp_fixture.expiration_timestamp,
-            signature: Some(infra.setup.rp_fixture.signature),
+            signature: Some(signature),
             rp_id: infra.setup.rp_fixture.world_rp_id,
             wip101_data: None,
-            rp_request_authorization: placeholder_authorization(&infra),
+            rp_request_authorization: authorization,
             session_seed_opening: None,
         };
 
-        let mut setup = Self {
+        Ok(Self {
             setup: infra.setup,
             request_authenticator,
             chain_id: infra.chain_id,
@@ -84,9 +97,7 @@ impl RpModuleTestSetup {
                 blinded_query: bundle.blinded_query,
                 auth,
             },
-        };
-        setup.authorize(ProofType::Session, RpRequestSessionMode::Create, None, None);
-        Ok(setup)
+        })
     }
 
     /// Constructs a valid create-and-bind session-seed test setup.
@@ -101,6 +112,19 @@ impl RpModuleTestSetup {
         let bundle = infra
             .generate_query_proof(session_action, infra.setup.rp_fixture.world_rp_id.into())?;
 
+        let (authorization, signature) = signed_authorization(
+            &infra.setup,
+            infra.chain_id,
+            bundle.nonce,
+            *session_action,
+            AuthorizedOperation {
+                proof_type: ProofType::Uniqueness,
+                session_mode: RpRequestSessionMode::Create,
+                action: Some(infra.setup.rp_fixture.action.into()),
+                session_seed_opening: None,
+            },
+        );
+
         let auth = NullifierOprfRequestAuthV1 {
             proof: bundle.proof,
             action: *session_action,
@@ -108,14 +132,14 @@ impl RpModuleTestSetup {
             merkle_root: *infra.setup.merkle_inclusion_proof.root,
             created_at: infra.setup.rp_fixture.current_timestamp,
             expires_at: infra.setup.rp_fixture.expiration_timestamp,
-            signature: Some(infra.setup.rp_fixture.signature),
+            signature: Some(signature),
             rp_id: infra.setup.rp_fixture.world_rp_id,
             wip101_data: None,
-            rp_request_authorization: placeholder_authorization(&infra),
+            rp_request_authorization: authorization,
             session_seed_opening: None,
         };
 
-        let mut setup = Self {
+        Ok(Self {
             setup: infra.setup,
             request_authenticator,
             chain_id: infra.chain_id,
@@ -124,26 +148,32 @@ impl RpModuleTestSetup {
                 blinded_query: bundle.blinded_query,
                 auth,
             },
-        };
-        setup.authorize(
-            ProofType::Uniqueness,
-            RpRequestSessionMode::Create,
-            Some(setup.setup.rp_fixture.action.into()),
-            None,
-        );
-        Ok(setup)
+        })
     }
 
     async fn new_uniqueness() -> eyre::Result<Self> {
         let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
         let request_authenticator = RpModuleAuth::new_uniqueness(infra.rp_module_args());
 
-        // Uniqueness uses the fixture's pre-generated action (guaranteed 0x00 MSB)
-        // and a signature that includes the action
+        // Uniqueness uses the fixture's pre-generated action (guaranteed 0x00 MSB),
+        // which is also the exact action the authorization commits to.
         let bundle = infra.generate_query_proof(
             infra.setup.rp_fixture.action.into(),
             infra.setup.rp_fixture.world_rp_id.into(),
         )?;
+
+        let (authorization, signature) = signed_authorization(
+            &infra.setup,
+            infra.chain_id,
+            bundle.nonce,
+            infra.setup.rp_fixture.action,
+            AuthorizedOperation {
+                proof_type: ProofType::Uniqueness,
+                session_mode: RpRequestSessionMode::None,
+                action: Some(infra.setup.rp_fixture.action.into()),
+                session_seed_opening: None,
+            },
+        );
 
         let auth = NullifierOprfRequestAuthV1 {
             proof: bundle.proof,
@@ -152,14 +182,14 @@ impl RpModuleTestSetup {
             merkle_root: *infra.setup.merkle_inclusion_proof.root,
             created_at: infra.setup.rp_fixture.current_timestamp,
             expires_at: infra.setup.rp_fixture.expiration_timestamp,
-            signature: Some(infra.setup.rp_fixture.signature),
+            signature: Some(signature),
             rp_id: infra.setup.rp_fixture.world_rp_id,
             wip101_data: None,
-            rp_request_authorization: placeholder_authorization(&infra),
+            rp_request_authorization: authorization,
             session_seed_opening: None,
         };
 
-        let mut setup = Self {
+        Ok(Self {
             setup: infra.setup,
             request_authenticator,
             chain_id: infra.chain_id,
@@ -168,14 +198,7 @@ impl RpModuleTestSetup {
                 blinded_query: bundle.blinded_query,
                 auth,
             },
-        };
-        setup.authorize(
-            ProofType::Uniqueness,
-            RpRequestSessionMode::None,
-            Some(setup.request.auth.action.into()),
-            None,
-        );
-        Ok(setup)
+        })
     }
 
     /// Authenticates the request and asserts it succeeds with the fixture's OPRF key id.
@@ -201,6 +224,7 @@ impl RpModuleTestSetup {
         Ok(())
     }
 
+    /// Re-signs the request for a different authorized operation.
     fn authorize(
         &mut self,
         proof_type: ProofType,
@@ -208,27 +232,18 @@ impl RpModuleTestSetup {
         action: Option<FieldElement>,
         session_seed_opening: Option<B256>,
     ) {
-        let existing_session_seed_authorization = session_seed_opening
-            .map_or(B256::ZERO, |opening| {
-                session_seed_authorization(opening, self.request.auth.action.into())
-            });
-        let authorization = RpRequestAuthorization {
-            request_version: RequestVersion::V1,
-            rp_id: self.request.auth.rp_id,
-            oprf_key_id: self.setup.rp_fixture.oprf_key_id,
-            nonce: self.request.auth.nonce.into(),
-            created_at: self.request.auth.created_at,
-            expires_at: self.request.auth.expires_at,
-            proof_type,
-            session_mode,
-            action,
-            existing_session_seed_authorization,
-            details_hash: B256::repeat_byte(0x42),
-        };
-        let signer = LocalSigner::from_signing_key(self.setup.rp_fixture.signing_key.clone());
-        let signature = signer
-            .sign_hash_sync(&authorization.signing_hash(self.chain_id, self.setup.rp_registry))
-            .expect("can sign authorization");
+        let (authorization, signature) = signed_authorization(
+            &self.setup,
+            self.chain_id,
+            self.request.auth.nonce,
+            self.request.auth.action,
+            AuthorizedOperation {
+                proof_type,
+                session_mode,
+                action,
+                session_seed_opening,
+            },
+        );
 
         self.request.auth.signature = Some(signature);
         self.request.auth.rp_request_authorization = authorization;
@@ -236,20 +251,46 @@ impl RpModuleTestSetup {
     }
 }
 
-fn placeholder_authorization(infra: &AuthModulesTestSetup) -> RpRequestAuthorization {
-    RpRequestAuthorization {
+/// The operation an RP authorization permits.
+#[derive(Clone, Copy)]
+struct AuthorizedOperation {
+    proof_type: ProofType,
+    session_mode: RpRequestSessionMode,
+    action: Option<FieldElement>,
+    session_seed_opening: Option<B256>,
+}
+
+/// Builds the RP authorization for `oprf_action` and signs it with the fixture's RP key.
+fn signed_authorization(
+    setup: &OprfRequestAuthTestSetup,
+    chain_id: u64,
+    nonce: ark_babyjubjub::Fq,
+    oprf_action: ark_babyjubjub::Fq,
+    operation: AuthorizedOperation,
+) -> (RpRequestAuthorization, Signature) {
+    let existing_session_seed_authorization = operation
+        .session_seed_opening
+        .map_or(B256::ZERO, |opening| {
+            session_seed_authorization(opening, oprf_action.into())
+        });
+    let authorization = RpRequestAuthorization {
         request_version: RequestVersion::V1,
-        rp_id: infra.setup.rp_fixture.world_rp_id,
-        oprf_key_id: infra.setup.rp_fixture.oprf_key_id,
-        nonce: infra.setup.rp_fixture.nonce.into(),
-        created_at: infra.setup.rp_fixture.current_timestamp,
-        expires_at: infra.setup.rp_fixture.expiration_timestamp,
-        proof_type: ProofType::Uniqueness,
-        session_mode: RpRequestSessionMode::None,
-        action: Some(infra.setup.rp_fixture.action.into()),
-        existing_session_seed_authorization: B256::ZERO,
+        rp_id: setup.rp_fixture.world_rp_id,
+        oprf_key_id: setup.rp_fixture.oprf_key_id,
+        nonce: nonce.into(),
+        created_at: setup.rp_fixture.current_timestamp,
+        expires_at: setup.rp_fixture.expiration_timestamp,
+        proof_type: operation.proof_type,
+        session_mode: operation.session_mode,
+        action: operation.action,
+        existing_session_seed_authorization,
         details_hash: B256::repeat_byte(0x42),
-    }
+    };
+    let signer = LocalSigner::from_signing_key(setup.rp_fixture.signing_key.clone());
+    let signature = signer
+        .sign_hash_sync(&authorization.signing_hash(chain_id, setup.rp_registry))
+        .expect("can sign authorization");
+    (authorization, signature)
 }
 
 // ── Local test helpers ───────────────────────────────────────────────────
@@ -561,8 +602,8 @@ async fn test_uniqueness_requires_exact_signed_action() -> eyre::Result<()> {
     );
     setup
         .assert_auth_err(
-            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
-            "Invalid RP signature verification data",
+            error_codes::INVALID_RP_AUTHORIZATION,
+            "Invalid RP request authorization",
         )
         .await
 }
@@ -578,8 +619,8 @@ async fn test_uniqueness_without_session_cannot_derive_seed() -> eyre::Result<()
     );
     setup
         .assert_auth_err(
-            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
-            "Invalid RP signature verification data",
+            error_codes::INVALID_RP_AUTHORIZATION,
+            "Invalid RP request authorization",
         )
         .await
 }
@@ -608,8 +649,8 @@ async fn test_existing_session_requires_exact_seed_opening() -> eyre::Result<()>
     setup.request.auth.session_seed_opening = Some(B256::repeat_byte(0x25));
     setup
         .assert_auth_err(
-            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
-            "Invalid RP signature verification data",
+            error_codes::INVALID_RP_AUTHORIZATION,
+            "Invalid RP request authorization",
         )
         .await
 }
@@ -696,7 +737,7 @@ async fn test_dispatch_contract_signer_verifies_wip101() {
     let request = dispatch_request();
     let rp = wip101::tests::relying_party(RpAccountType::Contract);
     authenticator
-        .ensure_signature_valid(&rp, request.auth.action, &request)
+        .ensure_signature_valid(&rp, &request)
         .await
         .expect("contract RP with valid WIP101 response should pass");
 }
@@ -707,7 +748,7 @@ async fn test_dispatch_incompatible_wip101_signer() {
     let request = dispatch_request();
     let rp = wip101::tests::relying_party(RpAccountType::IncompatibleWip101);
     let error = authenticator
-        .ensure_signature_valid(&rp, request.auth.action, &request)
+        .ensure_signature_valid(&rp, &request)
         .await
         .expect_err("incompatible WIP101 signer must fail");
     assert!(matches!(

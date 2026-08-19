@@ -12,7 +12,7 @@ use tracing::instrument;
 use world_id_primitives::{
     FieldElement,
     oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
-    rp::{IWIP101, RpRequestAuthorization},
+    rp::IWIP101,
 };
 
 use crate::auth::rp_module::{RelyingParty, RpAccountType};
@@ -65,8 +65,6 @@ const MAX_AUX_DATA_SIZE: usize = 1024;
 impl RelyingParty {
     pub(crate) async fn verify_wip101(
         &self,
-        oprf_action: ark_babyjubjub::Fq,
-        authorization: &RpRequestAuthorization,
         auth: &NullifierOprfRequestAuthV1,
         rpc_provider: &web3::HttpRpcProvider,
         timeout: Duration,
@@ -75,8 +73,8 @@ impl RelyingParty {
         // The intent is the signed authorization payload itself, so a contract-backed RP cannot be
         // handed a different request than an EOA-backed RP signs.
         let call = IWIP101::verifyRpRequestCall {
-            intent: authorization.typed_data(),
-            oprfAction: FieldElement::from(oprf_action).into(),
+            intent: auth.rp_request_authorization.typed_data(),
+            oprfAction: FieldElement::from(auth.action).into(),
             data: auxiliary_data(auth)?,
         };
         let request = TransactionRequest::default()
@@ -109,10 +107,12 @@ impl RelyingParty {
                     err.as_decoded_error::<IWIP101::RpInvalidRequest>()
                 {
                     Err(Wip101Error::VerificationFailed(Some(code)))
-                } else if let Some(data) = err.as_revert_data() {
-                    if data.is_empty() {
+                } else if let Some(x) = err.as_revert_data() {
+                    if x.is_empty() {
+                        // empty revert reason - most likely this contract reported it supports WIP101 without actually supporting it
                         Err(Wip101Error::IncompatibleRpSigner)
                     } else {
+                        // most likely we got some specific revert reason that was not the agreed RpInvalidRequest
                         Err(Wip101Error::CustomRevert)
                     }
                 } else {
@@ -144,13 +144,13 @@ pub(crate) async fn account_check(
     rpc_provider: &web3::HttpRpcProvider,
 ) -> eyre::Result<RpAccountType> {
     tracing::trace!("performing wip101 check on {signer}");
-    let interface_check = rpc_provider
+    let erc165_check = rpc_provider
         .erc165_supports_interface(signer, [IWIP101::verifyRpRequestCall::SELECTOR])
         .await;
-    match interface_check {
+    match erc165_check {
         Ok(()) => Ok(RpAccountType::Contract),
-        Err(ERC165ConfirmError::Unsupported) => Ok(RpAccountType::IncompatibleWip101),
         Err(ERC165ConfirmError::NotAContract) => Ok(RpAccountType::Eoa),
-        Err(err) => Err(eyre::Report::from(err)),
+        Err(ERC165ConfirmError::Unsupported) => Ok(RpAccountType::IncompatibleWip101),
+        Err(err) => eyre::bail!(err),
     }
 }

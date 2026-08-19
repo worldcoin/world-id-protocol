@@ -63,7 +63,7 @@ Any other combination is invalid. In particular, an ordinary uniqueness request 
 
 ```solidity
 struct RpRequestDetails {
-    bytes32 privacySalt;
+    bytes32 requestSalt;
     string requestId;
     bytes32 sessionRefHash;
     bytes32 requestItemsHash;

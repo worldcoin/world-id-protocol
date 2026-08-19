@@ -59,7 +59,7 @@ mod sol_types {
         }
 
         struct RpRequestDetails {
-            bytes32 privacySalt;
+            bytes32 requestSalt;
             string requestId;
             bytes32 sessionRefHash;
             bytes32 requestItemsHash;
@@ -333,7 +333,7 @@ impl ProofRequest {
         let constraints_hash = constraint_root_hash(self.constraints.as_ref());
 
         sol_types::RpRequestDetails {
-            privacySalt: self.request_salt,
+            requestSalt: self.request_salt,
             requestId: self.id.clone(),
             sessionRefHash: session_ref_hash,
             requestItemsHash: request_items_hash,
@@ -468,7 +468,7 @@ mod tests {
     };
     use std::borrow::Cow;
 
-    use crate::{ConstraintExpr, ConstraintNode, RequestItem, SessionId};
+    use crate::{RequestItem, SessionId};
 
     fn test_request() -> ProofRequest {
         ProofRequest {
@@ -580,11 +580,11 @@ mod tests {
 
         assert_eq!(
             hex::encode(digest),
-            "ca749586327d7fe36d165c63e886d01c5d57723e89e4c146f0dc0e342dcd8e92"
+            "f83c20ca6987f5b2dc6876ba0b309c181652c3a758dd3d7e07f8b334ee8b0612"
         );
         assert_eq!(
             signature.to_string(),
-            "0x24319295fcaebf1d02ac63e392cbc6f05428e59e85e6ccf1879374cfbb07f17b3f87daf15ad02f857d4c84a0ad4b9eaf36337a2970ab62f5e2ae635b17e91a101c"
+            "0x6bccdab1b85a52888f071ee29a2cac923f544ce10059ec8e5346d146fd41f38e7567839695cea14dd9bc87b1d09af1f65c9ea251c84d355b0ce8f55b28a61b2f1b"
         );
         assert_eq!(
             signature.recover_address_from_prehash(&digest).unwrap(),

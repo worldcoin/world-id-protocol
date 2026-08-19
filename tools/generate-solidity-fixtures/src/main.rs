@@ -18,7 +18,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::{B256, U160, U256},
+    primitives::{B256, Signature, U160, U256},
     signers::{SignerSync as _, local::LocalSigner},
 };
 use eyre::{Context as _, Result, eyre};
@@ -272,7 +272,8 @@ async fn main() -> Result<()> {
         oprf_key_id: rp_fixture.oprf_key_id,
         session_id: SessionRef::None,
         action: Some(rp_fixture.action.into()),
-        signature: rp_fixture.signature,
+        // Replaced below: the EIP-712 signature covers the fully-populated request.
+        signature: Signature::new(U256::ZERO, U256::ZERO, false),
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
@@ -347,7 +348,6 @@ async fn main() -> Result<()> {
         session_id: SessionRef::Create,
         action: Some(rp_fixture.action.into()),
         nonce: create_nonce,
-        signature: rp_fixture.signature,
         ..uniqueness_request.clone()
     };
     bound_create_request.signature = rp_signer.sign_hash_sync(
@@ -415,7 +415,6 @@ async fn main() -> Result<()> {
         session_id: SessionRef::Existing(session_id),
         action: None,
         nonce: session_nonce,
-        signature: rp_fixture.signature,
         ..uniqueness_request.clone()
     };
     session_request.signature = rp_signer.sign_hash_sync(
