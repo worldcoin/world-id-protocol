@@ -1,11 +1,14 @@
 use crate::serde_utils;
-use alloy_primitives::U256;
+use alloy_primitives::{B256, U256};
 use ark_bn254::Bn254;
 use circom_types::groth16::Proof;
 use serde::{Deserialize, Serialize};
 use taceo_oprf::types::api::{CloseFrameMessage, OprfRequestAuthenticatorError};
 
-use crate::{FieldElement, rp::RpId};
+use crate::{
+    FieldElement,
+    rp::{RpId, RpRequestAuthorization},
+};
 
 /// The most significant byte (MSB) of an OPRF input field element, which separates
 /// the domains in which the input may be used.
@@ -72,20 +75,6 @@ pub enum OprfModule {
     Session,
 }
 
-/// Additional data needed to reconstruct the message covered by an RP signature.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RpSignatureVerification {
-    /// A uniqueness action covered by the RP signature.
-    ///
-    /// This is used on create-and-bind session-seed queries, whose OPRF action is the
-    /// session seed rather than the uniqueness action included in the signed message.
-    UniquenessAction {
-        /// The RP-signed uniqueness action (MSB `0x00`).
-        action: FieldElement,
-    },
-}
-
 impl std::fmt::Display for OprfModule {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -116,7 +105,8 @@ pub struct NullifierOprfRequestAuthV1 {
     /// Expiration timestamp of the request (unix secs)
     #[serde(alias = "expiration_timestamp")]
     pub expires_at: u64,
-    /// The RP's signature on the request, see `compute_rp_signature_msg` for details.
+    /// The RP's signature on the EIP-712 authorization represented by
+    /// [`NullifierOprfRequestAuthV1::rp_request_authorization`].
     ///
     /// Can be `None` if the RP is a WIP101 conform contract.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -134,12 +124,14 @@ pub struct NullifierOprfRequestAuthV1 {
         with = "serde_utils::hex_bytes_opt"
     )]
     pub wip101_data: Option<Vec<u8>>,
-    /// Additional data needed to reconstruct the RP-signed message.
+    /// Typed RP authorization.
+    pub rp_request_authorization: RpRequestAuthorization,
+    /// Selective-disclosure opening for rederiving an existing session seed.
     ///
-    /// Currently only valid on create-and-bind session-seed queries (see
-    /// [`OprfPrefix::SessionOprfSeed`]) from EOA-backed RPs.
+    /// This is present only on an existing-session seed query. The signed authorization commits
+    /// to the opening and exact seed without exposing either on ordinary session-action queries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rp_signature_verification: Option<RpSignatureVerification>,
+    pub session_seed_opening: Option<B256>,
 }
 
 /// A request sent by a client for OPRF credential blinding factor authentication.
@@ -239,12 +231,12 @@ pub enum WorldIdRequestAuthError {
     /// prefixes.
     #[error("invalid_action_for_session")]
     InvalidActionSession,
-    /// The provided RP signature verification data is invalid or not allowed on this query.
+    /// The typed RP authorization is malformed, inconsistent with the OPRF request metadata,
+    /// or does not permit the requested OPRF operation.
     ///
-    /// Verification data is only valid on create-and-bind session-seed queries from
-    /// EOA-backed RPs and must carry a uniqueness action (MSB `0x00`).
-    #[error("invalid_rp_signature_verification")]
-    InvalidRpSignatureVerification,
+    /// See [`RpRequestAuthorization`] for the authorized operation matrix.
+    #[error("invalid_rp_authorization")]
+    InvalidRpAuthorization,
     /// The RP signer is a contract but does not implement the WIP101 interface.
     #[error("wip101_incompatible_rp_signer")]
     Wip101IncompatibleRpSigner,
@@ -320,7 +312,7 @@ impl WorldIdRequestAuthError {
             | Self::InvalidQueryProof
             | Self::InvalidActionSchemaIssuer
             | Self::InvalidActionSession
-            | Self::InvalidRpSignatureVerification
+            | Self::InvalidRpAuthorization
             | Self::RpSignatureMissing => ErrorActor::Authenticator,
             Self::Internal | Self::Unknown(_) => ErrorActor::OprfNode,
         }
@@ -341,7 +333,7 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::UNKNOWN_SCHEMA_ISSUER => Self::UnknownSchemaIssuerId,
             error_codes::INVALID_ACTION_NULLIFIER => Self::InvalidActionNullifier,
             error_codes::INVALID_ACTION_SESSION => Self::InvalidActionSession,
-            error_codes::INVALID_RP_SIGNATURE_VERIFICATION => Self::InvalidRpSignatureVerification,
+            error_codes::INVALID_RP_AUTHORIZATION => Self::InvalidRpAuthorization,
             error_codes::RP_SIGNATURE_EXPIRED => Self::RpSignatureExpired,
             error_codes::RP_SIGNATURE_MISSING => Self::RpSignatureMissing,
             error_codes::INVALID_TIMESTAMP => Self::InvalidTimestamp,
@@ -382,8 +374,8 @@ impl From<WorldIdRequestAuthError> for u16 {
                 error_codes::INVALID_ACTION_NULLIFIER
             }
             WorldIdRequestAuthError::InvalidActionSession => error_codes::INVALID_ACTION_SESSION,
-            WorldIdRequestAuthError::InvalidRpSignatureVerification => {
-                error_codes::INVALID_RP_SIGNATURE_VERIFICATION
+            WorldIdRequestAuthError::InvalidRpAuthorization => {
+                error_codes::INVALID_RP_AUTHORIZATION
             }
             WorldIdRequestAuthError::RpSignatureExpired => error_codes::RP_SIGNATURE_EXPIRED,
             WorldIdRequestAuthError::CreatedAtTooFarInFuture => {
@@ -460,8 +452,8 @@ pub mod error_codes {
     pub const WIP101_ACCOUNT_CHECK_TIMEOUT: u16 = 4521;
     /// Error code for [`super::WorldIdRequestAuthError::ExpiresAtTooFarInFuture`].
     pub const EXPIRES_AT_TOO_FAR_IN_FUTURE: u16 = 4523;
-    /// Error code for [`super::WorldIdRequestAuthError::InvalidRpSignatureVerification`].
-    pub const INVALID_RP_SIGNATURE_VERIFICATION: u16 = 4524;
+    /// Error code for [`super::WorldIdRequestAuthError::InvalidRpAuthorization`].
+    pub const INVALID_RP_AUTHORIZATION: u16 = 4524;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
     pub const INTERNAL: u16 = 1011;
 }
@@ -541,8 +533,8 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
                 // this should never truncate as code is a U256 encoded as hex
                 CloseFrameMessage::new_truncate(format!("{:#x}", code))
             }
-            WorldIdRequestAuthError::InvalidRpSignatureVerification => {
-                taceo_oprf::types::close_frame_message!("Invalid RP signature verification data")
+            WorldIdRequestAuthError::InvalidRpAuthorization => {
+                taceo_oprf::types::close_frame_message!("Invalid RP request authorization")
             }
             WorldIdRequestAuthError::Wip101AuxDataOnEoa => taceo_oprf::types::close_frame_message!(
                 "Auxiliary data must be empty with EOA backed signer"
@@ -571,6 +563,7 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ProofType, RequestVersion, rp::RpRequestSessionMode};
 
     const ALL_PREFIXES: [OprfPrefix; 3] = [
         OprfPrefix::Uniqueness,
@@ -612,9 +605,7 @@ mod tests {
         .expect("valid test proof")
     }
 
-    fn test_auth(
-        rp_signature_verification: Option<RpSignatureVerification>,
-    ) -> NullifierOprfRequestAuthV1 {
+    fn test_auth() -> NullifierOprfRequestAuthV1 {
         NullifierOprfRequestAuthV1 {
             proof: test_proof(),
             action: ark_babyjubjub::Fq::from(1u64),
@@ -625,31 +616,45 @@ mod tests {
             signature: None,
             rp_id: RpId::new(6),
             wip101_data: None,
-            rp_signature_verification,
+            rp_request_authorization: RpRequestAuthorization {
+                request_version: RequestVersion::V1,
+                rp_id: RpId::new(6),
+                oprf_key_id: taceo_oprf::types::OprfKeyId::new(ruint::uint!(7_U160)),
+                nonce: FieldElement::from(2_u64),
+                created_at: 4,
+                expires_at: 5,
+                proof_type: ProofType::Session,
+                session_mode: RpRequestSessionMode::Existing,
+                action: None,
+                existing_session_seed_authorization: B256::repeat_byte(0x42),
+                details_hash: B256::repeat_byte(0x43),
+            },
+            session_seed_opening: None,
         }
     }
 
     #[test]
-    fn nullifier_auth_rp_signature_verification_json_roundtrip() {
-        let verification = RpSignatureVerification::UniquenessAction {
-            action: FieldElement::from(42u64),
-        };
-        let auth = test_auth(Some(verification));
+    fn nullifier_auth_json_and_cbor_roundtrip() {
+        let opening = B256::repeat_byte(0x44);
+        let mut auth = test_auth();
+        auth.session_seed_opening = Some(opening);
+
         let json = serde_json::to_string(&auth).unwrap();
         let parsed: NullifierOprfRequestAuthV1 = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.rp_signature_verification, Some(verification));
-    }
+        assert_eq!(
+            parsed.rp_request_authorization,
+            auth.rp_request_authorization
+        );
+        assert_eq!(parsed.session_seed_opening, Some(opening));
 
-    #[test]
-    fn nullifier_auth_rp_signature_verification_cbor_roundtrip() {
-        let verification = RpSignatureVerification::UniquenessAction {
-            action: FieldElement::from(42u64),
-        };
-        let auth = test_auth(Some(verification));
         let mut bytes = Vec::new();
         ciborium::into_writer(&auth, &mut bytes).unwrap();
         let parsed: NullifierOprfRequestAuthV1 = ciborium::from_reader(bytes.as_slice()).unwrap();
-        assert_eq!(parsed.rp_signature_verification, Some(verification));
+        assert_eq!(
+            parsed.rp_request_authorization,
+            auth.rp_request_authorization
+        );
+        assert_eq!(parsed.session_seed_opening, Some(opening));
     }
 
     #[test]
@@ -666,7 +671,7 @@ mod tests {
             error_codes::UNKNOWN_SCHEMA_ISSUER,
             error_codes::INVALID_ACTION_NULLIFIER,
             error_codes::INVALID_ACTION_SESSION,
-            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
+            error_codes::INVALID_RP_AUTHORIZATION,
             error_codes::INACTIVE_RP,
             error_codes::RP_SIGNATURE_EXPIRED,
             error_codes::INVALID_TIMESTAMP,

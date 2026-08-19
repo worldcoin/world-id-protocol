@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Export `rp::IWIP101`, declared from the same `sol!` as the signed `RpRequest` payload, so a WIP-101
+  contract's `intent` argument cannot drift from the EIP-712 struct an EOA-backed RP signs.
+
+### Breaking Changes
+
+- Replace RP request signatures with EIP-712 authorization that binds the complete semantic request.
+- Require a non-zero `request_salt` on `ProofRequest` to hide private request details committed to OPRF nodes.
+- Rename `WorldIdRequestAuthError::InvalidRpSignatureVerification` to `InvalidRpAuthorization` and
+  `error_codes::INVALID_RP_SIGNATURE_VERIFICATION` to `INVALID_RP_AUTHORIZATION`, following the removal
+  of the `RpSignatureVerification` type. The numeric code (`4524`) is unchanged.
+
 ## [0.13.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.12.0...world-id-primitives-v0.13.0) - 2026-07-08
 
 ### Added

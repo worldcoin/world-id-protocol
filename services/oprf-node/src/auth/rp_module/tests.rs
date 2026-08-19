@@ -4,7 +4,7 @@
 use std::{sync::Arc, time::Duration};
 
 use alloy::{
-    primitives::Address,
+    primitives::{Address, B256, Signature},
     providers::mock::Asserter,
     signers::{SignerSync as _, local::LocalSigner},
 };
@@ -14,9 +14,9 @@ use circom_types::groth16::VerificationKey;
 use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
 use uuid::Uuid;
 use world_id_primitives::{
-    FieldElement, OprfPrefix, OprfPrefixedFieldElement as _,
-    oprf::{NullifierOprfRequestAuthV1, RpSignatureVerification, error_codes},
-    rp::RpId,
+    FieldElement, OprfPrefix, OprfPrefixedFieldElement as _, ProofType, RequestVersion,
+    oprf::{NullifierOprfRequestAuthV1, error_codes},
+    rp::{RpId, RpRequestAuthorization, RpRequestSessionMode, session_seed_authorization},
 };
 
 use crate::{
@@ -38,6 +38,8 @@ pub(crate) struct RpModuleTestSetup {
     pub(crate) setup: OprfRequestAuthTestSetup,
     pub(crate) request_authenticator: RpModuleAuth,
     pub(crate) request: OprfRequest<NullifierOprfRequestAuthV1>,
+    /// Chain the authenticator under test is bound to for EIP-712 signing.
+    pub(crate) chain_id: u64,
 }
 
 impl RpModuleTestSetup {
@@ -59,15 +61,18 @@ impl RpModuleTestSetup {
         let bundle = infra
             .generate_query_proof(session_action, infra.setup.rp_fixture.world_rp_id.into())?;
 
-        // Session RP signature does NOT include the action therefore we cannot use the rp_fixture
-        let rp_signer = LocalSigner::from_signing_key(infra.setup.rp_fixture.signing_key.clone());
-        let msg = world_id_primitives::rp::compute_rp_signature_msg(
-            infra.setup.rp_fixture.nonce,
-            infra.setup.rp_fixture.current_timestamp,
-            infra.setup.rp_fixture.expiration_timestamp,
-            None,
+        let (authorization, signature) = signed_authorization(
+            &infra.setup,
+            infra.chain_id,
+            bundle.nonce,
+            *session_action,
+            AuthorizedOperation {
+                proof_type: ProofType::Session,
+                session_mode: RpRequestSessionMode::Create,
+                action: None,
+                session_seed_opening: None,
+            },
         );
-        let signature = rp_signer.sign_message_sync(&msg).expect("can sign");
 
         let auth = NullifierOprfRequestAuthV1 {
             proof: bundle.proof,
@@ -79,12 +84,14 @@ impl RpModuleTestSetup {
             signature: Some(signature),
             rp_id: infra.setup.rp_fixture.world_rp_id,
             wip101_data: None,
-            rp_signature_verification: None,
+            rp_request_authorization: authorization,
+            session_seed_opening: None,
         };
 
         Ok(Self {
             setup: infra.setup,
             request_authenticator,
+            chain_id: infra.chain_id,
             request: OprfRequest {
                 request_id: Uuid::new_v4(),
                 blinded_query: bundle.blinded_query,
@@ -93,9 +100,7 @@ impl RpModuleTestSetup {
         })
     }
 
-    /// Constructs a valid session-seed test setup whose RP signature covers the
-    /// fixture's uniqueness action, carried as RP signature verification data
-    /// (create-and-bind).
+    /// Constructs a valid create-and-bind session-seed test setup.
     pub(crate) async fn new_bound_session_seed() -> eyre::Result<Self> {
         let mut rng = rand::thread_rng();
         let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
@@ -107,8 +112,19 @@ impl RpModuleTestSetup {
         let bundle = infra
             .generate_query_proof(session_action, infra.setup.rp_fixture.world_rp_id.into())?;
 
-        // The fixture signature is computed over the action-inclusive message, matching
-        // the verification data below.
+        let (authorization, signature) = signed_authorization(
+            &infra.setup,
+            infra.chain_id,
+            bundle.nonce,
+            *session_action,
+            AuthorizedOperation {
+                proof_type: ProofType::Uniqueness,
+                session_mode: RpRequestSessionMode::Create,
+                action: Some(infra.setup.rp_fixture.action.into()),
+                session_seed_opening: None,
+            },
+        );
+
         let auth = NullifierOprfRequestAuthV1 {
             proof: bundle.proof,
             action: *session_action,
@@ -116,17 +132,17 @@ impl RpModuleTestSetup {
             merkle_root: *infra.setup.merkle_inclusion_proof.root,
             created_at: infra.setup.rp_fixture.current_timestamp,
             expires_at: infra.setup.rp_fixture.expiration_timestamp,
-            signature: Some(infra.setup.rp_fixture.signature),
+            signature: Some(signature),
             rp_id: infra.setup.rp_fixture.world_rp_id,
             wip101_data: None,
-            rp_signature_verification: Some(RpSignatureVerification::UniquenessAction {
-                action: infra.setup.rp_fixture.action.into(),
-            }),
+            rp_request_authorization: authorization,
+            session_seed_opening: None,
         };
 
         Ok(Self {
             setup: infra.setup,
             request_authenticator,
+            chain_id: infra.chain_id,
             request: OprfRequest {
                 request_id: Uuid::new_v4(),
                 blinded_query: bundle.blinded_query,
@@ -139,12 +155,25 @@ impl RpModuleTestSetup {
         let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
         let request_authenticator = RpModuleAuth::new_uniqueness(infra.rp_module_args());
 
-        // Uniqueness uses the fixture's pre-generated action (guaranteed 0x00 MSB)
-        // and a signature that includes the action
+        // Uniqueness uses the fixture's pre-generated action (guaranteed 0x00 MSB),
+        // which is also the exact action the authorization commits to.
         let bundle = infra.generate_query_proof(
             infra.setup.rp_fixture.action.into(),
             infra.setup.rp_fixture.world_rp_id.into(),
         )?;
+
+        let (authorization, signature) = signed_authorization(
+            &infra.setup,
+            infra.chain_id,
+            bundle.nonce,
+            infra.setup.rp_fixture.action,
+            AuthorizedOperation {
+                proof_type: ProofType::Uniqueness,
+                session_mode: RpRequestSessionMode::None,
+                action: Some(infra.setup.rp_fixture.action.into()),
+                session_seed_opening: None,
+            },
+        );
 
         let auth = NullifierOprfRequestAuthV1 {
             proof: bundle.proof,
@@ -153,15 +182,17 @@ impl RpModuleTestSetup {
             merkle_root: *infra.setup.merkle_inclusion_proof.root,
             created_at: infra.setup.rp_fixture.current_timestamp,
             expires_at: infra.setup.rp_fixture.expiration_timestamp,
-            signature: Some(infra.setup.rp_fixture.signature),
+            signature: Some(signature),
             rp_id: infra.setup.rp_fixture.world_rp_id,
             wip101_data: None,
-            rp_signature_verification: None,
+            rp_request_authorization: authorization,
+            session_seed_opening: None,
         };
 
         Ok(Self {
             setup: infra.setup,
             request_authenticator,
+            chain_id: infra.chain_id,
             request: OprfRequest {
                 request_id: Uuid::new_v4(),
                 blinded_query: bundle.blinded_query,
@@ -192,6 +223,74 @@ impl RpModuleTestSetup {
         assert_eq!(auth_error.message(), msg);
         Ok(())
     }
+
+    /// Re-signs the request for a different authorized operation.
+    fn authorize(
+        &mut self,
+        proof_type: ProofType,
+        session_mode: RpRequestSessionMode,
+        action: Option<FieldElement>,
+        session_seed_opening: Option<B256>,
+    ) {
+        let (authorization, signature) = signed_authorization(
+            &self.setup,
+            self.chain_id,
+            self.request.auth.nonce,
+            self.request.auth.action,
+            AuthorizedOperation {
+                proof_type,
+                session_mode,
+                action,
+                session_seed_opening,
+            },
+        );
+
+        self.request.auth.signature = Some(signature);
+        self.request.auth.rp_request_authorization = authorization;
+        self.request.auth.session_seed_opening = session_seed_opening;
+    }
+}
+
+/// The operation an RP authorization permits.
+#[derive(Clone, Copy)]
+struct AuthorizedOperation {
+    proof_type: ProofType,
+    session_mode: RpRequestSessionMode,
+    action: Option<FieldElement>,
+    session_seed_opening: Option<B256>,
+}
+
+/// Builds the RP authorization for `oprf_action` and signs it with the fixture's RP key.
+fn signed_authorization(
+    setup: &OprfRequestAuthTestSetup,
+    chain_id: u64,
+    nonce: ark_babyjubjub::Fq,
+    oprf_action: ark_babyjubjub::Fq,
+    operation: AuthorizedOperation,
+) -> (RpRequestAuthorization, Signature) {
+    let existing_session_seed_authorization = operation
+        .session_seed_opening
+        .map_or(B256::ZERO, |opening| {
+            session_seed_authorization(opening, oprf_action.into())
+        });
+    let authorization = RpRequestAuthorization {
+        request_version: RequestVersion::V1,
+        rp_id: setup.rp_fixture.world_rp_id,
+        oprf_key_id: setup.rp_fixture.oprf_key_id,
+        nonce: nonce.into(),
+        created_at: setup.rp_fixture.current_timestamp,
+        expires_at: setup.rp_fixture.expiration_timestamp,
+        proof_type: operation.proof_type,
+        session_mode: operation.session_mode,
+        action: operation.action,
+        existing_session_seed_authorization,
+        details_hash: B256::repeat_byte(0x42),
+    };
+    let signer = LocalSigner::from_signing_key(setup.rp_fixture.signing_key.clone());
+    let signature = signer
+        .sign_hash_sync(&authorization.signing_hash(chain_id, setup.rp_registry))
+        .expect("can sign authorization");
+    (authorization, signature)
 }
 
 // ── Local test helpers ───────────────────────────────────────────────────
@@ -229,6 +328,7 @@ async fn test_session_expired_timestamp() -> eyre::Result<()> {
         .created_at_max_difference
         .num_seconds() as u64
         + 100;
+    setup.request.auth.rp_request_authorization.created_at = setup.request.auth.created_at;
     setup
         .assert_auth_err(error_codes::CREATED_AT_TOO_OLD, "created_at too old")
         .await
@@ -242,6 +342,7 @@ async fn test_session_future_timestamp() -> eyre::Result<()> {
         .created_at_max_difference
         .num_seconds() as u64
         + 100;
+    setup.request.auth.rp_request_authorization.created_at = setup.request.auth.created_at;
     setup
         .assert_auth_err(
             error_codes::CREATED_AT_TOO_FAR_IN_FUTURE,
@@ -257,6 +358,7 @@ async fn test_session_expires_at_too_far() -> eyre::Result<()> {
         .request_authenticator
         .expires_at_max_difference
         .num_seconds() as u64;
+    setup.request.auth.rp_request_authorization.expires_at = setup.request.auth.expires_at;
     setup
         .assert_auth_err(
             error_codes::EXPIRES_AT_TOO_FAR_IN_FUTURE,
@@ -269,6 +371,7 @@ async fn test_session_expires_at_too_far() -> eyre::Result<()> {
 async fn test_session_timestamp_zero() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.created_at = 0;
+    setup.request.auth.rp_request_authorization.created_at = 0;
     setup
         .assert_auth_err(error_codes::CREATED_AT_TOO_OLD, "created_at too old")
         .await
@@ -278,6 +381,7 @@ async fn test_session_timestamp_zero() -> eyre::Result<()> {
 async fn test_session_invalid_timestamp() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.created_at = u64::MAX;
+    setup.request.auth.rp_request_authorization.created_at = u64::MAX;
     setup
         .assert_auth_err(
             error_codes::INVALID_TIMESTAMP,
@@ -323,6 +427,7 @@ async fn test_session_invalid_merkle_root() -> eyre::Result<()> {
 async fn test_session_invalid_rp_id() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.rp_id = RpId::new(rand::random());
+    setup.request.auth.rp_request_authorization.rp_id = setup.request.auth.rp_id;
     setup
         .assert_auth_err(error_codes::UNKNOWN_RP, "unknown RP")
         .await
@@ -332,6 +437,7 @@ async fn test_session_invalid_rp_id() -> eyre::Result<()> {
 async fn test_session_invalid_signer() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.nonce = rand::random();
+    setup.request.auth.rp_request_authorization.nonce = setup.request.auth.nonce.into();
     setup
         .assert_auth_err(
             error_codes::INVALID_RP_SIGNATURE,
@@ -361,6 +467,7 @@ async fn test_session_corrupt_signature() -> eyre::Result<()> {
 async fn test_session_tampered_expiration_timestamp() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.expires_at += 1;
+    setup.request.auth.rp_request_authorization.expires_at = setup.request.auth.expires_at;
     setup
         .assert_auth_err(
             error_codes::INVALID_RP_SIGNATURE,
@@ -373,6 +480,7 @@ async fn test_session_tampered_expiration_timestamp() -> eyre::Result<()> {
 async fn test_session_expired_rp_signature() -> eyre::Result<()> {
     let mut setup = RpModuleTestSetup::new_session().await?;
     setup.request.auth.expires_at = 0;
+    setup.request.auth.rp_request_authorization.expires_at = 0;
     setup
         .assert_auth_err(error_codes::RP_SIGNATURE_EXPIRED, "RP signature expired")
         .await
@@ -476,68 +584,87 @@ async fn test_session_invalid_action_random_prefix() -> eyre::Result<()> {
         .await
 }
 
-// ── RP signature verification (create-and-bind) tests ───────────────────
-//
-// Session-seed queries may carry the RP-signed uniqueness action in
-// `rp_signature_verification`. Keep coverage minimal: happy path, one
-// signature/field mismatch, prefix validation, and one wrong-context rejection.
-
-#[tokio::test]
-async fn test_session_seed_rp_signature_verification_success() -> eyre::Result<()> {
-    check_success(RpModuleTestSetup::new_bound_session_seed().await?).await
-}
-
-#[tokio::test]
-async fn test_session_seed_rp_signature_verification_missing_field() -> eyre::Result<()> {
-    // Old-node simulation: the signature covers the action, but the field is absent,
-    // so the node reconstructs the action-less message. Must fail closed.
-    let mut setup = RpModuleTestSetup::new_bound_session_seed().await?;
-    setup.request.auth.rp_signature_verification = None;
-    setup
-        .assert_auth_err(
-            error_codes::INVALID_RP_SIGNATURE,
-            "signature from RP cannot be verified",
-        )
-        .await
-}
-
-#[tokio::test]
-async fn test_session_seed_rp_signature_verification_invalid_prefix() -> eyre::Result<()> {
-    // A signed action must be a nullifier action (MSB 0x00); session prefixes are invalid.
-    let mut setup = RpModuleTestSetup::new_bound_session_seed().await?;
-    setup.request.auth.rp_signature_verification =
-        Some(RpSignatureVerification::UniquenessAction {
-            action: action_with_msb(0x01).into(),
-        });
-    setup
-        .assert_auth_err(
-            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
-            "Invalid RP signature verification data",
-        )
-        .await
-}
-
-#[tokio::test]
-async fn test_uniqueness_rejects_rp_signature_verification() -> eyre::Result<()> {
-    // Verification data is only valid on the session module.
-    let mut setup = RpModuleTestSetup::new_uniqueness().await?;
-    setup.request.auth.rp_signature_verification =
-        Some(RpSignatureVerification::UniquenessAction {
-            action: setup.setup.rp_fixture.action.into(),
-        });
-    setup
-        .assert_auth_err(
-            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
-            "Invalid RP signature verification data",
-        )
-        .await
-}
-
 // ── Uniqueness-specific tests ────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_uniqueness_success() -> eyre::Result<()> {
     check_success(RpModuleTestSetup::new_uniqueness().await?).await
+}
+
+#[tokio::test]
+async fn test_uniqueness_requires_exact_signed_action() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_uniqueness().await?;
+    setup.authorize(
+        ProofType::Uniqueness,
+        RpRequestSessionMode::None,
+        Some(FieldElement::from(42_u64)),
+        None,
+    );
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_AUTHORIZATION,
+            "Invalid RP request authorization",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_uniqueness_without_session_cannot_derive_seed() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_bound_session_seed().await?;
+    setup.authorize(
+        ProofType::Uniqueness,
+        RpRequestSessionMode::None,
+        Some(setup.setup.rp_fixture.action.into()),
+        None,
+    );
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_AUTHORIZATION,
+            "Invalid RP request authorization",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_uniqueness_create_can_derive_seed() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_bound_session_seed().await?;
+    setup.authorize(
+        ProofType::Uniqueness,
+        RpRequestSessionMode::Create,
+        Some(setup.setup.rp_fixture.action.into()),
+        None,
+    );
+    setup.assert_auth_ok().await
+}
+
+#[tokio::test]
+async fn test_existing_session_requires_exact_seed_opening() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
+    setup.authorize(
+        ProofType::Session,
+        RpRequestSessionMode::Existing,
+        None,
+        Some(B256::repeat_byte(0x24)),
+    );
+    setup.request.auth.session_seed_opening = Some(B256::repeat_byte(0x25));
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_AUTHORIZATION,
+            "Invalid RP request authorization",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_existing_session_seed_success() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_session().await?;
+    setup.authorize(
+        ProofType::Session,
+        RpRequestSessionMode::Existing,
+        None,
+        Some(B256::repeat_byte(0x24)),
+    );
+    setup.assert_auth_ok().await
 }
 
 #[tokio::test]
@@ -588,6 +715,8 @@ fn mock_session_auth(rpc_provider: taceo_nodes_common::web3::HttpRpcProvider) ->
         expires_at_max_difference: chrono::Duration::minutes(5),
         timeout_external_eth_call: DISPATCH_TIMEOUT,
         rpc_provider,
+        rp_registry_address: Address::ZERO,
+        chain_id: 1,
         query_vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
     })
 }
@@ -608,27 +737,9 @@ async fn test_dispatch_contract_signer_verifies_wip101() {
     let request = dispatch_request();
     let rp = wip101::tests::relying_party(RpAccountType::Contract);
     authenticator
-        .ensure_signature_valid(&rp, request.auth.action, &request)
+        .ensure_signature_valid(&rp, &request)
         .await
         .expect("contract RP with valid WIP101 response should pass");
-}
-
-#[tokio::test]
-async fn test_dispatch_contract_signer_rejects_rp_signature_verification() {
-    let authenticator = mock_session_auth(Asserter::new().into());
-    let mut request = dispatch_request();
-    request.auth.rp_signature_verification = Some(RpSignatureVerification::UniquenessAction {
-        action: action_with_msb(0x00).into(),
-    });
-    let rp = wip101::tests::relying_party(RpAccountType::Contract);
-    let error = authenticator
-        .ensure_signature_valid(&rp, request.auth.action, &request)
-        .await
-        .expect_err("verification data on contract RP must fail");
-    assert!(matches!(
-        error,
-        RpModuleError::InvalidRpSignatureVerification { .. }
-    ));
 }
 
 #[tokio::test]
@@ -637,7 +748,7 @@ async fn test_dispatch_incompatible_wip101_signer() {
     let request = dispatch_request();
     let rp = wip101::tests::relying_party(RpAccountType::IncompatibleWip101);
     let error = authenticator
-        .ensure_signature_valid(&rp, request.auth.action, &request)
+        .ensure_signature_valid(&rp, &request)
         .await
         .expect_err("incompatible WIP101 signer must fail");
     assert!(matches!(

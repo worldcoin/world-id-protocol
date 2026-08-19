@@ -20,11 +20,8 @@ use taceo_oprf::{
 };
 
 use world_id_primitives::{
-    FieldElement, OprfPrefix, OprfPrefixedFieldElement, ProofRequest, ProofType, TREE_DEPTH,
-    oprf::{
-        CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule,
-        RpSignatureVerification,
-    },
+    FieldElement, OprfPrefix, OprfPrefixedFieldElement, ProofRequest, SessionRef, TREE_DEPTH,
+    oprf::{CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule},
 };
 
 use crate::circuit_inputs::QueryProofCircuitInput;
@@ -258,7 +255,10 @@ impl<'a> OprfEntrypoint<'a> {
             signature: Some(proof_request.signature),
             rp_id: proof_request.rp_id,
             wip101_data: None,
-            rp_signature_verification: None,
+            rp_request_authorization: proof_request
+                .rp_authorization()
+                .map_err(|err| ProofError::GenerationError(err.to_string()))?,
+            session_seed_opening: None,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(
@@ -302,10 +302,12 @@ impl<'a> OprfEntrypoint<'a> {
             rng,
         )?;
 
-        let rp_signature_verification = match (proof_request.proof_type, proof_request.action) {
-            (ProofType::Uniqueness, Some(action)) => {
-                Some(RpSignatureVerification::UniquenessAction { action })
-            }
+        let session_seed_opening = match proof_request.session_id {
+            SessionRef::Existing(_) => Some(
+                proof_request
+                    .session_seed_opening()
+                    .map_err(|err| ProofError::GenerationError(err.to_string()))?,
+            ),
             _ => None,
         };
 
@@ -319,7 +321,10 @@ impl<'a> OprfEntrypoint<'a> {
             signature: Some(proof_request.signature),
             rp_id: proof_request.rp_id,
             wip101_data: None,
-            rp_signature_verification,
+            rp_request_authorization: proof_request
+                .rp_authorization()
+                .map_err(|err| ProofError::GenerationError(err.to_string()))?,
+            session_seed_opening,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(

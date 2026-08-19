@@ -1,17 +1,21 @@
 use std::time::Duration;
 
 use alloy::{
+    network::TransactionBuilder as _,
     primitives::{Address, Bytes, U256},
+    providers::Provider as _,
+    rpc::types::TransactionRequest,
     sol_types::SolCall as _,
 };
 use taceo_nodes_common::web3::{self, erc165::ERC165ConfirmError};
 use tracing::instrument;
 use world_id_primitives::{
-    RequestVersion,
+    FieldElement,
     oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
+    rp::IWIP101,
 };
 
-use crate::auth::rp_module::{RelyingParty, RpAccountType, wip101::IWIP101::IWIP101Instance};
+use crate::auth::rp_module::{RelyingParty, RpAccountType};
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -58,83 +62,55 @@ impl From<Wip101Error> for WorldIdRequestAuthError {
 /// Max size of the auxiliary data according to WIP101.
 const MAX_AUX_DATA_SIZE: usize = 1024;
 
-#[allow(
-    clippy::unreadable_literal,
-    reason = "actually easier to read like this"
-)]
-const SUCCESS_MAGIC_VALUE: [u8; 4] = 0x35dbc8deu32.to_be_bytes();
-
-alloy::sol!(
-   #[sol(rpc)]
-  interface IWIP101 is IERC165 {
-
-      error RpInvalidRequest(uint256 code);
-
-      function verifyRpRequest(
-          uint8 version,
-          uint256 nonce,
-          uint64 createdAt,
-          uint64 expiresAt,
-          uint256 action,
-          bytes calldata data
-      ) external view returns (bytes4 magicValue);
-  }
-);
-
 impl RelyingParty {
     pub(crate) async fn verify_wip101(
         &self,
-        action: ark_babyjubjub::Fq,
         auth: &NullifierOprfRequestAuthV1,
         rpc_provider: &web3::HttpRpcProvider,
         timeout: Duration,
     ) -> Result<(), Wip101Error> {
         tracing::trace!("RP signer is WIP101");
-        let iwip101 = IWIP101Instance::new(self.signer, rpc_provider.inner());
+        // The intent is the signed authorization payload itself, so a contract-backed RP cannot be
+        // handed a different request than an EOA-backed RP signs.
+        let call = IWIP101::verifyRpRequestCall {
+            intent: auth.rp_request_authorization.typed_data(),
+            oprfAction: FieldElement::from(auth.action).into(),
+            data: auxiliary_data(auth)?,
+        };
+        let request = TransactionRequest::default()
+            .with_to(self.signer)
+            .with_input(call.abi_encode());
 
-        if auth
-            .wip101_data
-            .as_ref()
-            .is_some_and(|bytes| bytes.len() > MAX_AUX_DATA_SIZE)
-        {
-            return Err(Wip101Error::AuxDataTooLarge);
-        }
-        // cloning here is not a problem as we only allow up to 1kb anyways
-        let auxiliary_data = auth
-            .wip101_data
-            .clone()
-            .map(Bytes::from)
-            .unwrap_or_default();
-        let wip101_call = iwip101.verifyRpRequest(
-            RequestVersion::V1 as u8,
-            auth.nonce.into(),
-            auth.created_at,
-            auth.expires_at,
-            action.into(),
-            auxiliary_data,
-        );
+        let verification = async {
+            let returned = rpc_provider
+                .inner()
+                .call(request)
+                .await
+                .map_err(alloy::contract::Error::from)?;
+            if returned.is_empty() {
+                return Ok(None);
+            }
+            IWIP101::verifyRpRequestCall::abi_decode_returns(&returned)
+                .map(Some)
+                .map_err(alloy::contract::Error::from)
+        };
 
-        match tokio::time::timeout(timeout, wip101_call.call())
+        match tokio::time::timeout(timeout, verification)
             .await
             .map_err(|_| Wip101Error::VerificationTimeout)?
         {
-            Ok(x) if x == SUCCESS_MAGIC_VALUE => Ok(()),
-            Ok(_) => Err(Wip101Error::VerificationFailed(None)),
-            Err(
-                alloy::contract::Error::UnknownFunction(_)
-                | alloy::contract::Error::UnknownSelector(_),
-            ) => Err(Wip101Error::IncompatibleRpSigner),
+            Ok(Some(x)) if x == IWIP101::verifyRpRequestCall::SELECTOR => Ok(()),
+            Ok(Some(_)) => Err(Wip101Error::VerificationFailed(None)),
+            Ok(None) => Err(Wip101Error::IncompatibleRpSigner),
             Err(err) => {
                 if let Some(IWIP101::RpInvalidRequest { code }) =
                     err.as_decoded_error::<IWIP101::RpInvalidRequest>()
                 {
                     Err(Wip101Error::VerificationFailed(Some(code)))
-                } else if let Some(x) = err.as_revert_data() {
-                    if x.is_empty() {
-                        // empty revert reason - most likely this contract reported it supports WIP101 without actually supporting it
+                } else if let Some(data) = err.as_revert_data() {
+                    if data.is_empty() {
                         Err(Wip101Error::IncompatibleRpSigner)
                     } else {
-                        // most likely we got some specific revert reason that was not the agreed RpInvalidRequest
                         Err(Wip101Error::CustomRevert)
                     }
                 } else {
@@ -145,19 +121,34 @@ impl RelyingParty {
     }
 }
 
+fn auxiliary_data(auth: &NullifierOprfRequestAuthV1) -> Result<Bytes, Wip101Error> {
+    if auth
+        .wip101_data
+        .as_ref()
+        .is_some_and(|bytes| bytes.len() > MAX_AUX_DATA_SIZE)
+    {
+        return Err(Wip101Error::AuxDataTooLarge);
+    }
+    Ok(auth
+        .wip101_data
+        .clone()
+        .map(Bytes::from)
+        .unwrap_or_default())
+}
+
 #[instrument(level = "debug", skip_all, fields(signer=%signer))]
 pub(crate) async fn account_check(
     signer: Address,
     rpc_provider: &web3::HttpRpcProvider,
 ) -> eyre::Result<RpAccountType> {
     tracing::trace!("performing wip101 check on {signer}");
-    let erc165_check = rpc_provider
+    let interface_check = rpc_provider
         .erc165_supports_interface(signer, [IWIP101::verifyRpRequestCall::SELECTOR])
         .await;
-    match erc165_check {
+    match interface_check {
         Ok(()) => Ok(RpAccountType::Contract),
-        Err(ERC165ConfirmError::NotAContract) => Ok(RpAccountType::Eoa),
         Err(ERC165ConfirmError::Unsupported) => Ok(RpAccountType::IncompatibleWip101),
-        Err(err) => eyre::bail!(err),
+        Err(ERC165ConfirmError::NotAContract) => Ok(RpAccountType::Eoa),
+        Err(err) => Err(eyre::Report::from(err)),
     }
 }

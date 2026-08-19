@@ -531,7 +531,7 @@ mod tests {
         error::AuthenticatorError,
         service_client::{ServiceClient, ServiceKind},
     };
-    use alloy::primitives::{Signature, address};
+    use alloy::primitives::{B256, Signature, address};
     use ruint::{aliases::U256, uint};
     use std::sync::Arc;
     use taceo_oprf::client::Connector;
@@ -592,6 +592,7 @@ mod tests {
         ProofRequest {
             id: "test-request".to_string(),
             version: RequestVersion::V1,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Session,
             created_at: 1,
             expires_at: 2,

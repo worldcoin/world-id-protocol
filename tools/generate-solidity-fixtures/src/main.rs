@@ -18,7 +18,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::{U160, U256},
+    primitives::{B256, Signature, U160, U256},
     signers::{SignerSync as _, local::LocalSigner},
 };
 use eyre::{Context as _, Result, eyre};
@@ -261,9 +261,10 @@ async fn main() -> Result<()> {
     let signal_str = "my_signal";
 
     // ── OPRF round for uniqueness proof ──
-    let uniqueness_request = ProofRequest {
+    let mut uniqueness_request = ProofRequest {
         id: "fixture_uniqueness".to_string(),
         version: RequestVersion::V1,
+        request_salt: B256::repeat_byte(0x42),
         proof_type: ProofType::Uniqueness,
         created_at: rp_fixture.current_timestamp,
         expires_at: rp_fixture.expiration_timestamp,
@@ -271,7 +272,8 @@ async fn main() -> Result<()> {
         oprf_key_id: rp_fixture.oprf_key_id,
         session_id: SessionRef::None,
         action: Some(rp_fixture.action.into()),
-        signature: rp_fixture.signature,
+        // Replaced below: the EIP-712 signature covers the fully-populated request.
+        signature: Signature::new(U256::ZERO, U256::ZERO, false),
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
@@ -282,6 +284,9 @@ async fn main() -> Result<()> {
         }],
         constraints: None,
     };
+    uniqueness_request.signature = rp_signer.sign_hash_sync(
+        &uniqueness_request.eip712_signing_hash(anvil.instance.chain_id(), rp_registry)?,
+    )?;
     let request_item = uniqueness_request
         .find_request_by_issuer_schema_id(issuer_schema_id)
         .unwrap();
@@ -336,23 +341,18 @@ async fn main() -> Result<()> {
 
     // ── UNIQUENESS + CREATE (atomic session mint and bound uniqueness proof) ──
     let create_nonce = FieldElement::random(&mut rng);
-    let create_msg = world_id_primitives::rp::compute_rp_signature_msg(
-        *create_nonce,
-        rp_fixture.current_timestamp,
-        rp_fixture.expiration_timestamp,
-        Some(rp_fixture.action),
-    );
-    let create_signature = LocalSigner::from_signing_key(rp_fixture.signing_key.clone())
-        .sign_message_sync(&create_msg)?;
-    let bound_create_request = ProofRequest {
+    let mut bound_create_request = ProofRequest {
         id: "fixture_uniqueness_create".to_string(),
+        request_salt: B256::repeat_byte(0x43),
         proof_type: ProofType::Uniqueness,
         session_id: SessionRef::Create,
         action: Some(rp_fixture.action.into()),
         nonce: create_nonce,
-        signature: create_signature,
         ..uniqueness_request.clone()
     };
+    bound_create_request.signature = rp_signer.sign_hash_sync(
+        &bound_create_request.eip712_signing_hash(anvil.instance.chain_id(), rp_registry)?,
+    )?;
 
     let bound_create_nullifier = authenticator
         .generate_nullifier(&bound_create_request, None)
@@ -407,25 +407,19 @@ async fn main() -> Result<()> {
         .await?;
     info!("Session-bound uniqueness proof verified ✓");
 
-    // ── SESSION PROOF (own OPRF round: session queries use an internal random action
-    //    generated at query time, and the RP signature does not cover an action) ──
+    // ── SESSION PROOF (own OPRF round with an internal random action) ──
     let session_nonce = FieldElement::random(&mut rng);
-    let session_msg = world_id_primitives::rp::compute_rp_signature_msg(
-        *session_nonce,
-        rp_fixture.current_timestamp,
-        rp_fixture.expiration_timestamp,
-        None,
-    );
-    let session_signature = LocalSigner::from_signing_key(rp_fixture.signing_key.clone())
-        .sign_message_sync(&session_msg)?;
-    let session_request = ProofRequest {
+    let mut session_request = ProofRequest {
+        request_salt: B256::repeat_byte(0x44),
         proof_type: ProofType::Session,
         session_id: SessionRef::Existing(session_id),
         action: None,
         nonce: session_nonce,
-        signature: session_signature,
         ..uniqueness_request.clone()
     };
+    session_request.signature = rp_signer.sign_hash_sync(
+        &session_request.eip712_signing_hash(anvil.instance.chain_id(), rp_registry)?,
+    )?;
 
     let session_nullifier_data = authenticator
         .generate_nullifier(&session_request, None)
