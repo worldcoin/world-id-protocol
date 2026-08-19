@@ -33,19 +33,6 @@ use crate::{
 
 const WALLET_RECHECK_INTERVAL: Duration = Duration::from_secs(1);
 
-pub fn now_unix_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs()
-}
-
-#[derive(Clone)]
-struct WalletEntry {
-    wallet: ProviderWallet,
-    registry: Arc<WorldIdRegistryInstance<Arc<alloy::providers::DynProvider>>>,
-}
-
 /// Signs, persists, broadcasts, and tracks transactions for the configured wallets.
 pub(crate) struct TransactionSubmitter {
     wallets: Vec<WalletEntry>,
@@ -56,6 +43,12 @@ pub(crate) struct TransactionSubmitter {
     wallet_released: Notify,
     receipt_timeout: Duration,
     tracker_interval: Duration,
+}
+
+#[derive(Clone)]
+struct WalletEntry {
+    wallet: ProviderWallet,
+    registry: Arc<WorldIdRegistryInstance<Arc<alloy::providers::DynProvider>>>,
 }
 
 impl TransactionSubmitter {
@@ -170,45 +163,9 @@ impl TransactionSubmitter {
         }
     }
 
-    /// Updates the status of multiple requests in a batch.
-    pub async fn set_status_batch(&self, ids: &[String], status: GatewayRequestState) {
-        for id in ids {
-            if let Err(error) = self
-                .request_store
-                .update_status(id, &status, now_unix_secs())
-                .await
-            {
-                tracing::error!(%error, request_id = id, "failed to update request status");
-            }
-        }
-    }
-
     /// Updates the status of a single request.
     pub async fn set_status(&self, id: &str, status: GatewayRequestState) {
         self.set_status_batch(&[id.to_string()], status).await;
-    }
-
-    /// Resolves a batch of requests based on a transaction receipt outcome.
-    ///
-    /// If the receipt indicates success, marks all requests as `Finalized`.
-    /// If the receipt indicates a revert, marks all requests as `Failed`.
-    pub async fn finalize_from_receipt(
-        &self,
-        ids: &[String],
-        receipt_succeeded: bool,
-        tx_hash: &str,
-    ) {
-        let status = if receipt_succeeded {
-            GatewayRequestState::Finalized {
-                tx_hash: tx_hash.to_string(),
-            }
-        } else {
-            GatewayRequestState::failed(
-                format!("transaction reverted on-chain (tx: {tx_hash})"),
-                Some(GatewayErrorCode::TransactionReverted),
-            )
-        };
-        self.set_status_batch(ids, status).await;
     }
 
     /// Returns a snapshot of the current state of a request, if it exists.
@@ -243,9 +200,11 @@ impl TransactionSubmitter {
             let Some(record) = maybe_record else {
                 continue;
             };
+
             if !matches_batch_type(record.kind, batch_type) {
                 continue;
             }
+
             if matches!(record.status, GatewayRequestState::Queued) {
                 let age = now.saturating_sub(record.updated_at);
                 queued_count += 1;
@@ -430,27 +389,6 @@ impl TransactionSubmitter {
         Ok(())
     }
 
-    async fn acquire(&self) -> GatewayResult<(WalletEntry, Uuid)> {
-        loop {
-            let start = self.next_wallet.fetch_add(1, Ordering::Relaxed);
-            for offset in 0..self.wallets.len() {
-                let index = start.wrapping_add(offset) % self.wallets.len();
-                let entry = self.wallets[index].clone();
-                let reservation_id = Uuid::new_v4();
-                if self
-                    .wallet_store
-                    .reserve(entry.wallet.address, reservation_id)
-                    .await?
-                {
-                    return Ok((entry, reservation_id));
-                }
-            }
-
-            let notified = self.wallet_released.notified();
-            let _ = tokio::time::timeout(WALLET_RECHECK_INTERVAL, notified).await;
-        }
-    }
-
     async fn run_tracker(self: Arc<Self>) {
         loop {
             if let Err(error) = self.track_transactions().await {
@@ -492,67 +430,126 @@ impl TransactionSubmitter {
 
         let wallet = &entry.wallet;
         let formatted_tx_hash = format!("0x{tx_hash:x}");
-        let receipt = wallet.provider.get_transaction_receipt(tx_hash).await;
 
-        if let Ok(Some(receipt)) = &receipt {
-            let confirmed = receipt.status();
-            let latency_ms = now_unix_secs().saturating_sub(submitted_at) as f64 * 1_000.0;
-            metrics::record_batch_confirmed(batch_type, confirmed, latency_ms);
-            if confirmed {
-                tracing::info!(
-                    tx_hash = %formatted_tx_hash,
-                    wallet = %wallet.address,
-                    %batch_type,
-                    latency_ms,
-                    "batch transaction confirmed on-chain"
-                );
-            } else {
+        // TODO: This will suffice for now - but in practice we may want to wait until we have a
+        //       receipt from a safe or even finalized block
+        let receipt = wallet.provider.get_transaction_receipt(tx_hash).await;
+        let receipt_timed_out =
+            now_unix_secs().saturating_sub(submitted_at) >= self.receipt_timeout.as_secs();
+
+        match receipt {
+            Ok(Some(receipt)) => {
+                let confirmed = receipt.status();
+                let latency_ms = now_unix_secs().saturating_sub(submitted_at) as f64 * 1_000.0;
+                metrics::record_batch_confirmed(batch_type, confirmed, latency_ms);
+
+                if confirmed {
+                    tracing::info!(
+                        tx_hash = %formatted_tx_hash,
+                        wallet = %wallet.address,
+                        %batch_type,
+                        latency_ms,
+                        "batch transaction confirmed on-chain"
+                    );
+                } else {
+                    tracing::error!(
+                        tx_hash = %formatted_tx_hash,
+                        wallet = %wallet.address,
+                        %batch_type,
+                        "batch transaction reverted on-chain"
+                    );
+                }
+
+                self.finalize_from_receipt(&request_ids, confirmed, &formatted_tx_hash)
+                    .await;
+                self.release_submission(wallet.address, reservation_id, tx_hash)
+                    .await;
+            }
+            Ok(None) | Err(_) if receipt_timed_out => {
                 tracing::error!(
                     tx_hash = %formatted_tx_hash,
                     wallet = %wallet.address,
                     %batch_type,
-                    "batch transaction reverted on-chain"
+                    timeout_secs = self.receipt_timeout.as_secs(),
+                    "batch transaction receipt timed out"
+                );
+
+                self.set_status_batch(
+                    &request_ids,
+                    GatewayRequestState::failed(
+                        format!(
+                            "transaction receipt timed out after {}s (tx: {formatted_tx_hash})",
+                            self.receipt_timeout.as_secs()
+                        ),
+                        Some(GatewayErrorCode::ConfirmationError),
+                    ),
+                )
+                .await;
+
+                // TODO: Very unlikely but possible that the transaction is still sitting in the
+                //       transaction pool.
+                self.release_submission(wallet.address, reservation_id, tx_hash)
+                    .await;
+            }
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    tx_hash = %formatted_tx_hash,
+                    wallet = %wallet.address,
+                    %batch_type,
+                    "failed to poll tracked batch transaction"
                 );
             }
-            self.finalize_from_receipt(&request_ids, confirmed, &formatted_tx_hash)
-                .await;
-            self.release_submission(wallet.address, reservation_id, tx_hash)
-                .await;
-            return;
+            Ok(None) => {
+                // do nothing - we're still waiting for the receipt
+            }
         }
+    }
 
-        if now_unix_secs().saturating_sub(submitted_at) >= self.receipt_timeout.as_secs() {
-            tracing::error!(
-                tx_hash = %formatted_tx_hash,
-                wallet = %wallet.address,
-                %batch_type,
-                timeout_secs = self.receipt_timeout.as_secs(),
-                "batch transaction receipt timed out"
-            );
-            self.set_status_batch(
-                &request_ids,
-                GatewayRequestState::failed(
-                    format!(
-                        "transaction receipt timed out after {}s (tx: {formatted_tx_hash})",
-                        self.receipt_timeout.as_secs()
-                    ),
-                    Some(GatewayErrorCode::ConfirmationError),
-                ),
+    /// Resolves a batch of requests based on a transaction receipt outcome.
+    ///
+    /// If the receipt indicates success, marks all requests as `Finalized`.
+    /// If the receipt indicates a revert, marks all requests as `Failed`.
+    pub async fn finalize_from_receipt(
+        &self,
+        ids: &[String],
+        receipt_succeeded: bool,
+        tx_hash: &str,
+    ) {
+        let status = if receipt_succeeded {
+            GatewayRequestState::Finalized {
+                tx_hash: tx_hash.to_string(),
+            }
+        } else {
+            GatewayRequestState::failed(
+                format!("transaction reverted on-chain (tx: {tx_hash})"),
+                Some(GatewayErrorCode::TransactionReverted),
             )
-            .await;
-            self.release_submission(wallet.address, reservation_id, tx_hash)
-                .await;
-            return;
-        }
+        };
+        self.set_status_batch(ids, status).await;
+    }
 
-        if let Err(error) = receipt {
-            tracing::warn!(
-                %error,
-                tx_hash = %formatted_tx_hash,
-                wallet = %wallet.address,
-                %batch_type,
-                "failed to poll tracked batch transaction"
-            );
+    /// Acquires a wallet reservation from one of the available wallets
+    ///
+    /// this function cycles through wallets and returns the first one that has no reservations
+    async fn acquire(&self) -> GatewayResult<(WalletEntry, Uuid)> {
+        loop {
+            let start = self.next_wallet.fetch_add(1, Ordering::Relaxed);
+            for offset in 0..self.wallets.len() {
+                let index = start.wrapping_add(offset) % self.wallets.len();
+                let entry = self.wallets[index].clone();
+                let reservation_id = Uuid::new_v4();
+                if self
+                    .wallet_store
+                    .reserve(entry.wallet.address, reservation_id)
+                    .await?
+                {
+                    return Ok((entry, reservation_id));
+                }
+            }
+
+            let notified = self.wallet_released.notified();
+            let _ = tokio::time::timeout(WALLET_RECHECK_INTERVAL, notified).await;
         }
     }
 
@@ -579,6 +576,26 @@ impl TransactionSubmitter {
             self.wallet_released.notify_one();
         }
     }
+
+    /// Updates the status of multiple requests in a batch.
+    pub async fn set_status_batch(&self, ids: &[String], status: GatewayRequestState) {
+        for id in ids {
+            if let Err(error) = self
+                .request_store
+                .update_status(id, &status, now_unix_secs())
+                .await
+            {
+                tracing::error!(%error, request_id = id, "failed to update request status");
+            }
+        }
+    }
+}
+
+pub fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_secs()
 }
 
 fn matches_batch_type(kind: GatewayRequestKind, batch_type: BatchType) -> bool {
@@ -613,7 +630,7 @@ mod tests {
 
     use super::*;
 
-    async fn redis_url() -> (String, ContainerAsync<Redis>) {
+    async fn start_redis() -> (String, ContainerAsync<Redis>) {
         let container = Redis::default()
             .with_tag("latest")
             .start()
@@ -640,7 +657,7 @@ mod tests {
 
     #[tokio::test]
     async fn submitter_cycles_through_available_wallets() {
-        let (url, _redis) = redis_url().await;
+        let (url, _redis) = start_redis().await;
         let first = address!("1111111111111111111111111111111111111111");
         let second = address!("2222222222222222222222222222222222222222");
         let submitter = TransactionSubmitter::connect(
@@ -672,7 +689,7 @@ mod tests {
 
     #[tokio::test]
     async fn submitter_fails_timed_out_transaction_and_releases_wallet() {
-        let (url, _redis) = redis_url().await;
+        let (url, _redis) = start_redis().await;
         let wallet = address!("1111111111111111111111111111111111111111");
         let submitter = TransactionSubmitter::connect(
             Address::ZERO,
