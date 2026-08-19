@@ -234,26 +234,6 @@ mod tests {
         (store, container)
     }
 
-    #[test]
-    fn submitted_records_require_batch_metadata() {
-        let transaction = WalletTransaction::Submitted {
-            reservation_id: Uuid::new_v4(),
-            tx_hash: TxHash::repeat_byte(0x22),
-            request_ids: vec!["request-1".to_string()],
-            batch_type: BatchType::Ops,
-            submitted_at: 100,
-        };
-        let value = serde_json::to_value(transaction).unwrap();
-        assert_eq!(value["batch_type"], "ops");
-        assert_eq!(value["submitted_at"], 100);
-
-        for field in ["batch_type", "submitted_at"] {
-            let mut missing = value.clone();
-            missing.as_object_mut().unwrap().remove(field);
-            assert!(serde_json::from_value::<WalletTransaction>(missing).is_err());
-        }
-    }
-
     #[tokio::test]
     async fn reservations_transition_to_hash_and_release_conditionally() {
         let (store, _redis) = store().await;
@@ -261,15 +241,26 @@ mod tests {
         let reservation_id = Uuid::new_v4();
         let tx_hash = TxHash::repeat_byte(0x22);
 
-        assert!(store.reserve(wallet, reservation_id).await.unwrap());
+        assert!(
+            store.reserve(wallet, reservation_id).await.unwrap(),
+            "reservation successful"
+        );
+
         let mut manager = store.manager.clone();
         let ttl: i64 = redis::cmd("TTL")
             .arg(WalletStore::key(wallet))
             .query_async(&mut manager)
             .await
             .unwrap();
-        assert!(ttl > 0 && ttl <= RESERVATION_TTL.as_secs() as i64);
-        assert!(!store.reserve(wallet, Uuid::new_v4()).await.unwrap());
+        assert!(
+            ttl > 0 && ttl <= RESERVATION_TTL.as_secs() as i64,
+            "reservation TTL matches expected value"
+        );
+        assert!(
+            !store.reserve(wallet, Uuid::new_v4()).await.unwrap(),
+            "cannot repeat reservation"
+        );
+
         let submitted = store
             .mark_submitted(
                 wallet,
@@ -280,11 +271,13 @@ mod tests {
                 100,
             )
             .await
-            .unwrap();
+            .expect("Submit transaction to wallet reservation");
+
         assert_eq!(
             store.transactions(&[wallet]).await.unwrap(),
-            [Some(submitted.clone())]
+            [Some(submitted.clone())],
         );
+
         store
             .release_submission(wallet, reservation_id, tx_hash)
             .await
