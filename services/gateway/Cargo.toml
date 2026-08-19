@@ -46,6 +46,8 @@ utoipa = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
+futures = { workspace = true }
+indicatif = { workspace = true }
 world-id-test-utils = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 world-id-authenticator = { workspace = true }
@@ -60,3 +62,7 @@ indoc = { workspace = true }
 
 [features]
 integration-tests = [] # running integration tests requires running external services (i.e. Postgres)
+
+[[bench]]
+name = "wallet_pool"
+harness = false

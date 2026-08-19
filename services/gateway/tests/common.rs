@@ -62,6 +62,18 @@ pub(crate) async fn spawn_test_gateway(batch_ms: Option<u64>) -> TestGateway {
     spawn_test_gateway_for_registry(anvil, registry_addr, RegistryVersion::V1, batch_ms).await
 }
 
+/// Spawn a V1 gateway with one funded wallet on a local Anvil chain.
+#[allow(dead_code)]
+pub(crate) async fn spawn_test_gateway_with_local_anvil(batch_ms: Option<u64>) -> TestGateway {
+    let anvil = TestAnvil::spawn().expect("failed to spawn local Anvil");
+    let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
+    let registry_addr = anvil
+        .deploy_world_id_registry(deployer)
+        .await
+        .expect("failed to deploy WorldIDRegistry");
+    spawn_test_gateway_for_registry(anvil, registry_addr, RegistryVersion::V1, batch_ms).await
+}
+
 /// Same as [`spawn_test_gateway`] but deploys the V2 (WIP-102) registry —
 /// the V1 implementation behind an ERC1967 proxy upgraded to V2.
 #[allow(dead_code)]
@@ -134,8 +146,10 @@ async fn spawn_test_gateway_for_registry(
                 rate_limit_window_secs: None,
                 rate_limit_max_requests: None,
                 sweeper_interval_secs: max_wait_secs + 1,
-                stale_queued_threshold_secs: max_wait_secs + 1,
-                stale_submitted_threshold_secs: 600,
+                // stale_queued_threshold_secs: max_wait_secs + 1,
+                // stale_submitted_threshold_secs: 600,
+                stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
+                stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
             }
         }
     };
