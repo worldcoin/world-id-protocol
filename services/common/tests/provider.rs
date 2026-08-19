@@ -102,7 +102,7 @@ async fn retry_succeeds_on_transient_http_error() {
         .await
         .unwrap();
 
-    let chain_id = provider.get_chain_id().await.unwrap();
+    let chain_id = provider[0].get_chain_id().await.unwrap();
     assert_eq!(chain_id, 1);
     assert_eq!(counter.load(Ordering::SeqCst), 3);
 }
@@ -148,7 +148,7 @@ async fn fallback_succeeds_when_endpoint_times_out() {
         .await
         .unwrap();
 
-    let chain_id = provider.get_chain_id().await.unwrap();
+    let chain_id = provider[0].get_chain_id().await.unwrap();
     assert_eq!(chain_id, 1);
     assert!(slow_counter.load(Ordering::SeqCst) >= 1);
     assert!(fast_counter.load(Ordering::SeqCst) >= 1);
@@ -167,7 +167,7 @@ async fn max_retries_exhausted_returns_error() {
         .await
         .unwrap();
 
-    let result = provider.get_chain_id().await;
+    let result = provider[0].get_chain_id().await;
     assert!(result.is_err());
     assert_eq!(counter.load(Ordering::SeqCst), 3); // 1 initial + 2 retries
 }
@@ -195,7 +195,7 @@ async fn contract_revert_not_retried() {
         .await
         .unwrap();
 
-    let result = provider.get_chain_id().await;
+    let result = provider[0].get_chain_id().await;
     assert!(result.is_err());
     assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
@@ -221,7 +221,7 @@ async fn fallback_succeeds_when_endpoint_is_dead() {
         .await
         .unwrap();
 
-    let chain_id = provider.get_chain_id().await.unwrap();
+    let chain_id = provider[0].get_chain_id().await.unwrap();
     assert_eq!(chain_id, 1);
     assert!(live_counter.load(Ordering::SeqCst) >= 1);
 }
@@ -272,7 +272,7 @@ async fn retry_after_tcp_reset_on_same_endpoint() {
         .await
         .unwrap();
 
-    let chain_id = provider.get_chain_id().await.unwrap();
+    let chain_id = provider[0].get_chain_id().await.unwrap();
     assert_eq!(chain_id, 1);
     assert!(counter.load(Ordering::SeqCst) >= 2);
 }
@@ -290,7 +290,7 @@ async fn retries_disabled_when_max_retries_zero() {
         .await
         .unwrap();
 
-    let result = provider.get_chain_id().await;
+    let result = provider[0].get_chain_id().await;
     assert!(result.is_err());
     assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
@@ -316,7 +316,7 @@ async fn endpoint_metrics_record_transport_outcomes() {
         .http()
         .await
         .unwrap();
-    assert!(dead_provider.get_chain_id().await.is_err());
+    assert!(dead_provider[0].get_chain_id().await.is_err());
 
     // Provide for successful transport call.
     let (live_url, _live_counter) = spawn_mock_rpc(|_| success_response()).await;
@@ -326,7 +326,7 @@ async fn endpoint_metrics_record_transport_outcomes() {
         .http()
         .await
         .unwrap();
-    assert_eq!(live_provider.get_chain_id().await.unwrap(), 1);
+    assert_eq!(live_provider[0].get_chain_id().await.unwrap(), 1);
 
     let snapshot = snapshotter.snapshot().into_vec();
     // Sum the `rpc.endpoint_requests` counter value for the given endpoint and

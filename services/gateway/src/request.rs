@@ -4,8 +4,8 @@ use crate::{
     batcher::{BatcherHandle, Command},
     config::RegistryVersion,
     error::GatewayErrorResponse,
-    request_tracker::RequestTracker,
     routes::validation::RequestValidation,
+    transaction_submitter::TransactionSubmitter,
 };
 use alloy::{
     primitives::{Bytes, U256},
@@ -29,7 +29,7 @@ pub type Registry = WorldIdRegistryInstance<Arc<DynProvider>>;
 pub struct GatewayContext {
     pub registry: Arc<Registry>,
     pub registry_version: RegistryVersion,
-    pub tracker: RequestTracker,
+    pub submitter: Arc<TransactionSubmitter>,
     pub batcher: BatcherHandle,
     pub root_cache: Cache<U256, U256>,
 }
@@ -130,7 +130,7 @@ pub trait IntoRequestWithRateLimit: IntoRequest + HasLeafIndex {
     ) -> Result<Request<Self>, GatewayErrorResponse> {
         // Check rate limit first (before validation to save resources)
         // We do also count rate limitted requests.
-        ctx.tracker
+        ctx.submitter
             .check_rate_limit(self.leaf_index(), &id.to_string())
             .await?;
 
@@ -464,12 +464,12 @@ where
     let inflight_keys = payload.inflight_keys();
     let cmd = T::into_command(id, payload, calldata);
 
-    ctx.tracker
+    ctx.submitter
         .new_request_with_id(id.to_string(), kind, inflight_keys)
         .await?;
 
     if !ctx.batcher.submit(cmd).await {
-        ctx.tracker
+        ctx.submitter
             .set_status(
                 &id.to_string(),
                 GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),

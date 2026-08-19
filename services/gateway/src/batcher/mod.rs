@@ -9,24 +9,21 @@ pub(crate) use ops::{OpsBatcherHandle, OpsBatcherRunner, OpsEnvelope};
 
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
-use alloy::{network::Ethereum, primitives::Bytes, providers::DynProvider};
-use tokio::{
-    sync::{Mutex, mpsc},
-    time::Instant,
-};
+use alloy::{primitives::Bytes, providers::DynProvider, rpc::types::TransactionRequest};
+use tokio::{sync::mpsc, time::Instant};
 use uuid::Uuid;
 use world_id_primitives::api_types::{CreateAccountRequest, GatewayRequestState};
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::{
-    RequestTracker,
     batch_policy::{
         BacklogUrgencyStats, BaseFeeCache, BatchPolicyEngine, DecisionReason, record_policy_metrics,
     },
+    batch_type::BatchType,
     config::BatchPolicyConfig,
     error::parse_contract_error,
     metrics,
-    request_tracker::BacklogScope,
+    transaction_submitter::TransactionSubmitter,
 };
 
 /// Unified batcher handle that routes to the appropriate batcher.
@@ -84,35 +81,15 @@ pub(crate) trait BatcherEnvelope: Send + 'static {
     fn request_id(&self) -> &str;
 }
 
-/// Return value from a successful [`BatchSubmitStrategy::send_batch`] call.
-pub(crate) struct PendingBatchTx {
-    // Hex formatted transaction hash
-    pub formatted_tx_hash: String,
-    // Handle for pending transaction tracking
-    pub builder: alloy::providers::PendingTransactionBuilder<Ethereum>,
-}
-
-impl PendingBatchTx {
-    pub fn new(builder: alloy::providers::PendingTransactionBuilder<Ethereum>) -> Self {
-        Self {
-            formatted_tx_hash: format!("0x{:x}", builder.tx_hash()),
-            builder,
-        }
-    }
-}
-
-/// Strategy trait that captures the only per-batcher differences:
-///   - batch label / backlog scope (for metrics / policy)
-///   - the actual on-chain send call
+/// Strategy trait that captures the per-batcher transaction construction.
 pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>: Send + Default + 'static {
-    fn batch_type(&self) -> &'static str;
-    fn backlog_scope(&self) -> BacklogScope;
+    fn batch_type(&self) -> BatchType;
 
-    fn send_batch(
+    fn build_tx(
         &self,
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
         batch: Vec<E>,
-    ) -> impl Future<Output = Result<PendingBatchTx, alloy::contract::Error>> + Send;
+    ) -> TransactionRequest;
 }
 
 struct TimedEnvelope<T> {
@@ -132,12 +109,11 @@ where
 {
     rx: mpsc::Receiver<E>,
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
+    submitter: Arc<TransactionSubmitter>,
     max_batch_size: usize,
     local_queue_limit: usize,
-    tracker: RequestTracker,
     batch_policy: BatchPolicyConfig,
     base_fee_cache: BaseFeeCache,
-    tx_send_lock: Arc<Mutex<()>>,
     strategy: S,
 }
 
@@ -149,23 +125,21 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
+        submitter: Arc<TransactionSubmitter>,
         max_batch_size: usize,
         local_queue_limit: usize,
         rx: mpsc::Receiver<E>,
-        tracker: RequestTracker,
         batch_policy: BatchPolicyConfig,
         base_fee_cache: BaseFeeCache,
-        tx_send_lock: Arc<Mutex<()>>,
     ) -> Self {
         Self {
             rx,
             registry,
+            submitter,
             max_batch_size,
             local_queue_limit: local_queue_limit.max(1),
-            tracker,
             batch_policy,
             base_fee_cache,
-            tx_send_lock,
             strategy: S::default(),
         }
     }
@@ -184,68 +158,32 @@ where
 
         metrics::record_batch_submitted(batch_type, ids.len());
 
-        self.tracker
+        self.submitter
             .set_status_batch(&ids, GatewayRequestState::Batching)
             .await;
 
-        let _send_guard = self.tx_send_lock.lock().await;
-        let start = Instant::now();
-        match self.strategy.send_batch(&self.registry, batch).await {
-            Ok(sent) => {
-                // Record only the RPC send latency here.  The on-chain outcome
-                // (success / failure / confirmation latency) is recorded later
-                // in `spawn_receipt_tracker` once the receipt is obtained.
-                let send_latency_ms = start.elapsed().as_millis() as f64;
-                metrics::record_batch_send_latency(batch_type, send_latency_ms);
-
-                tracing::info!(
-                    tx_hash = %sent.formatted_tx_hash,
-                    batch_type,
-                    batch_size = ids.len(),
-                    send_latency_ms,
-                    "batch transaction submitted to RPC node"
-                );
-
-                self.tracker
-                    .set_status_batch(
-                        &ids,
-                        GatewayRequestState::Submitted {
-                            tx_hash: sent.formatted_tx_hash.clone(),
-                        },
-                    )
-                    .await;
-
-                self.tracker.spawn_receipt_tracker(
-                    ids,
-                    sent.builder,
-                    sent.formatted_tx_hash,
-                    batch_type,
-                    start,
-                );
-            }
-            Err(err) => {
-                let send_latency_ms = start.elapsed().as_millis() as f64;
-                metrics::record_batch_send_failed(batch_type, send_latency_ms);
-
-                let error_str = err.to_string();
-                tracing::error!(
-                    error = %error_str,
-                    batch_type,
-                    send_latency_ms,
-                    "{batch_type} batch failed to submit to RPC node"
-                );
-                let code = parse_contract_error(&error_str);
-                self.tracker
-                    .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
-                    .await;
-            }
+        let transaction = self.strategy.build_tx(&self.registry, batch);
+        if let Err(error) = self
+            .submitter
+            .submit(transaction, ids.clone(), batch_type)
+            .await
+        {
+            self.submitter
+                .set_status_batch(
+                    &ids,
+                    GatewayRequestState::failed(
+                        error.to_string(),
+                        Some(parse_contract_error(&error.to_string())),
+                    ),
+                )
+                .await;
         }
     }
 
     fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<E>>) {
         let dropped = queue.len();
         tracing::warn!(
-            batch_type = self.strategy.batch_type(),
+            batch_type = %self.strategy.batch_type(),
             dropped,
             "redis reports no queued backlog, dropping local queue entries to resync state"
         );
@@ -263,7 +201,7 @@ where
         while rx_open || !queue.is_empty() {
             if queue.len() >= self.local_queue_limit {
                 tracing::warn!(
-                    batch_type = self.strategy.batch_type(),
+                    batch_type = %self.strategy.batch_type(),
                     queue_len = queue.len(),
                     local_queue_limit = self.local_queue_limit,
                     "{} policy queue reached local capacity, pausing intake for backpressure",
@@ -310,14 +248,14 @@ where
                         .unwrap_or_default();
 
                     let stats = match self
-                        .tracker
-                        .queued_backlog_stats_for_scope(self.strategy.backlog_scope())
+                        .submitter
+                        .queued_backlog_stats(self.strategy.batch_type())
                         .await
                     {
                         Ok(stats) => stats,
                         Err(err) => {
                             tracing::warn!(
-                                batch_type = self.strategy.batch_type(),
+                                batch_type = %self.strategy.batch_type(),
                                 error = %err,
                                 "failed to read queued backlog stats; using local fallback"
                             );
