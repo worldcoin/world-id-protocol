@@ -15,7 +15,7 @@
 
   <rect width="1200" height="760" fill="#ffffff"/>
   <text x="48" y="48" class="title">Ownership proof mobile benchmark</text>
-  <text x="48" y="75" class="subtitle">Median wall time · 30 measured runs · 5 warmups · lower is better</text>
+  <text x="48" y="75" class="subtitle">Median wall time · fixed 4-thread Rayon pool · 30 measured runs · 5 warmups · lower is better</text>
 
   <rect x="48" y="96" width="12" height="12" rx="2" fill="#4285f4"/>
   <text x="67" y="107" class="legend">Witness generation</text>
@@ -27,28 +27,28 @@
   <!-- Android panel: 180 px = 1000 ms -->
   <text x="48" y="154" class="panel">Android</text>
   <text x="48" y="181" class="device">Moto G71 5G · Android 11</text>
-  <rect x="48" y="194" width="239.2" height="15" rx="3" fill="#4285f4"/>
-  <text x="294" y="206" class="value">1328.91 ms</text>
-  <rect x="48" y="215" width="159.4" height="15" rx="3" fill="#f9ab00"/>
-  <text x="214" y="227" class="value">885.44 ms</text>
-  <rect x="48" y="236" width="397.8" height="15" rx="3" fill="#34a853"/>
-  <text x="453" y="248" class="value">2210.23 ms</text>
+  <rect x="48" y="194" width="236.8" height="15" rx="3" fill="#4285f4"/>
+  <text x="292" y="206" class="value">1315.56 ms</text>
+  <rect x="48" y="215" width="145.5" height="15" rx="3" fill="#f9ab00"/>
+  <text x="201" y="227" class="value">808.33 ms</text>
+  <rect x="48" y="236" width="397.1" height="15" rx="3" fill="#34a853"/>
+  <text x="452" y="248" class="value">2206.00 ms</text>
 
   <text x="48" y="286" class="device">Pixel 7 · Android 13</text>
-  <rect x="48" y="299" width="170.3" height="15" rx="3" fill="#4285f4"/>
-  <text x="225" y="311" class="value">945.85 ms</text>
-  <rect x="48" y="320" width="130.2" height="15" rx="3" fill="#f9ab00"/>
-  <text x="185" y="332" class="value">723.44 ms</text>
-  <rect x="48" y="341" width="308.1" height="15" rx="3" fill="#34a853"/>
-  <text x="363" y="353" class="value">1711.53 ms</text>
+  <rect x="48" y="299" width="163.1" height="15" rx="3" fill="#4285f4"/>
+  <text x="218" y="311" class="value">906.00 ms</text>
+  <rect x="48" y="320" width="125.2" height="15" rx="3" fill="#f9ab00"/>
+  <text x="180" y="332" class="value">695.35 ms</text>
+  <rect x="48" y="341" width="274.4" height="15" rx="3" fill="#34a853"/>
+  <text x="329" y="353" class="value">1524.67 ms</text>
 
   <text x="48" y="391" class="device">Galaxy S24 · Android 14</text>
   <rect x="48" y="404" width="19.7" height="15" rx="3" fill="#4285f4"/>
-  <text x="74" y="416" class="value">109.56 ms</text>
-  <rect x="48" y="425" width="114.4" height="15" rx="3" fill="#f9ab00"/>
-  <text x="169" y="437" class="value">635.54 ms</text>
-  <rect x="48" y="446" width="131.3" height="15" rx="3" fill="#34a853"/>
-  <text x="186" y="458" class="value">729.39 ms</text>
+  <text x="74" y="416" class="value">109.46 ms</text>
+  <rect x="48" y="425" width="89.8" height="15" rx="3" fill="#f9ab00"/>
+  <text x="145" y="437" class="value">498.63 ms</text>
+  <rect x="48" y="446" width="112.1" height="15" rx="3" fill="#34a853"/>
+  <text x="167" y="458" class="value">623.03 ms</text>
 
   <line x1="48" y1="490" x2="498" y2="490" class="axis"/>
   <line x1="48" y1="486" x2="48" y2="494" class="axis"/>
@@ -60,48 +60,50 @@
   <text x="408" y="512" class="tick" text-anchor="middle">2000</text>
   <text x="498" y="512" class="tick" text-anchor="middle">2500 ms</text>
 
-  <!-- iOS panel: 130 px = 100 ms -->
+  <!-- iOS panel: 100 px = 100 ms -->
   <text x="648" y="154" class="panel">iOS</text>
   <text x="648" y="181" class="device">iPhone SE 2022 · iOS 15</text>
-  <rect x="648" y="194" width="160.7" height="15" rx="3" fill="#4285f4"/>
-  <text x="816" y="206" class="value">123.59 ms</text>
-  <rect x="648" y="215" width="205.5" height="15" rx="3" fill="#f9ab00"/>
-  <text x="861" y="227" class="value">158.05 ms</text>
-  <rect x="648" y="236" width="362.9" height="15" rx="3" fill="#34a853"/>
-  <text x="1018" y="248" class="value">279.16 ms</text>
+  <rect x="648" y="194" width="122.6" height="15" rx="3" fill="#4285f4"/>
+  <text x="778" y="206" class="value">122.56 ms</text>
+  <rect x="648" y="215" width="161.6" height="15" rx="3" fill="#f9ab00"/>
+  <text x="817" y="227" class="value">161.61 ms</text>
+  <rect x="648" y="236" width="285.6" height="15" rx="3" fill="#34a853"/>
+  <text x="941" y="248" class="value">285.58 ms</text>
 
   <text x="648" y="286" class="device">iPhone 14 · iOS 16</text>
-  <rect x="648" y="299" width="175.4" height="15" rx="3" fill="#4285f4"/>
-  <text x="831" y="311" class="value">134.95 ms</text>
-  <rect x="648" y="320" width="207.6" height="15" rx="3" fill="#f9ab00"/>
-  <text x="863" y="332" class="value">159.67 ms</text>
-  <rect x="648" y="341" width="382.6" height="15" rx="3" fill="#34a853"/>
-  <text x="1038" y="353" class="value">294.29 ms</text>
+  <rect x="648" y="299" width="237.4" height="15" rx="3" fill="#4285f4"/>
+  <text x="892" y="311" class="value">237.43 ms</text>
+  <rect x="648" y="320" width="162.8" height="15" rx="3" fill="#f9ab00"/>
+  <text x="818" y="332" class="value">162.78 ms</text>
+  <rect x="648" y="341" width="404.7" height="15" rx="3" fill="#34a853"/>
+  <text x="1060" y="353" class="value">404.71 ms</text>
 
   <text x="648" y="391" class="device">iPhone 16 Pro · iOS 18</text>
-  <rect x="648" y="404" width="83.0" height="15" rx="3" fill="#4285f4"/>
-  <text x="738" y="416" class="value">63.88 ms</text>
-  <rect x="648" y="425" width="147.3" height="15" rx="3" fill="#f9ab00"/>
-  <text x="802" y="437" class="value">113.32 ms</text>
-  <rect x="648" y="446" width="230.6" height="15" rx="3" fill="#34a853"/>
-  <text x="886" y="458" class="value">177.41 ms</text>
+  <rect x="648" y="404" width="62.9" height="15" rx="3" fill="#4285f4"/>
+  <text x="718" y="416" class="value">62.93 ms</text>
+  <rect x="648" y="425" width="110.0" height="15" rx="3" fill="#f9ab00"/>
+  <text x="765" y="437" class="value">110.02 ms</text>
+  <rect x="648" y="446" width="176.7" height="15" rx="3" fill="#34a853"/>
+  <text x="832" y="458" class="value">176.71 ms</text>
 
   <line x1="648" y1="490" x2="1103" y2="490" class="axis"/>
   <line x1="648" y1="486" x2="648" y2="494" class="axis"/>
-  <line x1="778" y1="486" x2="778" y2="494" class="axis"/>
-  <line x1="908" y1="486" x2="908" y2="494" class="axis"/>
-  <line x1="1038" y1="486" x2="1038" y2="494" class="axis"/>
-  <line x1="1103" y1="486" x2="1103" y2="494" class="axis"/>
+  <line x1="748" y1="486" x2="748" y2="494" class="axis"/>
+  <line x1="848" y1="486" x2="848" y2="494" class="axis"/>
+  <line x1="948" y1="486" x2="948" y2="494" class="axis"/>
+  <line x1="1048" y1="486" x2="1048" y2="494" class="axis"/>
+  <line x1="1098" y1="486" x2="1098" y2="494" class="axis"/>
   <text x="648" y="512" class="tick" text-anchor="middle">0</text>
-  <text x="778" y="512" class="tick" text-anchor="middle">100</text>
-  <text x="908" y="512" class="tick" text-anchor="middle">200</text>
-  <text x="1038" y="512" class="tick" text-anchor="middle">300</text>
-  <text x="1103" y="512" class="tick" text-anchor="middle">350 ms</text>
+  <text x="748" y="512" class="tick" text-anchor="middle">100</text>
+  <text x="848" y="512" class="tick" text-anchor="middle">200</text>
+  <text x="948" y="512" class="tick" text-anchor="middle">300</text>
+  <text x="1048" y="512" class="tick" text-anchor="middle">400</text>
+  <text x="1098" y="512" class="tick" text-anchor="middle">450 ms</text>
 
   <rect x="48" y="552" width="1104" height="146" rx="10" fill="#f8f9fa" stroke="#e8eaed"/>
   <text x="72" y="584" class="panel">Timing boundaries</text>
   <text x="72" y="616" class="subtitle">Witness generation: ProveKit ACIR witness generation from a prebuilt deterministic InputMap.</text>
   <text x="72" y="644" class="subtitle">Proving: ProveKit proof generation from a precomputed ACIR witness.</text>
   <text x="72" y="672" class="subtitle">Combined: witness generation followed by proving; fixture construction and prover loading are untimed.</text>
-  <text x="48" y="732" class="subtitle">Source: Mobench 0.2.0 BrowserStack runs at commit 802619a700c1862f65fdd43f4c06ecf5794bf568</text>
+  <text x="48" y="732" class="subtitle">Source: Mobench 0.2.0 BrowserStack runs at commit 02ad53dd92e3271daaa4a0558615284dbf25f2ea</text>
 </svg>
