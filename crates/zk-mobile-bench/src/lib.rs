@@ -22,7 +22,7 @@ use rand_chacha::ChaCha20Rng;
 use std::{
     cell::RefCell,
     sync::{
-        Once,
+        OnceLock,
         atomic::{AtomicU64, Ordering},
     },
 };
@@ -268,21 +268,27 @@ thread_local! {
         const { RefCell::new(None) };
 }
 
-const OWNERSHIP_RAYON_THREADS: usize = 4;
-static OWNERSHIP_RAYON_POOL: Once = Once::new();
+static OWNERSHIP_RAYON_THREADS: OnceLock<usize> = OnceLock::new();
 
 fn configure_ownership_rayon_pool() {
-    OWNERSHIP_RAYON_POOL.call_once(|| {
+    let expected_threads = *OWNERSHIP_RAYON_THREADS.get_or_init(|| {
+        let available_threads = std::thread::available_parallelism()
+            .map(usize::from)
+            .expect("ownership benchmark must detect available parallelism");
+
         rayon::ThreadPoolBuilder::new()
-            .num_threads(OWNERSHIP_RAYON_THREADS)
+            .num_threads(available_threads)
             .build_global()
             .expect("ownership benchmark must initialize the Rayon pool first");
+
+        eprintln!("ownership benchmark Rayon threads: {available_threads}");
+        available_threads
     });
 
     assert_eq!(
         rayon::current_num_threads(),
-        OWNERSHIP_RAYON_THREADS,
-        "ownership benchmarks require a fixed four-thread Rayon pool"
+        expected_threads,
+        "ownership benchmarks require all available Rayon threads"
     );
 }
 
