@@ -66,6 +66,7 @@ circom-types = { package = "taceo-circom-types", version = "0.2", default-featur
 coset = "0.4.2"
 eddsa-babyjubjub = { package = "taceo-eddsa-babyjubjub", version = "0.5.5" }
 eyre = "0.6"
+flume = { version = "0.11", default-features = false, features = ["async"] }
 futures = "0.3"
 groth16-material = { package = "taceo-groth16-material", version = "0.3", default-features = false }
 hex = { version = "0.4" }

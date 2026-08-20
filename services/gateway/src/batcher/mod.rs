@@ -10,10 +10,7 @@ pub(crate) use ops::{OpsBatcher, OpsEnvelope};
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use alloy::{primitives::Bytes, providers::DynProvider, rpc::types::TransactionRequest};
-use tokio::{
-    sync::{Mutex, mpsc},
-    time::Instant,
-};
+use tokio::time::Instant;
 use uuid::Uuid;
 use world_id_primitives::api_types::{CreateAccountRequest, GatewayRequestState};
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
@@ -112,8 +109,8 @@ where
     E: BatcherEnvelope,
     S: BatchSubmitStrategy<E>,
 {
-    tx: mpsc::Sender<E>,
-    rx: Mutex<mpsc::Receiver<E>>,
+    tx: flume::Sender<E>,
+    rx: flume::Receiver<E>,
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     submitter: Arc<TransactionSubmitter>,
     max_batch_size: usize,
@@ -136,11 +133,11 @@ where
         batch_policy: BatchPolicyConfig,
         base_fee_cache: BaseFeeCache,
     ) -> Self {
-        let (tx, rx) = mpsc::channel(local_queue_limit.max(1));
+        let (tx, rx) = flume::bounded(local_queue_limit.max(1));
 
         Self {
             tx,
-            rx: Mutex::new(rx),
+            rx,
             registry,
             submitter,
             max_batch_size,
@@ -152,12 +149,11 @@ where
     }
 
     pub async fn enqueue(&self, envelope: E) -> bool {
-        self.tx.send(envelope).await.is_ok()
+        self.tx.send_async(envelope).await.is_ok()
     }
 
     pub async fn run(&self) {
-        let mut rx = self.rx.lock().await;
-        self.run_policy_loop(&mut rx).await;
+        self.run_policy_loop().await;
     }
 
     async fn submit_common(&self, batch: Vec<E>) {
@@ -202,7 +198,7 @@ where
         queue.clear();
     }
 
-    async fn run_policy_loop(&self, rx: &mut mpsc::Receiver<E>) {
+    async fn run_policy_loop(&self) {
         let mut policy_engine = BatchPolicyEngine::new(self.batch_policy.clone());
         let reeval_interval = Duration::from_millis(self.batch_policy.reeval_ms);
 
@@ -226,7 +222,7 @@ where
                     break;
                 }
 
-                let maybe_first = rx.recv().await;
+                let maybe_first = self.rx.recv_async().await.ok();
                 match maybe_first {
                     Some(first) => {
                         queue.push_back(TimedEnvelope {
@@ -247,7 +243,7 @@ where
             let event = tokio::select! {
                 biased;
                 _ = tokio::time::sleep_until(next_eval) => PolicyLoopEvent::Tick,
-                maybe_req = rx.recv(), if can_recv => PolicyLoopEvent::Recv(maybe_req),
+                maybe_req = self.rx.recv_async(), if can_recv => PolicyLoopEvent::Recv(maybe_req.ok()),
             };
 
             match event {
