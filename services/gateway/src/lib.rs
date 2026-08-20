@@ -2,10 +2,7 @@
 
 use crate::app::{build_gateway, serve_gateway};
 pub use crate::{
-    config::{
-        BatchPolicyConfig, BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig,
-        RegistryVersion, defaults,
-    },
+    config::{BatchPolicyConfig, GatewayConfig, RateLimitConfig, RegistryVersion, defaults},
     transaction_submitter::{RequestRecord, now_unix_secs},
 };
 use std::{backtrace::Backtrace, net::SocketAddr};

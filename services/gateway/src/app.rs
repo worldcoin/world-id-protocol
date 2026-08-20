@@ -44,17 +44,14 @@ impl Gateway {
         registry: Arc<Registry>,
         wallets: Vec<ProviderWallet>,
     ) -> GatewayResult<Self> {
-        let batcher_config = config.batcher();
         let batch_policy_config = config.batch_policy.clone();
-        let rate_limit = config.rate_limit();
-        let sweeper_config = config.sweeper();
         let submitter = TransactionSubmitter::connect(
             *registry.address(),
             wallets,
             &config.redis_url,
-            rate_limit,
-            Duration::from_secs(sweeper_config.interval_secs),
-            Duration::from_secs(sweeper_config.stale_submitted_threshold_secs),
+            config.rate_limit.clone(),
+            Duration::from_secs(config.transaction_tracker_interval_secs),
+            Duration::from_secs(config.stale_submitted_threshold_secs),
         )
         .await?;
 
@@ -63,7 +60,7 @@ impl Gateway {
         let create_batcher = Arc::new(CreateBatcher::new(
             registry.clone(),
             submitter.clone(),
-            batcher_config.max_create_batch_size,
+            config.max_create_batch_size,
             CREATE_BATCHER_CHANNEL_CAPACITY,
             batch_policy_config.clone(),
             base_fee_cache.clone(),
@@ -71,7 +68,7 @@ impl Gateway {
         let ops_batcher = Arc::new(OpsBatcher::new(
             registry.clone(),
             submitter.clone(),
-            batcher_config.max_ops_batch_size,
+            config.max_ops_batch_size,
             OPS_BATCHER_CHANNEL_CAPACITY,
             batch_policy_config,
             base_fee_cache.clone(),
