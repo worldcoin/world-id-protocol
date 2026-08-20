@@ -7,7 +7,8 @@ use alloy::{
 };
 use reqwest::{Client, StatusCode};
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, RegistryVersion, defaults, spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, RateLimitConfig, RegistryVersion, defaults,
+    spawn_gateway_for_tests,
 };
 use world_id_primitives::api_types::{InsertAuthenticatorRequest, UpdateAuthenticatorRequest};
 use world_id_registries::world_id::{InsertAuthenticatorTypedData, UpdateAuthenticatorTypedData};
@@ -75,9 +76,11 @@ async fn test_rate_limit_basic() {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
-        rate_limit_window_secs: Some(10),
-        rate_limit_max_requests: Some(3),
-        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        rate_limit: RateLimitConfig {
+            window_secs: Some(10),
+            max_requests: Some(3),
+        },
+        transaction_tracker_interval_secs: defaults::TRANSACTION_TRACKER_INTERVAL_SECS,
         stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
         batch_policy: BatchPolicyConfig::default(),
@@ -283,9 +286,11 @@ async fn test_rate_limit_different_leaf_indexes() {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
-        rate_limit_window_secs: Some(10),
-        rate_limit_max_requests: Some(2),
-        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        rate_limit: RateLimitConfig {
+            window_secs: Some(10),
+            max_requests: Some(2),
+        },
+        transaction_tracker_interval_secs: defaults::TRANSACTION_TRACKER_INTERVAL_SECS,
         stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
         batch_policy: BatchPolicyConfig::default(),
@@ -440,9 +445,11 @@ async fn test_rate_limit_sliding_window() {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
-        rate_limit_window_secs: Some(3),
-        rate_limit_max_requests: Some(2),
-        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        rate_limit: RateLimitConfig {
+            window_secs: Some(3),
+            max_requests: Some(2),
+        },
+        transaction_tracker_interval_secs: defaults::TRANSACTION_TRACKER_INTERVAL_SECS,
         stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
         batch_policy: BatchPolicyConfig::default(),
@@ -594,9 +601,11 @@ async fn test_rate_limit_multiple_endpoints() {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         redis_url: redis_url.clone(),
         request_timeout_secs: 10,
-        rate_limit_window_secs: Some(10),
-        rate_limit_max_requests: Some(3),
-        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        rate_limit: RateLimitConfig {
+            window_secs: Some(10),
+            max_requests: Some(3),
+        },
+        transaction_tracker_interval_secs: defaults::TRANSACTION_TRACKER_INTERVAL_SECS,
         stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
         batch_policy: BatchPolicyConfig::default(),

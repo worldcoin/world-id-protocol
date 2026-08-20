@@ -12762,6 +12762,7 @@ dependencies = [
  "axum",
  "clap",
  "dotenvy",
+ "flume",
  "futures",
  "hex",
  "http 1.4.0",

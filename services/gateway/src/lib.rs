@@ -1,17 +1,14 @@
 #![recursion_limit = "256"]
 
+use crate::app::{build_gateway, serve_gateway};
 pub use crate::{
-    config::{
-        BatchPolicyConfig, BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig,
-        RegistryVersion, defaults,
-    },
+    config::{BatchPolicyConfig, GatewayConfig, RateLimitConfig, RegistryVersion, defaults},
     transaction_submitter::{RequestRecord, now_unix_secs},
 };
-use crate::{routes::build_app, types::AppState};
-use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};
+use std::{backtrace::Backtrace, net::SocketAddr};
 use tokio::sync::oneshot;
-use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
+mod app;
 mod batch_policy;
 mod batch_type;
 mod batcher;
@@ -26,6 +23,7 @@ mod types;
 
 // Re-export common types
 pub use crate::error::{GatewayError, GatewayResult};
+pub use app::Gateway;
 pub use world_id_services_common::{ProviderArgs, SignerArgs};
 
 #[derive(Debug)]
@@ -48,29 +46,6 @@ impl GatewayHandle {
 
 /// For tests only: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<GatewayHandle> {
-    let batcher_config = cfg.batcher();
-    let rate_limit = cfg.rate_limit();
-    let sweeper_config = cfg.sweeper();
-
-    let wallets = cfg.provider.clone().http_wallets().await?;
-    let provider = Arc::new(wallets[0].provider.clone());
-    let registry = Arc::new(WorldIdRegistryInstance::new(
-        cfg.registry_addr,
-        provider.clone(),
-    ));
-    let app = build_app(
-        registry,
-        wallets,
-        cfg.registry_version,
-        batcher_config,
-        cfg.redis_url,
-        rate_limit,
-        cfg.request_timeout_secs,
-        sweeper_config,
-        cfg.batch_policy.clone(),
-    )
-    .await?;
-
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
         .await
         .map_err(|source| GatewayError::Bind {
@@ -83,17 +58,12 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
             source,
             backtrace: Backtrace::capture().to_string(),
         })?;
+    let gateway = build_gateway(cfg).await?;
 
     let (tx, rx) = oneshot::channel::<()>();
-    let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+    let join = tokio::spawn(serve_gateway(gateway, listener, async move {
         let _ = rx.await;
-    });
-    let join = tokio::spawn(async move {
-        server.await.map_err(|e| GatewayError::Serve {
-            source: e,
-            backtrace: Backtrace::capture().to_string(),
-        })
-    });
+    }));
     Ok(GatewayHandle {
         shutdown: Some(tx),
         join,
@@ -104,45 +74,17 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
 // Public API: run to completion (blocking future) using env vars (bin-compatible)
 pub async fn run() -> GatewayResult<()> {
     let cfg = GatewayConfig::from_env()?;
-
-    let batcher_config = cfg.batcher();
-    let rate_limit = cfg.rate_limit();
-    let sweeper_config = cfg.sweeper();
-
-    let wallets = cfg.provider.clone().http_wallets().await?;
-    let provider = Arc::new(wallets[0].provider.clone());
-    let registry = Arc::new(WorldIdRegistryInstance::new(
-        cfg.registry_addr,
-        provider.clone(),
-    ));
-    tracing::info!(
-        registry_version = ?cfg.registry_version,
-        "Config is ready. Building app..."
-    );
-    let app = build_app(
-        registry,
-        wallets,
-        cfg.registry_version,
-        batcher_config,
-        cfg.redis_url,
-        rate_limit,
-        cfg.request_timeout_secs,
-        sweeper_config,
-        cfg.batch_policy.clone(),
-    )
-    .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
         .await
         .map_err(|source| GatewayError::Bind {
             source,
             backtrace: Backtrace::capture().to_string(),
         })?;
+    tracing::info!(
+        registry_version = ?cfg.registry_version,
+        "Config is ready. Building gateway..."
+    );
     tracing::info!("HTTP server listening on {}", cfg.listen_addr);
-    axum::serve(listener, app)
-        .await
-        .map_err(|e| GatewayError::Serve {
-            source: e,
-            backtrace: Backtrace::capture().to_string(),
-        })?;
-    Ok(())
+    let gateway = build_gateway(cfg).await?;
+    serve_gateway(gateway, listener, std::future::pending()).await
 }

@@ -34,7 +34,7 @@ use world_id_core::{
     requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
 };
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
+    BatchPolicyConfig, GatewayConfig, RateLimitConfig, RegistryVersion, SignerArgs, defaults,
     spawn_gateway_for_tests,
 };
 use world_id_primitives::{
@@ -94,9 +94,8 @@ async fn main() -> Result<()> {
         redis_url: std::env::var("REDIS_URL")
             .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
         request_timeout_secs: 10,
-        rate_limit_max_requests: None,
-        rate_limit_window_secs: None,
-        sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+        rate_limit: RateLimitConfig::default(),
+        transaction_tracker_interval_secs: defaults::TRANSACTION_TRACKER_INTERVAL_SECS,
         stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
         batch_policy: BatchPolicyConfig::default(),

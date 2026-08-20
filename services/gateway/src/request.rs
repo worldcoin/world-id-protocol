@@ -1,17 +1,10 @@
 use std::sync::Arc;
 
 use crate::{
-    batcher::{BatcherHandle, Command},
-    config::RegistryVersion,
-    error::GatewayErrorResponse,
+    app::Gateway, batcher::Command, error::GatewayErrorResponse,
     routes::validation::RequestValidation,
-    transaction_submitter::TransactionSubmitter,
 };
-use alloy::{
-    primitives::{Bytes, U256},
-    providers::DynProvider,
-};
-use moka::future::Cache;
+use alloy::{primitives::Bytes, providers::DynProvider};
 use uuid::Uuid;
 use world_id_primitives::api_types::{
     CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
@@ -23,16 +16,6 @@ use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 /// Type alias for the registry instance.
 pub type Registry = WorldIdRegistryInstance<Arc<DynProvider>>;
-
-/// Context required for request validation and submission.
-#[derive(Clone)]
-pub struct GatewayContext {
-    pub registry: Arc<Registry>,
-    pub registry_version: RegistryVersion,
-    pub submitter: Arc<TransactionSubmitter>,
-    pub batcher: BatcherHandle,
-    pub root_cache: Cache<U256, U256>,
-}
 
 /// A request that has been validated and is ready for submission.
 pub struct Request<T> {
@@ -106,7 +89,7 @@ pub trait IntoRequest: RequestValidation + Sized {
     async fn into_request(
         self,
         id: Uuid,
-        ctx: &GatewayContext,
+        ctx: &Gateway,
     ) -> Result<Request<Self>, GatewayErrorResponse> {
         let calldata = self.validate_and_calldata(ctx).await?;
 
@@ -126,7 +109,7 @@ pub trait IntoRequestWithRateLimit: IntoRequest + HasLeafIndex {
     async fn into_request_with_rate_limit(
         self,
         id: Uuid,
-        ctx: &GatewayContext,
+        ctx: &Gateway,
     ) -> Result<Request<Self>, GatewayErrorResponse> {
         // Check rate limit first (before validation to save resources)
         // We do also count rate limitted requests.
@@ -154,10 +137,7 @@ impl IntoCommand for CreateAccountRequest {
 
 impl Request<CreateAccountRequest> {
     /// Submit the request for processing.
-    pub async fn submit(
-        self,
-        ctx: &GatewayContext,
-    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+    pub async fn submit(self, ctx: &Gateway) -> Result<SubmittedRequest, GatewayErrorResponse> {
         submit_request(self, ctx).await
     }
 }
@@ -185,10 +165,7 @@ impl IntoCommand for InsertAuthenticatorRequest {
 impl IntoRequestWithRateLimit for InsertAuthenticatorRequest {}
 
 impl Request<InsertAuthenticatorRequest> {
-    pub async fn submit(
-        self,
-        ctx: &GatewayContext,
-    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+    pub async fn submit(self, ctx: &Gateway) -> Result<SubmittedRequest, GatewayErrorResponse> {
         submit_request(self, ctx).await
     }
 }
@@ -216,10 +193,7 @@ impl IntoCommand for UpdateAuthenticatorRequest {
 impl IntoRequestWithRateLimit for UpdateAuthenticatorRequest {}
 
 impl Request<UpdateAuthenticatorRequest> {
-    pub async fn submit(
-        self,
-        ctx: &GatewayContext,
-    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+    pub async fn submit(self, ctx: &Gateway) -> Result<SubmittedRequest, GatewayErrorResponse> {
         submit_request(self, ctx).await
     }
 }
@@ -247,10 +221,7 @@ impl IntoCommand for RemoveAuthenticatorRequest {
 impl IntoRequestWithRateLimit for RemoveAuthenticatorRequest {}
 
 impl Request<RemoveAuthenticatorRequest> {
-    pub async fn submit(
-        self,
-        ctx: &GatewayContext,
-    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+    pub async fn submit(self, ctx: &Gateway) -> Result<SubmittedRequest, GatewayErrorResponse> {
         submit_request(self, ctx).await
     }
 }
@@ -278,10 +249,7 @@ impl IntoCommand for UpdateRecoveryAgentRequest {
 impl IntoRequestWithRateLimit for UpdateRecoveryAgentRequest {}
 
 impl Request<UpdateRecoveryAgentRequest> {
-    pub async fn submit(
-        self,
-        ctx: &GatewayContext,
-    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+    pub async fn submit(self, ctx: &Gateway) -> Result<SubmittedRequest, GatewayErrorResponse> {
         submit_request(self, ctx).await
     }
 }
@@ -309,10 +277,7 @@ impl IntoCommand for CancelRecoveryAgentUpdateRequest {
 impl IntoRequestWithRateLimit for CancelRecoveryAgentUpdateRequest {}
 
 impl Request<CancelRecoveryAgentUpdateRequest> {
-    pub async fn submit(
-        self,
-        ctx: &GatewayContext,
-    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+    pub async fn submit(self, ctx: &Gateway) -> Result<SubmittedRequest, GatewayErrorResponse> {
         submit_request(self, ctx).await
     }
 }
@@ -340,10 +305,7 @@ impl IntoCommand for ExecuteRecoveryAgentUpdateRequest {
 impl IntoRequestWithRateLimit for ExecuteRecoveryAgentUpdateRequest {}
 
 impl Request<ExecuteRecoveryAgentUpdateRequest> {
-    pub async fn submit(
-        self,
-        ctx: &GatewayContext,
-    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+    pub async fn submit(self, ctx: &Gateway) -> Result<SubmittedRequest, GatewayErrorResponse> {
         submit_request(self, ctx).await
     }
 }
@@ -375,10 +337,7 @@ impl IntoCommand for UpdateRecoveryAgentV2Request {
 impl IntoRequestWithRateLimit for UpdateRecoveryAgentV2Request {}
 
 impl Request<UpdateRecoveryAgentV2Request> {
-    pub async fn submit(
-        self,
-        ctx: &GatewayContext,
-    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+    pub async fn submit(self, ctx: &Gateway) -> Result<SubmittedRequest, GatewayErrorResponse> {
         submit_request(self, ctx).await
     }
 }
@@ -405,10 +364,7 @@ impl IntoCommand for RevertRecoveryAgentUpdateRequest {
 impl IntoRequestWithRateLimit for RevertRecoveryAgentUpdateRequest {}
 
 impl Request<RevertRecoveryAgentUpdateRequest> {
-    pub async fn submit(
-        self,
-        ctx: &GatewayContext,
-    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+    pub async fn submit(self, ctx: &Gateway) -> Result<SubmittedRequest, GatewayErrorResponse> {
         submit_request(self, ctx).await
     }
 }
@@ -436,10 +392,7 @@ impl IntoCommand for RecoverAccountRequest {
 impl IntoRequestWithRateLimit for RecoverAccountRequest {}
 
 impl Request<RecoverAccountRequest> {
-    pub async fn submit(
-        self,
-        ctx: &GatewayContext,
-    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+    pub async fn submit(self, ctx: &Gateway) -> Result<SubmittedRequest, GatewayErrorResponse> {
         submit_request(self, ctx).await
     }
 }
@@ -450,7 +403,7 @@ impl Request<RecoverAccountRequest> {
 /// locks), then submits the pre-built command to the batcher.
 async fn submit_request<T>(
     request: Request<T>,
-    ctx: &GatewayContext,
+    ctx: &Gateway,
 ) -> Result<SubmittedRequest, GatewayErrorResponse>
 where
     T: IntoCommand,
@@ -463,6 +416,9 @@ where
     } = request;
     let inflight_keys = payload.inflight_keys();
     let cmd = T::into_command(id, payload, calldata);
+
+    // TODO: We operate on both submitter & batcher here - we should consider extracting a single
+    //       entrypoint for this submission operation.
 
     ctx.submitter
         .new_request_with_id(id.to_string(), kind, inflight_keys)

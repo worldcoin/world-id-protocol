@@ -18,7 +18,6 @@ pub(crate) async fn request_status(
 ) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
     let raw_id = id.as_str_without_prefix();
     let record = state
-        .ctx
         .submitter
         .snapshot(raw_id)
         .await

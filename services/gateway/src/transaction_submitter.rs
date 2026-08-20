@@ -38,7 +38,7 @@ pub(crate) struct TransactionSubmitter {
     wallets: Vec<WalletEntry>,
     wallet_store: WalletStore,
     request_store: RequestStore,
-    rate_limit: Option<RateLimitConfig>,
+    rate_limit: RateLimitConfig,
     next_wallet: AtomicUsize,
     wallet_released: Notify,
     receipt_timeout: Duration,
@@ -57,7 +57,7 @@ impl TransactionSubmitter {
         registry_address: Address,
         wallets: Vec<ProviderWallet>,
         redis_url: &str,
-        rate_limit: Option<RateLimitConfig>,
+        rate_limit: RateLimitConfig,
         tracker_interval: Duration,
         receipt_timeout: Duration,
     ) -> GatewayResult<Arc<Self>> {
@@ -95,10 +95,6 @@ impl TransactionSubmitter {
             receipt_timeout,
             tracker_interval,
         });
-
-        // TODO: We should move task spawning to app initialization
-        //       and track each task's JoinHandle to catch panics
-        tokio::spawn(submitter.clone().run_tracker());
 
         Ok(submitter)
     }
@@ -237,10 +233,11 @@ impl TransactionSubmitter {
         leaf_index: u64,
         request_id: &str,
     ) -> Result<(), GatewayErrorResponse> {
-        let Some(ref rl) = self.rate_limit else {
+        let (Some(window_secs), Some(max_requests)) =
+            (self.rate_limit.window_secs, self.rate_limit.max_requests)
+        else {
             return Ok(());
         };
-        let (window_secs, max_requests) = (rl.window_secs, rl.max_requests);
 
         let result = self
             .request_store
@@ -389,7 +386,7 @@ impl TransactionSubmitter {
         Ok(())
     }
 
-    async fn run_tracker(self: Arc<Self>) {
+    pub(crate) async fn run_tracker(self: Arc<Self>) {
         loop {
             if let Err(error) = self.track_transactions().await {
                 tracing::error!(%error, "failed to track persisted wallet transactions");
@@ -668,7 +665,7 @@ mod tests {
             Address::ZERO,
             vec![provider_wallet(first), provider_wallet(second)],
             &url,
-            None,
+            RateLimitConfig::default(),
             Duration::from_secs(60),
             Duration::from_secs(60),
         )
@@ -699,7 +696,7 @@ mod tests {
             Address::ZERO,
             vec![provider_wallet(wallet)],
             &url,
-            None,
+            RateLimitConfig::default(),
             Duration::from_secs(60),
             Duration::from_secs(10),
         )

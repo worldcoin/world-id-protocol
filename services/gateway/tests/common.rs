@@ -6,8 +6,8 @@ use testcontainers_modules::{
     testcontainers::{ContainerAsync, ImageExt as _, runners::AsyncRunner as _},
 };
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, GatewayHandle, RegistryVersion, SignerArgs, defaults,
-    spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, GatewayHandle, RateLimitConfig, RegistryVersion, SignerArgs,
+    defaults, spawn_gateway_for_tests,
 };
 use world_id_primitives::api_types::{GatewayRequestState, GatewayStatusResponse};
 use world_id_services_common::ProviderArgs;
@@ -65,7 +65,7 @@ fn spawn_test_anvil() -> TestAnvil {
 /// Spawn a test gateway backed by a forked anvil chain and a Redis container.
 ///
 /// * `batch_ms` – when `None` the gateway uses `BatchPolicyConfig::default()`
-///   and the standard sweeper/stale thresholds.  Pass `Some(ms)` to configure
+///   and the standard tracker/stale thresholds. Pass `Some(ms)` to configure
 ///   a custom batch window (used by `test_inflight.rs`).
 #[allow(dead_code)]
 pub(crate) async fn spawn_test_gateway(batch_ms: Option<u64>) -> TestGateway {
@@ -178,9 +178,8 @@ async fn spawn_test_gateway_for_registry(
             listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
             redis_url: redis_url.clone(),
             request_timeout_secs: 10,
-            rate_limit_window_secs: None,
-            rate_limit_max_requests: None,
-            sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
+            rate_limit: RateLimitConfig::default(),
+            transaction_tracker_interval_secs: defaults::TRANSACTION_TRACKER_INTERVAL_SECS,
             stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
             stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
             batch_policy: BatchPolicyConfig::default(),
@@ -206,9 +205,8 @@ async fn spawn_test_gateway_for_registry(
                 max_ops_batch_size: 10,
                 redis_url: redis_url.clone(),
                 request_timeout_secs: 10,
-                rate_limit_window_secs: None,
-                rate_limit_max_requests: None,
-                sweeper_interval_secs: max_wait_secs + 1,
+                rate_limit: RateLimitConfig::default(),
+                transaction_tracker_interval_secs: max_wait_secs + 1,
                 stale_queued_threshold_secs: max_wait_secs + 1,
                 stale_submitted_threshold_secs: 600,
             }
