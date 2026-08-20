@@ -1,7 +1,10 @@
-use crate::request::GatewayContext;
+use crate::app::Gateway;
 use alloy::primitives::U256;
 use moka::Expiry;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 
 /// Maximum number of authenticators per account (matches contract default).
 pub(crate) const MAX_AUTHENTICATORS: u32 = 7;
@@ -62,8 +65,4 @@ impl Expiry<U256, U256> for RootExpiry {
 }
 
 /// Shared application state for gateway handlers.
-#[derive(Clone)]
-pub(crate) struct AppState {
-    /// Gateway context for request validation and submission.
-    pub(crate) ctx: GatewayContext,
-}
+pub(crate) type AppState = Arc<Gateway>;

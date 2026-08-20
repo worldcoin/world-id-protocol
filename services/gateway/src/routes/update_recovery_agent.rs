@@ -23,7 +23,7 @@ pub(crate) async fn update_recovery_agent(
     Extension(RequestId(id)): Extension<RequestId>,
     Json(payload): Json<UpdateRecoveryAgentRequest>,
 ) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
-    if state.ctx.registry_version == RegistryVersion::V1 {
+    if state.config.registry_version == RegistryVersion::V1 {
         return Err(GatewayErrorResponse::new(
             GatewayErrorCode::MethodNotAvailable,
             "POST /update-recovery-agent requires the registry to be on V2 (WIP-102). \
@@ -33,9 +33,9 @@ pub(crate) async fn update_recovery_agent(
         ));
     }
     UpdateRecoveryAgentV2Request(payload)
-        .into_request_with_rate_limit(id, &state.ctx)
+        .into_request_with_rate_limit(id, &state)
         .await?
-        .submit(&state.ctx)
+        .submit(&state)
         .await
         .map(|r| Json(r.into_response()))
 }

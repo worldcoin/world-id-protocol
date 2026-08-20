@@ -11,12 +11,11 @@ use alloy::{
     providers::DynProvider,
     rpc::types::TransactionRequest,
 };
-use tokio::sync::mpsc;
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::batch_type::BatchType;
 
-use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner};
+use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcher};
 
 const MULTICALL3_ADDR: Address = address!("0xca11bde05977b3631167028862be2a173976ca11");
 
@@ -28,11 +27,6 @@ alloy::sol! {
         struct Result { bool success; bytes returnData; }
         function aggregate3(Call3[] calldata calls) payable returns (Result[] memory returnData);
     }
-}
-
-#[derive(Clone)]
-pub struct OpsBatcherHandle {
-    pub tx: mpsc::Sender<OpsEnvelope>,
 }
 
 /// Envelope for ops batcher containing pre-computed calldata for a single
@@ -80,4 +74,4 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
     }
 }
 
-pub type OpsBatcherRunner = GenericBatcherRunner<OpsEnvelope, OpsStrategy>;
+pub type OpsBatcher = GenericBatcher<OpsEnvelope, OpsStrategy>;

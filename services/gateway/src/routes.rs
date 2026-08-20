@@ -1,16 +1,5 @@
-use std::{sync::Arc, time::Duration};
-
 use crate::{
-    AppState,
-    batch_policy::{BaseFeeCache, spawn_base_fee_sampler},
-    batcher::{
-        BatcherHandle, CreateBatcherHandle, CreateBatcherRunner, OpsBatcherHandle, OpsBatcherRunner,
-    },
-    config::{
-        BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig, RegistryVersion,
-    },
-    error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
-    request::GatewayContext,
+    error::{GatewayErrorBody, GatewayErrorResponse},
     routes::{
         cancel_recovery_agent_update::cancel_recovery_agent_update,
         create_account::create_account,
@@ -26,10 +15,8 @@ use crate::{
         update_authenticator::update_authenticator,
         update_recovery_agent::update_recovery_agent,
     },
-    transaction_submitter::TransactionSubmitter,
-    types::RootExpiry,
+    types::AppState,
 };
-use alloy::providers::DynProvider;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -37,8 +24,6 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
-use moka::future::Cache;
-use tokio::sync::mpsc;
 use utoipa::OpenApi;
 use world_id_primitives::api_types::{
     CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
@@ -47,8 +32,7 @@ use world_id_primitives::api_types::{
     RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     UpdateRecoveryAgentRequest,
 };
-use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
-use world_id_services_common::{ProviderWallet, V1RecoveryAgentMethodsDeprecationLayer};
+use world_id_services_common::V1RecoveryAgentMethodsDeprecationLayer;
 
 // Health and status routes
 mod health;
@@ -77,87 +61,9 @@ mod is_valid_root;
 pub(crate) mod middleware;
 pub(crate) mod validation;
 
-const ROOT_CACHE_SIZE: u64 = 1024;
-const CREATE_BATCHER_CHANNEL_CAPACITY: usize = 1024;
-const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
-
-#[expect(clippy::too_many_arguments)]
-pub(crate) async fn build_app(
-    registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-    wallets: Vec<ProviderWallet>,
-    registry_version: RegistryVersion,
-    batcher_config: BatcherConfig,
-    redis_url: String,
-    rate_limit: Option<RateLimitConfig>,
-    request_timeout_secs: u64,
-    orphan_sweeper_config: OrphanSweeperConfig,
-    batch_policy_config: BatchPolicyConfig,
-) -> GatewayResult<Router> {
-    let submitter = TransactionSubmitter::connect(
-        *registry.address(),
-        wallets,
-        &redis_url,
-        rate_limit,
-        Duration::from_secs(orphan_sweeper_config.interval_secs),
-        Duration::from_secs(orphan_sweeper_config.stale_submitted_threshold_secs),
-    )
-    .await?;
-    let base_fee_cache = BaseFeeCache::default();
-
-    spawn_base_fee_sampler(
-        registry.provider().clone(),
-        Duration::from_millis(batch_policy_config.reeval_ms),
-        base_fee_cache.clone(),
-    );
-
-    let (tx, rx) = mpsc::channel(CREATE_BATCHER_CHANNEL_CAPACITY);
-    let batcher = CreateBatcherHandle { tx };
-    let runner = CreateBatcherRunner::new(
-        registry.clone(),
-        submitter.clone(),
-        batcher_config.max_create_batch_size,
-        CREATE_BATCHER_CHANNEL_CAPACITY,
-        rx,
-        batch_policy_config.clone(),
-        base_fee_cache.clone(),
-    );
-    tokio::spawn(runner.run());
-
-    // ops batcher (insert/remove/recover/update)
-    let (otx, orx) = mpsc::channel(OPS_BATCHER_CHANNEL_CAPACITY);
-    let ops_batcher = OpsBatcherHandle { tx: otx };
-    let ops_runner = OpsBatcherRunner::new(
-        registry.clone(),
-        submitter.clone(),
-        batcher_config.max_ops_batch_size,
-        OPS_BATCHER_CHANNEL_CAPACITY,
-        orx,
-        batch_policy_config,
-        base_fee_cache,
-    );
-    tokio::spawn(ops_runner.run());
-
-    tracing::info!("Ops batcher initialized");
-
-    let root_cache = Cache::builder()
-        .max_capacity(ROOT_CACHE_SIZE)
-        .expire_after(RootExpiry)
-        .build();
-
-    let batcher_handle = BatcherHandle {
-        create: batcher,
-        ops: ops_batcher,
-    };
-    let ctx = GatewayContext {
-        registry: registry.clone(),
-        registry_version,
-        submitter,
-        batcher: batcher_handle,
-        root_cache,
-    };
-    let state = AppState { ctx };
-
-    Ok(Router::new()
+pub(crate) fn router(state: AppState) -> Router {
+    let request_timeout_secs = state.config.request_timeout_secs;
+    Router::new()
         .route("/health", get(health))
         // account creation (batched)
         .route("/create-account", post(create_account))
@@ -201,7 +107,7 @@ pub(crate) async fn build_app(
             request_timeout_secs,
             GatewayErrorResponse::request_timeout(request_timeout_secs),
         ))
-        .layer(world_id_services_common::trace_layer()))
+        .layer(world_id_services_common::trace_layer())
 }
 
 #[utoipa::path(

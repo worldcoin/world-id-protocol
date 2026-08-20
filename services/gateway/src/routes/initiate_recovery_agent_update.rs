@@ -24,17 +24,17 @@ pub(crate) async fn initiate_recovery_agent_update(
     Extension(RequestId(id)): Extension<RequestId>,
     Json(payload): Json<UpdateRecoveryAgentRequest>,
 ) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
-    match state.ctx.registry_version {
+    match state.config.registry_version {
         RegistryVersion::V1 => payload
-            .into_request_with_rate_limit(id, &state.ctx)
+            .into_request_with_rate_limit(id, &state)
             .await?
-            .submit(&state.ctx)
+            .submit(&state)
             .await
             .map(|r| Json(r.into_response())),
         RegistryVersion::V2 => UpdateRecoveryAgentV2Request(payload)
-            .into_request_with_rate_limit(id, &state.ctx)
+            .into_request_with_rate_limit(id, &state)
             .await?
-            .submit(&state.ctx)
+            .submit(&state)
             .await
             .map(|r| Json(r.into_response())),
     }

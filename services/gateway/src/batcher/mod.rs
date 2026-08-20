@@ -1,16 +1,19 @@
-//! Unified batcher abstraction: generic policy-driven runner, per-batcher
-//! strategies, and the public handle/command routing layer.
+//! Unified batcher abstraction: generic policy-driven batching, per-batcher
+//! strategies, and command routing.
 
 mod create;
 mod ops;
 
-pub(crate) use create::{CreateBatcherHandle, CreateBatcherRunner, CreateReqEnvelope};
-pub(crate) use ops::{OpsBatcherHandle, OpsBatcherRunner, OpsEnvelope};
+pub(crate) use create::{CreateBatcher, CreateReqEnvelope};
+pub(crate) use ops::{OpsBatcher, OpsEnvelope};
 
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use alloy::{primitives::Bytes, providers::DynProvider, rpc::types::TransactionRequest};
-use tokio::{sync::mpsc, time::Instant};
+use tokio::{
+    sync::{Mutex, mpsc},
+    time::Instant,
+};
 use uuid::Uuid;
 use world_id_primitives::api_types::{CreateAccountRequest, GatewayRequestState};
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
@@ -26,14 +29,14 @@ use crate::{
     transaction_submitter::TransactionSubmitter,
 };
 
-/// Unified batcher handle that routes to the appropriate batcher.
+/// Unified batcher component that routes commands to the appropriate queue.
 #[derive(Clone)]
-pub struct BatcherHandle {
-    pub create: CreateBatcherHandle,
-    pub ops: OpsBatcherHandle,
+pub struct Batcher {
+    pub(crate) create: Arc<CreateBatcher>,
+    pub(crate) ops: Arc<OpsBatcher>,
 }
 
-impl BatcherHandle {
+impl Batcher {
     /// Submit a command to the appropriate batcher.
     pub async fn submit(&self, cmd: Command) -> bool {
         match cmd {
@@ -42,14 +45,14 @@ impl BatcherHandle {
                     id: id.to_string(),
                     req,
                 };
-                self.create.tx.send(envelope).await.is_ok()
+                self.create.enqueue(envelope).await
             }
             Command::Operation { id, calldata } => {
                 let envelope = OpsEnvelope {
                     id: id.to_string(),
                     calldata,
                 };
-                self.ops.tx.send(envelope).await.is_ok()
+                self.ops.enqueue(envelope).await
             }
         }
     }
@@ -82,7 +85,9 @@ pub(crate) trait BatcherEnvelope: Send + 'static {
 }
 
 /// Strategy trait that captures the per-batcher transaction construction.
-pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>: Send + Default + 'static {
+pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>:
+    Send + Sync + Default + 'static
+{
     fn batch_type(&self) -> BatchType;
 
     fn build_tx(
@@ -102,12 +107,13 @@ enum PolicyLoopEvent<T> {
     Recv(Option<T>),
 }
 
-pub(crate) struct GenericBatcherRunner<E, S>
+pub(crate) struct GenericBatcher<E, S>
 where
     E: BatcherEnvelope,
     S: BatchSubmitStrategy<E>,
 {
-    rx: mpsc::Receiver<E>,
+    tx: mpsc::Sender<E>,
+    rx: Mutex<mpsc::Receiver<E>>,
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     submitter: Arc<TransactionSubmitter>,
     max_batch_size: usize,
@@ -117,23 +123,24 @@ where
     strategy: S,
 }
 
-impl<E, S> GenericBatcherRunner<E, S>
+impl<E, S> GenericBatcher<E, S>
 where
     E: BatcherEnvelope,
     S: BatchSubmitStrategy<E>,
 {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
         submitter: Arc<TransactionSubmitter>,
         max_batch_size: usize,
         local_queue_limit: usize,
-        rx: mpsc::Receiver<E>,
         batch_policy: BatchPolicyConfig,
         base_fee_cache: BaseFeeCache,
     ) -> Self {
+        let (tx, rx) = mpsc::channel(local_queue_limit.max(1));
+
         Self {
-            rx,
+            tx,
+            rx: Mutex::new(rx),
             registry,
             submitter,
             max_batch_size,
@@ -144,8 +151,13 @@ where
         }
     }
 
-    pub async fn run(mut self) {
-        self.run_policy_loop().await;
+    pub async fn enqueue(&self, envelope: E) -> bool {
+        self.tx.send(envelope).await.is_ok()
+    }
+
+    pub async fn run(&self) {
+        let mut rx = self.rx.lock().await;
+        self.run_policy_loop(&mut rx).await;
     }
 
     async fn submit_common(&self, batch: Vec<E>) {
@@ -190,7 +202,7 @@ where
         queue.clear();
     }
 
-    async fn run_policy_loop(&mut self) {
+    async fn run_policy_loop(&self, rx: &mut mpsc::Receiver<E>) {
         let mut policy_engine = BatchPolicyEngine::new(self.batch_policy.clone());
         let reeval_interval = Duration::from_millis(self.batch_policy.reeval_ms);
 
@@ -214,7 +226,7 @@ where
                     break;
                 }
 
-                let maybe_first = self.rx.recv().await;
+                let maybe_first = rx.recv().await;
                 match maybe_first {
                     Some(first) => {
                         queue.push_back(TimedEnvelope {
@@ -235,7 +247,7 @@ where
             let event = tokio::select! {
                 biased;
                 _ = tokio::time::sleep_until(next_eval) => PolicyLoopEvent::Tick,
-                maybe_req = self.rx.recv(), if can_recv => PolicyLoopEvent::Recv(maybe_req),
+                maybe_req = rx.recv(), if can_recv => PolicyLoopEvent::Recv(maybe_req),
             };
 
             match event {
@@ -303,5 +315,3 @@ where
         }
     }
 }
-
-// ── Public handle & command routing ─────────────────────────────────────

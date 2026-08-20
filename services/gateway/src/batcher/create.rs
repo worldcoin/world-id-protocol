@@ -5,18 +5,12 @@ use alloy::{
     providers::DynProvider,
     rpc::types::TransactionRequest,
 };
-use tokio::sync::mpsc;
 use world_id_primitives::api_types::CreateAccountRequest;
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::batch_type::BatchType;
 
-use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner};
-
-#[derive(Clone)]
-pub struct CreateBatcherHandle {
-    pub tx: mpsc::Sender<CreateReqEnvelope>,
-}
+use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcher};
 
 #[derive(Debug)]
 pub struct CreateReqEnvelope {
@@ -61,4 +55,4 @@ impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
     }
 }
 
-pub type CreateBatcherRunner = GenericBatcherRunner<CreateReqEnvelope, CreateStrategy>;
+pub type CreateBatcher = GenericBatcher<CreateReqEnvelope, CreateStrategy>;

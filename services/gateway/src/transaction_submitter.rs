@@ -96,10 +96,6 @@ impl TransactionSubmitter {
             tracker_interval,
         });
 
-        // TODO: We should move task spawning to app initialization
-        //       and track each task's JoinHandle to catch panics
-        tokio::spawn(submitter.clone().run_tracker());
-
         Ok(submitter)
     }
 
@@ -237,10 +233,10 @@ impl TransactionSubmitter {
         leaf_index: u64,
         request_id: &str,
     ) -> Result<(), GatewayErrorResponse> {
-        let Some(ref rl) = self.rate_limit else {
+        let Some(ref rate_limit) = self.rate_limit else {
             return Ok(());
         };
-        let (window_secs, max_requests) = (rl.window_secs, rl.max_requests);
+        let (window_secs, max_requests) = (rate_limit.window_secs, rate_limit.max_requests);
 
         let result = self
             .request_store
@@ -389,7 +385,7 @@ impl TransactionSubmitter {
         Ok(())
     }
 
-    async fn run_tracker(self: Arc<Self>) {
+    pub(crate) async fn run_tracker(self: Arc<Self>) {
         loop {
             if let Err(error) = self.track_transactions().await {
                 tracing::error!(%error, "failed to track persisted wallet transactions");

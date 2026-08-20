@@ -18,9 +18,9 @@ pub(crate) async fn create_account(
     Json(payload): Json<CreateAccountRequest>,
 ) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
     payload
-        .into_request(id, &state.ctx)
+        .into_request(id, &state)
         .await?
-        .submit(&state.ctx)
+        .submit(&state)
         .await
         .map(|r| Json(r.into_response()))
 }
