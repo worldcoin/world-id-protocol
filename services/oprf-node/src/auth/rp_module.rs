@@ -32,7 +32,7 @@ use tracing::instrument;
 use world_id_primitives::{
     FieldElement, OprfPrefix, OprfPrefixedFieldElement as _, ProofType, RequestVersion,
     oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
-    rp::{RpRequestSessionMode, session_seed_authorization},
+    request::{RpAuthorizationProof, RpRequestSessionMode, session_seed_authorization},
 };
 
 pub(crate) mod wip101;
@@ -100,8 +100,6 @@ pub(crate) enum RpModuleError {
     CorruptSignature(#[from] alloy::primitives::SignatureError),
     #[error("Invalid RP signature - recover signer failed")]
     InvalidSignature,
-    #[error("RP signature is required for EOA-backed signers")]
-    RpSignatureMissing,
     #[error(transparent)]
     DuplicateNonce(#[from] DuplicateNonce),
     #[error(transparent)]
@@ -124,7 +122,6 @@ impl From<&RpModuleError> for WorldIdRequestAuthError {
             RpModuleError::ExpiresAtTooFarInFuture { .. } => Self::ExpiresAtTooFarInFuture,
             RpModuleError::RpSignatureExpired { .. } => Self::RpSignatureExpired,
             RpModuleError::InvalidTimestamp(_) => Self::InvalidTimestamp,
-            RpModuleError::RpSignatureMissing => Self::RpSignatureMissing,
             RpModuleError::CorruptSignature(_) | RpModuleError::InvalidSignature => {
                 Self::InvalidRpSignature
             }
@@ -178,18 +175,11 @@ impl RelyingParty {
         &self,
         chain_id: u64,
         rp_registry_address: Address,
-        request: &OprfRequest<NullifierOprfRequestAuthV1>,
+        auth: &NullifierOprfRequestAuthV1,
+        signature: &alloy::primitives::Signature,
     ) -> Result<(), RpModuleError> {
-        let signature = request
-            .auth
-            .signature
-            .ok_or_else(|| RpModuleError::RpSignatureMissing)?;
-        if request.auth.wip101_data.is_some() {
-            return Err(RpModuleError::Wip101(wip101::Wip101Error::AuxDataOnEoa));
-        }
-        let digest = request
-            .auth
-            .rp_request_authorization
+        let digest = auth
+            .authorization
             .signing_hash(chain_id, rp_registry_address);
 
         tracing::trace!("checking EIP-712 RP signature");
@@ -255,13 +245,13 @@ impl RpModuleAuth {
         }
     }
 
-    /// Checks that the signature has not expired and that the request timestamp
+    /// Checks that the authorization has not expired and that the request timestamp
     /// is within the configured window around the node's system time.
     fn validate_timestamps(&self, auth: &NullifierOprfRequestAuthV1) -> Result<(), RpModuleError> {
         let current_time = Utc::now();
 
-        tracing::trace!("checking expiration timestamp on signature...");
-        let expires_at = parse_timestamp(auth.expires_at)?;
+        tracing::trace!("checking expiration timestamp on RP authorization...");
+        let expires_at = parse_timestamp(auth.authorization.expires_at)?;
         if expires_at <= current_time {
             return Err(RpModuleError::RpSignatureExpired {
                 current: current_time,
@@ -269,8 +259,8 @@ impl RpModuleAuth {
             });
         }
 
-        tracing::trace!("checking timestamp on signature...");
-        let created_at = parse_timestamp(auth.created_at)?;
+        tracing::trace!("checking creation timestamp on RP authorization...");
+        let created_at = parse_timestamp(auth.authorization.created_at)?;
         if created_at > current_time + self.created_at_max_difference {
             return Err(RpModuleError::TimestampTooFarInFuture {
                 created_at,
@@ -295,24 +285,38 @@ impl RpModuleAuth {
         Ok(())
     }
 
-    async fn ensure_signature_valid(
+    async fn ensure_authorization_valid(
         &self,
         rp: &RelyingParty,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
     ) -> Result<(), RpModuleError> {
-        match rp.account_type {
-            RpAccountType::Eoa => {
+        match (rp.account_type, &request.auth.authorization_proof) {
+            (RpAccountType::Eoa, RpAuthorizationProof::Eoa { signature }) => {
                 tracing::trace!("RP signer is EOA");
-                rp.verify_eoa(self.chain_id, self.rp_registry_address, request)
+                rp.verify_eoa(
+                    self.chain_id,
+                    self.rp_registry_address,
+                    &request.auth,
+                    signature,
+                )
             }
-            RpAccountType::Contract => Ok(rp
+            (RpAccountType::Eoa, RpAuthorizationProof::Wip101 { .. }) => {
+                Err(RpModuleError::Wip101(wip101::Wip101Error::Wip101ProofOnEoa))
+            }
+            (RpAccountType::Contract, RpAuthorizationProof::Wip101 { data }) => Ok(rp
                 .verify_wip101(
                     &request.auth,
+                    data,
                     &self.rpc_provider,
                     self.timeout_external_eth_call,
                 )
                 .await?),
-            RpAccountType::IncompatibleWip101 => {
+            (RpAccountType::Contract, RpAuthorizationProof::Eoa { .. }) => {
+                Err(RpModuleError::InvalidRpAuthorization {
+                    context: "EOA authorization proof cannot be used with a contract signer",
+                })
+            }
+            (RpAccountType::IncompatibleWip101, _) => {
                 tracing::trace!("RP signer is incompatible WIP101");
                 Err(RpModuleError::Wip101(
                     wip101::Wip101Error::IncompatibleRpSigner,
@@ -321,7 +325,7 @@ impl RpModuleAuth {
         }
     }
 
-    async fn verify_rp_signature(
+    async fn verify_rp_authorization(
         &self,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
     ) -> Result<OprfKeyId, RpModuleError> {
@@ -329,17 +333,20 @@ impl RpModuleAuth {
 
         tracing::trace!("fetching RP info...");
         // fetch the RP info
-        let rp = self.rp_registry_watcher.get_rp(request.auth.rp_id).await?;
+        let rp = self
+            .rp_registry_watcher
+            .get_rp(request.auth.authorization.rp_id)
+            .await?;
 
-        if request.auth.rp_request_authorization.oprf_key_id != rp.oprf_key_id {
+        if request.auth.authorization.oprf_key_id != rp.oprf_key_id {
             return Err(RpModuleError::InvalidRpAuthorization {
                 context: "signed OPRF key does not match the RP registry",
             });
         }
 
-        self.ensure_signature_valid(&rp, request).await?;
+        self.ensure_authorization_valid(&rp, request).await?;
 
-        tracing::trace!("RP signature authentication successful");
+        tracing::trace!("RP authorization successful");
         Ok(rp.oprf_key_id)
     }
 
@@ -348,20 +355,20 @@ impl RpModuleAuth {
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
     ) -> Result<OprfKeyId, RpModuleError> {
         tracing::trace!("Validating action for {}", self.kind);
-        let action = FieldElement::from(request.auth.action);
+        let action = FieldElement::from(request.auth.oprf_action);
 
-        Self::validate_authorization_transport(&request.auth)?;
+        Self::validate_authorization(&request.auth)?;
 
         // Validate the action per kind and derive the nonce scope it consumes.
         let nonce_scope = self.validate_action(action, &request.auth)?;
 
-        let (verify_rp_signature_check, merkle_check) = tokio::join!(
-            self.verify_rp_signature(request),
+        let (verify_rp_authorization_check, merkle_check) = tokio::join!(
+            self.verify_rp_authorization(request),
             self.merkle_watcher
                 .ensure_root_valid(FieldElement::from(request.auth.merkle_root))
         );
 
-        let oprf_key_id = verify_rp_signature_check?;
+        let oprf_key_id = verify_rp_authorization_check?;
         merkle_check?;
 
         let valid = super::verify_query_proof(
@@ -370,15 +377,15 @@ impl RpModuleAuth {
             request.blinded_query,
             request.auth.merkle_root,
             oprf_key_id,
-            request.auth.action,
-            request.auth.nonce,
+            request.auth.oprf_action,
+            *request.auth.authorization.nonce,
         );
         if valid {
             tracing::trace!("add nonce to store...");
             // Add nonce to history to check if the nonce was only used once in this scope.
             // Only add if everything else was successful
             self.nonce_history
-                .add_nonce(FieldElement::from(request.auth.nonce), nonce_scope)
+                .add_nonce(request.auth.authorization.nonce, nonce_scope)
                 .await?;
             tracing::trace!("authentication successful!");
             Ok(oprf_key_id)
@@ -387,10 +394,8 @@ impl RpModuleAuth {
         }
     }
 
-    fn validate_authorization_transport(
-        auth: &NullifierOprfRequestAuthV1,
-    ) -> Result<(), RpModuleError> {
-        let authorization = &auth.rp_request_authorization;
+    fn validate_authorization(auth: &NullifierOprfRequestAuthV1) -> Result<(), RpModuleError> {
+        let authorization = &auth.authorization;
         if authorization.request_version != RequestVersion::V1 {
             return Err(RpModuleError::InvalidRpAuthorization {
                 context: "typed authorization must use request version 1",
@@ -401,16 +406,6 @@ impl RpModuleAuth {
                 context: "request-details commitment must be non-zero",
             });
         }
-        if authorization.rp_id != auth.rp_id
-            || *authorization.nonce != auth.nonce
-            || authorization.created_at != auth.created_at
-            || authorization.expires_at != auth.expires_at
-        {
-            return Err(RpModuleError::InvalidRpAuthorization {
-                context: "typed authorization does not match OPRF request metadata",
-            });
-        }
-
         let valid_shape = matches!(
             (
                 authorization.proof_type,
@@ -450,7 +445,7 @@ impl RpModuleAuth {
         action: FieldElement,
         auth: &NullifierOprfRequestAuthV1,
     ) -> Result<NonceScope, RpModuleError> {
-        let authorization = &auth.rp_request_authorization;
+        let authorization = &auth.authorization;
         match self.kind {
             RpModuleKind::Uniqueness => {
                 metrics::auth_module::inc_nullifier();

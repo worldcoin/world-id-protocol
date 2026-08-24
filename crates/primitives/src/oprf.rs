@@ -1,14 +1,10 @@
-use crate::serde_utils;
 use alloy_primitives::{B256, U256};
 use ark_bn254::Bn254;
 use circom_types::groth16::Proof;
 use serde::{Deserialize, Serialize};
 use taceo_oprf::types::api::{CloseFrameMessage, OprfRequestAuthenticatorError};
 
-use crate::{
-    FieldElement,
-    rp::{RpId, RpRequestAuthorization},
-};
+use crate::{FieldElement, request::RpRequestAuthorization};
 
 /// The most significant byte (MSB) of an OPRF input field element, which separates
 /// the domains in which the input may be used.
@@ -90,42 +86,19 @@ impl std::fmt::Display for OprfModule {
 pub struct NullifierOprfRequestAuthV1 {
     /// Zero-knowledge proof provided by the user.
     pub proof: Proof<Bn254>,
-    /// The action
+    /// The OPRF input being evaluated.
+    ///
+    /// For uniqueness requests this equals the action in [`Self::authorization`]. Session
+    /// requests use a separately generated, domain-prefixed OPRF input.
     #[serde(with = "ark_serde_compat::field")]
-    pub action: ark_babyjubjub::Fq,
-    /// The nonce
-    #[serde(with = "ark_serde_compat::field")]
-    pub nonce: ark_babyjubjub::Fq,
+    pub oprf_action: ark_babyjubjub::Fq,
     /// The Merkle root associated with this request.
     #[serde(with = "ark_serde_compat::field")]
     pub merkle_root: ark_babyjubjub::Fq,
-    /// The current time stamp (unix secs)
-    #[serde(alias = "current_time_stamp")]
-    pub created_at: u64,
-    /// Expiration timestamp of the request (unix secs)
-    #[serde(alias = "expiration_timestamp")]
-    pub expires_at: u64,
-    /// The RP's signature on the EIP-712 authorization represented by
-    /// [`NullifierOprfRequestAuthV1::rp_request_authorization`].
-    ///
-    /// Can be `None` if the RP is a WIP101 conform contract.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signature: Option<alloy_primitives::Signature>,
-    /// The `rp_id`
-    pub rp_id: RpId,
-    /// Auxiliary data for WIP101 verification.
-    ///
-    /// Maximum length of this field is 1024 bytes. If the RP is not backed by a WIP101 signer contract, you can omit this value is it will be ignored by the OPRF-nodes anyways.
-    ///
-    /// If the RP signer is an WIP101 backed contract, this data is send verbatim to the contract without any form of validation (except size).
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        with = "serde_utils::hex_bytes_opt"
-    )]
-    pub wip101_data: Option<Vec<u8>>,
     /// Typed RP authorization.
-    pub rp_request_authorization: RpRequestAuthorization,
+    pub authorization: RpRequestAuthorization,
+    /// Proof material used to validate [`Self::authorization`].
+    pub authorization_proof: crate::request::RpAuthorizationProof,
     /// Selective-disclosure opening for rederiving an existing session seed.
     ///
     /// This is present only on an existing-session seed query. The signed authorization commits
@@ -196,12 +169,13 @@ pub enum WorldIdRequestAuthError {
     /// incorrect, the wrong public key used, or does not match the expected message.
     #[error("invalid_rp_signature")]
     InvalidRpSignature,
-    /// Requester did not provide a signature of the RP, but the RP's signer
-    /// is an EOA.
-    /// Empty signatures are only supported for WIP101 backed RPs.
+    /// A legacy node received no signature for an EOA-backed RP.
+    ///
+    /// Retained so clients can decode responses from nodes using the former optional-signature
+    /// transport. The current transport requires an explicit authorization-proof variant.
     #[error("rp_signature_missing")]
     RpSignatureMissing,
-    /// RP signer is an EOA but request had auxiliary data.
+    /// RP signer is an EOA but the request selected WIP-101 authorization proof material.
     #[error("wip101_aux_data_on_eoa")]
     Wip101AuxDataOnEoa,
     /// A duplicate nonce was detected. Duplicate nonces are not allowed to prevent
@@ -231,8 +205,8 @@ pub enum WorldIdRequestAuthError {
     /// prefixes.
     #[error("invalid_action_for_session")]
     InvalidActionSession,
-    /// The typed RP authorization is malformed, inconsistent with the OPRF request metadata,
-    /// or does not permit the requested OPRF operation.
+    /// The typed RP authorization is malformed, uses proof material incompatible with the RP
+    /// account type, or does not permit the requested OPRF operation.
     ///
     /// See [`RpRequestAuthorization`] for the authorized operation matrix.
     #[error("invalid_rp_authorization")]
@@ -537,7 +511,7 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
                 taceo_oprf::types::close_frame_message!("Invalid RP request authorization")
             }
             WorldIdRequestAuthError::Wip101AuxDataOnEoa => taceo_oprf::types::close_frame_message!(
-                "Auxiliary data must be empty with EOA backed signer"
+                "WIP101 authorization proof cannot be used with an EOA backed signer"
             ),
             WorldIdRequestAuthError::Wip101AuxDataTooLarge => {
                 taceo_oprf::types::close_frame_message!(
@@ -563,7 +537,11 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ProofType, RequestVersion, rp::RpRequestSessionMode};
+    use crate::{
+        ProofType, RequestVersion,
+        request::{RpAuthorizationProof, RpRequestSessionMode},
+        rp::RpId,
+    };
 
     const ALL_PREFIXES: [OprfPrefix; 3] = [
         OprfPrefix::Uniqueness,
@@ -608,15 +586,9 @@ mod tests {
     fn test_auth() -> NullifierOprfRequestAuthV1 {
         NullifierOprfRequestAuthV1 {
             proof: test_proof(),
-            action: ark_babyjubjub::Fq::from(1u64),
-            nonce: ark_babyjubjub::Fq::from(2u64),
+            oprf_action: ark_babyjubjub::Fq::from(1u64),
             merkle_root: ark_babyjubjub::Fq::from(3u64),
-            created_at: 4,
-            expires_at: 5,
-            signature: None,
-            rp_id: RpId::new(6),
-            wip101_data: None,
-            rp_request_authorization: RpRequestAuthorization {
+            authorization: RpRequestAuthorization {
                 request_version: RequestVersion::V1,
                 rp_id: RpId::new(6),
                 oprf_key_id: taceo_oprf::types::OprfKeyId::new(ruint::uint!(7_U160)),
@@ -629,6 +601,9 @@ mod tests {
                 existing_session_seed_authorization: B256::repeat_byte(0x42),
                 details_hash: B256::repeat_byte(0x43),
             },
+            authorization_proof: RpAuthorizationProof::Wip101 {
+                data: vec![0xde, 0xad, 0xbe, 0xef],
+            },
             session_seed_opening: None,
         }
     }
@@ -640,21 +615,47 @@ mod tests {
         auth.session_seed_opening = Some(opening);
 
         let json = serde_json::to_string(&auth).unwrap();
+        assert!(json.contains(r#""wip101":{"data":"0xdeadbeef"}"#));
         let parsed: NullifierOprfRequestAuthV1 = serde_json::from_str(&json).unwrap();
-        assert_eq!(
-            parsed.rp_request_authorization,
-            auth.rp_request_authorization
-        );
+        assert_eq!(parsed.authorization, auth.authorization);
+        assert_eq!(parsed.authorization_proof, auth.authorization_proof);
         assert_eq!(parsed.session_seed_opening, Some(opening));
 
         let mut bytes = Vec::new();
         ciborium::into_writer(&auth, &mut bytes).unwrap();
         let parsed: NullifierOprfRequestAuthV1 = ciborium::from_reader(bytes.as_slice()).unwrap();
-        assert_eq!(
-            parsed.rp_request_authorization,
-            auth.rp_request_authorization
-        );
+        assert_eq!(parsed.authorization, auth.authorization);
+        assert_eq!(parsed.authorization_proof, auth.authorization_proof);
         assert_eq!(parsed.session_seed_opening, Some(opening));
+    }
+
+    #[test]
+    fn nullifier_auth_eoa_proof_roundtrip() {
+        let mut auth = test_auth();
+        auth.authorization_proof = RpAuthorizationProof::Eoa {
+            signature: alloy_primitives::Signature::new(U256::from(1), U256::from(2), false),
+        };
+
+        let json = serde_json::to_string(&auth).unwrap();
+        let parsed: NullifierOprfRequestAuthV1 = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.authorization_proof, auth.authorization_proof);
+    }
+
+    #[test]
+    fn nullifier_auth_rejects_missing_or_ambiguous_authorization_proof() {
+        let auth = test_auth();
+        let mut value = serde_json::to_value(auth).unwrap();
+        value.as_object_mut().unwrap().remove("authorization_proof");
+        assert!(serde_json::from_value::<NullifierOprfRequestAuthV1>(value).is_err());
+
+        let signature = alloy_primitives::Signature::new(U256::from(1), U256::from(2), false);
+        let ambiguous = serde_json::json!({
+            "eoa": {
+                "signature": signature.to_string(),
+                "data": "0xdeadbeef"
+            }
+        });
+        assert!(serde_json::from_value::<RpAuthorizationProof>(ambiguous).is_err());
     }
 
     #[test]

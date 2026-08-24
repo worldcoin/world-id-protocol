@@ -10,7 +10,8 @@ use taceo_oprf::types::OprfKeyId;
 use world_id_primitives::{
     FieldElement, ProofType, RequestVersion,
     oprf::NullifierOprfRequestAuthV1,
-    rp::{IWIP101, RpId, RpRequestAuthorization, RpRequestSessionMode},
+    request::{IWIP101, RpAuthorizationProof, RpRequestAuthorization, RpRequestSessionMode},
+    rp::RpId,
 };
 
 use super::Wip101Error;
@@ -68,15 +69,10 @@ pub(crate) fn dummy_auth() -> NullifierOprfRequestAuthV1 {
             protocol: "groth16".to_string(),
             curve: "bn254".to_string(),
         },
-        action: ark_babyjubjub::Fq::from(1u64),
-        nonce: ark_babyjubjub::Fq::from(2u64),
+        oprf_action: ark_babyjubjub::Fq::from(1u64),
         merkle_root: ark_babyjubjub::Fq::from(3u64),
-        created_at: 1,
-        expires_at: 2,
-        signature: None,
-        rp_id: RpId::new(0),
-        wip101_data: None,
-        rp_request_authorization: dummy_authorization(),
+        authorization: dummy_authorization(),
+        authorization_proof: RpAuthorizationProof::Wip101 { data: Vec::new() },
         session_seed_opening: None,
     }
 }
@@ -91,6 +87,7 @@ async fn verify_success() {
     relying_party(RpAccountType::Contract)
         .verify_wip101(
             &auth,
+            &[],
             &provider_with_success(&success_magic_response()),
             TEST_TIMEOUT,
         )
@@ -105,6 +102,7 @@ async fn verify_wrong_magic() {
     let error = relying_party(RpAccountType::Contract)
         .verify_wip101(
             &auth,
+            &[],
             &provider_with_success(&Bytes::from(response)),
             TEST_TIMEOUT,
         )
@@ -121,7 +119,12 @@ async fn verify_custom_error() {
     }
     .abi_encode();
     let error = relying_party(RpAccountType::Contract)
-        .verify_wip101(&auth, &provider_with_revert(&revert.into()), TEST_TIMEOUT)
+        .verify_wip101(
+            &auth,
+            &[],
+            &provider_with_revert(&revert.into()),
+            TEST_TIMEOUT,
+        )
         .await
         .expect_err("custom error must fail");
     assert!(matches!(error, Wip101Error::VerificationFailed(Some(code)) if code == U256::from(42)));
@@ -133,6 +136,7 @@ async fn verify_plain_revert() {
     let error = relying_party(RpAccountType::Contract)
         .verify_wip101(
             &auth,
+            &[],
             &provider_with_revert(&Bytes::from_static(b"reason")),
             TEST_TIMEOUT,
         )
@@ -145,7 +149,12 @@ async fn verify_plain_revert() {
 async fn verify_empty_revert_is_incompatible() {
     let auth = dummy_auth();
     let error = relying_party(RpAccountType::Contract)
-        .verify_wip101(&auth, &provider_with_revert(&Bytes::new()), TEST_TIMEOUT)
+        .verify_wip101(
+            &auth,
+            &[],
+            &provider_with_revert(&Bytes::new()),
+            TEST_TIMEOUT,
+        )
         .await
         .expect_err("empty revert must fail");
     assert!(matches!(error, Wip101Error::IncompatibleRpSigner));
@@ -155,7 +164,12 @@ async fn verify_empty_revert_is_incompatible() {
 async fn verify_empty_response_is_incompatible() {
     let auth = dummy_auth();
     let error = relying_party(RpAccountType::Contract)
-        .verify_wip101(&auth, &provider_with_success(&Bytes::new()), TEST_TIMEOUT)
+        .verify_wip101(
+            &auth,
+            &[],
+            &provider_with_success(&Bytes::new()),
+            TEST_TIMEOUT,
+        )
         .await
         .expect_err("empty response must fail");
     assert!(matches!(error, Wip101Error::IncompatibleRpSigner));
@@ -163,20 +177,26 @@ async fn verify_empty_response_is_incompatible() {
 
 #[tokio::test]
 async fn verify_auxiliary_data_limits() {
-    let mut auth = dummy_auth();
-    auth.wip101_data = Some(vec![0xab; super::MAX_AUX_DATA_SIZE]);
+    let auth = dummy_auth();
+    let maximum_data = vec![0xab; super::MAX_AUX_DATA_SIZE];
     relying_party(RpAccountType::Contract)
         .verify_wip101(
             &auth,
+            &maximum_data,
             &provider_with_success(&success_magic_response()),
             TEST_TIMEOUT,
         )
         .await
         .expect("maximum auxiliary data size should succeed");
 
-    auth.wip101_data = Some(vec![0xab; super::MAX_AUX_DATA_SIZE + 1]);
+    let oversized_data = vec![0xab; super::MAX_AUX_DATA_SIZE + 1];
     let error = relying_party(RpAccountType::Contract)
-        .verify_wip101(&auth, &Asserter::new().into(), TEST_TIMEOUT)
+        .verify_wip101(
+            &auth,
+            &oversized_data,
+            &Asserter::new().into(),
+            TEST_TIMEOUT,
+        )
         .await
         .expect_err("oversized auxiliary data must fail");
     assert!(matches!(error, Wip101Error::AuxDataTooLarge));
@@ -196,7 +216,7 @@ async fn verify_timeout() {
 
     let auth = dummy_auth();
     let error = relying_party(RpAccountType::Contract)
-        .verify_wip101(&auth, &provider, Duration::from_millis(100))
+        .verify_wip101(&auth, &[], &provider, Duration::from_millis(100))
         .await
         .expect_err("hanging RPC must time out");
     assert!(matches!(error, Wip101Error::VerificationTimeout));

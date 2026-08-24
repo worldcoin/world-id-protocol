@@ -4,12 +4,17 @@
 //! for Authenticators to handle such requests.
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
+mod request_authorization;
+pub use request_authorization::{
+    IWIP101, RpAuthorizationProof, RpRequestAuthorization, RpRequestSessionMode,
+    RpRequestTypedData, rp_request_domain, session_seed_authorization,
+};
 
 use crate::{
     FieldElement, Nullifier, OprfPrefix, OprfPrefixedFieldElement as _, PrimitiveError, SessionId,
     SessionNullifier, SessionRef, ZeroKnowledgeProof, rp::RpId,
 };
-use alloy_primitives::B256;
+use alloy_primitives::{Address, B256};
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
 use taceo_oprf::types::OprfKeyId;
@@ -440,6 +445,36 @@ impl ProofRequest {
     #[must_use]
     pub const fn is_expired(&self, now: u64) -> bool {
         now > self.expires_at
+    }
+
+    /// Builds the public authorization committed to by the RP signature.
+    ///
+    /// # Errors
+    /// Returns an error if the request is not structurally valid.
+    pub fn rp_authorization(&self) -> Result<RpRequestAuthorization, PrimitiveError> {
+        self.try_into()
+    }
+
+    /// Computes the EIP-712 signing hash for this request.
+    ///
+    /// # Errors
+    /// Returns an error if the request is not structurally valid.
+    pub fn eip712_signing_hash(
+        &self,
+        chain_id: u64,
+        rp_registry: Address,
+    ) -> Result<B256, PrimitiveError> {
+        Ok(self.rp_authorization()?.signing_hash(chain_id, rp_registry))
+    }
+
+    /// Returns the selective-disclosure opening for an existing session seed.
+    ///
+    /// The opening is sent to OPRF nodes only when the existing seed must be rederived.
+    ///
+    /// # Errors
+    /// Returns an error if the request salt is zero.
+    pub fn session_seed_opening(&self) -> Result<B256, PrimitiveError> {
+        request_authorization::session_seed_opening(self.request_salt)
     }
 
     /// Validates that the request fields match the explicit proof type.

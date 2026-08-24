@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking Changes
 
 - Replace legacy RP signatures and WIP-101 request verification with the EIP-712 authorization flow.
+- Read RP metadata from one typed authorization and require explicit, account-type-matched EOA or
+  WIP-101 authorization proof material in the nullifier OPRF request.
 - `start` is now `async`. It resolves the RPC chain id at startup, so the EIP-712 domain no longer
   depends on a lazy call on the request path.
 

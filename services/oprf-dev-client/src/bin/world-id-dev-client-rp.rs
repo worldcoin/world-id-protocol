@@ -26,6 +26,7 @@ use world_id_primitives::{
     RequestItem, RequestVersion, SessionId, SessionRef, TREE_DEPTH,
     merkle::MerkleInclusionProof,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
+    request::RpAuthorizationProof,
     rp::RpId,
 };
 use world_id_test_utils::anvil::RpRegistry;
@@ -379,15 +380,12 @@ fn generate_oprf_auth_request(
 
     let auth = NullifierOprfRequestAuthV1 {
         proof: proof.into(),
-        action: *action,
-        nonce: *proof_request.nonce,
+        oprf_action: *action,
         merkle_root: *setup.inclusion_proof.root,
-        created_at: proof_request.created_at,
-        expires_at: proof_request.expires_at,
-        signature: Some(proof_request.signature),
-        rp_id: proof_request.rp_id,
-        wip101_data: None,
-        rp_request_authorization: proof_request.rp_authorization()?,
+        authorization: proof_request.rp_authorization()?,
+        authorization_proof: RpAuthorizationProof::Eoa {
+            signature: proof_request.signature,
+        },
         session_seed_opening: None,
     };
 

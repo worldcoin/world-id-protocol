@@ -22,6 +22,7 @@ use taceo_oprf::{
 use world_id_primitives::{
     FieldElement, OprfPrefix, OprfPrefixedFieldElement, ProofRequest, SessionRef, TREE_DEPTH,
     oprf::{CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule},
+    request::RpAuthorizationProof,
 };
 
 use crate::circuit_inputs::QueryProofCircuitInput;
@@ -247,17 +248,14 @@ impl<'a> OprfEntrypoint<'a> {
 
         let auth = NullifierOprfRequestAuthV1 {
             proof: result.proof.into(),
-            action: *action,
-            nonce: *proof_request.nonce,
+            oprf_action: *action,
             merkle_root: *self.authenticator_input.inclusion_proof.root,
-            created_at: proof_request.created_at,
-            expires_at: proof_request.expires_at,
-            signature: Some(proof_request.signature),
-            rp_id: proof_request.rp_id,
-            wip101_data: None,
-            rp_request_authorization: proof_request
+            authorization: proof_request
                 .rp_authorization()
                 .map_err(|err| ProofError::GenerationError(err.to_string()))?,
+            authorization_proof: RpAuthorizationProof::Eoa {
+                signature: proof_request.signature,
+            },
             session_seed_opening: None,
         };
 
@@ -313,17 +311,14 @@ impl<'a> OprfEntrypoint<'a> {
 
         let auth = NullifierOprfRequestAuthV1 {
             proof: result.proof.into(),
-            action: *oprf_seed,
-            nonce: *proof_request.nonce,
+            oprf_action: *oprf_seed,
             merkle_root: *self.authenticator_input.inclusion_proof.root,
-            created_at: proof_request.created_at,
-            expires_at: proof_request.expires_at,
-            signature: Some(proof_request.signature),
-            rp_id: proof_request.rp_id,
-            wip101_data: None,
-            rp_request_authorization: proof_request
+            authorization: proof_request
                 .rp_authorization()
                 .map_err(|err| ProofError::GenerationError(err.to_string()))?,
+            authorization_proof: RpAuthorizationProof::Eoa {
+                signature: proof_request.signature,
+            },
             session_seed_opening,
         };
 

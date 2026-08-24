@@ -12,7 +12,7 @@ use tracing::instrument;
 use world_id_primitives::{
     FieldElement,
     oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
-    rp::IWIP101,
+    request::IWIP101,
 };
 
 use crate::auth::rp_module::{RelyingParty, RpAccountType};
@@ -23,13 +23,13 @@ pub(crate) mod tests;
 /// WIP101-specific authentication failures.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Wip101Error {
-    #[error("Auxiliary data must be empty with EOA backed signer")]
-    AuxDataOnEoa,
+    #[error("WIP101 authorization proof cannot be used with an EOA-backed signer")]
+    Wip101ProofOnEoa,
     #[error("Auxiliary data for WIP101 contract too large")]
     AuxDataTooLarge,
     #[error("RP signer is a contract but does not conform to WIP101")]
     IncompatibleRpSigner,
-    #[error("Ran into timeout while verifying RP signature")]
+    #[error("Ran into timeout while verifying RP authorization")]
     VerificationTimeout,
     #[error("RP signer contract reverted with custom error")]
     CustomRevert,
@@ -42,7 +42,7 @@ pub(crate) enum Wip101Error {
 impl From<&Wip101Error> for WorldIdRequestAuthError {
     fn from(value: &Wip101Error) -> Self {
         match value {
-            Wip101Error::AuxDataOnEoa => Self::Wip101AuxDataOnEoa,
+            Wip101Error::Wip101ProofOnEoa => Self::Wip101AuxDataOnEoa,
             Wip101Error::AuxDataTooLarge => Self::Wip101AuxDataTooLarge,
             Wip101Error::IncompatibleRpSigner => Self::Wip101IncompatibleRpSigner,
             Wip101Error::VerificationTimeout => Self::Wip101VerificationTimeout,
@@ -66,6 +66,7 @@ impl RelyingParty {
     pub(crate) async fn verify_wip101(
         &self,
         auth: &NullifierOprfRequestAuthV1,
+        auxiliary_data: &[u8],
         rpc_provider: &web3::HttpRpcProvider,
         timeout: Duration,
     ) -> Result<(), Wip101Error> {
@@ -73,9 +74,9 @@ impl RelyingParty {
         // The intent is the signed authorization payload itself, so a contract-backed RP cannot be
         // handed a different request than an EOA-backed RP signs.
         let call = IWIP101::verifyRpRequestCall {
-            intent: auth.rp_request_authorization.typed_data(),
-            oprfAction: FieldElement::from(auth.action).into(),
-            data: auxiliary_data(auth)?,
+            intent: auth.authorization.typed_data(),
+            oprfAction: FieldElement::from(auth.oprf_action).into(),
+            data: validated_auxiliary_data(auxiliary_data)?,
         };
         let request = TransactionRequest::default()
             .with_to(self.signer)
@@ -121,19 +122,11 @@ impl RelyingParty {
     }
 }
 
-fn auxiliary_data(auth: &NullifierOprfRequestAuthV1) -> Result<Bytes, Wip101Error> {
-    if auth
-        .wip101_data
-        .as_ref()
-        .is_some_and(|bytes| bytes.len() > MAX_AUX_DATA_SIZE)
-    {
+fn validated_auxiliary_data(data: &[u8]) -> Result<Bytes, Wip101Error> {
+    if data.len() > MAX_AUX_DATA_SIZE {
         return Err(Wip101Error::AuxDataTooLarge);
     }
-    Ok(auth
-        .wip101_data
-        .clone()
-        .map(Bytes::from)
-        .unwrap_or_default())
+    Ok(Bytes::copy_from_slice(data))
 }
 
 #[instrument(level = "debug", skip_all, fields(signer=%signer))]

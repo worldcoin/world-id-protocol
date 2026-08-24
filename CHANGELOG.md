@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Export `rp::IWIP101`, declared from the same `sol!` as the signed `RpRequest` payload, so a WIP-101
+- Export `request::IWIP101`, declared from the same `sol!` as the signed `RpRequest` payload, so a WIP-101
   contract's `intent` argument cannot drift from the EIP-712 struct an EOA-backed RP signs.
 
 ### Breaking Changes
 
 - Replace RP request signatures with EIP-712 authorization that binds the complete semantic request.
+- Replace duplicated nullifier-OPRF request metadata with one `request::RpRequestAuthorization`,
+  rename the evaluated input to `oprf_action`, and represent EOA versus WIP-101 proof material with
+  the explicit `request::RpAuthorizationProof` enum.
 - Require a non-zero `request_salt` on `ProofRequest` to hide private request details committed to OPRF nodes.
 - Rename `WorldIdRequestAuthError::InvalidRpSignatureVerification` to `InvalidRpAuthorization` and
   `error_codes::INVALID_RP_SIGNATURE_VERIFICATION` to `INVALID_RP_AUTHORIZATION`, following the removal
