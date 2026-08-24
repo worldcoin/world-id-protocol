@@ -41,21 +41,67 @@ use tracing::{debug, warn};
 
 use crate::db::WorldIdRegistryEventId;
 
-/// Current on-disk checkpoint format version. Bump to invalidate all existing
-/// checkpoints after an incompatible tree/format change.
+/// On-disk checkpoint format version.
 ///
-/// v2: `root` is now serialized as an `alloy` `U256` (was a `0x`-prefixed hex
+/// This is a typed enum rather than a raw integer so that an old or otherwise
+/// unknown version number on disk fails to deserialize (via [`TryFrom<u8>`]),
+/// which the checkpoint-read path already treats as "no usable checkpoint, do a
+/// full rebuild". Bump by adding a new variant after an incompatible
+/// tree/format change; old variants only need to be retained while their
+/// on-disk format remains restorable.
+///
+/// v2: `root` is serialized as an `alloy` `U256` (was a `0x`-prefixed hex
 /// string) and the event cursor is `#[serde(flatten)]`ed from
 /// [`WorldIdRegistryEventId`] (was separate `block_number`/`log_index`
-/// fields). Both are on-disk format changes, so old v1 checkpoints are
-/// invalidated by this single bump.
-pub const CACHE_VERSION: u8 = 2;
+/// fields). Both are on-disk format changes, so any earlier (v1) checkpoint is
+/// incompatible; there is deliberately no `V1` variant, so v1 (or any unknown)
+/// version numbers fail to deserialize and safely fall back to a full rebuild.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "u8", into = "u8")]
+pub enum CacheVersion {
+    V2 = 2,
+}
+
+/// The current checkpoint format version written by this build.
+pub const CURRENT_CACHE_VERSION: CacheVersion = CacheVersion::V2;
+
+impl From<CacheVersion> for u8 {
+    fn from(v: CacheVersion) -> Self {
+        v as u8
+    }
+}
+
+impl TryFrom<u8> for CacheVersion {
+    type Error = UnknownCacheVersion;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            2 => Ok(CacheVersion::V2),
+            other => Err(UnknownCacheVersion(other)),
+        }
+    }
+}
+
+/// Error produced when a stored version number does not correspond to any known
+/// [`CacheVersion`]. Surfaced through serde as a deserialization failure, which
+/// the checkpoint-read path treats as "no usable checkpoint".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnknownCacheVersion(pub u8);
+
+impl std::fmt::Display for UnknownCacheVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "unknown checkpoint cache version: {}", self.0)
+    }
+}
+
+impl std::error::Error for UnknownCacheVersion {}
 
 /// Durable watermark describing the state a specific instance's mmap reflects.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TreeCheckpoint {
-    /// Format version; must equal [`CACHE_VERSION`] to be usable.
-    pub cache_version: u8,
+    /// Format version; must equal [`CURRENT_CACHE_VERSION`] to be usable. An
+    /// unknown/old value fails to deserialize and is treated as no checkpoint.
+    pub cache_version: CacheVersion,
     /// Root of the tree at the checkpoint.
     pub root: U256,
     /// Cursor of the last event applied to the mmap.
@@ -66,7 +112,7 @@ pub struct TreeCheckpoint {
 impl TreeCheckpoint {
     pub fn new(root: U256, cursor: WorldIdRegistryEventId) -> Self {
         Self {
-            cache_version: CACHE_VERSION,
+            cache_version: CURRENT_CACHE_VERSION,
             root,
             event: cursor,
         }
@@ -151,10 +197,14 @@ pub fn read_checkpoint(cache_path: &Path) -> Option<TreeCheckpoint> {
         }
     };
 
-    if checkpoint.cache_version != CACHE_VERSION {
+    // An unknown/old version number already fails to deserialize above (see
+    // [`CacheVersion`]'s `try_from = "u8"`), landing in the parse-error branch
+    // and returning `None`. This explicit check additionally guards against a
+    // known-but-not-current version once more variants exist.
+    if checkpoint.cache_version != CURRENT_CACHE_VERSION {
         warn!(
             path = %path.display(),
-            cache_version = checkpoint.cache_version,
+            cache_version = u8::from(checkpoint.cache_version),
             "tree checkpoint has incompatible version; ignoring"
         );
         return None;
@@ -221,12 +271,47 @@ mod tests {
 
     #[test]
     fn wrong_version_returns_none() {
-        let cache = tmp_cache();
-        let mut cp = TreeCheckpoint::new(U256::from(9u64), cursor(1, 0));
-        cp.cache_version = CACHE_VERSION + 1;
-        write_checkpoint(&cache, &cp).unwrap();
-        assert!(read_checkpoint(&cache).is_none());
-        delete_checkpoint(&cache);
+        // A well-formed sidecar carrying an *unknown* version number must be
+        // rejected. Because [`CacheVersion`] only knows `V2`, an old (v1) or
+        // future (v99) number fails to deserialize the enum, which the read
+        // path treats as "no usable checkpoint" — no panic, safe full rebuild.
+        for stale in [1u8, 3u8, 99u8] {
+            let cache = tmp_cache();
+            let cp = TreeCheckpoint::new(U256::from(9u64), cursor(1, 0));
+            // Serialize a valid checkpoint, then rewrite its version field to a
+            // value the enum does not recognize.
+            let mut value: serde_json::Value =
+                serde_json::from_slice(&serde_json::to_vec(&cp).unwrap()).unwrap();
+            value["cache_version"] = serde_json::json!(stale);
+            fs::write(checkpoint_path(&cache), serde_json::to_vec(&value).unwrap()).unwrap();
+
+            assert!(
+                read_checkpoint(&cache).is_none(),
+                "stale version {stale} must be treated as no checkpoint"
+            );
+            delete_checkpoint(&cache);
+        }
+    }
+
+    #[test]
+    fn cache_version_roundtrips_as_u8() {
+        assert_eq!(u8::from(CacheVersion::V2), 2);
+        assert_eq!(CacheVersion::try_from(2u8).unwrap(), CacheVersion::V2);
+        for bad in [0u8, 1, 3, 99, 255] {
+            assert!(CacheVersion::try_from(bad).is_err());
+        }
+    }
+
+    #[test]
+    fn cache_version_serde_roundtrip() {
+        // The enum serializes as its numeric wire form and reads back cleanly.
+        let json = serde_json::to_string(&CacheVersion::V2).unwrap();
+        assert_eq!(json, "2");
+        let back: CacheVersion = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, CacheVersion::V2);
+        // Unknown numbers fail to deserialize.
+        assert!(serde_json::from_str::<CacheVersion>("1").is_err());
+        assert!(serde_json::from_str::<CacheVersion>("99").is_err());
     }
 
     #[test]
