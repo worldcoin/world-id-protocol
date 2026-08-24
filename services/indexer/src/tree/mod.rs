@@ -75,11 +75,11 @@ impl TreeError {
     /// rebuild, not a destroyed cache.
     fn invalidates_cache(&self) -> bool {
         match self {
-            TreeError::CacheRestore(_) => true,
-            TreeError::CacheCreate(_) => true,
-            TreeError::InvalidCacheFilePath => true,
-            TreeError::RootMismatch { .. } => true,
-            TreeError::StaleCache { .. } => true,
+            TreeError::CacheRestore(_)
+            | TreeError::CacheCreate(_)
+            | TreeError::InvalidCacheFilePath
+            | TreeError::RootMismatch { .. }
+            | TreeError::StaleCache { .. } => true,
             TreeError::LeafIndexOutOfRange { .. } => false,
             TreeError::ZeroLeafIndex => false,
             TreeError::SimulationMissingRoot => false,

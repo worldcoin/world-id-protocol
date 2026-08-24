@@ -195,7 +195,7 @@ async fn try_restore(
     // guard: Poseidon root commits to the full leaf set). Any mismatch falls back to a
     // full genesis replay, which is always correct.
     let (replay_cursor, incremental) = match checkpoint::read_checkpoint(cache_path) {
-        Some(cp) if cp.root_u256() == Some(restored_root) => {
+        Some(cp) if cp.root == restored_root => {
             info!(cursor = ?cp.cursor(), "valid checkpoint; incremental replay from cursor");
             (cp.cursor(), true)
         }

@@ -43,42 +43,38 @@ use crate::db::WorldIdRegistryEventId;
 
 /// Current on-disk checkpoint format version. Bump to invalidate all existing
 /// checkpoints after an incompatible tree/format change.
-pub const CACHE_VERSION: u8 = 1;
+///
+/// v2: `root` is now serialized as an `alloy` `U256` (was a `0x`-prefixed hex
+/// string) and the event cursor is `#[serde(flatten)]`ed from
+/// [`WorldIdRegistryEventId`] (was separate `block_number`/`log_index`
+/// fields). Both are on-disk format changes, so old v1 checkpoints are
+/// invalidated by this single bump.
+pub const CACHE_VERSION: u8 = 2;
 
 /// Durable watermark describing the state a specific instance's mmap reflects.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TreeCheckpoint {
     /// Format version; must equal [`CACHE_VERSION`] to be usable.
     pub cache_version: u8,
-    /// Root of the tree at the checkpoint, `0x`-prefixed hex.
-    pub root: String,
-    /// Block number of the last event applied to the mmap.
-    pub block_number: u64,
-    /// Log index of the last event applied to the mmap.
-    pub log_index: u64,
+    /// Root of the tree at the checkpoint.
+    pub root: U256,
+    /// Cursor of the last event applied to the mmap.
+    #[serde(flatten)]
+    pub event: WorldIdRegistryEventId,
 }
 
 impl TreeCheckpoint {
     pub fn new(root: U256, cursor: WorldIdRegistryEventId) -> Self {
         Self {
             cache_version: CACHE_VERSION,
-            root: format!("0x{root:x}"),
-            block_number: cursor.block_number,
-            log_index: cursor.log_index,
+            root,
+            event: cursor,
         }
     }
 
     /// The event cursor recorded by this checkpoint.
     pub fn cursor(&self) -> WorldIdRegistryEventId {
-        WorldIdRegistryEventId {
-            block_number: self.block_number,
-            log_index: self.log_index,
-        }
-    }
-
-    /// Parse the stored root back into a `U256`.
-    pub fn root_u256(&self) -> Option<U256> {
-        U256::from_str_radix(self.root.trim_start_matches("0x"), 16).ok()
+        self.event
     }
 }
 
@@ -120,8 +116,8 @@ pub fn write_checkpoint(cache_path: &Path, checkpoint: &TreeCheckpoint) -> std::
     debug!(
         path = %dest.display(),
         root = %checkpoint.root,
-        block_number = checkpoint.block_number,
-        log_index = checkpoint.log_index,
+        block_number = checkpoint.event.block_number,
+        log_index = checkpoint.event.log_index,
         "wrote tree checkpoint"
     );
 
@@ -203,7 +199,7 @@ mod tests {
         let read = read_checkpoint(&cache).expect("checkpoint should be readable");
         assert_eq!(read, cp);
         assert_eq!(read.cursor(), cursor(42, 3));
-        assert_eq!(read.root_u256(), Some(U256::from(0x1234u64)));
+        assert_eq!(read.root, U256::from(0x1234u64));
 
         delete_checkpoint(&cache);
         assert!(read_checkpoint(&cache).is_none());

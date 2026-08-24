@@ -142,7 +142,7 @@ async fn test_checkpoint_written_and_advanced_on_restart() {
     drop(ts1);
 
     let cp1 = checkpoint::read_checkpoint(&cache_path).expect("checkpoint written after init");
-    assert_eq!(cp1.root_u256(), Some(r5));
+    assert_eq!(cp1.root, r5);
     assert_eq!(
         cp1.cursor().block_number,
         next_block,
@@ -169,7 +169,7 @@ async fn test_checkpoint_written_and_advanced_on_restart() {
     drop(ts2);
 
     let cp2 = checkpoint::read_checkpoint(&cache_path).expect("checkpoint still present");
-    assert_eq!(cp2.root_u256(), Some(r7), "checkpoint root advanced");
+    assert_eq!(cp2.root, r7, "checkpoint root advanced");
     assert_eq!(
         cp2.cursor().block_number,
         next_block2,
