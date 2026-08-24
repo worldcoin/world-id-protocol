@@ -1,11 +1,14 @@
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use alloy::primitives::U256;
 use semaphore_rs_storage::MmapVec;
 use semaphore_rs_trees::{cascading::CascadingMerkleTree, proof::InclusionProof};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use super::{MerkleTree, PoseidonHasher, TreeError, TreeResult};
+use super::{MerkleTree, PoseidonHasher, TreeError, TreeResult, checkpoint};
 use crate::{db::WorldIdRegistryEventId, tree::cached_tree::set_arbitrary_leaf};
 
 /// Thread-safe wrapper around the Merkle tree and its configuration.
@@ -19,26 +22,31 @@ struct TreeStateInner {
     tree: RwLock<CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>>,
     tree_depth: usize,
     last_synced_event_id: RwLock<WorldIdRegistryEventId>,
+    /// Path of the memory-mapped cache file backing this tree, if any.
+    ///
+    /// When set, the tree persists a local checkpoint sidecar (`<cache_path>.meta`)
+    /// so restarts can replay only events after the checkpoint cursor. `None` for
+    /// in-memory/test trees, in which case checkpoint operations are no-ops.
+    cache_path: Option<PathBuf>,
 }
 
 impl TreeState {
-    /// Create a new `TreeState` with an existing tree, depth, and sync cursor.
     pub fn new(
         tree: CascadingMerkleTree<PoseidonHasher, MmapVec<U256>>,
         tree_depth: usize,
         last_synced_event_id: WorldIdRegistryEventId,
+        cache_path: Option<PathBuf>,
     ) -> Self {
         Self {
             inner: Arc::new(TreeStateInner {
                 tree: RwLock::new(tree),
                 tree_depth,
                 last_synced_event_id: RwLock::new(last_synced_event_id),
+                cache_path,
             }),
         }
     }
 
-    /// Create a new `TreeState` with an empty tree of the given depth.
-    ///
     /// # Safety
     ///
     /// This function is marked unsafe because it performs memory-mapped file operations for the tree cache.
@@ -51,6 +59,7 @@ impl TreeState {
             tree,
             tree_depth,
             WorldIdRegistryEventId::default(),
+            None,
         ))
     }
 
@@ -153,6 +162,36 @@ impl TreeState {
     /// Set the last synced event ID.
     pub async fn set_last_synced_event_id(&self, id: WorldIdRegistryEventId) {
         *self.inner.last_synced_event_id.write().await = id;
+    }
+
+    /// The cache file path backing this tree, if any.
+    pub fn cache_path(&self) -> Option<&Path> {
+        self.inner.cache_path.as_deref()
+    }
+
+    /// Atomically write the checkpoint sidecar for the current tree state.
+    ///
+    /// No-op for trees created without a cache path. A failed write is not fatal —
+    /// the next restart falls back to a full genesis replay.
+    pub async fn persist_checkpoint(&self, cursor: WorldIdRegistryEventId) {
+        self.set_last_synced_event_id(cursor).await;
+
+        let Some(cache_path) = self.inner.cache_path.clone() else {
+            return;
+        };
+
+        let root = self.inner.tree.read().await.root();
+        let checkpoint = checkpoint::TreeCheckpoint::new(root, cursor);
+        if let Err(e) = checkpoint::write_checkpoint(&cache_path, &checkpoint) {
+            tracing::warn!(?e, "failed to persist tree checkpoint");
+        }
+    }
+
+    /// Delete the local checkpoint sidecar, if any. Used on reorg/rollback.
+    pub fn invalidate_checkpoint(&self) {
+        if let Some(cache_path) = self.inner.cache_path.as_deref() {
+            checkpoint::delete_checkpoint(cache_path);
+        }
     }
 }
 

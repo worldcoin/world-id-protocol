@@ -12,6 +12,10 @@ pub use world_id_registry_events::{
 
 pub type DBResult<T> = Result<T, DBError>;
 
+/// If you add a variant here, check `tree::TreeError::invalidates_cache` —
+/// it special-cases the event-log decode variants (`UnknownEventType`,
+/// `MissingEventField`, `InvalidEventField`) to decide whether a tree-restore
+/// failure should trigger a cache rebuild.
 #[derive(Debug, Error)]
 pub enum DBError {
     #[error("sqlx error: {0}")]

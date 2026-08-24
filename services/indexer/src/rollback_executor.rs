@@ -43,6 +43,8 @@ pub async fn rollback_to_last_valid_root(
         Err(e) => return Err(e.into()),
     }
 
+    versioned_tree.invalidate_checkpoint();
+
     Ok(Some(target_id))
 }
 
