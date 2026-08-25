@@ -23,6 +23,7 @@ mod tests {
             ACCESS_CONTROL_REQUEST_HEADERS, ACCESS_CONTROL_REQUEST_METHOD, ORIGIN,
         },
     };
+    use test_case::test_case;
     use tower::ServiceExt;
 
     use super::*;
@@ -33,30 +34,30 @@ mod tests {
             .layer(cors_layer())
     }
 
+    #[test_case("https://app.example.com" ; "app origin")]
+    #[test_case("https://unrelated.example" ; "unrelated origin")]
     #[tokio::test]
-    async fn every_origin_is_allowed_without_credentials() {
-        for origin in ["https://app.example.com", "https://unrelated.example"] {
-            let response = app()
-                .oneshot(
-                    Request::get("/resource")
-                        .header(ORIGIN, origin)
-                        .body(axum::body::Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
+    async fn every_origin_is_allowed_without_credentials(origin: &str) {
+        let response = app()
+            .oneshot(
+                Request::get("/resource")
+                    .header(ORIGIN, origin)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
 
-            assert_eq!(response.status(), StatusCode::NO_CONTENT);
-            assert_eq!(
-                response.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN),
-                Some(&http::HeaderValue::from_static("*"))
-            );
-            assert!(
-                !response
-                    .headers()
-                    .contains_key(ACCESS_CONTROL_ALLOW_CREDENTIALS)
-            );
-        }
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            response.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some(&http::HeaderValue::from_static("*"))
+        );
+        assert!(
+            !response
+                .headers()
+                .contains_key(ACCESS_CONTROL_ALLOW_CREDENTIALS)
+        );
     }
 
     #[tokio::test]
