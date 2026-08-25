@@ -211,7 +211,8 @@ pub(crate) async fn build_app(
             request_timeout_secs,
             GatewayErrorResponse::request_timeout(request_timeout_secs),
         ))
-        .layer(world_id_services_common::trace_layer()))
+        .layer(world_id_services_common::trace_layer())
+        .layer(world_id_services_common::cors_layer()))
 }
 
 #[utoipa::path(
