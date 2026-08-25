@@ -4,7 +4,7 @@ use tower_http::cors::{Any, CorsLayer};
 /// Builds the CORS policy shared by the public protocol HTTP services.
 ///
 /// The gateway and indexer are public APIs, so browser requests from every
-/// origin are allowed. Credentials remain disabled.
+/// origin are allowed.
 pub fn cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(Any)
