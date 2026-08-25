@@ -91,7 +91,7 @@ strum = { version = "0.27", features = ["derive"] }
 thiserror = "2"
 tokio = { version = "1", default-features = false }
 toml = "1"
-tower-http = { version = "0.6", features = ["trace", "timeout"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "timeout"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { version = "2", features = ["serde"] }

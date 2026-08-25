@@ -86,4 +86,5 @@ pub(crate) fn handler(state: AppState, request_timeout_secs: u64) -> Router {
             IndexerErrorResponse::request_timeout(request_timeout_secs),
         ))
         .layer(world_id_services_common::trace_layer())
+        .layer(world_id_services_common::cors_layer())
 }
