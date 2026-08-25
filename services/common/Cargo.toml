@@ -46,5 +46,6 @@ metrics = { workspace = true }
 [dev-dependencies]
 axum = { workspace = true }
 tempfile = { workspace = true }
+test-case = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 metrics-util = { workspace = true }
