@@ -48,6 +48,7 @@ uuid = { workspace = true, features = ["v4"] }
 [dev-dependencies]
 world-id-test-utils = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
+futures = { workspace = true }
 world-id-authenticator = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
@@ -56,7 +57,13 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
+indicatif = { workspace = true }
 indoc = { workspace = true }
 
 [features]
-integration-tests = [] # running integration tests requires running external services (i.e. Postgres)
+integration-tests = [
+] # running integration tests requires running external services (i.e. Postgres)
+
+[[bench]]
+name = "wallet_pool"
+harness = false

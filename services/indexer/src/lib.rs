@@ -124,7 +124,8 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
     db.run_migrations().await?;
     tracing::info!("🟢 DB successfully created .");
 
-    let http_provider = cfg.provider.http().await?;
+    let http_providers = cfg.provider.http().await?;
+    let http_provider = http_providers[0].clone();
 
     match cfg.run_mode {
         RunMode::IndexerOnly { indexer_config } => {

@@ -7,6 +7,7 @@ use axum::{
     http::StatusCode as AxumStatusCode,
 };
 use base64::Engine as _;
+use eyre::Context;
 use ruint::aliases::U256;
 use serde_json::json;
 use testcontainers::{
@@ -153,7 +154,8 @@ impl OhttpFixture {
             .with_env_var("ALLOWED_TARGET_ORIGINS", allowed_origins)
             .with_env_var("TARGET_REWRITES", target_rewrites.to_string())
             .start()
-            .await?;
+            .await
+            .wrap_err("Starting OHTTP Gateway container")?;
 
         let host_port = container.get_host_port_ipv4(8080).await?;
         let relay_base = format!("http://127.0.0.1:{host_port}");

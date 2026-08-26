@@ -72,13 +72,13 @@ async fn test_pull_events_emits_after_poll() {
         .await
         .expect("failed to deploy registry");
 
-    let provider = ProviderArgs::new()
+    let providers = ProviderArgs::new()
         .with_http_urls([anvil.endpoint()])
         .http()
         .await
-        .expect("failed to build provider");
+        .expect("failed to build providers");
 
-    let blockchain = Blockchain::new(provider.clone(), registry_address);
+    let blockchain = Blockchain::new(providers[0].clone(), registry_address);
 
     let http_provider =
         ProviderBuilder::new().connect_http(anvil.endpoint().parse::<url::Url>().unwrap());
@@ -149,14 +149,14 @@ async fn test_pull_stream_stops_on_error() {
         .await
         .expect("failed to deploy registry");
 
-    let provider = ProviderArgs::new()
-        .with_http_urls([anvil.endpoint()])
-        .with_max_rpc_retries(0)
+    let mut provider_args = ProviderArgs::new().with_http_urls([anvil.endpoint()]);
+    provider_args.retry.max_retries = 0;
+    let providers = provider_args
         .http()
         .await
-        .expect("failed to build provider");
+        .expect("failed to build providers");
 
-    let blockchain = Blockchain::new(provider.clone(), registry_address);
+    let blockchain = Blockchain::new(providers[0].clone(), registry_address);
 
     let http_provider =
         ProviderBuilder::new().connect_http(anvil.endpoint().parse::<url::Url>().unwrap());

@@ -17,6 +17,22 @@ use world_id_test_utils::anvil::TestAnvil;
 /// key, not a real secret.
 pub(crate) const GW_PRIVATE_KEY: &str =
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+pub(crate) const GW_SECOND_PRIVATE_KEY: &str =
+    "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+
+pub(crate) const ANVIL_PRIVATE_KEYS: &[&str] = &[
+    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+    "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+    "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
+    "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6",
+    "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a",
+    "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba",
+    "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e",
+    "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356",
+    "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97",
+    "0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6",
+];
+
 pub(crate) const RPC_FORK_URL: &str = "https://ethereum.reth.rs/rpc";
 
 /// A running gateway + anvil + Redis stack for integration tests.
@@ -59,7 +75,57 @@ pub(crate) async fn spawn_test_gateway(batch_ms: Option<u64>) -> TestGateway {
         .deploy_world_id_registry(deployer)
         .await
         .expect("failed to deploy WorldIDRegistry");
-    spawn_test_gateway_for_registry(anvil, registry_addr, RegistryVersion::V1, batch_ms).await
+    spawn_test_gateway_for_registry(
+        anvil,
+        registry_addr,
+        RegistryVersion::V1,
+        SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string()),
+        batch_ms,
+    )
+    .await
+}
+
+/// Spawn a V1 gateway with two funded Anvil wallets.
+#[allow(dead_code)]
+pub(crate) async fn spawn_test_gateway_with_wallet_pool(batch_ms: Option<u64>) -> TestGateway {
+    let anvil = TestAnvil::spawn().expect("failed to spawn local Anvil");
+    let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
+    let registry_addr = anvil
+        .deploy_world_id_registry(deployer)
+        .await
+        .expect("failed to deploy WorldIDRegistry");
+    spawn_test_gateway_for_registry(
+        anvil,
+        registry_addr,
+        RegistryVersion::V1,
+        SignerArgs::from_wallets([
+            GW_PRIVATE_KEY.to_string(),
+            GW_SECOND_PRIVATE_KEY.to_string(),
+        ]),
+        batch_ms,
+    )
+    .await
+}
+
+/// Spawn a V1 gateway with multiple wallets
+#[allow(dead_code)]
+pub(crate) async fn spawn_test_gateway_with_large_wallet_pool(
+    batch_ms: Option<u64>,
+) -> TestGateway {
+    let anvil = TestAnvil::spawn().expect("failed to spawn local Anvil");
+    let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
+    let registry_addr = anvil
+        .deploy_world_id_registry(deployer)
+        .await
+        .expect("failed to deploy WorldIDRegistry");
+    spawn_test_gateway_for_registry(
+        anvil,
+        registry_addr,
+        RegistryVersion::V1,
+        SignerArgs::from_wallets(ANVIL_PRIVATE_KEYS.iter().map(|x| x.to_string())),
+        batch_ms,
+    )
+    .await
 }
 
 /// Same as [`spawn_test_gateway`] but deploys the V2 (WIP-102) registry —
@@ -72,8 +138,18 @@ pub(crate) async fn spawn_test_gateway_v2(batch_ms: Option<u64>) -> TestGateway 
         .deploy_world_id_registry_v2(deployer)
         .await
         .expect("failed to deploy WorldIDRegistry V2");
-    spawn_test_gateway_for_registry(anvil, registry_addr, RegistryVersion::V2, batch_ms).await
+    spawn_test_gateway_for_registry(
+        anvil,
+        registry_addr,
+        RegistryVersion::V2,
+        SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string()),
+        batch_ms,
+    )
+    .await
 }
+
+// TODO: We can probably unify the construction of a test gateway, etc. with a builder pattern
+//       using something like bon-rs
 
 /// Spawn the gateway/Redis half of the stack against an already-deployed
 /// registry. Shared by [`spawn_test_gateway`] and [`spawn_test_gateway_v2`].
@@ -81,12 +157,11 @@ async fn spawn_test_gateway_for_registry(
     anvil: TestAnvil,
     registry_addr: Address,
     registry_version: RegistryVersion,
+    signer_args: SignerArgs,
     batch_ms: Option<u64>,
 ) -> TestGateway {
     let rpc_url = anvil.endpoint().to_string();
     let chain_id = anvil.instance.chain_id();
-
-    let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let (redis_url, redis_container) = start_redis().await;
 
     let cfg = match batch_ms {

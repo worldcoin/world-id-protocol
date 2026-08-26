@@ -49,8 +49,7 @@ impl Blockchain {
     ///
     /// # Arguments
     ///
-    /// * `http_provider` - A pre-built HTTP provider (e.g. from
-    ///   [`ProviderArgs::http()`](world_id_services_common::ProviderArgs::http)).
+    /// * `http_provider` - A pre-built HTTP provider (e.g. one entry from [`ProviderArgs::http()`]).
     /// * `world_id_registry` - The address of the World ID registry.
     pub fn new(http_provider: DynProvider, world_id_registry: Address) -> Self {
         Self {
