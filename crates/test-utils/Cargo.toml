@@ -27,7 +27,7 @@ k256 = { workspace = true, features = ["ecdsa"] }
 rand = { workspace = true }
 ark-ec = { workspace = true }
 taceo-oprf = { workspace = true, features = ["full", "anvil"] }
-taceo-nodes-common = { workspace = true, features = ["test-utils", "web3"] }
+taceo-nodes-common = { workspace = true, features = ["web3"] }
 axum = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync"] }
 tokio-util = { workspace = true }

@@ -152,14 +152,15 @@ async fn main() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
-    let connection_string = world_id_test_utils::shared_postgres_testcontainer().await?;
+    let connection_string = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5432/postgres".to_owned());
 
     let node_secret_managers =
-        world_id_test_utils::stubs::init_test_secret_managers(connection_string.to_string().into())
+        world_id_test_utils::stubs::init_test_secret_managers(connection_string.clone().into())
             .await?;
 
     let oprf_key_gens =
-        world_id_test_utils::stubs::spawn_key_gens(&anvil, connection_string, oprf_key_registry)
+        world_id_test_utils::stubs::spawn_key_gens(&anvil, &connection_string, oprf_key_registry)
             .await?;
 
     let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
