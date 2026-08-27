@@ -458,6 +458,14 @@ impl Authenticator {
             )
         };
 
+        // Claims are disclosed strictly on RP opt-in; RPs that predate the
+        // field never receive it.
+        let response_item = if request_item.discloses_claims() {
+            response_item.with_claims(credential.claims.clone())
+        } else {
+            response_item
+        };
+
         Ok(response_item)
     }
 

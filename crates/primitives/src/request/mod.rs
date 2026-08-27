@@ -191,6 +191,16 @@ pub struct RequestItem {
     ///
     /// If not provided, this will default to the [`ProofRequest::created_at`] attribute.
     pub expires_at_min: Option<u64>,
+
+    /// When `true`, the Authenticator discloses the raw claims of the
+    /// Credential used for this item on the corresponding
+    /// [`ResponseItem::claims`].
+    ///
+    /// Disclosure is strictly opt-in: absent or `false` means the response
+    /// item carries no claims, which keeps responses parseable by RPs that
+    /// predate this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disclose_claims: Option<bool>,
 }
 
 impl RequestItem {
@@ -209,7 +219,23 @@ impl RequestItem {
             signal,
             genesis_issued_at_min,
             expires_at_min,
+            disclose_claims: None,
         }
+    }
+
+    /// Requests that the Authenticator disclose the raw claims of the
+    /// Credential used for this item on the corresponding [`ResponseItem`].
+    #[must_use]
+    pub const fn with_disclose_claims(mut self, disclose_claims: bool) -> Self {
+        self.disclose_claims = Some(disclose_claims);
+        self
+    }
+
+    /// Whether the RP asked for the credential claims to be disclosed on the
+    /// corresponding [`ResponseItem`].
+    #[must_use]
+    pub fn discloses_claims(&self) -> bool {
+        self.disclose_claims == Some(true)
     }
 
     /// Get the signal hash for the request item.
@@ -314,6 +340,15 @@ pub struct ResponseItem {
     ///
     /// This precise value must be used when verifying the proof on-chain.
     pub expires_at_min: u64,
+
+    /// Raw claims of the Credential used in the proof.
+    ///
+    /// Present only when the RP set [`RequestItem::disclose_claims`]. Note
+    /// the ZK proof does not expose the claims hash as a public signal, so
+    /// disclosed claims are authenticated by the transport-level app
+    /// integrity signature, not by the proof itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claims: Option<Vec<FieldElement>>,
 }
 
 impl ProofResponse {
@@ -353,6 +388,7 @@ impl ResponseItem {
             nullifier: Some(nullifier),
             session_nullifier: None,
             expires_at_min,
+            claims: None,
         }
     }
 
@@ -372,7 +408,18 @@ impl ResponseItem {
             nullifier: None,
             session_nullifier: Some(session_nullifier),
             expires_at_min,
+            claims: None,
         }
+    }
+
+    /// Attaches the disclosed credential claims to this response item.
+    ///
+    /// Used by the Authenticator when the RP set
+    /// [`RequestItem::disclose_claims`].
+    #[must_use]
+    pub fn with_claims(mut self, claims: Vec<FieldElement>) -> Self {
+        self.claims = Some(claims);
+        self
     }
 
     /// Returns true if this is a Session proof response.
@@ -1031,6 +1078,7 @@ mod tests {
                 signal: Some("test_signal".into()),
                 genesis_issued_at_min: None,
                 expires_at_min: None,
+                disclose_claims: None,
             }],
             constraints: None,
         };
@@ -1072,6 +1120,7 @@ mod tests {
                 signal: None,
                 genesis_issued_at_min: None,
                 expires_at_min: None,
+                disclose_claims: None,
             }],
             constraints: None,
         };
@@ -1115,6 +1164,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "document".into(),
@@ -1122,6 +1172,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
             ],
             constraints: None,
@@ -1260,6 +1311,7 @@ mod tests {
                 signal: None,
                 genesis_issued_at_min: None,
                 expires_at_min: None,
+                disclose_claims: None,
             }],
             constraints: Some(deep),
         };
@@ -1329,6 +1381,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_11".into(),
@@ -1336,6 +1389,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_12".into(),
@@ -1343,6 +1397,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_13".into(),
@@ -1350,6 +1405,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_14".into(),
@@ -1357,6 +1413,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_15".into(),
@@ -1364,6 +1421,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_16".into(),
@@ -1371,6 +1429,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_17".into(),
@@ -1378,6 +1437,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_18".into(),
@@ -1385,6 +1445,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
             ],
             constraints: Some(expr),
@@ -1472,6 +1533,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_21".into(),
@@ -1479,6 +1541,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_22".into(),
@@ -1486,6 +1549,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_23".into(),
@@ -1493,6 +1557,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_24".into(),
@@ -1500,6 +1565,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_25".into(),
@@ -1507,6 +1573,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_26".into(),
@@ -1514,6 +1581,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_27".into(),
@@ -1521,6 +1589,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_28".into(),
@@ -1528,6 +1597,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_29".into(),
@@ -1535,6 +1605,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
             ],
             constraints: Some(expr),
@@ -1579,6 +1650,7 @@ mod tests {
                 signal: Some("abcd-efgh-ijkl".into()),
                 genesis_issued_at_min: Some(1_725_381_192),
                 expires_at_min: None,
+                disclose_claims: None,
             }],
             constraints: None,
         };
@@ -1624,6 +1696,7 @@ mod tests {
                     signal: Some("abcd-efgh-ijkl".into()),
                     genesis_issued_at_min: Some(1_725_381_192),
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_2".into(),
@@ -1631,6 +1704,7 @@ mod tests {
                     signal: Some("abcd-efgh-ijkl".into()),
                     genesis_issued_at_min: Some(1_725_381_192),
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
             ],
             constraints: Some(ConstraintExpr::All {
@@ -1681,6 +1755,7 @@ mod tests {
                     signal: Some("abcd-efgh-ijkl".into()),
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_2".into(),
@@ -1688,6 +1763,7 @@ mod tests {
                     signal: Some("mnop-qrst-uvwx".into()),
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_3".into(),
@@ -1695,6 +1771,7 @@ mod tests {
                     signal: Some("abcd-efgh-ijkl".into()),
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
             ],
             constraints: Some(ConstraintExpr::All {
@@ -1758,6 +1835,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "national_id".into(),
@@ -1765,6 +1843,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
             ],
             constraints: Some(ConstraintExpr::Enumerate {
@@ -1906,7 +1985,7 @@ mod tests {
       "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
       "nullifier": "nil_00000000000000000000000000000000000000000000000000000000000003e9",
       "expires_at_min": 1725381192,
-      "claims": ["0x01", "0x02"]
+      "also_from_the_future": {"nested": [1, 2, 3]}
     }
   ]
 }"#;
@@ -1914,6 +1993,73 @@ mod tests {
         let resp = ProofResponse::from_json(json).expect("unknown fields must be tolerated");
         assert_eq!(resp.successful_credentials(), vec![100]);
         assert!(resp.responses[0].is_uniqueness());
+    }
+
+    #[test]
+    fn request_disclose_claims_round_trip() {
+        let item = RequestItem::new("orb".to_string(), 1, None, None, None);
+        assert!(!item.discloses_claims());
+
+        let item = item.with_disclose_claims(true);
+        assert!(item.discloses_claims());
+
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains(r#""disclose_claims":true"#));
+        let parsed: RequestItem = serde_json::from_str(&json).unwrap();
+        assert!(parsed.discloses_claims());
+
+        // Requests that never mention the field keep serializing without it
+        // and parse with disclosure off.
+        let plain = RequestItem::new("orb".to_string(), 1, None, None, None);
+        let json = serde_json::to_string(&plain).unwrap();
+        assert!(!json.contains("disclose_claims"));
+        let parsed: RequestItem = serde_json::from_str(&json).unwrap();
+        assert!(!parsed.discloses_claims());
+    }
+
+    #[test]
+    fn response_claims_round_trip() {
+        let json = r#"{
+  "id": "req_18c0f7f03e7d",
+  "version": 1,
+  "responses": [
+    {
+      "identifier": "orb",
+      "issuer_schema_id": 100,
+      "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
+      "nullifier": "nil_00000000000000000000000000000000000000000000000000000000000003e9",
+      "expires_at_min": 1725381192,
+      "claims": [
+        "0x0000000000000000000000000000000000000000000000000000000000000001",
+        "0x0000000000000000000000000000000000000000000000000000000000000002"
+      ]
+    }
+  ]
+}"#;
+
+        let resp = ProofResponse::from_json(json).unwrap();
+        let claims = resp.responses[0].claims.as_ref().unwrap();
+        assert_eq!(claims.len(), 2);
+        assert_eq!(claims[0], test_field_element(1));
+        assert_eq!(claims[1], test_field_element(2));
+
+        // Claims survive re-serialization; absent claims stay omitted.
+        let reserialized = serde_json::to_string(&resp).unwrap();
+        assert!(reserialized.contains("claims"));
+
+        let item = ResponseItem::new_uniqueness(
+            "orb".to_string(),
+            100,
+            resp.responses[0].proof.clone(),
+            Nullifier::from(test_field_element(1001)),
+            0,
+        );
+        assert!(item.claims.is_none());
+        assert!(!serde_json::to_string(&item).unwrap().contains("claims"));
+
+        let item = item.with_claims(vec![test_field_element(1)]);
+        assert_eq!(item.claims.as_ref().unwrap().len(), 1);
+        assert!(serde_json::to_string(&item).unwrap().contains("claims"));
     }
 
     #[test]
@@ -1989,6 +2135,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "test_req_2".into(),
@@ -1996,6 +2143,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
             ],
             constraints: None,
@@ -2031,6 +2179,7 @@ mod tests {
                 signal: None,
                 genesis_issued_at_min: None,
                 expires_at_min: None,
+                disclose_claims: None,
             }],
             constraints: None,
         };
@@ -2098,6 +2247,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "passport".into(),
@@ -2105,6 +2255,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
             ],
             constraints: None,
@@ -2146,6 +2297,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "passport".into(),
@@ -2153,6 +2305,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "national_id".into(),
@@ -2160,6 +2313,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
             ],
             constraints: Some(ConstraintExpr::All {
@@ -2219,6 +2373,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "passport".into(),
@@ -2226,6 +2381,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "national_id".into(),
@@ -2233,6 +2389,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
             ],
             constraints: Some(ConstraintExpr::Enumerate {
@@ -2286,6 +2443,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "passport".into(),
@@ -2293,6 +2451,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "national_id".into(),
@@ -2300,6 +2459,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None,
+                    disclose_claims: None,
                 },
             ],
             constraints: Some(ConstraintExpr::All {
@@ -2347,6 +2507,7 @@ mod tests {
             signal: None,
             genesis_issued_at_min: None,
             expires_at_min: None,
+            disclose_claims: None,
         };
         assert_eq!(
             item_with_none.effective_expires_at_min(request_created_at),
@@ -2361,6 +2522,7 @@ mod tests {
             signal: None,
             genesis_issued_at_min: None,
             expires_at_min: Some(custom_expires_at),
+            disclose_claims: None,
         };
         assert_eq!(
             item_with_custom.effective_expires_at_min(request_created_at),
@@ -2395,6 +2557,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: None, // Should default to request_created_at
+                    disclose_claims: None,
                 },
                 RequestItem {
                     identifier: "document".into(),
@@ -2402,6 +2565,7 @@ mod tests {
                     signal: None,
                     genesis_issued_at_min: None,
                     expires_at_min: Some(custom_expires_at), // Explicit value
+                    disclose_claims: None,
                 },
             ],
             constraints: None,
@@ -2521,6 +2685,7 @@ mod tests {
                 signal: None,
                 genesis_issued_at_min: None,
                 expires_at_min: None,
+                disclose_claims: None,
             }],
             constraints: None,
         };
@@ -2634,6 +2799,7 @@ mod tests {
                 signal: None,
                 genesis_issued_at_min: None,
                 expires_at_min: None,
+                disclose_claims: None,
             }],
             constraints: None,
         };
@@ -2667,6 +2833,7 @@ mod tests {
                 signal: None,
                 genesis_issued_at_min: None,
                 expires_at_min: None,
+                disclose_claims: None,
             }],
             constraints: None,
         };
@@ -2704,6 +2871,7 @@ mod tests {
                 signal: None,
                 genesis_issued_at_min: None,
                 expires_at_min: None,
+                disclose_claims: None,
             }],
             constraints: None,
         };
@@ -2786,6 +2954,7 @@ mod tests {
                 signal: None,
                 genesis_issued_at_min: None,
                 expires_at_min: None,
+                disclose_claims: None,
             }],
             constraints: None,
         };
@@ -2835,6 +3004,7 @@ mod tests {
                 signal: None,
                 genesis_issued_at_min: None,
                 expires_at_min: None,
+                disclose_claims: None,
             }],
             constraints: None,
         };
@@ -2885,6 +3055,7 @@ mod tests {
                 signal: None,
                 genesis_issued_at_min: None,
                 expires_at_min: None,
+                disclose_claims: None,
             }],
             constraints: None,
         };
@@ -2931,6 +3102,7 @@ mod tests {
                 signal: None,
                 genesis_issued_at_min: None,
                 expires_at_min: None,
+                disclose_claims: None,
             }],
             constraints: None,
         };
@@ -2980,6 +3152,7 @@ mod tests {
                 signal: None,
                 genesis_issued_at_min: None,
                 expires_at_min: None,
+                disclose_claims: None,
             }],
             constraints: None,
         };

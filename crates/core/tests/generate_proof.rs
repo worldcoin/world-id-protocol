@@ -314,6 +314,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             signal: Some(b"my_signal".to_vec()),
             genesis_issued_at_min: None,
             expires_at_min: None,
+            disclose_claims: None,
         }],
         constraints: None,
     };

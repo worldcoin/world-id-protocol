@@ -333,6 +333,7 @@ fn create_proof_request<R: Rng + CryptoRng>(
             signal: Some(b"my_signal".to_vec()),
             genesis_issued_at_min: None,
             expires_at_min: None,
+            disclose_claims: None,
         }],
         constraints: None,
     })
