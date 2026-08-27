@@ -1,10 +1,7 @@
 use alloy::primitives::Address;
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
-use testcontainers_modules::{
-    redis::{REDIS_PORT, Redis},
-    testcontainers::{ContainerAsync, ImageExt as _, runners::AsyncRunner as _},
-};
+use testcontainers_modules::{redis::Redis, testcontainers::ContainerAsync};
 use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, GatewayHandle, RegistryVersion, SignerArgs, defaults,
     spawn_gateway_for_tests,
@@ -167,22 +164,9 @@ async fn spawn_test_gateway_for_registry(
 /// test that needs the Redis instance.
 #[allow(dead_code)]
 pub(crate) async fn start_redis() -> (String, ContainerAsync<Redis>) {
-    // Use redis:latest so CI (which already pulls this tag via docker-compose)
-    // can start the container from the local image cache with no network pull.
-    let container = Redis::default()
-        .with_tag("latest")
-        .start()
+    let (container, url) = world_id_test_utils::redis_testcontainer()
         .await
         .expect("failed to start Redis container");
-    let host = container
-        .get_host()
-        .await
-        .expect("failed to get Redis host");
-    let port = container
-        .get_host_port_ipv4(REDIS_PORT)
-        .await
-        .expect("failed to get Redis port");
-    let url = format!("redis://{host}:{port}");
     (url, container)
 }
 

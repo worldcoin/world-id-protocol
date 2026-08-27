@@ -13334,6 +13334,7 @@ dependencies = [
  "taceo-nodes-common",
  "taceo-oprf",
  "testcontainers",
+ "testcontainers-modules",
  "tokio",
  "tokio-util",
  "tracing",
