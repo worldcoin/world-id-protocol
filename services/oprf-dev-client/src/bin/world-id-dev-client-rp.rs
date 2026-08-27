@@ -1,7 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy::{
-    primitives::{Address, B256, Signature, U256},
+    primitives::{Address, B256, Bytes, Signature, U256},
     providers::{DynProvider, Provider as _},
     signers::{SignerSync as _, k256::ecdsa::SigningKey, local::LocalSigner},
 };
@@ -45,6 +45,11 @@ struct RpConfig {
     #[clap(long, env = "OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT")]
     pub rp_registry_contract: Address,
 
+    /// Auxiliary data for a WIP-101 contract signer. When set, the request uses WIP-101
+    /// authorization rather than an EOA signature.
+    #[clap(long, env = "OPRF_DEV_CLIENT_WIP101_DATA")]
+    pub wip101_data: Option<Bytes>,
+
     #[clap(flatten)]
     base: WorldDevClientConfig,
 }
@@ -53,6 +58,7 @@ struct WorldIdRpDevClient {
     rp_id: u64,
     create_key: bool,
     rp_registry_contract: Address,
+    wip101_data: Option<Bytes>,
     components: SharedDevClientComponents,
 }
 
@@ -61,6 +67,7 @@ struct WorldIdRpDevClientSetup {
     rp_id: RpId,
     rp_oprf_public_key: OprfPublicKey,
     chain_id: u64,
+    authorization_proof: RpAuthorizationProof,
 
     inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     key_set: AuthenticatorPublicKeySet,
@@ -104,6 +111,14 @@ impl DevClient for WorldIdRpDevClient {
             rp_id: RpId::from(self.rp_id),
             rp_oprf_public_key,
             chain_id,
+            authorization_proof: self.wip101_data.clone().map_or_else(
+                || RpAuthorizationProof::Eoa {
+                    signature: Signature::new(U256::ZERO, U256::ZERO, false),
+                },
+                |data| RpAuthorizationProof::Wip101 {
+                    data: data.to_vec(),
+                },
+            ),
             inclusion_proof,
             key_set,
             key_index,
@@ -246,6 +261,7 @@ impl WorldIdRpDevClient {
             create_key: config.create_key,
             rp_id: config.rp_id,
             rp_registry_contract: config.rp_registry_contract,
+            wip101_data: config.wip101_data.clone(),
             components,
         })
     }
@@ -383,8 +399,13 @@ fn generate_oprf_auth_request(
         oprf_action: *action,
         merkle_root: *setup.inclusion_proof.root,
         authorization: proof_request.rp_authorization()?,
-        authorization_proof: RpAuthorizationProof::Eoa {
-            signature: proof_request.signature,
+        authorization_proof: match &setup.authorization_proof {
+            RpAuthorizationProof::Eoa { .. } => RpAuthorizationProof::Eoa {
+                signature: proof_request.signature,
+            },
+            RpAuthorizationProof::Wip101 { data } => {
+                RpAuthorizationProof::Wip101 { data: data.clone() }
+            }
         },
         session_seed_opening: None,
     };
