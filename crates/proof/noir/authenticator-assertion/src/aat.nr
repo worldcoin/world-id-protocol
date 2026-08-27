@@ -291,6 +291,27 @@ fn test_aat_zero_r_rejected() {
     verify_aat(aat, key_x, key_y, super::takt::TEST_NOW);
 }
 
+#[test(should_fail_with = "Signature s value is not in canonical form")]
+fn test_aat_high_s_signature_rejected() {
+    // WIP-106 requires verifiers to reject high-S signatures. `(r, n - s)`
+    // verifies under textbook ECDSA exactly as `(r, s)` does, so without this
+    // check every AAT would have a second, equally valid signature.
+    //
+    // The check lives in `noir_ecdsa` (`assert(s <= n/2)`) rather than here, so
+    // this test pins the pinned dependency: a version bump that drops, renames
+    // or reworks that assertion fails loudly instead of silently dropping a
+    // spec MUST. `n - s` is derived from the fixture rather than hardcoded so
+    // the two cannot drift apart.
+    let (key_x, key_y) = test_assertion_key();
+    let mut aat = test_deterministic_aat();
+    let s = signature_scalar(aat.signature, 32);
+    let high_s: [u8; 32] = (Secp256r1_Fr::zero() - s).to_be_bytes();
+    for i in 0..32 {
+        aat.signature[32 + i] = high_s[i];
+    }
+    verify_aat(aat, key_x, key_y, super::takt::TEST_NOW);
+}
+
 #[test(should_fail_with = "authenticator_meta bits 5+ are reserved")]
 fn test_aat_reserved_meta_bits_rejected() {
     let (key_x, key_y) = test_assertion_key();
