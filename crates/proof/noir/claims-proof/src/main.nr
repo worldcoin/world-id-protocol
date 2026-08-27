@@ -5,7 +5,7 @@ use std::field::bn254::assert_lt;
 global NUM_CLAIMS: u32 = 15;
 global MAX_U64_PLUS_ONE: Field = 18446744073709551616;
 
-// These values match the capacity elements in `oprf_nullifier.circom`.
+// Protocol domain separators, represented as capacity field elements.
 global DS_CREDENTIAL_SUB: Field = 87492525752134038588518953; // b"H_CS(id, r)"
 global DS_CREDENTIAL: Field = 1790969822004668215611014194230797064349043274; // b"POSEIDON2+EDDSA-BJJ"
 global DS_OPRF_QUERY: Field = 1773399373884719043551600379785849; // b"World ID Query"
@@ -21,9 +21,7 @@ pub struct ClaimsStatement {
     pub range_check_max: Field,
 }
 
-pub struct ClaimsDisclosureInputs {
-    pub salt: Field,
-    pub salted_claims_hash: Field,
+pub struct ClaimsStatementInputs {
     pub statements: [ClaimsStatement; NUM_CLAIMS],
 }
 
@@ -41,7 +39,7 @@ pub struct NullifierPublicInputs {
 }
 
 pub struct ClaimsProofPublicInputs {
-    pub disclosure: ClaimsDisclosureInputs,
+    pub claims: ClaimsStatementInputs,
     pub credential: CredentialPublicInputs,
     pub nullifier: NullifierPublicInputs,
 }
@@ -75,10 +73,6 @@ fn calculate_claims_hash(claims: [Field; NUM_CLAIMS]) -> Field {
         state[i] = claims[i];
     }
     perm::x5_16(state)[1]
-}
-
-fn calculate_salted_claims_hash(salt: Field, claims_hash: Field) -> Field {
-    perm::x5_4([salt, claims_hash, 0, 0])[1]
 }
 
 fn calculate_credential_subject(leaf_index: Field, blinder: Field) -> Field {
@@ -142,14 +136,7 @@ fn check_claim_statements(claims: [Field; NUM_CLAIMS], statements: [ClaimsStatem
 /// proofs against the same `nullifier`, `issuer_schema_id`, `cred_pk`, `rp_id`,
 /// `action`, and time policy.
 fn main(public_inputs: pub ClaimsProofPublicInputs, private_inputs: ClaimsProofPrivateInputs) {
-    assert(public_inputs.disclosure.salt != 0, "salt must not be zero");
-
     let claims_hash = calculate_claims_hash(private_inputs.claims);
-    assert(
-        calculate_salted_claims_hash(public_inputs.disclosure.salt, claims_hash)
-            == public_inputs.disclosure.salted_claims_hash,
-        "salted claims hash mismatch",
-    );
 
     let subject = calculate_credential_subject(
         private_inputs.nullifier.leaf_index,
@@ -195,7 +182,7 @@ fn main(public_inputs: pub ClaimsProofPublicInputs, private_inputs: ClaimsProofP
         private_inputs.credential.cred_genesis_issued_at + 1,
     );
 
-    check_claim_statements(private_inputs.claims, public_inputs.disclosure.statements);
+    check_claim_statements(private_inputs.claims, public_inputs.claims.statements);
 
     assert(
         calculate_nullifier(
@@ -211,13 +198,12 @@ fn main(public_inputs: pub ClaimsProofPublicInputs, private_inputs: ClaimsProofP
 
 mod tests {
     use super::{
-        calculate_claims_hash, calculate_nullifier, calculate_salted_claims_hash,
-        check_claim_statements, ClaimsDisclosureInputs, ClaimsProofPrivateInputs,
-        ClaimsProofPublicInputs, ClaimsStatement, CredentialPrivateInputs, CredentialPublicInputs,
-        main, NullifierPrivateInputs, NullifierPublicInputs, NUM_CLAIMS,
+        calculate_claims_hash, calculate_nullifier, check_claim_statements,
+        ClaimsProofPrivateInputs, ClaimsProofPublicInputs, ClaimsStatement, ClaimsStatementInputs,
+        CredentialPrivateInputs, CredentialPublicInputs, main, NullifierPrivateInputs,
+        NullifierPublicInputs, NUM_CLAIMS,
     };
 
-    global SALT: Field = 340282366920938463463374607431768211507;
     global ISSUER_SCHEMA_ID: Field = 1;
     global CRED_PK: [Field; 2] = [
         21825204959029483311433036009853709113262520481918849765727459753607131160346,
@@ -262,13 +248,9 @@ mod tests {
         }
     }
 
-    fn fixture_public_inputs(salted_claims_hash: Field) -> ClaimsProofPublicInputs {
+    fn fixture_public_inputs() -> ClaimsProofPublicInputs {
         ClaimsProofPublicInputs {
-            disclosure: ClaimsDisclosureInputs {
-                salt: SALT,
-                salted_claims_hash,
-                statements: no_statements(),
-            },
+            claims: ClaimsStatementInputs { statements: no_statements() },
             credential: CredentialPublicInputs {
                 issuer_schema_id: ISSUER_SCHEMA_ID,
                 cred_pk: CRED_PK,
@@ -305,8 +287,7 @@ mod tests {
     #[test]
     fn test_full_attested_claims_flow() {
         let inputs = fixture_inputs();
-        let salted_claims_hash = calculate_salted_claims_hash(SALT, EXPECTED_CLAIMS_HASH);
-        main(fixture_public_inputs(salted_claims_hash), inputs);
+        main(fixture_public_inputs(), inputs);
     }
 
     #[test]
@@ -323,9 +304,7 @@ mod tests {
     fn test_tampered_claim_is_not_attested() {
         let mut inputs = fixture_inputs();
         inputs.claims[0] = 1;
-        let salted_claims_hash =
-            calculate_salted_claims_hash(SALT, calculate_claims_hash(inputs.claims));
-        main(fixture_public_inputs(salted_claims_hash), inputs);
+        main(fixture_public_inputs(), inputs);
     }
 
     #[test(should_fail_with = "minimum check must be boolean")]

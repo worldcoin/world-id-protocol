@@ -12,7 +12,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 /// ZK artifact source abstractions.
 pub mod artifacts;
 
-/// Circuit input types for Circom/Groth16 circuits (query, nullifier, ownership proofs).
+/// Circuit input types for Circom/Groth16 circuits (query and nullifier proofs).
 pub mod circuit_inputs;
 
 /// Static circuit input fixtures shared by the tests and the generated circuit examples.
@@ -30,6 +30,10 @@ pub use oprf_query::{
 pub mod nullifier_proof;
 pub use nullifier_proof::*;
 
+/// Proofs over private issuer-attested credential claims.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod claims_proof;
+
 /// Authenticator Attestations (WIP-106): Root of Trust Token generation.
 pub mod authenticator_attestation;
 
@@ -44,6 +48,11 @@ pub mod ownership_proof;
 pub use provekit_common::{
     NoirProof, Prover as OwnershipProver, Verifier as OwnershipVerifier, WhirR1CSProof,
 };
+
+/// ProveKit prover material for the claims circuit.
+pub type ClaimsProver = provekit_common::Prover;
+/// ProveKit verifier material for the claims circuit.
+pub type ClaimsVerifier = provekit_common::Verifier;
 
 /// Error type for OPRF operations and proof generation.
 #[derive(Debug, thiserror::Error)]
