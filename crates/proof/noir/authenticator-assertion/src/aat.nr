@@ -10,10 +10,10 @@ use noir_ecdsa::ecdsa::verify_secp256r1_ecdsa;
 /// `Signature1` framing, protected header, `external_aad`, and the six-entry
 /// CWT claims map.
 ///
-/// 19-byte prefix + 159-byte payload. The prefix is one byte shorter than it
-/// would be with the TAKT: a 159-byte payload takes the minimal 1-byte CBOR
-/// length (`0x58 0x9f`), where the old 417-byte payload needed the 2-byte form.
-pub global AAT_SIG_STRUCTURE_LEN: u32 = 178;
+/// 19-byte prefix + 163-byte payload. Both the payload length (`0x58 0xa3`) and
+/// every claim length take the minimal CBOR form, as deterministic encoding
+/// requires (RFC 8949 section 4.2.1).
+pub global AAT_SIG_STRUCTURE_LEN: u32 = 182;
 
 /// Maximum remaining validity of an AAT, in seconds (12h), mandated by WIP-106
 /// and enforced in [`verify_aat`].
@@ -25,8 +25,11 @@ pub global MAX_AAT_LIFETIME_SECS: Field = 43200;
 /// The claims and signature of an Authenticator Assertion Token, as parsed from
 /// its `COSE_Sign1` encoding.
 pub struct AuthenticatorAssertionToken {
-    /// The `rpId` of the requesting RP (CWT `aud`). MUST require a 4-byte
-    /// CBOR uint encoding (`2^16 <= aud < 2^32`) so offsets stay constant.
+    /// The `rpId` of the requesting RP (CWT `aud`), encoded as a fixed 8-byte
+    /// big-endian byte string. MUST be below `2^64`; the whole `u64` range is
+    /// allowed because a byte string's width is fixed by the encoder rather
+    /// than by the value's magnitude, unlike a CBOR uint, whose deterministic
+    /// encoding is the shortest form that fits.
     pub aud: Field,
     /// Expiration as seconds since the Unix epoch (CWT `exp`). MUST require a
     /// 4-byte CBOR uint encoding (`2^16 <= exp < 2^32`), i.e. any instant from
@@ -104,10 +107,11 @@ fn aat_sig_structure(input: AuthenticatorAssertionToken) -> [u8; AAT_SIG_STRUCTU
     // The payload is everything after the 19-byte Sig_structure prefix.
     let payload_len: u32 = AAT_SIG_STRUCTURE_LEN - 19;
 
-    // Fixed-width claim encodings; see the struct field requirements.
-    assert_cbor_uint32(input.aud);
+    // Fixed-width claim encodings; see the struct field requirements. `aud`
+    // needs no explicit range check: the 8-byte decomposition below constrains
+    // it to `u64` on its own.
     assert_cbor_uint32(input.exp);
-    let aud_bytes: [u8; 4] = input.aud.to_be_bytes();
+    let aud_bytes: [u8; 8] = input.aud.to_be_bytes();
     let exp_bytes: [u8; 4] = input.exp.to_be_bytes();
     let nonce_bytes: [u8; 32] = input.nonce.to_be_bytes();
     let cdh_bytes: [u8; 32] = input.cdh.to_be_bytes();
@@ -137,49 +141,49 @@ fn aat_sig_structure(input: AuthenticatorAssertionToken) -> [u8; AAT_SIG_STRUCTU
     // Payload: the CWT claims map in deterministic CBOR map-key order.
     msg[19] = 0xa6; // map(6)
     msg[20] = 0x03; // aud (3):
-    msg[21] = 0x1a; // uint32
-    for i in 0..4 {
+    msg[21] = 0x48; // bytes(8)
+    for i in 0..8 {
         msg[22 + i] = aud_bytes[i];
     }
-    msg[26] = 0x04; // exp (4):
-    msg[27] = 0x1a; // uint32
+    msg[30] = 0x04; // exp (4):
+    msg[31] = 0x1a; // uint32
     for i in 0..4 {
-        msg[28 + i] = exp_bytes[i];
+        msg[32 + i] = exp_bytes[i];
     }
-    msg[32] = 0x0a; // nonce (10):
-    msg[33] = 0x58; // bytes(1-byte length)
-    msg[34] = 0x20; // 32
+    msg[36] = 0x0a; // nonce (10):
+    msg[37] = 0x58; // bytes(1-byte length)
+    msg[38] = 0x20; // 32
     for i in 0..32 {
-        msg[35 + i] = nonce_bytes[i];
+        msg[39 + i] = nonce_bytes[i];
     }
-    msg[67] = 0x19; // eat_profile (265, 2-byte uint):
-    msg[68] = 0x01;
-    msg[69] = 0x09;
-    msg[70] = 0x78; // text(1-byte length)
-    msg[71] = 0x1c; // 28
+    msg[71] = 0x19; // eat_profile (265, 2-byte uint):
+    msg[72] = 0x01;
+    msg[73] = 0x09;
+    msg[74] = 0x78; // text(1-byte length)
+    msg[75] = 0x1c; // 28
     let profile = "https://world.org/eat/aat/v1".as_bytes();
     for i in 0..28 {
-        msg[72 + i] = profile[i];
+        msg[76 + i] = profile[i];
     }
-    msg[100] = 0x3a; // cdh (-80000, 4-byte negative):
-    msg[101] = 0x00;
-    msg[102] = 0x01;
-    msg[103] = 0x38;
-    msg[104] = 0x7f;
-    msg[105] = 0x58; // bytes(1-byte length)
-    msg[106] = 0x20; // 32
+    msg[104] = 0x3a; // cdh (-80000, 4-byte negative):
+    msg[105] = 0x00;
+    msg[106] = 0x01;
+    msg[107] = 0x38;
+    msg[108] = 0x7f;
+    msg[109] = 0x58; // bytes(1-byte length)
+    msg[110] = 0x20; // 32
     for i in 0..32 {
-        msg[107 + i] = cdh_bytes[i];
+        msg[111 + i] = cdh_bytes[i];
     }
-    msg[139] = 0x3a; // authenticator_meta (-80001):
-    msg[140] = 0x00;
-    msg[141] = 0x01;
-    msg[142] = 0x38;
-    msg[143] = 0x80;
-    msg[144] = 0x58; // bytes(1-byte length)
-    msg[145] = 0x20; // 32
+    msg[143] = 0x3a; // authenticator_meta (-80001):
+    msg[144] = 0x00;
+    msg[145] = 0x01;
+    msg[146] = 0x38;
+    msg[147] = 0x80;
+    msg[148] = 0x58; // bytes(1-byte length)
+    msg[149] = 0x20; // 32
     for i in 0..32 {
-        msg[146 + i] = meta_bytes[i];
+        msg[150 + i] = meta_bytes[i];
     }
 
     msg
@@ -200,11 +204,11 @@ pub(crate) fn test_deterministic_aat() -> AuthenticatorAssertionToken {
         // presence PresentBiometric (0b010) | provider 0b01 << 3
         authenticator_meta: 10,
         signature: [
-            0x33, 0x07, 0x2e, 0x05, 0x70, 0x4c, 0x92, 0x7b, 0x97, 0x54, 0xdc, 0x49, 0x4c, 0x0d,
-            0x31, 0xbc, 0x87, 0x5e, 0x03, 0xa2, 0x03, 0x35, 0x83, 0xc2, 0xa6, 0x03, 0x46, 0xee,
-            0xc5, 0x71, 0x8b, 0xed, 0x0f, 0x3c, 0x9d, 0x76, 0x19, 0x27, 0xda, 0x77, 0x2c, 0x8a,
-            0x64, 0x02, 0xaa, 0xe1, 0xcb, 0x5f, 0x13, 0x8e, 0xea, 0xdf, 0xd5, 0xab, 0x33, 0x4d,
-            0xa0, 0x0f, 0x0d, 0x4b, 0xee, 0xe7, 0x32, 0xc3,
+            0x51, 0x6e, 0xf8, 0x8b, 0x3c, 0x52, 0x34, 0x74, 0x64, 0x4e, 0x31, 0x48, 0xc1, 0xdb,
+            0x2a, 0x50, 0x25, 0x9e, 0x81, 0xdc, 0xa3, 0x6f, 0x42, 0x76, 0x76, 0x8d, 0x65, 0xd4,
+            0x63, 0x09, 0xe8, 0x26, 0x63, 0xde, 0x9c, 0x50, 0x11, 0x66, 0x73, 0xb7, 0x78, 0xd7,
+            0x2b, 0xaf, 0xc4, 0x41, 0x4f, 0x38, 0x4b, 0x54, 0xd7, 0xba, 0x66, 0x1c, 0x3e, 0x2d,
+            0x76, 0xd8, 0xa6, 0xcf, 0x8d, 0x32, 0xa4, 0x63,
         ],
     }
 }
@@ -219,23 +223,53 @@ pub(crate) fn test_deterministic_aat() -> AuthenticatorAssertionToken {
 fn test_aat_sig_structure_matches_rust_fixture() {
     let expected: [u8; AAT_SIG_STRUCTURE_LEN] = [
         0x84, 0x6a, 0x53, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x31, 0x43, 0xa1, 0x01,
-        0x26, 0x40, 0x58, 0x9f, 0xa6, 0x03, 0x1a, 0x00, 0x1d, 0x6b, 0xb6, 0x04, 0x1a, 0x6a, 0x4d,
-        0x3d, 0x8d, 0x0a, 0x58, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11,
-        0xd2, 0x23, 0xce, 0x7b, 0x91, 0xac, 0x21, 0x19, 0x01, 0x09, 0x78, 0x1c, 0x68, 0x74, 0x74,
-        0x70, 0x73, 0x3a, 0x2f, 0x2f, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x2e, 0x6f, 0x72, 0x67, 0x2f,
-        0x65, 0x61, 0x74, 0x2f, 0x61, 0x61, 0x74, 0x2f, 0x76, 0x31, 0x3a, 0x00, 0x01, 0x38, 0x7f,
-        0x58, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x26, 0x40, 0x58, 0xa3, 0xa6, 0x03, 0x48, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1d, 0x6b, 0xb6,
+        0x04, 0x1a, 0x6a, 0x4d, 0x3d, 0x8d, 0x0a, 0x58, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x9f, 0x2c, 0x1a, 0xbc, 0x3a, 0x00, 0x01, 0x38, 0x80, 0x58, 0x20, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x11, 0xd2, 0x23, 0xce, 0x7b, 0x91, 0xac, 0x21, 0x19, 0x01, 0x09, 0x78,
+        0x1c, 0x68, 0x74, 0x74, 0x70, 0x73, 0x3a, 0x2f, 0x2f, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x2e,
+        0x6f, 0x72, 0x67, 0x2f, 0x65, 0x61, 0x74, 0x2f, 0x61, 0x61, 0x74, 0x2f, 0x76, 0x31, 0x3a,
+        0x00, 0x01, 0x38, 0x7f, 0x58, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a,
+        0x00, 0x00, 0x00, 0x00, 0x9f, 0x2c, 0x1a, 0xbc, 0x3a, 0x00, 0x01, 0x38, 0x80, 0x58, 0x20,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x0a,
     ];
     let actual = aat_sig_structure(test_deterministic_aat());
 
     for i in 0..AAT_SIG_STRUCTURE_LEN {
         assert(actual[i] == expected[i], "AAT Sig_structure differs from Rust fixture");
     }
+}
+
+/// `aud` spans the whole `u64` range, which is the point of encoding it as a
+/// byte string: `RpId` is a `u64` protocol-wide and ids as small as `1` are in
+/// use, so the `[2^16, 2^32)` window a 4-byte CBOR uint would force is not a
+/// window the protocol can live inside.
+#[test]
+fn test_aud_covers_the_full_u64_range() {
+    let cases: [Field; 4] = [0, 1, 0x100000000, 0xffffffffffffffff];
+    for c in 0..4 {
+        let mut aat = test_deterministic_aat();
+        aat.aud = cases[c];
+        let msg = aat_sig_structure(aat);
+        // Always the same eight bytes on the wire, whatever the magnitude.
+        let expected: [u8; 8] = cases[c].to_be_bytes();
+        for i in 0..8 {
+            assert(msg[22 + i] == expected[i], "aud must be 8 big-endian bytes");
+        }
+    }
+}
+
+#[test(should_fail_with = "Field failed to decompose into specified 8 limbs")]
+fn test_aud_above_u64_rejected() {
+    // The 8-byte decomposition is the only bound on `aud`, so it has to be the
+    // thing that rejects `2^64`: a wider value would silently truncate into the
+    // template and sign a different audience than the one bound outside.
+    let mut aat = test_deterministic_aat();
+    aat.aud = 0x10000000000000000;
+    let _ = aat_sig_structure(aat);
 }
 
 /// The assertion key attested by `test_deterministic_takt`, which signed

@@ -174,9 +174,6 @@ pub enum AttestationError {
     /// The provider bits of `authenticator_meta` exceed the 2-bit limit.
     #[error("authenticator_meta provider bits must carry at most 2 bits, got {0:#b}")]
     ProviderBitsTooLarge(u8),
-    /// `aud` cannot use the fixed 4-byte CBOR encoding.
-    #[error("aud {0} must be in [2^16, 2^32) for its fixed-width encoding")]
-    AudOutOfRange(u64),
     /// `exp` cannot use the fixed 4-byte CBOR encoding.
     #[error("exp {0} must be in [2^16, 2^32) for its fixed-width encoding")]
     ExpirationOutOfRange(u32),
@@ -353,7 +350,12 @@ impl TrustAnchorKeyToken {
 /// Claims carried by an Authenticator Assertion Token.
 #[derive(Debug, Clone, Copy)]
 pub struct AuthenticatorAssertionClaims {
-    /// The `rpId` of the requesting RP (CWT `aud`); MUST be in `[2^16, 2^32)`.
+    /// The `rpId` of the requesting RP (CWT `aud`).
+    ///
+    /// Encoded as a fixed 8-byte big-endian byte string, so the whole `u64`
+    /// range is representable: unlike a CBOR uint, a byte string's width is set
+    /// by the encoder rather than by the value's magnitude, and so stays
+    /// constant under deterministic CBOR.
     pub aud: RpId,
     /// Expiration as seconds since the Unix epoch; MUST be in `[2^16, 2^32)`
     /// for its fixed-width encoding.
@@ -387,8 +389,6 @@ impl AuthenticatorAssertionToken {
     /// # Errors
     /// - [`AttestationError::ProviderBitsTooLarge`] if the `authenticator_meta`
     ///   provider bits carry more than 2 bits.
-    /// - [`AttestationError::AudOutOfRange`] if `aud` cannot use the fixed
-    ///   4-byte CBOR encoding.
     /// - [`AttestationError::ExpirationOutOfRange`] if `exp` cannot use the
     ///   fixed 4-byte CBOR encoding.
     pub fn new(claims: AuthenticatorAssertionClaims) -> Result<Self, AttestationError> {
@@ -396,10 +396,6 @@ impl AuthenticatorAssertionToken {
             return Err(AttestationError::ProviderBitsTooLarge(
                 claims.authenticator_meta.provider_bits,
             ));
-        }
-        let aud = claims.aud.into_inner();
-        if u16::try_from(aud).is_ok() || u32::try_from(aud).is_err() {
-            return Err(AttestationError::AudOutOfRange(aud));
         }
         validate_exp_fixed_width(claims.exp)?;
         Ok(Self { claims })
@@ -439,7 +435,8 @@ impl AuthenticatorAssertionToken {
     /// Encodes the CWT claims set as a deterministic CBOR map.
     ///
     /// Claims are inserted in deterministic CBOR map-key order ([RFC 8949 §4.2](https://datatracker.ietf.org/doc/html/rfc8949#section-4.2))
-    /// so the proving circuit can use constant offsets. The map is built directly
+    /// so the proving circuit can use constant offsets. `aud` is a fixed 8-byte
+    /// big-endian byte string carrying the `rpId`. The map is built directly
     /// because coset's `ClaimsSet` only supports text values for `aud`, while this
     /// profile requires the `rpId`.
     fn encode_claims(&self) -> Result<Vec<u8>, AttestationError> {
@@ -448,7 +445,7 @@ impl AuthenticatorAssertionToken {
         let claims = Value::Map(vec![
             (
                 Value::Integer(CWT_CLAIM_AUD.into()),
-                Value::Integer(self.claims.aud.into_inner().into()),
+                Value::Bytes(self.claims.aud.into_inner().to_be_bytes().to_vec()),
             ),
             (
                 Value::Integer(CWT_CLAIM_EXP.into()),

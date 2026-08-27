@@ -256,7 +256,10 @@ fn aat_claims_follow_deterministic_cbor_map_order() {
         .collect();
     assert_eq!(keys, vec![3, 4, 10, 265, -80_000, -80_001]);
 
-    assert_eq!(entries[0].1, Value::Integer(claims.aud.into_inner().into()));
+    assert_eq!(
+        entries[0].1,
+        Value::Bytes(claims.aud.into_inner().to_be_bytes().to_vec())
+    );
     assert_eq!(entries[1].1, Value::Integer(claims.exp.into()));
     assert_eq!(
         entries[2].1,
@@ -297,16 +300,16 @@ fn aat_known_answer_sig_structure_and_signature() {
     let tbs = sign1.tbs_data(&[]);
     assert_eq!(
         tbs.len(),
-        178,
+        182,
         "must equal AAT_SIG_STRUCTURE_LEN in crates/proof/noir/.../aat.nr"
     );
     assert_eq!(
         to_hex(&tbs),
-        "846a5369676e61747572653143a1012640589fa6031a001d6bb6041a6a4d3d8d0a582000000000000000000000000000000000000000000000000011d223ce7b91ac21190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f5820000000000000000000000000000000000000000000000000000000009f2c1abc3a000138805820000000000000000000000000000000000000000000000000000000000000000a"
+        "846a5369676e61747572653143a101264058a3a6034800000000001d6bb6041a6a4d3d8d0a582000000000000000000000000000000000000000000000000011d223ce7b91ac21190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f5820000000000000000000000000000000000000000000000000000000009f2c1abc3a000138805820000000000000000000000000000000000000000000000000000000000000000a"
     );
     assert_eq!(
         to_hex(&sign1.signature),
-        "33072e05704c927b9754dc494c0d31bc875e03a2033583c2a60346eec5718bed0f3c9d761927da772c8a6402aae1cb5f138eeadfd5ab334da00f0d4beee732c3"
+        "516ef88b3c523474644e3148c1db2a50259e81dca36f4276768d65d46309e82663de9c50116673b778d72bafc4414f384b54d7ba661c3e2d76d8a6cf8d32a463"
     );
 }
 
@@ -324,15 +327,29 @@ fn aat_rejects_provider_bits_with_more_than_two_bits() {
     assert!(matches!(err, AttestationError::ProviderBitsTooLarge(0b100)));
 }
 
+/// `aud` is an 8-byte byte string rather than a CBOR uint precisely so that the
+/// whole `u64` range keeps a constant-width encoding. A uint would need the
+/// shortest form under deterministic CBOR (RFC 8949 section 4.2.1), which makes
+/// its width depend on the value: `RpId` is a `u64` protocol-wide, and ids as
+/// small as `1` are in use.
 #[test]
-fn aat_rejects_aud_outside_fixed_width_range() {
-    let claims = AuthenticatorAssertionClaims {
-        aud: RpId::new(100),
-        ..sample_aat_claims()
-    };
+fn aat_accepts_the_full_u64_aud_range() {
+    let assertion_secret = p256::SecretKey::from_slice(&[11_u8; 32]).unwrap();
+    for aud in [0, 1, 100, u64::from(u32::MAX) + 1, u64::MAX] {
+        let claims = AuthenticatorAssertionClaims {
+            aud: RpId::new(aud),
+            ..sample_aat_claims()
+        };
+        let token = AuthenticatorAssertionToken::new(claims).unwrap();
+        let sign1 = CoseSign1::from_slice(&token.sign(&assertion_secret).unwrap()).unwrap();
+        let payload: Value = coset::cbor::from_reader(sign1.payload.unwrap().as_slice()).unwrap();
+        let Value::Map(entries) = payload else {
+            panic!("payload must be a CBOR map");
+        };
 
-    let err = AuthenticatorAssertionToken::new(claims).unwrap_err();
-    assert!(matches!(err, AttestationError::AudOutOfRange(100)));
+        // Always the same 8 bytes on the wire, whatever the magnitude.
+        assert_eq!(entries[0].1, Value::Bytes(aud.to_be_bytes().to_vec()));
+    }
 }
 
 #[test]
