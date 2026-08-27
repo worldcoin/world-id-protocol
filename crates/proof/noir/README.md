@@ -11,7 +11,7 @@
 
 The library cannot enforce the rest. A calling circuit MUST:
 
-- expose `trust_anchor_key_x`/`_y` and `now` as **public inputs**. The trust anchor key is the RP's entire trust decision, taken from the provider's Authenticator Metadata; left private, a prover signs its own TAKT and the attestation proves nothing. A private `now` lets a prover pick a time at which any token is fresh.
+- expose `trust_anchor_key_x`/`_y` and `now` as **public inputs**. The trust anchor key is the RP's entire trust decision, taken from the provider's Authenticator Metadata; left private, a prover signs its own TAKT and the attestation proves nothing. A private `now` lets a prover pick a time at which any token is fresh. `now` is Unix **seconds** — the AAT is rejected unless it expires within `aat::MAX_AAT_LIFETIME_SECS` (12h) of it, so passing milliseconds fails every proof.
 - bind `aat.nonce` and `aat.cdh` to the surrounding proof.
 - expose whichever of `sec_flags` (via `takt::unpack_sec_flags`) and `aat.authenticator_meta` the RP needs for its business rules.
 

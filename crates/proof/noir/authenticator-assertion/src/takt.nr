@@ -112,8 +112,12 @@ fn test_coord_from_limbs(hi: Field, lo: Field) -> [u8; 32] {
 /// (`1783446925`, around 2026-07-07).
 pub(crate) global TEST_EXP: Field = 1783446925;
 
-/// Verifier time used by happy-path tests: strictly before `TEST_EXP`.
-pub(crate) global TEST_NOW: Field = 1700000000;
+/// Verifier time used by happy-path tests: one hour before `TEST_EXP`.
+///
+/// The one-hour gap is what keeps the shared fixtures inside the AAT's 12h
+/// maximum lifetime (`aat::MAX_AAT_LIFETIME_SECS`); the TAKT itself has no such
+/// cap, so only the AAT tests depend on the gap being small.
+pub(crate) global TEST_NOW: Field = 1783443325; // TEST_EXP - 3600
 
 /// The `trust_anchor_key` (BabyJubJub, affine x) that signed both deterministic
 /// TAKT fixtures. Supplied by the verifier, so it is no longer part of the token.

@@ -1,7 +1,7 @@
 // Verification of an Authenticator Assertion Token (AAT): a token
 // representing integrity of a specific environment through an environment-bound
 // key which is attested by a Trust Anchor Key Token (TAKT).
-use super::utils::{assert_cbor_uint32, assert_not_expired};
+use super::utils::{assert_cbor_uint32, assert_max_lifetime, assert_not_expired};
 use bigcurve::curves::secp256r1::{Secp256r1_Fq, Secp256r1_Fr};
 use bignum::BigNum;
 use noir_ecdsa::ecdsa::verify_secp256r1_ecdsa;
@@ -14,6 +14,13 @@ use noir_ecdsa::ecdsa::verify_secp256r1_ecdsa;
 /// would be with the TAKT: a 159-byte payload takes the minimal 1-byte CBOR
 /// length (`0x58 0x9f`), where the old 417-byte payload needed the 2-byte form.
 pub global AAT_SIG_STRUCTURE_LEN: u32 = 178;
+
+/// Maximum remaining validity of an AAT, in seconds (12h), mandated by WIP-106
+/// and enforced in [`verify_aat`].
+///
+/// AATs have no revocation mechanism, so this bound is the whole of what keeps a
+/// stolen or misused token short-lived.
+pub global MAX_AAT_LIFETIME_SECS: Field = 43200;
 
 /// The claims and signature of an Authenticator Assertion Token, as parsed from
 /// its `COSE_Sign1` encoding.
@@ -45,7 +52,8 @@ pub struct AuthenticatorAssertionToken {
 /// why consumers must go through the crate-root `verify_attestation` instead.
 ///
 /// `now` is the verifier-supplied Unix time (seconds) checked against CWT `exp`
-/// (`now < exp`), and MUST be a public input of the outer circuit.
+/// (`now < exp`, and no more than [`MAX_AAT_LIFETIME_SECS`] before it), and MUST
+/// be a public input of the outer circuit.
 pub(crate) fn verify_aat(
     aat: AuthenticatorAssertionToken,
     assertion_key_x: [u8; 32],
@@ -54,6 +62,8 @@ pub(crate) fn verify_aat(
 ) {
     // CBOR uint32 encoding of `exp` is checked later in `aat_sig_structure`.
     assert_not_expired(aat.exp, now);
+    // Ordering matters: `assert_max_lifetime` relies on the `now < exp` above.
+    assert_max_lifetime(aat.exp, now, MAX_AAT_LIFETIME_SECS);
 
     let message = aat_sig_structure(aat);
     let digest = sha256::digest(message);
@@ -298,5 +308,33 @@ fn test_expired_aat_rejected() {
         key_x,
         key_y,
         super::takt::TEST_EXP,
+    );
+}
+
+#[test]
+fn test_aat_at_max_lifetime_accepted() {
+    // Exactly `MAX_AAT_LIFETIME_SECS` of remaining validity is allowed: the
+    // WIP-106 bound is inclusive.
+    let (key_x, key_y) = test_assertion_key();
+    verify_aat(
+        test_deterministic_aat(),
+        key_x,
+        key_y,
+        super::takt::TEST_EXP - MAX_AAT_LIFETIME_SECS,
+    );
+}
+
+#[test(should_fail_with = "token lifetime exceeds the maximum")]
+fn test_aat_lifetime_too_long_rejected() {
+    // One second past the 12h cap. Without this bound an authenticator could
+    // mint AATs valid until 2106 (the only other constraint on `exp` is
+    // `exp < 2^32`), and since AATs have no revocation mechanism a stolen
+    // token would stay usable for decades.
+    let (key_x, key_y) = test_assertion_key();
+    verify_aat(
+        test_deterministic_aat(),
+        key_x,
+        key_y,
+        super::takt::TEST_EXP - MAX_AAT_LIFETIME_SECS - 1,
     );
 }
