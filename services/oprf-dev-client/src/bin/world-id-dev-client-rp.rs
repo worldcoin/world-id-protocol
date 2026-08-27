@@ -130,11 +130,14 @@ impl DevClient for WorldIdRpDevClient {
         let (uniquness_nullifier, session_nullifier) = tokio::join!(
             self.components.authenticator.generate_nullifier(
                 &proof_request_uniqueness,
+                proof_request_uniqueness.created_at,
                 Some(account_inclusion_proof.clone())
             ),
-            self.components
-                .authenticator
-                .generate_nullifier(&proof_request_session, Some(account_inclusion_proof),)
+            self.components.authenticator.generate_nullifier(
+                &proof_request_session,
+                proof_request_session.created_at,
+                Some(account_inclusion_proof),
+            )
         );
 
         let uniqueness_epoch = uniquness_nullifier

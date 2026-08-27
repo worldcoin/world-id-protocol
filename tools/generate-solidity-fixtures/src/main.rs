@@ -293,7 +293,7 @@ async fn main() -> Result<()> {
     }];
 
     let nullifier_data = authenticator
-        .generate_nullifier(&uniqueness_request, None)
+        .generate_nullifier(&uniqueness_request, rp_fixture.current_timestamp, None)
         .await?;
 
     let uniqueness_result = authenticator
@@ -356,7 +356,7 @@ async fn main() -> Result<()> {
     };
 
     let bound_create_nullifier = authenticator
-        .generate_nullifier(&bound_create_request, None)
+        .generate_nullifier(&bound_create_request, rp_fixture.current_timestamp, None)
         .await?;
 
     let bound_create_result = authenticator
@@ -429,7 +429,7 @@ async fn main() -> Result<()> {
     };
 
     let session_nullifier_data = authenticator
-        .generate_nullifier(&session_request, None)
+        .generate_nullifier(&session_request, rp_fixture.current_timestamp, None)
         .await?;
 
     let session_result = authenticator
