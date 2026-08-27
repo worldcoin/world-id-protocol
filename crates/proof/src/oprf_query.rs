@@ -182,6 +182,11 @@ impl<'a> OprfEntrypoint<'a> {
     /// Generates a nullifier through the provided OPRF nodes for
     /// a specific proof request.
     ///
+    /// # Arguments
+    /// - `rng`: cryptographically secure randomness for generating the query proof.
+    /// - `proof_request`: the request to authenticate and fulfill.
+    /// - `now`: the caller-supplied current Unix timestamp, used to reject expired requests.
+    ///
     /// # Note on Session Proofs
     /// A randomized action is required on Session Proofs to ensure the output nullifier from the Uniqueness Proof
     /// circuit is unique (otherwise the one-time use property of nullifiers would fail). Please see the "Future"
