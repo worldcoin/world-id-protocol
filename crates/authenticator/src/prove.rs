@@ -1,7 +1,7 @@
 use secrecy::ExposeSecret;
 use world_id_primitives::{
     Credential, FieldElement, ProofRequest, ProofResponse, ProofType, RequestItem, ResponseItem,
-    SessionId, SessionNullifier, SessionRef, ZeroKnowledgeProof,
+    SessionId, SessionNullifier, SessionRef, ZeroKnowledgeProof, request::RpAuthorizationProof,
 };
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofCompression,
@@ -131,6 +131,29 @@ impl Authenticator {
         proof_request: &ProofRequest,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<FullOprfOutput, AuthenticatorError> {
+        self.generate_nullifier_with_authorization(proof_request, account_inclusion_proof, None)
+            .await
+    }
+
+    /// Generates a [`Nullifier`] for an RP whose authorization is not a plain EOA signature.
+    ///
+    /// Behaves exactly like [`Self::generate_nullifier`], except that the RP's proof of
+    /// authorization is supplied explicitly.
+    ///
+    /// # Arguments
+    /// - `authorization_proof`: [`None`] uses the EOA signature carried on `proof_request`.
+    ///   Contract-backed RP signers MUST pass [`RpAuthorizationProof::Wip101`], since OPRF
+    ///   nodes reject an EOA authorization proof for a contract signer.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::generate_nullifier`].
+    pub async fn generate_nullifier_with_authorization(
+        &self,
+        proof_request: &ProofRequest,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
+        authorization_proof: Option<RpAuthorizationProof>,
+    ) -> Result<FullOprfOutput, AuthenticatorError> {
         proof_request.validate_proof_type()?;
         let mut rng = rand::rngs::OsRng;
 
@@ -143,7 +166,7 @@ impl Authenticator {
             .await?;
 
         Ok(oprf_entrypoint
-            .gen_nullifier(&mut rng, proof_request)
+            .gen_nullifier(&mut rng, proof_request, authorization_proof)
             .await?)
     }
 
@@ -207,6 +230,36 @@ impl Authenticator {
         cached_session_id_r_seed: Option<FieldElement>,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
+        self.build_session_id_with_authorization(
+            proof_request,
+            cached_session_id_r_seed,
+            account_inclusion_proof,
+            None,
+        )
+        .await
+    }
+
+    /// Builds or resolves a [`SessionId`] for an RP whose authorization is not a plain EOA
+    /// signature.
+    ///
+    /// Behaves exactly like [`Self::build_session_id`], except that the RP's proof of
+    /// authorization is supplied explicitly.
+    ///
+    /// # Arguments
+    /// - `authorization_proof`: [`None`] uses the EOA signature carried on `proof_request`.
+    ///   Contract-backed RP signers MUST pass [`RpAuthorizationProof::Wip101`], since OPRF
+    ///   nodes reject an EOA authorization proof for a contract signer.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::build_session_id`].
+    pub async fn build_session_id_with_authorization(
+        &self,
+        proof_request: &ProofRequest,
+        cached_session_id_r_seed: Option<FieldElement>,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
+        authorization_proof: Option<RpAuthorizationProof>,
+    ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
         proof_request.validate_proof_type()?;
         let mut rng = rand::rngs::OsRng;
 
@@ -235,7 +288,12 @@ impl Authenticator {
                     .get_oprf_entrypoint(&query_material, account_inclusion_proof)
                     .await?;
                 let oprf_output = entrypoint
-                    .derive_session_id_r_seed(&mut rng, proof_request, oprf_seed)
+                    .derive_session_id_r_seed(
+                        &mut rng,
+                        proof_request,
+                        oprf_seed,
+                        authorization_proof,
+                    )
                     .await?;
                 oprf_output.verifiable_oprf_output.output.into()
             }

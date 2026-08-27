@@ -190,6 +190,12 @@ impl<'a> OprfEntrypoint<'a> {
     /// section in the [`SessionNullifier`] documentation for more details on how this is expected to be deprecated with
     /// a future update.
     ///
+    /// # Authorization proof
+    /// `authorization_proof` carries the RP's proof of authorization. Pass [`None`] for an
+    /// EOA-backed RP signer, in which case the EOA signature on `proof_request` is used.
+    /// Contract-backed (WIP-101) RP signers MUST pass
+    /// [`RpAuthorizationProof::Wip101`], otherwise the OPRF nodes reject the request.
+    ///
     /// # Errors
     /// Returns [`ProofError`] in the following cases:
     /// * `PublicKeyNotFound` - the public key for the given authenticator private key is not found in the `key_set`.
@@ -199,6 +205,7 @@ impl<'a> OprfEntrypoint<'a> {
         &self,
         rng: &mut R,
         proof_request: &ProofRequest,
+        authorization_proof: Option<RpAuthorizationProof>,
     ) -> Result<FullOprfOutput, ProofError> {
         proof_request
             .validate_proof_type()
@@ -253,9 +260,9 @@ impl<'a> OprfEntrypoint<'a> {
             authorization: proof_request
                 .rp_authorization()
                 .map_err(|err| ProofError::GenerationError(err.to_string()))?,
-            authorization_proof: RpAuthorizationProof::Eoa {
+            authorization_proof: authorization_proof.unwrap_or(RpAuthorizationProof::Eoa {
                 signature: proof_request.signature,
-            },
+            }),
             session_seed_opening: None,
         };
 
@@ -281,6 +288,7 @@ impl<'a> OprfEntrypoint<'a> {
         rng: &mut R,
         proof_request: &ProofRequest,
         oprf_seed: FieldElement,
+        authorization_proof: Option<RpAuthorizationProof>,
     ) -> Result<FullOprfOutput, ProofError> {
         proof_request
             .validate_proof_type()
@@ -316,9 +324,9 @@ impl<'a> OprfEntrypoint<'a> {
             authorization: proof_request
                 .rp_authorization()
                 .map_err(|err| ProofError::GenerationError(err.to_string()))?,
-            authorization_proof: RpAuthorizationProof::Eoa {
+            authorization_proof: authorization_proof.unwrap_or(RpAuthorizationProof::Eoa {
                 signature: proof_request.signature,
-            },
+            }),
             session_seed_opening,
         };
 

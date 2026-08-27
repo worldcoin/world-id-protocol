@@ -67,7 +67,9 @@ struct WorldIdRpDevClientSetup {
     rp_id: RpId,
     rp_oprf_public_key: OprfPublicKey,
     chain_id: u64,
-    authorization_proof: RpAuthorizationProof,
+    /// `None` authorizes via the EOA signature carried on the proof request; `Some` carries a
+    /// WIP-101 proof for a contract-backed RP signer.
+    authorization_proof: Option<RpAuthorizationProof>,
 
     inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     key_set: AuthenticatorPublicKeySet,
@@ -111,14 +113,11 @@ impl DevClient for WorldIdRpDevClient {
             rp_id: RpId::from(self.rp_id),
             rp_oprf_public_key,
             chain_id,
-            authorization_proof: self.wip101_data.clone().map_or_else(
-                || RpAuthorizationProof::Eoa {
-                    signature: Signature::new(U256::ZERO, U256::ZERO, false),
-                },
-                |data| RpAuthorizationProof::Wip101 {
+            authorization_proof: self.wip101_data.clone().map(|data| {
+                RpAuthorizationProof::Wip101 {
                     data: data.to_vec(),
-                },
-            ),
+                }
+            }),
             inclusion_proof,
             key_set,
             key_index,
@@ -153,13 +152,20 @@ impl DevClient for WorldIdRpDevClient {
             AccountInclusionProof::new(setup.inclusion_proof.clone(), setup.key_set.clone());
 
         let (uniquness_nullifier, session_nullifier) = tokio::join!(
-            self.components.authenticator.generate_nullifier(
-                &proof_request_uniqueness,
-                Some(account_inclusion_proof.clone())
-            ),
             self.components
                 .authenticator
-                .generate_nullifier(&proof_request_session, Some(account_inclusion_proof),)
+                .generate_nullifier_with_authorization(
+                    &proof_request_uniqueness,
+                    Some(account_inclusion_proof.clone()),
+                    setup.authorization_proof.clone(),
+                ),
+            self.components
+                .authenticator
+                .generate_nullifier_with_authorization(
+                    &proof_request_session,
+                    Some(account_inclusion_proof),
+                    setup.authorization_proof.clone(),
+                )
         );
 
         let uniqueness_epoch = uniquness_nullifier
@@ -167,7 +173,7 @@ impl DevClient for WorldIdRpDevClient {
             .verifiable_oprf_output
             .epoch;
         let session_epoch = session_nullifier
-            .context("while computing uniqueness")?
+            .context("while computing session")?
             .verifiable_oprf_output
             .epoch;
 
@@ -399,14 +405,11 @@ fn generate_oprf_auth_request(
         oprf_action: *action,
         merkle_root: *setup.inclusion_proof.root,
         authorization: proof_request.rp_authorization()?,
-        authorization_proof: match &setup.authorization_proof {
-            RpAuthorizationProof::Eoa { .. } => RpAuthorizationProof::Eoa {
+        authorization_proof: setup.authorization_proof.clone().unwrap_or(
+            RpAuthorizationProof::Eoa {
                 signature: proof_request.signature,
             },
-            RpAuthorizationProof::Wip101 { data } => {
-                RpAuthorizationProof::Wip101 { data: data.clone() }
-            }
-        },
+        ),
         session_seed_opening: None,
     };
 
