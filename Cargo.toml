@@ -124,6 +124,7 @@ config = "0.15.19"
 dotenvy = "0.15"
 futures-util = "0.3"
 getrandom = "0.3"
+# `rand` 0.8's `OsRng` still uses `getrandom` 0.2, while OHTTP/HPKE uses 0.3.
 getrandom-02 = { package = "getrandom", version = "0.2" }
 governor = "0.10.4"
 http = "1"
@@ -143,6 +144,7 @@ semaphore-rs-storage = "0.5.0"
 serial_test = "3"
 testcontainers = { version = "0.27", features = ["http_wait_plain", "host-port-exposure"] }
 testcontainers-modules = { version = "0.15", features = ["redis"] }
+test-case = "3"
 sqlx = "0.8"
 take_mut = "0.2.2"
 tar = "0.4"

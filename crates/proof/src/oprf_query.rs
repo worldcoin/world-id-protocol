@@ -386,18 +386,37 @@ struct QueryProofResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn proof_request_expiry_uses_caller_timestamp() {
-        assert!(validate_proof_request_timestamps(100, 200, 150).is_ok());
-        assert!(matches!(
-            validate_proof_request_timestamps(100, 200, 201),
-            Err(ProofError::ProofInputError(
-                errors::ProofInputError::ProofRequestExpired {
-                    current_timestamp: 201,
-                    expires_at: 200,
-                }
-            ))
-        ));
+    #[derive(Debug, PartialEq, Eq)]
+    enum TimestampValidation {
+        Valid,
+        InvalidExpiresAt { created_at: u64, expires_at: u64 },
+        Expired { now: u64, expires_at: u64 },
+    }
+
+    #[test_case(100, 200, 150 => TimestampValidation::Valid; "valid")]
+    #[test_case(201, 200, 150 => TimestampValidation::InvalidExpiresAt { created_at: 201, expires_at: 200 }; "created after expiration")]
+    #[test_case(100, 200, 201 => TimestampValidation::Expired { now: 201, expires_at: 200 }; "expired at caller time")]
+    fn proof_request_timestamp_validation(
+        created_at: u64,
+        expires_at: u64,
+        now: u64,
+    ) -> TimestampValidation {
+        match validate_proof_request_timestamps(created_at, expires_at, now) {
+            Ok(()) => TimestampValidation::Valid,
+            Err(ProofError::ProofInputError(errors::ProofInputError::InvalidExpiresAt {
+                created_at,
+                expires_at,
+            })) => TimestampValidation::InvalidExpiresAt {
+                created_at,
+                expires_at,
+            },
+            Err(ProofError::ProofInputError(errors::ProofInputError::ProofRequestExpired {
+                current_timestamp: now,
+                expires_at,
+            })) => TimestampValidation::Expired { now, expires_at },
+            Err(error) => panic!("unexpected validation error: {error}"),
+        }
     }
 }
