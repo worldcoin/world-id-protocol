@@ -125,6 +125,7 @@ config = "0.15.19"
 dotenvy = "0.15"
 futures-util = "0.3"
 getrandom = "0.3"
+# `rand` 0.8's `OsRng` still uses `getrandom` 0.2, while OHTTP/HPKE uses 0.3.
 getrandom-02 = { package = "getrandom", version = "0.2" }
 governor = "0.10.4"
 http = "1"
