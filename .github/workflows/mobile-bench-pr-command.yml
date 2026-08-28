@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   dispatch:
-    uses: worldcoin/mobile-bench-rs/.github/workflows/reusable-pr-command.yml@cf4416db0cd356a4434a524512de7e3716bd0799 # main branch https://github.com/worldcoin/mobile-bench-rs/commit/3a97e4c0fd5ef0683112c0385455aef5f239398f
+    uses: worldcoin/mobile-bench-rs/.github/workflows/reusable-pr-command.yml@cf4416db0cd356a4434a524512de7e3716bd0799 # main branch https://github.com/worldcoin/mobile-bench-rs/commit/cf4416db0cd356a4434a524512de7e3716bd0799
     with:
       benchmark_workflow: .github/workflows/mobile-bench.yml
       crate_path: ./crates/zk-mobile-bench
