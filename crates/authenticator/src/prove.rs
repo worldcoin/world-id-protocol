@@ -18,7 +18,9 @@ use world_id_primitives::OwnershipProof;
 use world_id_primitives::TREE_DEPTH;
 #[cfg(not(target_arch = "wasm32"))]
 use world_id_proof::{
+    ClaimsProver,
     circuit_inputs::OwnershipProofCircuitInput,
+    claims_proof::{ClaimsProofContext, ClaimsProofInput, generate_claims_proof_with_prover},
     ownership_proof::generate_ownership_proof_with_prover,
 };
 
@@ -336,6 +338,24 @@ impl Authenticator {
             .nullifier_material()
             .map_err(AuthenticatorError::ZkArtifactError)?;
 
+        #[cfg(not(target_arch = "wasm32"))]
+        let claims_prover = if items_to_prove.iter().any(|item| item.claims.is_some()) {
+            Some(
+                self.zk_artifact_source
+                    .claims_prover()
+                    .map_err(AuthenticatorError::ZkArtifactError)?,
+            )
+        } else {
+            None
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        if items_to_prove.iter().any(|item| item.claims.is_some()) {
+            return Err(AuthenticatorError::Generic(
+                "claims proofs are not available on wasm32".to_owned(),
+            ));
+        }
+
         // 3. Generate per-credential proofs for the selected items
         let creds_by_schema: std::collections::HashMap<u64, &CredentialInput> = credentials
             .iter()
@@ -356,6 +376,8 @@ impl Authenticator {
                 resolved_session_id,
                 proof_request.proof_type,
                 proof_request.created_at,
+                #[cfg(not(target_arch = "wasm32"))]
+                claims_prover.as_ref(),
             )?;
             responses.push(response_item);
         }
@@ -415,11 +437,14 @@ impl Authenticator {
         session_id: Option<SessionId>,
         proof_type: ProofType,
         request_timestamp: u64,
+        #[cfg(not(target_arch = "wasm32"))] claims_prover: Option<&ClaimsProver>,
     ) -> Result<ResponseItem, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
 
         let merkle_root: FieldElement = oprf_nullifier.query_proof_input.merkle_root.into();
         let action_from_query: FieldElement = oprf_nullifier.query_proof_input.action.into();
+        let rp_id: FieldElement = oprf_nullifier.query_proof_input.rp_id.into();
+        let oprf_response = oprf_nullifier.verifiable_oprf_output.unblinded_response;
 
         let expires_at_min = request_item.effective_expires_at_min(request_timestamp);
 
@@ -439,7 +464,7 @@ impl Authenticator {
 
         // Construct the appropriate response item based on proof type
         let nullifier_fe: FieldElement = nullifier.into();
-        let response_item = if proof_type.is_session() {
+        let mut response_item = if proof_type.is_session() {
             let session_nullifier = SessionNullifier::new(nullifier_fe, action_from_query)?;
             ResponseItem::new_session(
                 request_item.identifier.clone(),
@@ -457,6 +482,35 @@ impl Authenticator {
                 expires_at_min,
             )
         };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(claims_request) = &request_item.claims {
+            let prover = claims_prover.ok_or_else(|| {
+                AuthenticatorError::Generic(
+                    "claims prover was not loaded for a claims proof request".to_owned(),
+                )
+            })?;
+            let context = ClaimsProofContext {
+                issuer_schema_id: credential.issuer_schema_id.into(),
+                credential_public_key: credential.issuer.clone(),
+                current_timestamp: expires_at_min.into(),
+                cred_genesis_issued_at_min: request_item.genesis_issued_at_min.unwrap_or(0).into(),
+                nullifier: nullifier_fe,
+                rp_id,
+                action: action_from_query,
+            };
+            response_item.claims_proof = Some(generate_claims_proof_with_prover(
+                ClaimsProofInput {
+                    credential,
+                    credential_sub_blinding_factor,
+                    leaf_index: self.leaf_index(),
+                    oprf_response,
+                    context,
+                    request: claims_request,
+                },
+                prover.clone(),
+            )?);
+        }
 
         Ok(response_item)
     }
