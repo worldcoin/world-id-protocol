@@ -47,6 +47,8 @@ jobs:
       - name: Install Foundry
         if: steps.cache-contracts.outputs.cache-hit != 'true'
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
+        with:
+          version: 1.7.1
 
       - name: Build contracts and extract ABIs
         if: steps.cache-contracts.outputs.cache-hit != 'true'
@@ -239,6 +241,8 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
+        with:
+          version: 1.7.1
         # Anvil is used for integration tests
 
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
@@ -303,6 +307,8 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
+        with:
+          version: 1.7.1
 
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
