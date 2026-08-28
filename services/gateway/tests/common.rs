@@ -14,8 +14,6 @@ use world_id_test_utils::anvil::TestAnvil;
 /// key, not a real secret.
 pub(crate) const GW_PRIVATE_KEY: &str =
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-pub(crate) const RPC_FORK_URL: &str = "https://ethereum.reth.rs/rpc";
-
 /// A running gateway + anvil + Redis stack for integration tests.
 ///
 /// All three variants of the test-gateway setup share this struct.  The
@@ -35,22 +33,20 @@ pub(crate) struct TestGateway {
     pub(crate) _redis: ContainerAsync<Redis>,
 }
 
-fn spawn_test_anvil() -> TestAnvil {
-    let mut fork_url = std::env::var("TESTS_RPC_FORK_URL").unwrap_or_default();
-    if fork_url.is_empty() {
-        fork_url = RPC_FORK_URL.to_string();
-    }
-    TestAnvil::spawn_fork(&fork_url).expect("failed to spawn forked anvil")
+async fn spawn_test_anvil() -> TestAnvil {
+    TestAnvil::spawn_with_multicall3()
+        .await
+        .expect("failed to spawn anvil with Multicall3")
 }
 
-/// Spawn a test gateway backed by a forked anvil chain and a Redis container.
+/// Spawn a test gateway backed by a fresh anvil chain and a Redis container.
 ///
 /// * `batch_ms` – when `None` the gateway uses `BatchPolicyConfig::default()`
 ///   and the standard sweeper/stale thresholds.  Pass `Some(ms)` to configure
 ///   a custom batch window (used by `test_inflight.rs`).
 #[allow(dead_code)]
 pub(crate) async fn spawn_test_gateway(batch_ms: Option<u64>) -> TestGateway {
-    let anvil = spawn_test_anvil();
+    let anvil = spawn_test_anvil().await;
     let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
     let registry_addr = anvil
         .deploy_world_id_registry(deployer)
@@ -63,7 +59,7 @@ pub(crate) async fn spawn_test_gateway(batch_ms: Option<u64>) -> TestGateway {
 /// the V1 implementation behind an ERC1967 proxy upgraded to V2.
 #[allow(dead_code)]
 pub(crate) async fn spawn_test_gateway_v2(batch_ms: Option<u64>) -> TestGateway {
-    let anvil = spawn_test_anvil();
+    let anvil = spawn_test_anvil().await;
     let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
     let registry_addr = anvil
         .deploy_world_id_registry_v2(deployer)
