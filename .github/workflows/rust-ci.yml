@@ -257,11 +257,6 @@ jobs:
           name: contract-build-output
           path: contracts/out
 
-      - name: Run services
-        run: |
-          docker compose up -d
-          sleep 5
-
       - name: Install cargo-nextest
         uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6 # v2.69.1 https://github.com/taiki-e/install-action/releases/tag/v2.69.1
         with:
@@ -274,10 +269,6 @@ jobs:
         run: |
           cargo nextest run --locked --profile ci --all-features --workspace
           cargo test --locked --doc --all-features --workspace
-
-      - name: Clean up services
-        run: |
-          docker compose down
 
   setup-test:
     name: Local Setup Test
