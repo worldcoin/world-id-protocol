@@ -319,7 +319,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         constraints: None,
     };
     let nullifier = authenticator
-        .generate_nullifier(&proof_request, None)
+        .generate_nullifier(&proof_request, rp_fixture.current_timestamp, None)
         .await?;
     assert_ne!(nullifier.oprf_output(), FieldElement::ZERO);
 
@@ -384,7 +384,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         ..proof_request.clone()
     };
     let create_nullifier = authenticator
-        .generate_nullifier(&create_request, None)
+        .generate_nullifier(&create_request, rp_fixture.current_timestamp, None)
         .await?;
     let create_result = authenticator
         .generate_proof(&create_request, create_nullifier, &credentials, None, None)
