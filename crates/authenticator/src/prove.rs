@@ -362,6 +362,40 @@ impl Authenticator {
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
         session_id_r_seed: Option<FieldElement>,
     ) -> Result<ProofResult, AuthenticatorError> {
+        self.generate_proof_with_authorization(
+            proof_request,
+            nullifier,
+            credentials,
+            account_inclusion_proof,
+            session_id_r_seed,
+            None,
+        )
+        .await
+    }
+
+    /// Generates a complete [`ProofResponse`] for an RP whose authorization is not a plain EOA
+    /// signature.
+    ///
+    /// Behaves exactly like [`Self::generate_proof`], except that the RP's proof of authorization
+    /// is forwarded to any session-seed OPRF request performed during proof generation.
+    ///
+    /// # Arguments
+    /// - `authorization_proof`: [`None`] uses the EOA signature carried on `proof_request`.
+    ///   Contract-backed RP signers MUST pass [`RpAuthorizationProof::Wip101`], since OPRF
+    ///   nodes reject an EOA authorization proof for a contract signer.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::generate_proof`].
+    pub async fn generate_proof_with_authorization(
+        &self,
+        proof_request: &ProofRequest,
+        nullifier: FullOprfOutput,
+        credentials: &[CredentialInput],
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
+        session_id_r_seed: Option<FieldElement>,
+        authorization_proof: Option<RpAuthorizationProof>,
+    ) -> Result<ProofResult, AuthenticatorError> {
         proof_request.validate_proof_type()?;
 
         // 1. Determine request items to prove
@@ -378,7 +412,12 @@ impl Authenticator {
             SessionRef::None => (None, None),
             SessionRef::Create => {
                 let (session_id, seed) = self
-                    .build_session_id(proof_request, None, account_inclusion_proof)
+                    .build_session_id_with_authorization(
+                        proof_request,
+                        None,
+                        account_inclusion_proof,
+                        authorization_proof,
+                    )
                     .await?;
                 (Some(session_id), Some(seed))
             }
@@ -390,7 +429,12 @@ impl Authenticator {
                     // Re-derive the same `r` from the existing session's `oprf_seed` when the
                     // caller did not provide a cached seed.
                     let (_session_id, seed) = self
-                        .build_session_id(proof_request, None, account_inclusion_proof)
+                        .build_session_id_with_authorization(
+                            proof_request,
+                            None,
+                            account_inclusion_proof,
+                            authorization_proof,
+                        )
                         .await?;
                     (Some(session_id), Some(seed))
                 }

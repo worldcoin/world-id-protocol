@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Export `request::IWIP101`, declared from the same `sol!` as the signed `RpRequest` payload, so a WIP-101
   contract's `intent` argument cannot drift from the EIP-712 struct an EOA-backed RP signs.
+- Add `Authenticator::generate_proof_with_authorization` so contract-backed session flows preserve
+  their WIP-101 proof while deriving or re-deriving session seeds.
 
 ### Breaking Changes
 

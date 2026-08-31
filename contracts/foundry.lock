@@ -1,6 +1,9 @@
 {
   "lib/forge-std": {
-    "rev": "8bbcf6e3f8f62f419e5429a0bd89331c85c37824"
+    "tag": {
+      "name": "v1.12.0",
+      "rev": "7117c90c8cf6c68e5acce4f09a6b24715cea4de6"
+    }
   },
   "lib/openzeppelin-contracts": {
     "tag": {
@@ -15,7 +18,7 @@
     }
   },
   "lib/oprf-key-registry": {
-    "rev": "e387586d3850927b77c6ddbd36ef6180f4996eaf"
+    "rev": "2837db7"
   },
   "lib/optimism": {
     "rev": "fc6cd911e5abc8ecb1f1631fcd24d41f2af031c3"

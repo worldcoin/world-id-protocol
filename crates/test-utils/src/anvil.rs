@@ -113,6 +113,15 @@ sol!(
     )
 );
 
+sol!(
+    #[sol(rpc)]
+    WIP101Correct,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/Wip101Mock.s.sol/WIP101Correct.json"
+    )
+);
+
 sol! {
     struct UpdateRp {
         uint64 rpId;
@@ -789,6 +798,17 @@ impl TestAnvil {
             eyre::bail!("failed to register RP");
         }
         Ok(())
+    }
+
+    /// Deploys the permissive WIP-101 mock used by integration tests.
+    pub async fn deploy_wip101_correct(&self, signer: PrivateKeySigner) -> Result<Address> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+        let contract = WIP101Correct::deploy(provider)
+            .await
+            .context("failed to deploy WIP101Correct contract")?;
+        Ok(*contract.address())
     }
 
     /// Update an existing `RP` at the `RpRegistry` contract using the supplied signer.
