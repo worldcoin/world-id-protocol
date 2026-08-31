@@ -46,6 +46,7 @@ use world_id_test_utils::{
         MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
         single_leaf_merkle_fixture,
     },
+    redis_testcontainer,
     stubs::spawn_indexer_stub,
 };
 
@@ -76,6 +77,7 @@ async fn main() -> Result<()> {
     let deployer = anvil
         .signer(0)
         .wrap_err("failed to fetch deployer signer for anvil")?;
+    let (_redis, redis_url) = redis_testcontainer().await?;
 
     // Spawn the gateway.
     let gw_port: u16 = 4105;
@@ -91,8 +93,7 @@ async fn main() -> Result<()> {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, gw_port).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        redis_url,
         request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
@@ -297,7 +298,7 @@ async fn main() -> Result<()> {
     }];
 
     let nullifier_data = authenticator
-        .generate_nullifier(&uniqueness_request, None)
+        .generate_nullifier(&uniqueness_request, rp_fixture.current_timestamp, None)
         .await?;
 
     let uniqueness_result = authenticator
@@ -355,7 +356,7 @@ async fn main() -> Result<()> {
     )?;
 
     let bound_create_nullifier = authenticator
-        .generate_nullifier(&bound_create_request, None)
+        .generate_nullifier(&bound_create_request, rp_fixture.current_timestamp, None)
         .await?;
 
     let bound_create_result = authenticator
@@ -422,7 +423,7 @@ async fn main() -> Result<()> {
     )?;
 
     let session_nullifier_data = authenticator
-        .generate_nullifier(&session_request, None)
+        .generate_nullifier(&session_request, rp_fixture.current_timestamp, None)
         .await?;
 
     let session_result = authenticator

@@ -1,11 +1,7 @@
 //! Shared helpers for generating query proofs and executing
 //! distributed generic OPRF computations.
 
-use std::{
-    io::Read,
-    path::Path,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{io::Read, path::Path};
 
 use ark_bn254::Bn254;
 use ark_groth16::Proof;
@@ -184,6 +180,11 @@ impl<'a> OprfEntrypoint<'a> {
     /// Generates a nullifier through the provided OPRF nodes for
     /// a specific proof request.
     ///
+    /// # Arguments
+    /// - `rng`: cryptographically secure randomness for generating the query proof.
+    /// - `proof_request`: the request to authenticate and fulfill.
+    /// - `now`: the caller-supplied current Unix timestamp, used to reject expired requests.
+    ///
     /// # Note on Session Proofs
     /// A randomized action is required on Session Proofs to ensure the output nullifier from the Uniqueness Proof
     /// circuit is unique (otherwise the one-time use property of nullifiers would fail). Please see the "Future"
@@ -206,6 +207,7 @@ impl<'a> OprfEntrypoint<'a> {
         rng: &mut R,
         proof_request: &ProofRequest,
         authorization_proof: Option<RpAuthorizationProof>,
+        now: u64,
     ) -> Result<FullOprfOutput, ProofError> {
         proof_request
             .validate_proof_type()
@@ -222,27 +224,8 @@ impl<'a> OprfEntrypoint<'a> {
             (action, OprfModule::Nullifier)
         };
 
-        // quick validation before performing the compute heavy `generate_query_proof` fn
-        if proof_request.created_at > proof_request.expires_at {
-            return Err(ProofError::ProofInputError(
-                errors::ProofInputError::InvalidExpiresAt {
-                    created_at: proof_request.created_at,
-                    expires_at: proof_request.expires_at,
-                },
-            ));
-        }
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time cannot go backward")
-            .as_secs();
-        if proof_request.is_expired(now) {
-            return Err(ProofError::ProofInputError(
-                errors::ProofInputError::ProofRequestExpired {
-                    current_timestamp: now,
-                    expires_at: proof_request.expires_at,
-                },
-            ));
-        }
+        // Quick validation before performing the compute-heavy `generate_query_proof` fn.
+        validate_proof_request_timestamps(proof_request.created_at, proof_request.expires_at, now)?;
 
         let result = Self::generate_query_proof(
             self.query_material,
@@ -348,6 +331,30 @@ impl<'a> OprfEntrypoint<'a> {
     }
 }
 
+fn validate_proof_request_timestamps(
+    created_at: u64,
+    expires_at: u64,
+    now: u64,
+) -> Result<(), ProofError> {
+    if created_at > expires_at {
+        return Err(ProofError::ProofInputError(
+            errors::ProofInputError::InvalidExpiresAt {
+                created_at,
+                expires_at,
+            },
+        ));
+    }
+    if now > expires_at {
+        return Err(ProofError::ProofInputError(
+            errors::ProofInputError::ProofRequestExpired {
+                current_timestamp: now,
+                expires_at,
+            },
+        ));
+    }
+    Ok(())
+}
+
 impl<'a> OprfEntrypoint<'a> {
     /// Generates a query proof: creates a blinding factor, computes
     /// the query hash, signs it, builds [`QueryProofCircuitInput`], and
@@ -438,4 +445,25 @@ struct QueryProofResult {
     proof: Proof<Bn254>,
     query_hash: ark_babyjubjub::Fq,
     blinding_factor: BlindingFactor,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_case::test_case;
+
+    #[test_case(100, 200, 150 => matches Ok(()); "valid")]
+    #[test_case(201, 200, 150 => matches Err(ProofError::ProofInputError(
+        errors::ProofInputError::InvalidExpiresAt { created_at: 201, expires_at: 200 }
+    )); "created after expiration")]
+    #[test_case(100, 200, 201 => matches Err(ProofError::ProofInputError(
+        errors::ProofInputError::ProofRequestExpired { current_timestamp: 201, expires_at: 200 }
+    )); "expired at caller time")]
+    fn proof_request_timestamp_validation(
+        created_at: u64,
+        expires_at: u64,
+        now: u64,
+    ) -> Result<(), ProofError> {
+        validate_proof_request_timestamps(created_at, expires_at, now)
+    }
 }

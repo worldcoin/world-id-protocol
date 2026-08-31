@@ -36,8 +36,6 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
         with:
-          # Pinned deliberately: the `stable` channel moved to Foundry 1.8.0 on 2026-08-27.
-          # 1.7.1 is the last known-good release.
           version: 1.7.1
 
       - name: Cache Forge dependencies
@@ -69,8 +67,6 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
         with:
-          # Pinned deliberately: the `stable` channel moved to Foundry 1.8.0 on 2026-08-27.
-          # 1.7.1 is the last known-good release.
           version: 1.7.1
 
       - name: Cache Forge dependencies

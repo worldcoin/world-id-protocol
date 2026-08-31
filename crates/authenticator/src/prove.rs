@@ -111,6 +111,7 @@ impl Authenticator {
     ///
     /// # Arguments
     /// - `proof_request`: the request received from the RP.
+    /// - `now`: the current Unix timestamp, used to reject expired requests.
     /// - `account_inclusion_proof`: an optionally cached object can be passed to
     ///   avoid an additional network call. If not passed, it'll be fetched from the indexer.
     ///
@@ -129,10 +130,16 @@ impl Authenticator {
     pub async fn generate_nullifier(
         &self,
         proof_request: &ProofRequest,
+        now: u64,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<FullOprfOutput, AuthenticatorError> {
-        self.generate_nullifier_with_authorization(proof_request, account_inclusion_proof, None)
-            .await
+        self.generate_nullifier_with_authorization(
+            proof_request,
+            account_inclusion_proof,
+            None,
+            now,
+        )
+        .await
     }
 
     /// Generates a [`Nullifier`] for an RP whose authorization is not a plain EOA signature.
@@ -153,6 +160,7 @@ impl Authenticator {
         proof_request: &ProofRequest,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
         authorization_proof: Option<RpAuthorizationProof>,
+        now: u64,
     ) -> Result<FullOprfOutput, AuthenticatorError> {
         proof_request.validate_proof_type()?;
         let mut rng = rand::rngs::OsRng;
@@ -166,7 +174,7 @@ impl Authenticator {
             .await?;
 
         Ok(oprf_entrypoint
-            .gen_nullifier(&mut rng, proof_request, authorization_proof)
+            .gen_nullifier(&mut rng, proof_request, authorization_proof, now)
             .await?)
     }
 
@@ -319,7 +327,7 @@ impl Authenticator {
     /// # Typical flow
     /// ```rust,ignore
     /// // <- check request can be fulfilled with available credentials
-    /// let nullifier = authenticator.generate_nullifier(&request, None).await?;
+    /// let nullifier = authenticator.generate_nullifier(&request, now, None).await?;
     /// // <- check replay guard using nullifier.oprf_output()
     /// let (response, meta) = authenticator.generate_proof(&request, nullifier, &creds, ...).await?;
     /// // <- cache `session_id_r_seed` (to speed future proofs) and `nullifier` (to prevent replays)

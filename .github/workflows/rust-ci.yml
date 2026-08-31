@@ -48,9 +48,6 @@ jobs:
         if: steps.cache-contracts.outputs.cache-hit != 'true'
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
         with:
-          # Pinned deliberately: the `stable` channel moved to Foundry 1.8.0 on 2026-08-27,
-          # whose anvil fails to start against our fork endpoint ("failed to determine
-          # network family from fork endpoint"). 1.7.1 is the last known-good release.
           version: 1.7.1
 
       - name: Build contracts and extract ABIs
@@ -88,12 +85,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master branch https://github.com/dtolnay/rust-toolchain/commit/6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: nightly
           components: rustfmt
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master branch https://github.com/dtolnay/rust-toolchain/commit/6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: stable
           components: clippy
@@ -138,7 +135,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master branch https://github.com/dtolnay/rust-toolchain/commit/6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: 1.93.0
 
@@ -180,7 +177,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master branch https://github.com/dtolnay/rust-toolchain/commit/6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: stable
 
@@ -235,7 +232,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master branch https://github.com/dtolnay/rust-toolchain/commit/6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: ${{ matrix.toolchain }}
 
@@ -245,9 +242,6 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
         with:
-          # Pinned deliberately: the `stable` channel moved to Foundry 1.8.0 on 2026-08-27,
-          # whose anvil fails to start against our fork endpoint ("failed to determine
-          # network family from fork endpoint"). 1.7.1 is the last known-good release.
           version: 1.7.1
         # Anvil is used for integration tests
 
@@ -267,11 +261,6 @@ jobs:
           name: contract-build-output
           path: contracts/out
 
-      - name: Run services
-        run: |
-          docker compose up -d
-          sleep 5
-
       - name: Install cargo-nextest
         uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6 # v2.69.1 https://github.com/taiki-e/install-action/releases/tag/v2.69.1
         with:
@@ -284,10 +273,6 @@ jobs:
         run: |
           cargo nextest run --locked --profile ci --all-features --workspace
           cargo test --locked --doc --all-features --workspace
-
-      - name: Clean up services
-        run: |
-          docker compose down
 
   setup-test:
     name: Local Setup Test
@@ -313,7 +298,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master branch https://github.com/dtolnay/rust-toolchain/commit/6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: stable
 
@@ -323,9 +308,6 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
         with:
-          # Pinned deliberately: the `stable` channel moved to Foundry 1.8.0 on 2026-08-27,
-          # whose anvil fails to start against our fork endpoint ("failed to determine
-          # network family from fork endpoint"). 1.7.1 is the last known-good release.
           version: 1.7.1
 
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
@@ -456,7 +438,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master branch https://github.com/dtolnay/rust-toolchain/commit/6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
@@ -482,7 +464,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master branch https://github.com/dtolnay/rust-toolchain/commit/6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: nightly
       - uses: dtolnay/install@982daea0f5d846abc3c83e01a6a1d73c040047c1 # cargo-docs-rs branch https://github.com/dtolnay/install/commit/982daea0f5d846abc3c83e01a6a1d73c040047c1

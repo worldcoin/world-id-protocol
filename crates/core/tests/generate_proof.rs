@@ -40,6 +40,7 @@ use world_id_test_utils::{
         MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
         single_leaf_merkle_fixture,
     },
+    redis_testcontainer,
     stubs::spawn_indexer_stub,
 };
 
@@ -80,6 +81,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let deployer = anvil
         .signer(0)
         .wrap_err("failed to fetch deployer signer for anvil")?;
+    let (_redis, redis_url) = redis_testcontainer().await?;
 
     // Spawn the gateway wired to this Anvil instance.
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
@@ -94,8 +96,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        redis_url,
         request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
@@ -307,8 +308,9 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         oprf_key_id: rp_fixture.oprf_key_id,
         session_id: SessionRef::None,
         action: Some(rp_fixture.action.into()),
-        // Replaced below: the EIP-712 signature covers the fully-populated request.
-        signature: Signature::new(U256::ZERO, U256::ZERO, false),
+        signature: rp_signer.sign_hash_sync(
+            &proof_request.eip712_signing_hash(anvil.instance.chain_id(), rp_registry)?,
+        )?,
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
@@ -319,11 +321,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         }],
         constraints: None,
     };
-    proof_request.signature = rp_signer.sign_hash_sync(
-        &proof_request.eip712_signing_hash(anvil.instance.chain_id(), rp_registry)?,
-    )?;
     let nullifier = authenticator
-        .generate_nullifier(&proof_request, None)
+        .generate_nullifier(&proof_request, rp_fixture.current_timestamp, None)
         .await?;
     assert_ne!(nullifier.oprf_output(), FieldElement::ZERO);
 
@@ -383,7 +382,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         &create_request.eip712_signing_hash(anvil.instance.chain_id(), rp_registry)?,
     )?;
     let create_nullifier = authenticator
-        .generate_nullifier(&create_request, None)
+        .generate_nullifier(&create_request, rp_fixture.current_timestamp, None)
         .await?;
     let create_result = authenticator
         .generate_proof(&create_request, create_nullifier, &credentials, None, None)
