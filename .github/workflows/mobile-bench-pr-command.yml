@@ -16,4 +16,4 @@ jobs:
     with:
       benchmark_workflow: .github/workflows/mobile-bench.yml
       crate_path: ./crates/zk-mobile-bench
-      functions: '["zk_mobile_bench::bench_ownership_witness_generation","zk_mobile_bench::bench_ownership_proving","zk_mobile_bench::bench_ownership_proof_generation"]'
+      functions: '["zk_mobile_bench::bench_passkey_witness_generation","zk_mobile_bench::bench_passkey_proving","zk_mobile_bench::bench_passkey_proof_generation","zk_mobile_bench::bench_world_id_passkey_witness_generation","zk_mobile_bench::bench_world_id_passkey_proving","zk_mobile_bench::bench_world_id_passkey_proof_generation"]'
