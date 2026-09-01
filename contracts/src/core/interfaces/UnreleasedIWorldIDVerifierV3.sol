@@ -22,9 +22,9 @@ interface IWorldIDVerifierV3 is IWorldIDVerifier {
     error InvalidSessionId();
 
     /**
-    * @dev Thrown when querying for an authenticator that is now revoked because of an account recovery. This
-    * will not be raised if the authenticator is removed normally (i.e. by another authenticator).
-    */
+     * @dev Thrown when querying for an authenticator that is now revoked because of an account recovery. This
+     * will not be raised if the authenticator is removed normally (i.e. by another authenticator).
+     */
     error AuthenticatorRevoked();
 
     ////////////////////////////////////////////////////////////
