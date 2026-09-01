@@ -59,8 +59,8 @@ pub mod metrics;
 /// Starts the OPRF node and initializes all required services.
 ///
 /// This is the main entry point for running an OPRF node. It sets up all
-/// watchers, authentication services, and the OPRF service itself, and
-/// returns the HTTP router together with the spawned background tasks.
+/// watchers, authentication services, and the OPRF service itself, and returns
+/// the HTTP router.
 ///
 /// The initialization flow consists of:
 /// - Initializing on-chain watchers:
@@ -73,18 +73,13 @@ pub mod metrics;
 /// - Initializing the OPRF service and registering its modules
 /// - Constructing the Axum router for handling incoming HTTP requests
 ///
-/// The returned [`WorldOprfNodeTasks`] contains all long-running background
-/// tasks (key event handling).
-///
 /// # Arguments
 /// - `config`: Full node configuration.
 /// - `secret_manager`: Service responsible for managing oprf secret shares
-/// - `cancellation_token`: Token used to gracefully shut down all services
+/// - `node_information`: Identity of this node within the OPRF network
 ///
 /// # Returns
-/// A tuple containing:
-/// - The configured [`axum::Router`] for serving HTTP requests
-/// - [`WorldOprfNodeTasks`] with all spawned background tasks
+/// The configured [`axum::Router`] for serving HTTP requests.
 ///
 /// # Errors
 /// Returns an error if any component fails to initialize.
@@ -117,7 +112,6 @@ pub fn start(
     tracing::info!("init RpRegistry watcher..");
     let rp_registry_watcher = RpRegistryWatcher::init(
         config.rp_registry_contract,
-        config.billing_contract,
         http_rpc_provider.clone(),
         config.timeout_external_eth_call,
         config.rp_cache_config,

@@ -3,14 +3,13 @@ use std::{collections::BTreeMap, env, fs, path::PathBuf};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use provekit_common::{InputMap, InputValue};
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH, merkle::MerkleInclusionProof,
+    AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH,
+    merkle::MerkleInclusionProof,
+    poseidon::{self, ds},
 };
 use world_id_test_utils::merkle::first_leaf_merkle_path;
 
-use crate::{
-    NoirCircuitInput as _, circuit_inputs::OwnershipProofCircuitInput,
-    ownership_proof::message_digest,
-};
+use crate::{NoirCircuitInput as _, circuit_inputs::OwnershipProofCircuitInput};
 
 /// Builds static WIP-103 Ownership Proof fixture.
 ///
@@ -27,6 +26,7 @@ pub(crate) fn ownership_proof_fixture() -> OwnershipProofCircuitInput<TREE_DEPTH
     let context = FieldElement::from(42u64);
     let commitment_blinder = FieldElement::from(999u64);
     let expected_commitment = Credential::compute_sub(LEAF_INDEX, commitment_blinder);
+    let message = poseidon::hash(ds::OWNERSHIP_PROOF, [expected_commitment, nonce, context]);
 
     OwnershipProofCircuitInput {
         key_index: 0,
@@ -35,7 +35,7 @@ pub(crate) fn ownership_proof_fixture() -> OwnershipProofCircuitInput<TREE_DEPTH
         nonce,
         expected_commitment,
         context,
-        signature: sk.sign(*message_digest(expected_commitment, nonce, context)),
+        signature: sk.sign(*message),
         commitment_blinder,
     }
 }

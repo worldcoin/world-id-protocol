@@ -5,14 +5,8 @@
 //!
 //! # Running these tests
 //!
-//! These tests require a PostgreSQL database to be running. Use Docker Compose:
-//!
-//! ```bash
-//! docker compose up -d postgres
-//! cargo test -p world-id-indexer --test rollback_tests
-//! ```
-//!
-//! The tests will automatically create unique test databases for isolation.
+//! These tests start a PostgreSQL testcontainer and create unique databases for
+//! isolation. Run them with `cargo test -p world-id-indexer --test rollback_tests`.
 
 mod helpers;
 

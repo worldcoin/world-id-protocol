@@ -22,6 +22,7 @@ pub mod orphan_sweeper;
 mod request;
 pub mod request_tracker;
 mod routes;
+mod storage;
 mod types;
 
 // Re-export common types

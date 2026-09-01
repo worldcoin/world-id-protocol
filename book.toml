@@ -1,0 +1,20 @@
+[book]
+authors = ["World Foundation"]
+language = "en"
+src = "docs"
+title = "World ID Protocol"
+
+[build]
+build-dir = "book"
+
+[preprocessor.strip-front-matter]
+command = "python3 docs/strip-front-matter.py"
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[output.html]
+additional-js = ["docs/mermaid.min.js", "docs/mermaid-init.js"]
+git-repository-url = "https://github.com/worldcoin/world-id-protocol"
+edit-url-template = "https://github.com/worldcoin/world-id-protocol/edit/main/{path}"
+site-url = "/"

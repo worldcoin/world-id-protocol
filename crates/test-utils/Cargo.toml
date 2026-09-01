@@ -19,7 +19,6 @@ alloy-node-bindings = { workspace = true }
 eyre = { workspace = true }
 hex = { workspace = true }
 serde_json = { workspace = true }
-poseidon2 = { workspace = true }
 ark-babyjubjub = { workspace = true }
 ark-ff = { workspace = true }
 ark-serialize = { workspace = true }
@@ -37,5 +36,6 @@ reqwest = { workspace = true }
 secrecy = { workspace = true }
 semver = { workspace = true }
 testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
 tracing = { workspace = true }
 world-id-primitives = { workspace = true }

@@ -1,6 +1,7 @@
 use crate::{
     FieldElement, PrimitiveError,
     oprf::{OprfPrefix, OprfPrefixedFieldElement as _},
+    poseidon::{self, ds},
 };
 use embed_doc_image::embed_doc_image;
 use ruint::aliases::U256;
@@ -53,10 +54,6 @@ pub struct SessionId {
 
 impl SessionId {
     const JSON_PREFIX: &str = "session_";
-    /// Domain separator for session id.
-    ///
-    /// TODO: Change DS to not use the same DS as the base Query Proof
-    const DS_C: &[u8] = b"H(id, r)";
 
     /// Creates a new session id. Most uses should default to `from_r_seed` instead.
     ///
@@ -95,8 +92,6 @@ impl SessionId {
         session_id_r_seed: FieldElement,
         oprf_seed: FieldElement,
     ) -> Result<Self, PrimitiveError> {
-        let sub_ds = FieldElement::from_be_bytes_mod_order(Self::DS_C);
-
         if !oprf_seed.has_prefix(OprfPrefix::SessionOprfSeed) {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "session_id".to_string(),
@@ -104,9 +99,10 @@ impl SessionId {
             });
         }
 
-        let mut input = [*sub_ds, leaf_index.into(), *session_id_r_seed];
-        poseidon2::bn254::t3::permutation_in_place(&mut input);
-        let commitment = input[1].into();
+        let commitment = poseidon::hash(
+            ds::SESSION_COMMITMENT,
+            [leaf_index.into(), session_id_r_seed],
+        );
         Ok(Self {
             commitment,
             oprf_seed,
@@ -116,6 +112,26 @@ impl SessionId {
     /// Generates a new [`Self::oprf_seed`] to initialize a new Session.
     pub fn generate_oprf_seed<R: rand::CryptoRng + rand::RngCore>(rng: &mut R) -> FieldElement {
         FieldElement::random_with_prefix(rng, OprfPrefix::SessionOprfSeed)
+    }
+
+    /// Verifies that `session_id_r_seed` re-derives to this session id's [`Self::commitment`].
+    ///
+    /// Checks an `r` seed obtained elsewhere (e.g. an Authenticator's cache) without
+    /// re-deriving it via the OPRF nodes.
+    ///
+    /// # Errors
+    /// - If this session id's [`Self::oprf_seed`] is not valid.
+    /// - If the derived commitment does not match [`Self::commitment`].
+    pub fn verify_commitment(
+        &self,
+        leaf_index: u64,
+        session_id_r_seed: FieldElement,
+    ) -> Result<(), PrimitiveError> {
+        let computed = Self::from_r_seed(leaf_index, session_id_r_seed, self.oprf_seed)?;
+        if computed.commitment != self.commitment {
+            return Err(PrimitiveError::SessionIdCommitmentMismatch);
+        }
+        Ok(())
     }
 
     /// Returns the 64-byte big-endian representation (2 x 32-byte field elements).
@@ -660,6 +676,21 @@ mod session_id_tests {
             session_id.commitment.to_u256(),
             expected,
             "commitment snapashot for session commitment changed"
+        );
+    }
+
+    #[test]
+    fn test_verify_commitment() {
+        let leaf_index = 42u64;
+        let r_seed = test_field_element(123);
+        let session_id = SessionId::from_r_seed(leaf_index, r_seed, test_oprf_seed(456)).unwrap();
+
+        session_id.verify_commitment(leaf_index, r_seed).unwrap();
+        assert_eq!(
+            session_id
+                .verify_commitment(leaf_index, test_field_element(124))
+                .unwrap_err(),
+            PrimitiveError::SessionIdCommitmentMismatch
         );
     }
 }

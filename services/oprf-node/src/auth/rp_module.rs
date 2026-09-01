@@ -19,7 +19,7 @@ use crate::{
     },
     metrics,
 };
-use alloy::primitives::{Address, U256};
+use alloy::primitives::Address;
 use ark_bn254::Bn254;
 use ark_groth16::PreparedVerifyingKey;
 use async_trait::async_trait;
@@ -34,7 +34,6 @@ use tracing::instrument;
 use world_id_primitives::{
     FieldElement, OprfPrefix, OprfPrefixedFieldElement as _,
     oprf::{NullifierOprfRequestAuthV1, RpSignatureVerification, WorldIdRequestAuthError},
-    rp::RpId,
 };
 
 pub(crate) mod wip101;
@@ -75,13 +74,6 @@ pub(crate) enum RpModuleError {
     MerkleWatcher(#[from] Arc<MerkleWatcherError>),
     #[error(transparent)]
     RpRegistry(#[from] Arc<RpRegistryWatcherError>),
-    /// Rp is blocked
-    #[error("rp is blocked: {rp} at block #{block} with timestamp: {timestamp}")]
-    BlockedRp {
-        rp: RpId,
-        block: U256,
-        timestamp: U256,
-    },
     #[error("created_at in request too old, created_at={created_at:?}, current={current:?}")]
     TimestampTooOld {
         created_at: chrono::DateTime<Utc>,
@@ -139,7 +131,6 @@ impl From<&RpModuleError> for WorldIdRequestAuthError {
             RpModuleError::RpSignatureExpired { .. } => Self::RpSignatureExpired,
             RpModuleError::InvalidTimestamp(_) => Self::InvalidTimestamp,
             RpModuleError::RpSignatureMissing => Self::RpSignatureMissing,
-            RpModuleError::BlockedRp { .. } => Self::BlockedRp,
             RpModuleError::CorruptSignature(_) | RpModuleError::InvalidSignature => {
                 Self::InvalidRpSignature
             }
@@ -172,9 +163,6 @@ pub(crate) struct RelyingParty {
     pub(crate) signer: Address,
     pub(crate) oprf_key_id: OprfKeyId,
     pub(crate) account_type: RpAccountType,
-    pub(crate) is_blocked: bool,
-    pub(crate) fetched_at_block: U256,
-    pub(crate) fetched_at_timestamp: U256,
 }
 
 pub(crate) struct RpModuleAuth {
@@ -362,14 +350,6 @@ impl RpModuleAuth {
         tracing::trace!("fetching RP info...");
         // fetch the RP info
         let rp = self.rp_registry_watcher.get_rp(request.auth.rp_id).await?;
-
-        if rp.is_blocked {
-            return Err(RpModuleError::BlockedRp {
-                rp: request.auth.rp_id,
-                block: rp.fetched_at_block,
-                timestamp: rp.fetched_at_timestamp,
-            });
-        }
 
         self.ensure_signature_valid(&rp, action, request).await?;
 

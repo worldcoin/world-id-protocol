@@ -17,28 +17,6 @@ use crate::{
     circuit_inputs::OwnershipProofCircuitInput, errors::ProofInputError,
 };
 
-/// Domain separator for the Ownership Proof Hash Message.
-pub const DS_WIP_103: &[u8; 6] = b"WIP103";
-
-/// Computes the message the authenticator signs for an ownership proof:
-/// `Poseidon2(DS_WIP_103, expected_commitment, nonce, context)` as defined in
-/// the Noir circuit and the WIP-103 spec.
-#[must_use]
-pub fn message_digest(
-    expected_commitment: FieldElement,
-    nonce: FieldElement,
-    context: FieldElement,
-) -> FieldElement {
-    let mut state = [
-        *FieldElement::from_be_bytes_mod_order(DS_WIP_103),
-        *expected_commitment,
-        *nonce,
-        *context,
-    ];
-    poseidon2::bn254::t4::permutation_in_place(&mut state);
-    state[1].into()
-}
-
 /// Loads an ownership proof prover from a reader containing PKP bytes.
 ///
 /// # Errors
@@ -283,6 +261,8 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
 
 #[cfg(test)]
 mod input_validation_tests {
+    use world_id_primitives::poseidon::{self, ds};
+
     use super::*;
     use std::str::FromStr as _;
 
@@ -304,10 +284,13 @@ mod input_validation_tests {
     #[test]
     fn test_message_digest_matches_the_circuit() {
         assert_eq!(
-            message_digest(
-                FieldElement::from(1u64),
-                FieldElement::from(100u64),
-                FieldElement::from(7u64)
+            poseidon::hash(
+                ds::OWNERSHIP_PROOF,
+                [
+                    FieldElement::from(1u64),
+                    FieldElement::from(100u64),
+                    FieldElement::from(7u64)
+                ]
             ),
             FieldElement::from_str(
                 "0x0574b3d43408903579cd25e90b560aa74fb096d4c65ce65c3b178fc9292032f4"

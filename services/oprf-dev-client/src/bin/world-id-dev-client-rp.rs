@@ -126,15 +126,22 @@ impl DevClient for WorldIdRpDevClient {
 
         let account_inclusion_proof =
             AccountInclusionProof::new(setup.inclusion_proof.clone(), setup.key_set.clone());
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time after epoch")
+            .as_secs();
 
         let (uniquness_nullifier, session_nullifier) = tokio::join!(
             self.components.authenticator.generate_nullifier(
                 &proof_request_uniqueness,
+                now,
                 Some(account_inclusion_proof.clone())
             ),
-            self.components
-                .authenticator
-                .generate_nullifier(&proof_request_session, Some(account_inclusion_proof),)
+            self.components.authenticator.generate_nullifier(
+                &proof_request_session,
+                now,
+                Some(account_inclusion_proof),
+            )
         );
 
         let uniqueness_epoch = uniquness_nullifier
@@ -158,7 +165,7 @@ impl DevClient for WorldIdRpDevClient {
         _config: &DevClientConfig,
         _setup: Self::Setup,
         _delegate_service: Option<String>,
-        _client: &reqwest_13::Client,
+        _client: &reqwest::Client,
     ) -> eyre::Result<ShareEpoch> {
         eyre::bail!("delegated OPRF is not supported by the World ID RP dev client")
     }

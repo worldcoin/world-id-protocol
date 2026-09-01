@@ -5,14 +5,16 @@
 
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{AdditiveGroup, UniformRand};
+use ark_ff::UniformRand;
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use rand::{CryptoRng, Rng};
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH, merkle::MerkleInclusionProof,
+    AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH,
+    merkle::MerkleInclusionProof,
+    poseidon::{self, ds},
     rp::RpId,
 };
-use world_id_proof::{circuit_inputs::OwnershipProofCircuitInput, ownership_proof::message_digest};
+use world_id_proof::circuit_inputs::OwnershipProofCircuitInput;
 
 /// RP fixture data for benchmarks
 pub struct RpFixture {
@@ -57,6 +59,7 @@ pub fn ownership_proof_fixture() -> OwnershipProofCircuitInput<TREE_DEPTH> {
     let context = FieldElement::from(42u64);
     let commitment_blinder = FieldElement::from(999u64);
     let expected_commitment = Credential::compute_sub(LEAF_INDEX, commitment_blinder);
+    let message = poseidon::hash(ds::OWNERSHIP_PROOF, [expected_commitment, nonce, context]);
 
     OwnershipProofCircuitInput {
         key_index: 0,
@@ -65,7 +68,7 @@ pub fn ownership_proof_fixture() -> OwnershipProofCircuitInput<TREE_DEPTH> {
         nonce,
         expected_commitment,
         context,
-        signature: sk.sign(*message_digest(expected_commitment, nonce, context)),
+        signature: sk.sign(*message),
         commitment_blinder,
     }
 }
@@ -74,24 +77,17 @@ pub fn ownership_proof_fixture() -> OwnershipProofCircuitInput<TREE_DEPTH> {
 /// after inserting the provided `leaf` at that index, using Poseidon2 T2 compress.
 pub fn first_leaf_merkle_path(leaf: Fq) -> ([FieldElement; TREE_DEPTH], FieldElement) {
     let mut siblings = [FieldElement::ZERO; TREE_DEPTH];
-    let mut zero = Fq::ZERO;
+    let mut zero = FieldElement::ZERO;
     for sibling in siblings.iter_mut() {
-        *sibling = zero.into();
-        zero = poseidon2_compress(zero, zero);
+        *sibling = zero;
+        zero = poseidon::compress(zero, zero);
     }
 
-    let mut current = poseidon2_compress(*siblings[0], leaf);
+    let mut current = poseidon::compress(siblings[0], leaf.into());
     // For the remaining levels, continue hashing with current on the left
     for sibling in &siblings[1..] {
-        current = poseidon2_compress(current, **sibling);
+        current = poseidon::compress(current, *sibling);
     }
 
-    (siblings, current.into())
-}
-
-/// Poseidon2 "compress" for a pair of field elements (left, right).
-fn poseidon2_compress(left: Fq, right: Fq) -> Fq {
-    let mut state = poseidon2::bn254::t2::permutation(&[left, right]);
-    state[0] += left;
-    state[0]
+    (siblings, current)
 }
