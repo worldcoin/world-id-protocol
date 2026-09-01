@@ -21,9 +21,29 @@ interface IWorldIDVerifierV3 is IWorldIDVerifier {
      */
     error InvalidSessionId();
 
+    /**
+    * @dev Thrown when querying for an authenticator that is now revoked because of an account recovery. This
+    * will not be raised if the authenticator is removed normally (i.e. by another authenticator).
+    */
+    error AuthenticatorRevoked();
+
     ////////////////////////////////////////////////////////////
     //                    VIEW FUNCTIONS                      //
     ////////////////////////////////////////////////////////////
+
+    /**
+     * @dev Returns the packed account data for an authenticator address. Will throw if the
+     * queried authenticator has been revoked after an account recovery.
+     * @param authenticatorAddress The authenticator address to query.
+     */
+    function getPackedAccountData(address authenticatorAddress) external view returns (uint256);
+
+    /**
+     * @dev Returns the packed account data for an authenticator address WITHOUT checking if the
+     * authenticator is not revoked by account recovery.
+     * @param authenticatorAddress The authenticator address to query.
+     */
+    function getUnverifiedPackedAccountData(address authenticatorAddress) external view returns (uint256);
 
     /**
      * @notice Verifies a Uniqueness Proof that is bound to an existing session.

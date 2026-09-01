@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {WorldIDVerifierV2} from "./WorldIDVerifierV2.sol";
 import {IWorldIDVerifier} from "./interfaces/IWorldIDVerifier.sol";
 import {IWorldIDVerifierV3} from "./interfaces/UnreleasedIWorldIDVerifierV3.sol";
+import {PackedAccountData} from "./libraries/PackedAccountData.sol";
 
 /**
  * @title WorldIDVerifierV3
@@ -14,6 +15,39 @@ import {IWorldIDVerifierV3} from "./interfaces/UnreleasedIWorldIDVerifierV3.sol"
  * @custom:repo https://github.com/world-id/world-id-protocol
  */
 contract WorldIDVerifierV3 is IWorldIDVerifierV3, WorldIDVerifierV2 {
+    /// @inheritdoc IWorldIDVerifierV3
+    /// @dev Returns 0 for an unknown authenticator, matching `WorldIDRegistry.getPackedAccountData`.
+    function getPackedAccountData(address authenticatorAddress)
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (uint256)
+    {
+        uint256 packedAccountData = _worldIDRegistry.getPackedAccountData(authenticatorAddress);
+        uint64 leafIndex = PackedAccountData.leafIndex(packedAccountData);
+
+        // `recoverAccount` bumps the account's counter but leaves the old authenticator mapped
+        if (PackedAccountData.recoveryCounter(packedAccountData) < _worldIDRegistry.getRecoveryCounter(leafIndex)) {
+            revert AuthenticatorRevoked();
+        }
+
+        return packedAccountData;
+    }
+
+    /// @inheritdoc IWorldIDVerifierV3
+    function getUnverifiedPackedAccountData(address authenticatorAddress)
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (uint256)
+    {
+        return _worldIDRegistry.getPackedAccountData(authenticatorAddress);
+    }
+
     /// @inheritdoc IWorldIDVerifierV3
     function verifyWithSession(
         uint256 nullifier,

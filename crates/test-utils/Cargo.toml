@@ -38,3 +38,6 @@ semver = { workspace = true }
 testcontainers = { workspace = true }
 tracing = { workspace = true }
 world-id-primitives = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
