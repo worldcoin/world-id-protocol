@@ -128,12 +128,11 @@ pub enum AuthenticatorError {
     #[error(transparent)]
     ResponseValidationError(#[from] ValidationError),
 
-    /// The session ID computed for this proof does not match the expected session ID from the proof request.
-    ///
-    /// This indicates the `session_id` provided by the RP is invalid or compromised, or
-    /// the authenticator cached the wrong `session_id_r_seed` for the `oprf_seed`.
-    #[error("the expected session id and the generated session id do not match")]
-    SessionIdMismatch,
+    /// Binding a session to a Uniqueness Proof requires the cached `session_id_r_seed`.
+    /// Re-deriving it inside a uniqueness request is not possible; run a session-type
+    /// request first to obtain it.
+    #[error("session binding requires a cached `session_id_r_seed`")]
+    SessionSeedRequired,
 
     /// Generic error for other unexpected issues.
     #[error("{0}")]

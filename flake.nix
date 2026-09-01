@@ -34,7 +34,10 @@
             pkgs.foundry # forge / cast / anvil
             pkgs.circom
             pkgs.just
+            pkgs.mdbook
+            pkgs.mdbook-mermaid
             pkgs.pkg-config
+            pkgs.python3
             pkgs.openssl
           ];
         };

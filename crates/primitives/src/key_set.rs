@@ -1,16 +1,15 @@
-use std::{
-    ops::{Deref, DerefMut},
-    str::FromStr,
-};
+use std::ops::{Deref, DerefMut};
 
 use ark_babyjubjub::{EdwardsAffine, Fq};
-use ark_ff::AdditiveGroup;
 use arrayvec::ArrayVec;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 
-use crate::PrimitiveError;
+use crate::{
+    FieldElement, PrimitiveError,
+    poseidon::{self, ds},
+};
 
 /// The maximum number of authenticator public keys that can be registered at any time
 /// per World ID Account.
@@ -218,23 +217,15 @@ impl AuthenticatorPublicKeySet {
     }
 
     /// Computes the Poseidon2 leaf hash commitment for this key set as stored in the `WorldIDRegistry`.
-    ///
-    /// # Panics
-    /// Panics if the domain separator constant cannot be converted into an `Fq`.
     #[must_use]
     pub fn leaf_hash(&self) -> Fq {
-        let mut input = [Fq::ZERO; 16];
-
-        input[0] =
-            Fq::from_str("105702839725298824521994315").expect("domain separator fits in field");
-
         let pk_array = self.as_affine_array();
-        for i in 0..MAX_AUTHENTICATOR_KEYS {
-            input[i * 2 + 1] = pk_array[i].x;
-            input[i * 2 + 2] = pk_array[i].y;
-        }
+        let coordinates: [FieldElement; MAX_AUTHENTICATOR_KEYS * 2] = std::array::from_fn(|i| {
+            let key = &pk_array[i / 2];
+            if i % 2 == 0 { key.x } else { key.y }.into()
+        });
 
-        poseidon2::bn254::t16::permutation(&input)[1]
+        *poseidon::hash(ds::AUTHENTICATOR_KEY_SET, coordinates)
     }
 }
 

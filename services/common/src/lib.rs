@@ -5,15 +5,19 @@ pub mod axum;
 
 pub use self::{
     alloy::{
-        provider::{ProviderArgs, ProviderError, ProviderResult, SignerArgs, SignerConfig},
+        provider::{
+            ProviderArgs, ProviderError, ProviderResult, ProviderWallet, SignerArgs, SignerConfig,
+        },
         provider_layers::{
             METRICS_RPC_ENDPOINT_LATENCY_MS, METRICS_RPC_ENDPOINT_REQUESTS, RetryConfig,
             describe_provider_transport_metrics,
         },
     },
     axum::server_layers::{
-        METRICS_HTTP_LATENCY_MS, describe_http_request_metrics, request_latency_middleware,
-        timeout_layer, trace_layer,
+        Deprecation, DeprecationLayer, DeprecationService, METRICS_DEPRECATED_ENDPOINT_REQUESTS,
+        METRICS_HTTP_LATENCY_MS, V1RecoveryAgentMethodsDeprecation,
+        V1RecoveryAgentMethodsDeprecationLayer, cors_layer, describe_deprecated_endpoint_metrics,
+        describe_http_request_metrics, request_latency_middleware, timeout_layer, trace_layer,
     },
 };
 

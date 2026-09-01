@@ -127,8 +127,9 @@ impl CommitmentLog {
     ///
     /// # Race-free design
     ///
-    /// We subscribe to the [`Notify`] **before** reading `ready_flag`.
-    /// [`Notified::enable`] registers this task as a waiter immediately
+    /// We subscribe to the [`tokio::sync::Notify`] **before** reading `ready_flag`.
+    /// [`Notified::enable`](tokio::sync::futures::Notified::enable) registers this
+    /// task as a waiter immediately
     /// (without polling), so any `notify_waiters()` call that arrives after
     /// `enable()` — even before we hit the `.await` — will resolve the future.
     /// The flag check then handles the complementary case where `mark_ready()`
@@ -187,7 +188,7 @@ impl CommitmentLog {
 
     /// Atomically drains all pending entries.
     ///
-    /// On propagation failure, call [`restore_pending`] to re-insert them.
+    /// On propagation failure, call [`CommitmentLog::restore_pending`] to re-insert them.
     pub fn take_pending(&self) -> PendingSnapshot {
         PendingSnapshot {
             issuers: std::mem::take(&mut *self.pending_issuers.lock()),

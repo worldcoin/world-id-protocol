@@ -8,7 +8,7 @@ use std::{
 
 use alloy::{
     primitives::{U160, U256},
-    signers::local::LocalSigner,
+    signers::{SignerSync as _, local::LocalSigner},
 };
 use eyre::{Context as _, Result, eyre};
 use taceo_oprf::{
@@ -31,14 +31,16 @@ use world_id_gateway::{
     spawn_gateway_for_tests,
 };
 use world_id_primitives::{
-    Config, FieldElement, ServiceEndpoint, TREE_DEPTH, merkle::AccountInclusionProof,
+    Config, FieldElement, ServiceEndpoint, SessionId, SessionRef, TREE_DEPTH,
+    merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
-    anvil::WorldIDVerifier,
+    anvil::WorldIDVerifierV3,
     fixtures::{
         MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
         single_leaf_merkle_fixture,
     },
+    redis_testcontainer,
     stubs::spawn_indexer_stub,
 };
 
@@ -64,7 +66,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         anvil,
         world_id_registry,
         rp_registry,
-        billing_contract,
         oprf_key_registry,
         world_id_verifier,
         credential_registry,
@@ -80,6 +81,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let deployer = anvil
         .signer(0)
         .wrap_err("failed to fetch deployer signer for anvil")?;
+    let (_redis, redis_url) = redis_testcontainer().await?;
 
     // Spawn the gateway wired to this Anvil instance.
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
@@ -87,15 +89,14 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         registry_addr: world_id_registry,
         registry_version: RegistryVersion::V2,
         provider: world_id_gateway::ProviderArgs {
-            http: Some(vec![anvil.endpoint().parse().unwrap()]),
-            signer: Some(signer_args),
+            http: vec![anvil.endpoint().parse().unwrap()],
+            signer: signer_args,
             ..Default::default()
         },
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        redis_url,
         request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
@@ -179,15 +180,15 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
-    let (_postgres, connection_string) = taceo_oprf_test_utils::postgres_testcontainer().await?;
+    let connection_string = world_id_test_utils::shared_postgres_testcontainer().await?;
 
     let node_secret_managers =
-        world_id_test_utils::stubs::init_test_secret_managers(connection_string.clone().into())
+        world_id_test_utils::stubs::init_test_secret_managers(connection_string.to_string().into())
             .await?;
 
     // OPRF key-gen instances
     let oprf_key_gens =
-        world_id_test_utils::stubs::spawn_key_gens(&anvil, &connection_string, oprf_key_registry)
+        world_id_test_utils::stubs::spawn_key_gens(&anvil, connection_string, oprf_key_registry)
             .await?;
 
     // OPRF nodes
@@ -196,7 +197,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         node_secret_managers,
         world_id_registry,
         rp_registry,
-        billing_contract,
         credential_registry,
     )
     .await;
@@ -305,7 +305,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,
         oprf_key_id: rp_fixture.oprf_key_id,
-        session_id: None,
+        session_id: SessionRef::None,
         action: Some(rp_fixture.action.into()),
         signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
@@ -319,7 +319,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         constraints: None,
     };
     let nullifier = authenticator
-        .generate_nullifier(&proof_request, None)
+        .generate_nullifier(&proof_request, rp_fixture.current_timestamp, None)
         .await?;
     assert_ne!(nullifier.oprf_output(), FieldElement::ZERO);
 
@@ -338,8 +338,9 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
 
     // verify proof with verifier contract
     let request_item = &proof_request.requests[0];
-    let world_id_verifier: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =
-        WorldIDVerifier::new(world_id_verifier, anvil.provider()?);
+    let world_id_verifier: WorldIDVerifierV3::WorldIDVerifierV3Instance<
+        alloy::providers::DynProvider,
+    > = WorldIDVerifierV3::new(world_id_verifier, anvil.provider()?);
     world_id_verifier
         .verify(
             response_item
@@ -362,6 +363,97 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .call()
         .await?;
     info!("on-chain proof verification succeeded");
+
+    // ── UNIQUENESS + CREATE (atomic session mint and bound uniqueness proof) ──
+    let mut rng = rand::thread_rng();
+    let create_nonce = FieldElement::random(&mut rng);
+    let create_msg = world_id_primitives::rp::compute_rp_signature_msg(
+        *create_nonce,
+        rp_fixture.current_timestamp,
+        rp_fixture.expiration_timestamp,
+        Some(rp_fixture.action),
+    );
+    let create_signature = LocalSigner::from_signing_key(rp_fixture.signing_key.clone())
+        .sign_message_sync(&create_msg)?;
+    let create_request = ProofRequest {
+        id: "test_uniqueness_create".to_string(),
+        session_id: SessionRef::Create,
+        action: Some(rp_fixture.action.into()),
+        nonce: create_nonce,
+        signature: create_signature,
+        ..proof_request.clone()
+    };
+    let create_nullifier = authenticator
+        .generate_nullifier(&create_request, rp_fixture.current_timestamp, None)
+        .await?;
+    let create_result = authenticator
+        .generate_proof(&create_request, create_nullifier, &credentials, None, None)
+        .await?;
+    let created_session_id = create_result
+        .proof_response
+        .session_id
+        .expect("uniqueness create must mint a session id");
+    let created_session_seed = create_result
+        .session_id_r_seed
+        .expect("uniqueness create must return session seed");
+    let create_item = &create_result.proof_response.responses[0];
+    assert!(create_item.nullifier.is_some());
+    assert!(create_item.session_nullifier.is_none());
+    assert_eq!(
+        SessionId::from_r_seed(
+            leaf_index,
+            created_session_seed,
+            created_session_id.oprf_seed
+        )?,
+        created_session_id
+    );
+
+    let create_nullifier = create_item
+        .nullifier
+        .expect("create uniqueness proof should have nullifier");
+    let unbound_verify = world_id_verifier
+        .verify(
+            create_nullifier.into(),
+            rp_fixture.action.into(),
+            rp_fixture.world_rp_id.into_inner(),
+            create_nonce.into(),
+            request_item.signal_hash().into(),
+            create_item.expires_at_min,
+            issuer_schema_id,
+            request_item
+                .genesis_issued_at_min
+                .unwrap_or_default()
+                .try_into()
+                .expect("u64 fits into U256"),
+            create_item.proof.as_ethereum_representation(),
+        )
+        .call()
+        .await;
+    assert!(
+        unbound_verify.is_err(),
+        "create-bound proof must not verify with sessionId = 0"
+    );
+
+    world_id_verifier
+        .verifyWithSession(
+            create_nullifier.into(),
+            rp_fixture.action.into(),
+            rp_fixture.world_rp_id.into_inner(),
+            create_nonce.into(),
+            request_item.signal_hash().into(),
+            create_item.expires_at_min,
+            issuer_schema_id,
+            request_item
+                .genesis_issued_at_min
+                .unwrap_or_default()
+                .try_into()
+                .expect("u64 fits into U256"),
+            created_session_id.commitment.into(),
+            create_item.proof.as_ethereum_representation(),
+        )
+        .call()
+        .await?;
+    info!("uniqueness create proof verified via verifyWithSession");
 
     indexer_handle.abort();
     info!("e2e_authenticator_generate_proof finished successfully");

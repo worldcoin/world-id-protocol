@@ -38,15 +38,15 @@ use world_id_gateway::{
     spawn_gateway_for_tests,
 };
 use world_id_primitives::{
-    Config, FieldElement, ServiceEndpoint, SessionFieldElement, SessionId, TREE_DEPTH,
-    merkle::AccountInclusionProof,
+    Config, FieldElement, ServiceEndpoint, SessionRef, TREE_DEPTH, merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
-    anvil::WorldIDVerifier,
+    anvil::WorldIDVerifierV3,
     fixtures::{
         MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
         single_leaf_merkle_fixture,
     },
+    redis_testcontainer,
     stubs::spawn_indexer_stub,
 };
 
@@ -72,12 +72,12 @@ async fn main() -> Result<()> {
         oprf_key_registry,
         world_id_verifier,
         credential_registry,
-        billing_contract,
     } = RegistryTestContext::new().await?;
 
     let deployer = anvil
         .signer(0)
         .wrap_err("failed to fetch deployer signer for anvil")?;
+    let (_redis, redis_url) = redis_testcontainer().await?;
 
     // Spawn the gateway.
     let gw_port: u16 = 4105;
@@ -86,15 +86,14 @@ async fn main() -> Result<()> {
         registry_addr: world_id_registry,
         registry_version: RegistryVersion::V2,
         provider: world_id_gateway::ProviderArgs {
-            http: Some(vec![anvil.endpoint().parse().unwrap()]),
-            signer: Some(signer_args),
+            http: vec![anvil.endpoint().parse().unwrap()],
+            signer: signer_args,
             ..Default::default()
         },
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, gw_port).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        redis_url,
         request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
@@ -154,14 +153,14 @@ async fn main() -> Result<()> {
 
     let rp_fixture = generate_rp_fixture();
 
-    let (_postgres, connection_string) = taceo_oprf_test_utils::postgres_testcontainer().await?;
+    let connection_string = world_id_test_utils::shared_postgres_testcontainer().await?;
 
     let node_secret_managers =
-        world_id_test_utils::stubs::init_test_secret_managers(connection_string.clone().into())
+        world_id_test_utils::stubs::init_test_secret_managers(connection_string.to_string().into())
             .await?;
 
     let oprf_key_gens =
-        world_id_test_utils::stubs::spawn_key_gens(&anvil, &connection_string, oprf_key_registry)
+        world_id_test_utils::stubs::spawn_key_gens(&anvil, connection_string, oprf_key_registry)
             .await?;
 
     let nodes = world_id_test_utils::stubs::spawn_oprf_nodes(
@@ -169,7 +168,6 @@ async fn main() -> Result<()> {
         node_secret_managers,
         world_id_registry,
         rp_registry,
-        billing_contract,
         credential_registry,
     )
     .await;
@@ -272,7 +270,7 @@ async fn main() -> Result<()> {
         expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,
         oprf_key_id: rp_fixture.oprf_key_id,
-        session_id: None,
+        session_id: SessionRef::None,
         action: Some(rp_fixture.action.into()),
         signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
@@ -295,7 +293,7 @@ async fn main() -> Result<()> {
     }];
 
     let nullifier_data = authenticator
-        .generate_nullifier(&uniqueness_request, None)
+        .generate_nullifier(&uniqueness_request, rp_fixture.current_timestamp, None)
         .await?;
 
     let uniqueness_result = authenticator
@@ -311,8 +309,9 @@ async fn main() -> Result<()> {
 
     // Verify on-chain.
     info!("Verifying uniqueness proof on-chain...");
-    let verifier_instance: WorldIDVerifier::WorldIDVerifierInstance<alloy::providers::DynProvider> =
-        WorldIDVerifier::new(world_id_verifier, anvil.provider()?);
+    let verifier_instance: WorldIDVerifierV3::WorldIDVerifierV3Instance<
+        alloy::providers::DynProvider,
+    > = WorldIDVerifierV3::new(world_id_verifier, anvil.provider()?);
     verifier_instance
         .verify(
             uniqueness_response
@@ -336,14 +335,78 @@ async fn main() -> Result<()> {
         .await?;
     info!("Uniqueness proof verified ✓");
 
-    //  ── CREATE SESSION
-    let session_id_r_seed = FieldElement::random(&mut rng); // TODO: Create through OPRF
-    let session_id = SessionId::from_r_seed(
-        leaf_index,
-        session_id_r_seed,
-        FieldElement::random_for_session(&mut rng, world_id_primitives::SessionFeType::OprfSeed),
-    )
-    .unwrap();
+    // ── UNIQUENESS + CREATE (atomic session mint and bound uniqueness proof) ──
+    let create_nonce = FieldElement::random(&mut rng);
+    let create_msg = world_id_primitives::rp::compute_rp_signature_msg(
+        *create_nonce,
+        rp_fixture.current_timestamp,
+        rp_fixture.expiration_timestamp,
+        Some(rp_fixture.action),
+    );
+    let create_signature = LocalSigner::from_signing_key(rp_fixture.signing_key.clone())
+        .sign_message_sync(&create_msg)?;
+    let bound_create_request = ProofRequest {
+        id: "fixture_uniqueness_create".to_string(),
+        proof_type: ProofType::Uniqueness,
+        session_id: SessionRef::Create,
+        action: Some(rp_fixture.action.into()),
+        nonce: create_nonce,
+        signature: create_signature,
+        ..uniqueness_request.clone()
+    };
+
+    let bound_create_nullifier = authenticator
+        .generate_nullifier(&bound_create_request, rp_fixture.current_timestamp, None)
+        .await?;
+
+    let bound_create_result = authenticator
+        .generate_proof(
+            &bound_create_request,
+            bound_create_nullifier,
+            &credentials,
+            None,
+            None,
+        )
+        .await?;
+    let session_id = bound_create_result
+        .proof_response
+        .session_id
+        .expect("uniqueness create must mint a session id");
+    let session_id_r_seed = bound_create_result
+        .session_id_r_seed
+        .expect("uniqueness create must return session seed");
+    let bound_response = &bound_create_result.proof_response.responses[0];
+    let bound_nullifier = bound_response
+        .nullifier
+        .expect("bound uniqueness proof should have nullifier");
+    assert_ne!(
+        bound_nullifier,
+        uniqueness_response
+            .nullifier
+            .expect("uniqueness proof has nullifier")
+    );
+
+    info!("Verifying session-bound uniqueness proof on-chain...");
+    verifier_instance
+        .verifyWithSession(
+            bound_nullifier.into(),
+            rp_fixture.action.into(),
+            rp_fixture.world_rp_id.into_inner(),
+            create_nonce.into(),
+            request_item.signal_hash().into(),
+            bound_response.expires_at_min,
+            issuer_schema_id,
+            request_item
+                .genesis_issued_at_min
+                .unwrap_or_default()
+                .try_into()
+                .expect("u64 fits into U256"),
+            session_id.commitment.into(),
+            bound_response.proof.as_ethereum_representation(),
+        )
+        .call()
+        .await?;
+    info!("Session-bound uniqueness proof verified ✓");
 
     // ── SESSION PROOF (own OPRF round: session queries use an internal random action
     //    generated at query time, and the RP signature does not cover an action) ──
@@ -358,7 +421,7 @@ async fn main() -> Result<()> {
         .sign_message_sync(&session_msg)?;
     let session_request = ProofRequest {
         proof_type: ProofType::Session,
-        session_id: Some(session_id),
+        session_id: SessionRef::Existing(session_id),
         action: None,
         nonce: session_nonce,
         signature: session_signature,
@@ -366,7 +429,7 @@ async fn main() -> Result<()> {
     };
 
     let session_nullifier_data = authenticator
-        .generate_nullifier(&session_request, None)
+        .generate_nullifier(&session_request, rp_fixture.current_timestamp, None)
         .await?;
 
     let session_result = authenticator
@@ -498,6 +561,23 @@ async fn main() -> Result<()> {
 
     println!("// session nullifier for verifySession: [nullifier, action]");
     println!("[{:#x}, {:#x}]", s_null[0], s_null[1]);
+    println!();
+
+    println!("// ── Bound Uniqueness Proof inputs (nullifier/action/sessionId shared above) ──");
+    let b_proof = bound_response.proof.as_ethereum_representation();
+    println!(
+        "uint64 boundExpiresAtMin = {:#x};",
+        bound_response.expires_at_min
+    );
+
+    println!();
+    println!("uint256[5] boundProof = [");
+    println!("    {:#x},", b_proof[0]);
+    println!("    {:#x},", b_proof[1]);
+    println!("    {:#x},", b_proof[2]);
+    println!("    {:#x},", b_proof[3]);
+    println!("    rootCorrect");
+    println!("];");
 
     println!();
     println!("// ── Done ──");
