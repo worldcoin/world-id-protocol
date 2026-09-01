@@ -42,7 +42,10 @@ use world_id_proof::{
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
 };
 
-use fixtures::{first_leaf_merkle_path, generate_rp_fixture, ownership_proof_fixture};
+use fixtures::{
+    first_leaf_merkle_path, generate_rp_fixture, ownership_proof_fixture, passkey_ownership_fixture,
+};
+use world_id_proof::passkey_ownership_proof::load_embedded_passkey_prover;
 
 // ============================================================================
 // Fixture Generation (deterministic for reproducible benchmarks)
@@ -338,6 +341,161 @@ pub fn bench_ownership_proving((prover, witness): (Prover, WitnessMap<NoirElemen
 pub fn bench_ownership_proof_generation((prover, input_map): (Prover, InputMap)) {
     let proof = prover.prove(input_map).expect("ownership proof generation");
     std::hint::black_box(proof);
+}
+
+fn setup_passkey_witness_generation() -> (Prover, InputMap) {
+    configure_ownership_rayon_pool();
+    let input_map = passkey_ownership_fixture()
+        .into_witness()
+        .expect("passkey input map");
+    let prover = load_embedded_passkey_prover().expect("embedded passkey prover");
+    (prover, input_map)
+}
+
+fn setup_passkey_proving() -> (Prover, WitnessMap<NoirElement>) {
+    let (mut prover, input_map) = setup_passkey_witness_generation();
+    let witness = prover
+        .generate_witness(input_map)
+        .expect("passkey witness generation");
+    (prover, witness)
+}
+
+/// Benchmark: standalone WebAuthn/P-256 circuit witness generation only.
+#[benchmark(setup = setup_passkey_witness_generation, per_iteration)]
+pub fn bench_passkey_witness_generation((mut prover, input_map): (Prover, InputMap)) {
+    let witness = prover
+        .generate_witness(input_map)
+        .expect("passkey witness generation");
+    std::hint::black_box(witness);
+}
+
+/// Benchmark: standalone WebAuthn/P-256 proving from a precomputed witness.
+#[benchmark(setup = setup_passkey_proving, per_iteration)]
+pub fn bench_passkey_proving((prover, witness): (Prover, WitnessMap<NoirElement>)) {
+    let proof = prover
+        .prove_with_witness(witness)
+        .expect("passkey proof generation");
+    std::hint::black_box(proof);
+}
+
+/// Benchmark: standalone WebAuthn/P-256 witness generation plus proving.
+#[benchmark(setup = setup_passkey_witness_generation, per_iteration)]
+pub fn bench_passkey_proof_generation((prover, input_map): (Prover, InputMap)) {
+    let proof = prover.prove(input_map).expect("passkey proof generation");
+    std::hint::black_box(proof);
+}
+
+struct WorldIdPasskeyInputs {
+    passkey: (Prover, InputMap),
+    query: (QueryProofCircuitInput<TREE_DEPTH>, CircomGroth16Material),
+    nullifier: (
+        NullifierProofCircuitInput<TREE_DEPTH>,
+        CircomGroth16Material,
+    ),
+}
+
+struct WorldIdPasskeyWitnesses {
+    passkey: (Prover, WitnessMap<NoirElement>),
+    query: (CircomGroth16Material, Vec<ark_bn254::Fr>),
+    nullifier: (CircomGroth16Material, Vec<ark_bn254::Fr>),
+}
+
+fn setup_world_id_passkey_inputs() -> WorldIdPasskeyInputs {
+    let passkey = setup_passkey_witness_generation();
+    let (query_input, query_material, _) = generate_query_input();
+    let (nullifier_input, nullifier_material, _) = generate_nullifier_input();
+    WorldIdPasskeyInputs {
+        passkey,
+        query: (query_input, query_material),
+        nullifier: (nullifier_input, nullifier_material),
+    }
+}
+
+fn setup_world_id_passkey_proving() -> WorldIdPasskeyWitnesses {
+    let WorldIdPasskeyInputs {
+        passkey: (mut passkey_prover, passkey_input),
+        query: (query_input, query_material),
+        nullifier: (nullifier_input, nullifier_material),
+    } = setup_world_id_passkey_inputs();
+    let passkey_witness = passkey_prover
+        .generate_witness(passkey_input)
+        .expect("passkey witness generation");
+    let query_witness = query_material
+        .generate_witness(&query_input)
+        .expect("query witness generation");
+    let nullifier_witness = nullifier_material
+        .generate_witness(&nullifier_input)
+        .expect("nullifier witness generation");
+    WorldIdPasskeyWitnesses {
+        passkey: (passkey_prover, passkey_witness),
+        query: (query_material, query_witness),
+        nullifier: (nullifier_material, nullifier_witness),
+    }
+}
+
+/// Benchmark: witness generation for passkey ownership plus World ID query and nullifier proofs.
+#[benchmark(setup = setup_world_id_passkey_inputs, per_iteration)]
+pub fn bench_world_id_passkey_witness_generation(inputs: WorldIdPasskeyInputs) {
+    let (mut passkey_prover, passkey_input) = inputs.passkey;
+    let passkey = passkey_prover
+        .generate_witness(passkey_input)
+        .expect("passkey witness generation");
+    let query = inputs
+        .query
+        .1
+        .generate_witness(&inputs.query.0)
+        .expect("query witness generation");
+    let nullifier = inputs
+        .nullifier
+        .1
+        .generate_witness(&inputs.nullifier.0)
+        .expect("nullifier witness generation");
+    std::hint::black_box((passkey, query, nullifier));
+}
+
+/// Benchmark: proving-only for passkey ownership plus World ID query and nullifier proofs.
+#[benchmark(setup = setup_world_id_passkey_proving, per_iteration)]
+pub fn bench_world_id_passkey_proving(witnesses: WorldIdPasskeyWitnesses) {
+    let passkey = witnesses
+        .passkey
+        .0
+        .prove_with_witness(witnesses.passkey.1)
+        .expect("passkey proof generation");
+    let mut rng = deterministic_rng();
+    let query = witnesses
+        .query
+        .0
+        .generate_proof_from_witness(&witnesses.query.1, &mut rng)
+        .expect("query proof generation");
+    let nullifier = witnesses
+        .nullifier
+        .0
+        .generate_proof_from_witness(&witnesses.nullifier.1, &mut rng)
+        .expect("nullifier proof generation");
+    std::hint::black_box((passkey, query, nullifier));
+}
+
+/// Benchmark: combined witness generation and proving for the complete
+/// passkey-authenticated World ID proof workload.
+#[benchmark(setup = setup_world_id_passkey_inputs, per_iteration)]
+pub fn bench_world_id_passkey_proof_generation(inputs: WorldIdPasskeyInputs) {
+    let passkey = inputs
+        .passkey
+        .0
+        .prove(inputs.passkey.1)
+        .expect("passkey proof generation");
+    let mut rng = deterministic_rng();
+    let query = inputs
+        .query
+        .1
+        .generate_proof(&inputs.query.0, &mut rng)
+        .expect("query proof generation");
+    let nullifier = inputs
+        .nullifier
+        .1
+        .generate_proof(&inputs.nullifier.0, &mut rng)
+        .expect("nullifier proof generation");
+    std::hint::black_box((passkey, query, nullifier));
 }
 
 /// Benchmark: Query Proof (π1) generation from cached input

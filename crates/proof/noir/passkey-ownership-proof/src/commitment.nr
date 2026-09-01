@@ -1,5 +1,5 @@
 use super::constants::{DS_MIXED_AUTH_SET, DS_PASSKEY_SLOT, NUM_KEYS, P256_LIMBS};
-use poseidon2::bn254::permutation;
+use poseidon2::bn254::perm;
 
 pub fn p256_be_bytes_to_limbs(bytes: [u8; 32]) -> [Field; P256_LIMBS] {
     let mut high: Field = 0;
@@ -31,7 +31,7 @@ pub fn passkey_slot_commitment(
         inputs[i + 1 + P256_LIMBS] = public_key_y_limbs[i];
     }
 
-    let hash_state = permutation::t16(inputs);
+    let hash_state = perm::x5_16(inputs);
     hash_state[1]
 }
 
@@ -55,7 +55,7 @@ pub fn mixed_authenticator_set_commitment(slot_commitments: [Field; NUM_KEYS]) -
         inputs[i + 1] = slot_commitments[i];
     }
 
-    let hash_state = permutation::t16(inputs);
+    let hash_state = perm::x5_16(inputs);
     hash_state[1]
 }
 
@@ -76,7 +76,7 @@ fn test_account_commitment_changes_with_slot() {
 #[test]
 fn test_poseidon2_t16_matches_legacy_vector() {
     assert(
-        permutation::t16([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+        perm::x5_16([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
             == [
                 0x0fc2e6b758f493969e1d860f9a44ee3bdffdf796f382aa4ffb16fa4e9bcc333f,
                 0x0c118155a0dfeca3f91faf14a350511228ac33743be91249c6e0b3a635a50de4,
