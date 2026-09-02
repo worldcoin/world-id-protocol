@@ -1101,3 +1101,18 @@ impl TestAnvil {
             .context("contract deployment failed - no address in receipt")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use world_id_primitives::request::IWIP101 as ProtocolIWIP101;
+
+    #[test]
+    fn wip101_mock_selector_matches_protocol_binding() {
+        assert_eq!(
+            WIP101Correct::verifyRpRequestCall::SELECTOR,
+            ProtocolIWIP101::verifyRpRequestCall::SELECTOR,
+            "WIP-101 Solidity mock ABI drifted from the protocol binding"
+        );
+    }
+}

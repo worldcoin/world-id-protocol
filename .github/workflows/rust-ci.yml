@@ -41,7 +41,7 @@ jobs:
             crates/registries/abi/
             crates/issuer/abi/
             services/oprf-node/abi/
-          key: contract-artifacts-${{ hashFiles('contracts/src/**', 'contracts/foundry.toml', 'contracts/foundry.lock', 'Makefile', 'contracts/test/core/**') }}
+          key: contract-artifacts-${{ hashFiles('contracts/src/**', 'contracts/script/**', 'contracts/foundry.toml', 'contracts/foundry.lock', 'Makefile', 'contracts/test/core/**') }}
           # test contracts are also part of the cache because `CredentialSchemaIssuerRegistry.t.sol/MockOprfKeyRegistry.json` is used in Rust tests
 
       - name: Install Foundry
