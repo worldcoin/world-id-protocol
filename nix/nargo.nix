@@ -25,7 +25,7 @@ let
   artifact = artifacts.${stdenv.hostPlatform.system};
 in stdenv.mkDerivation rec {
   pname = "nargo";
-  version = "1.0.0-beta.11";
+  version = "1.0.0-beta.26";
 
   src = fetchurl {
     url = "https://github.com/noir-lang/noir/releases/download/v${version}/nargo-${artifact.target}.tar.gz";

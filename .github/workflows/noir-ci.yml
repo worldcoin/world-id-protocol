@@ -23,7 +23,7 @@ jobs:
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
-          toolchain: v1.0.0-beta.11
+          toolchain: v1.0.0-beta.26
       - run: nargo fmt --check && nargo test
       - run: nargo execute --pedantic-solving
 
@@ -39,5 +39,5 @@ jobs:
           persist-credentials: false
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
-          toolchain: v1.0.0-beta.11
+          toolchain: v1.0.0-beta.26
       - run: nargo fmt --check && nargo test
