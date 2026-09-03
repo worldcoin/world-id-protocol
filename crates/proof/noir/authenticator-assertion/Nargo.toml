@@ -1,7 +1,7 @@
 [package]
 name = "authenticator_assertion"
 type = "lib"
-descrption = "UNAUDITED. IN ACTIVE DEVELOPMENT, DO NOT USE YET. Library to support WIP-106 authenticator assertions."
+description = "UNAUDITED. IN ACTIVE DEVELOPMENT, DO NOT USE YET. Library to support WIP-106 authenticator assertions."
 authors = ["@paolodamico", "@kilianglas"]
 license = "MIT"
 backend = "provekit"
