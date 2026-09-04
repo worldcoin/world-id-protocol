@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.14.0...world-id-primitives-v0.14.1) - 2026-09-04
+
+### Fixed
+
+- *(authenticator)* compare packed account data recovery counter to actual recovery counter when initializing the authenticator ([#981](https://github.com/worldcoin/world-id-protocol/pull/981))
+
+### Other
+
+- update Cargo.toml dependencies
+- *(deps)* consolidate compatible dependency updates ([#962](https://github.com/worldcoin/world-id-protocol/pull/962))
+
 ## [0.14.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.13.0...world-id-primitives-v0.14.0) - 2026-08-28
 
 ### Added
