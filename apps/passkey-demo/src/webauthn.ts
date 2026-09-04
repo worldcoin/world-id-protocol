@@ -40,24 +40,8 @@ export function bytesToHex(bytes: Uint8Array): string {
   return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
-export function randomChallenge(): Uint8Array {
+function randomChallenge(): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(32));
-}
-
-export function p256BeBytesToLimbs(bytes: Uint8Array): [bigint, bigint, bigint] {
-  if (bytes.length !== 32) {
-    throw new Error(`expected 32 bytes, got ${bytes.length}`);
-  }
-
-  const fold = (slice: Uint8Array): bigint => {
-    let result = 0n;
-    for (const byte of slice) {
-      result = (result << 8n) | BigInt(byte);
-    }
-    return result;
-  };
-
-  return [fold(bytes.slice(17, 32)), fold(bytes.slice(2, 17)), fold(bytes.slice(0, 2))];
 }
 
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
@@ -207,9 +191,13 @@ export async function registerPasskey(): Promise<RegisteredPasskey> {
   };
 }
 
+/**
+ * Signs `challenge` with the registered passkey and enforces the browser-side
+ * WebAuthn policy (type, challenge, origin, RP ID, UP/UV) before returning.
+ */
 export async function requestAssertion(
   credentialId: Uint8Array,
-  challenge = randomChallenge(),
+  challenge: Uint8Array,
 ): Promise<AssertionWitness> {
   if (challenge.length !== 32) throw new Error("WebAuthn challenge must contain exactly 32 bytes");
   const credential = await navigator.credentials.get({

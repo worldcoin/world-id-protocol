@@ -13,5 +13,5 @@
     "noEmit": true,
     "strict": true
   },
-  "include": ["src", "tests", "server.ts", "vite.config.ts"]
+  "include": ["src", "tests", "e2e-fixture.ts", "server.ts", "vite.config.ts"]
 }

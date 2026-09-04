@@ -1,13 +1,7 @@
 import "./style.css";
-import { registerWithLocalBridge, type RegistryState } from "./demo-adapter";
-import {
-  buildPasskeyOwnershipNoirInputs,
-} from "./passkey-noir-inputs";
-import {
-  describeProveKitFailure,
-  preparePasskeyProof,
-  type PreparedPasskeyProofResult,
-} from "./provekit-runtime";
+import { registerWithLocalBridge, type RegistryState } from "./bridge-client";
+import { buildPasskeyOwnershipNoirInputs } from "./passkey-noir-inputs";
+import { describeProveKitFailure, preparePasskeyProof, type PreparedPasskeyProof } from "./provekit-runtime";
 import { bytesToHex, registerPasskey, requestAssertion, type RegisteredPasskey } from "./webauthn";
 import { createWorldIdProofRequest } from "./world-id-proof-request";
 
@@ -25,7 +19,7 @@ const output = document.querySelector<HTMLElement>("#output")!;
 
 let passkey: RegisteredPasskey | null = null;
 let registry: RegistryState | null = null;
-let pendingProof: PreparedPasskeyProofResult | null = null;
+let pendingProof: PreparedPasskeyProof | null = null;
 
 function proofStatement(
   proofRequest: Awaited<ReturnType<typeof createWorldIdProofRequest>>,
@@ -99,23 +93,14 @@ assertButton.addEventListener("click", async () => {
     actionValue.textContent = proofRequest.action;
     setStatus("Signing proof request with passkey");
     const assertion = await requestAssertion(passkey.credentialId, proofRequest.challenge);
-    const proofInputs = await buildPasskeyOwnershipNoirInputs(
-      passkey,
-      assertion,
-      registry,
-      proofRequest.nonce,
-    );
+    const proofInputs = buildPasskeyOwnershipNoirInputs(passkey, assertion, registry, proofRequest.nonce);
 
     rpValue.textContent = bytesToHex(assertion.rpIdHash);
     challengeValue.textContent = bytesToHex(assertion.challenge);
     setStatus("Proving locally with ProveKit");
     pendingProof = await preparePasskeyProof(proofInputs);
     showSummary({
-      sdk: {
-        package: pendingProof.sdkPackage,
-        commit: pendingProof.sdkCommit,
-        tarballSha256: pendingProof.sdkTarballSha256,
-      },
+      sdk: pendingProof.sdk,
       threading: pendingProof.threading,
       artifacts: {
         proverBytes: pendingProof.proverBytes,

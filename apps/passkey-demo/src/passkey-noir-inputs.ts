@@ -1,8 +1,9 @@
+import { PASSKEY_SLOT_COUNT } from "./commitments";
 import type { AssertionWitness, RegisteredPasskey } from "./webauthn";
 
+// Must match `crates/proof/noir/passkey-ownership-proof/src/constants.nr`.
 const CLIENT_DATA_JSON_MAX_LEN = 256;
 const AUTHENTICATOR_DATA_MAX_LEN = 64;
-const PASSKEY_SLOT_COUNT = 7;
 const MERKLE_DEPTH = 30;
 const BN254_SCALAR_MODULUS =
   21888242871839275222246405745257275088548364400416034343698204186575808495617n;

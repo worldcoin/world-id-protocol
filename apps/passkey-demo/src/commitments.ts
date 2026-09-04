@@ -15,9 +15,14 @@ function fold(bytes: Uint8Array): bigint {
   return bytes.reduce((value, byte) => (value << 8n) | BigInt(byte), 0n);
 }
 
-export function p256HexToLimbs(value: string): [bigint, bigint, bigint] {
-  const bytes = hexToBytes(value);
+/** Splits a big-endian P-256 coordinate into the protocol's `[low, mid, high]` 120-bit limbs. */
+export function p256BeBytesToLimbs(bytes: Uint8Array): [bigint, bigint, bigint] {
+  if (bytes.length !== 32) throw new Error(`expected 32 bytes, got ${bytes.length}`);
   return [fold(bytes.slice(17, 32)), fold(bytes.slice(2, 17)), fold(bytes.slice(0, 2))];
+}
+
+export function p256HexToLimbs(value: string): [bigint, bigint, bigint] {
+  return p256BeBytesToLimbs(hexToBytes(value));
 }
 
 export function passkeySlotCommitment(publicKeyX: string, publicKeyY: string): bigint {

@@ -1,59 +1,19 @@
-import { p256 } from "@noble/curves/nist.js";
 import { describe, expect, it } from "vitest";
 
 import { buildPasskeyOwnershipNoirInputs } from "../src/passkey-noir-inputs";
-import { base64url, type AssertionWitness, type RegisteredPasskey } from "../src/webauthn";
+import { syntheticPasskey } from "./synthetic-passkey";
 
-function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
-  const result = new Uint8Array(left.length + right.length);
-  result.set(left);
-  result.set(right, left.length);
-  return result;
-}
+const CHALLENGE = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
 
-async function digest(bytes: Uint8Array): Promise<Uint8Array> {
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", copy.buffer));
-}
-
-async function fixture(privateKeyByte: number): Promise<{
-  passkey: RegisteredPasskey;
-  assertion: AssertionWitness;
-}> {
-  const privateKey = new Uint8Array(32);
-  privateKey[31] = privateKeyByte;
-  const publicKey = p256.getPublicKey(privateKey, false);
-  const challenge = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
-  const clientDataJson = new TextEncoder().encode(
-    JSON.stringify({ type: "webauthn.get", challenge: base64url(challenge), origin: "https://127.0.0.1:5178" }),
-  );
-  const rpIdHash = await digest(new TextEncoder().encode("127.0.0.1"));
-  const authenticatorData = new Uint8Array(37);
-  authenticatorData.set(rpIdHash);
-  authenticatorData[32] = 0x05;
-  const signedBytes = concat(authenticatorData, await digest(clientDataJson));
-  const signature = p256.sign(signedBytes, privateKey);
-
-  return {
-    passkey: {
-      credentialId: Uint8Array.of(privateKeyByte),
-      publicKey: { x: publicKey.slice(1, 33), y: publicKey.slice(33, 65) },
-    },
-    assertion: {
-      authenticatorData,
-      clientDataJson,
-      challenge,
-      challengeIndex: new TextDecoder().decode(clientDataJson).indexOf(base64url(challenge)),
-      signature,
-      rpIdHash,
-    },
-  };
+async function fixture() {
+  const { passkey, assert } = syntheticPasskey();
+  const assertion = await assert({ challenge: CHALLENGE, rpId: "localhost", origin: "http://localhost:5178" });
+  return { passkey, assertion };
 }
 
 describe("passkey Noir input construction", () => {
   it("builds the exact nested ABI with one key source and private Merkle inputs", async () => {
-    const { passkey, assertion } = await fixture(1);
+    const { passkey, assertion } = await fixture();
     const nonce = new Uint8Array(32);
     const result = await buildPasskeyOwnershipNoirInputs(passkey, assertion, {
       leafIndex: 4,
@@ -84,7 +44,7 @@ describe("passkey Noir input construction", () => {
   });
 
   it("rejects malformed registry witness dimensions and non-canonical fields", async () => {
-    const { passkey, assertion } = await fixture(1);
+    const { passkey, assertion } = await fixture();
     const base = {
       leafIndex: 0,
       root: "1",

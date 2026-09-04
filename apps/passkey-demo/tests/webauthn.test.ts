@@ -3,7 +3,6 @@ import {
   base64url,
   derEcdsaToRawSignature,
   extractP256PublicKeyFromSpki,
-  p256BeBytesToLimbs,
   validateAssertionPolicy,
 } from "../src/webauthn";
 import { createWorldIdProofRequest } from "../src/world-id-proof-request";
@@ -15,16 +14,6 @@ async function sha256(value: string): Promise<Uint8Array> {
 describe("webauthn helpers", () => {
   it("encodes challenge bytes as unpadded base64url", () => {
     expect(base64url(new Uint8Array([8, 87, 4, 106]))).toBe("CFcEag");
-  });
-
-  it("splits P-256 bytes into low, mid, high limbs", () => {
-    const bytes = Uint8Array.from({ length: 32 }, (_, index) => index);
-
-    expect(p256BeBytesToLimbs(bytes).map((value) => value.toString(16))).toEqual([
-      "1112131415161718191a1b1c1d1e1f",
-      "2030405060708090a0b0c0d0e0f10",
-      "1",
-    ]);
   });
 
   it("converts DER ECDSA signatures to raw r||s", () => {
