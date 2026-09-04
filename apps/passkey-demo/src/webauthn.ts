@@ -51,6 +51,12 @@ function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
   return difference === 0;
 }
 
+export function validateCredentialId(actual: Uint8Array, expected: Uint8Array): void {
+  if (!equalBytes(actual, expected)) {
+    throw new Error("browser returned an assertion for an unexpected credential");
+  }
+}
+
 export async function validateAssertionPolicy(
   clientDataJson: Uint8Array,
   authenticatorData: Uint8Array,
@@ -212,6 +218,7 @@ export async function requestAssertion(
   if (!(credential instanceof PublicKeyCredential)) {
     throw new Error("browser did not return a public key assertion");
   }
+  validateCredentialId(new Uint8Array(credential.rawId), credentialId);
   const response = credential.response;
   if (!(response instanceof AuthenticatorAssertionResponse)) {
     throw new Error("credential response is not assertion data");

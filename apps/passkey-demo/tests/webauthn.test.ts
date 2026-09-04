@@ -4,6 +4,7 @@ import {
   derEcdsaToRawSignature,
   extractP256PublicKeyFromSpki,
   validateAssertionPolicy,
+  validateCredentialId,
 } from "../src/webauthn";
 import { createWorldIdProofRequest } from "../src/world-id-proof-request";
 
@@ -55,7 +56,8 @@ describe("webauthn helpers", () => {
 
   it("domain-separates proof requests and binds them to a registry root and RP ID", async () => {
     const nonce = Uint8Array.from({ length: 32 }, (_, index) => index);
-    const request = await createWorldIdProofRequest({ registryRoot: "123", rpId: "localhost", nonce });
+    const origin = "http://localhost:5178";
+    const request = await createWorldIdProofRequest({ registryRoot: "123", rpId: "localhost", origin, nonce });
 
     expect(request.action).toBe("world-id-proof-v1");
     expect(request.message).toBe(
@@ -63,9 +65,20 @@ describe("webauthn helpers", () => {
     );
     expect(Array.from(request.challenge, (byte) => byte.toString(16).padStart(2, "0")).join(""))
       .toBe("78a66d000413695d3e0039af1d67d10ad117081c60605be0f76f70bcea96d54b");
+    expect(request.origin).toBe(origin);
+    expect(request.originHash).toEqual(await sha256(origin));
 
-    const otherRoot = await createWorldIdProofRequest({ registryRoot: "124", rpId: "localhost", nonce });
+    const otherRoot = await createWorldIdProofRequest({ registryRoot: "124", rpId: "localhost", origin, nonce });
     expect(otherRoot.challenge).not.toEqual(request.challenge);
+
+    const otherOrigin = await createWorldIdProofRequest({
+      registryRoot: "123",
+      rpId: "localhost",
+      origin: "https://localhost:5178",
+      nonce,
+    });
+    expect(otherOrigin.challenge).toEqual(request.challenge);
+    expect(otherOrigin.originHash).not.toEqual(request.originHash);
   });
 
   it("extracts an uncompressed P-256 point from SPKI", () => {
@@ -81,6 +94,23 @@ describe("webauthn helpers", () => {
     const key = extractP256PublicKeyFromSpki(spki.buffer);
     expect(Array.from(key.x)).toEqual(Array(32).fill(0x11));
     expect(Array.from(key.y)).toEqual(Array(32).fill(0x22));
+  });
+
+  it("rejects an assertion returned for a different credential ID", () => {
+    const requestedCredentialId = Uint8Array.from([0x01, 0x02, 0x03, 0x04]);
+
+    expect(() => validateCredentialId(
+      Uint8Array.from([0x01, 0x02, 0x03, 0x04]),
+      requestedCredentialId,
+    )).not.toThrow();
+    expect(() => validateCredentialId(
+      Uint8Array.from([0x01, 0x02, 0x03, 0x05]),
+      requestedCredentialId,
+    )).toThrow("unexpected credential");
+    expect(() => validateCredentialId(
+      Uint8Array.from([0x01, 0x02, 0x03]),
+      requestedCredentialId,
+    )).toThrow("unexpected credential");
   });
 
   it("accepts only a same-origin, user-verified WebAuthn assertion", async () => {

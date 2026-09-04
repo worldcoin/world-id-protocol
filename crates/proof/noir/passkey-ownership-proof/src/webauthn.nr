@@ -40,22 +40,76 @@ pub fn verify_signature<let CLIENT_DATA_JSON_MAX_LEN: u32, let AUTHENTICATOR_DAT
     client_data_json: BoundedVec<u8, CLIENT_DATA_JSON_MAX_LEN>,
     authenticator_data: BoundedVec<u8, AUTHENTICATOR_DATA_MAX_LEN>,
     challenge: [u8; 32],
+    origin_hash: [u8; 32],
     challenge_index: u32,
 ) {
+    assert(authenticator_data.len() >= 37, "authenticatorData is too short");
+    assert(authenticator_data.len() <= AUTHENTICATOR_DATA_MAX_LEN);
+    assert((authenticator_data.get(32) & 5) == 5, "UP and UV are required");
+    assert(challenge_index == 36, "challenge must be the JSON challenge field");
+    validate_client_data(client_data_json, challenge, origin_hash);
     let client_data_json_hash =
         sha256::sha256_var(client_data_json.storage(), client_data_json.len() as u64);
     let concatenated: BoundedVec<u8, AUTHENTICATOR_DATA_MAX_LEN + 32> =
         concat(authenticator_data, client_data_json_hash);
     let hashed_message = sha256::sha256_var(concatenated.storage(), concatenated.len() as u64);
 
-    let challenge_base64_url = encode_challenge_base64_url(challenge);
-    str_contains_base64_url(
-        client_data_json.storage(),
-        challenge_base64_url,
-        challenge_index,
-    );
-
     verify_p256_signature(hashed_message, public_key_x, public_key_y, signature);
+}
+
+// Deliberately supports the standard compact serialization used by the local
+// demo's browsers. Reject unknown/duplicate fields, escaped origins and trailing
+// bytes rather than treating a substring in prover-controlled storage as JSON.
+// All inspected bytes must be within the length actually covered by the signature.
+pub fn validate_client_data<let N: u32>(
+    data: BoundedVec<u8, N>,
+    challenge: [u8; 32],
+    origin_hash: [u8; 32],
+) {
+    assert(data.len() >= 94, "clientDataJSON is too short");
+    assert(data.len() <= N);
+    let prefix = "{\"type\":\"webauthn.get\",\"challenge\":\"".as_bytes();
+    for i in 0..36 {
+        assert(data.get(i) == prefix[i], "invalid clientDataJSON prefix");
+    }
+    let encoded = encode_challenge_base64_url(challenge);
+    for i in 0..43 {
+        assert(data.get(36 + i) == encoded[i], "challenge field mismatch");
+    }
+    let origin_prefix = "\",\"origin\":\"".as_bytes();
+    for i in 0..12 {
+        assert(data.get(79 + i) == origin_prefix[i], "missing origin field");
+    }
+    let mut origin = [0 as u8; N - 91];
+    let mut origin_len = 0;
+    let mut end = 0;
+    let mut closed = false;
+    for i in 91..N {
+        if i < data.len() & !closed {
+            let byte = data.get(i);
+            if byte == 34 {
+                closed = true;
+                end = i;
+            } else {
+                assert((byte >= 33) & (byte <= 126) & (byte != 92), "invalid origin byte");
+                // The origin starts at byte 91 and has no skipped bytes.
+                // Static indexing avoids a large dynamic-write multiplexer.
+                origin[i - 91] = byte;
+                origin_len += 1;
+            }
+        }
+    }
+    assert(closed & (origin_len > 0), "unterminated or empty origin");
+    assert(sha256::sha256_var(origin, origin_len as u64) == origin_hash, "origin mismatch");
+    if data.len() == end + 2 {
+        assert(data.get(end + 1) == 125, "invalid JSON terminator");
+    } else {
+        assert(data.len() == end + 22, "unsupported clientDataJSON suffix");
+        let suffix = "\",\"crossOrigin\":false}".as_bytes();
+        for i in 0..22 {
+            assert(data.get(end + i) == suffix[i], "crossOrigin must be false");
+        }
+    }
 }
 
 fn encode_challenge_base64_url(challenge: [u8; 32]) -> [u8; 43] {
@@ -165,12 +219,112 @@ fn rejects_p256_group_order_as_scalar() {
     assert_valid_p256_scalar(P256_GROUP_ORDER);
 }
 
-fn str_contains_base64_url<let N: u32, let H: u32>(haystack: [u8; H], needle: [u8; N], index: u32) {
-    for i in 0..needle.len() {
-        if needle[i] != 61 {
-            assert(haystack[index + i] == needle[i]);
-        }
+#[test(should_fail_with = "clientDataJSON is too short")]
+fn rejects_unsigned_padding_challenge() {
+    // The signed data is only '{}'; a valid-looking JSON document in padding
+    // must not count as a signed challenge.
+    let mut data = policy_test_data(
+        "{\"type\":\"webauthn.get\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"origin\":\"http://localhost\"}"
+            .as_bytes(),
+    );
+    data = BoundedVec::from_parts(data.storage(), 2);
+    validate_client_data(data, [0; 32], test_origin_hash());
+}
+
+fn policy_test_data<let N: u32>(bytes: [u8; N]) -> BoundedVec<u8, 256> {
+    let mut storage = [0 as u8; 256];
+    for i in 0..N {
+        storage[i] = bytes[i];
     }
+    BoundedVec::from_parts(storage, N)
+}
+
+fn test_origin_hash() -> [u8; 32] {
+    sha256::sha256_var("http://localhost".as_bytes(), 16)
+}
+
+#[test]
+fn accepts_standard_client_data() {
+    validate_client_data(
+        policy_test_data(
+            "{\"type\":\"webauthn.get\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"origin\":\"http://localhost\"}"
+                .as_bytes(),
+        ),
+        [0; 32],
+        test_origin_hash(),
+    );
+}
+
+#[test]
+fn accepts_explicit_same_origin() {
+    validate_client_data(
+        policy_test_data(
+            "{\"type\":\"webauthn.get\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"origin\":\"http://localhost\",\"crossOrigin\":false}"
+                .as_bytes(),
+        ),
+        [0; 32],
+        test_origin_hash(),
+    );
+}
+
+#[test(should_fail_with = "invalid clientDataJSON prefix")]
+fn rejects_wrong_type() {
+    validate_client_data(
+        policy_test_data(
+            "{\"type\":\"webauthn.foo\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"origin\":\"http://localhost\"}"
+                .as_bytes(),
+        ),
+        [0; 32],
+        test_origin_hash(),
+    );
+}
+
+#[test(should_fail_with = "origin mismatch")]
+fn rejects_wrong_origin() {
+    validate_client_data(
+        policy_test_data(
+            "{\"type\":\"webauthn.get\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"origin\":\"http://evil.test\"}"
+                .as_bytes(),
+        ),
+        [0; 32],
+        test_origin_hash(),
+    );
+}
+
+#[test(should_fail_with = "unsupported clientDataJSON suffix")]
+fn rejects_cross_origin() {
+    validate_client_data(
+        policy_test_data(
+            "{\"type\":\"webauthn.get\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"origin\":\"http://localhost\",\"crossOrigin\":true}"
+                .as_bytes(),
+        ),
+        [0; 32],
+        test_origin_hash(),
+    );
+}
+
+#[test(should_fail_with = "crossOrigin must be false")]
+fn rejects_duplicate_challenge() {
+    validate_client_data(
+        policy_test_data(
+            "{\"type\":\"webauthn.get\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"origin\":\"http://localhost\",\"challenge\":\"decoy\"}"
+                .as_bytes(),
+        ),
+        [0; 32],
+        test_origin_hash(),
+    );
+}
+
+#[test(should_fail_with = "unsupported clientDataJSON suffix")]
+fn rejects_trailing_bytes() {
+    validate_client_data(
+        policy_test_data(
+            "{\"type\":\"webauthn.get\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"origin\":\"http://localhost\"} "
+                .as_bytes(),
+        ),
+        [0; 32],
+        test_origin_hash(),
+    );
 }
 
 fn concat<let N: u32>(a: BoundedVec<u8, N>, b: [u8; 32]) -> BoundedVec<u8, N + 32> {

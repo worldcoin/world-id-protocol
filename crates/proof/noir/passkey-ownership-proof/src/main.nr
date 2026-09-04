@@ -16,6 +16,7 @@ pub fn main(
     root: pub Field,
     challenge: pub [u8; 32],
     rp_id_hash: pub [u8; 32],
+    origin_hash: pub [u8; 32],
     nonce: pub [u8; 32],
     inputs: PasskeyOwnershipInputs,
 ) {
@@ -44,6 +45,7 @@ pub fn main(
         inputs.webauthn.client_data_json,
         inputs.webauthn.authenticator_data,
         challenge,
+        origin_hash,
         inputs.webauthn.challenge_index,
     );
 

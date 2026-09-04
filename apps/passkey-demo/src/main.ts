@@ -30,6 +30,7 @@ function proofStatement(
     worldId,
     registryRoot: proofRequest.registryRoot,
     rpId: proofRequest.rpId,
+    origin: proofRequest.origin,
     request: proofRequest.message,
     challenge: bytesToHex(proofRequest.challenge),
   };
@@ -44,6 +45,7 @@ function showSummary(summary: unknown): void {
 }
 
 registerButton.addEventListener("click", async () => {
+  registerButton.disabled = true;
   try {
     pendingProof?.dispose();
     pendingProof = null;
@@ -62,7 +64,9 @@ registerButton.addEventListener("click", async () => {
     leafValue.textContent = String(registry.leafIndex);
     showSummary({
       registry: {
-        worldId: registry.accountLeaf,
+        accountLeaf: registry.accountLeaf,
+        accountLeafMeaning: "local account identifier",
+        accountManagement: "management remains with the local administrator",
         root: registry.root,
         leafIndex: registry.leafIndex,
         slotIndex: registry.slotIndex,
@@ -76,6 +80,8 @@ registerButton.addEventListener("click", async () => {
   } catch (error) {
     setStatus("Registration failed");
     showSummary({ error: error instanceof Error ? error.message : String(error) });
+  } finally {
+    registerButton.disabled = false;
   }
 });
 
@@ -83,17 +89,25 @@ assertButton.addEventListener("click", async () => {
   if (!passkey || !registry) return;
 
   try {
+    registerButton.disabled = true;
     assertButton.disabled = true;
     pendingProof?.dispose();
     pendingProof = null;
     const proofRequest = await createWorldIdProofRequest({
       registryRoot: registry.root,
       rpId: window.location.hostname,
+      origin: window.location.origin,
     });
     actionValue.textContent = proofRequest.action;
     setStatus("Signing proof request with passkey");
     const assertion = await requestAssertion(passkey.credentialId, proofRequest.challenge);
-    const proofInputs = buildPasskeyOwnershipNoirInputs(passkey, assertion, registry, proofRequest.nonce);
+    const proofInputs = buildPasskeyOwnershipNoirInputs(
+      passkey,
+      assertion,
+      registry,
+      proofRequest.nonce,
+      proofRequest.originHash,
+    );
 
     rpValue.textContent = bytesToHex(assertion.rpIdHash);
     challengeValue.textContent = bytesToHex(assertion.challenge);
@@ -118,7 +132,7 @@ assertButton.addEventListener("click", async () => {
     const result = await pendingProof.verify();
     if (!result.valid) throw new Error("the browser verifier rejected the generated proof");
     if (!result.tamperedRejected) throw new Error("the browser verifier accepted a tampered proof");
-    setStatus("World ID proof verified");
+    setStatus("Passkey ownership proof verified");
     showSummary({
       statement: proofStatement(proofRequest, registry.accountLeaf),
       proof: {
@@ -137,6 +151,7 @@ assertButton.addEventListener("click", async () => {
     setStatus("Proof failed");
     showSummary({ sdkError: describeProveKitFailure(error) });
   } finally {
+    registerButton.disabled = false;
     assertButton.disabled = false;
   }
 });

@@ -100,6 +100,7 @@ pub fn passkey_ownership_fixture() -> PasskeyOwnershipCircuitInput {
         root,
         challenge,
         rp_id_hash,
+        origin_hash: Sha256::digest(b"http://localhost").into(),
         nonce,
         webauthn: WebAuthnWitness {
             public_key_x,
@@ -194,7 +195,9 @@ pub fn first_leaf_merkle_path(leaf: Fq) -> ([FieldElement; TREE_DEPTH], FieldEle
 
 #[cfg(test)]
 mod tests {
+    use p256::ecdsa::{Signature, SigningKey, signature::Signer as _};
     use provekit_prover::Prove as _;
+    use sha2::{Digest as _, Sha256};
     use world_id_proof::{
         NoirCircuitInput as _,
         passkey_ownership_proof::{load_embedded_passkey_prover, verify_passkey_ownership_proof},
@@ -219,5 +222,53 @@ mod tests {
         let prover = load_embedded_passkey_prover().expect("embedded passkey prover");
         let proof = prover.prove(input).expect("passkey proof");
         verify_passkey_ownership_proof(&proof).expect("valid passkey proof");
+    }
+
+    #[test]
+    fn valid_signatures_cannot_bypass_webauthn_policy() {
+        for scenario in [
+            "type",
+            "origin",
+            "crossOrigin",
+            "UP",
+            "UV",
+            "short-auth-data",
+        ] {
+            let mut input = super::passkey_ownership_fixture();
+            let json = String::from_utf8(input.webauthn.client_data_json.clone()).unwrap();
+            match scenario {
+                "type" => {
+                    input.webauthn.client_data_json =
+                        json.replace("webauthn.get", "webauthn.foo").into_bytes()
+                }
+                "origin" => {
+                    input.webauthn.client_data_json = json
+                        .replace("http://localhost", "http://evil.test")
+                        .into_bytes()
+                }
+                "crossOrigin" => {
+                    input.webauthn.client_data_json =
+                        format!("{},\"crossOrigin\":true}}", &json[..json.len() - 1]).into_bytes()
+                }
+                "UP" => input.webauthn.authenticator_data[32] = 4,
+                "UV" => input.webauthn.authenticator_data[32] = 1,
+                "short-auth-data" => input.webauthn.authenticator_data.truncate(32),
+                _ => unreachable!(),
+            }
+            // Re-sign the invalid policy data: rejection must come from the
+            // circuit's policy constraints, not a broken ECDSA signature.
+            let key = SigningKey::from_slice(&[1u8; 32]).unwrap();
+            let mut message = input.webauthn.authenticator_data.clone();
+            message.extend_from_slice(&Sha256::digest(&input.webauthn.client_data_json));
+            let signature: Signature = key.sign(&message);
+            input.webauthn.signature = signature.to_bytes().into();
+            let mut prover = load_embedded_passkey_prover().expect("embedded passkey prover");
+            assert!(
+                prover
+                    .generate_witness(input.into_witness().unwrap())
+                    .is_err(),
+                "accepted {scenario}"
+            );
+        }
     }
 }
