@@ -140,7 +140,9 @@ bash scripts/passkey-artifacts.sh write-manifest
 bash scripts/passkey-artifacts.sh verify
 ```
 
-Browser artifacts target the published `@worldcoin/provekit@0.1.0` SDK. `prepare-browser-artifacts.sh`
+Browser artifacts target the published `@worldcoin/provekit@0.1.1` SDK, which fixes the older
+release's WebKit initialization failure and provides a scalar fallback when its threaded build
+cannot run. `prepare-browser-artifacts.sh`
 copies the native circuit, applies only the documented beta.20
 dependency and API substitutions, runs the circuit tests, and invokes a `provekit-cli` built from
 commit `4b61b5d68e633a044eb41de4a6934d52ffdcbedc`.

@@ -12,9 +12,9 @@ import verifierArtifactUrl from "../artifacts/passkey_ownership_proof.pkv?url";
 
 /** Provenance of the pinned browser SDK, surfaced in the demo UI. */
 export const SDK_PROVENANCE = {
-  package: "@worldcoin/provekit@0.1.0",
-  commit: "b0cd13cd7ca4aff71c1da609ddd32ae8113ac1ff",
-  tarballSha256: "a1257a1d9512b058a7b8122e29123ac725d6efd1a86e1a634222f56a52563056",
+  package: "@worldcoin/provekit@0.1.1",
+  releaseCommit: "11bfde0c3409ae55a924ff07ce394e7cdab6c040",
+  tarballSha256: "d093f14ef043050779c826af6c574f94f9c836db1f16017daf2cdbfcbe342270",
 } as const;
 
 export type ProveKitFailure = {
