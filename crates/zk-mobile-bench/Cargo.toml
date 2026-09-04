@@ -21,7 +21,7 @@ inventory = "0.3"
 # World ID
 world-id-core = { workspace = true, default-features = false, features = ["authenticator", "embed-zkeys", "issuer"] }
 world-id-primitives = { workspace = true }
-world-id-proof = { workspace = true, features = ["embed-ownership-prover"] }
+world-id-proof = { workspace = true, features = ["embed-ownership-prover", "embed-passkey-prover", "embed-passkey-verifier"] }
 
 # ProveKit's split witness/proving API is used to keep ownership benchmark
 # timing boundaries explicit.
