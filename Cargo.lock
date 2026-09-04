@@ -13258,6 +13258,7 @@ dependencies = [
  "reqwest 0.13.2",
  "ruint",
  "serde",
+ "sha2 0.11.0",
  "taceo-ark-babyjubjub",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",

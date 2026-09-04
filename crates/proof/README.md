@@ -50,9 +50,15 @@ the verifier. Requires `nargo` on PATH at the pinned version — use `nix develo
 noirup --version v1.0.0-beta.11
 ```
 
+##### `embed-passkey-prover` / `embed-passkey-verifier`
+
+Embeds the checked-in artifacts of the **unaudited** WebAuthn passkey ownership demo circuit
+(`noir/passkey-ownership-proof/artifacts`, ProveKit V1 format, Noir beta.11). No build step is
+required, but the pair adds roughly 8.6 MB to the binary.
+
 ##### Umbrellas
 
-- `embed-noir-artifacts` = ownership prover + verifier
+- `embed-noir-artifacts` = ownership prover + verifier, passkey prover + verifier
 - `embed-zk-artifacts` = everything
 
 ## Circom circuit artifacts

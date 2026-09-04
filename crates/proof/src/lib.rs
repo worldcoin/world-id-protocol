@@ -41,7 +41,8 @@ use world_id_primitives::FieldElement;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ownership_proof;
 
-/// WebAuthn passkey ownership proof support.
+/// WebAuthn passkey ownership proof support (unaudited demo circuit).
+#[cfg(not(target_arch = "wasm32"))]
 pub mod passkey_ownership_proof;
 
 pub use provekit_common::{

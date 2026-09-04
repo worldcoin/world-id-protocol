@@ -22,6 +22,7 @@ use world_id_proof::{
     circuit_inputs::OwnershipProofCircuitInput,
     passkey_ownership_proof::{
         PASSKEY_OWNERSHIP_NUM_SLOTS, PasskeyOwnershipCircuitInput, WebAuthnWitness,
+        proof_request_challenge,
     },
 };
 
@@ -67,35 +68,39 @@ pub fn passkey_ownership_fixture() -> PasskeyOwnershipCircuitInput {
     let mut public_key_y = [0u8; 32];
     public_key_y.copy_from_slice(encoded.y().expect("uncompressed y"));
 
-    let challenge = std::array::from_fn(|index| index as u8 + 1);
+    let mut slot_commitments = [FieldElement::ZERO; PASSKEY_OWNERSHIP_NUM_SLOTS];
+    slot_commitments[PASSKEY_SLOT_INDEX] = passkey_slot_commitment(&public_key_x, &public_key_y);
+    let account_leaf = mixed_authenticator_set_commitment(&slot_commitments);
+    let (siblings, root) = first_leaf_merkle_path(account_leaf);
+
+    // The signed challenge is bound to the registry root and nonce exactly as
+    // the browser demo derives it.
+    let rp_id_hash: [u8; 32] = Sha256::digest(b"localhost").into();
+    let nonce = std::array::from_fn(|index| index as u8 + 1);
+    let challenge = proof_request_challenge(&rp_id_hash, &root, &nonce);
     let challenge_b64 = URL_SAFE_NO_PAD.encode(challenge);
     let client_data_json = format!(
-        r#"{{"type":"webauthn.get","challenge":"{challenge_b64}","origin":"https://localhost"}}"#,
+        r#"{{"type":"webauthn.get","challenge":"{challenge_b64}","origin":"http://localhost"}}"#,
     )
     .into_bytes();
     let challenge_index = client_data_json
         .windows(challenge_b64.len())
         .position(|window| window == challenge_b64.as_bytes())
         .expect("challenge in client data") as u32;
-    let rp_id_hash: [u8; 32] = Sha256::digest(b"localhost").into();
     let mut authenticator_data = vec![0u8; 37];
     authenticator_data[..32].copy_from_slice(&rp_id_hash);
-    authenticator_data[32] = 0x05;
+    authenticator_data[32] = 0x05; // UP | UV
 
     let client_data_hash = Sha256::digest(&client_data_json);
     let mut signed_data = authenticator_data.clone();
     signed_data.extend_from_slice(&client_data_hash);
     let signature: Signature = signing_key.sign(&signed_data);
 
-    let mut slot_commitments = [FieldElement::ZERO; PASSKEY_OWNERSHIP_NUM_SLOTS];
-    slot_commitments[PASSKEY_SLOT_INDEX] = passkey_slot_commitment(&public_key_x, &public_key_y);
-    let account_leaf = mixed_authenticator_set_commitment(&slot_commitments);
-    let (siblings, root) = first_leaf_merkle_path(account_leaf);
-
     PasskeyOwnershipCircuitInput {
         root,
         challenge,
         rp_id_hash,
+        nonce,
         webauthn: WebAuthnWitness {
             public_key_x,
             public_key_y,
