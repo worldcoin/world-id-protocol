@@ -104,10 +104,37 @@ pub fn validate_client_data<let N: u32>(
     if data.len() == end + 2 {
         assert(data.get(end + 1) == 125, "invalid JSON terminator");
     } else {
-        assert(data.len() == end + 22, "unsupported clientDataJSON suffix");
-        let suffix = "\",\"crossOrigin\":false}".as_bytes();
-        for i in 0..22 {
+        assert(data.len() >= end + 22, "unsupported clientDataJSON suffix");
+        let suffix = "\",\"crossOrigin\":false".as_bytes();
+        for i in 0..21 {
             assert(data.get(end + i) == suffix[i], "crossOrigin must be false");
+        }
+        if data.len() == end + 22 {
+            assert(data.get(end + 21) == 125, "invalid JSON terminator");
+        } else {
+            // Chromium randomly adds this diagnostic string to otherwise valid
+            // assertions. Its contents carry no policy: accept any unescaped
+            // printable string, but never allow it to introduce another field.
+            let diagnostic = ",\"other_keys_can_be_added_here\":\"".as_bytes();
+            let value_start = end + 21 + 33;
+            assert(data.len() >= value_start + 2, "unsupported clientDataJSON extension");
+            for i in 0..33 {
+                assert(
+                    data.get(end + 21 + i) == diagnostic[i],
+                    "unsupported clientDataJSON extension",
+                );
+            }
+            for i in 0..N {
+                if (i >= value_start) & (i < data.len() - 2) {
+                    let byte = data.get(i);
+                    assert(
+                        (byte >= 32) & (byte <= 126) & (byte != 34) & (byte != 92),
+                        "invalid diagnostic string",
+                    );
+                }
+            }
+            assert(data.get(data.len() - 2) == 34, "unterminated diagnostic string");
+            assert(data.get(data.len() - 1) == 125, "invalid JSON terminator");
         }
     }
 }
@@ -320,6 +347,66 @@ fn rejects_trailing_bytes() {
     validate_client_data(
         policy_test_data(
             "{\"type\":\"webauthn.get\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"origin\":\"http://localhost\"} "
+                .as_bytes(),
+        ),
+        [0; 32],
+        test_origin_hash(),
+    );
+}
+
+#[test]
+fn accepts_chromium_diagnostic() {
+    validate_client_data(
+        policy_test_data(
+            "{\"type\":\"webauthn.get\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"origin\":\"http://localhost\",\"crossOrigin\":false,\"other_keys_can_be_added_here\":\"do not compare clientDataJSON against a template. See https://goo.gl/yabPex\"}"
+                .as_bytes(),
+        ),
+        [0; 32],
+        test_origin_hash(),
+    );
+}
+
+#[test]
+fn accepts_changed_diagnostic_message() {
+    validate_client_data(
+        policy_test_data(
+            "{\"type\":\"webauthn.get\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"origin\":\"http://localhost\",\"crossOrigin\":false,\"other_keys_can_be_added_here\":\"another informational message\"}"
+                .as_bytes(),
+        ),
+        [0; 32],
+        test_origin_hash(),
+    );
+}
+
+#[test(should_fail_with = "unsupported clientDataJSON extension")]
+fn rejects_unknown_extension() {
+    validate_client_data(
+        policy_test_data(
+            "{\"type\":\"webauthn.get\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"origin\":\"http://localhost\",\"crossOrigin\":false,\"other_keys_can_be_added_herf\":\"another informational message\"}"
+                .as_bytes(),
+        ),
+        [0; 32],
+        test_origin_hash(),
+    );
+}
+
+#[test(should_fail_with = "invalid diagnostic string")]
+fn rejects_duplicate_origin_after_diagnostic() {
+    validate_client_data(
+        policy_test_data(
+            "{\"type\":\"webauthn.get\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"origin\":\"http://localhost\",\"crossOrigin\":false,\"other_keys_can_be_added_here\":\"ok\",\"origin\":\"http://evil.test\"}"
+                .as_bytes(),
+        ),
+        [0; 32],
+        test_origin_hash(),
+    );
+}
+
+#[test(should_fail_with = "invalid diagnostic string")]
+fn rejects_escaped_diagnostic_string() {
+    validate_client_data(
+        policy_test_data(
+            "{\"type\":\"webauthn.get\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"origin\":\"http://localhost\",\"crossOrigin\":false,\"other_keys_can_be_added_here\":\"\\\\u0022\"}"
                 .as_bytes(),
         ),
         [0; 32],

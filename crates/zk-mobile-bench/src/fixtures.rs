@@ -225,6 +225,26 @@ mod tests {
     }
 
     #[test]
+    fn chromium_diagnostic_assertion_proves_and_verifies() {
+        let mut input = super::passkey_ownership_fixture();
+        let json = String::from_utf8(input.webauthn.client_data_json.clone()).unwrap();
+        input.webauthn.client_data_json = format!(
+            "{},\"crossOrigin\":false,\"other_keys_can_be_added_here\":\"do not compare clientDataJSON against a template. See https://goo.gl/yabPex\"}}",
+            &json[..json.len() - 1],
+        ).into_bytes();
+        let key = SigningKey::from_slice(&[1u8; 32]).unwrap();
+        let mut message = input.webauthn.authenticator_data.clone();
+        message.extend_from_slice(&Sha256::digest(&input.webauthn.client_data_json));
+        let signature: Signature = key.sign(&message);
+        input.webauthn.signature = signature.to_bytes().into();
+        let prover = load_embedded_passkey_prover().expect("embedded passkey prover");
+        let proof = prover
+            .prove(input.into_witness().unwrap())
+            .expect("Chrome assertion proof");
+        verify_passkey_ownership_proof(&proof).expect("valid Chrome assertion proof");
+    }
+
+    #[test]
     fn valid_signatures_cannot_bypass_webauthn_policy() {
         for scenario in [
             "type",

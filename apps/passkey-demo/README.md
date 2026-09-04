@@ -99,9 +99,13 @@ provide a challenge. The browser validates the same policy before proving and ex
 the returned credential ID with the registered ID.
 
 The demo deliberately accepts a restricted client-data serialization: compact JSON fields in
-the order `type`, `challenge`, `origin`, optionally followed by `crossOrigin: false`. Origins must
-be unescaped printable ASCII. Unknown/duplicate fields, other ordering, escapes, and trailing
-bytes are rejected. This is a supported browser profile, not a general-purpose WebAuthn JSON parser.
+the order `type`, `challenge`, `origin`, optionally followed by `crossOrigin: false`. Chromium's
+optional `other_keys_can_be_added_here` diagnostic string is accepted after `crossOrigin: false`;
+its informational value may vary but must be unescaped printable ASCII. Origins must also be
+unescaped printable ASCII. Other unknown fields, duplicate fields, other ordering, escapes, and
+trailing bytes are rejected. This is a supported browser profile, not a general-purpose WebAuthn
+JSON parser. The deterministic fixture includes Chromium's diagnostic field so this path cannot
+regress silently when Chrome omits it on some runs.
 
 The public statement is `(root, challenge, rp_id_hash, origin_hash, nonce)`. Origin is bound by the
 signed JSON and public hash; the v1 challenge formula itself is unchanged. An external verifier
