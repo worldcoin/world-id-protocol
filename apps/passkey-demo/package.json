@@ -14,7 +14,7 @@
   "dependencies": {
     "@noble/curves": "2.2.0",
     "@taceo/poseidon2": "^0.2.0",
-    "@worldcoin/provekit": "0.1.0",
+    "@worldcoin/provekit": "0.1.1",
     "viem": "^2.38.5"
   },
   "devDependencies": {

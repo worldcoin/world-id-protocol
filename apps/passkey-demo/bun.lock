@@ -7,7 +7,7 @@
       "dependencies": {
         "@noble/curves": "2.2.0",
         "@taceo/poseidon2": "^0.2.0",
-        "@worldcoin/provekit": "0.1.0",
+        "@worldcoin/provekit": "0.1.1",
         "viem": "^2.38.5",
       },
       "devDependencies": {
@@ -171,7 +171,7 @@
 
     "@vitest/utils": ["@vitest/utils@3.2.6", "", { "dependencies": { "@vitest/pretty-format": "3.2.6", "loupe": "^3.1.4", "tinyrainbow": "^2.0.0" } }, "sha512-lI23nIs4bnT3T8NIoh+vFaz5s2/DdP0Jgt2jxwgWljvwn82cLJtyi/If+fjFyoLMGIOz0U/fKvWE0d4jsNQEfg=="],
 
-    "@worldcoin/provekit": ["@worldcoin/provekit@0.1.0", "", { "dependencies": { "@noir-lang/acvm_js": "1.0.0-beta.20", "@noir-lang/noir_js": "1.0.0-beta.20", "@noir-lang/noirc_abi": "1.0.0-beta.20" } }, "sha512-3Qbh2aHN6fkwQiVNbfN0GgSjXfaJ6gtbXASeYN5iP6ybAgP0AEIho9Glg7L+H/+eEJ7l5/XP3a/JKzNs1H18nQ=="],
+    "@worldcoin/provekit": ["@worldcoin/provekit@0.1.1", "", { "dependencies": { "@noir-lang/acvm_js": "1.0.0-beta.20", "@noir-lang/noir_js": "1.0.0-beta.20", "@noir-lang/noirc_abi": "1.0.0-beta.20" } }, "sha512-R6noh++yNUrBvhRXv3rTxjmIZzb5rDKCxV5/XuiJ2Amzlj3yfAK3x7RJ67DmIbUfTVPifF+/z8YzAOjgPuBoNQ=="],
 
     "abitype": ["abitype@1.2.3", "", { "peerDependencies": { "typescript": ">=5.0.4", "zod": "^3.22.0 || ^4.0.0" }, "optionalPeers": ["typescript", "zod"] }, "sha512-Ofer5QUnuUdTFsBRwARMoWKOH1ND5ehwYhJ3OJ/BQO+StkwQjHw0XyVh4vDttzHB7QOFhPHa/o413PJ82gU/Tg=="],
 
