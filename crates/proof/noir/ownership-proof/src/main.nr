@@ -5,7 +5,7 @@ pub(crate) mod merkle_proof;
 
 use commitment::{generate_commitment, generate_message};
 use constants::{MAX_DEPTH, NUM_KEYS};
-use eddsa_poseidon2::verify_eddsa_poseidon2;
+use eddsa_poseidon2::{BabyJubJubPoint, BabyJubJubScalarFieldElement, verify_eddsa_poseidon2, BabyJubJubPointInSubgroup};
 use merkle_proof::{compute_merkle_root_poseidon2, merkle_leaf};
 use std::field::bn254::assert_lt;
 use types::OwnershipProofPrivateInputs;
@@ -31,11 +31,13 @@ pub fn main(
     let message = generate_message(commitment, nonce, context);
     let chosen_pk = inputs.user_pk[inputs.pk_index as u32];
 
+    let public_key = BabyJubJubPointInSubgroup::new(chosen_pk.x, chosen_pk.y);
+    let s = BabyJubJubScalarFieldElement::new(inputs.query_s);
+    let r = BabyJubJubPoint::new(inputs.query_r[0], inputs.query_r[1]);
     let is_valid = verify_eddsa_poseidon2(
-        chosen_pk.x,
-        chosen_pk.y,
-        inputs.query_s,
-        inputs.query_r,
+        public_key,
+        s,
+        r,
         message,
     );
     assert(is_valid, "invalid signature");

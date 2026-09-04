@@ -1,14 +1,14 @@
 use super::constants::{DS_C_CS, DS_WIP_103};
-use poseidon2::bn254::perm;
+use poseidon2::bn254::permutation;
 
 pub(crate) fn generate_commitment(leaf_index: Field, commitment_blinder: Field) -> Field {
     // Only registered domain separators are allowed per WIP-103. Currently only: `DS_C_CS` (WIP-103-001)
-    let state = perm::x5_3([DS_C_CS, leaf_index, commitment_blinder]);
+    let state = permutation::t3([DS_C_CS, leaf_index, commitment_blinder]);
     state[1]
 }
 
 pub(crate) fn generate_message(commitment: Field, nonce: Field, context: Field) -> Field {
-    let state = perm::x5_4([DS_WIP_103, commitment, nonce, context]);
+    let state = permutation::t4([DS_WIP_103, commitment, nonce, context]);
     state[1]
 }
 
