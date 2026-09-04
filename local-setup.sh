@@ -240,7 +240,7 @@ client() {
         deploy_wip101_contracts
         RUST_LOG=$RUST_LOG ./target/${BUILD_TARGET_DIR}/world-id-dev-client-rp --rp-id 123 --create-key test
         RUST_LOG=$RUST_LOG ./target/${BUILD_TARGET_DIR}/world-id-dev-client-issuer-blinding --issuer-schema-id 124 --create-key test
-        RUST_LOG=$RUST_LOG ./target/${BUILD_TARGET_DIR}/world-id-dev-client-rp --rp-id 101 test
+        RUST_LOG=$RUST_LOG ./target/${BUILD_TARGET_DIR}/world-id-dev-client-rp --rp-id 101 --wip101-data 0x test
         # so far it is not possible to call WIP101 with custom interface
         # RUST_LOG=$RUST_LOG ./target/${BUILD_TARGET_DIR}/world-id-dev-client-rp --rp-id 102 test
     else

@@ -256,6 +256,7 @@ mod tests {
         pub(crate) expires_at_max_difference: chrono::Duration,
         pub(crate) timeout_external_eth_call: Duration,
         pub(crate) http_rpc_provider: web3::HttpRpcProvider,
+        pub(crate) chain_id: u64,
     }
 
     impl AuthModulesTestSetup {
@@ -267,6 +268,9 @@ mod tests {
             let timeout_external_eth_call = Duration::from_secs(10);
 
             let http_rpc_provider = build_http_provider(&setup.anvil.instance);
+            let chain_id = alloy::providers::Provider::get_chain_id(&http_rpc_provider.inner())
+                .await
+                .expect("can fetch chain id");
 
             let merkle_watcher = MerkleWatcher::init(
                 setup.world_id_registry,
@@ -304,6 +308,7 @@ mod tests {
                 expires_at_max_difference,
                 timeout_external_eth_call,
                 http_rpc_provider,
+                chain_id,
             })
         }
 
@@ -318,6 +323,8 @@ mod tests {
                 expires_at_max_difference: self.expires_at_max_difference,
                 timeout_external_eth_call: self.timeout_external_eth_call,
                 rpc_provider: self.http_rpc_provider.clone(),
+                rp_registry_address: self.setup.rp_registry,
+                chain_id: self.chain_id,
                 query_vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
             }
         }

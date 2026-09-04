@@ -113,6 +113,15 @@ sol!(
     )
 );
 
+sol!(
+    #[sol(rpc)]
+    WIP101Correct,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/Wip101Mock.s.sol/WIP101Correct.json"
+    )
+);
+
 sol! {
     struct UpdateRp {
         uint64 rpId;
@@ -822,6 +831,17 @@ impl TestAnvil {
         Ok(())
     }
 
+    /// Deploys the permissive WIP-101 mock used by integration tests.
+    pub async fn deploy_wip101_correct(&self, signer: PrivateKeySigner) -> Result<Address> {
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+        let contract = WIP101Correct::deploy(provider)
+            .await
+            .context("failed to deploy WIP101Correct contract")?;
+        Ok(*contract.address())
+    }
+
     /// Update an existing `RP` at the `RpRegistry` contract using the supplied signer.
     #[expect(clippy::too_many_arguments)]
     pub async fn update_rp(
@@ -1110,5 +1130,20 @@ impl TestAnvil {
         receipt
             .contract_address
             .context("contract deployment failed - no address in receipt")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use world_id_primitives::request::IWIP101 as ProtocolIWIP101;
+
+    #[test]
+    fn wip101_mock_selector_matches_protocol_binding() {
+        assert_eq!(
+            WIP101Correct::verifyRpRequestCall::SELECTOR,
+            ProtocolIWIP101::verifyRpRequestCall::SELECTOR,
+            "WIP-101 Solidity mock ABI drifted from the protocol binding"
+        );
     }
 }

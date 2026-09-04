@@ -110,6 +110,8 @@ Diagram of components for the World ID 4.0 Protocol.
 
 ## Technical Details
 
+See [RP request authorization](rp-request-authorization.md) for the EIP-712 signing format, privacy-preserving request-details commitment, and rollout rules.
+
 ### Uniqueness Proofs
 
 A Uniqueness Proof is how a user primarily proves they are performing an action **once** and they own a Credential that meets the RP’s requirements (e.g. the user has a unique government-issued document). While fundamentally the user is **proving uniqueness per World ID Account** when performing an action, if the request is not bound to a Credential that offers a measure of uniqueness (e.g. PoH or unique government-issued document), the proof will lack value.

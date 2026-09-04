@@ -16,11 +16,9 @@ use taceo_oprf::{
 };
 
 use world_id_primitives::{
-    FieldElement, OprfPrefix, OprfPrefixedFieldElement, ProofRequest, ProofType, TREE_DEPTH,
-    oprf::{
-        CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule,
-        RpSignatureVerification,
-    },
+    FieldElement, OprfPrefix, OprfPrefixedFieldElement, ProofRequest, SessionRef, TREE_DEPTH,
+    oprf::{CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule},
+    request::RpAuthorizationProof,
 };
 
 use crate::circuit_inputs::QueryProofCircuitInput;
@@ -193,6 +191,12 @@ impl<'a> OprfEntrypoint<'a> {
     /// section in the [`SessionNullifier`] documentation for more details on how this is expected to be deprecated with
     /// a future update.
     ///
+    /// # Authorization proof
+    /// `authorization_proof` carries the RP's proof of authorization. Pass [`None`] for an
+    /// EOA-backed RP signer, in which case the EOA signature on `proof_request` is used.
+    /// Contract-backed (WIP-101) RP signers MUST pass
+    /// [`RpAuthorizationProof::Wip101`], otherwise the OPRF nodes reject the request.
+    ///
     /// # Errors
     /// Returns [`ProofError`] in the following cases:
     /// * `PublicKeyNotFound` - the public key for the given authenticator private key is not found in the `key_set`.
@@ -202,6 +206,7 @@ impl<'a> OprfEntrypoint<'a> {
         &self,
         rng: &mut R,
         proof_request: &ProofRequest,
+        authorization_proof: Option<RpAuthorizationProof>,
         now: u64,
     ) -> Result<FullOprfOutput, ProofError> {
         proof_request
@@ -233,15 +238,15 @@ impl<'a> OprfEntrypoint<'a> {
 
         let auth = NullifierOprfRequestAuthV1 {
             proof: result.proof.into(),
-            action: *action,
-            nonce: *proof_request.nonce,
+            oprf_action: *action,
             merkle_root: *self.authenticator_input.inclusion_proof.root,
-            created_at: proof_request.created_at,
-            expires_at: proof_request.expires_at,
-            signature: Some(proof_request.signature),
-            rp_id: proof_request.rp_id,
-            wip101_data: None,
-            rp_signature_verification: None,
+            authorization: proof_request
+                .rp_authorization()
+                .map_err(|err| ProofError::GenerationError(err.to_string()))?,
+            authorization_proof: authorization_proof.unwrap_or(RpAuthorizationProof::Eoa {
+                signature: proof_request.signature,
+            }),
+            session_seed_opening: None,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(
@@ -266,6 +271,7 @@ impl<'a> OprfEntrypoint<'a> {
         rng: &mut R,
         proof_request: &ProofRequest,
         oprf_seed: FieldElement,
+        authorization_proof: Option<RpAuthorizationProof>,
     ) -> Result<FullOprfOutput, ProofError> {
         proof_request
             .validate_proof_type()
@@ -285,24 +291,26 @@ impl<'a> OprfEntrypoint<'a> {
             rng,
         )?;
 
-        let rp_signature_verification = match (proof_request.proof_type, proof_request.action) {
-            (ProofType::Uniqueness, Some(action)) => {
-                Some(RpSignatureVerification::UniquenessAction { action })
-            }
+        let session_seed_opening = match proof_request.session_id {
+            SessionRef::Existing(_) => Some(
+                proof_request
+                    .session_seed_opening()
+                    .map_err(|err| ProofError::GenerationError(err.to_string()))?,
+            ),
             _ => None,
         };
 
         let auth = NullifierOprfRequestAuthV1 {
             proof: result.proof.into(),
-            action: *oprf_seed,
-            nonce: *proof_request.nonce,
+            oprf_action: *oprf_seed,
             merkle_root: *self.authenticator_input.inclusion_proof.root,
-            created_at: proof_request.created_at,
-            expires_at: proof_request.expires_at,
-            signature: Some(proof_request.signature),
-            rp_id: proof_request.rp_id,
-            wip101_data: None,
-            rp_signature_verification,
+            authorization: proof_request
+                .rp_authorization()
+                .map_err(|err| ProofError::GenerationError(err.to_string()))?,
+            authorization_proof: authorization_proof.unwrap_or(RpAuthorizationProof::Eoa {
+                signature: proof_request.signature,
+            }),
+            session_seed_opening,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(

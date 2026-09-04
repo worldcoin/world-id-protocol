@@ -1,7 +1,7 @@
 use secrecy::ExposeSecret;
 use world_id_primitives::{
     Credential, FieldElement, ProofRequest, ProofResponse, ProofType, RequestItem, ResponseItem,
-    SessionId, SessionNullifier, SessionRef, ZeroKnowledgeProof,
+    SessionId, SessionNullifier, SessionRef, ZeroKnowledgeProof, request::RpAuthorizationProof,
 };
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofCompression,
@@ -133,6 +133,35 @@ impl Authenticator {
         now: u64,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<FullOprfOutput, AuthenticatorError> {
+        self.generate_nullifier_with_authorization(
+            proof_request,
+            account_inclusion_proof,
+            None,
+            now,
+        )
+        .await
+    }
+
+    /// Generates a [`Nullifier`] for an RP whose authorization is not a plain EOA signature.
+    ///
+    /// Behaves exactly like [`Self::generate_nullifier`], except that the RP's proof of
+    /// authorization is supplied explicitly.
+    ///
+    /// # Arguments
+    /// - `authorization_proof`: [`None`] uses the EOA signature carried on `proof_request`.
+    ///   Contract-backed RP signers MUST pass [`RpAuthorizationProof::Wip101`], since OPRF
+    ///   nodes reject an EOA authorization proof for a contract signer.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::generate_nullifier`].
+    pub async fn generate_nullifier_with_authorization(
+        &self,
+        proof_request: &ProofRequest,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
+        authorization_proof: Option<RpAuthorizationProof>,
+        now: u64,
+    ) -> Result<FullOprfOutput, AuthenticatorError> {
         proof_request.validate_proof_type()?;
         let mut rng = rand::rngs::OsRng;
 
@@ -145,7 +174,7 @@ impl Authenticator {
             .await?;
 
         Ok(oprf_entrypoint
-            .gen_nullifier(&mut rng, proof_request, now)
+            .gen_nullifier(&mut rng, proof_request, authorization_proof, now)
             .await?)
     }
 
@@ -209,6 +238,36 @@ impl Authenticator {
         cached_session_id_r_seed: Option<FieldElement>,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
+        self.build_session_id_with_authorization(
+            proof_request,
+            cached_session_id_r_seed,
+            account_inclusion_proof,
+            None,
+        )
+        .await
+    }
+
+    /// Builds or resolves a [`SessionId`] for an RP whose authorization is not a plain EOA
+    /// signature.
+    ///
+    /// Behaves exactly like [`Self::build_session_id`], except that the RP's proof of
+    /// authorization is supplied explicitly.
+    ///
+    /// # Arguments
+    /// - `authorization_proof`: [`None`] uses the EOA signature carried on `proof_request`.
+    ///   Contract-backed RP signers MUST pass [`RpAuthorizationProof::Wip101`], since OPRF
+    ///   nodes reject an EOA authorization proof for a contract signer.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::build_session_id`].
+    pub async fn build_session_id_with_authorization(
+        &self,
+        proof_request: &ProofRequest,
+        cached_session_id_r_seed: Option<FieldElement>,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
+        authorization_proof: Option<RpAuthorizationProof>,
+    ) -> Result<(SessionId, FieldElement), AuthenticatorError> {
         proof_request.validate_proof_type()?;
         let mut rng = rand::rngs::OsRng;
 
@@ -237,7 +296,12 @@ impl Authenticator {
                     .get_oprf_entrypoint(&query_material, account_inclusion_proof)
                     .await?;
                 let oprf_output = entrypoint
-                    .derive_session_id_r_seed(&mut rng, proof_request, oprf_seed)
+                    .derive_session_id_r_seed(
+                        &mut rng,
+                        proof_request,
+                        oprf_seed,
+                        authorization_proof,
+                    )
                     .await?;
                 oprf_output.verifiable_oprf_output.output.into()
             }
@@ -298,6 +362,40 @@ impl Authenticator {
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
         session_id_r_seed: Option<FieldElement>,
     ) -> Result<ProofResult, AuthenticatorError> {
+        self.generate_proof_with_authorization(
+            proof_request,
+            nullifier,
+            credentials,
+            account_inclusion_proof,
+            session_id_r_seed,
+            None,
+        )
+        .await
+    }
+
+    /// Generates a complete [`ProofResponse`] for an RP whose authorization is not a plain EOA
+    /// signature.
+    ///
+    /// Behaves exactly like [`Self::generate_proof`], except that the RP's proof of authorization
+    /// is forwarded to any session-seed OPRF request performed during proof generation.
+    ///
+    /// # Arguments
+    /// - `authorization_proof`: [`None`] uses the EOA signature carried on `proof_request`.
+    ///   Contract-backed RP signers MUST pass [`RpAuthorizationProof::Wip101`], since OPRF
+    ///   nodes reject an EOA authorization proof for a contract signer.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::generate_proof`].
+    pub async fn generate_proof_with_authorization(
+        &self,
+        proof_request: &ProofRequest,
+        nullifier: FullOprfOutput,
+        credentials: &[CredentialInput],
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
+        session_id_r_seed: Option<FieldElement>,
+        authorization_proof: Option<RpAuthorizationProof>,
+    ) -> Result<ProofResult, AuthenticatorError> {
         proof_request.validate_proof_type()?;
 
         // 1. Determine request items to prove
@@ -314,7 +412,12 @@ impl Authenticator {
             SessionRef::None => (None, None),
             SessionRef::Create => {
                 let (session_id, seed) = self
-                    .build_session_id(proof_request, None, account_inclusion_proof)
+                    .build_session_id_with_authorization(
+                        proof_request,
+                        None,
+                        account_inclusion_proof,
+                        authorization_proof,
+                    )
                     .await?;
                 (Some(session_id), Some(seed))
             }
@@ -326,7 +429,12 @@ impl Authenticator {
                     // Re-derive the same `r` from the existing session's `oprf_seed` when the
                     // caller did not provide a cached seed.
                     let (_session_id, seed) = self
-                        .build_session_id(proof_request, None, account_inclusion_proof)
+                        .build_session_id_with_authorization(
+                            proof_request,
+                            None,
+                            account_inclusion_proof,
+                            authorization_proof,
+                        )
                         .await?;
                     (Some(session_id), Some(seed))
                 }
@@ -533,7 +641,7 @@ mod tests {
         error::AuthenticatorError,
         service_client::{ServiceClient, ServiceKind},
     };
-    use alloy::primitives::{Signature, address};
+    use alloy::primitives::{B256, Signature, address};
     use ruint::{aliases::U256, uint};
     use std::sync::Arc;
     use taceo_oprf::client::Connector;
@@ -594,6 +702,7 @@ mod tests {
         ProofRequest {
             id: "test-request".to_string(),
             version: RequestVersion::V1,
+            request_salt: B256::repeat_byte(0x42),
             proof_type: ProofType::Session,
             created_at: 1,
             expires_at: 2,

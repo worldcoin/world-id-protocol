@@ -7,7 +7,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::{U160, U256},
+    primitives::{B256, Signature, U160, U256},
     signers::{SignerSync as _, local::LocalSigner},
 };
 use eyre::{Context as _, Result, eyre};
@@ -32,7 +32,7 @@ use world_id_gateway::{
 };
 use world_id_primitives::{
     Config, FieldElement, ServiceEndpoint, SessionId, SessionRef, TREE_DEPTH,
-    merkle::AccountInclusionProof,
+    merkle::AccountInclusionProof, request::RpAuthorizationProof,
 };
 use world_id_test_utils::{
     anvil::WorldIDVerifierV3,
@@ -297,9 +297,10 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     credential.signature = Some(issuer_sk.sign(*credential_hash));
 
     // Create a ProofRequest
-    let proof_request = ProofRequest {
+    let mut proof_request = ProofRequest {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
+        request_salt: B256::repeat_byte(0x42),
         proof_type: ProofType::Uniqueness,
         created_at: rp_fixture.current_timestamp,
         expires_at: rp_fixture.expiration_timestamp,
@@ -307,7 +308,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         oprf_key_id: rp_fixture.oprf_key_id,
         session_id: SessionRef::None,
         action: Some(rp_fixture.action.into()),
-        signature: rp_fixture.signature,
+        // Replaced below: the EIP-712 signature covers the fully-populated request.
+        signature: Signature::new(U256::ZERO, U256::ZERO, false),
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
@@ -318,6 +320,9 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         }],
         constraints: None,
     };
+    proof_request.signature = rp_signer.sign_hash_sync(
+        &proof_request.eip712_signing_hash(anvil.instance.chain_id(), rp_registry)?,
+    )?;
     let nullifier = authenticator
         .generate_nullifier(&proof_request, rp_fixture.current_timestamp, None)
         .await?;
@@ -367,22 +372,17 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     // ── UNIQUENESS + CREATE (atomic session mint and bound uniqueness proof) ──
     let mut rng = rand::thread_rng();
     let create_nonce = FieldElement::random(&mut rng);
-    let create_msg = world_id_primitives::rp::compute_rp_signature_msg(
-        *create_nonce,
-        rp_fixture.current_timestamp,
-        rp_fixture.expiration_timestamp,
-        Some(rp_fixture.action),
-    );
-    let create_signature = LocalSigner::from_signing_key(rp_fixture.signing_key.clone())
-        .sign_message_sync(&create_msg)?;
-    let create_request = ProofRequest {
+    let mut create_request = ProofRequest {
         id: "test_uniqueness_create".to_string(),
+        request_salt: B256::repeat_byte(0x43),
         session_id: SessionRef::Create,
         action: Some(rp_fixture.action.into()),
         nonce: create_nonce,
-        signature: create_signature,
         ..proof_request.clone()
     };
+    create_request.signature = rp_signer.sign_hash_sync(
+        &create_request.eip712_signing_hash(anvil.instance.chain_id(), rp_registry)?,
+    )?;
     let create_nullifier = authenticator
         .generate_nullifier(&create_request, rp_fixture.current_timestamp, None)
         .await?;
@@ -454,6 +454,66 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .call()
         .await?;
     info!("uniqueness create proof verified via verifyWithSession");
+
+    // Contract-backed RPs must carry the WIP-101 proof through both nullifier and session-seed
+    // OPRF requests. A zero EOA signature makes this fail if either path silently falls back to
+    // `RpAuthorizationProof::Eoa`.
+    let wip101_rp_fixture = generate_rp_fixture();
+    let wip101_signer = anvil.deploy_wip101_correct(deployer.clone()).await?;
+    anvil
+        .register_rp(
+            rp_registry,
+            deployer.clone(),
+            wip101_rp_fixture.world_rp_id,
+            deployer.address(),
+            wip101_signer,
+            "taceo.oprf.wip101".to_string(),
+        )
+        .await?;
+
+    health_checks::oprf_public_key_from_services(
+        wip101_rp_fixture.oprf_key_id,
+        ShareEpoch::default(),
+        &nodes,
+        Duration::from_secs(120),
+    )
+    .await?;
+
+    let wip101_request = ProofRequest {
+        id: "test_wip101_uniqueness_create".to_string(),
+        request_salt: B256::repeat_byte(0x44),
+        created_at: wip101_rp_fixture.current_timestamp,
+        expires_at: wip101_rp_fixture.expiration_timestamp,
+        rp_id: wip101_rp_fixture.world_rp_id,
+        oprf_key_id: wip101_rp_fixture.oprf_key_id,
+        session_id: SessionRef::Create,
+        action: Some(wip101_rp_fixture.action.into()),
+        signature: Signature::new(U256::ZERO, U256::ZERO, false),
+        nonce: wip101_rp_fixture.nonce.into(),
+        ..proof_request.clone()
+    };
+    let authorization_proof = RpAuthorizationProof::Wip101 { data: Vec::new() };
+    let wip101_nullifier = authenticator
+        .generate_nullifier_with_authorization(
+            &wip101_request,
+            None,
+            Some(authorization_proof.clone()),
+            wip101_rp_fixture.current_timestamp,
+        )
+        .await?;
+    let wip101_result = authenticator
+        .generate_proof_with_authorization(
+            &wip101_request,
+            wip101_nullifier,
+            &credentials,
+            None,
+            None,
+            Some(authorization_proof),
+        )
+        .await?;
+    assert!(wip101_result.proof_response.session_id.is_some());
+    assert!(wip101_result.session_id_r_seed.is_some());
+    info!("contract-backed uniqueness create proof generated");
 
     indexer_handle.abort();
     info!("e2e_authenticator_generate_proof finished successfully");

@@ -268,7 +268,48 @@ pub mod hex_signature {
     }
 }
 
-/// Serializes an optional byte array as a `0x`-prefixed hex string if using a human-readable serializer
+/// Serializes a byte array as a `0x`-prefixed hex string if using a human-readable serializer.
+pub mod hex_bytes {
+    use serde::{Deserialize, Deserializer, Serialize as _, Serializer, de::Error as _};
+
+    /// Serialize a byte array.
+    ///
+    /// - For human-readable serializers, this is emitted as a `0x`-prefixed hex string.
+    /// - For non-human-readable serializers, this is emitted as raw bytes.
+    pub fn serialize<S>(value: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            serializer.serialize_str(&format!("0x{}", hex::encode(value)))
+        } else {
+            value.serialize(serializer)
+        }
+    }
+
+    /// Deserialize a byte array.
+    ///
+    /// - For human-readable serializers, this expects a hex string, with or without a `0x`
+    ///   prefix.
+    /// - For non-human-readable serializers, this expects raw bytes.
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            let value = String::deserialize(deserializer)?;
+            let value = value
+                .strip_prefix("0x")
+                .or_else(|| value.strip_prefix("0X"))
+                .unwrap_or(&value);
+            hex::decode(value).map_err(D::Error::custom)
+        } else {
+            Vec::<u8>::deserialize(deserializer)
+        }
+    }
+}
+
+/// Serializes an optional byte array as a `0x`-prefixed hex string if using a human-readable serializer.
 pub mod hex_bytes_opt {
     use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
 

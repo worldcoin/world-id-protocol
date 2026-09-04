@@ -1,8 +1,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy::{
-    primitives::Address,
-    providers::DynProvider,
+    primitives::{Address, B256, Bytes, Signature, U256},
+    providers::{DynProvider, Provider as _},
     signers::{SignerSync as _, k256::ecdsa::SigningKey, local::LocalSigner},
 };
 use ark_ff::UniformRand as _;
@@ -26,6 +26,7 @@ use world_id_primitives::{
     RequestItem, RequestVersion, SessionId, SessionRef, TREE_DEPTH,
     merkle::MerkleInclusionProof,
     oprf::{NullifierOprfRequestAuthV1, OprfModule},
+    request::RpAuthorizationProof,
     rp::RpId,
 };
 use world_id_test_utils::anvil::RpRegistry;
@@ -44,6 +45,11 @@ struct RpConfig {
     #[clap(long, env = "OPRF_DEV_CLIENT_RP_REGISTRY_CONTRACT")]
     pub rp_registry_contract: Address,
 
+    /// Auxiliary data for a WIP-101 contract signer. When set, the request uses WIP-101
+    /// authorization rather than an EOA signature.
+    #[clap(long, env = "OPRF_DEV_CLIENT_WIP101_DATA")]
+    pub wip101_data: Option<Bytes>,
+
     #[clap(flatten)]
     base: WorldDevClientConfig,
 }
@@ -52,6 +58,7 @@ struct WorldIdRpDevClient {
     rp_id: u64,
     create_key: bool,
     rp_registry_contract: Address,
+    wip101_data: Option<Bytes>,
     components: SharedDevClientComponents,
 }
 
@@ -59,6 +66,10 @@ struct WorldIdRpDevClient {
 struct WorldIdRpDevClientSetup {
     rp_id: RpId,
     rp_oprf_public_key: OprfPublicKey,
+    chain_id: u64,
+    /// `None` authorizes via the EOA signature carried on the proof request; `Some` carries a
+    /// WIP-101 proof for a contract-backed RP signer.
+    authorization_proof: Option<RpAuthorizationProof>,
 
     inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
     key_set: AuthenticatorPublicKeySet,
@@ -93,9 +104,20 @@ impl DevClient for WorldIdRpDevClient {
         .context("cannot setup RP in time")?
         .context("while setup of RP")?;
 
+        let chain_id = provider
+            .get_chain_id()
+            .await
+            .context("while fetching chain id")?;
+
         Ok(WorldIdRpDevClientSetup {
             rp_id: RpId::from(self.rp_id),
             rp_oprf_public_key,
+            chain_id,
+            authorization_proof: self.wip101_data.clone().map(|data| {
+                RpAuthorizationProof::Wip101 {
+                    data: data.to_vec(),
+                }
+            }),
             inclusion_proof,
             key_set,
             key_index,
@@ -112,6 +134,7 @@ impl DevClient for WorldIdRpDevClient {
         let proof_request_uniqueness = create_proof_request(
             &setup,
             &self.components.signer,
+            self.rp_registry_contract,
             OprfModule::Nullifier,
             &mut rng,
         )
@@ -119,6 +142,7 @@ impl DevClient for WorldIdRpDevClient {
         let proof_request_session = create_proof_request(
             &setup,
             &self.components.signer,
+            self.rp_registry_contract,
             OprfModule::Session,
             &mut rng,
         )
@@ -132,16 +156,22 @@ impl DevClient for WorldIdRpDevClient {
             .as_secs();
 
         let (uniquness_nullifier, session_nullifier) = tokio::join!(
-            self.components.authenticator.generate_nullifier(
-                &proof_request_uniqueness,
-                now,
-                Some(account_inclusion_proof.clone())
-            ),
-            self.components.authenticator.generate_nullifier(
-                &proof_request_session,
-                now,
-                Some(account_inclusion_proof),
-            )
+            self.components
+                .authenticator
+                .generate_nullifier_with_authorization(
+                    &proof_request_uniqueness,
+                    Some(account_inclusion_proof.clone()),
+                    setup.authorization_proof.clone(),
+                    now,
+                ),
+            self.components
+                .authenticator
+                .generate_nullifier_with_authorization(
+                    &proof_request_session,
+                    Some(account_inclusion_proof),
+                    setup.authorization_proof.clone(),
+                    now,
+                )
         );
 
         let uniqueness_epoch = uniquness_nullifier
@@ -149,7 +179,7 @@ impl DevClient for WorldIdRpDevClient {
             .verifiable_oprf_output
             .epoch;
         let session_epoch = session_nullifier
-            .context("while computing uniqueness")?
+            .context("while computing session")?
             .verifiable_oprf_output
             .epoch;
 
@@ -182,8 +212,14 @@ impl DevClient for WorldIdRpDevClient {
             OprfModule::Session
         };
 
-        let proof_request = create_proof_request(setup, &self.components.signer, module, rng)
-            .context("while creating proof request")?;
+        let proof_request = create_proof_request(
+            setup,
+            &self.components.signer,
+            self.rp_registry_contract,
+            module,
+            rng,
+        )
+        .context("while creating proof request")?;
 
         let request_id = Uuid::new_v4();
         let action = proof_request
@@ -237,6 +273,7 @@ impl WorldIdRpDevClient {
             create_key: config.create_key,
             rp_id: config.rp_id,
             rp_registry_contract: config.rp_registry_contract,
+            wip101_data: config.wip101_data.clone(),
             components,
         })
     }
@@ -282,6 +319,7 @@ impl WorldIdRpDevClient {
 fn create_proof_request<R: Rng + CryptoRng>(
     setup: &WorldIdRpDevClientSetup,
     signer: &LocalSigner<SigningKey>,
+    rp_registry: Address,
     auth: OprfModule,
     rng: &mut R,
 ) -> eyre::Result<ProofRequest> {
@@ -295,7 +333,6 @@ fn create_proof_request<R: Rng + CryptoRng>(
             (ProofType::Uniqueness, Some(*a), SessionRef::None)
         }
         OprfModule::Session => {
-            // Session RP signature does NOT include action
             let session_id = SessionId::from_r_seed(
                 setup.key_index,
                 FieldElement::random(rng),
@@ -314,17 +351,16 @@ fn create_proof_request<R: Rng + CryptoRng>(
         .as_secs();
     let expiration_timestamp = current_timestamp + 300; // 5 minutes from now
 
-    let msg = world_id_primitives::rp::compute_rp_signature_msg(
-        nonce,
-        current_timestamp,
-        expiration_timestamp,
-        action,
-    );
-    let signature = signer.sign_message_sync(&msg)?;
+    let mut salt_bytes = [0_u8; 32];
+    rng.fill(&mut salt_bytes);
+    if salt_bytes == [0_u8; 32] {
+        salt_bytes[31] = 1;
+    }
 
-    Ok(ProofRequest {
+    let mut request = ProofRequest {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
+        request_salt: B256::from(salt_bytes),
         proof_type,
         created_at: current_timestamp,
         expires_at: expiration_timestamp,
@@ -332,7 +368,7 @@ fn create_proof_request<R: Rng + CryptoRng>(
         oprf_key_id: OprfKeyId::from(setup.rp_id.into_inner()),
         session_id,
         action: action.map(FieldElement::from),
-        signature,
+        signature: Signature::new(U256::ZERO, U256::ZERO, false),
         nonce: FieldElement::from(nonce),
         requests: vec![RequestItem {
             identifier: "test_credential".to_string(),
@@ -342,7 +378,10 @@ fn create_proof_request<R: Rng + CryptoRng>(
             expires_at_min: None,
         }],
         constraints: None,
-    })
+    };
+    request.signature =
+        signer.sign_hash_sync(&request.eip712_signing_hash(setup.chain_id, rp_registry)?)?;
+    Ok(request)
 }
 
 fn generate_oprf_auth_request(
@@ -369,15 +408,15 @@ fn generate_oprf_auth_request(
 
     let auth = NullifierOprfRequestAuthV1 {
         proof: proof.into(),
-        action: *action,
-        nonce: *proof_request.nonce,
+        oprf_action: *action,
         merkle_root: *setup.inclusion_proof.root,
-        created_at: proof_request.created_at,
-        expires_at: proof_request.expires_at,
-        signature: Some(proof_request.signature),
-        rp_id: proof_request.rp_id,
-        wip101_data: None,
-        rp_signature_verification: None,
+        authorization: proof_request.rp_authorization()?,
+        authorization_proof: setup.authorization_proof.clone().unwrap_or(
+            RpAuthorizationProof::Eoa {
+                signature: proof_request.signature,
+            },
+        ),
+        session_seed_opening: None,
     };
 
     Ok(auth)
