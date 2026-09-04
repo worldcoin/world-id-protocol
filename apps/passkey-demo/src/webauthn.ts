@@ -20,6 +20,7 @@ export type AssertionWitness = {
 const ES256 = -7;
 const USER_PRESENT = 0x01;
 const USER_VERIFIED = 0x04;
+const P256_GROUP_ORDER = BigInt("0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength);
@@ -39,24 +40,8 @@ export function bytesToHex(bytes: Uint8Array): string {
   return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
-export function randomChallenge(): Uint8Array {
+function randomChallenge(): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(32));
-}
-
-export function p256BeBytesToLimbs(bytes: Uint8Array): [bigint, bigint, bigint] {
-  if (bytes.length !== 32) {
-    throw new Error(`expected 32 bytes, got ${bytes.length}`);
-  }
-
-  const fold = (slice: Uint8Array): bigint => {
-    let result = 0n;
-    for (const byte of slice) {
-      result = (result << 8n) | BigInt(byte);
-    }
-    return result;
-  };
-
-  return [fold(bytes.slice(17, 32)), fold(bytes.slice(2, 17)), fold(bytes.slice(0, 2))];
 }
 
 function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
@@ -117,33 +102,47 @@ export function extractP256PublicKeyFromSpki(spki: ArrayBuffer): P256PublicKey {
 
 export function derEcdsaToRawSignature(der: ArrayBuffer): Uint8Array {
   const bytes = new Uint8Array(der);
-  if (bytes[0] !== 0x30) {
+  if (bytes.length < 8 || bytes[0] !== 0x30) {
     throw new Error("ECDSA signature is not a DER sequence");
   }
-  let offset = 2;
-  if (bytes[1] & 0x80) {
-    const lenBytes = bytes[1] & 0x7f;
-    offset = 2 + lenBytes;
+  if ((bytes[1]! & 0x80) !== 0 || bytes[1] !== bytes.length - 2) {
+    throw new Error("ECDSA signature has a non-canonical DER sequence length");
   }
+  let offset = 2;
 
-  const readInt = (): Uint8Array => {
+  const readInt = (name: "r" | "s"): Uint8Array => {
     if (bytes[offset] !== 0x02) {
       throw new Error("ECDSA signature integer is malformed");
     }
-    const len = bytes[offset + 1];
+    const len = bytes[offset + 1]!;
+    if (len === 0 || (len & 0x80) !== 0 || offset + 2 + len > bytes.length) {
+      throw new Error(`ECDSA signature ${name} has an invalid DER length`);
+    }
     const value = bytes.slice(offset + 2, offset + 2 + len);
     offset += 2 + len;
+    if ((value[0]! & 0x80) !== 0) {
+      throw new Error(`ECDSA signature ${name} is negative`);
+    }
+    if (value.length > 1 && value[0] === 0 && (value[1]! & 0x80) === 0) {
+      throw new Error(`ECDSA signature ${name} has non-canonical padding`);
+    }
     const trimmed = value[0] === 0 ? value.slice(1) : value;
     if (trimmed.length > 32) {
       throw new Error("ECDSA signature integer exceeds 32 bytes");
     }
     const padded = new Uint8Array(32);
     padded.set(trimmed, 32 - trimmed.length);
+    let scalar = 0n;
+    for (const byte of padded) scalar = (scalar << 8n) | BigInt(byte);
+    if (scalar === 0n || scalar >= P256_GROUP_ORDER) {
+      throw new Error(`ECDSA signature ${name} must be in the P-256 scalar range`);
+    }
     return padded;
   };
 
-  const r = readInt();
-  const s = readInt();
+  const r = readInt("r");
+  const s = readInt("s");
+  if (offset !== bytes.length) throw new Error("ECDSA signature length does not match its DER payload");
   const raw = new Uint8Array(64);
   raw.set(r, 0);
   raw.set(s, 32);
@@ -192,8 +191,15 @@ export async function registerPasskey(): Promise<RegisteredPasskey> {
   };
 }
 
-export async function requestAssertion(credentialId: Uint8Array): Promise<AssertionWitness> {
-  const challenge = randomChallenge();
+/**
+ * Signs `challenge` with the registered passkey and enforces the browser-side
+ * WebAuthn policy (type, challenge, origin, RP ID, UP/UV) before returning.
+ */
+export async function requestAssertion(
+  credentialId: Uint8Array,
+  challenge: Uint8Array,
+): Promise<AssertionWitness> {
+  if (challenge.length !== 32) throw new Error("WebAuthn challenge must contain exactly 32 bytes");
   const credential = await navigator.credentials.get({
     publicKey: {
       challenge: toArrayBuffer(challenge),
