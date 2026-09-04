@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Create a World ID with a passkey</title>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="workspace" aria-label="Passkey ownership demo">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Passkey signature experiment</p>
+            <h1>Create a World ID. Prove with a passkey.</h1>
+            <p>Create a local World ID account with a passkey for proving, then verify passkey ownership and registry inclusion in this browser. Account management stays with the local demo administrator.</p>
+          </div>
+          <div class="status-pill" id="runtime-status">Ready</div>
+        </header>
+
+        <div class="grid">
+          <section class="panel controls" aria-label="Demo controls">
+            <div class="step"><span>1</span><strong>Create</strong></div>
+            <button id="register-button" type="button">Create World ID</button>
+            <div class="step"><span>2</span><strong>Prove</strong></div>
+            <button id="assert-button" type="button" disabled>Generate proof with passkey</button>
+          </section>
+
+          <section class="panel" aria-label="Registry state">
+            <h2>Registry</h2>
+            <dl class="facts">
+              <div><dt>account identifier</dt><dd id="world-id-value">not created</dd></div>
+              <div><dt>slot</dt><dd id="slot-value">1</dd></div>
+              <div><dt>root</dt><dd id="root-value">not registered</dd></div>
+              <div><dt>leaf</dt><dd id="leaf-value">not registered</dd></div>
+            </dl>
+          </section>
+
+          <section class="panel" aria-label="Passkey state">
+            <h2>Passkey</h2>
+            <dl class="facts">
+              <div><dt>credential</dt><dd id="credential-value">none</dd></div>
+              <div><dt>rp id hash</dt><dd id="rp-value">none</dd></div>
+              <div><dt>challenge</dt><dd id="challenge-value">none</dd></div>
+              <div><dt>signed action</dt><dd id="action-value">none</dd></div>
+            </dl>
+          </section>
+        </div>
+
+        <section class="panel output" aria-label="Local proof status">
+          <h2>Local proof status</h2>
+          <pre id="output">Create a World ID to begin.</pre>
+        </section>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

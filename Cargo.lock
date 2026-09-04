@@ -3257,7 +3257,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4210,7 +4210,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5594,7 +5594,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7495,8 +7495,8 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.4.1",
- "itertools 0.10.5",
+ "heck 0.5.0",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "once_cell",
@@ -7619,9 +7619,8 @@ checksum = "95067976aca6421a523e491fce939a3e65249bac4b977adee0ee9771568e8aa3"
 
 [[package]]
 name = "provekit-common"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd137e327416256ac7281b7c0eed960d59ab5cd10d805ae4ee0e5241a8e01938"
+version = "1.0.0"
+source = "git+https://github.com/worldfnd/provekit?rev=9b2a6f37c67691eab4b0cec6c35e35c520e93285#9b2a6f37c67691eab4b0cec6c35e35c520e93285"
 dependencies = [
  "anyhow",
  "ark-bn254 0.5.0",
@@ -7654,9 +7653,8 @@ dependencies = [
 
 [[package]]
 name = "provekit-prover"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "945f8953ae3756ac30bb51fce354f386fa209a114f0d7584e2b82b781802ec95"
+version = "1.0.0"
+source = "git+https://github.com/worldfnd/provekit?rev=9b2a6f37c67691eab4b0cec6c35e35c520e93285#9b2a6f37c67691eab4b0cec6c35e35c520e93285"
 dependencies = [
  "anyhow",
  "ark-ff 0.5.0",
@@ -7675,9 +7673,8 @@ dependencies = [
 
 [[package]]
 name = "provekit-r1cs-compiler"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5b67c82ed3d51c2d564551d65d56e8c1b8efa1f9d4fd1e83a0d185f990ebfac"
+version = "1.0.0"
+source = "git+https://github.com/worldfnd/provekit?rev=9b2a6f37c67691eab4b0cec6c35e35c520e93285#9b2a6f37c67691eab4b0cec6c35e35c520e93285"
 dependencies = [
  "anyhow",
  "ark-bn254 0.5.0",
@@ -7728,9 +7725,8 @@ dependencies = [
 
 [[package]]
 name = "provekit-verifier"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1ff1bcdce6c807b04657898aae2fd863bd4958b7ded64aaad4f10156061d7b6"
+version = "1.0.0"
+source = "git+https://github.com/worldfnd/provekit?rev=9b2a6f37c67691eab4b0cec6c35e35c520e93285#9b2a6f37c67691eab4b0cec6c35e35c520e93285"
 dependencies = [
  "anyhow",
  "ark-std 0.5.0",
@@ -9195,7 +9191,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9275,7 +9271,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 1.0.6",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10919,10 +10915,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0136791f7c95b1f6dd99f9cc786b91bb81c3800b639b3478e561ddb7be95e5f1"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.1",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -11888,7 +11884,7 @@ dependencies = [
  "serde",
  "tempfile",
  "textwrap",
- "toml 0.9.12+spec-1.1.0",
+ "toml 1.0.6+spec-1.1.0",
  "uniffi_internal_macros",
  "uniffi_meta",
  "uniffi_pipeline",
@@ -11933,7 +11929,7 @@ dependencies = [
  "quote",
  "serde",
  "syn 2.0.119",
- "toml 0.9.12+spec-1.1.0",
+ "toml 1.0.6+spec-1.1.0",
  "uniffi_meta",
 ]
 
@@ -12414,7 +12410,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -13262,6 +13258,7 @@ dependencies = [
  "reqwest 0.13.2",
  "ruint",
  "serde",
+ "sha2 0.11.0",
  "taceo-ark-babyjubjub",
  "taceo-circom-types",
  "taceo-eddsa-babyjubjub",
@@ -13593,16 +13590,40 @@ dependencies = [
  "ark-bn254 0.5.0",
  "ark-ec 0.5.0",
  "ark-ff 0.5.0",
+ "base64 0.22.1",
  "inventory",
  "mobench-sdk",
+ "p256 0.13.2",
+ "provekit-common",
+ "provekit-prover",
+ "provekit_acir",
+ "provekit_acvm",
+ "provekit_acvm_blackbox_solver",
+ "provekit_bn254_blackbox_solver",
+ "provekit_brillig_vm",
+ "provekit_nargo",
+ "provekit_noir_artifact_cli",
+ "provekit_noirc_abi",
+ "provekit_noirc_arena",
+ "provekit_noirc_artifacts",
+ "provekit_noirc_driver",
+ "provekit_noirc_errors",
+ "provekit_noirc_evaluator",
+ "provekit_noirc_frontend",
  "rand 0.8.6",
  "rand_chacha 0.3.1",
+ "rayon",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
  "taceo-oprf",
+ "taceo-oprf-client",
+ "taceo-oprf-core",
+ "taceo-oprf-types",
+ "taceo-poseidon2",
  "thiserror 2.0.18",
  "uniffi",
  "world-id-core",

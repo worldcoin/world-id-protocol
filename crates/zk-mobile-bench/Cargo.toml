@@ -21,7 +21,29 @@ inventory = "0.3"
 # World ID
 world-id-core = { workspace = true, default-features = false, features = ["authenticator", "embed-zkeys", "issuer"] }
 world-id-primitives = { workspace = true }
-world-id-proof = { workspace = true }
+world-id-proof = { workspace = true, features = ["embed-ownership-prover", "embed-passkey-prover", "embed-passkey-verifier"] }
+
+# ProveKit's split witness/proving API is used to keep ownership benchmark
+# timing boundaries explicit.
+provekit-common = { workspace = true }
+provekit-prover = { workspace = true }
+provekit-acir = { package = "provekit_acir", version = "=1.0.0-beta.11-alpha.2" }
+# A downstream git dependency does not inherit ProveKit's Cargo.lock. Keep the
+# exact Noir graph used by the pinned V1 revision so generated Mobench harnesses
+# resolve the same APIs on host, Android, and iOS.
+provekit-acvm = { package = "provekit_acvm", version = "=1.0.0-beta.11-alpha.1" }
+provekit-acvm-blackbox-solver = { package = "provekit_acvm_blackbox_solver", version = "=1.0.0-beta.11-alpha.1" }
+provekit-bn254-blackbox-solver = { package = "provekit_bn254_blackbox_solver", version = "=1.0.0-beta.11-alpha.2" }
+provekit-brillig-vm = { package = "provekit_brillig_vm", version = "=1.0.0-beta.11-alpha.1" }
+provekit-nargo = { package = "provekit_nargo", version = "=1.0.0-beta.11-alpha.4" }
+provekit-noir-artifact-cli = { package = "provekit_noir_artifact_cli", version = "=1.0.0-beta.11-alpha.4" }
+provekit-noirc-abi = { package = "provekit_noirc_abi", version = "=1.0.0-beta.11-alpha.2" }
+provekit-noirc-arena = { package = "provekit_noirc_arena", version = "=1.0.0-beta.11-alpha.1" }
+provekit-noirc-artifacts = { package = "provekit_noirc_artifacts", version = "=1.0.0-beta.11-alpha.4" }
+provekit-noirc-driver = { package = "provekit_noirc_driver", version = "=1.0.0-beta.11-alpha.4" }
+provekit-noirc-errors = { package = "provekit_noirc_errors", version = "=1.0.0-beta.11-alpha.1" }
+provekit-noirc-evaluator = { package = "provekit_noirc_evaluator", version = "=1.0.0-beta.11-alpha.1" }
+provekit-noirc-frontend = { package = "provekit_noirc_frontend", version = "=1.0.0-beta.11-alpha.1" }
 
 # ZK dependencies
 ark-babyjubjub = { workspace = true }
@@ -30,17 +52,28 @@ ark-ff = { workspace = true }
 ark-ec = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 groth16-material = { workspace = true, features = ["circom"] }
+p256 = { workspace = true, features = ["ecdsa"] }
+poseidon2 = { workspace = true }
+sha2 = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 # OPRF dependencies
-taceo-oprf = { workspace = true }
+# Mobench generates a standalone harness without the workspace lockfile. Pin
+# the compatible OPRF graph so Cargo cannot mix the arkworks 0.5 protocol
+# crates with newer arkworks 0.6 transitive releases.
+taceo-oprf = { version = "=0.18.1", default-features = false, features = ["core"] }
+taceo-oprf-client = "=0.10.5"
+taceo-oprf-core = "=0.6.2"
+taceo-oprf-types = "=0.16.0"
 
 # Utilities
 rand = { workspace = true }
 rand_chacha = { workspace = true }
+rayon = { workspace = true }
+base64 = { workspace = true }
 thiserror = { workspace = true }
 
 # UniFFI for mobile bindings

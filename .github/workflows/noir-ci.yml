@@ -41,3 +41,19 @@ jobs:
         with:
           toolchain: v1.0.0-beta.11
       - run: nargo fmt --check && nargo test
+
+  passkey-ownership-proof:
+    name: Noir CI (passkey-ownership-proof)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./crates/proof/noir/passkey-ownership-proof
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
+      - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
+        with:
+          # Must match the Noir graph embedded in the pinned ProveKit v1 artifacts.
+          toolchain: v1.0.0-beta.11
+      - run: nargo fmt --check && nargo test
