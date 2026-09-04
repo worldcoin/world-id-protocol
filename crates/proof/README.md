@@ -20,6 +20,11 @@ Each ZK artifact type has exactly one way of being obtained:
   `nargo` version is pinned (see `flake.nix` and `REQUIRED_NARGO_VERSION` in `build.rs`); the build
   fails if a different version is on PATH, since a version mismatch can produce keys
   incompatible with everyone else's.
+- **Passkey demo artifacts** are checked in for the native and browser ProveKit formats.
+  From the repository root, `bash scripts/passkey-artifacts.sh verify` checks their SHA-256
+  manifest against the circuit source and generation recipes. See
+  [`apps/passkey-demo/README.md`](../../apps/passkey-demo/README.md) for the pinned builders
+  and native/browser acceptance procedure.
 
 ### Features
 
@@ -54,7 +59,7 @@ noirup --version v1.0.0-beta.11
 
 Embeds the checked-in artifacts of the **unaudited** WebAuthn passkey ownership demo circuit
 (`noir/passkey-ownership-proof/artifacts`, ProveKit V1 format, Noir beta.11). No build step is
-required, but the pair adds roughly 8.6 MB to the binary.
+required, but the pair adds roughly 10 MB to the binary.
 
 ##### Umbrellas
 

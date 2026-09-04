@@ -25,6 +25,7 @@ const incrementField = (values: string[], index: number) => {
 const MUTATIONS: Record<string, Mutation> = {
   challenge: (inputs) => flipLowBit(inputs.challenge, 0),
   rpIdHash: (inputs) => flipLowBit(inputs.rp_id_hash, 0),
+  originHash: (inputs) => flipLowBit(inputs.origin_hash, 0),
   nonce: (inputs) => flipLowBit(inputs.nonce, 0),
   signature: (inputs) => flipLowBit(inputs.inputs.webauthn.signature, 0),
   publicKey: (inputs) => flipLowBit(inputs.inputs.webauthn.public_key_x, 31),
@@ -33,6 +34,57 @@ const MUTATIONS: Record<string, Mutation> = {
   },
   merklePath: (inputs) => incrementField(inputs.inputs.merkle_proof.siblings, 0),
 };
+
+async function policyAdversarialInputs(
+  passkey: ReturnType<typeof syntheticPasskey>,
+  request: Awaited<ReturnType<typeof createWorldIdProofRequest>>,
+  registry: Parameters<typeof buildPasskeyOwnershipNoirInputs>[2],
+): Promise<Record<string, PasskeyOwnershipNoirInputs>> {
+  const encode = (value: Record<string, unknown>) => new TextEncoder().encode(JSON.stringify(value));
+  const challenge = base64url(request.challenge);
+  const assertionRequest = { challenge: request.challenge, rpId: request.rpId, origin: request.origin };
+  const make = async (clientDataJson: Uint8Array, authenticatorFlags = 0x05) => {
+    const assertion = await passkey.assert(assertionRequest, { clientDataJson, authenticatorFlags });
+    return buildPasskeyOwnershipNoirInputs(
+      passkey.passkey, assertion, registry, request.nonce, request.originHash,
+    );
+  };
+
+  const canonicalFields = { type: "webauthn.get", challenge, origin: request.origin };
+  const canonicalJson = encode(canonicalFields);
+  const paddingAssertion = await passkey.assert(assertionRequest, { clientDataJson: encode({}) });
+  paddingAssertion.challengeIndex = 36;
+  const unsignedStoragePadding = buildPasskeyOwnershipNoirInputs(
+    passkey.passkey, paddingAssertion, registry, request.nonce, request.originHash,
+  );
+  for (let index = 2; index < canonicalJson.length; index += 1) {
+    unsignedStoragePadding.inputs.webauthn.client_data_json.storage[index] = String(canonicalJson[index]);
+  }
+
+  return {
+    wrongType: await make(encode({ type: "webauthn.create", challenge, origin: request.origin })),
+    wrongOrigin: await make(encode({ type: "webauthn.get", challenge, origin: "https://attacker.example" })),
+    crossOriginTrue: await make(encode({
+      type: "webauthn.get", challenge, origin: request.origin, crossOrigin: true,
+    })),
+    missingUserPresence: await make(
+      encode({ type: "webauthn.get", challenge, origin: request.origin }), 0x04,
+    ),
+    missingUserVerification: await make(
+      encode({ type: "webauthn.get", challenge, origin: request.origin }), 0x01,
+    ),
+    decoyChallengeProperty: await make(encode({
+      challenge, type: "webauthn.get", origin: request.origin,
+    })),
+    duplicateChallenge: await make(new TextEncoder().encode(
+      `{"type":"webauthn.get","challenge":"${challenge}","origin":"${request.origin}","challenge":"${challenge}"}`,
+    )),
+    trailingWhitespace: await make(new TextEncoder().encode(
+      `${new TextDecoder().decode(canonicalJson)} `,
+    )),
+    unsignedStoragePadding,
+  };
+}
 
 async function rejectedMutations(
   runtime: Awaited<ReturnType<typeof initProveKit>>,
@@ -45,6 +97,28 @@ async function rejectedMutations(
     for (const [name, mutate] of Object.entries(MUTATIONS)) {
       const candidate = structuredClone(inputs);
       mutate(candidate);
+      try {
+        await prover.prove(candidate);
+        rejected[name] = false;
+      } catch {
+        rejected[name] = true;
+      }
+    }
+  } finally {
+    prover.dispose();
+  }
+  return rejected;
+}
+
+async function rejectedCandidates(
+  runtime: Awaited<ReturnType<typeof initProveKit>>,
+  proverArtifact: Uint8Array,
+  candidates: Record<string, PasskeyOwnershipNoirInputs>,
+): Promise<Record<string, boolean>> {
+  const prover = await runtime.loadProver(proverArtifact);
+  const rejected: Record<string, boolean> = {};
+  try {
+    for (const [name, candidate] of Object.entries(candidates)) {
       try {
         await prover.prove(candidate);
         rejected[name] = false;
@@ -74,11 +148,28 @@ try {
 
   const { passkey, assert } = syntheticPasskey();
   const registry = await registerWithLocalBridge(passkey);
-  const proofRequest = await createWorldIdProofRequest({ registryRoot: registry.root, rpId, nonce });
-  const assertion = await assert({ challenge: proofRequest.challenge, rpId, origin: location.origin });
+  const proofRequest = await createWorldIdProofRequest({
+    registryRoot: registry.root,
+    rpId,
+    origin: location.origin,
+    nonce,
+  });
+  const assertion = await assert(
+    { challenge: proofRequest.challenge, rpId, origin: location.origin },
+    {
+      clientDataJson: new TextEncoder().encode(JSON.stringify({
+        type: "webauthn.get",
+        challenge: base64url(proofRequest.challenge),
+        origin: location.origin,
+        crossOrigin: false,
+      })),
+    },
+  );
 
   const witnessStarted = performance.now();
-  const inputs = buildPasskeyOwnershipNoirInputs(passkey, assertion, registry, proofRequest.nonce);
+  const inputs = buildPasskeyOwnershipNoirInputs(
+    passkey, assertion, registry, proofRequest.nonce, proofRequest.originHash,
+  );
   const witnessMs = performance.now() - witnessStarted;
 
   const threads = new URLSearchParams(location.search).get("threads") === "false" ? false : "auto";
@@ -86,10 +177,15 @@ try {
   const [proverArtifact, verifierArtifact] = await loadPasskeyArtifacts();
   const proof = await proveAndVerifyWithRuntime(runtime, inputs, proverArtifact, verifierArtifact);
   const mutationsRejected = await rejectedMutations(runtime, proverArtifact, inputs);
+  const policyInputs = await policyAdversarialInputs(
+    { passkey, assert }, proofRequest, registry,
+  );
+  const policyRejected = await rejectedCandidates(runtime, proverArtifact, policyInputs);
 
   result.textContent = JSON.stringify(
     {
-      ok: proof.valid && proof.tamperedRejected && Object.values(mutationsRejected).every(Boolean),
+      ok: proof.valid && proof.tamperedRejected && Object.values(mutationsRejected).every(Boolean)
+        && Object.values(policyRejected).every(Boolean),
       statement: {
         action: proofRequest.action,
         request: proofRequest.message,
@@ -100,6 +196,7 @@ try {
       witnessMs,
       ...proof,
       mutationsRejected,
+      policyRejected,
       crossOriginIsolated,
       userAgent: navigator.userAgent,
     },

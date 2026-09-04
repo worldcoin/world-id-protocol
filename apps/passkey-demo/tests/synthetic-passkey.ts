@@ -5,7 +5,10 @@ import { base64url, type AssertionWitness, type RegisteredPasskey } from "../src
 export type SyntheticPasskey = {
   passkey: RegisteredPasskey;
   /** Produces a WebAuthn-shaped assertion over `challenge` signed by the synthetic key. */
-  assert(request: { challenge: Uint8Array; rpId: string; origin: string }): Promise<AssertionWitness>;
+  assert(
+    request: { challenge: Uint8Array; rpId: string; origin: string },
+    options?: { clientDataJson?: Uint8Array; authenticatorFlags?: number },
+  ): Promise<AssertionWitness>;
 };
 
 export async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
@@ -34,14 +37,14 @@ export function syntheticPasskey(privateKeyByte = 1): SyntheticPasskey {
       credentialId: Uint8Array.of(privateKeyByte),
       publicKey: { x: point.slice(1, 33), y: point.slice(33, 65) },
     },
-    async assert({ challenge, rpId, origin }) {
-      const clientDataJson = new TextEncoder().encode(
+    async assert({ challenge, rpId, origin }, options = {}) {
+      const clientDataJson = options.clientDataJson ?? new TextEncoder().encode(
         JSON.stringify({ type: "webauthn.get", challenge: base64url(challenge), origin }),
       );
       const rpIdHash = await sha256(new TextEncoder().encode(rpId));
       const authenticatorData = new Uint8Array(37);
       authenticatorData.set(rpIdHash);
-      authenticatorData[32] = 0x05; // UP | UV
+      authenticatorData[32] = options.authenticatorFlags ?? 0x05; // UP | UV
       const signature = p256.sign(concat(authenticatorData, await sha256(clientDataJson)), privateKey);
 
       return {

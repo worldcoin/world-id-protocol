@@ -76,6 +76,8 @@ pub struct PasskeyOwnershipCircuitInput {
     pub challenge: [u8; 32],
     /// Public SHA-256 RP ID hash.
     pub rp_id_hash: [u8; 32],
+    /// Public SHA-256 of the exact expected WebAuthn origin, including port.
+    pub origin_hash: [u8; 32],
     /// Public proof-request nonce.
     pub nonce: [u8; 32],
     /// Private WebAuthn assertion values.
@@ -194,6 +196,7 @@ impl NoirCircuitInput for PasskeyOwnershipCircuitInput {
             ("root".into(), self.root.into_noir_value()),
             ("challenge".into(), bytes_value(self.challenge)),
             ("rp_id_hash".into(), bytes_value(self.rp_id_hash)),
+            ("origin_hash".into(), bytes_value(self.origin_hash)),
             ("nonce".into(), bytes_value(self.nonce)),
             ("inputs".into(), InputValue::Struct(inputs)),
         ]))
