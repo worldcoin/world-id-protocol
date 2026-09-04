@@ -318,6 +318,7 @@ mod tests {
         );
     }
 
+    /// Swapping `R`'s coordinates puts it off the curve, which the verifier rejects outright.
     #[test(should_fail_with = "Point is not on the BabyJubJub curve")]
     fn test_main_rejects_off_curve_signature_r() {
         let mut inputs = fixture_inputs();
@@ -333,8 +334,8 @@ mod tests {
     }
 
     /// `s` must be canonical. `s + Fr` reduces to the same scalar, so accepting it would make
-    /// signatures malleable. `validate_babyjubjub_field` range checks `s` with `assert_lt`, which
-    /// reports the stdlib message asserted below.
+    /// signatures malleable. `BabyJubJubScalarFieldElement::new` range checks `s` with `assert_lt`,
+    /// which reports the stdlib message asserted below.
     #[test(should_fail_with = "call to assert_max_bit_size")]
     fn test_main_rejects_non_canonical_signature_s() {
         let mut inputs = fixture_inputs();

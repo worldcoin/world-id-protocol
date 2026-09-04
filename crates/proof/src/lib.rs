@@ -33,6 +33,7 @@ pub use nullifier_proof::*;
 /// Authenticator Attestations (WIP-106): Root of Trust Token generation.
 pub mod authenticator_attestation;
 
+use ark_ff::BigInteger as _;
 use provekit_common::{InputMap, InputValue, NoirElement};
 
 use world_id_primitives::FieldElement;
@@ -85,9 +86,21 @@ pub trait NoirRepresentable {
     fn into_noir_value(self) -> InputValue;
 }
 
+/// Re-encodes an arkworks 0.5 field element as provekit's `NoirElement`.
+///
+/// provekit builds on arkworks 0.6 while the protocol's field types come from arkworks 0.5, so
+/// the two share a modulus but are distinct Rust types; the canonical big-endian encoding is the
+/// only bridge. Reduction is a no-op for any field whose modulus does not exceed BN254's scalar
+/// field, which holds for every caller here.
+pub(crate) fn to_noir_element<F: ark_ff::PrimeField>(value: F) -> NoirElement {
+    NoirElement::from_repr(ark_ff_v06::PrimeField::from_be_bytes_mod_order(
+        &value.into_bigint().to_bytes_be(),
+    ))
+}
+
 impl NoirRepresentable for FieldElement {
     fn into_noir_value(self) -> InputValue {
-        InputValue::Field(NoirElement::from_repr(*self))
+        InputValue::Field(to_noir_element(*self))
     }
 }
 

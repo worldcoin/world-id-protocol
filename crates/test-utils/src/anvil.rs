@@ -295,6 +295,16 @@ fn credential_schema_issuer_registry_domain(
 impl TestAnvil {
     const MNEMONIC: &'static str = "test test test test test test test test test test test junk";
 
+    /// Anvil must listen on all interfaces, not just loopback, so that containers started by
+    /// `stubs` can reach it through the Docker bridge gateway.
+    const BIND_HOST: &'static str = "0.0.0.0";
+
+    /// The endpoint host-side clients use. `AnvilInstance::endpoint` reports the bind host, which
+    /// is not a usable destination for every caller.
+    fn local_url(scheme: &str, instance: &AnvilInstance) -> String {
+        format!("{scheme}://127.0.0.1:{}", instance.port())
+    }
+
     /// Spawns a fresh `anvil` instance configured for integration tests.
     pub fn spawn() -> Result<Self> {
         Self::spawn_from_builder(Anvil::new())
@@ -318,12 +328,13 @@ impl TestAnvil {
     /// tests that only need transactions included and don't depend on periodic block production.
     pub fn spawn_auto_mine() -> Result<Self> {
         let instance = Anvil::new()
+            .host(Self::BIND_HOST)
             .mnemonic(Self::MNEMONIC)
             .try_spawn()
             .context("failed to start anvil")?;
 
-        let rpc_url = instance.endpoint().to_string();
-        let ws_url = instance.ws_endpoint();
+        let rpc_url = Self::local_url("http", &instance);
+        let ws_url = Self::local_url("ws", &instance);
 
         Ok(Self {
             instance,
@@ -358,13 +369,14 @@ impl TestAnvil {
 
     fn spawn_from_builder(builder: Anvil) -> Result<Self> {
         let instance = builder
+            .host(Self::BIND_HOST)
             .mnemonic(Self::MNEMONIC)
             .block_time(1)
             .try_spawn()
             .context("failed to start anvil")?;
 
-        let rpc_url = instance.endpoint().to_string();
-        let ws_url = instance.ws_endpoint();
+        let rpc_url = Self::local_url("http", &instance);
+        let ws_url = Self::local_url("ws", &instance);
 
         Ok(Self {
             instance,
@@ -967,7 +979,7 @@ impl TestAnvil {
             world_id_registry,
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .connect(&self.instance.endpoint())
+                .connect(&self.rpc_url)
                 .await
                 .unwrap(),
         );
@@ -999,7 +1011,7 @@ impl TestAnvil {
             world_id_registry,
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .connect(&self.instance.endpoint())
+                .connect(&self.rpc_url)
                 .await
                 .unwrap(),
         );

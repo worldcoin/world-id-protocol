@@ -4,7 +4,7 @@ use axum::{Router, body, body::Bytes, extract::Request, http::StatusCode as Axum
 use base64::Engine as _;
 use testcontainers::{
     GenericImage, ImageExt,
-    core::{IntoContainerPort, WaitFor, wait::HttpWaitStrategy},
+    core::{Host, IntoContainerPort, WaitFor, wait::HttpWaitStrategy},
     runners::AsyncRunner,
 };
 use tokio::{net::TcpListener, sync::Mutex};
@@ -85,7 +85,7 @@ impl TestFixture {
             .with_wait_for(WaitFor::Http(Box::new(
                 HttpWaitStrategy::new("/health").with_expected_status_code(200_u16),
             )))
-            .with_exposed_host_port(backend_port)
+            .with_host("host.testcontainers.internal", Host::HostGateway)
             .with_env_var(
                 "SEED_SECRET_KEY",
                 "0000000000000000000000000000000000000000000000000000000000000001",
