@@ -11,6 +11,8 @@ import { createWorldIdProofRequest } from "./src/world-id-proof-request";
 import { syntheticPasskey } from "./tests/synthetic-passkey";
 
 const result = document.querySelector<HTMLElement>("#result")!;
+const CHROME_DIAGNOSTIC =
+  "do not compare clientDataJSON against a template. See https://goo.gl/yabPex";
 
 type Mutation = (inputs: PasskeyOwnershipNoirInputs) => void;
 
@@ -78,6 +80,12 @@ async function policyAdversarialInputs(
     })),
     duplicateChallenge: await make(new TextEncoder().encode(
       `{"type":"webauthn.get","challenge":"${challenge}","origin":"${request.origin}","challenge":"${challenge}"}`,
+    )),
+    duplicateOriginAfterDiagnostic: await make(new TextEncoder().encode(
+      `{"type":"webauthn.get","challenge":"${challenge}","origin":"${request.origin}","crossOrigin":false,"other_keys_can_be_added_here":"x","origin":"${request.origin}"}`,
+    )),
+    unknownExtension: await make(new TextEncoder().encode(
+      `{"type":"webauthn.get","challenge":"${challenge}","origin":"${request.origin}","crossOrigin":false,"other_keys_can_be_added_herf":"${CHROME_DIAGNOSTIC}"}`,
     )),
     trailingWhitespace: await make(new TextEncoder().encode(
       `${new TextDecoder().decode(canonicalJson)} `,
@@ -162,6 +170,7 @@ try {
         challenge: base64url(proofRequest.challenge),
         origin: location.origin,
         crossOrigin: false,
+        other_keys_can_be_added_here: CHROME_DIAGNOSTIC,
       })),
     },
   );
