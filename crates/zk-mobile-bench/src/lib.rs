@@ -4,6 +4,8 @@
 //! - Query Proof (`π1`) - proves knowledge of a valid OPRF query
 //! - Nullifier/Uniqueness Proof (`π2`) - proves uniqueness without revealing identity
 //! - Ownership Proof (WIP-103) - split into witness, proving, and combined timings
+//! - Passkey Ownership Proof (unaudited demo circuit) - standalone, and combined
+//!   with the query and nullifier proofs as a full passkey-authenticated workload
 
 use mobench_sdk::benchmark;
 use provekit_acir::native_types::WitnessMap;
@@ -40,12 +42,12 @@ use world_id_proof::{
         embedded::{EmbeddedZkArtifacts, zkeys},
     },
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
+    passkey_ownership_proof::load_embedded_passkey_prover,
 };
 
 use fixtures::{
     first_leaf_merkle_path, generate_rp_fixture, ownership_proof_fixture, passkey_ownership_fixture,
 };
-use world_id_proof::passkey_ownership_proof::load_embedded_passkey_prover;
 
 // ============================================================================
 // Fixture Generation (deterministic for reproducible benchmarks)
@@ -271,21 +273,23 @@ thread_local! {
         const { RefCell::new(None) };
 }
 
-const OWNERSHIP_RAYON_THREADS: usize = 4;
-static OWNERSHIP_RAYON_POOL: Once = Once::new();
+/// ProveKit proving parallelises over Rayon. Pin the pool size so Noir-backed
+/// benchmarks are comparable across devices with different core counts.
+const PROVEKIT_RAYON_THREADS: usize = 4;
+static PROVEKIT_RAYON_POOL: Once = Once::new();
 
-fn configure_ownership_rayon_pool() {
-    OWNERSHIP_RAYON_POOL.call_once(|| {
+fn configure_provekit_rayon_pool() {
+    PROVEKIT_RAYON_POOL.call_once(|| {
         rayon::ThreadPoolBuilder::new()
-            .num_threads(OWNERSHIP_RAYON_THREADS)
+            .num_threads(PROVEKIT_RAYON_THREADS)
             .build_global()
-            .expect("ownership benchmark must initialize the Rayon pool first");
+            .expect("ProveKit benchmarks must initialize the Rayon pool first");
     });
 
     assert_eq!(
         rayon::current_num_threads(),
-        OWNERSHIP_RAYON_THREADS,
-        "ownership benchmarks require a fixed four-thread Rayon pool"
+        PROVEKIT_RAYON_THREADS,
+        "ProveKit benchmarks require a fixed {PROVEKIT_RAYON_THREADS}-thread Rayon pool"
     );
 }
 
@@ -296,7 +300,7 @@ fn ownership_prover() -> Prover {
 }
 
 fn setup_ownership_witness_generation() -> (Prover, InputMap) {
-    configure_ownership_rayon_pool();
+    configure_provekit_rayon_pool();
     let input_map = ownership_proof_fixture()
         .into_witness()
         .expect("ownership input map");
@@ -344,7 +348,7 @@ pub fn bench_ownership_proof_generation((prover, input_map): (Prover, InputMap))
 }
 
 fn setup_passkey_witness_generation() -> (Prover, InputMap) {
-    configure_ownership_rayon_pool();
+    configure_provekit_rayon_pool();
     let input_map = passkey_ownership_fixture()
         .into_witness()
         .expect("passkey input map");
@@ -385,37 +389,48 @@ pub fn bench_passkey_proof_generation((prover, input_map): (Prover, InputMap)) {
     std::hint::black_box(proof);
 }
 
+/// Inputs for the combined passkey + query + nullifier workload.
 struct WorldIdPasskeyInputs {
-    passkey: (Prover, InputMap),
-    query: (QueryProofCircuitInput<TREE_DEPTH>, CircomGroth16Material),
-    nullifier: (
-        NullifierProofCircuitInput<TREE_DEPTH>,
-        CircomGroth16Material,
-    ),
+    passkey_prover: Prover,
+    passkey_input: InputMap,
+    query_input: QueryProofCircuitInput<TREE_DEPTH>,
+    query_material: CircomGroth16Material,
+    nullifier_input: NullifierProofCircuitInput<TREE_DEPTH>,
+    nullifier_material: CircomGroth16Material,
 }
 
+/// Precomputed witnesses for the combined passkey + query + nullifier workload.
 struct WorldIdPasskeyWitnesses {
-    passkey: (Prover, WitnessMap<NoirElement>),
-    query: (CircomGroth16Material, Vec<ark_bn254::Fr>),
-    nullifier: (CircomGroth16Material, Vec<ark_bn254::Fr>),
+    passkey_prover: Prover,
+    passkey_witness: WitnessMap<NoirElement>,
+    query_material: CircomGroth16Material,
+    query_witness: Vec<ark_bn254::Fr>,
+    nullifier_material: CircomGroth16Material,
+    nullifier_witness: Vec<ark_bn254::Fr>,
 }
 
 fn setup_world_id_passkey_inputs() -> WorldIdPasskeyInputs {
-    let passkey = setup_passkey_witness_generation();
+    let (passkey_prover, passkey_input) = setup_passkey_witness_generation();
     let (query_input, query_material, _) = generate_query_input();
     let (nullifier_input, nullifier_material, _) = generate_nullifier_input();
     WorldIdPasskeyInputs {
-        passkey,
-        query: (query_input, query_material),
-        nullifier: (nullifier_input, nullifier_material),
+        passkey_prover,
+        passkey_input,
+        query_input,
+        query_material,
+        nullifier_input,
+        nullifier_material,
     }
 }
 
 fn setup_world_id_passkey_proving() -> WorldIdPasskeyWitnesses {
     let WorldIdPasskeyInputs {
-        passkey: (mut passkey_prover, passkey_input),
-        query: (query_input, query_material),
-        nullifier: (nullifier_input, nullifier_material),
+        mut passkey_prover,
+        passkey_input,
+        query_input,
+        query_material,
+        nullifier_input,
+        nullifier_material,
     } = setup_world_id_passkey_inputs();
     let passkey_witness = passkey_prover
         .generate_witness(passkey_input)
@@ -427,28 +442,34 @@ fn setup_world_id_passkey_proving() -> WorldIdPasskeyWitnesses {
         .generate_witness(&nullifier_input)
         .expect("nullifier witness generation");
     WorldIdPasskeyWitnesses {
-        passkey: (passkey_prover, passkey_witness),
-        query: (query_material, query_witness),
-        nullifier: (nullifier_material, nullifier_witness),
+        passkey_prover,
+        passkey_witness,
+        query_material,
+        query_witness,
+        nullifier_material,
+        nullifier_witness,
     }
 }
 
 /// Benchmark: witness generation for passkey ownership plus World ID query and nullifier proofs.
 #[benchmark(setup = setup_world_id_passkey_inputs, per_iteration)]
 pub fn bench_world_id_passkey_witness_generation(inputs: WorldIdPasskeyInputs) {
-    let (mut passkey_prover, passkey_input) = inputs.passkey;
+    let WorldIdPasskeyInputs {
+        mut passkey_prover,
+        passkey_input,
+        query_input,
+        query_material,
+        nullifier_input,
+        nullifier_material,
+    } = inputs;
     let passkey = passkey_prover
         .generate_witness(passkey_input)
         .expect("passkey witness generation");
-    let query = inputs
-        .query
-        .1
-        .generate_witness(&inputs.query.0)
+    let query = query_material
+        .generate_witness(&query_input)
         .expect("query witness generation");
-    let nullifier = inputs
-        .nullifier
-        .1
-        .generate_witness(&inputs.nullifier.0)
+    let nullifier = nullifier_material
+        .generate_witness(&nullifier_input)
         .expect("nullifier witness generation");
     std::hint::black_box((passkey, query, nullifier));
 }
@@ -456,21 +477,23 @@ pub fn bench_world_id_passkey_witness_generation(inputs: WorldIdPasskeyInputs) {
 /// Benchmark: proving-only for passkey ownership plus World ID query and nullifier proofs.
 #[benchmark(setup = setup_world_id_passkey_proving, per_iteration)]
 pub fn bench_world_id_passkey_proving(witnesses: WorldIdPasskeyWitnesses) {
-    let passkey = witnesses
-        .passkey
-        .0
-        .prove_with_witness(witnesses.passkey.1)
+    let WorldIdPasskeyWitnesses {
+        passkey_prover,
+        passkey_witness,
+        query_material,
+        query_witness,
+        nullifier_material,
+        nullifier_witness,
+    } = witnesses;
+    let passkey = passkey_prover
+        .prove_with_witness(passkey_witness)
         .expect("passkey proof generation");
     let mut rng = deterministic_rng();
-    let query = witnesses
-        .query
-        .0
-        .generate_proof_from_witness(&witnesses.query.1, &mut rng)
+    let query = query_material
+        .generate_proof_from_witness(&query_witness, &mut rng)
         .expect("query proof generation");
-    let nullifier = witnesses
-        .nullifier
-        .0
-        .generate_proof_from_witness(&witnesses.nullifier.1, &mut rng)
+    let nullifier = nullifier_material
+        .generate_proof_from_witness(&nullifier_witness, &mut rng)
         .expect("nullifier proof generation");
     std::hint::black_box((passkey, query, nullifier));
 }
@@ -479,21 +502,23 @@ pub fn bench_world_id_passkey_proving(witnesses: WorldIdPasskeyWitnesses) {
 /// passkey-authenticated World ID proof workload.
 #[benchmark(setup = setup_world_id_passkey_inputs, per_iteration)]
 pub fn bench_world_id_passkey_proof_generation(inputs: WorldIdPasskeyInputs) {
-    let passkey = inputs
-        .passkey
-        .0
-        .prove(inputs.passkey.1)
+    let WorldIdPasskeyInputs {
+        passkey_prover,
+        passkey_input,
+        query_input,
+        query_material,
+        nullifier_input,
+        nullifier_material,
+    } = inputs;
+    let passkey = passkey_prover
+        .prove(passkey_input)
         .expect("passkey proof generation");
     let mut rng = deterministic_rng();
-    let query = inputs
-        .query
-        .1
-        .generate_proof(&inputs.query.0, &mut rng)
+    let query = query_material
+        .generate_proof(&query_input, &mut rng)
         .expect("query proof generation");
-    let nullifier = inputs
-        .nullifier
-        .1
-        .generate_proof(&inputs.nullifier.0, &mut rng)
+    let nullifier = nullifier_material
+        .generate_proof(&nullifier_input, &mut rng)
         .expect("nullifier proof generation");
     std::hint::black_box((passkey, query, nullifier));
 }
