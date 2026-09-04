@@ -192,9 +192,7 @@ mod tests {
     use provekit_prover::Prove as _;
     use world_id_proof::{
         NoirCircuitInput as _,
-        passkey_ownership_proof::{
-            load_embedded_passkey_prover, verify_passkey_ownership_proof,
-        },
+        passkey_ownership_proof::{load_embedded_passkey_prover, verify_passkey_ownership_proof},
     };
 
     #[test]
