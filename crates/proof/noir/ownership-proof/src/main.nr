@@ -5,7 +5,10 @@ pub(crate) mod merkle_proof;
 
 use commitment::{generate_commitment, generate_message};
 use constants::{MAX_DEPTH, NUM_KEYS};
-use eddsa_poseidon2::{BabyJubJubPoint, BabyJubJubScalarFieldElement, verify_eddsa_poseidon2, BabyJubJubPointInSubgroup};
+use eddsa_poseidon2::{
+    BabyJubJubPoint, BabyJubJubPointInSubgroup, BabyJubJubScalarFieldElement,
+    verify_eddsa_poseidon2,
+};
 use merkle_proof::{compute_merkle_root_poseidon2, merkle_leaf};
 use std::field::bn254::assert_lt;
 use types::OwnershipProofPrivateInputs;
@@ -34,12 +37,7 @@ pub fn main(
     let public_key = BabyJubJubPointInSubgroup::new(chosen_pk.x, chosen_pk.y);
     let s = BabyJubJubScalarFieldElement::new(inputs.query_s);
     let r = BabyJubJubPoint::new(inputs.query_r[0], inputs.query_r[1]);
-    let is_valid = verify_eddsa_poseidon2(
-        public_key,
-        s,
-        r,
-        message,
-    );
+    let is_valid = verify_eddsa_poseidon2(public_key, s, r, message);
     assert(is_valid, "invalid signature");
 
     // 4. Compute and verify merkle inclusion proof
@@ -59,7 +57,10 @@ mod tests {
     use super::main;
     use super::merkle_proof::{compute_merkle_root_poseidon2, merkle_leaf};
     use super::types::{MerkleProof, OwnershipProofPrivateInputs, PublicKey};
-    use eddsa_poseidon2::verify_eddsa_poseidon2;
+    use eddsa_poseidon2::{
+        BabyJubJubPoint, BabyJubJubPointInSubgroup, BabyJubJubScalarFieldElement,
+        verify_eddsa_poseidon2,
+    };
 
     // A signature cannot be produced inside the circuit, so the key and signature below are taken
     // from `Prover.toml`
@@ -148,6 +149,18 @@ mod tests {
 
     fn fixture_commitment() -> Field {
         generate_commitment(LEAF_INDEX, COMMITMENT_BLINDER)
+    }
+
+    fn subgroup_point(key: PublicKey) -> BabyJubJubPointInSubgroup {
+        BabyJubJubPointInSubgroup::new(key.x, key.y)
+    }
+
+    fn fixture_signature_s() -> BabyJubJubScalarFieldElement {
+        BabyJubJubScalarFieldElement::new(QUERY_S)
+    }
+
+    fn fixture_signature_r() -> BabyJubJubPoint {
+        BabyJubJubPoint::new(QUERY_R[0], QUERY_R[1])
     }
 
     /// The root the fixture's key set and sibling path hash up to at the full tree depth.
@@ -305,8 +318,7 @@ mod tests {
         );
     }
 
-    /// Swapping `R`'s coordinates puts it off the curve, which the verifier rejects outright.
-    #[test(should_fail_with = "R must be on curve")]
+    #[test(should_fail_with = "Point is not on the BabyJubJub curve")]
     fn test_main_rejects_off_curve_signature_r() {
         let mut inputs = fixture_inputs();
         inputs.query_r = [QUERY_R[1], QUERY_R[0]];
@@ -389,7 +401,7 @@ mod tests {
 
     /// A registered key must be a curve point. The merkle root is re-derived from the tampered key
     /// set, so inclusion still holds and only the key validation can fail.
-    #[test(should_fail_with = "Public key must be on curve")]
+    #[test(should_fail_with = "Point is not on the BabyJubJub curve")]
     fn test_main_rejects_off_curve_public_key() {
         let mut inputs = fixture_inputs();
         inputs.user_pk[0] = OFF_CURVE_KEY;
@@ -405,7 +417,7 @@ mod tests {
 
     /// Being on the curve is not enough: a small-order point would let a prover work in a cofactor
     /// subgroup where the signature check does not bind the discrete log.
-    #[test(should_fail_with = "Public key must be in subgroup")]
+    #[test(should_fail_with = "Point is not in the correct subgroup")]
     fn test_main_rejects_public_key_outside_prime_order_subgroup() {
         let mut inputs = fixture_inputs();
         inputs.user_pk[0] = SMALL_ORDER_KEY;
@@ -515,24 +527,48 @@ mod tests {
     #[test]
     fn test_eddsa_accepts_fixture_signature() {
         let message = generate_message(fixture_commitment(), NONCE, CONTEXT);
-        assert(verify_eddsa_poseidon2(PK.x, PK.y, QUERY_S, QUERY_R, message));
+        assert(verify_eddsa_poseidon2(
+            subgroup_point(PK),
+            fixture_signature_s(),
+            fixture_signature_r(),
+            message,
+        ));
     }
 
     #[test]
     fn test_eddsa_rejects_signature_over_another_message() {
         let message = generate_message(fixture_commitment(), NONCE, CONTEXT) + 1;
-        assert(!verify_eddsa_poseidon2(PK.x, PK.y, QUERY_S, QUERY_R, message));
+        assert(
+            !verify_eddsa_poseidon2(
+                subgroup_point(PK),
+                fixture_signature_s(),
+                fixture_signature_r(),
+                message,
+            ),
+        );
     }
 
     #[test]
     fn test_eddsa_rejects_signature_under_another_key() {
         let message = generate_message(fixture_commitment(), NONCE, CONTEXT);
-        assert(!verify_eddsa_poseidon2(OTHER_KEY.x, OTHER_KEY.y, QUERY_S, QUERY_R, message));
+        assert(
+            !verify_eddsa_poseidon2(
+                subgroup_point(OTHER_KEY),
+                fixture_signature_s(),
+                fixture_signature_r(),
+                message,
+            ),
+        );
     }
 
     #[test(should_fail_with = "Public key cannot be identity")]
     fn test_eddsa_rejects_identity_public_key() {
         let message = generate_message(fixture_commitment(), NONCE, CONTEXT);
-        let _ = verify_eddsa_poseidon2(UNUSED_KEY.x, UNUSED_KEY.y, QUERY_S, QUERY_R, message);
+        let _ = verify_eddsa_poseidon2(
+            subgroup_point(UNUSED_KEY),
+            fixture_signature_s(),
+            fixture_signature_r(),
+            message,
+        );
     }
 }
