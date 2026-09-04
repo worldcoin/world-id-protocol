@@ -6,8 +6,8 @@ import {
   type ThreadSetting,
   type ThreadingStatus,
 } from "@worldcoin/provekit";
-import proverArtifactUrl from "../../../crates/proof/noir/passkey-ownership-proof/artifacts/passkey_ownership_proof.pkp?url";
-import verifierArtifactUrl from "../../../crates/proof/noir/passkey-ownership-proof/artifacts/passkey_ownership_proof.pkv?url";
+import proverArtifactUrl from "../artifacts/passkey_ownership_proof.pkp?url";
+import verifierArtifactUrl from "../artifacts/passkey_ownership_proof.pkv?url";
 
 export type PasskeyArtifactStatus = {
   sdkPackage: "@worldcoin/provekit@0.1.0";

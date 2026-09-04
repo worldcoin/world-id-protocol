@@ -5,6 +5,33 @@ use bigcurve::{
 use bignum::BigNum;
 
 pub global SIGNATURE_LEN: u32 = 64;
+global P256_GROUP_ORDER: [u8; 32] = [
+    0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63, 0x25, 0x51,
+];
+global P256_FIELD_MINUS_ORDER: [u8; 32] = [
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x43, 0x19, 0x05, 0x53, 0x58, 0xe8, 0x61, 0x7b, 0x0c, 0x46, 0x35, 0x3d, 0x03, 0x9c, 0xda, 0xae,
+];
+
+fn bytes_are_less_than(left: [u8; 32], right: [u8; 32]) -> bool {
+    let mut less = false;
+    let mut equal = true;
+    for i in 0..32 {
+        less = less | (equal & (left[i] < right[i]));
+        equal = equal & (left[i] == right[i]);
+    }
+    less
+}
+
+fn assert_valid_p256_scalar(bytes: [u8; 32]) {
+    let mut non_zero = false;
+    for byte in bytes {
+        non_zero = non_zero | (byte != 0);
+    }
+    assert(non_zero, "P-256 signature scalar must not be zero");
+    assert(bytes_are_less_than(bytes, P256_GROUP_ORDER), "P-256 signature scalar is out of range");
+}
 
 pub fn verify_signature<let CLIENT_DATA_JSON_MAX_LEN: u32, let AUTHENTICATOR_DATA_MAX_LEN: u32>(
     public_key_x: [u8; 32],
@@ -89,6 +116,8 @@ fn verify_p256_signature(
         r_bytes[i] = signature[i];
         s_bytes[i] = signature[i + 32];
     }
+    assert_valid_p256_scalar(r_bytes);
+    assert_valid_p256_scalar(s_bytes);
 
     let expected_r_x = Secp256r1_Fq::from_be_bytes(r_bytes);
     let r = Secp256r1_Fr::from_be_bytes(r_bytes);
@@ -102,7 +131,38 @@ fn verify_p256_signature(
     );
 
     assert(!r_point.is_infinity);
-    assert(r_point.x == expected_r_x);
+    // ECDSA compares r with R.x reduced modulo the group order n. Because the
+    // P-256 base-field modulus p is less than 2n, reduction has only two cases.
+    let order_as_fq = Secp256r1_Fq::from_be_bytes(P256_GROUP_ORDER);
+    let reduced_directly = r_point.x == expected_r_x;
+    let reduction_subtracted_n = bytes_are_less_than(r_bytes, P256_FIELD_MINUS_ORDER)
+        & (r_point.x == expected_r_x + order_as_fq);
+    assert(reduced_directly | reduction_subtracted_n);
+}
+
+#[test]
+fn accepts_valid_p256_scalar_boundaries() {
+    let one: [u8; 32] = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        1,
+    ];
+    let n_minus_one: [u8; 32] = [
+        0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63,
+        0x25, 0x50,
+    ];
+    assert_valid_p256_scalar(one);
+    assert_valid_p256_scalar(n_minus_one);
+}
+
+#[test(should_fail_with = "P-256 signature scalar must not be zero")]
+fn rejects_zero_p256_scalar() {
+    assert_valid_p256_scalar([0; 32]);
+}
+
+#[test(should_fail_with = "P-256 signature scalar is out of range")]
+fn rejects_p256_group_order_as_scalar() {
+    assert_valid_p256_scalar(P256_GROUP_ORDER);
 }
 
 fn str_contains_base64_url<let N: u32, let H: u32>(haystack: [u8; H], needle: [u8; N], index: u32) {

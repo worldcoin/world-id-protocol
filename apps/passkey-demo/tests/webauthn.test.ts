@@ -6,6 +6,7 @@ import {
   p256BeBytesToLimbs,
   validateAssertionPolicy,
 } from "../src/webauthn";
+import { createWorldIdProofRequest } from "../src/world-id-proof-request";
 
 async function sha256(value: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
@@ -29,14 +30,53 @@ describe("webauthn helpers", () => {
   it("converts DER ECDSA signatures to raw r||s", () => {
     const der = Uint8Array.from([
       0x30, 0x46,
-      0x02, 0x21, 0x00, ...Array(32).fill(0x11),
-      0x02, 0x21, 0x00, ...Array(32).fill(0x22),
+      0x02, 0x21, 0x00, ...Array(32).fill(0x91),
+      0x02, 0x21, 0x00, ...Array(32).fill(0xa2),
     ]);
 
     expect(Array.from(derEcdsaToRawSignature(der.buffer))).toEqual([
-      ...Array(32).fill(0x11),
-      ...Array(32).fill(0x22),
+      ...Array(32).fill(0x91),
+      ...Array(32).fill(0xa2),
     ]);
+  });
+
+  it("rejects non-canonical DER and out-of-range P-256 scalars", () => {
+    const trailingByte = Uint8Array.from([
+      0x30, 0x44,
+      0x02, 0x20, ...Array(32).fill(0x11),
+      0x02, 0x20, ...Array(32).fill(0x22),
+      0x00,
+    ]);
+    expect(() => derEcdsaToRawSignature(trailingByte.buffer)).toThrow("length");
+
+    const zeroR = Uint8Array.from([
+      0x30, 0x25,
+      0x02, 0x01, 0x00,
+      0x02, 0x20, ...Array(32).fill(0x22),
+    ]);
+    expect(() => derEcdsaToRawSignature(zeroR.buffer)).toThrow("r must be in");
+
+    const redundantPadding = Uint8Array.from([
+      0x30, 0x45,
+      0x02, 0x21, 0x00, 0x11, ...Array(31).fill(0x11),
+      0x02, 0x20, ...Array(32).fill(0x22),
+    ]);
+    expect(() => derEcdsaToRawSignature(redundantPadding.buffer)).toThrow("non-canonical");
+  });
+
+  it("domain-separates proof requests and binds them to a registry root and RP ID", async () => {
+    const nonce = Uint8Array.from({ length: 32 }, (_, index) => index);
+    const request = await createWorldIdProofRequest({ registryRoot: "123", rpId: "localhost", nonce });
+
+    expect(request.action).toBe("world-id-proof-v1");
+    expect(request.message).toBe(
+      "world-id-proof-v1\nrpId=localhost\nregistryRoot=123\nnonce=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    );
+    expect(Array.from(request.challenge, (byte) => byte.toString(16).padStart(2, "0")).join(""))
+      .toBe("78a66d000413695d3e0039af1d67d10ad117081c60605be0f76f70bcea96d54b");
+
+    const otherRoot = await createWorldIdProofRequest({ registryRoot: "124", rpId: "localhost", nonce });
+    expect(otherRoot.challenge).not.toEqual(request.challenge);
   });
 
   it("extracts an uncompressed P-256 point from SPKI", () => {

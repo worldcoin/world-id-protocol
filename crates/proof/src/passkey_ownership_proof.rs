@@ -2,8 +2,9 @@
 //!
 //! The circuit proves control of an ES256/P-256 passkey committed in a
 //! `WorldIDRegistryV2` account leaf. The checked-in artifacts use the ProveKit
-//! V1 artifact format and Noir beta.20; they are independent from the
-//! beta.11 WIP-103 ownership circuit artifacts.
+//! V1 artifact format and Noir beta.11. The browser demo carries a separate
+//! PKP 2.0/PKV 2.1 build of the same statement because its published WASM SDK
+//! uses the beta.20 artifact graph.
 
 use std::{collections::BTreeMap, io::Read, path::Path};
 

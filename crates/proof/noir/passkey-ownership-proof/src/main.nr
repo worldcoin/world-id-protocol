@@ -16,8 +16,23 @@ pub fn main(
     root: pub Field,
     challenge: pub [u8; 32],
     rp_id_hash: pub [u8; 32],
+    nonce: pub [u8; 32],
     inputs: PasskeyOwnershipInputs,
 ) {
+    let domain: [u8; 32] = [
+        119, 111, 114, 108, 100, 45, 105, 100, 45, 112, 114, 111, 111, 102, 45, 118, 49, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    let root_bytes: [u8; 32] = root.to_be_bytes();
+    let mut request = [0 as u8; 128];
+    for i in 0..32 {
+        request[i] = domain[i];
+        request[i + 32] = rp_id_hash[i];
+        request[i + 64] = root_bytes[i];
+        request[i + 96] = nonce[i];
+    }
+    assert(sha256::sha256_var(request, 128) == challenge, "proof request challenge mismatch");
+
     for i in 0..32 {
         assert(inputs.webauthn.authenticator_data.storage()[i] == rp_id_hash[i]);
     }

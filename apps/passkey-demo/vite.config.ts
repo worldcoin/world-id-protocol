@@ -1,12 +1,14 @@
 import basicSsl from "@vitejs/plugin-basic-ssl";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 
 const crossOriginIsolationHeaders = {
   "Cross-Origin-Embedder-Policy": "require-corp",
   "Cross-Origin-Opener-Policy": "same-origin",
 };
 
-export default defineConfig(({ isPreview }) => ({
+export default defineConfig(({ isPreview, mode }) => {
+  const bridgePort = loadEnv(mode, process.cwd(), "").PASSKEY_DEMO_BRIDGE_PORT ?? "8787";
+  return ({
   plugins: isPreview ? [] : [basicSsl()],
   // The SDK resolves its bundled WASM glue relative to import.meta.url. Vite's
   // dependency prebundler replaces that URL, so serve the package as native ESM.
@@ -19,7 +21,7 @@ export default defineConfig(({ isPreview }) => ({
     strictPort: true,
     headers: crossOriginIsolationHeaders,
     proxy: {
-      "/api": "http://127.0.0.1:8787",
+      "/api": `http://127.0.0.1:${bridgePort}`,
     },
   },
   preview: {
@@ -28,7 +30,8 @@ export default defineConfig(({ isPreview }) => ({
     strictPort: true,
     headers: crossOriginIsolationHeaders,
     proxy: {
-      "/api": "http://127.0.0.1:8787",
+      "/api": `http://127.0.0.1:${bridgePort}`,
     },
   },
-}));
+  });
+});

@@ -24,6 +24,7 @@ export type PasskeyOwnershipNoirInputs = Record<string, unknown> & {
   root: string;
   challenge: string[];
   rp_id_hash: string[];
+  nonce: string[];
   inputs: {
     webauthn: {
       public_key_x: string[];
@@ -76,12 +77,14 @@ export function buildPasskeyOwnershipNoirInputs(
   passkey: RegisteredPasskey,
   assertion: AssertionWitness,
   registry: PasskeyRegistryWitness,
+  nonce: Uint8Array,
 ): PasskeyOwnershipNoirInputs {
   assertLength(passkey.publicKey.x, 32, "P-256 x coordinate");
   assertLength(passkey.publicKey.y, 32, "P-256 y coordinate");
   assertLength(assertion.signature, 64, "raw P-256 signature");
   assertLength(assertion.challenge, 32, "WebAuthn challenge");
   assertLength(assertion.rpIdHash, 32, "RP ID hash");
+  assertLength(nonce, 32, "proof request nonce");
   if (registry.slotCommitments.length !== PASSKEY_SLOT_COUNT) {
     throw new Error(`registry witness must contain ${PASSKEY_SLOT_COUNT} slot commitments`);
   }
@@ -96,6 +99,7 @@ export function buildPasskeyOwnershipNoirInputs(
     root: canonicalField(registry.root, "registry root"),
     challenge: bytesToNoir(assertion.challenge),
     rp_id_hash: bytesToNoir(assertion.rpIdHash),
+    nonce: bytesToNoir(nonce),
     inputs: {
       webauthn: {
         public_key_x: bytesToNoir(passkey.publicKey.x),

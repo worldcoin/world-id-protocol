@@ -3,29 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>World ID Passkey Ownership Demo</title>
+    <title>Create a World ID with a passkey</title>
   </head>
   <body>
     <main class="shell">
       <section class="workspace" aria-label="Passkey ownership demo">
         <header class="topbar">
           <div>
-            <h1>World ID passkey ownership</h1>
-            <p>Register a local ES256 passkey, bind it to a proving authenticator slot, and prove ownership locally with ProveKit WASM.</p>
+            <p class="eyebrow">Passkey signature experiment</p>
+            <h1>Create a World ID. Prove with a passkey.</h1>
+            <p>Create a local World ID controlled directly by an ES256 passkey, then generate and verify its registry-ownership proof in this browser. No PRF-derived World ID secret is used.</p>
           </div>
           <div class="status-pill" id="runtime-status">Ready</div>
         </header>
 
         <div class="grid">
           <section class="panel controls" aria-label="Demo controls">
-            <button id="register-button" type="button">Register passkey</button>
-            <button id="assert-button" type="button" disabled>Prove ownership</button>
-            <button id="verify-button" type="button" disabled>Verify locally</button>
+            <div class="step"><span>1</span><strong>Create</strong></div>
+            <button id="register-button" type="button">Create World ID</button>
+            <div class="step"><span>2</span><strong>Prove</strong></div>
+            <button id="assert-button" type="button" disabled>Generate proof with passkey</button>
           </section>
 
           <section class="panel" aria-label="Registry state">
             <h2>Registry</h2>
             <dl class="facts">
+              <div><dt>World ID</dt><dd id="world-id-value">not created</dd></div>
               <div><dt>slot</dt><dd id="slot-value">1</dd></div>
               <div><dt>root</dt><dd id="root-value">not registered</dd></div>
               <div><dt>leaf</dt><dd id="leaf-value">not registered</dd></div>
@@ -38,13 +41,14 @@
               <div><dt>credential</dt><dd id="credential-value">none</dd></div>
               <div><dt>rp id hash</dt><dd id="rp-value">none</dd></div>
               <div><dt>challenge</dt><dd id="challenge-value">none</dd></div>
+              <div><dt>signed action</dt><dd id="action-value">none</dd></div>
             </dl>
           </section>
         </div>
 
         <section class="panel output" aria-label="Local proof status">
           <h2>Local proof status</h2>
-          <pre id="output">Waiting for a passkey registration.</pre>
+          <pre id="output">Create a World ID to begin.</pre>
         </section>
       </section>
     </main>

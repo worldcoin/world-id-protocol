@@ -9,21 +9,37 @@ import {
   type PreparedPasskeyProofResult,
 } from "./provekit-runtime";
 import { bytesToHex, registerPasskey, requestAssertion, type RegisteredPasskey } from "./webauthn";
+import { createWorldIdProofRequest } from "./world-id-proof-request";
 
 const registerButton = document.querySelector<HTMLButtonElement>("#register-button")!;
 const assertButton = document.querySelector<HTMLButtonElement>("#assert-button")!;
-const verifyButton = document.querySelector<HTMLButtonElement>("#verify-button")!;
 const runtimeStatus = document.querySelector<HTMLElement>("#runtime-status")!;
+const worldIdValue = document.querySelector<HTMLElement>("#world-id-value")!;
 const rootValue = document.querySelector<HTMLElement>("#root-value")!;
 const leafValue = document.querySelector<HTMLElement>("#leaf-value")!;
 const credentialValue = document.querySelector<HTMLElement>("#credential-value")!;
 const rpValue = document.querySelector<HTMLElement>("#rp-value")!;
 const challengeValue = document.querySelector<HTMLElement>("#challenge-value")!;
+const actionValue = document.querySelector<HTMLElement>("#action-value")!;
 const output = document.querySelector<HTMLElement>("#output")!;
 
 let passkey: RegisteredPasskey | null = null;
 let registry: RegistryState | null = null;
 let pendingProof: PreparedPasskeyProofResult | null = null;
+
+function proofStatement(
+  proofRequest: Awaited<ReturnType<typeof createWorldIdProofRequest>>,
+  worldId: string,
+) {
+  return {
+    action: proofRequest.action,
+    worldId,
+    registryRoot: proofRequest.registryRoot,
+    rpId: proofRequest.rpId,
+    request: proofRequest.message,
+    challenge: bytesToHex(proofRequest.challenge),
+  };
+}
 
 function setStatus(message: string): void {
   runtimeStatus.textContent = message;
@@ -37,21 +53,28 @@ registerButton.addEventListener("click", async () => {
   try {
     pendingProof?.dispose();
     pendingProof = null;
-    verifyButton.disabled = true;
+    passkey = null;
+    registry = null;
+    assertButton.disabled = true;
     setStatus("Registering");
-    passkey = await registerPasskey();
-    registry = await registerWithLocalBridge(passkey);
+    const nextPasskey = await registerPasskey();
+    const nextRegistry = await registerWithLocalBridge(nextPasskey);
+    passkey = nextPasskey;
+    registry = nextRegistry;
 
     credentialValue.textContent = "ES256 passkey created";
+    worldIdValue.textContent = registry.accountLeaf;
     rootValue.textContent = registry.root;
     leafValue.textContent = String(registry.leafIndex);
     showSummary({
       registry: {
+        worldId: registry.accountLeaf,
         root: registry.root,
         leafIndex: registry.leafIndex,
         slotIndex: registry.slotIndex,
       },
-      passkey: "registered as a proving authenticator",
+      passkey: "registered as the World ID proving authenticator",
+      secretDerivation: "none; control is demonstrated by a passkey signature",
     });
 
     assertButton.disabled = false;
@@ -67,12 +90,21 @@ assertButton.addEventListener("click", async () => {
 
   try {
     assertButton.disabled = true;
-    verifyButton.disabled = true;
     pendingProof?.dispose();
     pendingProof = null;
-    setStatus("Requesting assertion");
-    const assertion = await requestAssertion(passkey.credentialId);
-    const proofInputs = await buildPasskeyOwnershipNoirInputs(passkey, assertion, registry);
+    const proofRequest = await createWorldIdProofRequest({
+      registryRoot: registry.root,
+      rpId: window.location.hostname,
+    });
+    actionValue.textContent = proofRequest.action;
+    setStatus("Signing proof request with passkey");
+    const assertion = await requestAssertion(passkey.credentialId, proofRequest.challenge);
+    const proofInputs = await buildPasskeyOwnershipNoirInputs(
+      passkey,
+      assertion,
+      registry,
+      proofRequest.nonce,
+    );
 
     rpValue.textContent = bytesToHex(assertion.rpIdHash);
     challengeValue.textContent = bytesToHex(assertion.challenge);
@@ -91,13 +123,29 @@ assertButton.addEventListener("click", async () => {
       },
       proof: {
         bytes: pendingProof.proofBytes,
-        status: "generated locally; awaiting verification",
+        status: "generated locally from a passkey signature",
       },
+      statement: proofStatement(proofRequest, registry.accountLeaf),
       timingsMs: pendingProof.timings,
     });
 
-    verifyButton.disabled = false;
-    setStatus("Proof ready");
+    setStatus("Verifying proof locally");
+    const result = await pendingProof.verify();
+    if (!result.valid) throw new Error("the browser verifier rejected the generated proof");
+    if (!result.tamperedRejected) throw new Error("the browser verifier accepted a tampered proof");
+    setStatus("World ID proof verified");
+    showSummary({
+      statement: proofStatement(proofRequest, registry.accountLeaf),
+      proof: {
+        bytes: pendingProof.proofBytes,
+        valid: result.valid,
+        tamperedRejected: result.tamperedRejected,
+      },
+      threading: pendingProof.threading,
+      timingsMs: { ...pendingProof.timings, ...result.timings },
+    });
+    pendingProof.dispose();
+    pendingProof = null;
   } catch (error) {
     pendingProof?.dispose();
     pendingProof = null;
@@ -105,47 +153,5 @@ assertButton.addEventListener("click", async () => {
     showSummary({ sdkError: describeProveKitFailure(error) });
   } finally {
     assertButton.disabled = false;
-  }
-});
-
-verifyButton.addEventListener("click", async () => {
-  if (!pendingProof) return;
-
-  const proofToVerify = pendingProof;
-  pendingProof = null;
-  try {
-    verifyButton.disabled = true;
-    setStatus("Verifying proof locally");
-    const result = await proofToVerify.verify();
-    if (!result.valid) throw new Error("the browser verifier rejected the generated proof");
-    if (!result.tamperedRejected) throw new Error("the browser verifier accepted a tampered proof");
-    setStatus("Proof verified locally");
-    showSummary({
-      sdk: {
-        package: proofToVerify.sdkPackage,
-        commit: proofToVerify.sdkCommit,
-        tarballSha256: proofToVerify.sdkTarballSha256,
-      },
-      threading: proofToVerify.threading,
-      artifacts: {
-        proverBytes: proofToVerify.proverBytes,
-        verifierBytes: proofToVerify.verifierBytes,
-      },
-      proof: {
-        bytes: proofToVerify.proofBytes,
-        valid: result.valid,
-        tamperedRejected: result.tamperedRejected,
-      },
-      timingsMs: {
-        ...proofToVerify.timings,
-        ...result.timings,
-      },
-    });
-  } catch (error) {
-    const failure = describeProveKitFailure(error);
-    setStatus(failure.code === "ARTIFACT_VERSION" ? "Artifact migration required" : "Local verification unavailable");
-    showSummary({ sdkError: failure });
-  } finally {
-    proofToVerify.dispose();
   }
 });

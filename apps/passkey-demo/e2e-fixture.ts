@@ -5,8 +5,9 @@ import { registerWithLocalBridge } from "./src/demo-adapter";
 import { buildPasskeyOwnershipNoirInputs } from "./src/passkey-noir-inputs";
 import { proveAndVerifyWithRuntime } from "./src/provekit-runtime";
 import { base64url, type AssertionWitness, type RegisteredPasskey } from "./src/webauthn";
-import proverArtifactUrl from "../../crates/proof/noir/passkey-ownership-proof/artifacts/passkey_ownership_proof.pkp?url";
-import verifierArtifactUrl from "../../crates/proof/noir/passkey-ownership-proof/artifacts/passkey_ownership_proof.pkv?url";
+import { createWorldIdProofRequest } from "./src/world-id-proof-request";
+import proverArtifactUrl from "./artifacts/passkey_ownership_proof.pkp?url";
+import verifierArtifactUrl from "./artifacts/passkey_ownership_proof.pkv?url";
 
 const result = document.querySelector<HTMLElement>("#result")!;
 
@@ -15,6 +16,39 @@ function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
   output.set(left);
   output.set(right, left.length);
   return output;
+}
+
+async function rejectedMutations(
+  runtime: Awaited<ReturnType<typeof initProveKit>>,
+  artifact: Uint8Array,
+  inputs: Record<string, unknown>,
+): Promise<Record<string, boolean>> {
+  const prover = await runtime.loadProver(artifact);
+  const mutations: Record<string, (candidate: any) => void> = {
+    challenge: (candidate) => { candidate.challenge[0] = String(Number(candidate.challenge[0]) ^ 1); },
+    rpIdHash: (candidate) => { candidate.rp_id_hash[0] = String(Number(candidate.rp_id_hash[0]) ^ 1); },
+    nonce: (candidate) => { candidate.nonce[0] = String(Number(candidate.nonce[0]) ^ 1); },
+    signature: (candidate) => { candidate.inputs.webauthn.signature[0] = String(Number(candidate.inputs.webauthn.signature[0]) ^ 1); },
+    publicKey: (candidate) => { candidate.inputs.webauthn.public_key_x[31] = String(Number(candidate.inputs.webauthn.public_key_x[31]) ^ 1); },
+    registryRoot: (candidate) => { candidate.root = String(BigInt(candidate.root) + 1n); },
+    merklePath: (candidate) => { candidate.inputs.merkle_proof.siblings[0] = String(BigInt(candidate.inputs.merkle_proof.siblings[0]) + 1n); },
+  };
+  const rejected: Record<string, boolean> = {};
+  try {
+    for (const [name, mutate] of Object.entries(mutations)) {
+      const candidate = structuredClone(inputs);
+      mutate(candidate);
+      try {
+        await prover.prove(candidate);
+        rejected[name] = false;
+      } catch {
+        rejected[name] = true;
+      }
+    }
+  } finally {
+    prover.dispose();
+  }
+  return rejected;
 }
 
 async function digest(bytes: Uint8Array): Promise<Uint8Array> {
@@ -31,7 +65,12 @@ try {
   };
   const registry = await registerWithLocalBridge(passkey);
 
-  const challenge = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+  const proofRequest = await createWorldIdProofRequest({
+    registryRoot: registry.root,
+    rpId: location.hostname,
+    nonce: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
+  });
+  const challenge = proofRequest.challenge;
   const clientDataJson = new TextEncoder().encode(JSON.stringify({
     type: "webauthn.get",
     challenge: base64url(challenge),
@@ -52,7 +91,7 @@ try {
   };
 
   const witnessStarted = performance.now();
-  const inputs = await buildPasskeyOwnershipNoirInputs(passkey, assertion, registry);
+  const inputs = await buildPasskeyOwnershipNoirInputs(passkey, assertion, registry, proofRequest.nonce);
   const witnessMs = performance.now() - witnessStarted;
   const threads = new URLSearchParams(location.search).get("threads") === "false" ? false : "auto";
   const runtime = await initProveKit({ threads });
@@ -60,13 +99,21 @@ try {
     fetch(proverArtifactUrl).then((r) => r.arrayBuffer()),
     fetch(verifierArtifactUrl).then((r) => r.arrayBuffer()),
   ]);
-  const proof = await proveAndVerifyWithRuntime(runtime, inputs, new Uint8Array(pkp), new Uint8Array(pkv));
+  const proverArtifact = new Uint8Array(pkp);
+  const proof = await proveAndVerifyWithRuntime(runtime, inputs, proverArtifact, new Uint8Array(pkv));
+  const mutationsRejected = await rejectedMutations(runtime, proverArtifact, inputs);
   result.textContent = JSON.stringify({
-    ok: proof.valid && proof.tamperedRejected,
+    ok: proof.valid && proof.tamperedRejected && Object.values(mutationsRejected).every(Boolean),
+    statement: {
+      action: proofRequest.action,
+      request: proofRequest.message,
+      challenge: base64url(proofRequest.challenge),
+    },
     registry: { leafIndex: registry.leafIndex, root: registry.root, accountLeaf: registry.accountLeaf },
     threading: runtime.threading,
     witnessMs,
     ...proof,
+    mutationsRejected,
     crossOriginIsolated,
     userAgent: navigator.userAgent,
   }, null, 2);
