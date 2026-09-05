@@ -1,7 +1,10 @@
 use super::constants::DS_TAKT;
 use super::utils::{assert_cbor_uint32, assert_not_expired, p256_be_coord_to_field};
-use eddsa_poseidon2::verify_eddsa_poseidon2;
-use poseidon2::bn254::perm;
+use eddsa_poseidon2::{
+    BabyJubJubPoint, BabyJubJubPointInSubgroup, BabyJubJubScalarFieldElement,
+    verify_eddsa_poseidon2,
+};
+use poseidon2::bn254::permutation;
 
 pub struct TrustAnchorKeyToken {
     /// Expiration as seconds since the Unix epoch (CWT `exp`).
@@ -37,13 +40,12 @@ pub fn verify_takt(input: TrustAnchorKeyToken, now: Field) {
 
     let digest = takt_digest(input);
 
-    let is_valid = verify_eddsa_poseidon2(
-        input.trust_anchor_key_x,
-        input.trust_anchor_key_y,
-        input.sig_s,
-        input.sig_r,
-        digest,
-    );
+    let trust_anchor_key =
+        BabyJubJubPointInSubgroup::new(input.trust_anchor_key_x, input.trust_anchor_key_y);
+    let sig_s = BabyJubJubScalarFieldElement::new(input.sig_s);
+    let sig_r = BabyJubJubPoint::new(input.sig_r[0], input.sig_r[1]);
+
+    let is_valid = verify_eddsa_poseidon2(trust_anchor_key, sig_s, sig_r, digest);
     assert(is_valid, "invalid signature");
 }
 
@@ -73,7 +75,7 @@ fn takt_digest(input: TrustAnchorKeyToken) -> Field {
     let (x_hi, x_lo) = p256_be_coord_to_field(input.assertion_key_x);
     let (y_hi, y_lo) = p256_be_coord_to_field(input.assertion_key_y);
 
-    let state = perm::x5_8([
+    let state = permutation::t8([
         DS_TAKT, // [0]
         input.exp, // [1]
         x_hi, // [2]

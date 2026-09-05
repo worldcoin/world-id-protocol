@@ -7,5 +7,5 @@ license = "MIT"
 backend = "provekit"
 
 [dependencies]
-poseidon2 = { tag = "v0.5.0-beta.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "poseidon2" }
-eddsa_poseidon2 = { tag = "taceo-oprf-v0.12.0", git = "https://github.com/TaceoLabs/oprf-service.git", directory = "noir/eddsa_poseidon2" }
+poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "poseidon2" }
+eddsa_poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "eddsa_poseidon2" }

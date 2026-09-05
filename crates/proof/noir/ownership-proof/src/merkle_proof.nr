@@ -1,5 +1,5 @@
 use super::{constants::MERKLE_LEAF_DS, types::PublicKey};
-use poseidon2::bn254::perm;
+use poseidon2::bn254::permutation;
 
 pub fn merkle_leaf<let NUM_KEYS: u32>(pk: [PublicKey; NUM_KEYS]) -> Field {
     let mut inputs: [Field; 16] = [0; 16];
@@ -10,7 +10,7 @@ pub fn merkle_leaf<let NUM_KEYS: u32>(pk: [PublicKey; NUM_KEYS]) -> Field {
         inputs[i * 2 + 2] = pk[i].y;
     }
 
-    let hash_state = perm::x5_16(inputs);
+    let hash_state = permutation::t16(inputs);
     hash_state[1]
 }
 
@@ -42,7 +42,7 @@ pub fn compute_merkle_root_poseidon2<let N: u32>(
             let left = sibling + (diff * (1 - is_right_field));
             let right = sibling + (diff * is_right_field);
 
-            let hash_state = perm::x5_2([left, right]);
+            let hash_state = permutation::t2([left, right]);
             current = hash_state[0] + left;
 
             idx >>= 1;
@@ -73,7 +73,7 @@ fn test_compute_merkle_root_left_child() {
     let sibling: Field = 456;
 
     // index=0: leaf is the left child
-    let hash_state = perm::x5_2([leaf, sibling]);
+    let hash_state = permutation::t2([leaf, sibling]);
     let expected_root = hash_state[0] + leaf;
 
     let computed = compute_merkle_root_poseidon2(leaf, 1, 0, [sibling]);
@@ -86,7 +86,7 @@ fn test_compute_merkle_root_right_child() {
     let sibling: Field = 456;
 
     // index=1: leaf is the right child
-    let hash_state = perm::x5_2([sibling, leaf]);
+    let hash_state = permutation::t2([sibling, leaf]);
     let expected_root = hash_state[0] + sibling;
 
     let computed = compute_merkle_root_poseidon2(leaf, 1, 1, [sibling]);
@@ -101,10 +101,10 @@ fn test_compute_merkle_root_depth_2() {
 
     // index=0 (binary 00): leaf is left at both levels
     // Level 0: hash(leaf, sib0)
-    let h0 = perm::x5_2([leaf, sib0]);
+    let h0 = permutation::t2([leaf, sib0]);
     let level0 = h0[0] + leaf;
     // Level 1: hash(level0, sib1)
-    let h1 = perm::x5_2([level0, sib1]);
+    let h1 = permutation::t2([level0, sib1]);
     let expected_root = h1[0] + level0;
 
     let computed = compute_merkle_root_poseidon2(leaf, 2, 0, [sib0, sib1]);
@@ -119,10 +119,10 @@ fn test_compute_merkle_root_depth_2_index_3() {
 
     // index=3 (binary 11): leaf is right at both levels
     // Level 0: hash(sib0, leaf)
-    let h0 = perm::x5_2([sib0, leaf]);
+    let h0 = permutation::t2([sib0, leaf]);
     let level0 = h0[0] + sib0;
     // Level 1: hash(sib1, level0)
-    let h1 = perm::x5_2([sib1, level0]);
+    let h1 = permutation::t2([sib1, level0]);
     let expected_root = h1[0] + sib1;
 
     let computed = compute_merkle_root_poseidon2(leaf, 2, 3, [sib0, sib1]);

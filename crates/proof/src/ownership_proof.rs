@@ -14,7 +14,7 @@ use world_id_primitives::{Credential, FieldElement, TREE_DEPTH, proof::Ownership
 
 use crate::{
     NoirCircuitInput, NoirRepresentable, ProofError, artifacts::ZkArtifactSource,
-    circuit_inputs::OwnershipProofCircuitInput, errors::ProofInputError,
+    circuit_inputs::OwnershipProofCircuitInput, errors::ProofInputError, to_noir_element,
 };
 
 /// Loads an ownership proof prover from a reader containing PKP bytes.
@@ -205,8 +205,8 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
             .iter()
             .map(|pk| {
                 let mut s = BTreeMap::new();
-                s.insert("x".into(), InputValue::Field(NoirElement::from_repr(pk.x)));
-                s.insert("y".into(), InputValue::Field(NoirElement::from_repr(pk.y)));
+                s.insert("x".into(), InputValue::Field(to_noir_element(pk.x)));
+                s.insert("y".into(), InputValue::Field(to_noir_element(pk.y)));
                 InputValue::Struct(s)
             })
             .collect();
@@ -223,15 +223,15 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
             ark_bn254::Fr::from_be_bytes_mod_order(&self.signature.s.into_bigint().to_bytes_be());
         inputs.insert(
             "query_s".into(),
-            InputValue::Field(NoirElement::from_repr(s_native)),
+            InputValue::Field(to_noir_element(s_native)),
         );
 
         // query_r: [Field; 2]  (point x, y)
         inputs.insert(
             "query_r".into(),
             InputValue::Vec(vec![
-                InputValue::Field(NoirElement::from_repr(self.signature.r.x)),
-                InputValue::Field(NoirElement::from_repr(self.signature.r.y)),
+                InputValue::Field(to_noir_element(self.signature.r.x)),
+                InputValue::Field(to_noir_element(self.signature.r.y)),
             ]),
         );
 
