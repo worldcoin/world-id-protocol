@@ -12,7 +12,7 @@ use alloy_node_bindings::{Anvil, AnvilInstance};
 use ark_ff::PrimeField as _;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::{Context, ContextCompat, Result};
-use taceo_oprf_test_utils::TestOprfKeyRegistry;
+use taceo_oprf::anvil::OprfKeyRegistry;
 use world_id_primitives::{FieldElement, TREE_DEPTH, rp::RpId};
 
 /// Canonical Multicall3 address (same on all EVM chains).
@@ -167,16 +167,6 @@ sol!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../contracts/out/Verifier.sol/Verifier.json"
     )
-);
-
-// FIXME replace me with the actual billing contract as soon as it is done.
-alloy::sol!(
-    #[sol(rpc, bytecode = "60808060405234601357608b908160188239f35b5f80fdfe60808060405260043610156011575f80fd5b5f3560e01c6375298c75146023575f80fd5b3460515760203660031901126051576004359067ffffffffffffffff8216809203605157602a602092148152f35b5f80fdfea2646970667358221220bfb7611c967593ea8addfd14d3e723982bc72dfd2448df1cdcf1563b09adbc4164736f6c634300081e0033")]
-    contract BillingContractMock {
-        function isBlocked(uint64 rpId) external pure returns (bool) {
-            return rpId == 42;
-        }
-    }
 );
 
 // ── State bridge contract bindings ────────────────────────────────────────
@@ -404,6 +394,12 @@ impl TestAnvil {
         Ok(PrivateKeySigner::from(key))
     }
 
+    /// Addresses of anvil accounts 5-9, used as the five-node OPRF committee
+    /// (must match the signers used by `stubs::spawn_key_gens`).
+    pub fn oprf_peer_addresses(&self) -> Result<Vec<Address>> {
+        (5..10).map(|i| Ok(self.signer(i)?.address())).collect()
+    }
+
     /// Creates a read-only provider connected to the `anvil` instance.
     #[allow(dead_code)]
     pub fn provider(&self) -> Result<DynProvider> {
@@ -621,6 +617,33 @@ impl TestAnvil {
         Self::deploy_contract(provider, bytecode, Bytes::new()).await
     }
 
+    /// Links `PackedAccountData` into the V3 verifier implementation bytecode and deploys it.
+    async fn deploy_linked_verifier_impl<P: Provider>(
+        provider: P,
+        packed_account_data_addr: Address,
+    ) -> Result<Address> {
+        let impl_json = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/UnreleasedWorldIDVerifierV3.sol/WorldIDVerifierV3.json"
+        ));
+        let json_value: serde_json::Value = serde_json::from_str(impl_json)?;
+        let bytecode_str = json_value["bytecode"]["object"]
+            .as_str()
+            .context("bytecode not found in JSON")?
+            .strip_prefix("0x")
+            .context("bytecode should be 0x-prefixed")?;
+
+        let bytecode_str = Self::link_bytecode_hex(
+            impl_json,
+            bytecode_str,
+            "src/core/libraries/PackedAccountData.sol:PackedAccountData",
+            packed_account_data_addr,
+        )?;
+
+        let bytecode = Bytes::from(hex::decode(bytecode_str)?);
+        Self::deploy_contract(provider, bytecode, Bytes::new()).await
+    }
+
     /// Deploys the `RpRegistry` contract using the supplied signer.
     #[allow(dead_code)]
     pub async fn deploy_rp_registry(
@@ -657,17 +680,6 @@ impl TestAnvil {
         Ok(*proxy.address())
     }
 
-    // FIXME replace me with real billing contract once merged
-    pub async fn deploy_billing_contract(&self, signer: PrivateKeySigner) -> eyre::Result<Address> {
-        let provider = ProviderBuilder::new()
-            .wallet(EthereumWallet::from(signer.clone()))
-            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
-        let billing_contract_mock = BillingContractMock::deploy(provider.clone())
-            .await
-            .context("failed to deploy billing contract")?;
-        Ok(*billing_contract_mock.address())
-    }
-
     /// Deploys the `OprfKeyRegistry` contract using the supplied signer.
     #[allow(dead_code)]
     pub async fn deploy_oprf_key_registry(&self, signer: PrivateKeySigner) -> Result<Address> {
@@ -675,12 +687,9 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        taceo_oprf_test_utils::deploy_anvil::deploy_oprf_key_registry_25(
-            provider.erased(),
-            signer.address(),
-        )
-        .await
-        .context("failed to deploy OprfKeyRegistry contract")
+        taceo_oprf::anvil::deploy_oprf_key_registry_25(provider.erased(), signer.address())
+            .await
+            .context("failed to deploy OprfKeyRegistry contract")
     }
 
     /// Deploys a lightweight mock `OprfKeyRegistry` used by auth tests.
@@ -713,10 +722,14 @@ impl TestAnvil {
             .await
             .context("failed to deploy Verifier (Groth16) contract")?;
 
-        // WorldID verifier (upgradeable, delegates to Groth16 verifier)
-        let world_id_verifier = WorldIDVerifierV3::deploy(provider.clone())
+        let packed_account_data = PackedAccountData::deploy(provider.clone())
             .await
-            .context("failed to deploy WorldIDVerifierV3 contract")?;
+            .context("failed to deploy PackedAccountData library")?;
+
+        // WorldID verifier (upgradeable, delegates to Groth16 verifier)
+        let world_id_verifier =
+            Self::deploy_linked_verifier_impl(provider.clone(), *packed_account_data.address())
+                .await?;
 
         let init_data = Bytes::from(
             WorldIDVerifierV3::initializeCall {
@@ -729,7 +742,7 @@ impl TestAnvil {
             .abi_encode(),
         );
 
-        let proxy = ERC1967Proxy::deploy(provider, *world_id_verifier.address(), init_data)
+        let proxy = ERC1967Proxy::deploy(provider, world_id_verifier, init_data)
             .await
             .context("failed to deploy WorldIDVerifier proxy")?;
 
@@ -746,7 +759,7 @@ impl TestAnvil {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
-        let oprf_key_registry = TestOprfKeyRegistry::new(oprf_key_registry_contract, provider);
+        let oprf_key_registry = OprfKeyRegistry::new(oprf_key_registry_contract, provider);
         let receipt = oprf_key_registry
             .registerOprfPeers(node_addresses)
             .send()
@@ -769,7 +782,7 @@ impl TestAnvil {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
-        let oprf_key_registry = TestOprfKeyRegistry::new(oprf_key_registry_contract, provider);
+        let oprf_key_registry = OprfKeyRegistry::new(oprf_key_registry_contract, provider);
         let receipt = oprf_key_registry
             .addKeyGenAdmin(admin)
             .send()

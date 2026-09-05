@@ -1,7 +1,6 @@
 #![cfg(feature = "issuer")]
 
 use eyre::Result;
-use taceo_oprf_test_utils::PEER_ADDRESSES;
 use world_id_core::Issuer;
 use world_id_test_utils::anvil::{CredentialSchemaIssuerRegistry, TestAnvil};
 
@@ -22,7 +21,7 @@ async fn test_register_issuer_schema() -> Result<()> {
         .register_oprf_nodes(
             oprf_key_registry,
             issuer_signer.clone(),
-            PEER_ADDRESSES.to_vec(),
+            anvil.oprf_peer_addresses()?,
         )
         .await?;
 

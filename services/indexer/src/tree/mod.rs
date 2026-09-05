@@ -4,6 +4,7 @@ use semaphore_rs_hasher::Hasher;
 use semaphore_rs_storage::MmapVec;
 use semaphore_rs_trees::cascading::CascadingMerkleTree;
 use thiserror::Error;
+use world_id_primitives::poseidon;
 
 pub mod cached_tree;
 pub mod state;
@@ -138,10 +139,6 @@ impl Hasher for PoseidonHasher {
     fn hash_node(left: &Self::Hash, right: &Self::Hash) -> Self::Hash {
         let left: Fr = left.try_into().unwrap();
         let right: Fr = right.try_into().unwrap();
-        let mut input = [left, right];
-        let feed_forward = input[0];
-        poseidon2::bn254::t2::permutation_in_place(&mut input);
-        input[0] += feed_forward;
-        input[0].into()
+        (*poseidon::compress(left.into(), right.into())).into()
     }
 }

@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    assignees:
+      - "kilianglas"
+      - "Dzejkop"
+    cooldown:
+      default-days: 14 # Never propose a release that has been public for less than 14 days
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    assignees:
+      - "kilianglas"
+      - "Dzejkop"
+    cooldown:
+      default-days: 7

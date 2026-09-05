@@ -1,8 +1,10 @@
+mod cors;
 mod deprecation;
 mod request_metrics;
 mod timeout;
 mod trace;
 
+pub use cors::cors_layer;
 pub use deprecation::{
     Deprecation, DeprecationLayer, DeprecationService, METRICS_DEPRECATED_ENDPOINT_REQUESTS,
     V1RecoveryAgentMethodsDeprecation, V1RecoveryAgentMethodsDeprecationLayer,

@@ -84,7 +84,6 @@ mod tests {
     use taceo_oprf::core::oprf::BlindingFactor;
     use world_id_primitives::{
         AuthenticatorPublicKeySet, FieldElement, Signer, TREE_DEPTH, merkle::MerkleInclusionProof,
-        rp::RpId,
     };
     use world_id_proof::{circuit_inputs::QueryProofCircuitInput, errors};
     use world_id_test_utils::{
@@ -116,10 +115,8 @@ mod tests {
         pub(crate) anvil: TestAnvil,
         pub(crate) world_id_registry: Address,
         pub(crate) rp_registry: Address,
-        pub(crate) billing_contract: Address,
         pub(crate) credential_schema_issuer_registry: Address,
         pub(crate) issuer_schema_id: u64,
-        pub(crate) blocked_rp: RpId,
         pub(crate) rp_fixture: RpFixture,
         pub(crate) merkle_inclusion_proof: MerkleInclusionProof<TREE_DEPTH>,
         pub(crate) key_index: u64,
@@ -138,7 +135,6 @@ mod tests {
     }
 
     impl OprfRequestAuthTestSetup {
-        #[expect(clippy::too_many_lines, reason = "doesn't matter in test")]
         pub(crate) async fn new(kind: SetupKind) -> eyre::Result<Self> {
             let mut rng = rand::thread_rng();
             let anvil = TestAnvil::spawn_auto_mine_with_multicall3().await?;
@@ -150,17 +146,14 @@ mod tests {
 
             let rp_fixture = fixtures::generate_rp_fixture();
             let issuer_schema_id = rng.r#gen::<u64>();
-            let blocked_rp = RpId::new(42);
 
             let mut rp_registry = Address::ZERO;
             let mut credential_schema_issuer_registry = Address::ZERO;
-            let mut billing_contract = Address::ZERO;
             match kind {
                 SetupKind::RpModule => {
                     rp_registry = anvil
                         .deploy_rp_registry(deployer.clone(), oprf_key_registry)
                         .await?;
-                    billing_contract = anvil.deploy_billing_contract(deployer.clone()).await?;
                     // Register the RP which also triggers a OPRF key-gen.
                     let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
                     anvil
@@ -171,17 +164,6 @@ mod tests {
                             rp_signer.address(),
                             rp_signer.address(),
                             "taceo.oprf".to_string(),
-                        )
-                        .await?;
-
-                    anvil
-                        .register_rp(
-                            rp_registry,
-                            deployer.clone(),
-                            blocked_rp,
-                            rp_signer.address(),
-                            rp_signer.address(),
-                            "taceo.blocked".to_string(),
                         )
                         .await?;
                 }
@@ -244,8 +226,6 @@ mod tests {
                 anvil,
                 world_id_registry,
                 rp_registry,
-                billing_contract,
-                blocked_rp,
                 credential_schema_issuer_registry,
                 issuer_schema_id,
                 rp_fixture,
@@ -296,7 +276,6 @@ mod tests {
 
             let rp_registry_watcher = RpRegistryWatcher::init(
                 setup.rp_registry,
-                setup.billing_contract,
                 http_rpc_provider.clone(),
                 timeout_external_eth_call,
                 WatcherCacheConfig::default(),

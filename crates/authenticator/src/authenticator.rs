@@ -59,9 +59,10 @@ pub struct CredentialInput {
 /// those are SDK concerns.
 #[derive(Debug)]
 pub struct ProofResult {
-    /// The session_id_r_seed (`r`), if a session proof was generated.
+    /// The session_id_r_seed (`r`), when a session was created or proven.
     ///
-    /// The SDK should cache this keyed by [`SessionId::oprf_seed`].
+    /// Returned for session proofs and for uniqueness proofs that create a bound
+    /// session. The SDK should cache this keyed by [`SessionId::oprf_seed`].
     pub session_id_r_seed: Option<FieldElement>,
 
     /// The response to deliver to an RP.
@@ -341,10 +342,24 @@ impl Authenticator {
         // If the registry is available through direct RPC calls, use it. Otherwise fallback to the indexer.
         let raw_index = if let Some(registry) = registry {
             // TODO: Better error handling to expose the specific failure
-            registry
+            let packed_account_data = registry
                 .getPackedAccountData(onchain_signer_address)
                 .call()
-                .await?
+                .await?;
+
+            // The registry keeps stale packed data for authenticators revoked by a recovery,
+            // so compare the embedded recovery counter against the account's current one.
+            if packed_account_data != U256::ZERO {
+                let leaf_index = (packed_account_data & MASK_LEAF_INDEX).to::<u64>();
+                let packed_recovery_counter = (packed_account_data & MASK_RECOVERY_COUNTER) >> 224;
+                let current_recovery_counter =
+                    registry.getRecoveryCounter(leaf_index).call().await?;
+                if current_recovery_counter > packed_recovery_counter {
+                    return Err(AuthenticatorError::AccountDoesNotExist);
+                }
+            }
+
+            packed_account_data
         } else {
             let req = IndexerPackedAccountRequest {
                 authenticator_address: onchain_signer_address,

@@ -52,10 +52,8 @@ impl ZeroKnowledgeProof {
         }
 
         let mut inner = [U256::ZERO; 5];
-        for (i, chunk) in bytes.chunks_exact(32).enumerate() {
-            let mut arr = [0u8; 32];
-            arr.copy_from_slice(chunk);
-            inner[i] = U256::from_be_bytes(arr);
+        for (i, chunk) in bytes.as_chunks::<32>().0.iter().enumerate() {
+            inner[i] = U256::from_be_bytes(*chunk);
         }
 
         Ok(Self { inner })

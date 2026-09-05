@@ -66,8 +66,8 @@ async fn test_rate_limit_basic() {
         registry_addr,
         registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
-            http: Some(vec![rpc_url.parse().unwrap()]),
-            signer: Some(signer_args),
+            http: vec![rpc_url.parse().unwrap()],
+            signer: signer_args,
             ..Default::default()
         },
         max_create_batch_size: 10,
@@ -274,8 +274,8 @@ async fn test_rate_limit_different_leaf_indexes() {
         registry_addr,
         registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
-            http: Some(vec![rpc_url.parse().unwrap()]),
-            signer: Some(signer_args),
+            http: vec![rpc_url.parse().unwrap()],
+            signer: signer_args,
             ..Default::default()
         },
         max_create_batch_size: 10,
@@ -431,8 +431,8 @@ async fn test_rate_limit_sliding_window() {
         registry_addr,
         registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
-            http: Some(vec![rpc_url.parse().unwrap()]),
-            signer: Some(signer_args),
+            http: vec![rpc_url.parse().unwrap()],
+            signer: signer_args,
             ..Default::default()
         },
         max_create_batch_size: 10,
@@ -585,8 +585,8 @@ async fn test_rate_limit_multiple_endpoints() {
         registry_addr,
         registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
-            http: Some(vec![rpc_url.parse().unwrap()]),
-            signer: Some(signer_args),
+            http: vec![rpc_url.parse().unwrap()],
+            signer: signer_args,
             ..Default::default()
         },
         max_create_batch_size: 10,

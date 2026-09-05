@@ -3,9 +3,7 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     auth::{
         rp_module::{RelyingParty, wip101},
-        rp_registry_watcher::{
-            BillingContract::BillingContractInstance, RpRegistry::RpRegistryInstance,
-        },
+        rp_registry_watcher::RpRegistry::RpRegistryInstance,
     },
     config::WatcherCacheConfig,
     metrics,
@@ -22,7 +20,7 @@ use taceo_oprf::types::OprfKeyId;
 use tracing::instrument;
 use world_id_primitives::{oprf::WorldIdRequestAuthError, rp::RpId};
 
-// Copied from IRpRegistry.sol/IBillingContract.sol.
+// Copied from IRpRegistry.sol.
 //
 // For brevity we only copy the methods that are relevant for the watcher
 alloy::sol! {
@@ -41,11 +39,6 @@ alloy::sol! {
         error RpIdInactive();
 
         function getRp(uint64 rpId) external view returns (RelyingParty memory);
-    }
-
-    #[sol(rpc)]
-    interface BillingContract {
-        function isBlocked(uint64 rpId) external view returns (bool);
     }
 }
 
@@ -96,7 +89,6 @@ impl From<&RpRegistryWatcherError> for WorldIdRequestAuthError {
 pub(crate) struct RpRegistryWatcher {
     rp_store: Cache<RpId, RelyingParty>,
     rp_registry_contract: RpRegistryInstance<DynProvider>,
-    billing_contract: BillingContractInstance<DynProvider>,
     timeout_external_eth_call: Duration,
     http_rpc_provider: web3::HttpRpcProvider,
 }
@@ -105,7 +97,6 @@ impl RpRegistryWatcher {
     #[instrument(level = "info", skip_all)]
     pub(crate) fn init(
         rp_registry_address: Address,
-        billing_contract_address: Address,
         http_rpc_provider: web3::HttpRpcProvider,
         timeout_external_eth_call: Duration,
         cache_config: WatcherCacheConfig,
@@ -113,10 +104,6 @@ impl RpRegistryWatcher {
         Self {
             rp_store: cache_config.build_cache(),
             rp_registry_contract: RpRegistry::new(rp_registry_address, http_rpc_provider.inner()),
-            billing_contract: BillingContract::new(
-                billing_contract_address,
-                http_rpc_provider.inner(),
-            ),
             timeout_external_eth_call,
             http_rpc_provider,
         }
@@ -156,20 +143,17 @@ impl RpRegistryWatcher {
         let rp_id_u64 = rp_id.into_inner();
         let get_rp_call =
             CallItemBuilder::new(self.rp_registry_contract.getRp(rp_id_u64)).allow_failure(true);
-        let (get_rp_result, is_blocked, current_block, timestamp) = self
+        let (get_rp_result, current_block, timestamp) = self
             .rp_registry_contract
             .provider()
             .multicall()
             .add_call(get_rp_call)
-            // we expect that isBlocked cannot revert
-            .add(self.billing_contract.isBlocked(rp_id_u64))
             .get_block_number()
             .get_current_block_timestamp()
             .aggregate3()
             .await
             .context("while doing fetch-rp multi-call")?;
 
-        let is_blocked = is_blocked.context("is_blocked failed but allow-failure=false")?;
         let current_block = current_block.context("block_number failed but allow-failure=false")?;
         let timestamp = timestamp.context("timestamp_block failed but allow-failure=false")?;
 
@@ -210,18 +194,9 @@ impl RpRegistryWatcher {
             signer: rp.signer,
             oprf_key_id: OprfKeyId::new(rp.oprfKeyId),
             account_type,
-            is_blocked,
-            fetched_at_block: current_block,
-            fetched_at_timestamp: timestamp,
         };
 
         Ok(relying_party)
-    }
-
-    #[allow(dead_code, reason = "is only used in tests")]
-    #[cfg(test)]
-    pub(crate) fn set_timeout_external_eth_call(&mut self, duration: Duration) {
-        self.timeout_external_eth_call = duration;
     }
 }
 
@@ -235,7 +210,7 @@ mod tests {
 
     use crate::{auth::tests::build_http_provider, config::WatcherCacheConfig};
 
-    /// Deploys only what the watcher needs (RP registry + billing mock) and registers one RP.
+    /// Deploys only what the watcher needs (RP registry) and registers one RP.
     async fn setup(
         ttl: Duration,
     ) -> eyre::Result<(RpRegistryWatcher, TestAnvil, fixtures::RpFixture, Address)> {
@@ -247,7 +222,6 @@ mod tests {
         let rp_registry = anvil
             .deploy_rp_registry(deployer.clone(), oprf_key_registry)
             .await?;
-        let billing_contract = anvil.deploy_billing_contract(deployer.clone()).await?;
 
         let rp_fixture = fixtures::generate_rp_fixture();
         let rp_signer = LocalSigner::from_signing_key(rp_fixture.signing_key.clone());
@@ -255,19 +229,8 @@ mod tests {
         anvil
             .register_rp(
                 rp_registry,
-                deployer.clone(),
-                rp_fixture.world_rp_id,
-                rp_signer.address(),
-                rp_signer.address(),
-                "test.domain".to_string(),
-            )
-            .await?;
-
-        anvil
-            .register_rp(
-                rp_registry,
                 deployer,
-                RpId::new(42),
+                rp_fixture.world_rp_id,
                 rp_signer.address(),
                 rp_signer.address(),
                 "test.domain".to_string(),
@@ -277,7 +240,6 @@ mod tests {
 
         let watcher = RpRegistryWatcher::init(
             rp_registry,
-            billing_contract,
             http_rpc_provider,
             Duration::from_secs(10),
             WatcherCacheConfig {
@@ -302,29 +264,8 @@ mod tests {
             LocalSigner::from_signing_key(rp_fixture.signing_key.clone()).address();
         assert_eq!(rp.signer, expected_signer);
 
-        assert!(!rp.is_blocked, "RP should not be blocked");
         assert!(
             watcher.rp_store.contains_key(&rp_fixture.world_rp_id),
-            "Cache should have stored RP"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_blocked_rp_cached() -> eyre::Result<()> {
-        let (watcher, _anvil, _, _) = setup(Duration::from_secs(10)).await?;
-        let blocked_rp = RpId::new(42);
-
-        // 42 is blocked on the mock contract
-        let rp = watcher
-            .get_rp(blocked_rp)
-            .await
-            .expect("getRp should succeed and cache the RP");
-
-        assert!(rp.is_blocked, "RP should be blocked");
-
-        assert!(
-            watcher.rp_store.contains_key(&blocked_rp),
             "Cache should have stored RP"
         );
         Ok(())

@@ -1,9 +1,8 @@
-use crate::FieldElement;
-use ark_ff::PrimeField as _;
+use crate::{
+    FieldElement,
+    poseidon::{self, ds},
+};
 use eddsa_babyjubjub::EdDSASignature;
-
-/// Domain separator for the authenticator OPRF query digest.
-const OPRF_QUERY_DS: &[u8] = b"World ID Query";
 
 /// Computes the Poseidon2 digest for an authenticator OPRF query.
 ///
@@ -17,13 +16,7 @@ pub fn oprf_query_digest(
     action: FieldElement,
     query_origin_id: FieldElement,
 ) -> FieldElement {
-    let input = [
-        ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_QUERY_DS),
-        leaf_index.into(),
-        *query_origin_id,
-        *action,
-    ];
-    poseidon2::bn254::t4::permutation(&input)[1].into()
+    poseidon::hash(ds::OPRF_QUERY, [leaf_index.into(), query_origin_id, action])
 }
 
 /// Enables entities that sign messages within the Protocol for use with the ZK circuits.

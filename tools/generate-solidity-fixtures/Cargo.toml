@@ -18,7 +18,6 @@ world-id-core = { path = "../../crates/core", features = ["authenticator", "embe
 world-id-primitives = { workspace = true }
 world-id-test-utils = { path = "../../crates/test-utils" }
 world-id-gateway = { path = "../../services/gateway" }
-taceo-oprf-test-utils = { workspace = true }
 taceo-oprf = { workspace = true, features = ["types"] }
 hex = { workspace = true }
 tracing = { workspace = true }

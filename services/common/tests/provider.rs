@@ -18,6 +18,7 @@ use tokio::net::TcpListener;
 use url::Url;
 use world_id_services_common::{
     METRICS_RPC_ENDPOINT_LATENCY_MS, METRICS_RPC_ENDPOINT_REQUESTS, ProviderArgs, RetryConfig,
+    SignerArgs,
 };
 
 const CHAIN_ID_RESPONSE: &str = r#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#;
@@ -59,10 +60,10 @@ fn success_response() -> Response {
 
 fn build_provider_args(urls: Vec<Url>, retry: RetryConfig) -> ProviderArgs {
     ProviderArgs {
-        http: Some(urls),
-        signer: None,
+        http: urls,
+        signer: SignerArgs::default(),
         throttle: None,
-        retry: Some(retry),
+        retry,
     }
 }
 

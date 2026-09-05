@@ -192,7 +192,7 @@ impl GatewayConfig {
     }
 
     pub fn validate(&self) -> GatewayResult<()> {
-        if self.provider.signer.is_none() {
+        if self.provider.signer.signer_config().is_none() {
             return Err(GatewayError::Config(
                 "exactly one of --wallet-private-key, --aws-kms-key-id, or \
                  --aws-kms-key-ids must be provided"

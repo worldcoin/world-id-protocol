@@ -1,5 +1,4 @@
-use crate::{AuthenticatorPublicKeySet, FieldElement, serde_utils::hex_u64};
-use ark_bn254::Fr;
+use crate::{AuthenticatorPublicKeySet, FieldElement, poseidon, serde_utils::hex_u64};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 /// Helper module for serializing/deserializing fixed-size arrays.
@@ -65,15 +64,15 @@ impl<const TREE_DEPTH: usize> MerkleInclusionProof<TREE_DEPTH> {
     /// Validates the Merkle inclusion proof structure for a given leaf.
     #[must_use]
     pub fn is_valid(&self, leaf: FieldElement) -> bool {
-        let mut computed = leaf.0;
+        let mut computed = leaf;
         for (idx, sibling) in self.siblings.iter().enumerate() {
-            if (self.leaf_index >> idx) & 1 == 0 {
-                computed = poseidon2_compress(computed, sibling.0);
+            computed = if (self.leaf_index >> idx) & 1 == 0 {
+                poseidon::compress(computed, *sibling)
             } else {
-                computed = poseidon2_compress(sibling.0, computed);
-            }
+                poseidon::compress(*sibling, computed)
+            };
         }
-        computed == self.root.0
+        computed == self.root
     }
 }
 
@@ -103,11 +102,4 @@ impl<const TREE_DEPTH: usize> AccountInclusionProof<TREE_DEPTH> {
             authenticator_pubkeys,
         }
     }
-}
-
-/// Poseidon2 "compress" for a pair of field elements (left, right).
-fn poseidon2_compress(left: Fr, right: Fr) -> Fr {
-    let mut state = poseidon2::bn254::t2::permutation(&[left, right]);
-    state[0] += left;
-    state[0]
 }

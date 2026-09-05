@@ -38,7 +38,6 @@ use taceo_oprf::{
 use world_id_primitives::oprf::OprfModule;
 
 use crate::{
-    accountant_batcher::AccountantBatcherHandle,
     auth::{
         credential_blinding_factor::CredentialBlindingFactorModuleAuth,
         merkle_watcher::MerkleWatcher,
@@ -53,7 +52,6 @@ use crate::{
 /// The embedded Groth16 verification key for OPRF query proofs.
 const QUERY_VERIFICATION_KEY: &str = include_str!("../../../circom/OPRFQuery.vk.json");
 
-pub mod accountant_batcher;
 pub(crate) mod auth;
 pub mod config;
 pub mod metrics;
@@ -61,8 +59,8 @@ pub mod metrics;
 /// Starts the OPRF node and initializes all required services.
 ///
 /// This is the main entry point for running an OPRF node. It sets up all
-/// watchers, authentication services, and the OPRF service itself, and
-/// returns the HTTP router together with the spawned background tasks.
+/// watchers, authentication services, and the OPRF service itself, and returns
+/// the HTTP router.
 ///
 /// The initialization flow consists of:
 /// - Initializing on-chain watchers:
@@ -75,18 +73,13 @@ pub mod metrics;
 /// - Initializing the OPRF service and registering its modules
 /// - Constructing the Axum router for handling incoming HTTP requests
 ///
-/// The returned [`WorldOprfNodeTasks`] contains all long-running background
-/// tasks (key event handling).
-///
 /// # Arguments
 /// - `config`: Full node configuration.
 /// - `secret_manager`: Service responsible for managing oprf secret shares
-/// - `cancellation_token`: Token used to gracefully shut down all services
+/// - `node_information`: Identity of this node within the OPRF network
 ///
 /// # Returns
-/// A tuple containing:
-/// - The configured [`axum::Router`] for serving HTTP requests
-/// - [`WorldOprfNodeTasks`] with all spawned background tasks
+/// The configured [`axum::Router`] for serving HTTP requests.
 ///
 /// # Errors
 /// Returns an error if any component fails to initialize.
@@ -98,7 +91,6 @@ pub fn start(
     config: WorldOprfNodeConfig,
     secret_manager: SecretManagerService,
     node_information: &NodeInformation,
-    accountant_batcher: AccountantBatcherHandle,
 ) -> eyre::Result<axum::Router> {
     let node_config = config.node_config;
     let started_services = StartedServices::default();
@@ -120,7 +112,6 @@ pub fn start(
     tracing::info!("init RpRegistry watcher..");
     let rp_registry_watcher = RpRegistryWatcher::init(
         config.rp_registry_contract,
-        config.billing_contract,
         http_rpc_provider.clone(),
         config.timeout_external_eth_call,
         config.rp_cache_config,
@@ -148,10 +139,8 @@ pub fn start(
         rpc_provider: http_rpc_provider.clone(),
         query_vk: Arc::clone(&query_vk),
     };
-    let nullifier_oprf_req_auth_service = Arc::new(RpModuleAuth::new_uniqueness(
-        rp_module_args.clone(),
-        accountant_batcher,
-    ));
+    let nullifier_oprf_req_auth_service =
+        Arc::new(RpModuleAuth::new_uniqueness(rp_module_args.clone()));
 
     tracing::info!("init session oprf request auth service..");
     let session_oprf_req_auth_service = Arc::new(RpModuleAuth::new_session(rp_module_args));
@@ -177,6 +166,7 @@ pub fn start(
         secret_manager,
         started_services,
         node_information,
+        taceo_nodes_common::version_info!(),
     )
     .module(
         &format!("/{}", OprfModule::Nullifier),
