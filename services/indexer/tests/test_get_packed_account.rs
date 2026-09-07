@@ -186,8 +186,8 @@ async fn test_packed_account_rejects_authenticator_revoked_by_recovery() {
     wait_for_recovery_indexed(&setup.pool, leaf_index as i64).await;
 
     let (status, json) = packed_account(host, old_auth_addr).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST); // after recovery, the old authenticator is revoked
-    assert_eq!(json["code"].as_str().unwrap(), "account_does_not_exist");
+    assert_eq!(status, StatusCode::FORBIDDEN); // after recovery, the old authenticator is revoked
+    assert_eq!(json["code"].as_str().unwrap(), "authenticator_revoked");
 
     // the other authenticator works
     let (status, json) = packed_account(host, new_auth_addr).await;
@@ -196,6 +196,28 @@ async fn test_packed_account_rejects_authenticator_revoked_by_recovery() {
         packed_data(&json),
         (U256::from(1) << 224) | U256::from(leaf_index)
     );
+
+    // Revocation must not depend on the indexer's recovery event having caught up.
+    sqlx::query("UPDATE accounts SET recovery_counter = 0 WHERE leaf_index = $1")
+        .bind(leaf_index as i64)
+        .execute(&setup.pool)
+        .await
+        .unwrap();
+    let (status, json) = packed_account(host, old_auth_addr).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(json["code"], "authenticator_revoked");
+    assert_eq!(packed_account(host, new_auth_addr).await.0, StatusCode::OK);
+
+    // A missing account row is not evidence that the old authenticator is valid.
+    sqlx::query("DELETE FROM accounts WHERE leaf_index = $1")
+        .bind(leaf_index as i64)
+        .execute(&setup.pool)
+        .await
+        .unwrap();
+    let (status, json) = packed_account(host, old_auth_addr).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(json["code"], "authenticator_revoked");
+    assert_eq!(packed_account(host, new_auth_addr).await.0, StatusCode::OK);
 
     indexer_task.abort();
 }
