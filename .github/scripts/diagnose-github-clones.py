@@ -41,6 +41,52 @@ def run(args, timeout=45, **kwargs):
         return 124, "", f"Timed out after {timeout} seconds", timeout
 
 
+if len(sys.argv) > 1 and sys.argv[1] == "--clone-check":
+    results = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for attempt in range(1, 4):
+            for repo in ("foundry-rs/forge-std", "0xOsiris/poseidon-solidity"):
+                for mode in ("anonymous-h2", "anonymous-h1", "authenticated-h2"):
+                    label = f"{repo} / {mode} / attempt {attempt}"
+                    print(f"::group::{label}", flush=True)
+                    env = os.environ.copy()
+                    env.update(
+                        GIT_TERMINAL_PROMPT="0", GIT_TRACE_CURL="1", GIT_TRACE_CURL_NO_DATA="1",
+                        GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null",
+                        GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="http.version",
+                        GIT_CONFIG_VALUE_0="HTTP/1.1" if mode == "anonymous-h1" else "HTTP/2",
+                    )
+                    env.pop("GIT_CONFIG_PARAMETERS", None)
+                    if mode == "authenticated-h2":
+                        env.update(
+                            GIT_CONFIG_COUNT="2",
+                            GIT_CONFIG_KEY_1="http.https://github.com/.extraheader",
+                            GIT_CONFIG_VALUE_1=f"AUTHORIZATION: basic {BASIC}",
+                        )
+                    dest = str(Path(tmp) / f"clone-{len(results)}")
+                    code, out, err, duration = run(
+                        ["git", "clone", "--no-checkout", f"https://github.com/{repo}", dest],
+                        env=env, cwd=tmp,
+                    )
+                    for line in err.splitlines():
+                        if "<= Recv header:" in line:
+                            header = line.split("<= Recv header:", 1)[1].strip()
+                            if SAFE_HEADER.match(header):
+                                print(redact(line))
+                        elif re.search(r"=> Send header: (GET|POST) ", line) or line.startswith(("fatal:", "error:", "remote:", "Timed out")):
+                            print(redact(line))
+                    result = dict(repo=repo, mode=mode, attempt=attempt, exit=code, seconds=duration)
+                    results.append(result)
+                    print(json.dumps(result), flush=True)
+                    print("::endgroup::", flush=True)
+    print(json.dumps(results, indent=2))
+    with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+        summary.write("| Repository | Mode | Attempt | Exit | Seconds |\n|---|---|---|---|---|\n")
+        for r in results:
+            summary.write(f"| {r['repo']} | {r['mode']} | {r['attempt']} | {r['exit']} | {r['seconds']} |\n")
+    sys.exit(0)
+
+
 if len(sys.argv) > 1 and sys.argv[1] in ("--build", "--recover"):
     with tempfile.TemporaryDirectory() as tmp:
         trace = Path(tmp) / "git-http.log"

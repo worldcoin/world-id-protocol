@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   compare:
+    if: github.event_name == 'workflow_dispatch'
     name: Clone diagnostics (${{ matrix.name }})
     strategy:
       fail-fast: false
@@ -49,3 +50,24 @@ jobs:
         env:
           DIAGNOSTIC_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/diagnose-github-clones.py --recover
+
+  focused:
+    name: Focused clones (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: arc
+            runner: '{"group":"arc-public-large-amd64-runner"}'
+          - name: github-hosted
+            runner: '"ubuntu-latest"'
+    runs-on: ${{ fromJSON(matrix.runner) }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Compare fresh clones across authentication and HTTP versions
+        env:
+          DIAGNOSTIC_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/diagnose-github-clones.py --clone-check
