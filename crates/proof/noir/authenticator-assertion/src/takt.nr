@@ -1,7 +1,18 @@
 use super::constants::DS_TAKT;
-use super::utils::{assert_cbor_uint32, assert_not_expired, p256_be_coord_to_field};
+use super::utils::{
+    assert_cbor_uint32, assert_max_lifetime, assert_not_expired, p256_be_coord_to_field,
+};
 use eddsa_poseidon2::verify_eddsa_poseidon2;
 use poseidon2::bn254::perm;
+
+/// Maximum remaining validity of a TAKT, in seconds (7 days), mandated by
+/// WIP-106 and enforced in [`verify_takt`].
+///
+/// A TAKT vouches for a device key rather than for one request, and the
+/// registry validity window that would otherwise bound it is not visible
+/// in-circuit, so this is what limits how long a stale attestation keeps being
+/// honoured.
+pub global MAX_TAKT_LIFETIME_SECS: Field = 604800;
 
 /// The claims and signature of a Trust Anchor Key Token, as parsed from its
 /// `COSE_Sign1` encoding.
@@ -40,6 +51,8 @@ pub(crate) fn verify_takt(
 ) {
     assert_cbor_uint32(input.exp);
     assert_not_expired(input.exp, now);
+    // Ordering matters: `assert_max_lifetime` relies on the `now < exp` above.
+    assert_max_lifetime(input.exp, now, MAX_TAKT_LIFETIME_SECS);
 
     // Range-check the packed sub-fields (reserved bits MUST be 0).
     let _ = unpack_sec_flags(input.sec_flags);
@@ -114,9 +127,9 @@ pub(crate) global TEST_EXP: Field = 1783446925;
 
 /// Verifier time used by happy-path tests: one hour before `TEST_EXP`.
 ///
-/// The one-hour gap is what keeps the shared fixtures inside the AAT's 12h
-/// maximum lifetime (`aat::MAX_AAT_LIFETIME_SECS`); the TAKT itself has no such
-/// cap, so only the AAT tests depend on the gap being small.
+/// The one-hour gap keeps the shared fixtures inside both maximum lifetimes:
+/// the AAT's 12h (`aat::MAX_AAT_LIFETIME_SECS`) and the TAKT's 7 days
+/// (`MAX_TAKT_LIFETIME_SECS`).
 pub(crate) global TEST_NOW: Field = 1783443325; // TEST_EXP - 3600
 
 /// The `trust_anchor_key` (BabyJubJub, affine x) that signed both deterministic
@@ -223,6 +236,31 @@ fn test_expired_takt_rejected() {
         TEST_TRUST_ANCHOR_KEY_X,
         TEST_TRUST_ANCHOR_KEY_Y,
         TEST_EXP,
+    );
+}
+
+#[test]
+fn test_takt_at_max_lifetime_accepted() {
+    // Exactly `MAX_TAKT_LIFETIME_SECS` of remaining validity is allowed: the
+    // WIP-106 bound is inclusive.
+    verify_takt(
+        test_deterministic_takt(),
+        TEST_TRUST_ANCHOR_KEY_X,
+        TEST_TRUST_ANCHOR_KEY_Y,
+        TEST_EXP - MAX_TAKT_LIFETIME_SECS,
+    );
+}
+
+#[test(should_fail_with = "token lifetime exceeds the maximum")]
+fn test_takt_lifetime_too_long_rejected() {
+    // One second past the 7-day cap. Without this bound an Authenticator
+    // Provider could vouch for a device key indefinitely and no verifier could
+    // tell: the registry validity window is not visible in-circuit.
+    verify_takt(
+        test_deterministic_takt(),
+        TEST_TRUST_ANCHOR_KEY_X,
+        TEST_TRUST_ANCHOR_KEY_Y,
+        TEST_EXP - MAX_TAKT_LIFETIME_SECS - 1,
     );
 }
 

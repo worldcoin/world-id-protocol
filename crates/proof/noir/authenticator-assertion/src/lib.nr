@@ -15,8 +15,9 @@ use crate::takt::{TrustAnchorKeyToken, verify_takt};
 /// 2. that attested `assertion_key` signed the AAT (`ES256` over the COSE
 ///    `Sig_structure`).
 ///
-/// Both tokens must be unexpired at `now`, and the AAT must expire within
-/// `aat::MAX_AAT_LIFETIME_SECS` (12h) of it, per WIP-106.
+/// Both tokens must be unexpired at `now` and within their WIP-106 maximum
+/// lifetimes of it: `aat::MAX_AAT_LIFETIME_SECS` (12h) for the AAT,
+/// `takt::MAX_TAKT_LIFETIME_SECS` (7 days) for the TAKT.
 ///
 /// The two tokens are bound *solely* by the shared `assertion_key`.
 ///
