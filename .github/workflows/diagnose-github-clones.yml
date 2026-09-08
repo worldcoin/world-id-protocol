@@ -1,0 +1,39 @@
+name: Diagnose GitHub clones
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/diagnose-github-clones.yml
+      - .github/scripts/diagnose-github-clones.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: Clone diagnostics (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: arc
+            runner: '{"group":"arc-public-large-amd64-runner"}'
+          - name: github-hosted
+            runner: '"ubuntu-latest"'
+    runs-on: ${{ fromJSON(matrix.runner) }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Compare Git transport and API responses
+        env:
+          DIAGNOSTIC_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/diagnose-github-clones.py
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09
+        with:
+          version: 1.7.1
+          cache: false
+      - name: Reproduce original uncached contract build
+        run: make sol-build
