@@ -36,4 +36,16 @@ jobs:
           version: 1.7.1
           cache: false
       - name: Reproduce original uncached contract build
-        run: make sol-build
+        id: build
+        continue-on-error: true
+        run: python3 .github/scripts/diagnose-github-clones.py --build
+      - name: Probe immediately after clone failure
+        if: steps.build.outcome == 'failure'
+        env:
+          DIAGNOSTIC_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/diagnose-github-clones.py
+      - name: Retry failed build with Git authentication
+        if: steps.build.outcome == 'failure'
+        env:
+          DIAGNOSTIC_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/diagnose-github-clones.py --recover

@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -19,7 +20,7 @@ REPOS = [
     "TaceoLabs/oprf-key-registry",
     "ethereum-optimism/optimism",
 ]
-TOKEN = os.environ.pop("DIAGNOSTIC_TOKEN")
+TOKEN = os.environ.pop("DIAGNOSTIC_TOKEN", "")
 BASIC = base64.b64encode(f"x-access-token:{TOKEN}".encode()).decode()
 SAFE_HEADER = re.compile(
     r"^(HTTP/|date:|server:|content-type:|www-authenticate:|retry-after:|"
@@ -28,16 +29,46 @@ SAFE_HEADER = re.compile(
 
 
 def redact(value):
-    return value.replace(TOKEN, "[REDACTED]").replace(BASIC, "[REDACTED]")
+    return value.replace(TOKEN, "[REDACTED]").replace(BASIC, "[REDACTED]") if TOKEN else value
 
 
-def run(args, **kwargs):
+def run(args, timeout=45, **kwargs):
     started = time.monotonic()
     try:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=45, **kwargs)
+        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout, **kwargs)
         return result.returncode, result.stdout, result.stderr, round(time.monotonic() - started, 2)
     except subprocess.TimeoutExpired:
-        return 124, "", "Timed out after 45 seconds", 45
+        return 124, "", f"Timed out after {timeout} seconds", timeout
+
+
+if len(sys.argv) > 1 and sys.argv[1] in ("--build", "--recover"):
+    with tempfile.TemporaryDirectory() as tmp:
+        trace = Path(tmp) / "git-http.log"
+        env = os.environ.copy()
+        env.update(GIT_TERMINAL_PROMPT="0", GIT_TRACE_CURL=str(trace), GIT_TRACE_CURL_NO_DATA="1")
+        if sys.argv[1] == "--recover":
+            assert TOKEN
+            env.update(
+                GIT_CONFIG_COUNT="1",
+                GIT_CONFIG_KEY_0="http.https://github.com/.extraheader",
+                GIT_CONFIG_VALUE_0=f"AUTHORIZATION: basic {BASIC}",
+            )
+        code, out, err, duration = run(["make", "sol-build"], env=env, timeout=900)
+        for line in (out + "\n" + err).splitlines():
+            if not any(x in line for x in ("Receiving objects:", "Resolving deltas:", "Counting objects:", "Compressing objects:")):
+                print(redact(line))
+        print(f"build exit={code}, seconds={duration}")
+        if trace.exists():
+            print("::group::Actual clone HTTP responses")
+            for line in trace.read_text().splitlines():
+                if "<= Recv header:" in line:
+                    header = line.split("<= Recv header:", 1)[1].strip()
+                    if SAFE_HEADER.match(header):
+                        print(redact(line))
+                elif re.search(r"=> Send header: (GET|POST) ", line):
+                    print(redact(line))
+            print("::endgroup::")
+        sys.exit(code)
 
 
 print("UTC:", datetime.datetime.now(datetime.timezone.utc).isoformat(), flush=True)
