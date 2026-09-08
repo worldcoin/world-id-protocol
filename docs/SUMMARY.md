@@ -22,4 +22,4 @@ Core protocol proposals.
 
 Proposals for standardization with third party protocols, interfaces & specifications. These proposals do not affect the core protocol.
 
-- [WISP-101: Communication over wallet-bridge](WISPs/wisp-101.md)
+- [WIP-110: Communication over wallet-bridge](WIPs/wip-110.md)
