@@ -7,6 +7,8 @@ on:
       - ".github/workflows/docs.yml"
       - "book.toml"
       - "docs/**"
+      - "flake.lock"
+      - "flake.nix"
   workflow_dispatch:
 
 permissions:
@@ -26,14 +28,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install mdBook tools
-        uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6 # v2.69.1 https://github.com/taiki-e/install-action/releases/tag/v2.69.1
-        with:
-          tool: mdbook@0.5.4,mdbook-mermaid@0.17.1
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22 https://github.com/DeterminateSystems/nix-installer-action/releases/tag/v22
 
       - name: Build documentation
         run: |
-          mdbook build
+          nix develop .#docs --command mdbook build
           touch book/.nojekyll
 
       - name: Publish documentation
