@@ -17,4 +17,4 @@ command = "mdbook-mermaid"
 additional-js = ["docs/mermaid.min.js", "docs/mermaid-init.js"]
 git-repository-url = "https://github.com/worldcoin/world-id-protocol"
 edit-url-template = "https://github.com/worldcoin/world-id-protocol/edit/main/{path}"
-site-url = "/"
+site-url = "/world-id-protocol/"

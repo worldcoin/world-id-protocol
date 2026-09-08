@@ -2,6 +2,8 @@
 
 # World ID
 
+[![Protocol documentation](https://github.com/worldcoin/world-id-protocol/actions/workflows/docs.yml/badge.svg)](https://worldcoin.github.io/world-id-protocol/)
+
 World ID is a protocol built to enable anonymous proof of human (PoH) at global scale and to complement existing identity systems. World ID allows individuals to prove things about themselves — like they are a real and unique human, not a bot — without revealing any personal information. [Read more about World ID][website].
 
 This repository contains the **core components of the World ID Protocol**, including the smart contracts, Rust libraries, and services that power the protocol.
