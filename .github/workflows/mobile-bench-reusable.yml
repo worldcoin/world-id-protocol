@@ -875,29 +875,55 @@ jobs:
           app-id: ${{ secrets.MOBENCH_APP_ID }}
           private-key: ${{ secrets.MOBENCH_APP_PRIVATE_KEY }}
 
-      - name: Download baseline artifacts
+      - name: Resolve baselines for check-run
         if: steps.app-token.outcome == 'success'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CRATE_PATH: ${{ inputs.crate_path }}
         run: |
           set -euo pipefail
           default_branch="${DEFAULT_BRANCH:-main}"
           mkdir -p baseline
+
+          crate_baselines="caller/${CRATE_PATH}/baselines"
+          meta_path="${crate_baselines}/meta.json"
+          use_committed=false
+          if [ -f "${meta_path}" ] && [ "$(jq -r '.status // empty' "${meta_path}")" = "ready" ]; then
+            use_committed=true
+          fi
+
+          missing_platforms=()
+          for platform in ios android; do
+            committed="${crate_baselines}/${platform}/summary.json"
+            if [ "${use_committed}" = "true" ] && [ -s "${committed}" ]; then
+              mkdir -p "baseline/${platform}"
+              cp "${committed}" "baseline/${platform}/summary.json"
+              echo "Using committed baseline for ${platform}: ${committed}"
+            else
+              missing_platforms+=("${platform}")
+            fi
+          done
+
+          if [ "${#missing_platforms[@]}" -eq 0 ]; then
+            exit 0
+          fi
+
+          echo "::notice::Committed baselines missing for: ${missing_platforms[*]}; falling back to Actions artifacts."
 
           workflow_id=$(gh api "repos/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}" --jq '.workflow_id')
           baseline_run_id=$(gh api "repos/${GH_REPO}/actions/workflows/${workflow_id}/runs?branch=${default_branch}&status=completed&per_page=20" \
             --jq ".workflow_runs[] | select(.id != ${GITHUB_RUN_ID} and .conclusion == \"success\") | .id" | head -1)
 
           if [ -z "${baseline_run_id}" ]; then
-            echo "::notice::No successful baseline run found on ${default_branch}; check runs will be descriptive only."
+            echo "::notice::No successful baseline run found on ${default_branch}; check runs will be descriptive only for missing platforms."
             exit 0
           fi
 
           echo "Using baseline run ${baseline_run_id} from ${default_branch}"
-          for platform in ios android; do
+          for platform in "${missing_platforms[@]}"; do
             artifact_name="mobench-results-${platform}"
             destination="baseline/${platform}"
             mkdir -p "${destination}"
@@ -908,6 +934,10 @@ jobs:
               --dir "${destination}" >/dev/null 2>&1; then
               summary_path=$(find "${destination}" -type f -name summary.json | head -1)
               if [ -n "${summary_path}" ]; then
+                # Normalize to baseline/<platform>/summary.json for the check-run step.
+                if [ "${summary_path}" != "${destination}/summary.json" ]; then
+                  cp "${summary_path}" "${destination}/summary.json"
+                fi
                 echo "Downloaded baseline ${artifact_name}"
               else
                 echo "::warning::Downloaded ${artifact_name} from run ${baseline_run_id}, but summary.json was missing."
@@ -933,9 +963,14 @@ jobs:
             if [ -d "$dir" ]; then
               PLATFORM=$(basename "$dir")
               baseline_args=()
-              baseline_path=$(find "baseline/${PLATFORM}" -type f -name summary.json | head -1)
-              if [ -n "${baseline_path}" ]; then
-                baseline_args=(--baseline "${baseline_path}")
+              if [ -s "baseline/${PLATFORM}/summary.json" ]; then
+                baseline_args=(--baseline "baseline/${PLATFORM}/summary.json")
+              else
+                # Fall back to nested artifact layout if present.
+                nested=$(find "baseline/${PLATFORM}" -type f -name summary.json 2>/dev/null | head -1 || true)
+                if [ -n "${nested}" ]; then
+                  baseline_args=(--baseline "${nested}")
+                fi
               fi
               cargo-mobench ci check-run \
                 --results-dir "$dir" \
@@ -988,3 +1023,172 @@ jobs:
           name: mobench-history-bundle
           path: history-bundle/
           if-no-files-found: warn
+
+      - name: Commit baselines to default branch
+        if: >-
+          always()
+          && inputs.pr_number == ''
+          && (needs.ios.result == 'success' || needs.android.result == 'success')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          HEAD_SHA: ${{ inputs.head_sha || github.sha }}
+          CRATE_PATH: ${{ inputs.crate_path }}
+          MOBENCH_VERSION: ${{ inputs.mobench_version }}
+          ITERATIONS: ${{ inputs.iterations }}
+          WARMUP: ${{ inputs.warmup }}
+          DEVICE_PROFILE: ${{ inputs.device_profile }}
+        run: |
+          set -euo pipefail
+
+          default_branch="${DEFAULT_BRANCH:-main}"
+          expected_ref="refs/heads/${default_branch}"
+
+          if [ "${GITHUB_REF}" != "${expected_ref}" ]; then
+            echo "::notice::Skipping baseline commit: GITHUB_REF=${GITHUB_REF} is not ${expected_ref}."
+            exit 0
+          fi
+
+          remote_sha=$(gh api "repos/${GH_REPO}/commits/${default_branch}" --jq '.sha')
+          if [ "${HEAD_SHA}" != "${remote_sha}" ]; then
+            echo "::notice::Skipping baseline commit: HEAD_SHA=${HEAD_SHA} is not ${default_branch} tip ${remote_sha}."
+            exit 0
+          fi
+
+          has_ios=0
+          has_android=0
+          [ -f results/ios/mobench/ci/ios/summary.json ] && has_ios=1
+          [ -f results/android/mobench/ci/android/summary.json ] && has_android=1
+
+          if [ "${has_ios}" -eq 0 ] && [ "${has_android}" -eq 0 ]; then
+            echo "::error::No platform summary.json available to commit as baselines."
+            exit 1
+          fi
+
+          baselines_dir="caller/${CRATE_PATH}/baselines"
+          mkdir -p "${baselines_dir}/ios" "${baselines_dir}/android"
+
+          if [ "${has_ios}" -eq 1 ]; then
+            cp results/ios/mobench/ci/ios/summary.json "${baselines_dir}/ios/summary.json"
+            rm -f "${baselines_dir}/ios/.gitkeep"
+          fi
+          if [ "${has_android}" -eq 1 ]; then
+            cp results/android/mobench/ci/android/summary.json "${baselines_dir}/android/summary.json"
+            rm -f "${baselines_dir}/android/.gitkeep"
+          fi
+
+          timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          run_url="https://github.com/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}"
+
+          extract_device() {
+            local summary="$1"
+            if [ ! -f "${summary}" ]; then
+              echo ""
+              return 0
+            fi
+            jq -r '
+              (.device // .devices[0].device // .devices[0].name // .runs[0].device // .platform.device // empty)
+              as $d
+              | (.os_version // .devices[0].os_version // .runs[0].os_version // .platform.os_version // empty)
+              as $os
+              | if ($d|length) > 0 then
+                  if ($os|length) > 0 then "\($d) (\($os))" else $d end
+                else empty end
+            ' "${summary}" 2>/dev/null || true
+          }
+
+          ios_device=$(extract_device results/ios/mobench/ci/ios/summary.json)
+          android_device=$(extract_device results/android/mobench/ci/android/summary.json)
+
+          jq -n \
+            --arg schema "mobench-baseline-v1" \
+            --arg status "ready" \
+            --arg ts "${timestamp}" \
+            --arg sha "${HEAD_SHA}" \
+            --argjson run_id "${GITHUB_RUN_ID}" \
+            --arg run_url "${run_url}" \
+            --arg mobench "${MOBENCH_VERSION}" \
+            --arg iterations "${ITERATIONS}" \
+            --arg warmup "${WARMUP}" \
+            --arg profile "${DEVICE_PROFILE}" \
+            --arg ios_device "${ios_device}" \
+            --arg android_device "${android_device}" \
+            '{
+              schema_version: $schema,
+              status: $status,
+              timestamp: $ts,
+              commit_sha: $sha,
+              workflow_run_id: $run_id,
+              workflow_run_url: $run_url,
+              mobench_version: $mobench,
+              iterations: ($iterations | tonumber),
+              warmup: ($warmup | tonumber),
+              device_profile: $profile,
+              devices: {
+                ios: (if $ios_device == "" then null else $ios_device end),
+                android: (if $android_device == "" then null else $android_device end)
+              }
+            }' > "${baselines_dir}/meta.json"
+
+          {
+            echo "# Mobile ZK baselines"
+            echo
+            echo "- **Status:** ready"
+            echo "- **Updated:** ${timestamp}"
+            echo "- **Commit:** \`${HEAD_SHA}\`"
+            echo "- **Workflow run:** [${GITHUB_RUN_ID}](${run_url})"
+            echo "- **mobench:** ${MOBENCH_VERSION}"
+            echo "- **Iterations / warmup:** ${ITERATIONS} / ${WARMUP}"
+            echo "- **Device profile:** ${DEVICE_PROFILE}"
+            if [ -n "${ios_device}" ]; then
+              echo "- **iOS device:** ${ios_device}"
+            fi
+            if [ -n "${android_device}" ]; then
+              echo "- **Android device:** ${android_device}"
+            fi
+            echo
+            if [ -f rendered/ios/github-summary.md ]; then
+              echo "## iOS"
+              echo
+              cat rendered/ios/github-summary.md
+              echo
+            elif [ "${has_ios}" -eq 1 ]; then
+              echo "## iOS"
+              echo
+              echo "See \`ios/summary.json\` (markdown summary unavailable for this run)."
+              echo
+            fi
+            if [ -f rendered/android/github-summary.md ]; then
+              echo "## Android"
+              echo
+              cat rendered/android/github-summary.md
+              echo
+            elif [ "${has_android}" -eq 1 ]; then
+              echo "## Android"
+              echo
+              echo "See \`android/summary.json\` (markdown summary unavailable for this run)."
+              echo
+            fi
+          } > "${baselines_dir}/LATEST.md"
+
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
+          git -C caller config user.name "github-actions[bot]"
+          git -C caller config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C caller remote set-url origin "${remote}"
+          git -C caller add "${CRATE_PATH}/baselines"
+
+          if git -C caller diff --cached --quiet; then
+            echo "No baseline file changes to commit."
+            exit 0
+          fi
+
+          git -C caller commit -m "chore(mobench): refresh mobile ZK baselines" -m "[skip ci]"
+
+          if ! git -C caller push origin "HEAD:${default_branch}"; then
+            echo "::error::Failed to push baseline commit to ${default_branch}."
+            exit 1
+          fi
+
+          echo "Committed and pushed mobile ZK baselines to ${default_branch}."

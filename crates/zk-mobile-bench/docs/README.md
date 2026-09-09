@@ -68,6 +68,22 @@ Benchmark reports also preserve optional semantic `phases` emitted by
 - **PR label**: Add the `bench` label (dispatches after compile gate passes)
 - **Manual**: Actions > "Mobile Benchmarks" > Run workflow
 
+## Baselines
+
+Checked-in BrowserStack reference results live in
+[`../baselines/`](../baselines/) ([`LATEST.md`](../baselines/LATEST.md)).
+
+- **Refresh**: run Mobile Benchmarks on `main` with `pr_number` empty (typically after a circuit or proving-stack change). That run rewrites the baseline files.
+- **PR runs** (`/mobench`, `bench` label) compare against the committed baselines; they do not modify them.
+- **Compare**:
+
+```bash
+cargo-mobench ci check-run \
+  --results-dir target/mobench/ci/ios \
+  --baseline crates/zk-mobile-bench/baselines/ios/summary.json \
+  --regression-threshold-pct 5.0
+```
+
 ## Benchmark Functions
 
 | Function | Proof | What it measures |
