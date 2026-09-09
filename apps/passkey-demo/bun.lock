@@ -6,6 +6,8 @@
       "name": "world-id-passkey-demo",
       "dependencies": {
         "@noble/curves": "2.2.0",
+        "@noir-lang/acvm_js": "1.0.0-beta.20",
+        "@noir-lang/noirc_abi": "1.0.0-beta.20",
         "@taceo/poseidon2": "^0.2.0",
         "@worldcoin/provekit": "0.1.1",
         "viem": "^2.38.5",

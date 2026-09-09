@@ -63,7 +63,7 @@ describe("ProveKit passkey runtime", () => {
       proofBytes: 4,
       valid: true,
       tamperedRejected: true,
-      timings: { proverVerifierLoadMs: 1, witnessAndProveMs: 1, verifyMs: 1, tamperCheckMs: 1 },
+      timings: { proverVerifierLoadMs: 1, witnessGenerationMs: null, provingMs: 1, verifyMs: 1, tamperCheckMs: 1 },
     });
     expect(prove).toHaveBeenCalledWith(inputs);
     expect(verify).toHaveBeenCalledTimes(2);

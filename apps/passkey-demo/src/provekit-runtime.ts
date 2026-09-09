@@ -2,10 +2,15 @@ import {
   initProveKit,
   Proof,
   ProveKitError,
+  ProveKitErrorCode,
   type ProveKitRuntime,
   type ThreadSetting,
   type ThreadingStatus,
 } from "@worldcoin/provekit";
+import initAcvm, { executeProgram, type ForeignCallHandler, type WitnessStack } from "@noir-lang/acvm_js";
+import acvmWasmUrl from "@noir-lang/acvm_js/web/acvm_js_bg.wasm?url";
+import initAbi, { abiEncode, type InputMap } from "@noir-lang/noirc_abi";
+import abiWasmUrl from "@noir-lang/noirc_abi/web/noirc_abi_wasm_bg.wasm?url";
 import type { PasskeyOwnershipNoirInputs } from "./passkey-noir-inputs";
 import proverArtifactUrl from "../artifacts/passkey_ownership_proof.pkp?url";
 import verifierArtifactUrl from "../artifacts/passkey_ownership_proof.pkv?url";
@@ -36,7 +41,10 @@ export type PendingProof = {
   proofBytes: number;
   timings: {
     proverVerifierLoadMs: number;
-    witnessAndProveMs: number;
+    /** Time spent by Noir/ACVM solving the circuit inputs into a witness. */
+    witnessGenerationMs: number | null;
+    /** Time spent by the ProveKit backend turning the witness into a proof. */
+    provingMs: number;
   };
   verify(): Promise<VerificationResult>;
   dispose(): void;
@@ -59,6 +67,113 @@ export type PreparedPasskeyProof = PendingProof & {
 };
 
 type LoadedVerifier = Awaited<ReturnType<ProveKitRuntime["loadVerifier"]>>;
+
+type LowLevelProverHandle = {
+  getCircuit(): Uint8Array;
+  proveBytes(witness: Record<string, string>): Uint8Array;
+  free(): void;
+};
+
+type LowLevelProveKitModule = {
+  Prover: new (artifact: Uint8Array) => LowLevelProverHandle;
+};
+
+// The public ProveKit `Prover.prove` API intentionally combines witness generation
+// and proving. The 0.1.x runtime keeps its initialized WASM module on the runtime
+// object, which lets this diagnostic demo measure the two operations separately.
+type RuntimeWithLowLevelModule = ProveKitRuntime & { module?: LowLevelProveKitModule };
+
+type WitnessExecution = {
+  witnessMap: Map<unknown, unknown>;
+  release(): void;
+};
+
+type CompiledCircuit = {
+  abi: Parameters<typeof abiEncode>[0];
+  bytecode: string;
+};
+
+let noirRuntimeInitialization: Promise<void> | undefined;
+
+async function ensureNoirRuntime(): Promise<void> {
+  if (typeof window === "undefined") return;
+  noirRuntimeInitialization ??= Promise.all([initAcvm(acvmWasmUrl), initAbi(abiWasmUrl)]).then(() => undefined);
+  await noirRuntimeInitialization;
+}
+
+async function executeNoirWitness(
+  circuit: CompiledCircuit,
+  inputs: Record<string, unknown>,
+): Promise<WitnessExecution> {
+  let witnessMap: Map<unknown, unknown> | undefined;
+  try {
+    await ensureNoirRuntime();
+    const initialWitness = abiEncode(circuit.abi, inputs as InputMap);
+    const stack = (await executeProgram(
+      base64Decode(circuit.bytecode),
+      initialWitness,
+      defaultForeignCallHandler,
+    )) as WitnessStack;
+    if (!Array.isArray(stack) || stack.length === 0 || !(stack[0]?.witness instanceof Map)) {
+      throw new Error("ACVM witness stack is empty or malformed");
+    }
+    witnessMap = stack[0].witness as Map<unknown, unknown>;
+    return {
+      witnessMap,
+      release() {
+        witnessMap?.clear();
+      },
+    };
+  } catch (error) {
+    witnessMap?.clear();
+    if (error instanceof ProveKitError) throw error;
+    throw new ProveKitError(ProveKitErrorCode.WITNESS_GENERATION, "Noir witness generation failed", {
+      cause: error,
+    });
+  }
+}
+
+const defaultForeignCallHandler: ForeignCallHandler = async (name, args) => {
+  if (name === "print") return [];
+  throw new Error(`Unexpected oracle during execution: ${name}(${args.join(", ")})`);
+};
+
+function base64Decode(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+const BN254_MODULUS = BigInt(
+  "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+);
+const WITNESS_INDEX = /^(?:Witness\()?([0-9]+)\)?$/;
+const FIELD_HEX = /^(?:0x)?([0-9a-fA-F]+)$/;
+
+function convertWitnessMap(witnessMap: Map<unknown, unknown>): Record<string, string> {
+  if (witnessMap.size === 0) {
+    throw new ProveKitError(ProveKitErrorCode.WITNESS_FORMAT, "Witness map is empty");
+  }
+  const converted: Record<string, string> = Object.create(null) as Record<string, string>;
+  for (const [rawIndex, rawValue] of witnessMap) {
+    const match = WITNESS_INDEX.exec(String(rawIndex));
+    const index = match?.[1];
+    if (!index || !/^(0|[1-9][0-9]*)$/.test(index)) {
+      throw new ProveKitError(ProveKitErrorCode.WITNESS_FORMAT, "Witness index is not canonical");
+    }
+    if (Object.hasOwn(converted, index)) {
+      throw new ProveKitError(ProveKitErrorCode.WITNESS_FORMAT, `Duplicate witness index: ${index}`);
+    }
+    const value = String(rawValue);
+    const field = FIELD_HEX.exec(value)?.[1];
+    if (!field || field.length > 64 || BigInt(`0x${field}`) >= BN254_MODULUS) {
+      throw new ProveKitError(ProveKitErrorCode.WITNESS_FORMAT, `Witness ${index} is not canonical`);
+    }
+    converted[index] = `0x${field.toLowerCase()}`;
+  }
+  return converted;
+}
 
 async function fetchArtifact(url: string, label: string): Promise<Uint8Array> {
   const response = await fetch(url, { cache: "no-store" });
@@ -125,24 +240,55 @@ export async function preparePasskeyProofWithRuntime(
   let verifier: LoadedVerifier | undefined;
   let loaded: number;
   let proof: Proof;
+  let witnessStarted: number | null = null;
+  let witnessGenerated: number | null = null;
+  let proved: number;
+  let rawProver: LowLevelProverHandle | undefined;
+  let witnessExecution: WitnessExecution | undefined;
   try {
     verifier = await runtime.loadVerifier(verifierArtifact);
     loaded = now();
-    proof = await prover.prove(inputs);
+    const lowLevelModule = (runtime as RuntimeWithLowLevelModule).module;
+    if (lowLevelModule) {
+      // Extract the circuit before starting the witness timer. This is artifact
+      // loading work, not witness solving.
+      rawProver = new lowLevelModule.Prover(proverArtifact);
+      const circuit = JSON.parse(new TextDecoder().decode(rawProver.getCircuit())) as CompiledCircuit;
+
+      witnessStarted = now();
+      witnessExecution = await executeNoirWitness(circuit, inputs);
+      witnessGenerated = now();
+
+      const converted = convertWitnessMap(witnessExecution.witnessMap);
+      try {
+        proof = Proof.fromBytes(rawProver.proveBytes(converted));
+      } finally {
+        for (const key of Object.keys(converted)) converted[key] = "0x0";
+      }
+      proved = now();
+    } else {
+      // Keep the helper usable with lightweight test doubles that only expose
+      // the public ProveKit API. That API cannot provide a timing split.
+      proof = await prover.prove(inputs);
+      proved = now();
+    }
   } catch (error) {
     verifier?.dispose();
     throw error;
   } finally {
+    witnessExecution?.release();
+    rawProver?.free();
     prover.dispose();
   }
-  const proved = now();
 
   let pendingVerifier: LoadedVerifier | undefined = verifier;
   return {
     proofBytes: proof.size,
     timings: {
       proverVerifierLoadMs: loaded - loadStarted,
-      witnessAndProveMs: proved - loaded,
+      witnessGenerationMs:
+        witnessGenerated === null || witnessStarted === null ? null : witnessGenerated - witnessStarted,
+      provingMs: witnessGenerated === null ? proved - loaded : proved - witnessGenerated,
     },
     async verify() {
       if (!pendingVerifier) throw new Error("the pending proof has already been verified or disposed");
