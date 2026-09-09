@@ -1,0 +1,437 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>WIP-101: RP Request Authorization Method for Smart Contracts - World ID Protocol</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-9c1f33c8.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-9e0f34ba.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">World ID Protocol</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol/edit/main/docs/WIPs/wip-101.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h2 id="1-abstract"><a class="header" href="#1-abstract">1. Abstract</a></h2>
+<p>This spec introduces a method to verify Relying Party (RP) proof requests in the World ID Protocol through on-chain smart contracts. As some RPs may not have a backend and be simply a contract, this allows OPRF Nodes to answer <strong>“Does the RP authorize this request?”</strong> in order to process relevant OPRF requests such as for nullifier generation.</p>
+<h2 id="2-motivation"><a class="header" href="#2-motivation">2. Motivation</a></h2>
+<p><strong>Context</strong>: Proof requests from Relying Parties in the World ID Protocol MUST be signed in order to be recognized. This serves to ensure proofs are authorized for the intended recipient and reduce the attack surface in post-compromise scenarios for Authenticators.</p>
+<p>A Relying Party MAY be a Smart Contract without a backend. When this is the case, having a private key to sign the request is impractical or even impossible in a secure way. Hence, we need a way for Relying Parties to authorize the request in a way compatible with Smart Contracts.</p>
+<h2 id="3-specification"><a class="header" href="#3-specification">3. Specification</a></h2>
+<p>The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in <a href="https://www.ietf.org/rfc/rfc2119.txt">RFC 2119</a>.</p>
+<p>In this document, “contract” and “smart contract” are used interchangeably.</p>
+<p>This specification introduces both concerns of “Authorization” and “Validation” of Relying Party (RP) Proof requests. When an RP requests a proof without a smart contract, they construct the proof request and sign the data they constructed. If the RP does not have a backend or other trusted environment, they cannot control the inputs to the Proof request. Hence, the contract SHOULD implement validation rules for the request. For example, an RP should determine what is the maximum expiration period they should allow for Proof requests and enforce it during verification.</p>
+<h3 id="31-contract-interface"><a class="header" href="#31-contract-interface">3.1 Contract Interface</a></h3>
+<ol>
+<li>To be compatible with signature verification, a contract acting as an RP MUST conform to the <code>IWIP101</code> interface below. <code>verifyRpRequest</code> MUST NOT modify state (declared <code>view</code> for solc &gt; 0.5) and MUST allow external calls.</li>
+<li>On a valid request, <code>verifyRpRequest</code> MUST return the <code>bytes4</code> magic value <code>0x35dbc8de</code> (the function selector for <code>verifyRpRequest</code>). Reverts otherwise.</li>
+<li>The contract (implementer) MUST also adhere to <a href="https://eips.ethereum.org/EIPS/eip-165">ERC-165</a> and return <code>true</code> from <code>supportsInterface</code> for <code>type(IWIP101).interfaceId</code>.</li>
+</ol>
+<pre><code class="language-solidity">/**
+ * @dev Interface of the WIP-101 standard for World ID,
+ *   RP Request Authorization Method for Smart Contracts.
+ */
+interface IWIP101 is IERC165 {
+    /**
+     * @dev The RP request is not valid. The code may be used to provide additional debugging information.
+     */
+    error RpInvalidRequest(uint256 code);
+
+    /**
+     * @notice Verifies a World ID Proof Request is authorized by the RP.
+     * @dev Should return whether the RP request is valid and should be honored. The `rpId` is implicit in this request,
+     *  any contract implementing this interface will be pointed to in the `RpRegistry`.
+     * @param version The version determines the format of the request.
+     * @param nonce Unique nonce for this request
+     * @param createdAt Creation timestamp of the request
+     * @param expiresAt Expiration timestamp specified for the request
+     * @param action Provided action for the request. Importantly, this is already a hashed
+     *  action as a field element.
+     * @param data Arbitrary data useful for the verification.
+     * @return magicValue The expected magic value when the request is valid. Reverts otherwise.
+     *
+     * MUST return the bytes4 magic value 0x35dbc8de when function passes (function selector for verifyRpRequest).
+     * MUST NOT modify state (view modifier for solc &gt; 0.5)
+     * MUST allow external calls
+     */
+    function verifyRpRequest(
+        uint8 version,
+        uint256 nonce,
+        uint64 createdAt,
+        uint64 expiresAt,
+        uint256 action,
+        bytes calldata data
+    ) external view returns (bytes4 magicValue);
+}
+</code></pre>
+<h3 id="32-request-validation-and-errors"><a class="header" href="#32-request-validation-and-errors">3.2 Request Validation and Errors</a></h3>
+<ol>
+<li>If the request is not authorized, <code>verifyRpRequest</code> MUST revert.</li>
+<li>When a request is invalid, implementers SHOULD revert with the explicit <code>RpInvalidRequest</code> error.</li>
+<li>Callers MUST treat any return value other than the magic value <code>0x35dbc8de</code> as an invalid request.</li>
+<li>RPs MAY define any number of <code>code</code>s in <code>RpInvalidRequest</code>. These codes are intended only for RP debugging, hence the RP can establish any format/definition for this attribute.</li>
+<li>It is RECOMMENDED implementers ensure that any upgrades to validation logic are backwards-compatible for the duration of the maximum <code>expiresAt</code> window.</li>
+</ol>
+<h3 id="33-oprf-node-behavior"><a class="header" href="#33-oprf-node-behavior">3.3 OPRF Node Behavior</a></h3>
+<p>The <code>verifyRpRequest</code> method will be used by OPRF Nodes to verify an incoming proof request before generating the required output to construct a <code>nullifier</code>. When a contract compliant with this spec is deployed, its address can be set as a <code>signer</code> in the <code>RpRegistry</code> contract (e.g. through the <code>updateRp</code> function).</p>
+<ol>
+<li>OPRF Nodes MUST use this spec (WIP-101) verification if the <code>signer</code> in the <code>RpRegistry</code> implements <a href="https://eips.ethereum.org/EIPS/eip-165">ERC-165</a> for <code>type(IWIP101).interfaceId</code>.</li>
+<li>Following the main threat model of this spec, OPRF Nodes MUST pass to <code>verifyRpRequest</code> the same <code>action</code> value that will be used as input to the OPRF computation.</li>
+<li>On an explicit <code>RpInvalidRequest</code> revert, OPRF Nodes MUST return the inner <code>code</code> to the requester (for debugging purposes).</li>
+<li>OPRF Nodes MAY enforce a timeout on the resolution of <code>verifyRpRequest</code>.</li>
+<li>Implementers SHOULD NOT rely on computationally expensive validation logic, so a call resolves within any node-enforced timeout.</li>
+<li>OPRF Nodes MAY check whether a contract is deployed at the registered <code>signer</code> address, and MAY return a specific error code if a deployed contract is not WIP-101 compliant.</li>
+<li>OPRF Nodes are NOT REQUIRED to verify signature via ECDSA if there is a contract deployed at the <code>signer</code> address.</li>
+</ol>
+<h3 id="34-signer-caching"><a class="header" href="#34-signer-caching">3.4 Signer Caching</a></h3>
+<ol>
+<li>OPRF Nodes MAY cache an RP’s <code>signer</code> for performance. This cache may include the consideration on whether the <code>signer</code> is WIP-101 compliant or not.</li>
+<li>A cached <code>signer</code> entry MUST NOT exceed a 30-day TTL.</li>
+<li>OPRF Nodes MUST invalidate the <code>signer</code> cache on any <code>RpUpdated</code> event emission from the <code>RpRegistry</code>.</li>
+</ol>
+<h3 id="35-request-field-constraints"><a class="header" href="#35-request-field-constraints">3.5 Request Field Constraints</a></h3>
+<ol>
+<li>The maximum length of <code>data</code> is 8192 bits (1024 bytes); the <code>data</code> field MUST NOT exceed this length.</li>
+<li>OPRF Nodes MAY enforce this maximum length and reject requests which exceed it.</li>
+</ol>
+<h3 id="36-deployment"><a class="header" href="#36-deployment">3.6 Deployment</a></h3>
+<ol>
+<li>Implementations of <strong>WIP-101</strong> MUST be deployed on World Chain Mainnet (Chain ID: <code>480</code>).</li>
+<li>OPRF Nodes MUST only verify contract execution on chain ID <code>480</code>.</li>
+</ol>
+<p><em><strong>Note</strong>: For RPs using other chains, proof verification MAY occur elsewhere, it’s only the request authorization that MUST happen on World Chain.</em></p>
+<h3 id="37-additional-context-non-normative"><a class="header" href="#37-additional-context-non-normative">3.7 Additional Context (non-normative)</a></h3>
+<p><strong>Version.</strong></p>
+<p>The version of the <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/request/struct.ProofRequest.html"><code>ProofRequest</code></a> which is passed as <code>version</code> attribute to the <code>verifyRpRequest</code> function is currently defined in the <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/request/enum.RequestVersion.html"><code>RequestVersion</code></a> enum.</p>
+<p><strong>Invalidating Signer Cache.</strong></p>
+<p>Note that RPs can trigger a cache invalidation of the <code>signer</code> by doing a no-op (or an actual) update with the <code>updateRp</code> method in the <code>RpRegistry</code> (see <a href="#34-signer-caching">§3.4</a>). This is useful if for example the <code>signer</code> is an <a href="https://eips.ethereum.org/EIPS/eip-1967">ERC-1967</a> proxy and the implementation was updated in a way material to determine compliance or non-compliance with this spec (e.g. a bug in the implementation of the <a href="https://eips.ethereum.org/EIPS/eip-165">ERC-165</a> interface).</p>
+<p><strong>Authorizing Sessions.</strong></p>
+<p>Implementers may also authorize requests for Session Proofs or starting a session. For these scenarios, the <code>action</code> value will have the relevant prefix. For example, requests for a Session Proof will have a prefix of <code>0x02</code> in the most significant byte of the action, i.e. <code>uint8(action &gt;&gt; 248) == uint8(2)</code>. More details on the different prefixes can be found in the <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/struct.SessionId.html"><code>SessionId</code></a> definition.</p>
+<p>Implementers MAY encode different handling depending on the type of request. For example:</p>
+<ul>
+<li>If the RP does not support sessions, reject proofs if the prefix does not equal <code>0x00</code>.</li>
+<li>If the RP supports sessions, the actions are randomly generated, so as long as the prefix matches one of the expected values (e.g. <code>0x01</code>, <code>0x02</code>), the action check can be considered fulfilled.</li>
+</ul>
+<h2 id="4-rationale"><a class="header" href="#4-rationale">4. Rationale</a></h2>
+<p>The <code>verifyRpRequest</code> allows an RP to verify all the inputs that would otherwise be signed, so any rules that an RP would normally use when constructing an off-chain request can be encoded in the RP’s contract for pure on-chain interactions.</p>
+<p>The rationale behind the arbitrary <code>data</code> is that the <code>action</code> is passed to this function already hashed into the field so nothing on the pre-image can be validated. Validating the content of the pre-image is something particularly important because it scopes the <em>uniqueness space</em>, i.e. it’s an input to the <code>nullifier</code> of a proof. An example of this is <code>data</code> could include the pre-image of the <code>action</code> in order to perform validations over the raw action data.</p>
+<p>This spec is inspired by <a href="https://github.com/ethereum/ercs/blob/master/ERCS/erc-1271.md">ERC-1271</a>.</p>
+<h2 id="5-reference-implementation"><a class="header" href="#5-reference-implementation">5. Reference Implementation</a></h2>
+<pre><code class="language-solidity">contract WIP101Example is IWIP101, ERC165 {
+    // bytes4(keccak256("verifyRpRequest(uint8,uint256,uint64,uint64,uint256,bytes)"))
+    bytes4 internal constant MAGICVALUE = 0x35dbc8de;
+    
+    /**
+    * @dev The RP request is not valid. The code may be used to provide additional debugging information.
+    */
+    error RpInvalidRequest(uint256 code);
+
+    /// @inheritdoc IWIP101
+    function verifyRpRequest(
+        uint8 version,
+        uint256 nonce,
+        uint64 createdAt,
+        uint64 expiresAt,
+        uint256 action,
+        bytes calldata data
+    ) external view returns (bytes4 magicValue) {
+        if (version &gt; 1) {
+            revert RpInvalidRequest(0);
+        }
+        
+        if (createdAt &gt; block.timestamp || createdAt &lt; block.timestamp - 15 minutes) {
+            revert RpInvalidRequest(1);
+        }
+
+        if (expiresAt &lt; block.timestamp || expiresAt &gt; block.timestamp + 15 minutes) {
+            revert RpInvalidRequest(2);
+        }
+        
+        if (uint8(action &gt;&gt; 248) != uint8(0)) {
+            // This RP does not support Session Proofs
+            revert RpInvalidRequest(3);
+        }
+        
+        // note the bitshift by 8 for the action to fit into the field; this is the same
+        // method as in `FieldElement::from_arbitrary_raw_bytes` which is used in common SDKs
+        uint256 expected_action = uint256(keccak256(abi.encodePacked("vote"))) &gt;&gt; 8;
+
+        if (action != expected_action) {
+            revert RpInvalidRequest(4);
+        }
+
+        return MAGICVALUE;
+    }
+
+    /// @inheritdoc ERC165
+    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165) returns (bool) {
+        return interfaceId == type(IWIP101).interfaceId || super.supportsInterface(interfaceId);
+    }
+}
+</code></pre>
+<p>It is expected that under normal circumstances, the RP would still construct a Proof request. The key distinction with authorization through this specification versus authorization through an ECDSA signature is that the proof request would be <strong>constructed in an untrusted environment (for example the user’s web browser)</strong>. Hence, why this specification also covers validation of the request. The following diagram shows a non-normative example of how such request flow can occur. Note particularly how the proof request is constructed by the RP but does not need to be assumed correct because it is verified by the WIP-101 compliant contract.</p>
+<pre class="mermaid">sequenceDiagram
+participant c as RP Client (e.g. Web App)
+participant a as Authenticator
+participant o as OPRF Nodes
+participant v as RP WIP101 Verifier
+
+c-&gt;&gt;c: generate rnd nonce
+c-&gt;&gt;c: encode RP custom `data`
+c-&gt;&gt;c: construct proof request
+c-&gt;&gt;a: proof request (unsigned)
+a-&gt;&gt;o: nullifier request
+o-&gt;&gt;v: verifyRpRequest()
+v-&gt;&gt;v: internal verifications
+v-&gt;&gt;o: is valid
+o-&gt;&gt;a: nullifier
+a-&gt;&gt;c: proof response
+c-&gt;&gt;v: submit proof and perform action on-chain
+v-&gt;&gt;v: invalidate nonce
+</pre>
+
+<h2 id="6-recommended-validations"><a class="header" href="#6-recommended-validations">6. Recommended Validations</a></h2>
+<p>It is RECOMMENDED to implement the following validations for a Proof request:</p>
+<ol>
+<li>Reject a request which <code>version</code> is larger than the maximum known, as future version changes MAY be incompatible with previous versions.</li>
+<li><code>createdAt</code> is not in the future and close to the current time.</li>
+<li><code>expiresAt</code> is not in the past and is not too far in the future. While “too far” is relative to each RP’s use case, it’s unlikely that a Proof request should be valid for more than 15 minutes. Note that sub-minute precision SHOULD generally NOT be relied upon on-chain.</li>
+<li><code>nonce</code> has not been used before. This is RECOMMENDED, however OPRF Nodes will still enforce a nonce is only used once. Nonce tracking within <code>verifyRpRequest</code> is not possible due to the <code>view</code> constraint. Implementers relying on nonce uniqueness SHOULD track used nonces in a separate transaction (e.g., when the proof is consumed on-chain). <em>The rationale for this is that a nonce isn’t considered “consumed” until the proof is verified. Furthermore, each OPRF Node will call the <code>verifyRpRequest</code> function independently, so it’s not a good place to enforce non re-use</em>.</li>
+<li><code>action</code> hash is the expected value for Uniqueness Proofs.</li>
+<li>If the RP does not support Session Proofs, the first 8 bits of the action must all equal <code>0</code>.</li>
+</ol>
+<h2 id="7-security"><a class="header" href="#7-security">7. Security</a></h2>
+<ol>
+<li>The main threat model protected with this spec is authorization of RP Requests such that an authenticator (malicious or not) cannot generate <code>nullifier</code>s (or other OPRF outputs) for use with an RP without that RP’s authorization. This for example helps protect users in post-compromise scenarios. If an RP implements proper authorization logic, even with a compromised authenticator, an attacker would be unable to compute a user’s nullifier. Binding the OPRF input to the verified <code>action</code> (<a href="#33-oprf-node-behavior">§3.3</a>) is what anchors this guarantee.</li>
+<li>Implementers are solely responsible for the security of their validation logic. A <code>verifyRpRequest</code> that unconditionally returns the magic value is equivalent to having no authorization and exposes the RP to unbounded nullifier generation for any action as well as users in a post-compromise scenario.</li>
+</ol>
+<h2 id="8-backwards-compatibility"><a class="header" href="#8-backwards-compatibility">8. Backwards Compatibility</a></h2>
+<p>This World Improvement Proposal (WIP) introduces a new interface; no existing contracts or other previously existing functionality is affected.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../WIPs/wip-100.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../WIPs/wip-102.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../WIPs/wip-100.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../WIPs/wip-102.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../docs/mermaid-eefea253.min.js"></script>
+        <script src="../docs/mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

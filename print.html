@@ -1,0 +1,1610 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>World ID Protocol</title>
+        <meta name="robots" content="noindex">
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-2459343d.css">
+        <link rel="stylesheet" href="css/chrome-ae938929.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex-9c1f33c8.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-9e0f34ba.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">World ID Protocol</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="documentation-for-world-id"><a class="header" href="#documentation-for-world-id">Documentation for World ID</a></h1>
+<ol>
+<li>The Protocol’s primary source of documentation is directly in the codebase and particularly the foundational crates.</li>
+</ol>
+<ul>
+<li>Primitives: https://docs.rs/world-id-primitives</li>
+<li>Core: https://docs.rs/world-id-core</li>
+</ul>
+<ol start="2">
+<li>The developer documentation and generally how to use World ID can be found in: https://docs.world.org/world-id</li>
+</ol>
+<h2 id="supporting-documentation"><a class="header" href="#supporting-documentation">Supporting Documentation</a></h2>
+<p>This folder includes supporting documentation for World ID, particularly point-in-time product and technical specifications for discussion and reference. These docs differ from the primary sources (e.g. crates documentation) because they are static at the time of introduction.</p>
+<h3 id="index"><a class="header" href="#index">Index</a></h3>
+<ul>
+<li><code>world-id-4-specs</code>: High level product and technical specs of the World ID 4.0 Upgrade.</li>
+<li><code>world-id-4-trusted-setup</code>: High level explanation of what a trusted setup is and how to contribute to it for World ID 4.0. After the trusted setup is done it will also contain a step by step guide to verify the provenance of the <code>.zkey</code> files used to power World ID ZK circuits.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="abstract"><a class="header" href="#abstract">Abstract</a></h1>
+<p>The World ID v4.0 release introduces <em>account abstraction</em> at its core, transforming a World ID from a single secret into an abstract record in a public registry (called <code>WorldIDRegistry</code>) with multiple authorized keys. This fundamental change enables several key improvements:</p>
+<ol>
+<li><strong>Multi-key support</strong>: Users can generate proofs using multiple valid authenticators (such as across multiple devices, multiple platforms or multiple applications) while maintaining the same identity.</li>
+<li><strong>Improved Protocol Resilience</strong>: Multi-key support reduces likelihood of loss of all keys, key rotation and revocation are natively supported, and the user can (optionally) define a World ID Recovery Agent (e.g. such as biometric authentication).</li>
+<li><strong>Web-based authenticator provider</strong>: A reference web authenticator provider simplifies World ID usage directly in browsers, improving user experience and adoption potential.</li>
+<li><strong>Improved privacy</strong>: The protocol enforces one-time use of nullifiers for longer-term actions, preventing tracking while maintaining proof integrity.</li>
+</ol>
+<p>These changes collectively increase security, privacy, and usability while enabling more sophisticated applications of human verification in the Age of AI. For more details on what is changing from a technical standpoint, please see <em>Summary: What is Changing?</em>.</p>
+<h1 id="product-specs"><a class="header" href="#product-specs">Product Specs</a></h1>
+<p>At a high level, this release of the Protocol is about <em>Account Abstraction</em>. A World ID is no longer tied to a single secret, and instead is an abstract record created in the public <code>WorldIDRegistry</code> with a defined set of authorized keys which allow the user to interact with their World ID (a similar mental model is how passkeys authorize accounts for specific websites or how smart contract wallets work in the Ethereum ecosystem).</p>
+<p>Stemming from the enablement of other Authenticators to exist, a reference open-source, web-based Authenticator will be published which will reduce some of the overhead for using a World ID and simplifies the user experience. The enhanced user experience will enable simpler and more widespread adoption of the Protocol.</p>
+<h2 id="definitions"><a class="header" href="#definitions">Definitions</a></h2>
+<ul>
+<li><strong>Authenticator</strong>: A software or hardware agent (e.g., app, device, web client, or service) that controls a set of authorized keypairs for a World ID Account and is functionally capable of interacting with the Protocol, and is therefore permitted to act on that account’s behalf. An Authenticator is the agent of users/holders. Each Authenticator is registered in the <code>WorldIDRegistry</code> through their authorized keypairs.</li>
+<li><strong>OPRF Nodes</strong>: The OPRF Nodes are a multi-party set (MPC) of nodes responsible for enabling the nullifier generation which users present to RPs to prove uniqueness.</li>
+<li><strong>Recovery Agent</strong>: A party designated by the user which has a special permission to recover their World ID Account in case of loss of all Authenticators. The party may be a set of entities represented with abstract rules (e.g. through a smart contract). This designation is optional and done on-chain.</li>
+<li><strong>Action</strong>: <em>Maintains definition from previous Protocol version.</em></li>
+<li><strong>Nullifier</strong>: <em>Maintains definition from previous Protocol version.</em> A nullifier is a one-time use identifier that guarantees an action can only be taken once. It’s analogous to a one-time use ticket, a user generates a nullifier through a Proof, and presents it to an RP. A nullifier will always be the same for the same user and the same RP+Action.</li>
+<li><strong>Uniqueness Proof</strong>: A statement where a user proves they are performing an action once and they own a particular credential (e.g. <em>I’m a unique person with a PoH credential voting on this proposal once</em>). These proofs cannot be cryptographically associated with any other proof (e.g. not across RP, or even to the same RP).</li>
+<li><strong>Session Proofs</strong>: Used with a <code>sessionId</code> provided by an Authenticator and subsequently provided by an RP to receive a statement that cryptographically guarantees the same World ID is being used (e.g. <em>I have an account with an RP and I want to prove I now have a new Credential</em>). These proofs cannot be associated across RPs, across sessions with the same RP, or with any other proof.</li>
+</ul>
+<h2 id="key-product-functionality"><a class="header" href="#key-product-functionality">Key Product Functionality</a></h2>
+<p>This notes the key <strong>new</strong> features or functionality for this <strong>release</strong> of World ID (v4.0):</p>
+<ul>
+<li>Multi-key support: A World ID is not bound to a single key. A user can generate proofs on multiple valid authenticators (e.g. devices, platforms). With the important exception of security properties of the Authenticator, a proof proves the same thing to an RP regardless of which authenticator was used.
+<ul>
+<li>A user can add or remove different valid authenticators to manage their World ID (Portability).</li>
+<li><strong>Motivation:</strong> Allowing multiple authenticators serves to the Decentralization of the Protocol, with no reliance on a single actor (such as a single Authenticator provider, e.g. World App). Furthermore, abstracting a World ID into a conceptual record vs. a single secret enables the secure and practical existence of multiple Authenticators as well as enabling Recovery in case of loss and rotation in case of compromise.</li>
+</ul>
+</li>
+<li>Recovery: Regain access to the same World ID through Recovery Agents.
+<ul>
+<li><strong>Motivation:</strong> Recovery is a fundamental building block of a Proof-of-Human Protocol (see <a href="https://whitepaper.world.org/#recovery">Whitepaper</a> on why). While we expect authenticator providers to offer robust backup mechanisms, the user must be able to recover their World ID and related state in a contingency scenario.</li>
+</ul>
+</li>
+<li>Web-based Authenticator Provider: A limited authenticator that allows usage of World ID in the web browser. This serves both as a reference of an authenticator and also for improved UX for certain RP flows. Functionality is limited as enrollment of credentials is out of the scope for this initial release.
+<ul>
+<li><strong>Motivation</strong>: A lightweight web-based authenticator enables simpler usage of World ID which provides a better user experience and will enable more growth as interacting with RPs will be significantly simpler.</li>
+</ul>
+</li>
+<li>Trusted RPs. An authenticator can identify a request comes from a valid RP.
+<ul>
+<li><strong>Motivation:</strong> Authenticators need to be able to identify that they’re generating proofs for the right recipient to reduce potential for proof phishing (e.g. a malicious actor asking you for a proof meant for a different RP to know if you’ve performed that action). In addition, this enables future introduction of Protocol fees.</li>
+</ul>
+</li>
+</ul>
+<h2 id="non-functional-requirements"><a class="header" href="#non-functional-requirements">Non-Functional Requirements</a></h2>
+<ul>
+<li>Privacy.
+<ul>
+<li>Assuming <strong>non-collusion</strong> of nodes of each multi-party system, the user’s privacy cannot be compromised by any single party, neither correlation of multiple actions nor direct identification of a user. For example, it’s impossible to know that a specific user performed a specific action (identification) or that two different Actions were performed by the same user (correlation).</li>
+<li>Addressing the attack vector of collusion of a threshold (or all) nodes is covered in the <a href="#other-risk-considerations">Other Risk Considerations</a> section.</li>
+<li>Strict requirements for the identifiers handed off by the Protocol are introduced. See details in Tech Specs.</li>
+<li>No human super-cookies. Permanent state or linkable state is as privacy-preserving as possible and is protocol-enforced. Privacy preserving in this context means that it’s not possible to identify a single person, even pseudonymously, across a long period of time without ongoing consent. Any exposed long-living / constant IDs should be protected as secrets.</li>
+</ul>
+</li>
+<li>Security.
+<ul>
+<li>A World ID is not a single secret that needs to be shared or can’t be rotated.</li>
+<li>A World ID cannot be recovered or an authenticator added without verifiable user intent (through knowledge of a secret key of an authorized authenticator).</li>
+<li>Collusion of <strong>all</strong> nodes with an multi-party system (MPC) does not allow performing actions on the user’s behalf.</li>
+<li>User Auditability — each user needs to be able to see account management events that have been authorized with their World ID, for example things like adding / removing of authenticators.</li>
+</ul>
+</li>
+<li>Migration Path.
+<ul>
+<li>There needs to be a clear migration path for all currently active and relevant use cases to the new version of the Protocol.</li>
+</ul>
+</li>
+</ul>
+<h2 id="user-flows-authenticator"><a class="header" href="#user-flows-authenticator">User Flows (Authenticator)</a></h2>
+<p><img src="world-id-4-specs/wid-wireframes.jpg" alt="Illustrative wireframes of an Authenticator experience."></p>
+<h2 id="other-considerations"><a class="header" href="#other-considerations">Other Considerations</a></h2>
+<ul>
+<li>The privacy and security implications of Authenticators is improved (key revocation, etc.) but the user must trust their Authenticator(s). The Authenticator must handle the user’s Credentials (or previously Personal Custody Packages) and keys correctly.</li>
+</ul>
+<hr>
+<h1 id="technical-specs"><a class="header" href="#technical-specs">Technical Specs</a></h1>
+<blockquote class="blockquote-tag blockquote-tag-tip">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319-.207.245-.383.453-.541.681-.208.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"></path></svg>Tip</p>
+<p>Please note these are the high level technical specifications at the time of introduction of World ID 4.0. The most up-to-date technical documentation reflecting the current state of the Protocol can always be found in the <a href="https://docs.world.org/world-id">developer documentation</a> and the <a href="https://github.com/worldcoin/world-id-protocol">Protocol repository</a>.</p>
+</blockquote>
+<h2 id="summary-what-is-changing"><a class="header" href="#summary-what-is-changing">Summary: What is Changing?</a></h2>
+<ul>
+<li>A World ID is now a record on an on-chain registry and more importantly a single World ID can have multiple public keys.
+<ul>
+<li>This also means identity commitments (<code>identityCommitment</code>) no longer exist. Instead, the identification mechanism is the knowledge of a secret key corresponding to a public key registered in a specific leaf index in the <code>WorldIDRegistry</code>.</li>
+<li>Also implies that the on-chain trees of identity commitments is gone in favor of a single <code>WorldIDRegistry</code>.</li>
+</ul>
+</li>
+<li>Creating a World ID now occurs through on-chain registration (vs. as an offline keypair generation previously), and issuing Credentials is now done without on-chain interaction. Credentials are now issued by the Issuer signing them. Previously, the Issuer would add the user’s identity commitment to the relevant on-chain tree.</li>
+<li>Nullifiers are enforced one-time use. Previously there was no enforcement of nullifiers being one-time use and they could become pseudonymous identifiers for an RP, now Authenticators will not issue a nullifier more than once.</li>
+<li>[<strong>For RPs only</strong>]. When RPs require users to prove they are still the same World ID that originally performed an action, they will be able to store an identifier (a <code>sessionId</code>) and provide it to the user for subsequent proofs. With Proof of Human, this allows RPs to establish they are interacting with the same World ID, potentially with different credentials too. See <em>Session Proofs</em> for further details.</li>
+<li>[<strong>For Issuers only</strong>]. Authentication based on using nullifiers from ZKPs as identifiers is no longer supported. A new authentication mechanism is introduced for issuers.</li>
+<li>Access to a World ID can be recovered. A user can designate a <em>Recovery Agent</em> for their account which will allow for recovery in case of access to all Authenticators is lost.
+<ul>
+<li>[<strong>Recovery Agent Scope</strong>]. Users may designate the <em>PoH AMPC</em> system as their Recovery Agent to recover their World ID. In the future, other Recovery Agents are expected to be available.</li>
+</ul>
+</li>
+</ul>
+<h2 id="high-level-overview"><a class="header" href="#high-level-overview">High level overview</a></h2>
+<p><img src="world-id-4-specs/wid-4.svg" alt="Diagram of components for the World ID 4.0 Protocol.">
+Diagram of components for the World ID 4.0 Protocol.</p>
+<ol>
+<li>
+<p>The <strong>World ID Registry</strong> is introduced. This public contract is the source of truth for World IDs, a World ID conceptually becomes an account, represented in a leaf of the Merkle tree in this contract. Each account is identified with its index in the tree. The registry also contains a list of authenticator public keys authorized to act on behalf of the holder. The OPRF Nodes, as well as RPs use this to verify proofs (through an Merkle inclusion proof within the ZKPs).</p>
+</li>
+<li>
+<p>Similarly, a <strong>Relying Party Registry</strong> is introduced. This registry contains a list of authorized Relying Parties with their accompanying authorized public keys. The registry permits RPs to authenticate requests for proofs to Authenticators.</p>
+</li>
+<li>
+<p>The multi-party set of <strong>OPRF Nodes</strong> is introduced. This set of nodes are now responsible for generating the nullifiers that users present to RPs to prove uniqueness. The nullifiers are generated through a <em>Verified Threshold</em> <em>Oblivious Pseudorandom Function</em> (vOPRF) with participation of the OPRF nodes. Nodes verify requests for nullifiers are properly validated by both RPs and users (see <em>Uniqueness Proofs</em>), and only then will generate the required output to compute the user’s nullifier. The users then construct the final nullifier and prove its computation in the proof they present to RPs.</p>
+<ol>
+<li>A multi-party OPRF is necessary because it prevents nullifiers from being guessable, i.e. nullifiers are deterministic but appear random (recall that PRF outputs under a uniformly random key are computationally indistinguishable from a uniformly random function). This could theoretically be accomplished with a regular hash function, but then nullifiers could be brute forced by computing the hash for all possible <code>leafIndex</code>es (which are public on-chain). To prevent this, secret entropy is required (in World ID ≤ 3.0, the user provided this entropy). Since this is not available anymore, the entropy now comes from the OPRF nodes.</li>
+<li>Additionally, to prevent brute forcing even with involvement of OPRF nodes, OPRF nodes require authentication before computing each hash. They authenticate the user through a ZKP that proves knowledge of an Authenticator secret key authorized in the <code>WorldIDRegistry</code> for the particular <code>leafIndex</code> for which they are generating a nullifier.</li>
+<li>Importantly, the OPRF nodes compute the keyed-hash function $H_k(x’)$ on a blinded input, hence they cannot learn which user is actually performing a request. Furthermore, the OPRF nodes output a proof that attests to the proper computation of $H_k$ given a committed $k_{pk}$, so neither users nor RPs need to blindly trust the OPRF nodes.</li>
+<li>Similar to how OPRF Nodes are used to generate the nullifiers presented to RPs, these nodes also generate a blinding factor for each credential so there cannot be correlation of World IDs from malicious issuers.</li>
+<li>More information on the OPRF Nodes can be found in the paper: <em>“<a href="https://github.com/TaceoLabs/oprf-service/blob/main/docs/oprf.pdf">A Nullifier Protocol based on a Verifiable, Threshold OPRF</a>”</em>.</li>
+<li>Details about the nature, number, and diversity requirements of OPRF nodes must be established before the production network is live.</li>
+</ol>
+</li>
+<li>
+<p>Protocol differences at a glance:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th></th><th><strong>World ID ≤3.0</strong></th><th><strong>World ID 4.0 (2025)</strong></th></tr>
+</thead>
+<tbody>
+<tr><td>What is a World ID?</td><td>A secret.</td><td>An entry in public registry.</td></tr>
+<tr><td>Proof Generation</td><td><a href="https://semaphore.pse.dev/">Semaphore</a> proofs generated on the client.</td><td><em>Conceptually the same but with new ZK-circuits.</em> Users generate a query proof for OPRF nodes, which provide computations that enable the nullifier generation. A final Uniqueness Proof is generated and presented to RPs.</td></tr>
+<tr><td>How does the Relying Party enforce uniqueness?</td><td>Storing a nullifier hash.</td><td><em>Conceptually the same.</em></td></tr>
+<tr><td>Post-compromise privacy</td><td>If the user’s World ID secret leaks, all past activity could be identified. <br /><br />Furthermore, the secret cannot be rotated.</td><td>If a user’s authenticator secret leaks, no past activity can be identified on its own. Collusion with an RP would be required to compromise <em>some</em> past activity. <br /><br />Secrets can be easily rotated.</td></tr>
+<tr><td>Recoverability</td><td>Cannot be recovered if the secret is lost.</td><td>Can be optionally recovered through a Recovery Agent.</td></tr>
+<tr><td>Credential Issuance</td><td>On-chain Merkle Tree containing <code>idComm</code>s. <br /><br /> Credential-equivalent held self-custodially.</td><td>Signed message from the Issuer. <br /><br /> Credential held self-custodially.</td></tr>
+<tr><td>Signal (proof messages)</td><td>An RP can include an arbitrary signal to which the user commits.</td><td><em>Conceptually the same.</em></td></tr>
+<tr><td>Secret Security</td><td>Secret must be stored with software protections and loaded into memory.</td><td>Conceptually possible to store keys in hardware-based key stores. <em>Initial keys will have the same characteristics as the previous protocol version due to ZK proving limitations.</em></td></tr>
+</tbody>
+</table>
+</div>
+</li>
+</ol>
+<h2 id="technical-details"><a class="header" href="#technical-details">Technical Details</a></h2>
+<h3 id="uniqueness-proofs"><a class="header" href="#uniqueness-proofs">Uniqueness Proofs</a></h3>
+<p>A Uniqueness Proof is how a user primarily proves they are performing an action <strong>once</strong> and they own a Credential that meets the RP’s requirements (e.g. the user has a unique government-issued document). While fundamentally the user is <strong>proving uniqueness per World ID Account</strong> when performing an action, if the request is not bound to a Credential that offers a measure of uniqueness (e.g. PoH or unique government-issued document), the proof will lack value.</p>
+<pre class="mermaid">sequenceDiagram
+actor User
+RP -&gt;&gt; RP: Generate &amp; sign proof request
+RP -&gt;&gt; User: Send proof request 
+User -&gt;&gt; Indexer: Query leafIndex and inclusion proof in WorldIDRegistry
+Indexer --&gt; World Chain: Indexes the WorldIDRegistry tree
+Indexer -&gt;&gt; User: leafIndex &amp; inclusion proof
+User -&gt;&gt; User: Generate Query Proof $$\pi_{R}$$
+User -&gt;&gt; OPRF Node i: blindedLeafIndex +  $$\pi_{R}$$ + request context
+OPRF Node i -&gt;&gt; OPRF Node i: check validity of request
+OPRF Node i -&gt;&gt; World Chain: Verify Merkle root (usually cached)
+OPRF Node i -&gt;&gt; OPRF Node i: Verify $$\pi_{R}$$
+OPRF Node i -&gt;&gt; User: blinded result
+User -&gt;&gt; User: Unblind each response and reconstruct OPRF evaluation
+User -&gt;&gt; User: Compute blinded subject for credential
+User -&gt;&gt; User: Generate final Proof ($$\pi_{F}$$)
+alt
+User &lt;&lt;-&gt;&gt; Oblivious Nullifier Pool: check if nullifier exists and insert
+end
+User -&gt;&gt; RP: $$\pi_{F}$$ + nullifier
+alt
+RP -&gt;&gt; Indexer: Verify ZKP
+else
+RP -&gt;&gt; World Chain: Verify ZKP
+end
+RP -&gt;&gt; RP: Verify expected nonce
+RP -&gt;&gt; RP: Verify nullifier uniqueness
+
+</pre>
+
+<ul>
+<li>
+<p>The nullifier is computed by the OPRF Nodes. Computing it requires output from a threshold number of nodes to be valid.</p>
+<ul>
+<li>Importantly, the input to the OPRF Nodes is blinded so that no OPRF node can see the raw <code>leafIndex</code> (i.e. OPRF nodes only know that the request is from an authorized authenticator).</li>
+<li>Importantly, the nullifier is credential <em>independent</em>, so the action can only be performed once regardless of which credentials are available at the time.</li>
+<li>Further information on how the nullifier is computed can be found in the <a href="https://github.com/TaceoLabs/nullifier-oracle-service/blob/main/docs/oprf.pdf">TACEO OPRF Whitepaper</a>.</li>
+</ul>
+</li>
+<li>
+<p>Nullifiers have the following properties, which in combination make them amenable for use by an RP to enforce anonymous per-action uniqueness:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th><strong>Property</strong></th><th><strong>Description</strong></th></tr>
+</thead>
+<tbody>
+<tr><td>Deterministic</td><td>Given the same context (<code>leafIndex</code> [blinded], <code>rpId</code>, <code>action</code>), the nullifier is always the same. Assuming honest behavior of OPRF nodes never rotating their base key. <em>Note that the credential is intentionally not included in this context. This means that the action can be performed only once, regardless of which credentials are available at the time.</em></td></tr>
+<tr><td>Unguessable</td><td>For a fixed context, the nullifier output is uniformly distributed over the output space. Even with the full set of possible users, computing candidate nullifiers is infeasible without collusion of a threshold of OPRF nodes such that the OPRF key is known.</td></tr>
+<tr><td>Authenticated</td><td>It’s probabilistically impossible to claim ownership over a nullifier if you don’t know a secret value (a secret key whose public counterpart is registered in the <code>WorldIDRegistry</code>).</td></tr>
+<tr><td>Anonymous</td><td>A nullifier hides which user generated it. To preserve anonymity, each nullifier must only be used once (otherwise repeated use makes it pseudonymous). This is the responsibility of Authenticators.</td></tr>
+<tr><td>Unlinkable</td><td>For any two nullifiers with different contexts, the probability that an adversary can correctly distinguish whether they were derived from the same user is at most negligibly better than random guessing.</td></tr>
+<tr><td>Pre-image resistance</td><td>For any given nullifier, and knowing the public context (<code>rpId</code>, <code>action</code>), it is computationally infeasible to find the pre-image or the <code>leafIndex</code>.</td></tr>
+</tbody>
+</table>
+</div>
+</li>
+<li>
+<p>The authenticator generates two types of different zero-knowledge proofs to be able to deliver a Uniqueness Proof to an RP,</p>
+<ul>
+<li>The query proof $\pi_1$ which proves to the OPRF Nodes that the request is properly authorized by the user. This ZKP proves the request is signed by a public key which is registered for the particularly provided blinded <code>leafIndex</code> in the <code>WorldIDRegistry</code>.</li>
+<li>A final Uniqueness Proof $\pi_2$ which ensures at least the following constraints:
+<ul>
+<li><em>The same constraints of the query proof are evaluated.</em></li>
+<li>Correct OPRF evaluation on <code>leafIndex</code>, i.e. the generated nullifier is correct for the committed public keys from each OPRF node.</li>
+<li>Request is signed by a public key that is registered for the <code>leafIndex</code> in the <code>WorldIDRegistry</code> (user authentication).</li>
+<li>The Credential was issued for this World ID, i.e. the Credential’s <code>sub</code> matches the blinded <code>leafIndex</code> of the user.</li>
+<li>The Credential used in the proof is signed by the Issuer (through the committed key in the <code>CredentialSchemaIssuerRegistry</code>).</li>
+<li>Credential is not expired.</li>
+<li>Credential meets the minimum genesis_issued_at constraint provided by the RP.</li>
+<li>Signal and nonce provided by the RP as public inputs are committed.</li>
+<li><em>Potential future constraints may include: integrity attestation of device, enforcing the expiration of actions, credential specific checks, etc.</em></li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p><strong>Oblivious Nullifier Pool</strong>. The Oblivious Nullifier Pool is a separate service which offers <em>Private Intersection Retrieval</em> and keeps track of used nullifiers. Its function is simply to keep a flat list of used nullifiers such that an authenticator can query if a nullifier has been used before sharing it (and the related $\pi_2$) with an RP if it has been used before. The list is flat (as the nullifier is already unique per-RP-per-action-per-user) relying on the collision-resistance property of the hash function used in the Protocol.</p>
+<ul>
+<li>This system ensures that nullifiers can’t be misused to create long running identifiers. As their name suggests, a nullifier is one-time use.</li>
+<li>The term <em>oblivious</em> is used to refer to the fact that this map is queried in a way where the servers serving such requests cannot learn which records where accessed and hence be able to compromise the user’s privacy.</li>
+<li>The main limitation of the nullifier pool is performance at scale. One option is to shard the pool, making trade-offs of anonymity set size vs. performance. This is still in research.</li>
+<li>Initially, this pool will only be used for actions that have a running period longer than a predefined threshold. This is to solve for scaling issues as this system grows.</li>
+</ul>
+</li>
+<li>
+<p><strong>Blinded subjects</strong>. To prevent correlation of users even among issuers, or in case of leaked credentials, the subjects of the credentials are blinded.</p>
+<ul>
+<li>When requesting a new credential from an issuer, the user generates a blinding factor using the OPRF nodes, $\texttt{subjectBlindingFactor}=H_k(\texttt{issuerSchemaId} \mid\mid \texttt{leafIndex})$.</li>
+<li>The user then hashes the blinding factor with their <code>leafIndex</code> to compute the <code>sub</code> claim of the credential. This value is what issuers include in the credential.</li>
+<li>When a proof is presented, the <code>subjectBlindingFactor</code> is used within the Uniqueness Proof circuit to ensure the credential is issued to the right user. The blinding factor acts as entropy to prevent correlation, but the right <code>leafIndex</code> as provided in the circuit input must match correctly.</li>
+</ul>
+</li>
+</ul>
+<h3 id="registries"><a class="header" href="#registries">Registries</a></h3>
+<ul>
+<li><strong>World ID Registry</strong>
+<ul>
+<li>Each user can grant access to multiple different keys to interact with their World ID. The Authenticator proves control inside a ZKP to prevent long-lived identifiers.</li>
+<li>In order to not leak the user, this needs to be in some structure that allows inclusion proofs. This is accomplished with <a href="https://github.com/zk-kit/zk-kit.solidity/blob/main/packages/imt/contracts/BinaryIMT.sol">Incremental Merkle Trees</a>.</li>
+<li>Each Authenticator registers two keys in the registry. This is done to enable performant operations both on-chain and on zero-knowledge circuits.
+<ul>
+<li>An on-chain key which is an elliptic curve key on the <code>secp256k1</code> curve is used to authorize on-chain operations on the contract (e.g. adding an authenticator, removing an authenticator, etc.). The public key is simply represented as an Ethereum address.</li>
+<li>An off-chain key which is an elliptic curve key on the <code>BabyJubJub</code> curve is used to sign requests for zero-knowledge proofs. The public key (represented as a curve point) is emitted on-chain and committed to in the contract.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><strong>Relying Party Registry</strong>
+<ul>
+<li>Each RP needs to commit to their authorized public key on the public registry, such that this can be verified in the request proof $\pi_1$ by each queried OPRF node.</li>
+<li>Registering an RP is a public action that anyone can take, but this requires paying a one-time registration fee (see <em>Registration Fees</em> below).</li>
+<li>In order to allow for decentralized application creation and registration, the RP Registry will be extended and restrictions further lifted in the future, but for this initial version the following applies:
+<ul>
+<li>At launch, only one authorized key is allowed per RP. This will be extended in the future.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><strong>Credential Schema Issuer Registry</strong>
+<ul>
+<li>It’s a simple registry where Issuers register for each of their credential types a schema and an authorized signatory and get issued an <code>issuerSchemaId</code>. This ID represents the combination of an (issuer, schema). For example: (Tools For Humanity, Orb credential).</li>
+<li>The <code>issuerSchemaId</code> is included in the credential and is verified as part of all Proofs. When generating and verifying proofs, the signature of a credential is verified against the public key registered in the contract.</li>
+<li>Registering an Issuer Schema also requires paying a one-time registration fee (see <em>Registration Fees</em> below).</li>
+</ul>
+</li>
+</ul>
+<h3 id="registration-fees"><a class="header" href="#registration-fees">Registration Fees</a></h3>
+<p>Both the Relying Party Registry and the Credential Schema Issuer Registry charge a one-time registration fee. The fee infrastructure serves as a <strong>permissionless rate-limiting mechanism</strong> — an alternative to restricting registration to authorized callers — ensuring that registration remains open to anyone while preventing abuse.</p>
+<p><strong>Why the fee exists.</strong> Registering an RP or an Issuer Schema triggers the initialization of an OPRF key via a multi-round distributed key generation ceremony across the OPRF Nodes. This is a computationally expensive operation with real infrastructure cost. The registration fee is sized to cover the cost of OPRF key generation and storage for at least approximately one year.</p>
+<p><strong>How it works.</strong></p>
+<ul>
+<li>The fee is paid in a configurable ERC-20 token via <code>safeTransferFrom</code> at the time of registration, before OPRF key generation begins.</li>
+</ul>
+<p><strong>Future: per-request fees.</strong> The registration fee described here covers only the one-time cost of onboarding. A separate per-request fee — enforced by OPRF Nodes as a proof-of-payment requirement during nullifier generation — may be introduced in a future Protocol release (4.1 or 4.2). See <em>Future Proofing Notes</em> for details.</p>
+<h3 id="recovery"><a class="header" href="#recovery">Recovery</a></h3>
+<p><em>Recovery</em> is introduced for the case where access to all authenticators (or their keys) is lost. Recovery enables users to gain back control of their World ID by registering a new Authenticator and revoking lost ones. A Recovery Agent may be designated by each user, with a special role to perform the <code>recoverAccount</code> operation. This special role can recover a user’s World ID and nothing else, and conversely only these agents can perform a <code>recoverAccount</code> operation.</p>
+<blockquote class="blockquote-tag blockquote-tag-important">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>Important</p>
+<p>This section defines Recovery as a Protocol primitive. Each Recovery Agent will provide its own set of specifications for how they provide World ID recovery.</p>
+</blockquote>
+<p><img src="world-id-4-specs/recovery.svg" alt="Conceptual diagram of the Recovery process."></p>
+<ol>
+<li>A <code>recoverAccount</code> operation is a function defined in the <code>WorldIDRegistry</code> contract which receives a signed message from the Recovery Agent with a new authenticator public key. The operation results in the new authenticator being registered and all the old authenticators being revoked. The historical state of authenticators is naturally available on-chain.</li>
+<li>The signed message supports <a href="https://eips.ethereum.org/EIPS/eip-1271">ERC-1271</a>, which means it can come from a smart contract that sets its own rulesets for how recovery can be performed. For example, a Recovery Agent may require signatures from multiple parties to allow a recovery. Furthermore, this enables that a Recovery Agent can be defined as an abstract entity governed by its own smart contract.</li>
+<li>Importantly, recovery will only be possible for users in the new Protocol. Fundamentally, there’s no way to recover previously lost World IDs because it’s a secret that has been lost. Some fallbacks are being introduced to mitigate this, see <em>Migration Considerations</em> for details.</li>
+<li>Designating a Recovery Agent is entirely optional and can be updated at any time.</li>
+<li>Once a World ID account has been recovered, new Credentials can be requested to each relevant Issuer. Each Issuer can define their own set of rules for what is needed to recover their Credential.</li>
+<li><strong>Future Consideration.</strong>  In the future, a new feature could be introduced where a World ID is used as a signer on something else. For example, a World ID signature could be used as a factor for recovering a cryptocurrency wallet. While this functionality builds on top of the Recovery primitive, it is independent of this primitive and not in its scope.</li>
+</ol>
+<h3 id="session-proofs"><a class="header" href="#session-proofs">Session Proofs</a></h3>
+<p>RPs can create sessions for their app to ensure that it’s still the same World ID interacting with them across multiple interactions. Session Proofs intentionally allow the RP to link multiple interactions in their app to the same World ID. Sessions require the RP to store a <code>sessionId</code>. A <code>sessionId</code> can be created as part of a request for a Uniqueness Proof (see <a href="#binding-uniqueness-proofs-to-a-session">Binding Uniqueness Proofs to a Session</a>), which binds the <code>sessionId</code> to a <code>nullifier</code>, or standalone without uniqueness binding. Potential use cases include:</p>
+<ul>
+<li>Credential upgrade: A user verified previously with one credential and now wants to prove using another one (e.g. unlocking additional benefits). <strong>Important Note</strong>. While this can be used to prove a new Credential belongs to the same World ID, the implications must be carefully considered when it comes to uniqueness. <strong>Uniqueness sets are independent</strong>, e.g. users may have both a PoH and a government document Credential, but this doesn’t mean that by accepting both as an RP you can get guarantees that only a single human is behind each. A user may choose to obtain a PoH Credential and a document Credential in different World IDs.</li>
+<li>Credential expiration check: A user previously enrolled with one Credential; periodically,the RP wants to make sure the user’s Credential is still valid (for example not expired).</li>
+<li>(Future). RP-level Face Auth: Currently, Face Auth only ensures that the whoever produces the proof is the same person that received the Credential. However, for some applications an RP may want to make sure the same person is behind multiple interactions.</li>
+</ul>
+<p>Session Proofs use the same zero-knowledge circuits as Uniqueness Proofs, but authenticators MUST clearly distinguish them to users since they involve a reusable identifier that can link interactions. Instead of a nullifier, Session Proofs return a <code>sessionNullifier</code> which is required for verification but does <strong>not</strong> provide the same uniqueness guarantee (see below on <code>sessionNullifier</code>).
+Session Proofs without uniqueness binding work in the following manner:</p>
+<ul>
+<li>An RP requests an authenticator to create a session.</li>
+<li>The authenticator provides a <code>sessionId</code>, together with an initial session proof that proves that the <code>sessionId</code> is well formed. A unique identifier bound to the user’s World ID for that RP.</li>
+<li>The RP stores this <code>sessionId</code> alongside their account for the user.</li>
+<li>For subsequent interactions, the RP includes the <code>sessionId</code> in proof requests. The user can then generate a Session Proof to prove they have the same World ID. Different proofs over time with the same <code>sessionId</code> may use different credentials.</li>
+<li>A  <code>sessionId</code> is generated as outlined below, where <code>r</code> is computationally indistinguishable from random.</li>
+</ul>
+<pre class="mermaid">sequenceDiagram
+participant o as OPRF
+participant a as Authenticator
+participant rp as RP
+
+critical initial/enrollment
+rp -&gt;&gt; a: Initial session request
+a-&gt;&gt;a: Generate oprf_seed locally (CSPRNG)
+a-&gt;&gt;o: r=OPRF(rpPublicKey, DS_C || leafIndex || oprf_seed)
+a-&gt;&gt;a: Compute C = H(DS_C || leafIndex || r)
+a-&gt;&gt;a: sessionId = encode(C, oprf_seed)
+a -&gt;&gt; rp: sessionId + proof (see below)
+end
+
+rp-&gt;&gt;a: session proof request (incl. sessionId)
+
+alt [Recover r from sessionId.oprf_seed]
+a-&gt;&gt;o: r=OPRF(rpPublicKey, DS_C || leafIndex || sessionId.oprf_seed)
+end
+a-&gt;&gt;a: C'=H(DS_C || leafIndex || r) as public output of proof
+a-&gt;&gt;a: check if sessionId == C' (in ZK-circuit)
+a-&gt;&gt;rp: proof + sessionNullifier
+rp-&gt;&gt;rp: verify proof (checking sessionId == C' in verifier contract)
+</pre>
+
+<p><strong>Recovering <code>r</code> for subsequent Session Proofs.</strong> The OPRF is deterministic: the same input and key always produce the same output. This means <code>r</code> can be re-derived at any time by calling the OPRF nodes with the original <code>oprf_seed</code> (stored in <code>sessionId</code>). Caching <code>r</code> is an optimization, not a requirement. The OPRF call to derive <code>r</code> and the OPRF call to derive the nullifier can be made in parallel.</p>
+<p><strong>Session Nullifiers</strong></p>
+<ul>
+<li>A <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/session/struct.SessionNullifier.html"><code>sessionNullifier</code></a> is used for verifying Session Proofs. It must be passed to the verification contract. Internally, the <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/session/struct.SessionNullifier.html"><code>sessionNullifier</code></a> implements custom encoding on the Authenticator and on the <code>WorldIDVerifier</code> contract.</li>
+<li>The raison d’être is simply to allow usage of the same ZK circuit as for Uniqueness Proofs. Reducing the number of circuits is currently a priority because of the size of the circuits needed to be bundled in Authenticator clients. As World ID moves to a different proving system, this type will no longer be required.</li>
+<li>Session Proofs use a randomized <code>action</code> as circuit input. This randomized <code>action</code> ensures the circuit’s nullifier output is unique per proof, preserving the one-time use property. It is verified internally within the circuit. It does not affect <code>r</code> derivation.</li>
+</ul>
+<p><strong>Binding Uniqueness Proofs to a Session</strong></p>
+<ul>
+<li>A Uniqueness Proof request may set the <code>sessionId</code> field to <code>"create"</code> to atomically mint a session and bind the proof to it. The protocol verifies in-circuit that the session and the nullifier belong to the same World ID. The flow is outlined below. Binding a Uniqueness Proof to an already existing <code>sessionId</code> is not supported. A session is either created together with the uniqueness proof, or it carries no uniqueness binding at all.</li>
+<li>The blinding factor <code>r</code> of the minted <code>sessionId</code> is returned to the Authenticator for caching; as for session proofs it can always be re-derived from the <code>oprf_seed</code>.</li>
+<li>Verifiers MUST check bound proofs against the session’s commitment. With the session commitment set to <code>0</code> the proof is valid but unbound. On-chain, the dedicated <code>verifyWithSession()</code> entry point does this (it rejects <code>sessionId == 0</code>). The convenience <code>verify()</code> entry point pins the signal to <code>0</code> and rejects bound proofs, so binding is explicit in both directions.</li>
+<li>Binding one <code>sessionId</code> to Uniqueness Proofs under different actions intentionally links those actions to the same World ID; Authenticators MUST clearly surface this to users.</li>
+</ul>
+<pre class="mermaid">sequenceDiagram
+participant rp as RP
+participant a as Authenticator
+participant o as OPRF Nodes
+participant v as Verifier
+
+rp-&gt;&gt;a: Signed Uniqueness Proof request (action + sessionId = "create")
+a-&gt;&gt;a: Generate oprf_seed
+a-&gt;&gt;o: Derive session blinding factor r
+a-&gt;&gt;a: sessionId = encode(H(DS_C || leafIndex || r), oprf_seed)
+par Session binding
+a-&gt;&gt;a: Constrain sessionId.commitment to the user's leafIndex
+and Uniqueness
+a-&gt;&gt;o: Derive nullifier for (leafIndex, rpId, action)
+end
+a-&gt;&gt;a: Generate final proof with sessionId.commitment as a public signal
+a-&gt;&gt;rp: proof + nullifier + sessionId
+rp-&gt;&gt;v: verifyWithSession(..., sessionId.commitment, proof)
+v-&gt;&gt;v: Verify the non-zero session commitment and proof
+v--&gt;&gt;rp: Valid session-bound Uniqueness Proof
+rp-&gt;&gt;rp: Verify nullifier uniqueness
+</pre>
+
+<h3 id="web-based-authenticator-provider"><a class="header" href="#web-based-authenticator-provider">Web-based Authenticator Provider</a></h3>
+<p>To allow for an improved user experience, a reference browser-based Authenticator provider is being introduced. This app provides (currently limited) World ID functionality but without leaving the browser.</p>
+<ol>
+<li>At a high-level, it allows <strong>usage</strong> of a World ID. The user can generate proofs in their browser, and this is particularly useful for when working on other devices (such as desktop) or on non-native apps.</li>
+<li>Whenever an RP requires a user’s World ID proof, they can simply redirect the user to the web app (handled automatically by common SDKs like <a href="https://github.com/worldcoin/idkit">ID Kit</a>). The user authenticates with their passkey, generates the proof in their browser and passes it back to the RP.</li>
+<li>Further documentation on the architecture of the reference web-based Authenticator provider will be published in the <a href="https://github.com/worldcoin/web-authenticator">https://github.com/worldcoin/web-authenticator</a> repository.</li>
+<li><strong>Credential Enrollment</strong> will not be supported in the initial release, but this may be introduced in the future.</li>
+</ol>
+<h2 id="migration-considerations"><a class="header" href="#migration-considerations">Migration Considerations</a></h2>
+<p>At a high level, every user and RP will need to migrate to the new Protocol. Detailed migration paths will be published in the Developer docs.</p>
+<h2 id="privacy-considerations"><a class="header" href="#privacy-considerations">Privacy Considerations</a></h2>
+<ul>
+<li>
+<p>The Protocol, via the Oblivious Nullifier Pool enforces that nullifiers cannot be generated more than once (as long as authenticators are properly implemented), which prevents long running user tracking, increasing the privacy from the previous protocol version.</p>
+</li>
+<li>
+<p>In adversarial scenarios, these are the most relevant privacy considerations,</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Attack scenario</th><th><strong>World ID ≤3.0</strong></th><th><strong>World ID 4.0 (2025)</strong></th></tr>
+</thead>
+<tbody>
+<tr><td>Compromised user’s secret</td><td>⚠️ Potentially reveals all past activity if the attacker knows the public app IDs and actions.</td><td>✅ Cannot reveal past activity on its own</td></tr>
+<tr><td>Malicious RP</td><td>✅ A malicious RP on its own doesn’t reveal past activity</td><td>✅ A malicious RP on its own doesn’t reveal past activity</td></tr>
+<tr><td>Malicious OPRF node</td><td>N/A</td><td>✅ Cannot compromise user’s past activity</td></tr>
+<tr><td>Collusion of threshold OPRF nodes</td><td>N/A</td><td>⚠️ Could reveal user’s past activity (but requires having nullifiers to match against, e.g. through RP collusion)</td></tr>
+<tr><td>Compromised user’s secret + RP collusion</td><td>⚠️ Potentially reveals all past activity. Offline attack.</td><td>⚠️ Can reveal user’s past activity for that RP. Online attack (requires calls to OPRF nodes).</td></tr>
+<tr><td>Malicious Authenticator</td><td>⚠️ Potentially reveals all past activity if the attacker knows the public app IDs and actions.</td><td>⚠️ A malicious or compromised authenticator could reveal user’s activity. <em>This could likely translate in users putting their trust in OSS authenticators.</em></td></tr>
+<tr><td>User coercion</td><td>⚠️ Potentially reveals all past activity. Offline attack.</td><td>⚠️ Can force reveal of non-expired nullifiers which in combination with RPs or other information may reveal past activity.</td></tr>
+</tbody>
+</table>
+</div>
+</li>
+</ul>
+<h2 id="other-risk-considerations"><a class="header" href="#other-risk-considerations">Other Risk Considerations</a></h2>
+<ul>
+<li><strong>Loss of State</strong>. The OPRF nodes work with an <code>m-of-n</code> threshold. If $n-m+1$ nodes loses their keys, the state of the Protocol will be lost, there won’t be a way to generate the correct nullifiers and the state of “consumed” or performed actions will be lost.</li>
+<li><strong>Censoring by OPRF nodes</strong>. OPRF nodes could reject generating nullifiers for users. It’s difficult for this to be a targeted attack because the <code>leafIndex</code> is blinded, but they could censor specific RPs or actions.</li>
+<li><strong>Compromised OPRF nodes</strong>. Should a threshold of nodes’ key materials be compromised, or a threshold of nodes collude maliciously, users’ past and/or ongoing activity could be compromised, i.e. these nodes could arbitrary compute any nullifier because the <code>leafIndex</code>es are known and the domain space is relatively low. To be useful, this would require matching nullifiers to actual usage with RPs, or knowing a user’s <code>leafIndex</code>, at least the second not being straightforward. This is a risk that will be progressively mitigated, and the following strategies are being researched for upcoming minor Protocol version updates:
+<ol>
+<li><strong>Provable secure environments for OPRF nodes</strong>. Running OPRF nodes in attestable secure environments backed by secure hardware where the key material is securely stored and the execution provable. Given the nature of the computations of OPRF nodes, it is quite feasible that a plurality of enviroments and hardware providers could be supported. Authenticators would be able to verify attestations from OPRF nodes on every proof request.</li>
+<li><strong>Increase on the number of OPRF nodes</strong>. Increasing the number of OPRF nodes and the threshold required to generate nullifiers reduces the risk of compromise. It is also very feasible to significantly extend the number of nodes over time. The cost of running a node is relatively low.</li>
+<li><strong>Strict key management policies</strong>. RPs will be able to specify their policies for action duration such that keys are destroyed after their utility period has elapsed.</li>
+</ol>
+</li>
+<li><strong>Authenticator Risk</strong>. Aside from having access to the user’s credentials, an Authenticator must learn of a user’s raw <code>leafIndex</code> to be able to generate Proofs. A malicious Authenticator can misuse this to track the user, even though that tracking cannot be correlated to nullifiers provided to RPs on its own. Different strategies to mitigate Authenticator risk are being explored.</li>
+<li><strong>Recovery Agent Risk</strong>. Should a user designate a Recovery Agent, this entity has a special permission that allows it to gain access to the user’s World ID, which could be misused. Beyond the explicit risk of a malicious Recovery Agent compromising a user’s World ID, users need to consider the different risks associated with different Recovery Agents based on how they perform authentication.</li>
+</ul>
+<h2 id="future-proofing-notes-world-id-4x-future-releases-and-beyond"><a class="header" href="#future-proofing-notes-world-id-4x-future-releases-and-beyond">Future Proofing Notes (World ID 4.x future releases and beyond)</a></h2>
+<p>This is not a comprehensive list, but it outlines general topics that may be the target of upcoming Protocol releases which are not currently covered on this release.</p>
+<ul>
+<li>Face Auth. The signature on the credential by the issuer will allow for the introduction of a provable (still with camera sensor trust) FaceAuth check during proof generation.</li>
+<li>Authenticator policies and permission set. In this release, the <code>WorldIDRegistry</code> contains only a flat list of public keys, but this could be upgraded to be a more complex data structure that codifies explicit permissions for each key such that each authenticator can have a different policy for each action (e.g. add an authenticator vs. generating a proof), and this can be publicly verified.</li>
+<li>Client-side proving. With the introduction of client-side proving and later potentially other types of proofs (e.g. age attestation), it will be possible to combine Uniqueness Proofs with additional attestations.</li>
+<li>Issuers having the ability to revoke Credentials.</li>
+<li>Establishing trust between protocol parties (e.g. identifying a trustworthy Authenticator).</li>
+<li>Ability to merge multiple World IDs, which translates into an ability to rotate identifiers with each Issuer.</li>
+<li>On the RP registry. In the future, the RP trust could also be anchored in other existing mechanisms, such as their domain name (DNS). Furthermore, actions could also be publicly registered for auditability and enforcement.</li>
+<li>World ID as signer (or biometric recovery). Similar to how recovering a World ID is possible because PoH AMPC allows for the addition of a new authenticator, it’ll be conceptually possible that a World ID could be a recovery signer for other accounts.</li>
+<li>Man-in-the-middle (MITM) proof phishing protection. While the attack vector of proof phishing is reduced with the introduction of the RP registry, it may still be possible to MITM proofs. Further protection mechanisms are required to mitigate this.</li>
+<li>In the future, credentials could be authenticator-specific, where issuers sign them for use with a specific authenticator only.</li>
+<li>Per-request fee gates may be introduced in the future (targeting 4.1 or 4.2) such that the OPRF Nodes receive a proof of payment as part of the request to generate a nullifier. This is distinct from the one-time registration fee already in place (see <em>Registration Fees</em>).</li>
+<li>Supporting cryptographic operations that enables secrets that can live in secure hardware and never be exported.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="world-id-40-trusted-setup"><a class="header" href="#world-id-40-trusted-setup">World ID 4.0 Trusted Setup</a></h1>
+<h2 id="how-a-trusted-setup-works"><a class="header" href="#how-a-trusted-setup-works">How a trusted setup works</a></h2>
+<p>World ID 4.0 uses a Groth16 Phase 2 trusted setup ceremony for its zk-SNARK circuits. In this process, multiple participants each add their own randomness contribution (often called “toxic waste”) to circuit-specific setup artifacts (<code>.zkey</code>), and each contribution is publicly verifiable as part of a transcript. Security relies on at least one participant contributing honestly and permanently deleting their secret randomness.</p>
+<h2 id="why-we-are-doing-this-for-world-id-40"><a class="header" href="#why-we-are-doing-this-for-world-id-40">Why we are doing this for World ID 4.0</a></h2>
+<p>The World ID 4.0 ceremony is for the <a href="https://github.com/TaceoLabs/oprf-service/tree/main/circom/main">Circom circuits</a> part of the <a href="https://github.com/TaceoLabs/oprf-service/"><code>oprf-service</code></a> stack:</p>
+<ul>
+<li><code>OPRFQueryProof</code></li>
+<li><code>OPRFNullifierProof</code></li>
+<li><code>OPRFKeyGenProof13</code></li>
+<li><code>OPRFKeyGenProof25</code></li>
+<li><code>OPRFKeyGenProof37</code></li>
+</ul>
+<p>These circuits require Groth16 proving keys, which are produced via a Phase 2 setup. The trusted setup is therefore a required part of preparing production-grade proving artifacts for the World ID 4.0 protocol.</p>
+<h2 id="how-to-contribute"><a class="header" href="#how-to-contribute">How to contribute</a></h2>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>The World ID 4.0 trusted setup ceremony is closed. New contributions are no longer accepted.</p>
+</blockquote>
+<p>The <a href="https://www.npmjs.com/package/@worldcoin/world-id-trusted-setup-cli"><code>@worldcoin/world-id-trusted-setup-cli</code></a> package was built as a fork of <a href="https://pse.dev/">PSE</a>’s <a href="https://github.com/privacy-scaling-explorations/p0tion">p0tion</a> for organizing a trusted setup ceremony with minimum work needed to be done by the contributors. During the active ceremony, contributors used the following flow:</p>
+<ol>
+<li>Authenticate with GitHub device-flow OAuth (used by the CLI and for ceremony identity/attestation flow):</li>
+</ol>
+<pre><code class="language-bash">npx @worldcoin/world-id-trusted-setup-cli auth
+</code></pre>
+<ol start="2">
+<li>Run the contribution command to join an open ceremony and compute/upload your contribution (&lt;10 min on average):</li>
+</ol>
+<pre><code class="language-bash">npx @worldcoin/world-id-trusted-setup-cli contribute
+</code></pre>
+<p>If you had any issues contributing to the ceremony, please contact our ceremony coordinator <a href="https://t.me/dcbuilder">dcbuilder on Telegram</a>.</p>
+<h2 id="how-it-was"><a class="header" href="#how-it-was">How it was</a></h2>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>If you want to learn more about the trusted setup, watch the rendered explainer video: <a href="https://x.com/world_chain_/status/2023451971651596718?s=20">World Chain post</a>.</p>
+</blockquote>
+<p>Contribution totals (excluding the coordinator finalization contribution) are documented in this summary tweet by <a href="https://x.com/dcbuilder/status/2025266795691557260">@dcbuilder</a>:</p>
+<ul>
+<li><code>OPRFKeyGenProof13</code>: <code>113</code></li>
+<li><code>OPRFKeyGenProof25</code>: <code>111</code></li>
+<li><code>OPRFKeyGenProof37</code>: <code>105</code></li>
+<li><code>OPRFNullifierProof</code>: <code>104</code></li>
+<li><code>OPRFQueryProof</code>: <code>104</code></li>
+</ul>
+<p>Full ceremony artifacts, verification transcripts, the explainer video, manim source, and contribution attestations
+are stored on the <a href="../tree/trusted-setup"><code>trusted-setup</code></a> orphan branch to keep the main branch lightweight.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="wip-100-cryptographic-primitives-for-world-id-protocol"><a href="#wip-100-cryptographic-primitives-for-world-id-protocol" class="header">WIP-100: Cryptographic Primitives for World ID Protocol</a></h1>
+<h2 id="1-abstract"><a class="header" href="#1-abstract">1. Abstract</a></h2>
+<p>This spec establishes the default cryptographic primitives used throughout the World ID Protocol (the “Protocol”) such as the default elliptic curve, field, signature scheme and hashing. It includes particularly important constraints and validations which are security-critical.</p>
+<h2 id="2-motivation"><a class="header" href="#2-motivation">2. Motivation</a></h2>
+<p>The Protocol is heavily reliant on different cryptographic primitives to uphold privacy and security. The correct definition and implementation of such primitives is essential for the Protocol operation. Furthermore, the spec documentation permits multiple implementations to exist in an interoperable way.</p>
+<h2 id="3-specification"><a class="header" href="#3-specification">3. Specification</a></h2>
+<p>The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in <a href="https://www.ietf.org/rfc/rfc2119.txt">RFC 2119</a>.</p>
+<h3 id="31-field"><a class="header" href="#31-field">3.1 Field</a></h3>
+<p>Unless otherwise noted, all circuits MUST be arithmetised over $F_q$, the scalar field of BN254, which is also the base field of BabyJubJub. All arithmetic MUST be done over $F_q$, except where a scalar of the BabyJubJub group is required, in which case arithmetic MUST be done over $F_r$, BabyJubJub’s own scalar field.</p>
+<ul>
+<li>
+<p>$F_q$ (<code>Fq</code>) is the prime field with modulus</p>
+<p>$q = 21888242871839275222246405745257275088548364400416034343698204186575808495617$</p>
+</li>
+<li>
+<p>$F_r$ (<code>Fr</code>) is the prime field with modulus $r$, the order of BabyJubJub’s large prime-order subgroup (see <a href="#32-curve">Curve</a>):</p>
+<p>$r = 2736030358979909402780800718157159386076813972158567259200215660948447373041$</p>
+</li>
+</ul>
+<p>Throughout the Protocol and this spec, the <code>arkworks</code> crates naming convention is generally used. This non-normative table is included for reference for the avoidance of doubt.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Attribute</th><th>World ID Protocol</th><th><code>ark-babyjubjub</code></th><th><a href="https://github.com/TaceoLabs/oprf-service/blob/main/docs/oprf.typst">OPRF paper</a></th><th><a href="https://eips.ethereum.org/EIPS/eip-2494">EIP-2494</a></th></tr>
+</thead>
+<tbody>
+<tr><td>BN254 scalar field, i.e. BabyJubJub’s base field</td><td>$F_q$</td><td><code>Fq</code></td><td>$\mathbb{F}_p$</td><td>$\mathbb{F}_r$</td></tr>
+<tr><td>Modulus of the Base Field</td><td>$q$</td><td><code>Fq::MODULUS</code></td><td>$p$</td><td>$r$</td></tr>
+<tr><td>BabyJubJub’s scalar field</td><td>$F_r$</td><td><code>Fr</code></td><td>$\mathbb{F}_q$</td><td>—</td></tr>
+<tr><td>Prime subgroup order (modulus of Scalar Field)</td><td>$r$</td><td><code>Fr::MODULUS</code></td><td>$q$</td><td>$l$</td></tr>
+<tr><td>Curve order</td><td>$n$</td><td>—</td><td>$n$</td><td>$n$</td></tr>
+<tr><td>Cofactor</td><td>$h$</td><td><code>COFACTOR</code></td><td>$h$</td><td>$h$</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="32-curve"><a class="header" href="#32-curve">3.2 Curve</a></h3>
+<p>BabyJubJub is defined in <a href="https://eips.ethereum.org/EIPS/eip-2494">EIP-2494</a>, which specifies three isomorphic forms, the Protocol uses the twisted Edwards form $E$ over $F_q$ given by</p>
+<p>$$168700,x^2 + y^2 = 1 + 168696,x^2 y^2$$</p>
+<p>All group operations, including key generation, <a href="#35-signatures">signatures</a> and scalar multiplication, MUST use this form. In particular the <em>reduced</em> twisted Edwards form, used by the <code>ark-ed-on-bn254</code> crate, is a different curve and MUST NOT be substituted; <code>ark-babyjubjub</code> implements the form above.</p>
+<p>$E$ has order</p>
+<p>$$n = 21888242871839275222246405745257275088614511777268538073601725287587578984328$$</p>
+<p>which factors as $n = h \cdot r$ with cofactor $h = 8$.</p>
+<p>The base point of the Protocol is $G$ (<code>ark_babyjubjub::EdwardsConfig::GENERATOR</code>), of order $r$:</p>
+<p>$$G = \left(5299619240641551281634865583518297030282874472190772894086521144482721001553,\ 16950150798460657717958625567821834550301663161624707787222815936182638968203\right)$$</p>
+<h3 id="33-hashing"><a class="header" href="#33-hashing">3.3 Hashing</a></h3>
+<p>Unless otherwise noted, hashing is done via a Poseidon2 permutation over $F_q$. $P_t$ denotes the Poseidon2 <strong>permutation</strong> on $F_q^t$ with the $x^5$ S-box and the round counts below; it is a permutation, not a hash. The hash constructions built from it are defined in the subsections that follow.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>$t$</th><th>$R_F$ (external rounds)</th><th>$R_P$ (internal rounds)</th></tr>
+</thead>
+<tbody>
+<tr><td>2</td><td>8</td><td>56</td></tr>
+<tr><td>3</td><td>8</td><td>56</td></tr>
+<tr><td>4</td><td>8</td><td>56</td></tr>
+<tr><td>8</td><td>8</td><td>57</td></tr>
+<tr><td>16</td><td>8</td><td>57</td></tr>
+</tbody>
+</table>
+</div>
+<p>Round constants and the external/internal matrices MUST be those produced for BN254 at the given $t$ by the reference <a href="https://github.com/HorizenLabs/poseidon2/blob/main/poseidon2_rust_params.sage">Poseidon2 parameter generation script</a>. Widths not listed above MUST NOT be used.</p>
+<p>Any use of Poseidon2 MUST follow the mode and specifications of this section (“Hashing”) unless otherwise noted (e.g. <a href="#5-merkle-inclusion-proof">Merkle Inclusion Proof</a>).</p>
+<h4 id="331-domain-separators"><a class="header" href="#331-domain-separators">3.3.1 Domain separators</a></h4>
+<p>A domain separator <code>ds</code> is the $F_q$ element derived from an ASCII label by big-endian octet-string-to-integer conversion, reduced mod $q$. Labels MUST be at most 31 bytes, so that distinct labels cannot collide under the reduction.</p>
+<p>Each label MUST be bound to exactly one (construction, $t$, $k$) triple. For example, <code>EdDSA Signature</code> is allocated to the <a href="#35-signatures">challenge hash</a> at $t = 8$, $k = 5$, giving</p>
+<p>$$\texttt{ds}_{\texttt{EdDSA Signature}} = 360302137480307891234917541314130533$$</p>
+<h4 id="332-fixed-arity-hash-h_t"><a class="header" href="#332-fixed-arity-hash-h_t">3.3.2 Fixed-arity hash $H_t$</a></h4>
+<p>$H_t$ is the hash used wherever the number of inputs is known in advance. For a domain separator <code>ds</code> and inputs $m_1, \dots, m_k$ with $k \le t - 1$:</p>
+<p>$$H_t(\texttt{ds}; m_1, \dots, m_k) := P_t([\texttt{ds}, m_1, \dots, m_k, 0, \dots, 0])[1]$$</p>
+<p>That is, <code>ds</code> MUST occupy the capacity element at state index <code>0</code>, the inputs occupy state indices <code>1..k</code>, any remaining state elements are zero, and the digest is state element <strong><code>1</code></strong> of the permutation output.</p>
+<p>$k$ MUST be constant for a given <code>ds</code>. The zero padding is not length-encoded, so $H_t(\texttt{ds}; m_1)$ and $H_t(\texttt{ds}; m_1, 0)$ are the same digest; binding $k$ to <code>ds</code> is what prevents cross-arity collisions. A construction whose input count varies at runtime MUST NOT use $H_t$.</p>
+<blockquote class="blockquote-tag blockquote-tag-caution">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M4.47.22A.749.749 0 0 1 5 0h6c.199 0 .389.079.53.22l4.25 4.25c.141.14.22.331.22.53v6a.749.749 0 0 1-.22.53l-4.25 4.25A.749.749 0 0 1 11 16H5a.749.749 0 0 1-.53-.22L.22 11.53A.749.749 0 0 1 0 11V5c0-.199.079-.389.22-.53Zm.84 1.28L1.5 5.31v5.38l3.81 3.81h5.38l3.81-3.81V5.31L10.69 1.5ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Caution</p>
+<p>For emphasis, <strong>failing to follow the requirement on a constant $k$, or failing to place a fixed <code>ds</code> at state index <code>0</code> is catastrophic</strong>. A varying $k$ gives trivial collisions and second pre-images. An input-controlled state index <code>0</code> allows an attacker to invert the permutation and produce pre-images for any digest.</p>
+</blockquote>
+<h4 id="333-variable-length-hash-h_textvar"><a class="header" href="#333-variable-length-hash-h_textvar">3.3.3 Variable-length hash $H_\text{var}$</a></h4>
+<p>$H_\text{var}$ is the hash used for byte strings whose length is not fixed, where $H_t$ cannot be applied. It is a sponge over $P_{16}$: rate 15 across state indices <code>0..14</code>, capacity at index <strong><code>15</code></strong>, squeezing from index <strong><code>0</code></strong>. Note this is the opposite convention to $H_t$, which places the capacity at index <code>0</code>; $H_\text{var}$ places it last to follow <a href="https://eprint.iacr.org/2023/522">SAFE</a>.</p>
+<p>The input is split into 31-byte chunks, each converted to an integer in big-endian order (the final chunk is not padded); the chunks are absorbed 15 at a time, applying $P_{16}$ after each group. The capacity is initialized with a SHA3-256 tag over the domain separator label <strong>and the input and output lengths</strong>, following <a href="https://eprint.iacr.org/2023/522">SAFE</a>. Because the length is bound into the capacity, inputs of different lengths cannot collide by padding, the weakness $H_t$ avoids by fixing $k$ instead.</p>
+<h3 id="34-hash-to-curve"><a class="header" href="#34-hash-to-curve">3.4 Hash to Curve</a></h3>
+<p>Some constructions, in particular the OPRF evaluation of the <a href="https://github.com/TaceoLabs/oprf-service/blob/main/docs/oprf.typst">OPRF paper</a>, require a map $H_1: F_q \mapsto E$ that takes a field element to a curve point whose discrete logarithm with respect to $G$ is unknown. The Protocol follows <a href="https://www.rfc-editor.org/rfc/rfc9380.html">RFC 9380</a> (“Hashing to Elliptic Curves”) instantiated for BabyJubJub, with the RFC’s <code>expand_message</code> step replaced by Poseidon2.</p>
+<p>The default is $\mathrm{EncodeToCurve}$, <a href="https://www.rfc-editor.org/rfc/rfc9380.html">RFC 9380</a>’s <code>encode_to_curve</code>. Its output lies in the prime-order subgroup and has unknown discrete logarithm, but is <strong>not</strong> uniformly distributed in that subgroup: <a href="https://dl.acm.org/doi/10.1145/2508859.2516734">Elligator 2</a> reaches only about half of the curve points. This is sufficient wherever the requirement is an unknown discrete logarithm rather than uniformity, which covers every present use in the Protocol.</p>
+<p>$\mathrm{EncodeToCurve}$ composes four steps, each defined below:</p>
+<p>$$\mathrm{EncodeToCurve}(x) := \mathrm{ClearCofactor}\bigl(\mathrm{RationalMap}\bigl(\mathrm{Elligator2}\bigl(\mathrm{HashToField}(x)\bigr)\bigr)\bigr)$$</p>
+<h4 id="341-notation"><a class="header" href="#341-notation">3.4.1 Notation</a></h4>
+<p>$\texttt{sgn0}$ is <a href="https://www.rfc-editor.org/rfc/rfc9380.html">RFC 9380</a> §4.1 <code>sgn0</code>: the least significant bit of the canonical integer representative of its argument. $\texttt{inv0}$ is <a href="https://www.rfc-editor.org/rfc/rfc9380.html">RFC 9380</a> §4 <code>inv0</code>: $\texttt{inv0}(0) = 0$ and $\texttt{inv0}(y) = y^{-1}$ otherwise. $\texttt{isSquare}$ is <a href="https://www.rfc-editor.org/rfc/rfc9380.html">RFC 9380</a> §4 <code>is_square</code> and is <strong>true for zero</strong>. $\texttt{sqrt}$ returns an arbitrary one of the two roots; the sign is fixed explicitly in step 19 of <a href="#343-map-to-curve-elligator-2">Elligator 2</a>, so implementations MUST NOT rely on $\texttt{sqrt}$ selecting a canonical root. $\texttt{CMOV}(f, g, c)$ returns $g$ if the condition $c$ holds and $f$ otherwise.</p>
+<p>$E_M$ is the Montgomery form of BabyJubJub from <a href="https://eips.ethereum.org/EIPS/eip-2494">EIP-2494</a>, birationally equivalent to $E$:</p>
+<p>$$K,t^2 = s^3 + J,s^2 + s, \qquad J = \frac{2(a+d)}{a-d} = 168698, \qquad K = \frac{4}{a-d} = 1$$</p>
+<p>Since $K = 1$, the RFC’s constants reduce to $c_1 = J/K = 168698$ and $c_2 = 1/K^2 = 1$, and the final scalings by $K$ are no-ops. Implementations MAY drop them.</p>
+<h4 id="342-hash-to-field"><a class="header" href="#342-hash-to-field">3.4.2 Hash to field</a></h4>
+<p>The label <code>OPRF_HashToField_BabyJubJub</code> is allocated to this construction at $t = 3$, $k = 1$. Writing $\texttt{ds}_\text{H2F}$ for the resulting domain separator,</p>
+<p>$$\texttt{ds}_\text{H2F} = 32627786498498119128812045057993354633158048678109587794777765218$$</p>
+<p>$$\mathrm{HashToField}(x) := H_3(\texttt{ds}_\text{H2F};\ x)$$</p>
+<p><a href="https://www.rfc-editor.org/rfc/rfc9380.html">RFC 9380</a> §5 obtains a field element by expanding to $\lceil (\log_2 q + k)/8 \rceil$ bytes and reducing mod $q$, to bound the distance from uniform. Poseidon2 is a permutation over $F_q$, so $H_3$ already outputs an $F_q$ element with no modular bias, and the oversampling step is omitted.</p>
+<h4 id="343-map-to-curve-elligator-2"><a class="header" href="#343-map-to-curve-elligator-2">3.4.3 Map to curve (Elligator 2)</a></h4>
+<p>$\mathrm{Elligator2}: F_q \mapsto E_M$ is <a href="https://www.rfc-editor.org/rfc/rfc9380.html">RFC 9380</a> §6.7.1 with $Z = 5$, the value returned by the RFC’s <code>find_z_ell2</code> for $F_q$ (<a href="https://www.rfc-editor.org/rfc/rfc9380.html">RFC 9380</a> App. H.3). $Z$ is a non-square in $F_q$.</p>
+<p>Given $u$, return $(s, t)$:</p>
+<p>$$
+\begin{aligned}
+&amp;1..2.\ \ &amp;&amp;\texttt{tv1} = Z \cdot u^2 \
+&amp;3..4.   &amp;&amp;\texttt{tv1} = \texttt{CMOV}(\texttt{tv1},\ 0,\ \texttt{tv1} = -1) \
+&amp;5..7.   &amp;&amp;x_1 = -c_1 \cdot \texttt{inv0}(\texttt{tv1} + 1) \
+&amp;8..11.  &amp;&amp;g_{x_1} = \bigl((x_1 + c_1),x_1 + c_2\bigr),x_1 \
+&amp;12.     &amp;&amp;x_2 = -x_1 - c_1 \
+&amp;13.     &amp;&amp;g_{x_2} = \texttt{tv1} \cdot g_{x_1} \
+&amp;14.     &amp;&amp;e_2 = \texttt{isSquare}(g_{x_1}) \
+&amp;15..16. &amp;&amp;x = \texttt{CMOV}(x_2,\ x_1,\ e_2), \quad y^2 = \texttt{CMOV}(g_{x_2},\ g_{x_1},\ e_2) \
+&amp;17..19. &amp;&amp;y = \texttt{sqrt}(y^2), \quad y = \texttt{CMOV}(y,\ -y,\ e_2 \oplus \texttt{sgn0}(y)) \
+&amp;20..22. &amp;&amp;(s, t) = (x \cdot K,\ y \cdot K)
+\end{aligned}
+$$</p>
+<p>Step 3 handles $\texttt{tv1} = -1$, for which $x_1$ is undefined; steps 14–16 select the branch that yields a square.</p>
+<h4 id="344-rational-map"><a class="header" href="#344-rational-map">3.4.4 Rational map</a></h4>
+<p>$\mathrm{RationalMap}: E_M \mapsto E$ is <a href="https://www.rfc-editor.org/rfc/rfc9380.html">RFC 9380</a> App. D.1. Given $(s, t)$, return $(v, w)$:</p>
+<p>$$\texttt{tv} = \texttt{inv0}\bigl((s+1),t\bigr), \qquad v = \texttt{tv} \cdot (s+1) \cdot s, \qquad w = \texttt{CMOV}\bigl(\texttt{tv} \cdot t \cdot (s-1),\ 1,\ \texttt{tv} = 0\bigr)$$</p>
+<p>The $\texttt{tv} = 0$ branch maps the exceptional points of the rational map to the identity $(0, 1)$ of $E$, so the map is total.</p>
+<h4 id="345-clear-cofactor"><a class="header" href="#345-clear-cofactor">3.4.5 Clear cofactor</a></h4>
+<p>$$\mathrm{ClearCofactor}(Q) := h \cdot Q = 8 \cdot Q$$</p>
+<p>Implementations SHOULD compute this as three doublings. The result lies in the prime-order subgroup, and the output of $\mathrm{EncodeToCurve}$ MAY therefore be consumed by templates that require a subgroup element without a further subgroup check.</p>
+<p>Note that $\mathrm{ClearCofactor}$ can return the identity — for the $\mathrm{RationalMap}$ exceptional points above, and for any $Q$ of order dividing 8. Callers for which the identity is not an acceptable $H_1$ output MUST reject it explicitly.</p>
+<h3 id="35-signatures"><a class="header" href="#35-signatures">3.5 Signatures</a></h3>
+<p>The default signature scheme for the World ID Protocol is an Edwards-curve Digital Signature Algorithm (EdDSA) over the twisted Edwards form $E$ of BabyJubJub, referred to as <strong><code>BabyJubJub-EdDSA-Poseidon2</code></strong>. It is the scheme given in the <a href="https://github.com/TaceoLabs/oprf-service/blob/main/docs/oprf.typst">OPRF paper</a>.</p>
+<p>It follows the structure of <a href="https://datatracker.ietf.org/doc/html/rfc8032">RFC-8032</a> but is <strong>not</strong> an RFC 8032 ciphersuite: RFC 8032 defines only Ed25519 and Ed448, each with a fixed curve and a fixed hash function, and this scheme replaces both.</p>
+<ol>
+<li><code>BabyJubJub-EdDSA-Poseidon2</code> uses:
+<ol>
+<li>$F_q$ as its finite field;</li>
+<li>$E$ as its elliptic curve;</li>
+<li>the base point $G$ as defined in <a href="#32-curve">Curve</a>, of order $r$;</li>
+<li>Poseidon2 as its challenge hash, as defined in <a href="#33-hashing">Hashing</a>;</li>
+<li>BLAKE3 in XOF mode for the derivation of the secret scalar $sk$ and for deterministic nonce derivation. Implementations MUST NOT substitute Poseidon2 here, nor SHA-512 as RFC 8032 would prescribe. Implementors SHOULD follow the recommendations in RFC 8032 for key generation.</li>
+</ol>
+</li>
+<li><strong>Message</strong>. Messages are elements of $F_q$. A message not natively encodable in $F_q$ MUST first be lowered to $F_q$ with a construction from <a href="#33-hashing">Hashing</a>.</li>
+<li><strong>Challenge</strong>. $e = H_8(\texttt{ds}_{\texttt{EdDSA Signature}}; R_x, R_y, pk_x, pk_y, M)$, where $pk$ is the signer’s public key. $e$ MAY be used as a full-field scalar without reduction, since reduction mod $r$ is a no-op on the prime-order subgroup in which $pk$ is required to lie.</li>
+<li><strong>Signature</strong>. The signature is $\sigma = (R, s)$. $R$ is $r’ \cdot G$, where $r’$ is RECOMMENDED to be derived by hashing the deterministic nonce concatenated by the message as in RFC 8032, and $s = r’ + e * sk$.</li>
+<li><strong>Public Key</strong>. The public key $pk$ is derived as $sk \cdot G$.</li>
+</ol>
+<h4 id="351-verification"><a class="header" href="#351-verification">3.5.1 Verification</a></h4>
+<p>A signature $\sigma = (R, s)$ on a message $M$ under a public key $pk$ is valid iff all of the following hold.</p>
+<ol>
+<li><strong>Canonical encoding</strong>. $pk$ and $R$ MUST decode from canonical field elements, per <a href="#4-public-key-representation">Public Key Representation</a>.</li>
+<li><strong>Canonical Scalar</strong>. All $s$ scalars MUST fulfill $s \in {0, \dots, r-1}$ to prevent signature malleability (i.e. a reduced scalar).</li>
+<li><strong>$pk$ in the prime-order subgroup</strong>. $pk$ MUST satisfy the curve equation, MUST lie in the prime-order subgroup, and MUST NOT be the identity. This also rejects the small-order points.</li>
+<li><strong>$R$ on curve</strong>. $R$ MUST be a point satisfying the BabyJubJub curve equation because addition is only complete for on-curve points. The point is NOT REQUIRED to lie in the prime-order subgroup for security, although conforming clients MUST produce points that lie in the prime-order subgroup.</li>
+<li><strong>Cofactored verification equation</strong>. The signature MUST meet the cofactored verification equation $h\left(sG - R - e \cdot pk\right) = \mathcal{O}$, with $h = 8$. See <a href="https://eprint.iacr.org/2020/1244.pdf">Chalkias, K. et al.</a>. Cofactorless verification MUST NOT be used; the two accept different sets of signatures.</li>
+</ol>
+<h4 id="352-encoding"><a class="header" href="#352-encoding">3.5.2 Encoding</a></h4>
+<p>A signature is encoded as 64 bytes: $R$ in the compressed point encoding of <a href="#4-public-key-representation">Public Key Representation</a>, followed by $s$ as a canonical little-endian $F_r$ element.</p>
+<h3 id="36-discrete-logarithm-equality-proof"><a class="header" href="#36-discrete-logarithm-equality-proof">3.6 Discrete Logarithm Equality Proof</a></h3>
+<p>A discrete logarithm equality (DLogEq) proof is a <a href="https://link.springer.com/chapter/10.1007/3-540-48071-4_7">Chaum–Pedersen</a> sigma protocol, made non-interactive by the Fiat–Shamir transform with Poseidon2 as the challenge hash. It is the scheme given in the <a href="https://github.com/TaceoLabs/oprf-service/blob/main/docs/oprf.typst">OPRF paper</a>.</p>
+<p>It proves knowledge of a scalar $x \in F_r$ such that</p>
+<p>$$A = x \cdot D \quad\text{and}\quad C = x \cdot B$$</p>
+<p>for public points $A, B, C, D \in E$, without revealing $x$. This is what gives the OPRF public verifiability: the OPRF node publishes $A = x \cdot D$ as its public key and proves that the same $x$ produced the evaluation $C = x \cdot B$ on the client’s blinded query $B$.</p>
+<p>$D$ is a parameter of the scheme, not fixed by it. Every present use in the Protocol instantiates $D = G$, and an implementation MAY hard-code it, but the challenge hash MUST bind $D$ regardless, so that a prover cannot move the statement to a different base.</p>
+<h4 id="361-proving"><a class="header" href="#361-proving">3.6.1 Proving</a></h4>
+<p>Given the witness $x$ and the base $B$, the prover:</p>
+<ol>
+<li>samples a nonce $\rho \in F_r$ uniformly at random;</li>
+<li>computes the commitments $R_1 = \rho \cdot D$ and $R_2 = \rho \cdot B$;</li>
+<li>computes the challenge $e$ as defined in <a href="#362-challenge">Challenge</a>;</li>
+<li>computes the response $s = \rho + e \cdot x \in F_r$.</li>
+</ol>
+<p>The proof is $\pi = (e, s)$. $\rho$ MUST be freshly sampled per proof and MUST NOT be reused or derived from public data: two proofs over distinct statements that share a $\rho$ reveal $x$.</p>
+<h4 id="362-challenge"><a class="header" href="#362-challenge">3.6.2 Challenge</a></h4>
+<p>The label <code>DLOG Equality Proof</code> is allocated to this construction at $t = 16$ with $k = 12$ inputs, giving</p>
+<p>$$\texttt{ds}_{\texttt{DLOG Equality Proof}} = 1523098184080632582082867317389990410064981862$$</p>
+<p>$$e = H_{16}(\texttt{ds}<em>{\texttt{DLOG Equality Proof}};\ A_x, A_y,\ B_x, B_y,\ C_x, C_y,\ D_x, D_y,\ R</em>{1,x}, R_{1,y},\ R_{2,x}, R_{2,y})$$</p>
+<p>The operand order is normative: the four statement points as $A, B, C, D$, then the two commitments as $R_1, R_2$, each point contributing $x$ then $y$.</p>
+<p>$e$ is an element of $F_q$. As in <a href="#35-signatures">Signatures</a>, it MAY be used as a full-field scalar without reduction, since reduction mod $r$ is a no-op on the prime-order subgroup in which all four points are required to lie.</p>
+<h4 id="363-verification"><a class="header" href="#363-verification">3.6.3 Verification</a></h4>
+<p>A proof $\pi = (e, s)$ for the statement $(A, B, C, D)$ is valid iff all of the following hold.</p>
+<ol>
+<li><strong>Canonical Scalar</strong>. $s \in {0, \dots, r-1}$, as in <a href="#35-signatures">Signatures</a>.</li>
+<li><strong>Statement points in the prime-order subgroup</strong>. Each of $A$, $B$, $C$, $D$ MUST satisfy the curve equation, MUST lie in the prime-order subgroup, and MUST NOT be the identity.</li>
+<li><strong>Recomputed commitments</strong>. $R_1 = s \cdot D - e \cdot A$ and $R_2 = s \cdot B - e \cdot C$.</li>
+<li><strong>Non-degenerate commitments</strong>. Neither $R_1$ nor $R_2$ is the identity.</li>
+<li><strong>Challenge</strong>. $e$ equals the challenge recomputed over $(A, B, C, D, R_1, R_2)$ per <a href="#362-challenge">Challenge</a>, compared as $F_q$ elements.</li>
+</ol>
+<p>A verifier MAY discharge check 2 for a given point outside the proof system, and a circuit implementing this verification MAY therefore omit it for a point that is a public input of the enclosing proof. In that case the check becomes an obligation on the enclosing verifier and MUST be documented as such at the circuit boundary.</p>
+<h2 id="4-public-key-representation"><a class="header" href="#4-public-key-representation">4. Public Key Representation</a></h2>
+<p>The <code>PublicKey</code> type is introduced to represent public keys of used elliptic curves. Two representations are defined and MUST NOT be conflated:</p>
+<ol>
+<li><strong>In-circuit</strong>: an affine point, i.e. a structure with two <code>Field</code> elements $(x, y)$. Both coordinates MUST be carried explicitly; a circuit MUST NOT decompress a point.</li>
+<li><strong>Wire</strong>: a compressed point of 32 bytes, holding $y$ as a canonical little-endian $F_q$ element with the sign of $x$ in the most significant bit of the final byte. The sign bit is set when $x &gt; -x$, comparing canonical integer representatives. <strong>Note:</strong> This is not equivalent to <code>sgn0</code>.</li>
+</ol>
+<p>Decompression recovers $x$ from $y$ via the curve equation and selects the root indicated by the sign bit. Deserialization MUST reject a non-canonical $y$, i.e. one that is not less than $q$.
+The identity point of the used BabyJubJub curve is (0,1) and is represented using the above rules.</p>
+<p>This compressed encoding is <strong>not</strong> the iden3 <code>BabyJubJub</code> packing, and the two are not interchangeable.</p>
+<h2 id="5-merkle-inclusion-proof"><a class="header" href="#5-merkle-inclusion-proof">5. Merkle Inclusion Proof</a></h2>
+<p>The Protocol uses Merkle trees to store membership and prove inclusion. The most important use of it is to store World ID account membership in the <code>WorldIDRegistry</code>. An account’s position in the tree is its <strong>leaf index</strong>.</p>
+<h3 id="51-parameters"><a class="header" href="#51-parameters">5.1 Parameters</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Value</th></tr>
+</thead>
+<tbody>
+<tr><td>Arity</td><td>2</td></tr>
+<tr><td>Depth</td><td>30</td></tr>
+<tr><td>Node compression</td><td>$\mathrm{Compress}$, below</td></tr>
+<tr><td>Empty leaf</td><td>$0$</td></tr>
+</tbody>
+</table>
+</div>
+<p>Leaf index <code>0</code> is reserved and MUST NOT be assigned.</p>
+<h3 id="52-node-compression"><a class="header" href="#52-node-compression">5.2 Node compression</a></h3>
+<p>Nodes MUST be combined with the Davies–Meyer compression function</p>
+<p>$$\mathrm{Compress}(x_L, x_R) := P_2([x_L, x_R])[0] + x_L$$</p>
+<p>$t = 2$ leaves no state element free for a capacity, so $\mathrm{Compress}$ carries no domain separator and is the one exception to <a href="#331-domain-separators">Domain separators</a>. $\mathrm{Compress}$ MUST NOT be used outside a fixed-depth Merkle tree; see <a href="#6-security">Security</a>.</p>
+<h3 id="53-inclusion-proof"><a class="header" href="#53-inclusion-proof">5.3 Inclusion proof</a></h3>
+<p>An inclusion proof for a leaf at index $i$ consists of $i$ together with the 30 sibling nodes $s_0, \dots, s_{29}$, ordered from the leaf level upwards. The root is recomputed as</p>
+<p>$$v_0 = \mathrm{leaf}, \qquad v_{j+1} = \begin{cases} \mathrm{Compress}(v_j,\ s_j) &amp; \text{if bit } j \text{ of } i \text{ is } 0 \ \mathrm{Compress}(s_j,\ v_j) &amp; \text{otherwise} \end{cases}$$</p>
+<p>where bit $j$ is the $j$-th least significant bit of $i$. The proof is valid if and only if $v_{30}$ equals the tree root. Verifiers MUST apply exactly 30 compressions and ensure the depth of the Merkle tree is 30 and $\forall i$, $0 &lt; i &lt; 2^{30}$ MUST hold.</p>
+<h2 id="6-security"><a class="header" href="#6-security">6. Security</a></h2>
+<ol>
+<li><strong>Poseidon2 in compression mode</strong>. For a security argument of using Poseidon2 with state size 2 as a 2-1 compression mode, we refer to both section 3.1 of the <a href="https://eprint.iacr.org/2023/323.pdf">Poseidon2 paper</a> as well as the treatment of the construction in section 4.2 of the <a href="https://eprint.iacr.org/2022/403.pdf">Griffin paper</a>.</li>
+<li><strong>Security Target</strong>. The Protocol defines a target security of 128 bits. BabyJubJub is the binding constraint, with $r \approx 2^{251}$. Poseidon2 and BLAKE3 are both parameterized for 128 bits.</li>
+<li><strong>Assumptions</strong>. The discrete logarithm problem is hard in the order-$r$ subgroup of $E$; Poseidon2 over $F_q$, at the widths in <a href="#33-hashing">Hashing</a>, is collision- and preimage-resistant and behaves as a random oracle under Fiat–Shamir; BLAKE3 is a secure pseudorandom function and extendable-output function.</li>
+</ol>
+<h2 id="7-backwards-compatibility"><a class="header" href="#7-backwards-compatibility">7. Backwards Compatibility</a></h2>
+<p>This spec is introduced after the initial release of the <a href="world-id-4-specs/README.html">World ID 4.0</a> protocol, it is documenting design decisions previously defined in the 4.0 Specs and from the <a href="https://github.com/TaceoLabs/oprf-service/blob/main/docs/oprf.typst">OPRF Whitepaper</a>, so it’s not breaking backwards compatibility. From adoption onwards, the definitions in this spec become binding for the Query Proof and Nullifier Proof used in the World ID Protocol.</p>
+<h2 id="appendix-a1-test-vectors"><a class="header" href="#appendix-a1-test-vectors">Appendix A1. Test Vectors</a></h2>
+<p>Field elements are decimal integers. Byte strings are hexadecimal; wrapped lines are concatenated. For ascending inputs of length $n$, byte $i$ is $i \bmod 251$.</p>
+<h3 id="a11-domain-separators"><a class="header" href="#a11-domain-separators">A1.1 Domain separators</a></h3>
+<pre><code class="language-text">label = EdDSA Signature
+ds = 360302137480307891234917541314130533
+</code></pre>
+<pre><code class="language-text">label = OPRF_HashToField_BabyJubJub
+ds = 32627786498498119128812045057993354633158048678109587794777765218
+</code></pre>
+<pre><code class="language-text">label = DLOG Equality Proof
+ds = 1523098184080632582082867317389990410064981862
+</code></pre>
+<pre><code class="language-text">label = CLAIMS_HASH_V1
+ds = 1364962988938129392107510493566513
+</code></pre>
+<h3 id="a12-poseidon2-permutations"><a class="header" href="#a12-poseidon2-permutations">A1.2 Poseidon2 permutations</a></h3>
+<p>Each width uses the input state $[0, 1, \dots, t-1]$. All output elements are listed in state order.</p>
+<pre><code class="language-text">t = 2
+output[0] = 13120422956170837922441672802975889424559262309139960702680326932494325745547
+output[1] = 5923567162677888564808904842769941181302763723060647224839027357562627386465
+</code></pre>
+<pre><code class="language-text">t = 3
+output[0] = 5297208644449048816064511434384511824916970985131888684874823260532015509555
+output[1] = 21816030159894113985964609355246484851575571273661473159848781012394295965040
+output[2] = 13940986381491601233448981668101586453321811870310341844570924906201623195336
+</code></pre>
+<pre><code class="language-text">t = 4
+output[0] = 786823568102245344938517132468097745676732687098822989626730198331658606391
+output[1] = 16105493617470833344375945651585194737369509580406730765188791202038211593826
+output[2] = 2169165722086073256768101917994796590773204847633762971322389403847680713675
+output[3] = 20837792685223053096472825292260687493226094382304778455120670180090619921530
+</code></pre>
+<pre><code class="language-text">t = 8
+output[0] = 13163567864211573827878829467860137302577760599598440387954761704438999762399
+output[1] = 20455256474176316209572707628365862887207812418465031548192789068192434065861
+output[2] = 21622031586696647398529562584873094656572287904668581566093346191656615936784
+output[3] = 18320622048765136384409419776996464874987888500923344182439589703061890523284
+output[4] = 19915468795157938233689963601267136400922725821760118753901600546477081024243
+output[5] = 12383970660639123649548441396659012498414420037083153473614822644813849243474
+output[6] = 9133088157465982496917058916696585316057943251337470087079495488316110895778
+output[7] = 5020935059501715015422969097649999023750915432550677386523662686145648636517
+</code></pre>
+<pre><code class="language-text">t = 16
+output[0] = 7129053404014098913941583447102076532611276040718594073862066403012892177215
+output[1] = 5458683216916715697310099658604278457911373519210593239261146303695981710820
+output[2] = 11764907654416682971926471140388165312909351793032868507449176373009888376893
+output[3] = 17363012907147515824232626923071954964539976031233523938322583063167173991942
+output[4] = 16754602647566413012759386310550362661092317428428132757066277153406453157400
+output[5] = 10442131742273378767812305849732860137449534508695657144865044457198204305243
+output[6] = 13315916208806700309353847107954103794241355430909228633658159683794835480566
+output[7] = 14675611827802190925530581036356245293764500457751312643178429199155385431971
+output[8] = 3800671750689110886099899395588427301982955036566905831860793275457528754896
+output[9] = 863058427093450397617252284543198432424871511785791089866952153042503171268
+output[10] = 16110421480974327191214802248220528120081914075253666769021797524181818259452
+output[11] = 3050248777345249982082587219460801555485024010345812479213241978893548171998
+output[12] = 8005144369031495385854140476761376792991595443174132540148616210767138457404
+output[13] = 193712991007063517677674367979478243863141973963118958643316643360558925992
+output[14] = 6765341258738133397733055933640609905610288576122407133007925535267189590216
+output[15] = 6411743912316957490668095751870764077217660758836562678571866082387292213586
+</code></pre>
+<h3 id="a13-hash-to-field"><a class="header" href="#a13-hash-to-field">A1.3 Hash to field</a></h3>
+<p>This also tests $H_3$ with one input and one zero-padding element.</p>
+<pre><code class="language-text">label = OPRF_HashToField_BabyJubJub
+input = 1
+output = 10409509318069101293316722480711595867625349071847922195261332397736272636435
+</code></pre>
+<h3 id="a14-variable-length-hash"><a class="header" href="#a14-variable-length-hash">A1.4 Variable-length hash</a></h3>
+<p>The label is <code>CLAIMS_HASH_V1</code>. Inputs are ascending bytes. Lengths 31 and 32 cover the chunk boundary; lengths 465 and 466 cover the permutation boundary. Empty input is invalid.</p>
+<pre><code class="language-text">length = 31
+digest = 12658306072862357948815044357476041793480954961275831694284480429814652585452
+</code></pre>
+<pre><code class="language-text">length = 32
+digest = 7105501883046959224351664232028428089815911608118705425730076057190813037341
+</code></pre>
+<pre><code class="language-text">length = 465
+digest = 13435504409435728907439603956434602577345452839959452028063546759536561347478
+</code></pre>
+<pre><code class="language-text">length = 466
+digest = 15525893232164838192982873493581731321396161293199355856124601873305423262450
+</code></pre>
+<h3 id="a15-merkle-tree"><a class="header" href="#a15-merkle-tree">A1.5 Merkle tree</a></h3>
+<pre><code class="language-text">Compress(0, 0) = 15621590199821056450610068202457788725601603091791048810523422053872049975191
+Compress(1, 2) = 6588139247708940112588203339651261153905233202198520634825199962343944922547
+</code></pre>
+<p>Define the empty-subtree roots by $z_0 = 0$ and $z_{j+1} = \mathrm{Compress}(z_j, z_j)$. Then $z_{30}$ is the empty tree root. The inclusion vector uses $s_j = z_j$ as the sibling path.</p>
+<pre><code class="language-text">z_2 = 15180302612178352054084191513289999058431498575847349863917170755410077436260
+z_30 = 15633048765234690365876053958277790002681834789256406938121001738966131111330
+leaf = 42
+index = 1
+root = 21449849969959258301263701183300082902700436494585373070244441970359881620262
+</code></pre>
+<p>With the same root and sibling path, leaf <code>43</code> is invalid.</p>
+<h3 id="a16-point-encoding"><a class="header" href="#a16-point-encoding">A1.6 Point encoding</a></h3>
+<p>$G$ is defined in <a href="#32-curve">Curve</a>. The encodings of $G$ and $-G$ exercise both values of the sign bit.</p>
+<pre><code class="language-text">G = 8b7d2d877a253c4b7733e1b91f05e0fcedf96bd11c2e572549b2a0f703727925
+-G = 8b7d2d877a253c4b7733e1b91f05e0fcedf96bd11c2e572549b2a0f7037279a5
+identity = 0100000000000000000000000000000000000000000000000000000000000000
+</code></pre>
+<h3 id="a17-signature"><a class="header" href="#a17-signature">A1.7 Signature</a></h3>
+<p>The deterministic signing procedure for this vector is:</p>
+<ol>
+<li>Expand the 32-byte seed with BLAKE3 XOF to 64 bytes.</li>
+<li>Copy the first 32 bytes to <code>a</code>; set <code>a[0] &amp;= 0xf8</code> and <code>a[31] = (a[31] &amp; 0x7f) | 0x40</code>. Interpret <code>a</code> as a little-endian integer and reduce modulo $r$ to obtain $sk$.</li>
+<li>Interpret the last 32 bytes as a little-endian integer and reduce modulo $r$ to obtain the nonce secret.</li>
+<li>Encode the nonce secret and message as 32-byte little-endian integers, concatenate them in that order, and expand with BLAKE3 XOF to 64 bytes. Interpret the result as a little-endian integer and reduce modulo $r$ to obtain $r’$.</li>
+<li>Compute $pk = skG$, $R = r’G$, the challenge $e$, and $s = (r’ + e \cdot sk) \bmod r$.</li>
+</ol>
+<pre><code class="language-text">seed = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+message = 42
+pk.x = 5743127613665812714027674485677763488557233128677239431720756512332055304469
+pk.y = 6713952740716875958406247477052754272136198788949552789678520356076812341435
+pk = bb9015f1309156fdfddcda5e5922f1ae565f6e5b2e78d4e35f884e036cf6d70e
+R.x = 4471796480099078564607791866308147318722757043758328908648489482326053658209
+R.y = 16743942090139358314901240752948685648557595749372215854958283055038688657910
+s = 1707871037059365895665483114747551425359126542652147321192782334073340268810
+signature = f601e481eec3c9fac20942eed731b5c815194fd1416a3f0c7948ffdf41bc0425
+            0a91c15ded66fde2ecec499b86fd56a7aad62d409391584a9c126b8de99ec603
+e = 14790550837438996768258768677587167620081417436968300740169708289833632123084
+</code></pre>
+<p>The signature verifies for message <code>42</code> and fails for message <code>43</code>. The challenge $e$ also satisfies the cofactored verification equation in <a href="#35-signatures">Signatures</a>.</p>
+<p>The following verification-only vector has $pk = G$ and $R = G + (0, -1)$. It MUST be accepted by the cofactored equation; the cofactorless equation rejects it. Signers MUST still produce $R$ in the prime-order subgroup.</p>
+<pre><code class="language-text">message = 42
+e = 14107477924306369449585376693150860508714550631015857449267997894818346434634
+s = 427326129406822435681373102365063578330480770223021153266919590076109569430
+</code></pre>
+<h3 id="a18-encodetocurve"><a class="header" href="#a18-encodetocurve">A1.8 EncodeToCurve</a></h3>
+<pre><code class="language-text">input = 2
+output.x = 20419487629862769727627645368371427138888560013459229812372534124769971005828
+output.y = 7631771008065059170045692780763031490103103796767657363493053446444837523289
+</code></pre>
+<pre><code class="language-text">input = 42
+output.x = 1368536874988764403285491466492470225763829673979223271328990939656695174872
+output.y = 5918944744409897789209151589310931911112404737084812644826989226820698253694
+</code></pre>
+<p>Inputs <code>2</code> and <code>42</code> exercise the square and non-square branches of Elligator 2, respectively. Both outputs are non-identity points in the prime-order subgroup.</p>
+<h3 id="a19-dlogeq-proof"><a class="header" href="#a19-dlogeq-proof">A1.9 DLogEq proof</a></h3>
+<p>$D = G$ and $B = \mathrm{EncodeToCurve}(42)$ from the vector above. The fixed nonce is for this test only.</p>
+<pre><code class="language-text">witness = 12345
+nonce = 67890
+A.x = 19099552327547260981542886231210125691902505931204088720746463491300185142606
+A.y = 13276557205153692030187527501273228448057533426731746626187331221465573305487
+C.x = 1704386023042037258303736539892861539707201163487540094949081990693465165451
+C.y = 8768369809996482248064559070370438612828016885307150244744623529899299197157
+R1.x = 7560514331452906482367540963526316341247740678202978210835422163029445477658
+R1.y = 11610694160704858701950599566691828874575930603037515361903555914794501850944
+R2.x = 3490405731880058419043956475882448859018810273867088182397477099060627470353
+R2.y = 11594420891490965176904143623534974685648090668464922826887222168496451873187
+e = 16671088874615503773909688665365363469394641783242006990890243365077833605068
+s = 388554659608811743276554153883008978905828355147065499832325343644454488330
+</code></pre>
+<p>The proof $(e, s)$ verifies for $(A, B, C, D)$. Swapping $A$ and $C$ is invalid.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="wip-101-rp-request-authorization-method-for-smart-contracts"><a href="#wip-101-rp-request-authorization-method-for-smart-contracts" class="header">WIP-101: RP Request Authorization Method for Smart Contracts</a></h1>
+<h2 id="1-abstract-1"><a class="header" href="#1-abstract-1">1. Abstract</a></h2>
+<p>This spec introduces a method to verify Relying Party (RP) proof requests in the World ID Protocol through on-chain smart contracts. As some RPs may not have a backend and be simply a contract, this allows OPRF Nodes to answer <strong>“Does the RP authorize this request?”</strong> in order to process relevant OPRF requests such as for nullifier generation.</p>
+<h2 id="2-motivation-1"><a class="header" href="#2-motivation-1">2. Motivation</a></h2>
+<p><strong>Context</strong>: Proof requests from Relying Parties in the World ID Protocol MUST be signed in order to be recognized. This serves to ensure proofs are authorized for the intended recipient and reduce the attack surface in post-compromise scenarios for Authenticators.</p>
+<p>A Relying Party MAY be a Smart Contract without a backend. When this is the case, having a private key to sign the request is impractical or even impossible in a secure way. Hence, we need a way for Relying Parties to authorize the request in a way compatible with Smart Contracts.</p>
+<h2 id="3-specification-1"><a class="header" href="#3-specification-1">3. Specification</a></h2>
+<p>The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in <a href="https://www.ietf.org/rfc/rfc2119.txt">RFC 2119</a>.</p>
+<p>In this document, “contract” and “smart contract” are used interchangeably.</p>
+<p>This specification introduces both concerns of “Authorization” and “Validation” of Relying Party (RP) Proof requests. When an RP requests a proof without a smart contract, they construct the proof request and sign the data they constructed. If the RP does not have a backend or other trusted environment, they cannot control the inputs to the Proof request. Hence, the contract SHOULD implement validation rules for the request. For example, an RP should determine what is the maximum expiration period they should allow for Proof requests and enforce it during verification.</p>
+<h3 id="31-contract-interface"><a class="header" href="#31-contract-interface">3.1 Contract Interface</a></h3>
+<ol>
+<li>To be compatible with signature verification, a contract acting as an RP MUST conform to the <code>IWIP101</code> interface below. <code>verifyRpRequest</code> MUST NOT modify state (declared <code>view</code> for solc &gt; 0.5) and MUST allow external calls.</li>
+<li>On a valid request, <code>verifyRpRequest</code> MUST return the <code>bytes4</code> magic value <code>0x35dbc8de</code> (the function selector for <code>verifyRpRequest</code>). Reverts otherwise.</li>
+<li>The contract (implementer) MUST also adhere to <a href="https://eips.ethereum.org/EIPS/eip-165">ERC-165</a> and return <code>true</code> from <code>supportsInterface</code> for <code>type(IWIP101).interfaceId</code>.</li>
+</ol>
+<pre><code class="language-solidity">/**
+ * @dev Interface of the WIP-101 standard for World ID,
+ *   RP Request Authorization Method for Smart Contracts.
+ */
+interface IWIP101 is IERC165 {
+    /**
+     * @dev The RP request is not valid. The code may be used to provide additional debugging information.
+     */
+    error RpInvalidRequest(uint256 code);
+
+    /**
+     * @notice Verifies a World ID Proof Request is authorized by the RP.
+     * @dev Should return whether the RP request is valid and should be honored. The `rpId` is implicit in this request,
+     *  any contract implementing this interface will be pointed to in the `RpRegistry`.
+     * @param version The version determines the format of the request.
+     * @param nonce Unique nonce for this request
+     * @param createdAt Creation timestamp of the request
+     * @param expiresAt Expiration timestamp specified for the request
+     * @param action Provided action for the request. Importantly, this is already a hashed
+     *  action as a field element.
+     * @param data Arbitrary data useful for the verification.
+     * @return magicValue The expected magic value when the request is valid. Reverts otherwise.
+     *
+     * MUST return the bytes4 magic value 0x35dbc8de when function passes (function selector for verifyRpRequest).
+     * MUST NOT modify state (view modifier for solc &gt; 0.5)
+     * MUST allow external calls
+     */
+    function verifyRpRequest(
+        uint8 version,
+        uint256 nonce,
+        uint64 createdAt,
+        uint64 expiresAt,
+        uint256 action,
+        bytes calldata data
+    ) external view returns (bytes4 magicValue);
+}
+</code></pre>
+<h3 id="32-request-validation-and-errors"><a class="header" href="#32-request-validation-and-errors">3.2 Request Validation and Errors</a></h3>
+<ol>
+<li>If the request is not authorized, <code>verifyRpRequest</code> MUST revert.</li>
+<li>When a request is invalid, implementers SHOULD revert with the explicit <code>RpInvalidRequest</code> error.</li>
+<li>Callers MUST treat any return value other than the magic value <code>0x35dbc8de</code> as an invalid request.</li>
+<li>RPs MAY define any number of <code>code</code>s in <code>RpInvalidRequest</code>. These codes are intended only for RP debugging, hence the RP can establish any format/definition for this attribute.</li>
+<li>It is RECOMMENDED implementers ensure that any upgrades to validation logic are backwards-compatible for the duration of the maximum <code>expiresAt</code> window.</li>
+</ol>
+<h3 id="33-oprf-node-behavior"><a class="header" href="#33-oprf-node-behavior">3.3 OPRF Node Behavior</a></h3>
+<p>The <code>verifyRpRequest</code> method will be used by OPRF Nodes to verify an incoming proof request before generating the required output to construct a <code>nullifier</code>. When a contract compliant with this spec is deployed, its address can be set as a <code>signer</code> in the <code>RpRegistry</code> contract (e.g. through the <code>updateRp</code> function).</p>
+<ol>
+<li>OPRF Nodes MUST use this spec (WIP-101) verification if the <code>signer</code> in the <code>RpRegistry</code> implements <a href="https://eips.ethereum.org/EIPS/eip-165">ERC-165</a> for <code>type(IWIP101).interfaceId</code>.</li>
+<li>Following the main threat model of this spec, OPRF Nodes MUST pass to <code>verifyRpRequest</code> the same <code>action</code> value that will be used as input to the OPRF computation.</li>
+<li>On an explicit <code>RpInvalidRequest</code> revert, OPRF Nodes MUST return the inner <code>code</code> to the requester (for debugging purposes).</li>
+<li>OPRF Nodes MAY enforce a timeout on the resolution of <code>verifyRpRequest</code>.</li>
+<li>Implementers SHOULD NOT rely on computationally expensive validation logic, so a call resolves within any node-enforced timeout.</li>
+<li>OPRF Nodes MAY check whether a contract is deployed at the registered <code>signer</code> address, and MAY return a specific error code if a deployed contract is not WIP-101 compliant.</li>
+<li>OPRF Nodes are NOT REQUIRED to verify signature via ECDSA if there is a contract deployed at the <code>signer</code> address.</li>
+</ol>
+<h3 id="34-signer-caching"><a class="header" href="#34-signer-caching">3.4 Signer Caching</a></h3>
+<ol>
+<li>OPRF Nodes MAY cache an RP’s <code>signer</code> for performance. This cache may include the consideration on whether the <code>signer</code> is WIP-101 compliant or not.</li>
+<li>A cached <code>signer</code> entry MUST NOT exceed a 30-day TTL.</li>
+<li>OPRF Nodes MUST invalidate the <code>signer</code> cache on any <code>RpUpdated</code> event emission from the <code>RpRegistry</code>.</li>
+</ol>
+<h3 id="35-request-field-constraints"><a class="header" href="#35-request-field-constraints">3.5 Request Field Constraints</a></h3>
+<ol>
+<li>The maximum length of <code>data</code> is 8192 bits (1024 bytes); the <code>data</code> field MUST NOT exceed this length.</li>
+<li>OPRF Nodes MAY enforce this maximum length and reject requests which exceed it.</li>
+</ol>
+<h3 id="36-deployment"><a class="header" href="#36-deployment">3.6 Deployment</a></h3>
+<ol>
+<li>Implementations of <strong>WIP-101</strong> MUST be deployed on World Chain Mainnet (Chain ID: <code>480</code>).</li>
+<li>OPRF Nodes MUST only verify contract execution on chain ID <code>480</code>.</li>
+</ol>
+<p><em><strong>Note</strong>: For RPs using other chains, proof verification MAY occur elsewhere, it’s only the request authorization that MUST happen on World Chain.</em></p>
+<h3 id="37-additional-context-non-normative"><a class="header" href="#37-additional-context-non-normative">3.7 Additional Context (non-normative)</a></h3>
+<p><strong>Version.</strong></p>
+<p>The version of the <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/request/struct.ProofRequest.html"><code>ProofRequest</code></a> which is passed as <code>version</code> attribute to the <code>verifyRpRequest</code> function is currently defined in the <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/request/enum.RequestVersion.html"><code>RequestVersion</code></a> enum.</p>
+<p><strong>Invalidating Signer Cache.</strong></p>
+<p>Note that RPs can trigger a cache invalidation of the <code>signer</code> by doing a no-op (or an actual) update with the <code>updateRp</code> method in the <code>RpRegistry</code> (see <a href="#34-signer-caching">§3.4</a>). This is useful if for example the <code>signer</code> is an <a href="https://eips.ethereum.org/EIPS/eip-1967">ERC-1967</a> proxy and the implementation was updated in a way material to determine compliance or non-compliance with this spec (e.g. a bug in the implementation of the <a href="https://eips.ethereum.org/EIPS/eip-165">ERC-165</a> interface).</p>
+<p><strong>Authorizing Sessions.</strong></p>
+<p>Implementers may also authorize requests for Session Proofs or starting a session. For these scenarios, the <code>action</code> value will have the relevant prefix. For example, requests for a Session Proof will have a prefix of <code>0x02</code> in the most significant byte of the action, i.e. <code>uint8(action &gt;&gt; 248) == uint8(2)</code>. More details on the different prefixes can be found in the <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/struct.SessionId.html"><code>SessionId</code></a> definition.</p>
+<p>Implementers MAY encode different handling depending on the type of request. For example:</p>
+<ul>
+<li>If the RP does not support sessions, reject proofs if the prefix does not equal <code>0x00</code>.</li>
+<li>If the RP supports sessions, the actions are randomly generated, so as long as the prefix matches one of the expected values (e.g. <code>0x01</code>, <code>0x02</code>), the action check can be considered fulfilled.</li>
+</ul>
+<h2 id="4-rationale"><a class="header" href="#4-rationale">4. Rationale</a></h2>
+<p>The <code>verifyRpRequest</code> allows an RP to verify all the inputs that would otherwise be signed, so any rules that an RP would normally use when constructing an off-chain request can be encoded in the RP’s contract for pure on-chain interactions.</p>
+<p>The rationale behind the arbitrary <code>data</code> is that the <code>action</code> is passed to this function already hashed into the field so nothing on the pre-image can be validated. Validating the content of the pre-image is something particularly important because it scopes the <em>uniqueness space</em>, i.e. it’s an input to the <code>nullifier</code> of a proof. An example of this is <code>data</code> could include the pre-image of the <code>action</code> in order to perform validations over the raw action data.</p>
+<p>This spec is inspired by <a href="https://github.com/ethereum/ercs/blob/master/ERCS/erc-1271.md">ERC-1271</a>.</p>
+<h2 id="5-reference-implementation"><a class="header" href="#5-reference-implementation">5. Reference Implementation</a></h2>
+<pre><code class="language-solidity">contract WIP101Example is IWIP101, ERC165 {
+    // bytes4(keccak256("verifyRpRequest(uint8,uint256,uint64,uint64,uint256,bytes)"))
+    bytes4 internal constant MAGICVALUE = 0x35dbc8de;
+    
+    /**
+    * @dev The RP request is not valid. The code may be used to provide additional debugging information.
+    */
+    error RpInvalidRequest(uint256 code);
+
+    /// @inheritdoc IWIP101
+    function verifyRpRequest(
+        uint8 version,
+        uint256 nonce,
+        uint64 createdAt,
+        uint64 expiresAt,
+        uint256 action,
+        bytes calldata data
+    ) external view returns (bytes4 magicValue) {
+        if (version &gt; 1) {
+            revert RpInvalidRequest(0);
+        }
+        
+        if (createdAt &gt; block.timestamp || createdAt &lt; block.timestamp - 15 minutes) {
+            revert RpInvalidRequest(1);
+        }
+
+        if (expiresAt &lt; block.timestamp || expiresAt &gt; block.timestamp + 15 minutes) {
+            revert RpInvalidRequest(2);
+        }
+        
+        if (uint8(action &gt;&gt; 248) != uint8(0)) {
+            // This RP does not support Session Proofs
+            revert RpInvalidRequest(3);
+        }
+        
+        // note the bitshift by 8 for the action to fit into the field; this is the same
+        // method as in `FieldElement::from_arbitrary_raw_bytes` which is used in common SDKs
+        uint256 expected_action = uint256(keccak256(abi.encodePacked("vote"))) &gt;&gt; 8;
+
+        if (action != expected_action) {
+            revert RpInvalidRequest(4);
+        }
+
+        return MAGICVALUE;
+    }
+
+    /// @inheritdoc ERC165
+    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165) returns (bool) {
+        return interfaceId == type(IWIP101).interfaceId || super.supportsInterface(interfaceId);
+    }
+}
+</code></pre>
+<p>It is expected that under normal circumstances, the RP would still construct a Proof request. The key distinction with authorization through this specification versus authorization through an ECDSA signature is that the proof request would be <strong>constructed in an untrusted environment (for example the user’s web browser)</strong>. Hence, why this specification also covers validation of the request. The following diagram shows a non-normative example of how such request flow can occur. Note particularly how the proof request is constructed by the RP but does not need to be assumed correct because it is verified by the WIP-101 compliant contract.</p>
+<pre class="mermaid">sequenceDiagram
+participant c as RP Client (e.g. Web App)
+participant a as Authenticator
+participant o as OPRF Nodes
+participant v as RP WIP101 Verifier
+
+c-&gt;&gt;c: generate rnd nonce
+c-&gt;&gt;c: encode RP custom `data`
+c-&gt;&gt;c: construct proof request
+c-&gt;&gt;a: proof request (unsigned)
+a-&gt;&gt;o: nullifier request
+o-&gt;&gt;v: verifyRpRequest()
+v-&gt;&gt;v: internal verifications
+v-&gt;&gt;o: is valid
+o-&gt;&gt;a: nullifier
+a-&gt;&gt;c: proof response
+c-&gt;&gt;v: submit proof and perform action on-chain
+v-&gt;&gt;v: invalidate nonce
+</pre>
+
+<h2 id="6-recommended-validations"><a class="header" href="#6-recommended-validations">6. Recommended Validations</a></h2>
+<p>It is RECOMMENDED to implement the following validations for a Proof request:</p>
+<ol>
+<li>Reject a request which <code>version</code> is larger than the maximum known, as future version changes MAY be incompatible with previous versions.</li>
+<li><code>createdAt</code> is not in the future and close to the current time.</li>
+<li><code>expiresAt</code> is not in the past and is not too far in the future. While “too far” is relative to each RP’s use case, it’s unlikely that a Proof request should be valid for more than 15 minutes. Note that sub-minute precision SHOULD generally NOT be relied upon on-chain.</li>
+<li><code>nonce</code> has not been used before. This is RECOMMENDED, however OPRF Nodes will still enforce a nonce is only used once. Nonce tracking within <code>verifyRpRequest</code> is not possible due to the <code>view</code> constraint. Implementers relying on nonce uniqueness SHOULD track used nonces in a separate transaction (e.g., when the proof is consumed on-chain). <em>The rationale for this is that a nonce isn’t considered “consumed” until the proof is verified. Furthermore, each OPRF Node will call the <code>verifyRpRequest</code> function independently, so it’s not a good place to enforce non re-use</em>.</li>
+<li><code>action</code> hash is the expected value for Uniqueness Proofs.</li>
+<li>If the RP does not support Session Proofs, the first 8 bits of the action must all equal <code>0</code>.</li>
+</ol>
+<h2 id="7-security"><a class="header" href="#7-security">7. Security</a></h2>
+<ol>
+<li>The main threat model protected with this spec is authorization of RP Requests such that an authenticator (malicious or not) cannot generate <code>nullifier</code>s (or other OPRF outputs) for use with an RP without that RP’s authorization. This for example helps protect users in post-compromise scenarios. If an RP implements proper authorization logic, even with a compromised authenticator, an attacker would be unable to compute a user’s nullifier. Binding the OPRF input to the verified <code>action</code> (<a href="#33-oprf-node-behavior">§3.3</a>) is what anchors this guarantee.</li>
+<li>Implementers are solely responsible for the security of their validation logic. A <code>verifyRpRequest</code> that unconditionally returns the magic value is equivalent to having no authorization and exposes the RP to unbounded nullifier generation for any action as well as users in a post-compromise scenario.</li>
+</ol>
+<h2 id="8-backwards-compatibility"><a class="header" href="#8-backwards-compatibility">8. Backwards Compatibility</a></h2>
+<p>This World Improvement Proposal (WIP) introduces a new interface; no existing contracts or other previously existing functionality is affected.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="wip-102-simplified-optimistic-recovery-agent-update"><a href="#wip-102-simplified-optimistic-recovery-agent-update" class="header">WIP-102: Simplified Optimistic Recovery Agent Update</a></h1>
+<h2 id="1-abstract-2"><a class="header" href="#1-abstract-2">1. Abstract</a></h2>
+<p>This spec proposes replacing the current Recovery Agent update mechanism (<code>initiateRecoveryAgentUpdate</code>, <code>cancelRecoveryAgentUpdate</code>, <code>executeRecoveryAgentUpdate</code>), that always requires two transactions, with a new flow (<code>updateRecoveryAgent</code>, <code>revertRecoveryAgentUpdate</code>) that only requires a second transaction when the update needs to be reverted. The proposal preserves the security delay through a revert window.</p>
+<h2 id="2-motivation-2"><a class="header" href="#2-motivation-2">2. Motivation</a></h2>
+<p>In the current contract implementation the user has to first call <code>initiateRecoveryAgentUpdate</code>. This initiates a configurable (e.g. 14 days) period during which the update operation can be cancelled (with a <code>cancelRecoveryAgentUpdate</code> call). After the period is over anyone can call a permissionless <code>executeRecoveryAgentUpdate</code> transaction to finalize the update.</p>
+<p>This introduces the following issues:</p>
+<ol>
+<li>The updater has to remember to execute the call after the delay, or someone needs to develop and maintain an auto-executing service.</li>
+<li>The new Recovery Agent isn’t set on-chain until the delay elapses, which can be problematic e.g. if the user wants to register a Recovery Agent after registering their World ID. The Recovery Agent cannot be sure this has been set up properly for a World ID.</li>
+</ol>
+<h2 id="3-specification-2"><a class="header" href="#3-specification-2">3. Specification</a></h2>
+<p>The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in <a href="https://www.ietf.org/rfc/rfc2119.txt">RFC 2119</a>.</p>
+<h3 id="31-method-changes"><a class="header" href="#31-method-changes">3.1 Method Changes</a></h3>
+<p>The existing 3 methods are replaced with 2 new methods:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Current</th><th>Proposed</th></tr>
+</thead>
+<tbody>
+<tr><td><code>initiateRecoveryAgentUpdate</code></td><td><code>updateRecoveryAgent</code></td></tr>
+<tr><td><code>cancelRecoveryAgentUpdate</code></td><td><code>revertRecoveryAgentUpdate</code></td></tr>
+<tr><td><code>executeRecoveryAgentUpdate</code></td><td>removed</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="32-mechanism"><a class="header" href="#32-mechanism">3.2 Mechanism</a></h3>
+<p>Instead of delaying the Recovery Agent update on-chain, the <code>updateRecoveryAgent</code> function updates the address immediately, records the previous Recovery Agent in a mapping, and sets a delay on the account. During this delay period an account MUST NOT yet be recoverable with the new Recovery Agent.</p>
+<ul>
+<li>The previous Recovery Agent remains valid until <code>invalidAfter</code> elapses and the user MAY revert the update during this window, restoring the previous Recovery Agent. This is to maintain the security mechanism when updating a Recovery Agent to mitigate takeover attacks.</li>
+<li>The new Recovery Agent SHALL NOT be used until after <code>invalidAfter</code>.  Once <code>invalidAfter</code> elapses without a revert, the previous Recovery Agent becomes invalid and the new Recovery Agent becomes the sole valid Recovery Agent.</li>
+</ul>
+<h3 id="33-storage"><a class="header" href="#33-storage">3.3 Storage</a></h3>
+<p>This change requires storing the <code>previousRecoveryAgent</code> address and an <code>invalidAfter</code> timestamp per <code>leafIndex</code> in the <code>WorldIDRegistry</code>. The data stored is equivalent to what is currently stored in the contract but with inverted semantics:</p>
+<p>Current:</p>
+<pre><code class="language-solidity">struct PendingRecoveryAgentUpdate {
+    address newRecoveryAgent;
+    uint256 executeAfter;
+}
+
+mapping(uint256 =&gt; PendingRecoveryAgentUpdate) internal _pendingRecoveryAgentUpdates;
+</code></pre>
+<p>Proposed:</p>
+<pre><code class="language-solidity">struct PreviousRecoveryAgentUpdate {
+    address prevRecoveryAgent;
+    uint256 invalidAfter;
+}
+
+mapping(uint256 =&gt; PreviousRecoveryAgentUpdate) internal _prevRecoveryAgentUpdates;
+</code></pre>
+<h3 id="34-updaterecoveryagent"><a class="header" href="#34-updaterecoveryagent">3.4 <code>updateRecoveryAgent</code></a></h3>
+<p><code>updateRecoveryAgent</code> uses the same authorization as <code>initiateRecoveryAgentUpdate</code>.</p>
+<pre><code class="language-solidity">function updateRecoveryAgent(
+    uint64 leafIndex,
+    address newRecoveryAgent,
+    bytes memory signature, // authenticator signature
+    uint256 nonce
+) external virtual onlyProxy onlyInitialized {
+</code></pre>
+<p><code>updateRecoveryAgent</code> SHALL NOT be called again while the previous Recovery Agent is still valid (i.e. <code>invalidAfter</code> has not elapsed) and the call MUST revert if it does. While allowing a second call to overwrite the pending update (keeping <code>previousRecoveryAgent</code> and resetting <code>invalidAfter</code>) would be well-defined, it adds contract complexity. The same result is achieved more explicitly by reverting the current update first.</p>
+<h3 id="35-revertrecoveryagentupdate"><a class="header" href="#35-revertrecoveryagentupdate">3.5 <code>revertRecoveryAgentUpdate</code></a></h3>
+<p><code>revertRecoveryAgentUpdate</code> can be executed by any Admin Authenticator (as defined in <a href="#wip-104-proving-and-admin-authenticators-with-fixed-permission-sets">WIP-104</a>) up until <code>invalidAfter</code>, matching the authorization model of the current <code>cancelRecoveryAgentUpdate</code>. Reverting a Recovery Agent update is a management operation, so a Proving Authenticator MUST NOT be able to authorize it.</p>
+<pre><code class="language-solidity">function revertRecoveryAgentUpdate(
+    uint64 leafIndex,
+    bytes memory signature, // authenticator signature
+    uint256 nonce
+) external virtual onlyProxy onlyInitialized {
+</code></pre>
+<h3 id="36-interaction-with-recoveraccount"><a class="header" href="#36-interaction-with-recoveraccount">3.6 Interaction with <code>recoverAccount</code></a></h3>
+<p>When <code>recoverAccount</code> is called, any active Recovery Agent update (i.e. <code>invalidAfter</code> has not yet elapsed) MUST be cleared automatically. This handles the attack scenario where an attacker compromises an authenticator, removes the user’s authenticators to lock them out, and initiates a Recovery Agent update. When the user recovers their account via the Recovery Agent, the malicious update is reverted as part of the recovery.</p>
+<h2 id="4-rationale-1"><a class="header" href="#4-rationale-1">4. Rationale</a></h2>
+<p>This solution preserves the original security properties while enabling better ergonomics and user experience. Notably:</p>
+<ol>
+<li><strong>No follow-up transaction required.</strong> The update takes effect immediately, removing the need for an execution step after the delay period.</li>
+<li><strong>Equivalent security.</strong> The revert window ensures that an attacker who compromises an authenticator cannot immediately replace the Recovery Agent. Any Admin Authenticator retains the ability to revert the change during the delay period.</li>
+</ol>
+<h2 id="5-security"><a class="header" href="#5-security">5. Security</a></h2>
+<ol>
+<li>The delay period MUST be preserved to maintain the security guarantee that a compromised authenticator cannot unilaterally replace the Recovery Agent.</li>
+<li>During the delay period, both the previous and new Recovery Agents exist, but recovery MUST only be possible with the previous Recovery Agent until <code>invalidAfter</code> elapses.</li>
+<li>Any Admin Authenticator MAY revert the update at any point before <code>invalidAfter</code>, restoring the original state.</li>
+</ol>
+<h2 id="6-backwards-compatibility"><a class="header" href="#6-backwards-compatibility">6. Backwards Compatibility</a></h2>
+<p>This WIP replaces the existing 3-step Recovery Agent update mechanism. Contracts implementing this spec MUST remove the <code>initiateRecoveryAgentUpdate</code>, <code>cancelRecoveryAgentUpdate</code>, and <code>executeRecoveryAgentUpdate</code> methods in favor of the new interface. Any pending Recovery Agent updates at the time of upgrade SHOULD be migrated or invalidated.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="wip-103-proof-of-ownership"><a href="#wip-103-proof-of-ownership" class="header">WIP-103: Proof of Ownership</a></h1>
+<h2 id="1-abstract-3"><a class="header" href="#1-abstract-3">1. Abstract</a></h2>
+<p>This spec introduces a new ZK circuit (“Ownership Proof”) to the World ID Protocol that allows a user to prove they own a specific registered leaf without revealing their <code>leaf_index</code> or any private key material to the verifier. The circuit takes a domain-separated commitment, <code>H(domain_separator, leaf_index, commitment_blinder)</code>, and proves that the user controls a secret key registered in the <code>WorldIDRegistry</code> for that leaf, without exposing the <code>commitment_blinder</code> value (e.g. a credential blinding factor) as a public input. The initial use case is Issuer Authentication, where a user proves ownership of a credential <code>sub</code> to an Issuer for operations like re-issuance, renewal, or deletion.</p>
+<h2 id="2-motivation-3"><a class="header" href="#2-motivation-3">2. Motivation</a></h2>
+<p>There are use cases that require users to prove ownership for their World ID and a specific commitment. At the time of writing there is a well-known use case for Issuer Authentication.</p>
+<h3 id="21-issuer-authentication"><a class="header" href="#21-issuer-authentication">2.1 Issuer Authentication</a></h3>
+<p>Issuers may require users to authenticate with their World ID. Some examples of such use cases:</p>
+<ul>
+<li><strong>Re-issuance</strong>. Allowing the user to get a new copy of their credential due to loss.</li>
+<li><strong>Status information</strong>. Providing the user with information on their current enrollment state.</li>
+<li><strong>Cancellation/deletion/unregistration</strong>. Allowing the user to unregister, delete or cancel their existing credential.</li>
+</ul>
+<p>For the cases above, Issuers need to know the legitimate owner of a Credential is requesting the operation. Issuers do not know the user’s <code>leaf_index</code> by design, so a mechanism to authenticate based on the Credential’s <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/credential/struct.Credential.html#structfield.sub">subject</a> (<code>sub</code>) is required.</p>
+<h2 id="3-specification-3"><a class="header" href="#3-specification-3">3. Specification</a></h2>
+<p>The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in <a href="https://www.ietf.org/rfc/rfc2119.txt">RFC 2119</a>.</p>
+<p>The terms <a href="https://docs.rs/world-id-core/latest/world_id_core/struct.Authenticator.html">Authenticator</a>, Issuer and <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/credential/struct.Credential.html">Credential</a> are as defined in the World ID Protocol.</p>
+<p>This specification introduces a new circuit to the Protocol: <strong>“Ownership Proof”</strong>. The Ownership Proof is a new circuit which allows users to prove <em>ownership</em> (as defined below) using a specific commitment.</p>
+<p>A <strong>non-normative high-level description</strong> of what the circuit proves:</p>
+<blockquote>
+<ol>
+<li>It proves the user’s <code>leaf_index</code> hashed with a <code>commitment_blinder</code> and a specific domain separator produces an <code>expected_commitment</code>. <em>An example, is the Credential’s blinded <code>sub</code></em>.</li>
+<li>It proves the user’s <code>leaf_index</code> is validly registered in the <code>WorldIDRegistry</code> and the user can produce a signature with a secret key ($sk$) registered as an authenticator for the particular <code>leaf_index</code>.</li>
+<li>It proves the user authorized the operation through a signature with a registered authenticator secret key and that such operation is only valid for a specific <code>nonce</code> and <code>context</code> provided.</li>
+</ol>
+</blockquote>
+<p>The Ownership Proof circuit MUST introduce the following inputs. The circuit MUST NOT introduce any additional public inputs which are not specified in this or a future spec.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Input</th><th>Visibility</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>expected_commitment</code></td><td><strong>Public</strong></td><td>Field element</td><td>The expected output of the hashed commitment (e.g. the <code>sub</code> of a credential)</td></tr>
+<tr><td><code>merkle_root</code></td><td><strong>Public</strong></td><td>Field element</td><td>The root hash of the Merkle tree used for inclusion (representing the <code>WorldIDRegistry</code>)</td></tr>
+<tr><td><code>depth</code></td><td><strong>Public</strong></td><td>Field element</td><td>The depth of the <code>WorldIDRegistry</code>’s Merkle tree used for inclusion</td></tr>
+<tr><td><code>nonce</code></td><td><strong>Public</strong></td><td>Field element</td><td>One-time use value to prevent replays. See <a href="#33-nonce">Nonce</a> section.</td></tr>
+<tr><td><code>context</code></td><td><strong>Public</strong></td><td>Field element</td><td>A verifier-supplied context for which the proof is valid.</td></tr>
+<tr><td><code>user_pk</code></td><td>Private</td><td>[PublicKey; NUM_KEYS]</td><td>The list of authenticator public keys registered in the <code>WorldIDRegistry</code>.</td></tr>
+<tr><td><code>pk_index</code></td><td>Private</td><td>Field element</td><td>The index in <code>user_pk</code> of the key used for signature.</td></tr>
+<tr><td><code>query_s</code></td><td>Private</td><td>Field element</td><td>The <code>s</code> component from the EdDSA signature on the message (see constraints).</td></tr>
+<tr><td><code>query_r</code></td><td>Private</td><td>[Field element; 2]</td><td>The <code>r</code> component from the EdDSA signature on the message (see constraints).</td></tr>
+<tr><td><code>leaf_index</code></td><td>Private</td><td>Field element</td><td>The index of the user’s World ID in the <code>WorldIDRegistry</code>.</td></tr>
+<tr><td><code>siblings</code></td><td>Private</td><td>[Field element; MAX_DEPTH]</td><td>The sequence of all siblings from the <code>leaf_index</code> to the <code>merkle_root</code> .</td></tr>
+<tr><td><code>commitment_blinder</code></td><td>Private</td><td>Field element</td><td>The blinding value that is hashed with the <code>leaf_index</code> to output the <code>expected_commitment</code>. The provenance of the value depends on the specific use case (see <a href="#4-use-cases">Use Cases</a>).</td></tr>
+</tbody>
+</table>
+</div>
+<p>For the inputs above, a <code>PublicKey</code> is as defined in the <a href="https://github.com/worldcoin/world-id-protocol/pull/888">WIP-100</a> spec (<em>an EdDSA public key represented as its coordinate points $(x,y)$ with each coordinate being a Field element</em>). <em>For reference, <code>user_pk</code>, <code>pk_index</code>, <code>leaf_index</code> (named <code>mt_index</code>), <code>siblings</code> introduce the same constraints that the Nullifier Proof circuit.</em></p>
+<h3 id="31-circuit-constants"><a class="header" href="#31-circuit-constants">3.1 Circuit constants</a></h3>
+<p>The Field ($F$), the Curve (<code>BabyJubJub</code>), and the Hashing ($H_t$) definitions MUST follow the requirements of <a href="https://github.com/worldcoin/world-id-protocol/pull/888">WIP-100</a>. For example, in this spec <code>H_3</code> refers to the hash constructed from a Poseidon2 permutation of 3-elements.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Constant</th><th>Value</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>NUM_KEYS</code></td><td><code>7</code></td><td>Length of the authenticator public key list. Fixed by the Nullifier Proof circuit and the <code>WorldIDRegistry</code>.</td></tr>
+<tr><td><code>MAX_DEPTH</code></td><td><code>30</code></td><td>For reference, defined in <a href="https://github.com/worldcoin/world-id-protocol/pull/888">WIP-100</a>. Maximum supported <code>WorldIDRegistry</code> Merkle tree depth; also the length of <code>siblings</code>.</td></tr>
+<tr><td><code>MERKLE_LEAF_DS</code></td><td><code>105702839725298824521994315</code> (<code>b"World ID PK"</code>)</td><td>Domain separator for the authenticator key list commitment.</td></tr>
+<tr><td><code>DS_EDDSA</code></td><td><code>360302137480307891234917541314130533</code> (<code>b"EdDSA Signature"</code>)</td><td>For reference, defined in <a href="https://github.com/worldcoin/world-id-protocol/pull/888">WIP-100</a>. Domain separator for the EdDSA challenge hash.</td></tr>
+<tr><td><code>DS_WIP_103</code></td><td><code>95972389630003</code> (<code>b"WIP103"</code>)</td><td>Domain separator for the Ownership Proof signed message. MUST NOT be reused outside of the Ownership Proof signed-message construction.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="32-circuit-constraints"><a class="header" href="#32-circuit-constraints">3.2 Circuit constraints</a></h3>
+<p>The Ownership Proof circuit MUST implement the following constraints (order is not relevant):</p>
+<ol>
+<li><strong>Expected commitment</strong>. Compute the commitment as: <code>H_3(domain_separator, leaf_index, commitment_blinder)</code>. The computed commitment MUST equal the <code>expected_commitment</code>. The <code>domain_separator</code> is dependent on the <a href="#4-use-cases">Use Case</a> and all possible domain separators MUST be hardcoded in the circuit.</li>
+<li><strong>Signature verification</strong>. Compute the message of the signature as: <code>message = H_4(DS_WIP_103, expected_commitment, nonce, context)</code>. The circuit MUST verify <code>(query_r, query_s)</code> as an EdDSA-Poseidon2 signature by <code>pk</code> over the <code>message</code> in order to prove authorization by an authenticator over the particular <code>nonce</code> and <code>context</code>. The signature computation and verification MUST follow all the requirements from <a href="https://github.com/worldcoin/world-id-protocol/pull/888">WIP-100</a>.</li>
+<li><strong>Key selection</strong>. The circuit MUST select exactly one public key <code>pk = user_pk[pk_index]</code> and MUST constrain:
+<ol>
+<li><code>pk_index &lt; NUM_KEYS</code>, enforced as a comparison over the full field $F$ and not as a truncating cast to a smaller integer type. An out-of-range <code>pk_index</code> MUST cause proving to fail.</li>
+<li>The selected <code>pk</code> equals the <code>pk_index</code>-th element of <code>user_pk</code>, for the same <code>pk_index</code> witness.</li>
+</ol>
+</li>
+<li><strong>Key validity</strong>. <code>user_pk</code> MUST be a fixed-length array of <code>NUM_KEYS</code> entries in <code>WorldIDRegistry</code> slot order. Slots with no active authenticator, whether never used or removed, MUST be encoded as the neutral element $O = (0,1)$ of the BabyJubJub curve. The circuit MUST constrain the selected $\texttt{pk} = (A_x, A_y)$ as follows: 1) the point MUST be on the curve; 2) the point MUST be in the prime-order subgroup; and 3) the point MUST NOT be the neutral element $O$. Constraint (3) is particularly important because $O$ is used to signal an omitted element from the array, without it, the circuit would not have transitive proof of <code>sk</code> knowledge.</li>
+<li><strong>Leaf index commitment</strong>. The circuit MUST compute <code>offchainSignerCommitment</code> as designated in the Query Proof, with $H_{16}$ using the domain separator <code>MERKLE_LEAF_DS</code> and each key in <code>user_pk</code> encoded as $(x, y)$ points sequentially, with the last position (index <code>15</code>) equal to <code>0</code>. The digest is output state element <code>1</code>. All keys MUST be included in order, including <em>empty</em> slots with the neutral element $O$.</li>
+<li><strong>Merkle inclusion proof</strong>. The circuit MUST recompute <code>merkle_root</code> from <code>offchainSignerCommitment</code> as the leaf value at position <code>leaf_index</code> following the definitions of <a href="https://github.com/worldcoin/world-id-protocol/pull/888">WIP-100</a>.</li>
+<li><strong>Leaf-index binding.</strong> The <code>leaf_index</code> hashed into the commitment in constraint 1 and the position proven in constraint #6 MUST be the same witness. The circuit MUST NOT accept two independent values. This binding is <strong>essential</strong>, otherwise the circuit is only proving the prover knows the <code>sk</code> of <strong>some</strong> leaf, not the one being proven in the <code>expected_commitment</code>.</li>
+<li><strong>Verifier-supplied input validation</strong>. The <code>nonce</code> and <code>context</code> MUST NOT equal <code>0</code>. These are usually intended as sentinel values and could surface an incorrect use of them.</li>
+</ol>
+<h3 id="33-nonce"><a class="header" href="#33-nonce">3.3 Nonce</a></h3>
+<p>The nonce is a security mechanism to prevent replay attacks. Recipients of an <strong>Ownership Proof</strong> (also called “verifiers” in this spec) are responsible for its generation and verification.</p>
+<ol>
+<li><strong>Provenance</strong>. Verifiers MUST generate and provide the nonce. Authenticators MUST NOT generate nonces.</li>
+<li><strong>Single Use</strong>. Verifiers MUST enforce that a nonce may only be used one time. Verifiers MUST invalidate any nonce after first use.</li>
+<li><strong>Entropy</strong>. Verifiers MUST generate the nonce from a uniformly random distribution using a CSPRNG over the whole field $F$.</li>
+<li><strong>Expiration</strong>. Nonces MUST have a defined TTL and not be valid after expiration. Verifiers MAY define the mechanism to accomplish this.</li>
+<li>The <code>0</code> element is NOT a valid nonce.</li>
+</ol>
+<h3 id="34-context"><a class="header" href="#34-context">3.4 Context</a></h3>
+<p>The <code>context</code> is the mechanism by which a verifier binds a specific proof to a specific requested operation. The verifier MUST constrain the use of Ownership Proofs to specific operations and assign such operations with a unique context. For example, renewing a credential and deleting a credential are two different contexts. The verifier MUST provide the <code>context</code> when requesting a proof and MUST verify the provided <code>context</code> is valid for the explicit operation being executed.</p>
+<p>It is RECOMMENDED that Verifiers use contexts shorter than 31 bytes or use a hash function to avoid collisions.</p>
+<p>The <code>0</code> element is NOT a valid context.</p>
+<h2 id="4-use-cases"><a class="header" href="#4-use-cases">4. Use Cases</a></h2>
+<ol>
+<li>Authenticators MUST restrict Ownership Proofs subject only to the use cases outlined in this spec or a future spec which references this one.</li>
+<li>If future use cases are added, the <code>commitment_blinder</code> IS REQUIRED to always be a high entropy value to prevent finding a user’s <code>leaf_index</code>. Unless otherwise noted, it should be randomly generated from a CSPRNG uniformly distributed over the entire $F$.</li>
+</ol>
+<h3 id="41-wip-103-001-issuer-authentication"><a class="header" href="#41-wip-103-001-issuer-authentication">4.1 WIP-103-001: Issuer Authentication</a></h3>
+<ul>
+<li><strong>Use case</strong>: Authenticating to an Issuer where the Issuer has a <code>sub</code> as identifier.</li>
+<li><strong>Domain Separator</strong>: <code>b"H_CS(id, r)"</code> named <code>DS_C_CS</code>.</li>
+<li><strong><code>commitment_blinder</code> value</strong>: The credential’s blinding factor as stored (or re-derived) by the Authenticator.</li>
+<li><strong>Use conditions</strong>: Can only be used to prove ownership with the specific Issuer for which the <code>sub</code> was generated. The Authenticator MUST ensure this proof is only provided to the Issuer it corresponds. The Authenticator knows this from the blinding factor used as the <code>commitment_blinder</code> input. Furthermore, providing this proof MUST come from a user initiated action and SHALL NOT be requested by Issuers. Acceptable examples include: when a user requests a Credential re-issuance, when a user requests a Credential renewal, when a user requests a Credential deletion.</li>
+<li><strong>Verification</strong>: Issuers MUST ensure the <code>expected_commitment</code> public input of the circuit matches the expected identifier (i.e. Credential’s <code>sub</code>).</li>
+</ul>
+<h2 id="5-rationale"><a class="header" href="#5-rationale">5. Rationale</a></h2>
+<p>A keen observer would notice the Ownership Proof circuit is very similar to the Query Proof circuit. Using this circuit is not an option because the verifying party would need to learn the <code>commitment_blinder</code> being verified to ensure the hash validity (it’s a public input). For example, an Issuer does not need to learn the credential blinding factor, which would defeat the purpose of the blinding factor because the <code>leaf_index</code> could be easily brute forced.</p>
+<h2 id="6-reference-verification"><a class="header" href="#6-reference-verification">6. Reference Verification</a></h2>
+<p>An Issuer will be able to know a specific user is the legitimate owner of a <code>sub</code> by performing the following validations:</p>
+<ol>
+<li>Ensuring the received zero-knowledge proof verifies correctly with the correct verifying keys.</li>
+<li>The root hash (public input) matches a root hash for a valid Merkle tree of the <code>WorldIDRegistry</code>, as well as the expected depth.</li>
+<li>The <code>expected_commitment</code> public input matches the expected <code>sub</code> being verified. This value MAY also be used for lookups when the <code>sub</code> is not known in advance.</li>
+<li>The <code>nonce</code> public input is one the Issuer itself generated, has not expired, and has not been used before. The nonce MUST be invalidated at this point. See <a href="#33-nonce">Nonce</a>.</li>
+<li>The <code>context</code> public input is the context the Issuer assigns to the operation it is about to execute. A proof carrying any other context MUST be rejected, even if every other check passes. See <a href="#34-context">Context</a>.</li>
+</ol>
+<p>Validations 4 and 5 are what make the proof unreplayable and single-purpose. The circuit constrains the <code>nonce</code> and <code>context</code> to be bound in the authenticator’s signature, but it cannot know which values the verifier intended, so a verifier that accepts the values supplied alongside the proof without comparing them to its own gains no replay or cross-context protection.</p>
+<p>It is strongly RECOMMENDED that implementations verify the Ownership Proof using a proof format and verification method supported by <a href="https://github.com/worldfnd/provekit">ProveKit</a>.</p>
+<h2 id="7-security-1"><a class="header" href="#7-security-1">7. Security</a></h2>
+<ol>
+<li><strong><code>commitment_blinder</code> is never revealed.</strong> Unlike the Query Proof circuit, the <code>commitment_blinder</code> value is a private input. For Issuer Authentication (WIP-103-001), this means the credential blinding factor is never exposed to the Issuer. If it were, the Issuer could brute-force the <code>leaf_index</code> (the domain of possible values is small) and break the unlinkability property of the blinding factor.</li>
+<li><strong>Domain separation prevents cross-context replay.</strong> Each use case defines its own domain separator, and the <code>domain_separator</code> is committed inside the hash. A proof generated for one use case cannot be replayed in another context. Authenticators MUST enforce that only domain separators defined in this spec or a referencing spec are used.</li>
+<li><strong>Authenticator-gated usage.</strong> Authenticators MUST restrict generation of Ownership Proofs to user-initiated actions for the defined use cases. Issuers SHALL NOT be able to request this proof; the Authenticator must initiate it. This prevents an Issuer from using the proof as an oracle to test whether a given <code>sub</code> belongs to a particular user.</li>
+<li><strong>Nonce and context are bound into the signed message.</strong> The signature verified by the circuit is over <code>nonce</code>, <code>context</code> and <code>expected_commitment</code>, not only over the bare commitment. This means every Ownership Proof requires a fresh signature from the authenticator signing key for that specific <code>(nonce, context)</code> tuple (in addition to the <code>expected_commitment</code>), anchoring proof generation to an active signing event by the Authenticator.</li>
+<li>For note, proofs for the same <code>expected_commitment</code> (e.g. the same <code>sub</code>) are linkable because they use the same public input. This is intended as the <code>expected_commitment</code> is what its getting proven. This proof however prevents cross-verifier linking as the <code>commitment_blinder</code> differs.</li>
+</ol>
+<h2 id="8-backwards-compatibility-1"><a class="header" href="#8-backwards-compatibility-1">8. Backwards Compatibility</a></h2>
+<p>This World Improvement Proposal (WIP) introduces a new interface; no existing contracts or other previously existing functionality is affected.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="wip-104-proving-and-admin-authenticators-with-fixed-permission-sets"><a href="#wip-104-proving-and-admin-authenticators-with-fixed-permission-sets" class="header">WIP-104: Proving and Admin Authenticators with Fixed Permission Sets</a></h1>
+<h2 id="1-abstract-4"><a class="header" href="#1-abstract-4">1. Abstract</a></h2>
+<p>This spec introduces a distinction between two classes of Authenticators in the World ID Protocol: <strong>Proving Authenticators</strong> and <strong>Admin Authenticators</strong>. A Proving Authenticator holds only an off-chain public key and is limited to proof generation and presentation. An Admin Authenticator <strong>additionally</strong> holds an on-chain management key (represented as an address registered in <code>_authenticatorAddressToPackedAccountData</code>) and can perform all management operations on the World ID. The authenticator type is encoded in the existing pubkey bitmap of the <code>WorldIDRegistry</code>. In addition, this spec deprecates the <code>updateAuthenticator</code> method.</p>
+<h2 id="2-motivation-4"><a class="header" href="#2-motivation-4">2. Motivation</a></h2>
+<p>Prior to this spec, every authenticator registered for a World ID was required to have a corresponding on-chain management key. This means every authenticator has equal permissions and can perform all management operations (inserting, removing or updating other authenticators, initiating recovery agent updates, etc.). There are multiple use cases where a user may want to have an authenticator capable of generating proofs on their behalf but not managing their World ID. An example of this is when delegating proof generation to some CLI tools, agents or non fully-featured authenticators.</p>
+<p>Requiring a management key for authenticators that don’t need it expands the attack surface (and additionally increases storage costs on-chain). Separating the two roles allows:</p>
+<ol>
+<li>A smaller attack surface for <strong>Proving Authenticators</strong>, limiting the blast radius in case of compromise.</li>
+<li>Reduced storage costs for authenticators that only generate proofs.</li>
+<li>Flexibility for future authenticator form factors that lack the ability to hold an Ethereum key pair.</li>
+</ol>
+<h2 id="3-specification-4"><a class="header" href="#3-specification-4">3. Specification</a></h2>
+<p>The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in <a href="https://www.ietf.org/rfc/rfc2119.txt">RFC 2119</a>.</p>
+<p>The terms <a href="https://docs.rs/world-id-core/latest/world_id_core/struct.Authenticator.html">Authenticator</a>, Issuer and <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/credential/struct.Credential.html">Credential</a> are as defined in the World ID Protocol.</p>
+<h3 id="31-terminology"><a class="header" href="#31-terminology">3.1 Terminology</a></h3>
+<p>This spec introduces the following explicit terminology:</p>
+<ol>
+<li><strong>Signing Key</strong>: This is an EdDSA over BabyJubJub keypair which authenticators use to sign operations off-chain related to proof generation. The signatures from this key are used in ZK circuits (e.g. Query Circuit or <a href="#wip-103-proof-of-ownership">WIP-103 Proof of Ownership</a>). <em>Previously this may have been referred to as off-chain signer</em>.</li>
+<li><strong>Management Key</strong>: An ECDSA over <code>secp256k1</code> keypair (curve used by World Chain) used to sign operations on-chain that change the state of a World ID in the <code>WorldIDRegistry</code>. The public key is represented as an Ethereum address. <em>Previously this may have been referred to as on-chain signer</em>.</li>
+<li><strong>Management Operations</strong>: Any operation which results in a state change to a user’s World ID in the <code>WorldIDRegistry</code>. Examples: inserting an authenticator, removing an authenticator, initiating a Recovery Agent update.</li>
+</ol>
+<h3 id="32-authenticator-classes"><a class="header" href="#32-authenticator-classes">3.2 Authenticator Classes</a></h3>
+<p>A distinction is introduced between two classes of Authenticators:</p>
+<ol>
+<li><strong>Proving Authenticator</strong>: Holds only a <strong>Signing Key</strong> and is capable of proof generation and presentation. A Proving Authenticator SHALL NOT perform any management operations on the World ID, i.e. it cannot perform any state changes on the <code>WorldIDRegistry</code> for the user. A Proving Authenticator has no entry in <code>_authenticatorAddressToPackedAccountData</code>.</li>
+<li><strong>Admin Authenticator</strong>: Holds <strong>both</strong> an <strong>Signing Key</strong> and a <strong>Management Key</strong>. An Admin Authenticator is capable of all operations for a user’s World ID, including management operations and proof generation.</li>
+</ol>
+<p>Prior to the introduction of this spec, all registered authenticators MUST be considered Admin Authenticators.</p>
+<h3 id="33-bitmap-encoding"><a class="header" href="#33-bitmap-encoding">3.3 Bitmap Encoding</a></h3>
+<p>The <code>WorldIDRegistry</code> stores a 96-bit pubkey bitmap per account in <code>_leafIndexToRecoveryAddressPacked</code>. This spec splits the bitmap into two halves:</p>
+<ul>
+<li><strong>Bits [0-47]</strong>: Occupancy. Bit <code>n</code> is set if pubkeyId <code>n</code> is in use.</li>
+<li><strong>Bits [48-95]</strong>: Authenticator Class. Bit <code>48 + n</code> is set if <code>pubkeyId</code> <code>n</code> is a Proving Authenticator.</li>
+</ul>
+<p>An occupied slot with its class bit clear is an Admin Authenticator. An occupied slot with its class bit set is a Proving Authenticator. The state <code>(occupancy=0, class=1)</code> is unused and MUST NOT occur; an unoccupied slot MUST have both bits clear.</p>
+<p>As a consequence of this encoding, the effective hard limit on authenticators per account is reduced from 96 to 48. This limit MUST be exposed as a separate constant, <code>MAX_AUTHENTICATORS_V2_HARD_LIMIT</code>, and the registry MUST reject <code>setMaxAuthenticators</code> calls with a value greater than it.</p>
+<h3 id="34-insertauthenticator"><a class="header" href="#34-insertauthenticator">3.4 <code>insertAuthenticator</code></a></h3>
+<p>The <code>insertAuthenticator</code> function MUST accept <code>address(0)</code> as the <code>newAuthenticatorAddress</code> parameter. When <code>address(0)</code> is provided:</p>
+<ol>
+<li>The occupancy bit for the given <code>pubkeyId</code> MUST be set.</li>
+<li>The class bit MUST be set, marking the slot as a Proving Authenticator.</li>
+<li>No entry SHALL be written to <code>_authenticatorAddressToPackedAccountData</code>.</li>
+<li>Address validation (<code>_validateNewAuthenticatorAddress</code>) MUST be skipped.</li>
+</ol>
+<p>When a non-zero address is provided, the function behaves as in V1 (occupancy bit set, class bit clear, address mapping written).</p>
+<p>The operation MUST be authorized by an existing Admin Authenticator (no changes).</p>
+<h3 id="35-removeauthenticator"><a class="header" href="#35-removeauthenticator">3.5 <code>removeAuthenticator</code></a></h3>
+<p>The <code>removeAuthenticator</code> function MUST use the bitmap class bit to determine the removal path:</p>
+<ol>
+<li>If the class bit is set (Proving Authenticator), the caller MUST pass <code>address(0)</code> as <code>authenticatorAddress</code>. No address mapping validation or cleanup is performed. Both the occupancy and class bits MUST be cleared.</li>
+<li>If the class bit is clear (Admin Authenticator), the caller MUST pass the correct non-zero <code>authenticatorAddress</code>. Full V1 validation applies: the address mapping is checked for leaf index, pubkeyId, and recovery counter consistency, then deleted. Both the occupancy and class bits MUST be cleared.</li>
+</ol>
+<p>If an incorrect <code>authenticatorAddress</code> is passed for the authenticator class being removed (non-zero for a Proving Authenticator, or zero for an Admin Authenticator) the call MUST revert with <code>AuthenticatorClassMismatch</code>.</p>
+<p>The operation MUST be authorized by an existing Admin Authenticator (no changes).</p>
+<h3 id="36-updateauthenticator"><a class="header" href="#36-updateauthenticator">3.6 <code>updateAuthenticator</code></a></h3>
+<p>The <code>updateAuthenticator</code> function is deprecated in this version. Calls MUST revert with <code>MethodUnsupported</code>. Key rotation can be accomplished with a <code>removeAuthenticator</code> followed by <code>insertAuthenticator</code>.</p>
+<h3 id="37-account-creation"><a class="header" href="#37-account-creation">3.7 Account Creation</a></h3>
+<p>Account creation (<code>_registerAccount</code>) is unaffected. <code>_registerAccount</code> rejects <code>address(0)</code>, so every new account starts with at least one Admin Authenticator.</p>
+<h3 id="38-manageability-invariant"><a class="header" href="#38-manageability-invariant">3.8 Manageability Invariant</a></h3>
+<p>An Admin Authenticator MUST NOT be removed if it is the only Admin Authenticator remaining on the account. Such a call MUST revert with <code>UnmanageableNotAllowed</code>. This guarantees that an account always retains at least one Admin Authenticator capable of managing it.</p>
+<h2 id="4-rationale-2"><a class="header" href="#4-rationale-2">4. Rationale</a></h2>
+<p>Introducing two classes of authenticators allows users to have more control over the permissions they assign to different authenticators. This follows common security practices of least privilege.</p>
+<h3 id="41-split-bitmap-over-separate-storage"><a class="header" href="#41-split-bitmap-over-separate-storage">4.1 Split bitmap over separate storage</a></h3>
+<p>The authenticator class could be stored in a separate mapping (e.g. <code>mapping(uint64 =&gt; uint256)</code>), but this would add a new cold <code>SSTORE</code> (20k gas) per account on first use. The split-bitmap approach reuses the existing 96-bit bitmap with no additional storage cost. The trade-off is halving the maximum authenticator count from 96 to 48, which is acceptable given practical account sizes.</p>
+<h3 id="42-updateauthenticator-disabled"><a class="header" href="#42-updateauthenticator-disabled">4.2 <code>updateAuthenticator</code> disabled</a></h3>
+<p>Supporting all type of transitions in a single function adds significant surface area. The same outcomes are achievable via <code>removeAuthenticator</code> + <code>insertAuthenticator</code>. Furthermore, these operations are expected to seldom occur.</p>
+<h3 id="43-authorization-model"><a class="header" href="#43-authorization-model">4.3 Authorization model</a></h3>
+<p>Proving Authenticators cannot sign management operations because they have no entry in <code>_authenticatorAddressToPackedAccountData</code>, which is required by <code>_recoverAccountDataFromSignature</code>. This is enforced structurally rather than with an explicit permission check, and the structural check covers every call site that resolves a signer through <code>_recoverAccountDataFromSignature</code> (e.g. <code>insertAuthenticator</code>, <code>removeAuthenticator</code>, <code>initiateRecoveryAgentUpdate</code>, <code>cancelRecoveryAgentUpdate</code>).</p>
+<h2 id="5-security-1"><a class="header" href="#5-security-1">5. Security</a></h2>
+<ol>
+<li><strong>Proving Authenticators cannot escalate privileges.</strong> The lack of an <code>_authenticatorAddressToPackedAccountData</code> entry means <code>_recoverAccountDataFromSignature</code> will always revert for a Proving Authenticator’s address. There is no code path through which a Proving Authenticator can authorize a management operation.</li>
+<li><strong>Class enforcement on removal.</strong> The bitmap class bit determines the required removal path. A caller cannot use <code>address(0)</code> to remove an Admin Authenticator (which would leave its mapping stale) or a non-zero address to remove a Proving Authenticator.</li>
+<li><strong>Bitmap backward compatibility.</strong> V1 accounts have all type bits at zero, correctly classifying existing authenticators as Admin. This holds because <code>_maxAuthenticators</code> was never set above 48 in V1. The <code>setMaxAuthenticators</code> override enforces this new hard limit going forward.</li>
+<li><strong>Account creation unchanged.</strong> The <code>_registerAccount</code> function retains its V1 check that rejects <code>address(0)</code>, ensuring every new account starts with at least one Admin Authenticator.</li>
+</ol>
+<h2 id="6-backwards-compatibility-1"><a class="header" href="#6-backwards-compatibility-1">6. Backwards Compatibility</a></h2>
+<ul>
+<li>All existing authenticators are classified as Admin Authenticators (class bit defaults to 0). No migration is required.</li>
+<li>The maximum authenticator count per account is reduced from 96 to 48. Accounts with authenticators at pubkeyId &gt;= 48 are incompatible.</li>
+<li><code>updateAuthenticator</code> is disabled. Callers relying on this function MUST switch to <code>removeAuthenticator</code> + <code>insertAuthenticator</code>.</li>
+</ul>
+<h2 id="7-alternatives-considered"><a class="header" href="#7-alternatives-considered">7. Alternatives Considered</a></h2>
+<p>With the introduction of this spec, we also considered completely decoupling Signing Keys from Management Keys, which means that each key is treated independently and there is no explicit concept of an Authenticator encoded in the <code>WorldIDRegistry</code>. This was eventually dismissed. Implementing such a system requires one of two options.</p>
+<p>A general note applies to both options: practical accounts are expected to hold a small number of authenticators (the V1 default for <code>_maxAuthenticators</code> is 7 and has never been raised), so the 48-slot cap imposed by the chosen encoding is not a binding constraint. While at this time the use of Management-only keys does not have an application it is quite likely the the <strong>future</strong> direction is for Management Keys to exist on alternative constructs (examples: passkeys, zkLogin alternatives, etc). These constructs could provide recovery alternatives to users. Not pursued with this spec because at this time there are off-protocol mechanisms (e.g. authenticator-managed backups) which address most of the same user pain points.</p>
+<p><strong>Option 1: New storage layout</strong>. This would truly reflect the separation between each key, but changing the storage layout requires the introduction of at least a new mapping (to store the separate Management Keys) which would cost at least 20,000 additional gas per account on first use, plus a migration path or lazy-init logic for V1 accounts, both of which expand the surface area. The runtime gain (decoupled lifecycles) does not justify these costs given the manageability invariant already binds at least one Management Key to each account.</p>
+<p><strong>Option 2: Re-structured bitmap</strong>. This entails reusing the same 96-bit bitmap but claiming the unused <code>(occupancy=0, class=1)</code> state to mean a Management-only Authenticator (a slot with a Management Key but no Signing Key). The main concrete benefit is that inserting or removing a Management Key would not require updating the Merkle tree, but this operation is rarely expected to occur. In exchange, the bitmap encoding becomes a four-state enum (instead of a flag on an occupied slot) and <code>removeAuthenticator</code> must distinguish three classes. The added complexity is not justified.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-c2a407aa.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="docs/mermaid-eefea253.min.js"></script>
+        <script src="docs/mermaid-init-ccf746f1.js"></script>
+
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+
+
+    </div>
+    </body>
+</html>

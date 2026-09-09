@@ -1,0 +1,681 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>World ID 4.0 product and technical specifications - World ID Protocol</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-9c1f33c8.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-9e0f34ba.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">World ID Protocol</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol/edit/main/docs/world-id-4-specs/README.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="abstract"><a class="header" href="#abstract">Abstract</a></h1>
+<p>The World ID v4.0 release introduces <em>account abstraction</em> at its core, transforming a World ID from a single secret into an abstract record in a public registry (called <code>WorldIDRegistry</code>) with multiple authorized keys. This fundamental change enables several key improvements:</p>
+<ol>
+<li><strong>Multi-key support</strong>: Users can generate proofs using multiple valid authenticators (such as across multiple devices, multiple platforms or multiple applications) while maintaining the same identity.</li>
+<li><strong>Improved Protocol Resilience</strong>: Multi-key support reduces likelihood of loss of all keys, key rotation and revocation are natively supported, and the user can (optionally) define a World ID Recovery Agent (e.g. such as biometric authentication).</li>
+<li><strong>Web-based authenticator provider</strong>: A reference web authenticator provider simplifies World ID usage directly in browsers, improving user experience and adoption potential.</li>
+<li><strong>Improved privacy</strong>: The protocol enforces one-time use of nullifiers for longer-term actions, preventing tracking while maintaining proof integrity.</li>
+</ol>
+<p>These changes collectively increase security, privacy, and usability while enabling more sophisticated applications of human verification in the Age of AI. For more details on what is changing from a technical standpoint, please see <em>Summary: What is Changing?</em>.</p>
+<h1 id="product-specs"><a class="header" href="#product-specs">Product Specs</a></h1>
+<p>At a high level, this release of the Protocol is about <em>Account Abstraction</em>. A World ID is no longer tied to a single secret, and instead is an abstract record created in the public <code>WorldIDRegistry</code> with a defined set of authorized keys which allow the user to interact with their World ID (a similar mental model is how passkeys authorize accounts for specific websites or how smart contract wallets work in the Ethereum ecosystem).</p>
+<p>Stemming from the enablement of other Authenticators to exist, a reference open-source, web-based Authenticator will be published which will reduce some of the overhead for using a World ID and simplifies the user experience. The enhanced user experience will enable simpler and more widespread adoption of the Protocol.</p>
+<h2 id="definitions"><a class="header" href="#definitions">Definitions</a></h2>
+<ul>
+<li><strong>Authenticator</strong>: A software or hardware agent (e.g., app, device, web client, or service) that controls a set of authorized keypairs for a World ID Account and is functionally capable of interacting with the Protocol, and is therefore permitted to act on that account’s behalf. An Authenticator is the agent of users/holders. Each Authenticator is registered in the <code>WorldIDRegistry</code> through their authorized keypairs.</li>
+<li><strong>OPRF Nodes</strong>: The OPRF Nodes are a multi-party set (MPC) of nodes responsible for enabling the nullifier generation which users present to RPs to prove uniqueness.</li>
+<li><strong>Recovery Agent</strong>: A party designated by the user which has a special permission to recover their World ID Account in case of loss of all Authenticators. The party may be a set of entities represented with abstract rules (e.g. through a smart contract). This designation is optional and done on-chain.</li>
+<li><strong>Action</strong>: <em>Maintains definition from previous Protocol version.</em></li>
+<li><strong>Nullifier</strong>: <em>Maintains definition from previous Protocol version.</em> A nullifier is a one-time use identifier that guarantees an action can only be taken once. It’s analogous to a one-time use ticket, a user generates a nullifier through a Proof, and presents it to an RP. A nullifier will always be the same for the same user and the same RP+Action.</li>
+<li><strong>Uniqueness Proof</strong>: A statement where a user proves they are performing an action once and they own a particular credential (e.g. <em>I’m a unique person with a PoH credential voting on this proposal once</em>). These proofs cannot be cryptographically associated with any other proof (e.g. not across RP, or even to the same RP).</li>
+<li><strong>Session Proofs</strong>: Used with a <code>sessionId</code> provided by an Authenticator and subsequently provided by an RP to receive a statement that cryptographically guarantees the same World ID is being used (e.g. <em>I have an account with an RP and I want to prove I now have a new Credential</em>). These proofs cannot be associated across RPs, across sessions with the same RP, or with any other proof.</li>
+</ul>
+<h2 id="key-product-functionality"><a class="header" href="#key-product-functionality">Key Product Functionality</a></h2>
+<p>This notes the key <strong>new</strong> features or functionality for this <strong>release</strong> of World ID (v4.0):</p>
+<ul>
+<li>Multi-key support: A World ID is not bound to a single key. A user can generate proofs on multiple valid authenticators (e.g. devices, platforms). With the important exception of security properties of the Authenticator, a proof proves the same thing to an RP regardless of which authenticator was used.
+<ul>
+<li>A user can add or remove different valid authenticators to manage their World ID (Portability).</li>
+<li><strong>Motivation:</strong> Allowing multiple authenticators serves to the Decentralization of the Protocol, with no reliance on a single actor (such as a single Authenticator provider, e.g. World App). Furthermore, abstracting a World ID into a conceptual record vs. a single secret enables the secure and practical existence of multiple Authenticators as well as enabling Recovery in case of loss and rotation in case of compromise.</li>
+</ul>
+</li>
+<li>Recovery: Regain access to the same World ID through Recovery Agents.
+<ul>
+<li><strong>Motivation:</strong> Recovery is a fundamental building block of a Proof-of-Human Protocol (see <a href="https://whitepaper.world.org/#recovery">Whitepaper</a> on why). While we expect authenticator providers to offer robust backup mechanisms, the user must be able to recover their World ID and related state in a contingency scenario.</li>
+</ul>
+</li>
+<li>Web-based Authenticator Provider: A limited authenticator that allows usage of World ID in the web browser. This serves both as a reference of an authenticator and also for improved UX for certain RP flows. Functionality is limited as enrollment of credentials is out of the scope for this initial release.
+<ul>
+<li><strong>Motivation</strong>: A lightweight web-based authenticator enables simpler usage of World ID which provides a better user experience and will enable more growth as interacting with RPs will be significantly simpler.</li>
+</ul>
+</li>
+<li>Trusted RPs. An authenticator can identify a request comes from a valid RP.
+<ul>
+<li><strong>Motivation:</strong> Authenticators need to be able to identify that they’re generating proofs for the right recipient to reduce potential for proof phishing (e.g. a malicious actor asking you for a proof meant for a different RP to know if you’ve performed that action). In addition, this enables future introduction of Protocol fees.</li>
+</ul>
+</li>
+</ul>
+<h2 id="non-functional-requirements"><a class="header" href="#non-functional-requirements">Non-Functional Requirements</a></h2>
+<ul>
+<li>Privacy.
+<ul>
+<li>Assuming <strong>non-collusion</strong> of nodes of each multi-party system, the user’s privacy cannot be compromised by any single party, neither correlation of multiple actions nor direct identification of a user. For example, it’s impossible to know that a specific user performed a specific action (identification) or that two different Actions were performed by the same user (correlation).</li>
+<li>Addressing the attack vector of collusion of a threshold (or all) nodes is covered in the <a href="#other-risk-considerations">Other Risk Considerations</a> section.</li>
+<li>Strict requirements for the identifiers handed off by the Protocol are introduced. See details in Tech Specs.</li>
+<li>No human super-cookies. Permanent state or linkable state is as privacy-preserving as possible and is protocol-enforced. Privacy preserving in this context means that it’s not possible to identify a single person, even pseudonymously, across a long period of time without ongoing consent. Any exposed long-living / constant IDs should be protected as secrets.</li>
+</ul>
+</li>
+<li>Security.
+<ul>
+<li>A World ID is not a single secret that needs to be shared or can’t be rotated.</li>
+<li>A World ID cannot be recovered or an authenticator added without verifiable user intent (through knowledge of a secret key of an authorized authenticator).</li>
+<li>Collusion of <strong>all</strong> nodes with an multi-party system (MPC) does not allow performing actions on the user’s behalf.</li>
+<li>User Auditability — each user needs to be able to see account management events that have been authorized with their World ID, for example things like adding / removing of authenticators.</li>
+</ul>
+</li>
+<li>Migration Path.
+<ul>
+<li>There needs to be a clear migration path for all currently active and relevant use cases to the new version of the Protocol.</li>
+</ul>
+</li>
+</ul>
+<h2 id="user-flows-authenticator"><a class="header" href="#user-flows-authenticator">User Flows (Authenticator)</a></h2>
+<p><img src="wid-wireframes.jpg" alt="Illustrative wireframes of an Authenticator experience."></p>
+<h2 id="other-considerations"><a class="header" href="#other-considerations">Other Considerations</a></h2>
+<ul>
+<li>The privacy and security implications of Authenticators is improved (key revocation, etc.) but the user must trust their Authenticator(s). The Authenticator must handle the user’s Credentials (or previously Personal Custody Packages) and keys correctly.</li>
+</ul>
+<hr>
+<h1 id="technical-specs"><a class="header" href="#technical-specs">Technical Specs</a></h1>
+<blockquote class="blockquote-tag blockquote-tag-tip">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319-.207.245-.383.453-.541.681-.208.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"></path></svg>Tip</p>
+<p>Please note these are the high level technical specifications at the time of introduction of World ID 4.0. The most up-to-date technical documentation reflecting the current state of the Protocol can always be found in the <a href="https://docs.world.org/world-id">developer documentation</a> and the <a href="https://github.com/worldcoin/world-id-protocol">Protocol repository</a>.</p>
+</blockquote>
+<h2 id="summary-what-is-changing"><a class="header" href="#summary-what-is-changing">Summary: What is Changing?</a></h2>
+<ul>
+<li>A World ID is now a record on an on-chain registry and more importantly a single World ID can have multiple public keys.
+<ul>
+<li>This also means identity commitments (<code>identityCommitment</code>) no longer exist. Instead, the identification mechanism is the knowledge of a secret key corresponding to a public key registered in a specific leaf index in the <code>WorldIDRegistry</code>.</li>
+<li>Also implies that the on-chain trees of identity commitments is gone in favor of a single <code>WorldIDRegistry</code>.</li>
+</ul>
+</li>
+<li>Creating a World ID now occurs through on-chain registration (vs. as an offline keypair generation previously), and issuing Credentials is now done without on-chain interaction. Credentials are now issued by the Issuer signing them. Previously, the Issuer would add the user’s identity commitment to the relevant on-chain tree.</li>
+<li>Nullifiers are enforced one-time use. Previously there was no enforcement of nullifiers being one-time use and they could become pseudonymous identifiers for an RP, now Authenticators will not issue a nullifier more than once.</li>
+<li>[<strong>For RPs only</strong>]. When RPs require users to prove they are still the same World ID that originally performed an action, they will be able to store an identifier (a <code>sessionId</code>) and provide it to the user for subsequent proofs. With Proof of Human, this allows RPs to establish they are interacting with the same World ID, potentially with different credentials too. See <em>Session Proofs</em> for further details.</li>
+<li>[<strong>For Issuers only</strong>]. Authentication based on using nullifiers from ZKPs as identifiers is no longer supported. A new authentication mechanism is introduced for issuers.</li>
+<li>Access to a World ID can be recovered. A user can designate a <em>Recovery Agent</em> for their account which will allow for recovery in case of access to all Authenticators is lost.
+<ul>
+<li>[<strong>Recovery Agent Scope</strong>]. Users may designate the <em>PoH AMPC</em> system as their Recovery Agent to recover their World ID. In the future, other Recovery Agents are expected to be available.</li>
+</ul>
+</li>
+</ul>
+<h2 id="high-level-overview"><a class="header" href="#high-level-overview">High level overview</a></h2>
+<p><img src="wid-4.svg" alt="Diagram of components for the World ID 4.0 Protocol.">
+Diagram of components for the World ID 4.0 Protocol.</p>
+<ol>
+<li>
+<p>The <strong>World ID Registry</strong> is introduced. This public contract is the source of truth for World IDs, a World ID conceptually becomes an account, represented in a leaf of the Merkle tree in this contract. Each account is identified with its index in the tree. The registry also contains a list of authenticator public keys authorized to act on behalf of the holder. The OPRF Nodes, as well as RPs use this to verify proofs (through an Merkle inclusion proof within the ZKPs).</p>
+</li>
+<li>
+<p>Similarly, a <strong>Relying Party Registry</strong> is introduced. This registry contains a list of authorized Relying Parties with their accompanying authorized public keys. The registry permits RPs to authenticate requests for proofs to Authenticators.</p>
+</li>
+<li>
+<p>The multi-party set of <strong>OPRF Nodes</strong> is introduced. This set of nodes are now responsible for generating the nullifiers that users present to RPs to prove uniqueness. The nullifiers are generated through a <em>Verified Threshold</em> <em>Oblivious Pseudorandom Function</em> (vOPRF) with participation of the OPRF nodes. Nodes verify requests for nullifiers are properly validated by both RPs and users (see <em>Uniqueness Proofs</em>), and only then will generate the required output to compute the user’s nullifier. The users then construct the final nullifier and prove its computation in the proof they present to RPs.</p>
+<ol>
+<li>A multi-party OPRF is necessary because it prevents nullifiers from being guessable, i.e. nullifiers are deterministic but appear random (recall that PRF outputs under a uniformly random key are computationally indistinguishable from a uniformly random function). This could theoretically be accomplished with a regular hash function, but then nullifiers could be brute forced by computing the hash for all possible <code>leafIndex</code>es (which are public on-chain). To prevent this, secret entropy is required (in World ID ≤ 3.0, the user provided this entropy). Since this is not available anymore, the entropy now comes from the OPRF nodes.</li>
+<li>Additionally, to prevent brute forcing even with involvement of OPRF nodes, OPRF nodes require authentication before computing each hash. They authenticate the user through a ZKP that proves knowledge of an Authenticator secret key authorized in the <code>WorldIDRegistry</code> for the particular <code>leafIndex</code> for which they are generating a nullifier.</li>
+<li>Importantly, the OPRF nodes compute the keyed-hash function $H_k(x’)$ on a blinded input, hence they cannot learn which user is actually performing a request. Furthermore, the OPRF nodes output a proof that attests to the proper computation of $H_k$ given a committed $k_{pk}$, so neither users nor RPs need to blindly trust the OPRF nodes.</li>
+<li>Similar to how OPRF Nodes are used to generate the nullifiers presented to RPs, these nodes also generate a blinding factor for each credential so there cannot be correlation of World IDs from malicious issuers.</li>
+<li>More information on the OPRF Nodes can be found in the paper: <em>“<a href="https://github.com/TaceoLabs/oprf-service/blob/main/docs/oprf.pdf">A Nullifier Protocol based on a Verifiable, Threshold OPRF</a>”</em>.</li>
+<li>Details about the nature, number, and diversity requirements of OPRF nodes must be established before the production network is live.</li>
+</ol>
+</li>
+<li>
+<p>Protocol differences at a glance:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th></th><th><strong>World ID ≤3.0</strong></th><th><strong>World ID 4.0 (2025)</strong></th></tr>
+</thead>
+<tbody>
+<tr><td>What is a World ID?</td><td>A secret.</td><td>An entry in public registry.</td></tr>
+<tr><td>Proof Generation</td><td><a href="https://semaphore.pse.dev/">Semaphore</a> proofs generated on the client.</td><td><em>Conceptually the same but with new ZK-circuits.</em> Users generate a query proof for OPRF nodes, which provide computations that enable the nullifier generation. A final Uniqueness Proof is generated and presented to RPs.</td></tr>
+<tr><td>How does the Relying Party enforce uniqueness?</td><td>Storing a nullifier hash.</td><td><em>Conceptually the same.</em></td></tr>
+<tr><td>Post-compromise privacy</td><td>If the user’s World ID secret leaks, all past activity could be identified. <br /><br />Furthermore, the secret cannot be rotated.</td><td>If a user’s authenticator secret leaks, no past activity can be identified on its own. Collusion with an RP would be required to compromise <em>some</em> past activity. <br /><br />Secrets can be easily rotated.</td></tr>
+<tr><td>Recoverability</td><td>Cannot be recovered if the secret is lost.</td><td>Can be optionally recovered through a Recovery Agent.</td></tr>
+<tr><td>Credential Issuance</td><td>On-chain Merkle Tree containing <code>idComm</code>s. <br /><br /> Credential-equivalent held self-custodially.</td><td>Signed message from the Issuer. <br /><br /> Credential held self-custodially.</td></tr>
+<tr><td>Signal (proof messages)</td><td>An RP can include an arbitrary signal to which the user commits.</td><td><em>Conceptually the same.</em></td></tr>
+<tr><td>Secret Security</td><td>Secret must be stored with software protections and loaded into memory.</td><td>Conceptually possible to store keys in hardware-based key stores. <em>Initial keys will have the same characteristics as the previous protocol version due to ZK proving limitations.</em></td></tr>
+</tbody>
+</table>
+</div>
+</li>
+</ol>
+<h2 id="technical-details"><a class="header" href="#technical-details">Technical Details</a></h2>
+<h3 id="uniqueness-proofs"><a class="header" href="#uniqueness-proofs">Uniqueness Proofs</a></h3>
+<p>A Uniqueness Proof is how a user primarily proves they are performing an action <strong>once</strong> and they own a Credential that meets the RP’s requirements (e.g. the user has a unique government-issued document). While fundamentally the user is <strong>proving uniqueness per World ID Account</strong> when performing an action, if the request is not bound to a Credential that offers a measure of uniqueness (e.g. PoH or unique government-issued document), the proof will lack value.</p>
+<pre class="mermaid">sequenceDiagram
+actor User
+RP -&gt;&gt; RP: Generate &amp; sign proof request
+RP -&gt;&gt; User: Send proof request 
+User -&gt;&gt; Indexer: Query leafIndex and inclusion proof in WorldIDRegistry
+Indexer --&gt; World Chain: Indexes the WorldIDRegistry tree
+Indexer -&gt;&gt; User: leafIndex &amp; inclusion proof
+User -&gt;&gt; User: Generate Query Proof $$\pi_{R}$$
+User -&gt;&gt; OPRF Node i: blindedLeafIndex +  $$\pi_{R}$$ + request context
+OPRF Node i -&gt;&gt; OPRF Node i: check validity of request
+OPRF Node i -&gt;&gt; World Chain: Verify Merkle root (usually cached)
+OPRF Node i -&gt;&gt; OPRF Node i: Verify $$\pi_{R}$$
+OPRF Node i -&gt;&gt; User: blinded result
+User -&gt;&gt; User: Unblind each response and reconstruct OPRF evaluation
+User -&gt;&gt; User: Compute blinded subject for credential
+User -&gt;&gt; User: Generate final Proof ($$\pi_{F}$$)
+alt
+User &lt;&lt;-&gt;&gt; Oblivious Nullifier Pool: check if nullifier exists and insert
+end
+User -&gt;&gt; RP: $$\pi_{F}$$ + nullifier
+alt
+RP -&gt;&gt; Indexer: Verify ZKP
+else
+RP -&gt;&gt; World Chain: Verify ZKP
+end
+RP -&gt;&gt; RP: Verify expected nonce
+RP -&gt;&gt; RP: Verify nullifier uniqueness
+
+</pre>
+
+<ul>
+<li>
+<p>The nullifier is computed by the OPRF Nodes. Computing it requires output from a threshold number of nodes to be valid.</p>
+<ul>
+<li>Importantly, the input to the OPRF Nodes is blinded so that no OPRF node can see the raw <code>leafIndex</code> (i.e. OPRF nodes only know that the request is from an authorized authenticator).</li>
+<li>Importantly, the nullifier is credential <em>independent</em>, so the action can only be performed once regardless of which credentials are available at the time.</li>
+<li>Further information on how the nullifier is computed can be found in the <a href="https://github.com/TaceoLabs/nullifier-oracle-service/blob/main/docs/oprf.pdf">TACEO OPRF Whitepaper</a>.</li>
+</ul>
+</li>
+<li>
+<p>Nullifiers have the following properties, which in combination make them amenable for use by an RP to enforce anonymous per-action uniqueness:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th><strong>Property</strong></th><th><strong>Description</strong></th></tr>
+</thead>
+<tbody>
+<tr><td>Deterministic</td><td>Given the same context (<code>leafIndex</code> [blinded], <code>rpId</code>, <code>action</code>), the nullifier is always the same. Assuming honest behavior of OPRF nodes never rotating their base key. <em>Note that the credential is intentionally not included in this context. This means that the action can be performed only once, regardless of which credentials are available at the time.</em></td></tr>
+<tr><td>Unguessable</td><td>For a fixed context, the nullifier output is uniformly distributed over the output space. Even with the full set of possible users, computing candidate nullifiers is infeasible without collusion of a threshold of OPRF nodes such that the OPRF key is known.</td></tr>
+<tr><td>Authenticated</td><td>It’s probabilistically impossible to claim ownership over a nullifier if you don’t know a secret value (a secret key whose public counterpart is registered in the <code>WorldIDRegistry</code>).</td></tr>
+<tr><td>Anonymous</td><td>A nullifier hides which user generated it. To preserve anonymity, each nullifier must only be used once (otherwise repeated use makes it pseudonymous). This is the responsibility of Authenticators.</td></tr>
+<tr><td>Unlinkable</td><td>For any two nullifiers with different contexts, the probability that an adversary can correctly distinguish whether they were derived from the same user is at most negligibly better than random guessing.</td></tr>
+<tr><td>Pre-image resistance</td><td>For any given nullifier, and knowing the public context (<code>rpId</code>, <code>action</code>), it is computationally infeasible to find the pre-image or the <code>leafIndex</code>.</td></tr>
+</tbody>
+</table>
+</div>
+</li>
+<li>
+<p>The authenticator generates two types of different zero-knowledge proofs to be able to deliver a Uniqueness Proof to an RP,</p>
+<ul>
+<li>The query proof $\pi_1$ which proves to the OPRF Nodes that the request is properly authorized by the user. This ZKP proves the request is signed by a public key which is registered for the particularly provided blinded <code>leafIndex</code> in the <code>WorldIDRegistry</code>.</li>
+<li>A final Uniqueness Proof $\pi_2$ which ensures at least the following constraints:
+<ul>
+<li><em>The same constraints of the query proof are evaluated.</em></li>
+<li>Correct OPRF evaluation on <code>leafIndex</code>, i.e. the generated nullifier is correct for the committed public keys from each OPRF node.</li>
+<li>Request is signed by a public key that is registered for the <code>leafIndex</code> in the <code>WorldIDRegistry</code> (user authentication).</li>
+<li>The Credential was issued for this World ID, i.e. the Credential’s <code>sub</code> matches the blinded <code>leafIndex</code> of the user.</li>
+<li>The Credential used in the proof is signed by the Issuer (through the committed key in the <code>CredentialSchemaIssuerRegistry</code>).</li>
+<li>Credential is not expired.</li>
+<li>Credential meets the minimum genesis_issued_at constraint provided by the RP.</li>
+<li>Signal and nonce provided by the RP as public inputs are committed.</li>
+<li><em>Potential future constraints may include: integrity attestation of device, enforcing the expiration of actions, credential specific checks, etc.</em></li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p><strong>Oblivious Nullifier Pool</strong>. The Oblivious Nullifier Pool is a separate service which offers <em>Private Intersection Retrieval</em> and keeps track of used nullifiers. Its function is simply to keep a flat list of used nullifiers such that an authenticator can query if a nullifier has been used before sharing it (and the related $\pi_2$) with an RP if it has been used before. The list is flat (as the nullifier is already unique per-RP-per-action-per-user) relying on the collision-resistance property of the hash function used in the Protocol.</p>
+<ul>
+<li>This system ensures that nullifiers can’t be misused to create long running identifiers. As their name suggests, a nullifier is one-time use.</li>
+<li>The term <em>oblivious</em> is used to refer to the fact that this map is queried in a way where the servers serving such requests cannot learn which records where accessed and hence be able to compromise the user’s privacy.</li>
+<li>The main limitation of the nullifier pool is performance at scale. One option is to shard the pool, making trade-offs of anonymity set size vs. performance. This is still in research.</li>
+<li>Initially, this pool will only be used for actions that have a running period longer than a predefined threshold. This is to solve for scaling issues as this system grows.</li>
+</ul>
+</li>
+<li>
+<p><strong>Blinded subjects</strong>. To prevent correlation of users even among issuers, or in case of leaked credentials, the subjects of the credentials are blinded.</p>
+<ul>
+<li>When requesting a new credential from an issuer, the user generates a blinding factor using the OPRF nodes, $\texttt{subjectBlindingFactor}=H_k(\texttt{issuerSchemaId} \mid\mid \texttt{leafIndex})$.</li>
+<li>The user then hashes the blinding factor with their <code>leafIndex</code> to compute the <code>sub</code> claim of the credential. This value is what issuers include in the credential.</li>
+<li>When a proof is presented, the <code>subjectBlindingFactor</code> is used within the Uniqueness Proof circuit to ensure the credential is issued to the right user. The blinding factor acts as entropy to prevent correlation, but the right <code>leafIndex</code> as provided in the circuit input must match correctly.</li>
+</ul>
+</li>
+</ul>
+<h3 id="registries"><a class="header" href="#registries">Registries</a></h3>
+<ul>
+<li><strong>World ID Registry</strong>
+<ul>
+<li>Each user can grant access to multiple different keys to interact with their World ID. The Authenticator proves control inside a ZKP to prevent long-lived identifiers.</li>
+<li>In order to not leak the user, this needs to be in some structure that allows inclusion proofs. This is accomplished with <a href="https://github.com/zk-kit/zk-kit.solidity/blob/main/packages/imt/contracts/BinaryIMT.sol">Incremental Merkle Trees</a>.</li>
+<li>Each Authenticator registers two keys in the registry. This is done to enable performant operations both on-chain and on zero-knowledge circuits.
+<ul>
+<li>An on-chain key which is an elliptic curve key on the <code>secp256k1</code> curve is used to authorize on-chain operations on the contract (e.g. adding an authenticator, removing an authenticator, etc.). The public key is simply represented as an Ethereum address.</li>
+<li>An off-chain key which is an elliptic curve key on the <code>BabyJubJub</code> curve is used to sign requests for zero-knowledge proofs. The public key (represented as a curve point) is emitted on-chain and committed to in the contract.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><strong>Relying Party Registry</strong>
+<ul>
+<li>Each RP needs to commit to their authorized public key on the public registry, such that this can be verified in the request proof $\pi_1$ by each queried OPRF node.</li>
+<li>Registering an RP is a public action that anyone can take, but this requires paying a one-time registration fee (see <em>Registration Fees</em> below).</li>
+<li>In order to allow for decentralized application creation and registration, the RP Registry will be extended and restrictions further lifted in the future, but for this initial version the following applies:
+<ul>
+<li>At launch, only one authorized key is allowed per RP. This will be extended in the future.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><strong>Credential Schema Issuer Registry</strong>
+<ul>
+<li>It’s a simple registry where Issuers register for each of their credential types a schema and an authorized signatory and get issued an <code>issuerSchemaId</code>. This ID represents the combination of an (issuer, schema). For example: (Tools For Humanity, Orb credential).</li>
+<li>The <code>issuerSchemaId</code> is included in the credential and is verified as part of all Proofs. When generating and verifying proofs, the signature of a credential is verified against the public key registered in the contract.</li>
+<li>Registering an Issuer Schema also requires paying a one-time registration fee (see <em>Registration Fees</em> below).</li>
+</ul>
+</li>
+</ul>
+<h3 id="registration-fees"><a class="header" href="#registration-fees">Registration Fees</a></h3>
+<p>Both the Relying Party Registry and the Credential Schema Issuer Registry charge a one-time registration fee. The fee infrastructure serves as a <strong>permissionless rate-limiting mechanism</strong> — an alternative to restricting registration to authorized callers — ensuring that registration remains open to anyone while preventing abuse.</p>
+<p><strong>Why the fee exists.</strong> Registering an RP or an Issuer Schema triggers the initialization of an OPRF key via a multi-round distributed key generation ceremony across the OPRF Nodes. This is a computationally expensive operation with real infrastructure cost. The registration fee is sized to cover the cost of OPRF key generation and storage for at least approximately one year.</p>
+<p><strong>How it works.</strong></p>
+<ul>
+<li>The fee is paid in a configurable ERC-20 token via <code>safeTransferFrom</code> at the time of registration, before OPRF key generation begins.</li>
+</ul>
+<p><strong>Future: per-request fees.</strong> The registration fee described here covers only the one-time cost of onboarding. A separate per-request fee — enforced by OPRF Nodes as a proof-of-payment requirement during nullifier generation — may be introduced in a future Protocol release (4.1 or 4.2). See <em>Future Proofing Notes</em> for details.</p>
+<h3 id="recovery"><a class="header" href="#recovery">Recovery</a></h3>
+<p><em>Recovery</em> is introduced for the case where access to all authenticators (or their keys) is lost. Recovery enables users to gain back control of their World ID by registering a new Authenticator and revoking lost ones. A Recovery Agent may be designated by each user, with a special role to perform the <code>recoverAccount</code> operation. This special role can recover a user’s World ID and nothing else, and conversely only these agents can perform a <code>recoverAccount</code> operation.</p>
+<blockquote class="blockquote-tag blockquote-tag-important">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>Important</p>
+<p>This section defines Recovery as a Protocol primitive. Each Recovery Agent will provide its own set of specifications for how they provide World ID recovery.</p>
+</blockquote>
+<p><img src="recovery.svg" alt="Conceptual diagram of the Recovery process."></p>
+<ol>
+<li>A <code>recoverAccount</code> operation is a function defined in the <code>WorldIDRegistry</code> contract which receives a signed message from the Recovery Agent with a new authenticator public key. The operation results in the new authenticator being registered and all the old authenticators being revoked. The historical state of authenticators is naturally available on-chain.</li>
+<li>The signed message supports <a href="https://eips.ethereum.org/EIPS/eip-1271">ERC-1271</a>, which means it can come from a smart contract that sets its own rulesets for how recovery can be performed. For example, a Recovery Agent may require signatures from multiple parties to allow a recovery. Furthermore, this enables that a Recovery Agent can be defined as an abstract entity governed by its own smart contract.</li>
+<li>Importantly, recovery will only be possible for users in the new Protocol. Fundamentally, there’s no way to recover previously lost World IDs because it’s a secret that has been lost. Some fallbacks are being introduced to mitigate this, see <em>Migration Considerations</em> for details.</li>
+<li>Designating a Recovery Agent is entirely optional and can be updated at any time.</li>
+<li>Once a World ID account has been recovered, new Credentials can be requested to each relevant Issuer. Each Issuer can define their own set of rules for what is needed to recover their Credential.</li>
+<li><strong>Future Consideration.</strong>  In the future, a new feature could be introduced where a World ID is used as a signer on something else. For example, a World ID signature could be used as a factor for recovering a cryptocurrency wallet. While this functionality builds on top of the Recovery primitive, it is independent of this primitive and not in its scope.</li>
+</ol>
+<h3 id="session-proofs"><a class="header" href="#session-proofs">Session Proofs</a></h3>
+<p>RPs can create sessions for their app to ensure that it’s still the same World ID interacting with them across multiple interactions. Session Proofs intentionally allow the RP to link multiple interactions in their app to the same World ID. Sessions require the RP to store a <code>sessionId</code>. A <code>sessionId</code> can be created as part of a request for a Uniqueness Proof (see <a href="#binding-uniqueness-proofs-to-a-session">Binding Uniqueness Proofs to a Session</a>), which binds the <code>sessionId</code> to a <code>nullifier</code>, or standalone without uniqueness binding. Potential use cases include:</p>
+<ul>
+<li>Credential upgrade: A user verified previously with one credential and now wants to prove using another one (e.g. unlocking additional benefits). <strong>Important Note</strong>. While this can be used to prove a new Credential belongs to the same World ID, the implications must be carefully considered when it comes to uniqueness. <strong>Uniqueness sets are independent</strong>, e.g. users may have both a PoH and a government document Credential, but this doesn’t mean that by accepting both as an RP you can get guarantees that only a single human is behind each. A user may choose to obtain a PoH Credential and a document Credential in different World IDs.</li>
+<li>Credential expiration check: A user previously enrolled with one Credential; periodically,the RP wants to make sure the user’s Credential is still valid (for example not expired).</li>
+<li>(Future). RP-level Face Auth: Currently, Face Auth only ensures that the whoever produces the proof is the same person that received the Credential. However, for some applications an RP may want to make sure the same person is behind multiple interactions.</li>
+</ul>
+<p>Session Proofs use the same zero-knowledge circuits as Uniqueness Proofs, but authenticators MUST clearly distinguish them to users since they involve a reusable identifier that can link interactions. Instead of a nullifier, Session Proofs return a <code>sessionNullifier</code> which is required for verification but does <strong>not</strong> provide the same uniqueness guarantee (see below on <code>sessionNullifier</code>).
+Session Proofs without uniqueness binding work in the following manner:</p>
+<ul>
+<li>An RP requests an authenticator to create a session.</li>
+<li>The authenticator provides a <code>sessionId</code>, together with an initial session proof that proves that the <code>sessionId</code> is well formed. A unique identifier bound to the user’s World ID for that RP.</li>
+<li>The RP stores this <code>sessionId</code> alongside their account for the user.</li>
+<li>For subsequent interactions, the RP includes the <code>sessionId</code> in proof requests. The user can then generate a Session Proof to prove they have the same World ID. Different proofs over time with the same <code>sessionId</code> may use different credentials.</li>
+<li>A  <code>sessionId</code> is generated as outlined below, where <code>r</code> is computationally indistinguishable from random.</li>
+</ul>
+<pre class="mermaid">sequenceDiagram
+participant o as OPRF
+participant a as Authenticator
+participant rp as RP
+
+critical initial/enrollment
+rp -&gt;&gt; a: Initial session request
+a-&gt;&gt;a: Generate oprf_seed locally (CSPRNG)
+a-&gt;&gt;o: r=OPRF(rpPublicKey, DS_C || leafIndex || oprf_seed)
+a-&gt;&gt;a: Compute C = H(DS_C || leafIndex || r)
+a-&gt;&gt;a: sessionId = encode(C, oprf_seed)
+a -&gt;&gt; rp: sessionId + proof (see below)
+end
+
+rp-&gt;&gt;a: session proof request (incl. sessionId)
+
+alt [Recover r from sessionId.oprf_seed]
+a-&gt;&gt;o: r=OPRF(rpPublicKey, DS_C || leafIndex || sessionId.oprf_seed)
+end
+a-&gt;&gt;a: C'=H(DS_C || leafIndex || r) as public output of proof
+a-&gt;&gt;a: check if sessionId == C' (in ZK-circuit)
+a-&gt;&gt;rp: proof + sessionNullifier
+rp-&gt;&gt;rp: verify proof (checking sessionId == C' in verifier contract)
+</pre>
+
+<p><strong>Recovering <code>r</code> for subsequent Session Proofs.</strong> The OPRF is deterministic: the same input and key always produce the same output. This means <code>r</code> can be re-derived at any time by calling the OPRF nodes with the original <code>oprf_seed</code> (stored in <code>sessionId</code>). Caching <code>r</code> is an optimization, not a requirement. The OPRF call to derive <code>r</code> and the OPRF call to derive the nullifier can be made in parallel.</p>
+<p><strong>Session Nullifiers</strong></p>
+<ul>
+<li>A <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/session/struct.SessionNullifier.html"><code>sessionNullifier</code></a> is used for verifying Session Proofs. It must be passed to the verification contract. Internally, the <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/session/struct.SessionNullifier.html"><code>sessionNullifier</code></a> implements custom encoding on the Authenticator and on the <code>WorldIDVerifier</code> contract.</li>
+<li>The raison d’être is simply to allow usage of the same ZK circuit as for Uniqueness Proofs. Reducing the number of circuits is currently a priority because of the size of the circuits needed to be bundled in Authenticator clients. As World ID moves to a different proving system, this type will no longer be required.</li>
+<li>Session Proofs use a randomized <code>action</code> as circuit input. This randomized <code>action</code> ensures the circuit’s nullifier output is unique per proof, preserving the one-time use property. It is verified internally within the circuit. It does not affect <code>r</code> derivation.</li>
+</ul>
+<p><strong>Binding Uniqueness Proofs to a Session</strong></p>
+<ul>
+<li>A Uniqueness Proof request may set the <code>sessionId</code> field to <code>"create"</code> to atomically mint a session and bind the proof to it. The protocol verifies in-circuit that the session and the nullifier belong to the same World ID. The flow is outlined below. Binding a Uniqueness Proof to an already existing <code>sessionId</code> is not supported. A session is either created together with the uniqueness proof, or it carries no uniqueness binding at all.</li>
+<li>The blinding factor <code>r</code> of the minted <code>sessionId</code> is returned to the Authenticator for caching; as for session proofs it can always be re-derived from the <code>oprf_seed</code>.</li>
+<li>Verifiers MUST check bound proofs against the session’s commitment. With the session commitment set to <code>0</code> the proof is valid but unbound. On-chain, the dedicated <code>verifyWithSession()</code> entry point does this (it rejects <code>sessionId == 0</code>). The convenience <code>verify()</code> entry point pins the signal to <code>0</code> and rejects bound proofs, so binding is explicit in both directions.</li>
+<li>Binding one <code>sessionId</code> to Uniqueness Proofs under different actions intentionally links those actions to the same World ID; Authenticators MUST clearly surface this to users.</li>
+</ul>
+<pre class="mermaid">sequenceDiagram
+participant rp as RP
+participant a as Authenticator
+participant o as OPRF Nodes
+participant v as Verifier
+
+rp-&gt;&gt;a: Signed Uniqueness Proof request (action + sessionId = "create")
+a-&gt;&gt;a: Generate oprf_seed
+a-&gt;&gt;o: Derive session blinding factor r
+a-&gt;&gt;a: sessionId = encode(H(DS_C || leafIndex || r), oprf_seed)
+par Session binding
+a-&gt;&gt;a: Constrain sessionId.commitment to the user's leafIndex
+and Uniqueness
+a-&gt;&gt;o: Derive nullifier for (leafIndex, rpId, action)
+end
+a-&gt;&gt;a: Generate final proof with sessionId.commitment as a public signal
+a-&gt;&gt;rp: proof + nullifier + sessionId
+rp-&gt;&gt;v: verifyWithSession(..., sessionId.commitment, proof)
+v-&gt;&gt;v: Verify the non-zero session commitment and proof
+v--&gt;&gt;rp: Valid session-bound Uniqueness Proof
+rp-&gt;&gt;rp: Verify nullifier uniqueness
+</pre>
+
+<h3 id="web-based-authenticator-provider"><a class="header" href="#web-based-authenticator-provider">Web-based Authenticator Provider</a></h3>
+<p>To allow for an improved user experience, a reference browser-based Authenticator provider is being introduced. This app provides (currently limited) World ID functionality but without leaving the browser.</p>
+<ol>
+<li>At a high-level, it allows <strong>usage</strong> of a World ID. The user can generate proofs in their browser, and this is particularly useful for when working on other devices (such as desktop) or on non-native apps.</li>
+<li>Whenever an RP requires a user’s World ID proof, they can simply redirect the user to the web app (handled automatically by common SDKs like <a href="https://github.com/worldcoin/idkit">ID Kit</a>). The user authenticates with their passkey, generates the proof in their browser and passes it back to the RP.</li>
+<li>Further documentation on the architecture of the reference web-based Authenticator provider will be published in the <a href="https://github.com/worldcoin/web-authenticator">https://github.com/worldcoin/web-authenticator</a> repository.</li>
+<li><strong>Credential Enrollment</strong> will not be supported in the initial release, but this may be introduced in the future.</li>
+</ol>
+<h2 id="migration-considerations"><a class="header" href="#migration-considerations">Migration Considerations</a></h2>
+<p>At a high level, every user and RP will need to migrate to the new Protocol. Detailed migration paths will be published in the Developer docs.</p>
+<h2 id="privacy-considerations"><a class="header" href="#privacy-considerations">Privacy Considerations</a></h2>
+<ul>
+<li>
+<p>The Protocol, via the Oblivious Nullifier Pool enforces that nullifiers cannot be generated more than once (as long as authenticators are properly implemented), which prevents long running user tracking, increasing the privacy from the previous protocol version.</p>
+</li>
+<li>
+<p>In adversarial scenarios, these are the most relevant privacy considerations,</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Attack scenario</th><th><strong>World ID ≤3.0</strong></th><th><strong>World ID 4.0 (2025)</strong></th></tr>
+</thead>
+<tbody>
+<tr><td>Compromised user’s secret</td><td>⚠️ Potentially reveals all past activity if the attacker knows the public app IDs and actions.</td><td>✅ Cannot reveal past activity on its own</td></tr>
+<tr><td>Malicious RP</td><td>✅ A malicious RP on its own doesn’t reveal past activity</td><td>✅ A malicious RP on its own doesn’t reveal past activity</td></tr>
+<tr><td>Malicious OPRF node</td><td>N/A</td><td>✅ Cannot compromise user’s past activity</td></tr>
+<tr><td>Collusion of threshold OPRF nodes</td><td>N/A</td><td>⚠️ Could reveal user’s past activity (but requires having nullifiers to match against, e.g. through RP collusion)</td></tr>
+<tr><td>Compromised user’s secret + RP collusion</td><td>⚠️ Potentially reveals all past activity. Offline attack.</td><td>⚠️ Can reveal user’s past activity for that RP. Online attack (requires calls to OPRF nodes).</td></tr>
+<tr><td>Malicious Authenticator</td><td>⚠️ Potentially reveals all past activity if the attacker knows the public app IDs and actions.</td><td>⚠️ A malicious or compromised authenticator could reveal user’s activity. <em>This could likely translate in users putting their trust in OSS authenticators.</em></td></tr>
+<tr><td>User coercion</td><td>⚠️ Potentially reveals all past activity. Offline attack.</td><td>⚠️ Can force reveal of non-expired nullifiers which in combination with RPs or other information may reveal past activity.</td></tr>
+</tbody>
+</table>
+</div>
+</li>
+</ul>
+<h2 id="other-risk-considerations"><a class="header" href="#other-risk-considerations">Other Risk Considerations</a></h2>
+<ul>
+<li><strong>Loss of State</strong>. The OPRF nodes work with an <code>m-of-n</code> threshold. If $n-m+1$ nodes loses their keys, the state of the Protocol will be lost, there won’t be a way to generate the correct nullifiers and the state of “consumed” or performed actions will be lost.</li>
+<li><strong>Censoring by OPRF nodes</strong>. OPRF nodes could reject generating nullifiers for users. It’s difficult for this to be a targeted attack because the <code>leafIndex</code> is blinded, but they could censor specific RPs or actions.</li>
+<li><strong>Compromised OPRF nodes</strong>. Should a threshold of nodes’ key materials be compromised, or a threshold of nodes collude maliciously, users’ past and/or ongoing activity could be compromised, i.e. these nodes could arbitrary compute any nullifier because the <code>leafIndex</code>es are known and the domain space is relatively low. To be useful, this would require matching nullifiers to actual usage with RPs, or knowing a user’s <code>leafIndex</code>, at least the second not being straightforward. This is a risk that will be progressively mitigated, and the following strategies are being researched for upcoming minor Protocol version updates:
+<ol>
+<li><strong>Provable secure environments for OPRF nodes</strong>. Running OPRF nodes in attestable secure environments backed by secure hardware where the key material is securely stored and the execution provable. Given the nature of the computations of OPRF nodes, it is quite feasible that a plurality of enviroments and hardware providers could be supported. Authenticators would be able to verify attestations from OPRF nodes on every proof request.</li>
+<li><strong>Increase on the number of OPRF nodes</strong>. Increasing the number of OPRF nodes and the threshold required to generate nullifiers reduces the risk of compromise. It is also very feasible to significantly extend the number of nodes over time. The cost of running a node is relatively low.</li>
+<li><strong>Strict key management policies</strong>. RPs will be able to specify their policies for action duration such that keys are destroyed after their utility period has elapsed.</li>
+</ol>
+</li>
+<li><strong>Authenticator Risk</strong>. Aside from having access to the user’s credentials, an Authenticator must learn of a user’s raw <code>leafIndex</code> to be able to generate Proofs. A malicious Authenticator can misuse this to track the user, even though that tracking cannot be correlated to nullifiers provided to RPs on its own. Different strategies to mitigate Authenticator risk are being explored.</li>
+<li><strong>Recovery Agent Risk</strong>. Should a user designate a Recovery Agent, this entity has a special permission that allows it to gain access to the user’s World ID, which could be misused. Beyond the explicit risk of a malicious Recovery Agent compromising a user’s World ID, users need to consider the different risks associated with different Recovery Agents based on how they perform authentication.</li>
+</ul>
+<h2 id="future-proofing-notes-world-id-4x-future-releases-and-beyond"><a class="header" href="#future-proofing-notes-world-id-4x-future-releases-and-beyond">Future Proofing Notes (World ID 4.x future releases and beyond)</a></h2>
+<p>This is not a comprehensive list, but it outlines general topics that may be the target of upcoming Protocol releases which are not currently covered on this release.</p>
+<ul>
+<li>Face Auth. The signature on the credential by the issuer will allow for the introduction of a provable (still with camera sensor trust) FaceAuth check during proof generation.</li>
+<li>Authenticator policies and permission set. In this release, the <code>WorldIDRegistry</code> contains only a flat list of public keys, but this could be upgraded to be a more complex data structure that codifies explicit permissions for each key such that each authenticator can have a different policy for each action (e.g. add an authenticator vs. generating a proof), and this can be publicly verified.</li>
+<li>Client-side proving. With the introduction of client-side proving and later potentially other types of proofs (e.g. age attestation), it will be possible to combine Uniqueness Proofs with additional attestations.</li>
+<li>Issuers having the ability to revoke Credentials.</li>
+<li>Establishing trust between protocol parties (e.g. identifying a trustworthy Authenticator).</li>
+<li>Ability to merge multiple World IDs, which translates into an ability to rotate identifiers with each Issuer.</li>
+<li>On the RP registry. In the future, the RP trust could also be anchored in other existing mechanisms, such as their domain name (DNS). Furthermore, actions could also be publicly registered for auditability and enforcement.</li>
+<li>World ID as signer (or biometric recovery). Similar to how recovering a World ID is possible because PoH AMPC allows for the addition of a new authenticator, it’ll be conceptually possible that a World ID could be a recovery signer for other accounts.</li>
+<li>Man-in-the-middle (MITM) proof phishing protection. While the attack vector of proof phishing is reduced with the introduction of the RP registry, it may still be possible to MITM proofs. Further protection mechanisms are required to mitigate this.</li>
+<li>In the future, credentials could be authenticator-specific, where issuers sign them for use with a specific authenticator only.</li>
+<li>Per-request fee gates may be introduced in the future (targeting 4.1 or 4.2) such that the OPRF Nodes receive a proof of payment as part of the request to generate a nullifier. This is distinct from the one-time registration fee already in place (see <em>Registration Fees</em>).</li>
+<li>Supporting cryptographic operations that enables secrets that can live in secure hardware and never be exported.</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../world-id-4-trusted-setup/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../world-id-4-trusted-setup/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../docs/mermaid-eefea253.min.js"></script>
+        <script src="../docs/mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

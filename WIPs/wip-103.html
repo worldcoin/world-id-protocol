@@ -1,0 +1,371 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>WIP-103: Proof of Ownership - World ID Protocol</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-9c1f33c8.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-9e0f34ba.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">World ID Protocol</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol/edit/main/docs/WIPs/wip-103.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h2 id="1-abstract"><a class="header" href="#1-abstract">1. Abstract</a></h2>
+<p>This spec introduces a new ZK circuit (“Ownership Proof”) to the World ID Protocol that allows a user to prove they own a specific registered leaf without revealing their <code>leaf_index</code> or any private key material to the verifier. The circuit takes a domain-separated commitment, <code>H(domain_separator, leaf_index, commitment_blinder)</code>, and proves that the user controls a secret key registered in the <code>WorldIDRegistry</code> for that leaf, without exposing the <code>commitment_blinder</code> value (e.g. a credential blinding factor) as a public input. The initial use case is Issuer Authentication, where a user proves ownership of a credential <code>sub</code> to an Issuer for operations like re-issuance, renewal, or deletion.</p>
+<h2 id="2-motivation"><a class="header" href="#2-motivation">2. Motivation</a></h2>
+<p>There are use cases that require users to prove ownership for their World ID and a specific commitment. At the time of writing there is a well-known use case for Issuer Authentication.</p>
+<h3 id="21-issuer-authentication"><a class="header" href="#21-issuer-authentication">2.1 Issuer Authentication</a></h3>
+<p>Issuers may require users to authenticate with their World ID. Some examples of such use cases:</p>
+<ul>
+<li><strong>Re-issuance</strong>. Allowing the user to get a new copy of their credential due to loss.</li>
+<li><strong>Status information</strong>. Providing the user with information on their current enrollment state.</li>
+<li><strong>Cancellation/deletion/unregistration</strong>. Allowing the user to unregister, delete or cancel their existing credential.</li>
+</ul>
+<p>For the cases above, Issuers need to know the legitimate owner of a Credential is requesting the operation. Issuers do not know the user’s <code>leaf_index</code> by design, so a mechanism to authenticate based on the Credential’s <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/credential/struct.Credential.html#structfield.sub">subject</a> (<code>sub</code>) is required.</p>
+<h2 id="3-specification"><a class="header" href="#3-specification">3. Specification</a></h2>
+<p>The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in <a href="https://www.ietf.org/rfc/rfc2119.txt">RFC 2119</a>.</p>
+<p>The terms <a href="https://docs.rs/world-id-core/latest/world_id_core/struct.Authenticator.html">Authenticator</a>, Issuer and <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/credential/struct.Credential.html">Credential</a> are as defined in the World ID Protocol.</p>
+<p>This specification introduces a new circuit to the Protocol: <strong>“Ownership Proof”</strong>. The Ownership Proof is a new circuit which allows users to prove <em>ownership</em> (as defined below) using a specific commitment.</p>
+<p>A <strong>non-normative high-level description</strong> of what the circuit proves:</p>
+<blockquote>
+<ol>
+<li>It proves the user’s <code>leaf_index</code> hashed with a <code>commitment_blinder</code> and a specific domain separator produces an <code>expected_commitment</code>. <em>An example, is the Credential’s blinded <code>sub</code></em>.</li>
+<li>It proves the user’s <code>leaf_index</code> is validly registered in the <code>WorldIDRegistry</code> and the user can produce a signature with a secret key ($sk$) registered as an authenticator for the particular <code>leaf_index</code>.</li>
+<li>It proves the user authorized the operation through a signature with a registered authenticator secret key and that such operation is only valid for a specific <code>nonce</code> and <code>context</code> provided.</li>
+</ol>
+</blockquote>
+<p>The Ownership Proof circuit MUST introduce the following inputs. The circuit MUST NOT introduce any additional public inputs which are not specified in this or a future spec.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Input</th><th>Visibility</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>expected_commitment</code></td><td><strong>Public</strong></td><td>Field element</td><td>The expected output of the hashed commitment (e.g. the <code>sub</code> of a credential)</td></tr>
+<tr><td><code>merkle_root</code></td><td><strong>Public</strong></td><td>Field element</td><td>The root hash of the Merkle tree used for inclusion (representing the <code>WorldIDRegistry</code>)</td></tr>
+<tr><td><code>depth</code></td><td><strong>Public</strong></td><td>Field element</td><td>The depth of the <code>WorldIDRegistry</code>’s Merkle tree used for inclusion</td></tr>
+<tr><td><code>nonce</code></td><td><strong>Public</strong></td><td>Field element</td><td>One-time use value to prevent replays. See <a href="#33-nonce">Nonce</a> section.</td></tr>
+<tr><td><code>context</code></td><td><strong>Public</strong></td><td>Field element</td><td>A verifier-supplied context for which the proof is valid.</td></tr>
+<tr><td><code>user_pk</code></td><td>Private</td><td>[PublicKey; NUM_KEYS]</td><td>The list of authenticator public keys registered in the <code>WorldIDRegistry</code>.</td></tr>
+<tr><td><code>pk_index</code></td><td>Private</td><td>Field element</td><td>The index in <code>user_pk</code> of the key used for signature.</td></tr>
+<tr><td><code>query_s</code></td><td>Private</td><td>Field element</td><td>The <code>s</code> component from the EdDSA signature on the message (see constraints).</td></tr>
+<tr><td><code>query_r</code></td><td>Private</td><td>[Field element; 2]</td><td>The <code>r</code> component from the EdDSA signature on the message (see constraints).</td></tr>
+<tr><td><code>leaf_index</code></td><td>Private</td><td>Field element</td><td>The index of the user’s World ID in the <code>WorldIDRegistry</code>.</td></tr>
+<tr><td><code>siblings</code></td><td>Private</td><td>[Field element; MAX_DEPTH]</td><td>The sequence of all siblings from the <code>leaf_index</code> to the <code>merkle_root</code> .</td></tr>
+<tr><td><code>commitment_blinder</code></td><td>Private</td><td>Field element</td><td>The blinding value that is hashed with the <code>leaf_index</code> to output the <code>expected_commitment</code>. The provenance of the value depends on the specific use case (see <a href="#4-use-cases">Use Cases</a>).</td></tr>
+</tbody>
+</table>
+</div>
+<p>For the inputs above, a <code>PublicKey</code> is as defined in the <a href="https://github.com/worldcoin/world-id-protocol/pull/888">WIP-100</a> spec (<em>an EdDSA public key represented as its coordinate points $(x,y)$ with each coordinate being a Field element</em>). <em>For reference, <code>user_pk</code>, <code>pk_index</code>, <code>leaf_index</code> (named <code>mt_index</code>), <code>siblings</code> introduce the same constraints that the Nullifier Proof circuit.</em></p>
+<h3 id="31-circuit-constants"><a class="header" href="#31-circuit-constants">3.1 Circuit constants</a></h3>
+<p>The Field ($F$), the Curve (<code>BabyJubJub</code>), and the Hashing ($H_t$) definitions MUST follow the requirements of <a href="https://github.com/worldcoin/world-id-protocol/pull/888">WIP-100</a>. For example, in this spec <code>H_3</code> refers to the hash constructed from a Poseidon2 permutation of 3-elements.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Constant</th><th>Value</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>NUM_KEYS</code></td><td><code>7</code></td><td>Length of the authenticator public key list. Fixed by the Nullifier Proof circuit and the <code>WorldIDRegistry</code>.</td></tr>
+<tr><td><code>MAX_DEPTH</code></td><td><code>30</code></td><td>For reference, defined in <a href="https://github.com/worldcoin/world-id-protocol/pull/888">WIP-100</a>. Maximum supported <code>WorldIDRegistry</code> Merkle tree depth; also the length of <code>siblings</code>.</td></tr>
+<tr><td><code>MERKLE_LEAF_DS</code></td><td><code>105702839725298824521994315</code> (<code>b"World ID PK"</code>)</td><td>Domain separator for the authenticator key list commitment.</td></tr>
+<tr><td><code>DS_EDDSA</code></td><td><code>360302137480307891234917541314130533</code> (<code>b"EdDSA Signature"</code>)</td><td>For reference, defined in <a href="https://github.com/worldcoin/world-id-protocol/pull/888">WIP-100</a>. Domain separator for the EdDSA challenge hash.</td></tr>
+<tr><td><code>DS_WIP_103</code></td><td><code>95972389630003</code> (<code>b"WIP103"</code>)</td><td>Domain separator for the Ownership Proof signed message. MUST NOT be reused outside of the Ownership Proof signed-message construction.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="32-circuit-constraints"><a class="header" href="#32-circuit-constraints">3.2 Circuit constraints</a></h3>
+<p>The Ownership Proof circuit MUST implement the following constraints (order is not relevant):</p>
+<ol>
+<li><strong>Expected commitment</strong>. Compute the commitment as: <code>H_3(domain_separator, leaf_index, commitment_blinder)</code>. The computed commitment MUST equal the <code>expected_commitment</code>. The <code>domain_separator</code> is dependent on the <a href="#4-use-cases">Use Case</a> and all possible domain separators MUST be hardcoded in the circuit.</li>
+<li><strong>Signature verification</strong>. Compute the message of the signature as: <code>message = H_4(DS_WIP_103, expected_commitment, nonce, context)</code>. The circuit MUST verify <code>(query_r, query_s)</code> as an EdDSA-Poseidon2 signature by <code>pk</code> over the <code>message</code> in order to prove authorization by an authenticator over the particular <code>nonce</code> and <code>context</code>. The signature computation and verification MUST follow all the requirements from <a href="https://github.com/worldcoin/world-id-protocol/pull/888">WIP-100</a>.</li>
+<li><strong>Key selection</strong>. The circuit MUST select exactly one public key <code>pk = user_pk[pk_index]</code> and MUST constrain:
+<ol>
+<li><code>pk_index &lt; NUM_KEYS</code>, enforced as a comparison over the full field $F$ and not as a truncating cast to a smaller integer type. An out-of-range <code>pk_index</code> MUST cause proving to fail.</li>
+<li>The selected <code>pk</code> equals the <code>pk_index</code>-th element of <code>user_pk</code>, for the same <code>pk_index</code> witness.</li>
+</ol>
+</li>
+<li><strong>Key validity</strong>. <code>user_pk</code> MUST be a fixed-length array of <code>NUM_KEYS</code> entries in <code>WorldIDRegistry</code> slot order. Slots with no active authenticator, whether never used or removed, MUST be encoded as the neutral element $O = (0,1)$ of the BabyJubJub curve. The circuit MUST constrain the selected $\texttt{pk} = (A_x, A_y)$ as follows: 1) the point MUST be on the curve; 2) the point MUST be in the prime-order subgroup; and 3) the point MUST NOT be the neutral element $O$. Constraint (3) is particularly important because $O$ is used to signal an omitted element from the array, without it, the circuit would not have transitive proof of <code>sk</code> knowledge.</li>
+<li><strong>Leaf index commitment</strong>. The circuit MUST compute <code>offchainSignerCommitment</code> as designated in the Query Proof, with $H_{16}$ using the domain separator <code>MERKLE_LEAF_DS</code> and each key in <code>user_pk</code> encoded as $(x, y)$ points sequentially, with the last position (index <code>15</code>) equal to <code>0</code>. The digest is output state element <code>1</code>. All keys MUST be included in order, including <em>empty</em> slots with the neutral element $O$.</li>
+<li><strong>Merkle inclusion proof</strong>. The circuit MUST recompute <code>merkle_root</code> from <code>offchainSignerCommitment</code> as the leaf value at position <code>leaf_index</code> following the definitions of <a href="https://github.com/worldcoin/world-id-protocol/pull/888">WIP-100</a>.</li>
+<li><strong>Leaf-index binding.</strong> The <code>leaf_index</code> hashed into the commitment in constraint 1 and the position proven in constraint #6 MUST be the same witness. The circuit MUST NOT accept two independent values. This binding is <strong>essential</strong>, otherwise the circuit is only proving the prover knows the <code>sk</code> of <strong>some</strong> leaf, not the one being proven in the <code>expected_commitment</code>.</li>
+<li><strong>Verifier-supplied input validation</strong>. The <code>nonce</code> and <code>context</code> MUST NOT equal <code>0</code>. These are usually intended as sentinel values and could surface an incorrect use of them.</li>
+</ol>
+<h3 id="33-nonce"><a class="header" href="#33-nonce">3.3 Nonce</a></h3>
+<p>The nonce is a security mechanism to prevent replay attacks. Recipients of an <strong>Ownership Proof</strong> (also called “verifiers” in this spec) are responsible for its generation and verification.</p>
+<ol>
+<li><strong>Provenance</strong>. Verifiers MUST generate and provide the nonce. Authenticators MUST NOT generate nonces.</li>
+<li><strong>Single Use</strong>. Verifiers MUST enforce that a nonce may only be used one time. Verifiers MUST invalidate any nonce after first use.</li>
+<li><strong>Entropy</strong>. Verifiers MUST generate the nonce from a uniformly random distribution using a CSPRNG over the whole field $F$.</li>
+<li><strong>Expiration</strong>. Nonces MUST have a defined TTL and not be valid after expiration. Verifiers MAY define the mechanism to accomplish this.</li>
+<li>The <code>0</code> element is NOT a valid nonce.</li>
+</ol>
+<h3 id="34-context"><a class="header" href="#34-context">3.4 Context</a></h3>
+<p>The <code>context</code> is the mechanism by which a verifier binds a specific proof to a specific requested operation. The verifier MUST constrain the use of Ownership Proofs to specific operations and assign such operations with a unique context. For example, renewing a credential and deleting a credential are two different contexts. The verifier MUST provide the <code>context</code> when requesting a proof and MUST verify the provided <code>context</code> is valid for the explicit operation being executed.</p>
+<p>It is RECOMMENDED that Verifiers use contexts shorter than 31 bytes or use a hash function to avoid collisions.</p>
+<p>The <code>0</code> element is NOT a valid context.</p>
+<h2 id="4-use-cases"><a class="header" href="#4-use-cases">4. Use Cases</a></h2>
+<ol>
+<li>Authenticators MUST restrict Ownership Proofs subject only to the use cases outlined in this spec or a future spec which references this one.</li>
+<li>If future use cases are added, the <code>commitment_blinder</code> IS REQUIRED to always be a high entropy value to prevent finding a user’s <code>leaf_index</code>. Unless otherwise noted, it should be randomly generated from a CSPRNG uniformly distributed over the entire $F$.</li>
+</ol>
+<h3 id="41-wip-103-001-issuer-authentication"><a class="header" href="#41-wip-103-001-issuer-authentication">4.1 WIP-103-001: Issuer Authentication</a></h3>
+<ul>
+<li><strong>Use case</strong>: Authenticating to an Issuer where the Issuer has a <code>sub</code> as identifier.</li>
+<li><strong>Domain Separator</strong>: <code>b"H_CS(id, r)"</code> named <code>DS_C_CS</code>.</li>
+<li><strong><code>commitment_blinder</code> value</strong>: The credential’s blinding factor as stored (or re-derived) by the Authenticator.</li>
+<li><strong>Use conditions</strong>: Can only be used to prove ownership with the specific Issuer for which the <code>sub</code> was generated. The Authenticator MUST ensure this proof is only provided to the Issuer it corresponds. The Authenticator knows this from the blinding factor used as the <code>commitment_blinder</code> input. Furthermore, providing this proof MUST come from a user initiated action and SHALL NOT be requested by Issuers. Acceptable examples include: when a user requests a Credential re-issuance, when a user requests a Credential renewal, when a user requests a Credential deletion.</li>
+<li><strong>Verification</strong>: Issuers MUST ensure the <code>expected_commitment</code> public input of the circuit matches the expected identifier (i.e. Credential’s <code>sub</code>).</li>
+</ul>
+<h2 id="5-rationale"><a class="header" href="#5-rationale">5. Rationale</a></h2>
+<p>A keen observer would notice the Ownership Proof circuit is very similar to the Query Proof circuit. Using this circuit is not an option because the verifying party would need to learn the <code>commitment_blinder</code> being verified to ensure the hash validity (it’s a public input). For example, an Issuer does not need to learn the credential blinding factor, which would defeat the purpose of the blinding factor because the <code>leaf_index</code> could be easily brute forced.</p>
+<h2 id="6-reference-verification"><a class="header" href="#6-reference-verification">6. Reference Verification</a></h2>
+<p>An Issuer will be able to know a specific user is the legitimate owner of a <code>sub</code> by performing the following validations:</p>
+<ol>
+<li>Ensuring the received zero-knowledge proof verifies correctly with the correct verifying keys.</li>
+<li>The root hash (public input) matches a root hash for a valid Merkle tree of the <code>WorldIDRegistry</code>, as well as the expected depth.</li>
+<li>The <code>expected_commitment</code> public input matches the expected <code>sub</code> being verified. This value MAY also be used for lookups when the <code>sub</code> is not known in advance.</li>
+<li>The <code>nonce</code> public input is one the Issuer itself generated, has not expired, and has not been used before. The nonce MUST be invalidated at this point. See <a href="#33-nonce">Nonce</a>.</li>
+<li>The <code>context</code> public input is the context the Issuer assigns to the operation it is about to execute. A proof carrying any other context MUST be rejected, even if every other check passes. See <a href="#34-context">Context</a>.</li>
+</ol>
+<p>Validations 4 and 5 are what make the proof unreplayable and single-purpose. The circuit constrains the <code>nonce</code> and <code>context</code> to be bound in the authenticator’s signature, but it cannot know which values the verifier intended, so a verifier that accepts the values supplied alongside the proof without comparing them to its own gains no replay or cross-context protection.</p>
+<p>It is strongly RECOMMENDED that implementations verify the Ownership Proof using a proof format and verification method supported by <a href="https://github.com/worldfnd/provekit">ProveKit</a>.</p>
+<h2 id="7-security"><a class="header" href="#7-security">7. Security</a></h2>
+<ol>
+<li><strong><code>commitment_blinder</code> is never revealed.</strong> Unlike the Query Proof circuit, the <code>commitment_blinder</code> value is a private input. For Issuer Authentication (WIP-103-001), this means the credential blinding factor is never exposed to the Issuer. If it were, the Issuer could brute-force the <code>leaf_index</code> (the domain of possible values is small) and break the unlinkability property of the blinding factor.</li>
+<li><strong>Domain separation prevents cross-context replay.</strong> Each use case defines its own domain separator, and the <code>domain_separator</code> is committed inside the hash. A proof generated for one use case cannot be replayed in another context. Authenticators MUST enforce that only domain separators defined in this spec or a referencing spec are used.</li>
+<li><strong>Authenticator-gated usage.</strong> Authenticators MUST restrict generation of Ownership Proofs to user-initiated actions for the defined use cases. Issuers SHALL NOT be able to request this proof; the Authenticator must initiate it. This prevents an Issuer from using the proof as an oracle to test whether a given <code>sub</code> belongs to a particular user.</li>
+<li><strong>Nonce and context are bound into the signed message.</strong> The signature verified by the circuit is over <code>nonce</code>, <code>context</code> and <code>expected_commitment</code>, not only over the bare commitment. This means every Ownership Proof requires a fresh signature from the authenticator signing key for that specific <code>(nonce, context)</code> tuple (in addition to the <code>expected_commitment</code>), anchoring proof generation to an active signing event by the Authenticator.</li>
+<li>For note, proofs for the same <code>expected_commitment</code> (e.g. the same <code>sub</code>) are linkable because they use the same public input. This is intended as the <code>expected_commitment</code> is what its getting proven. This proof however prevents cross-verifier linking as the <code>commitment_blinder</code> differs.</li>
+</ol>
+<h2 id="8-backwards-compatibility"><a class="header" href="#8-backwards-compatibility">8. Backwards Compatibility</a></h2>
+<p>This World Improvement Proposal (WIP) introduces a new interface; no existing contracts or other previously existing functionality is affected.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../WIPs/wip-102.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../WIPs/wip-104.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../WIPs/wip-102.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../WIPs/wip-104.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../docs/mermaid-eefea253.min.js"></script>
+        <script src="../docs/mermaid-init-ccf746f1.js"></script>
+
+
+
+    </div>
+    </body>
+</html>
