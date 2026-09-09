@@ -33,7 +33,9 @@ fn main() -> eyre::Result<()> {
 
     #[cfg(any(
         feature = "embed-ownership-prover",
-        feature = "embed-ownership-verifier"
+        feature = "embed-ownership-verifier",
+        feature = "embed-claims-prover",
+        feature = "embed-claims-verifier"
     ))]
     if noir_artifacts::should_embed() {
         noir_artifacts::setup(&out_dir)?;
@@ -228,7 +230,9 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
 
 #[cfg(any(
     feature = "embed-ownership-prover",
-    feature = "embed-ownership-verifier"
+    feature = "embed-ownership-verifier",
+    feature = "embed-claims-prover",
+    feature = "embed-claims-verifier"
 ))]
 mod noir_artifacts {
     use std::process::Command;
@@ -246,7 +250,9 @@ mod noir_artifacts {
         let target_arch = env::var("CARGO_CFG_TARGET_ARCH").ok();
         target_arch.as_deref() != Some("wasm32")
             && (env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_PROVER").is_some()
-                || env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_VERIFIER").is_some())
+                || env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_VERIFIER").is_some()
+                || env::var_os("CARGO_FEATURE_EMBED_CLAIMS_PROVER").is_some()
+                || env::var_os("CARGO_FEATURE_EMBED_CLAIMS_VERIFIER").is_some())
     }
 
     /// Checks that `nargo` is on PATH and is exactly [`REQUIRED_NARGO_VERSION`].
@@ -261,8 +267,8 @@ mod noir_artifacts {
             .map_err(|e| {
                 if e.kind() == std::io::ErrorKind::NotFound {
                     eyre::eyre!(
-                        "`nargo` was not found on PATH. It is required to build the Noir ownership \
-                         proof artifacts. Install it with `nix develop` (the repo flake pins the \
+                        "`nargo` was not found on PATH. It is required to build the Noir proof \
+                         artifacts. Install it with `nix develop` (the repo flake pins the \
                          right version) or `noirup --version v{REQUIRED_NARGO_VERSION}`"
                     )
                 } else {
@@ -282,15 +288,38 @@ mod noir_artifacts {
         Ok(())
     }
 
-    /// Builds the Noir ownership proof artifacts ad-hoc with `nargo` and the
+    /// Builds the selected Noir proof artifacts ad-hoc with `nargo` and the
     /// provekit R1CS compiler. This is the only way to obtain them: the
     /// proving/verifying keys must come from the checked-in circuit source, built
     /// with the pinned nargo toolchain (see `flake.nix`), so every builder
     /// produces identical bytes.
     pub(super) fn setup(out_dir: &Path) -> eyre::Result<()> {
         let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-        let circuit_dir = manifest_dir.join("noir/ownership-proof");
+        check_nargo()?;
 
+        if env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_PROVER").is_some()
+            || env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_VERIFIER").is_some()
+        {
+            build_circuit(
+                &manifest_dir.join("noir/ownership-proof"),
+                "ownership_proof",
+                out_dir,
+            )?;
+        }
+        if env::var_os("CARGO_FEATURE_EMBED_CLAIMS_PROVER").is_some()
+            || env::var_os("CARGO_FEATURE_EMBED_CLAIMS_VERIFIER").is_some()
+        {
+            build_circuit(
+                &manifest_dir.join("noir/claims-proof"),
+                "claims_proof",
+                out_dir,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn build_circuit(circuit_dir: &Path, artifact_name: &str, out_dir: &Path) -> eyre::Result<()> {
         println!(
             "cargo:rerun-if-changed={}",
             circuit_dir.join("src").display()
@@ -299,8 +328,6 @@ mod noir_artifacts {
             "cargo:rerun-if-changed={}",
             circuit_dir.join("Nargo.toml").display()
         );
-
-        check_nargo()?;
 
         let nargo_output = Command::new("nargo")
             .arg("compile")
@@ -313,18 +340,22 @@ mod noir_artifacts {
             eyre::bail!("nargo compile failed:\n{stderr}");
         }
 
-        let scheme = NoirProofScheme::from_file(circuit_dir.join("target/ownership_proof.json"))
-            .map_err(|e| eyre::eyre!(e.to_string()))?;
+        let scheme = NoirProofScheme::from_file(
+            circuit_dir
+                .join("target")
+                .join(format!("{artifact_name}.json")),
+        )
+        .map_err(|e| eyre::eyre!(e.to_string()))?;
 
         provekit_common::file::write(
             &Prover::from_noir_proof_scheme(scheme.clone()),
-            &out_dir.join("ownership_proof.pkp"),
+            &out_dir.join(format!("{artifact_name}.pkp")),
         )
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
         provekit_common::file::write(
             &Verifier::from_noir_proof_scheme(scheme),
-            &out_dir.join("ownership_proof.pkv"),
+            &out_dir.join(format!("{artifact_name}.pkv")),
         )
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 

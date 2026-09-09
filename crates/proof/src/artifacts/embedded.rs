@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    OwnershipProver, OwnershipVerifier,
+    ClaimsProver, ClaimsVerifier, OwnershipProver, OwnershipVerifier,
     artifacts::{ZkArtifactError, ZkArtifactKind, ZkArtifactSource},
     nullifier_proof::CircomGroth16Material,
 };
@@ -85,6 +85,38 @@ impl ZkArtifactSource for EmbeddedZkArtifacts {
             Err(ZkArtifactError::Unavailable {
                 kind: ZkArtifactKind::OwnershipVerifier,
                 reason: "enable `embed-ownership-verifier` on a native target",
+            })
+        }
+    }
+
+    fn claims_prover(&self) -> Result<ClaimsProver, ZkArtifactError> {
+        #[cfg(all(not(target_arch = "wasm32"), feature = "embed-claims-prover"))]
+        {
+            noir::load_embedded_claims_prover()
+                .map_err(|e| ZkArtifactError::load(ZkArtifactKind::ClaimsProver, e))
+        }
+
+        #[cfg(any(target_arch = "wasm32", not(feature = "embed-claims-prover")))]
+        {
+            Err(ZkArtifactError::Unavailable {
+                kind: ZkArtifactKind::ClaimsProver,
+                reason: "enable `embed-claims-prover` on a native target",
+            })
+        }
+    }
+
+    fn claims_verifier(&self) -> Result<ClaimsVerifier, ZkArtifactError> {
+        #[cfg(all(not(target_arch = "wasm32"), feature = "embed-claims-verifier"))]
+        {
+            noir::load_embedded_claims_verifier()
+                .map_err(|e| ZkArtifactError::load(ZkArtifactKind::ClaimsVerifier, e))
+        }
+
+        #[cfg(any(target_arch = "wasm32", not(feature = "embed-claims-verifier")))]
+        {
+            Err(ZkArtifactError::Unavailable {
+                kind: ZkArtifactKind::ClaimsVerifier,
+                reason: "enable `embed-claims-verifier` on a native target",
             })
         }
     }
@@ -253,7 +285,9 @@ pub mod zkeys {
     not(target_arch = "wasm32"),
     any(
         feature = "embed-ownership-prover",
-        feature = "embed-ownership-verifier"
+        feature = "embed-ownership-verifier",
+        feature = "embed-claims-prover",
+        feature = "embed-claims-verifier"
     )
 ))]
 pub mod noir {
@@ -285,6 +319,36 @@ pub mod noir {
     #[cfg(feature = "embed-ownership-verifier")]
     pub fn load_embedded_ownership_verifier() -> eyre::Result<crate::OwnershipVerifier> {
         crate::ownership_proof::load_ownership_verifier_from_reader(PKV_BYTES)
+    }
+
+    #[cfg(all(feature = "embed-claims-prover", not(docsrs)))]
+    const CLAIMS_PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/claims_proof.pkp"));
+
+    #[cfg(all(feature = "embed-claims-prover", docsrs))]
+    const CLAIMS_PKP_BYTES: &[u8] = &[];
+
+    /// Loads the embedded claims proof prover.
+    ///
+    /// # Errors
+    /// Returns an error if embedded Noir artifacts are missing or invalid.
+    #[cfg(feature = "embed-claims-prover")]
+    pub fn load_embedded_claims_prover() -> eyre::Result<crate::ClaimsProver> {
+        crate::claims_proof::load_claims_prover_from_reader(CLAIMS_PKP_BYTES)
+    }
+
+    #[cfg(all(feature = "embed-claims-verifier", not(docsrs)))]
+    const CLAIMS_PKV_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/claims_proof.pkv"));
+
+    #[cfg(all(feature = "embed-claims-verifier", docsrs))]
+    const CLAIMS_PKV_BYTES: &[u8] = &[];
+
+    /// Loads the embedded claims proof verifier.
+    ///
+    /// # Errors
+    /// Returns an error if embedded Noir artifacts are missing or invalid.
+    #[cfg(feature = "embed-claims-verifier")]
+    pub fn load_embedded_claims_verifier() -> eyre::Result<crate::ClaimsVerifier> {
+        crate::claims_proof::load_claims_verifier_from_reader(CLAIMS_PKV_BYTES)
     }
 }
 
