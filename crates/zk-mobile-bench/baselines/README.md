@@ -13,13 +13,4 @@ Checked-in BrowserStack reference results for the seven `zk-mobile-bench` functi
 
 Baselines are rewritten only by a successful **Mobile Benchmarks** run on `main` with an empty `pr_number` (Actions → Mobile Benchmarks → Run workflow). Typical reason: circuit or proving-stack change that warrants a new reference.
 
-PR `/mobench` and `bench`-label runs compare against these files; they do **not** modify them.
-
-## Compare locally
-
-```bash
-cargo-mobench ci check-run \
-  --results-dir target/mobench/ci/ios \
-  --baseline crates/zk-mobile-bench/baselines/ios/summary.json \
-  --regression-threshold-pct 5.0
-```
+PR `/mobench` and `bench`-label runs post their own results; they do **not** modify these files.
