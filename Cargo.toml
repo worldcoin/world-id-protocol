@@ -59,7 +59,7 @@ ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.5.0", defa
 ark-bn254 = "0.5"
 ark-ff = "0.5"
 ark-groth16 = "0.5"
-ark-serialize = "0.5"
+ark-serialize = "0.6"
 backon = "1"
 base64 = "0.22"
 circom-types = { package = "taceo-circom-types", version = "0.2.5", default-features = false }
