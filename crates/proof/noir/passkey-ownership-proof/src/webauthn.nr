@@ -22,10 +22,10 @@ pub fn verify_signature<let CLIENT_DATA_JSON_MAX_LEN: u32, let AUTHENTICATOR_DAT
     assert(challenge_index == 36, "challenge must be the JSON challenge field");
     validate_client_data(client_data_json, challenge, origin_hash);
     let client_data_json_hash =
-        sha256::sha256_var(client_data_json.storage(), client_data_json.len() as u64);
+        sha256::sha256_var(client_data_json.storage(), client_data_json.len() as u32);
     let concatenated: BoundedVec<u8, AUTHENTICATOR_DATA_MAX_LEN + 32> =
         concat(authenticator_data, client_data_json_hash);
-    let hashed_message = sha256::sha256_var(concatenated.storage(), concatenated.len() as u64);
+    let hashed_message = sha256::sha256_var(concatenated.storage(), concatenated.len() as u32);
 
     verify_p256_signature(hashed_message, public_key_x, public_key_y, signature);
 }
@@ -73,7 +73,7 @@ pub fn validate_client_data<let N: u32>(
         }
     }
     assert(closed & (origin_len > 0), "unterminated or empty origin");
-    assert(sha256::sha256_var(origin, origin_len as u64) == origin_hash, "origin mismatch");
+    assert(sha256::sha256_var(origin, origin_len as u32) == origin_hash, "origin mismatch");
     if data.len() == end + 2 {
         assert(data.get(end + 1) == 125, "invalid JSON terminator");
     } else {

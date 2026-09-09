@@ -2,7 +2,7 @@
 //!
 //! The circuit proves control of an ES256/P-256 passkey committed in a
 //! `WorldIDRegistryV2` account leaf. The checked-in native artifacts use the
-//! ProveKit V1 artifact format and Noir beta.11; they are embedded only when
+//! ProveKit V1 artifact format and Noir beta.26; they are embedded only when
 //! the `embed-passkey-prover` / `embed-passkey-verifier` features are enabled.
 //! The browser demo under `apps/passkey-demo` carries a separate PKP 2.0 /
 //! PKV 2.1 build of the same statement for the published WASM SDK.

@@ -115,7 +115,7 @@ does not provide a remote verifier or nonce-consumption service.
 
 P-256 verification comes from ProveKit's
 [`p256_bigcurve`](https://github.com/worldfnd/provekit/tree/v1/noir-examples/p256_bigcurve)
-example with Noir `1.0.0-beta.11`, `noir-bignum` `v0.8.0`, and `noir_bigcurve` `v0.11.0`. The
+example with Noir `1.0.0-beta.26`, `noir-bignum` `v0.10.0`, and `noir_bigcurve` `v0.14.0`. The
 circuit triggers Noir's BigCurve manual-constraint diagnostic, which artifact preparation
 acknowledges with `--skip-brillig-constraints-check`.
 
@@ -124,7 +124,7 @@ formats:
 
 | Target  | Location                                                | Noir    | Format          |
 | ------- | ------------------------------------------------------- | ------- | --------------- |
-| native  | `crates/proof/noir/passkey-ownership-proof/artifacts`   | beta.11 | PKP 1.1 / PKV 1.2 |
+| native  | `crates/proof/noir/passkey-ownership-proof/artifacts`   | beta.26 | PKP 1.1 / PKV 1.2 |
 | browser | `apps/passkey-demo/artifacts`                           | beta.20 | PKP 2.0 / PKV 2.1 |
 
 Both recipes require a clean ProveKit checkout at the specified commit, verify the Nargo
@@ -132,8 +132,8 @@ compiler revision, and build `provekit-cli` with its locked dependencies. Run fr
 root with absolute paths to those checkouts and Nargo binaries:
 
 ```sh
-PROVEKIT_NATIVE_BUILDER=/path/to/provekit-at-9b2a6f37 \
-NARGO_NATIVE_BIN=/path/to/beta11/nargo \
+PROVEKIT_NATIVE_BUILDER=/path/to/provekit-at-4ee40639 \
+NARGO_NATIVE_BIN=/path/to/beta26/nargo \
   bash scripts/passkey-artifacts.sh prepare-native
 
 PROVEKIT_BROWSER_BUILDER=/path/to/provekit-at-4b61b5d6 \
@@ -151,7 +151,7 @@ copies the native circuit, applies only the documented beta.20
 dependency and API substitutions, runs the circuit tests, and invokes a `provekit-cli` built from
 commit `4b61b5d68e633a044eb41de4a6934d52ffdcbedc`.
 
-The native builder is pinned to `9b2a6f37c67691eab4b0cec6c35e35c520e93285`, matching the
+The native builder is pinned to `4ee40639fb8849aeeba37761fdda07f28367e81d`, matching the
 workspace dependencies. `artifacts/passkey-artifacts.sha256` records both pairs, their circuit
 source, and the generation scripts. Demo CI checks that manifest before testing and building the
 website. Update it only after regenerating both pairs and running native/browser proof acceptance;

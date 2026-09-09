@@ -7,25 +7,25 @@ let
   artifacts = {
     aarch64-darwin = {
       target = "aarch64-apple-darwin";
-      hash = "sha256-XAYTKQvnKPyzFKSAV4pg4KEc0ZLSSdCN7US+58XuoUI=";
+      hash = "sha256-K4qTig6uQR0BBRM+seuXsLHxlCA3svQsn6xyRW9emzI=";
     };
     x86_64-darwin = {
       target = "x86_64-apple-darwin";
-      hash = "sha256-q/qd+hpYsQoQBt0uq/2xnrpWl99com4XB+qhsK36j/c=";
+      hash = "sha256-08tm8/PWpGvXoQ5zUbqzvnksOUwD7fjMEQ+O3nyRX1c=";
     };
     x86_64-linux = {
       target = "x86_64-unknown-linux-gnu";
-      hash = "sha256-iaAU/TBYoFnRv6+ZzZiR65SKCT7DExSpzwRzSI9Ud5U=";
+      hash = "sha256-ZASAQL79VamHFYsRE32POPloj2lttNhJEN0bzwRC+4A=";
     };
     aarch64-linux = {
       target = "aarch64-unknown-linux-gnu";
-      hash = "sha256-v25Eqc0dqMnERdIcaYtAZ4o9bveda3txjCSdZp0HCWY=";
+      hash = "sha256-5iuXAXUfL5vRhnFyS2NEr1mNh0XOjN5V1hzCdiI3GBE=";
     };
   };
   artifact = artifacts.${stdenv.hostPlatform.system};
 in stdenv.mkDerivation rec {
   pname = "nargo";
-  version = "1.0.0-beta.11";
+  version = "1.0.0-beta.26";
 
   src = fetchurl {
     url = "https://github.com/noir-lang/noir/releases/download/v${version}/nargo-${artifact.target}.tar.gz";

@@ -47,16 +47,16 @@ require_builder() {
 }
 
 prepare_native() {
-  : "${PROVEKIT_NATIVE_BUILDER:?set PROVEKIT_NATIVE_BUILDER to a clean worldfnd/provekit checkout at 9b2a6f37c67691eab4b0cec6c35e35c520e93285}"
-  : "${NARGO_NATIVE_BIN:?set NARGO_NATIVE_BIN to nargo 1.0.0-beta.11}"
+  : "${PROVEKIT_NATIVE_BUILDER:?set PROVEKIT_NATIVE_BUILDER to a clean worldfnd/provekit checkout at 4ee40639fb8849aeeba37761fdda07f28367e81d}"
+  : "${NARGO_NATIVE_BIN:?set NARGO_NATIVE_BIN to nargo 1.0.0-beta.26}"
   [[ -x "$NARGO_NATIVE_BIN" ]] || fail "native nargo is not executable: $NARGO_NATIVE_BIN"
   require_builder "native ProveKit builder" "$PROVEKIT_NATIVE_BUILDER" \
-    9b2a6f37c67691eab4b0cec6c35e35c520e93285
+    4ee40639fb8849aeeba37761fdda07f28367e81d
   local nargo_version
   nargo_version=$("$NARGO_NATIVE_BIN" --version)
-  [[ "$nargo_version" == *"1.0.0-beta.11"* ]] || fail "native nargo must be 1.0.0-beta.11"
-  [[ "$nargo_version" == *"fd3925aaaeb76c76319f44590d135498ef41ea6c"* ]] || \
-    fail "native nargo compiler revision must be fd3925aaaeb76c76319f44590d135498ef41ea6c"
+  [[ "$nargo_version" == *"1.0.0-beta.26"* ]] || fail "native nargo must be 1.0.0-beta.26"
+  [[ "$nargo_version" == *"40d6574f851d926f93e0c3a271bac3e6e82ac905"* ]] || \
+    fail "native nargo compiler revision must be 40d6574f851d926f93e0c3a271bac3e6e82ac905"
 
   (
     cd "$PROVEKIT_NATIVE_BUILDER"
@@ -93,7 +93,7 @@ write_manifest() {
   tmp_manifest=$(mktemp "${TMPDIR:-/tmp}/passkey-artifacts.sha256.XXXXXX")
   trap 'rm -f "$tmp_manifest"' EXIT
   {
-    echo "# Native: worldfnd/provekit 9b2a6f37c67691eab4b0cec6c35e35c520e93285, nargo 1.0.0-beta.11 (noirc fd3925aaaeb76c76319f44590d135498ef41ea6c)"
+    echo "# Native: worldfnd/provekit 4ee40639fb8849aeeba37761fdda07f28367e81d, nargo 1.0.0-beta.26 (noirc 40d6574f851d926f93e0c3a271bac3e6e82ac905)"
     echo "# Browser: worldfnd/provekit 4b61b5d68e633a044eb41de4a6934d52ffdcbedc, nargo 1.0.0-beta.20 (noirc b4236c1957d0c26cb65d82adc9e5447b6ff1d629)"
   } >> "$tmp_manifest"
   for path in "${source_paths[@]}" "${artifact_paths[@]}"; do
