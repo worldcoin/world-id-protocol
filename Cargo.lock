@@ -13006,6 +13006,7 @@ dependencies = [
  "embed-doc-image",
  "eyre",
  "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "hex",
  "k256 0.13.4",
  "provekit-common",

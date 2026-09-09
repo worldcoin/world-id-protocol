@@ -5,6 +5,9 @@ doc = ::embed_doc_image::embed_image!("world-id-protocol-parties", "assets/world
 #![deny(clippy::all, clippy::nursery, missing_docs, dead_code)]
 #![allow(clippy::option_if_let_else)]
 
+#[cfg(target_arch = "wasm32")]
+use getrandom04 as _;
+
 use alloy_primitives::Keccak256;
 use ark_babyjubjub::Fq;
 use ark_ff::{AdditiveGroup, Field, PrimeField, UniformRand};

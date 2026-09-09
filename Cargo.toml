@@ -127,6 +127,9 @@ futures-util = "0.3"
 getrandom = "0.3"
 # `rand` 0.8's `OsRng` still uses `getrandom` 0.2, while OHTTP/HPKE uses 0.3.
 getrandom-02 = { package = "getrandom", version = "0.2" }
+# Alloy/ProveKit currently pull getrandom 0.4. Keep the WASM backend feature
+# available for browser builds via target-specific feature unification.
+getrandom04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
 governor = "0.10.4"
 http = "1"
 humantime = "2"
