@@ -13623,6 +13623,7 @@ dependencies = [
  "ark-ff 0.5.0",
  "inventory",
  "mobench-sdk",
+ "provekit-prover",
  "rand 0.8.6",
  "rand_chacha 0.3.1",
  "serde",
