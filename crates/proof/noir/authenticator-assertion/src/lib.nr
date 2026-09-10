@@ -29,9 +29,11 @@ use crate::takt::{TrustAnchorKeyToken, verify_takt};
 /// Neither can be enforced from inside this library -- see
 /// crates/proof/noir/README.md.
 ///
-/// Callers are additionally responsible for binding `aat.nonce` and `aat.cdh`
-/// to the surrounding proof, and for exposing whichever of `sec_flags` (via
-/// `takt::unpack_sec_flags`) and `aat.authenticator_meta` their RP needs.
+/// Callers are additionally responsible for binding `aat.aud` to the request's
+/// RP id, `aat.nonce` to the `ProofRequest` nonce, and `aat.cdh` to the
+/// surrounding proof's commitment (zero when nil), and for exposing whichever
+/// of `sec_flags` (via `takt::unpack_sec_flags`) and `aat.authenticator_meta`
+/// their RP needs.
 pub fn verify_attestation(
     aat: AuthenticatorAssertionToken,
     takt: TrustAnchorKeyToken,
