@@ -1,5 +1,4 @@
 //! Common utilities and types shared across multiple services.
-
 pub mod alloy;
 pub mod axum;
 
