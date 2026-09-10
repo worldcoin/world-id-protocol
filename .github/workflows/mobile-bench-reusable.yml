@@ -90,16 +90,6 @@ on:
         description: "Who triggered the run"
         required: false
         type: string
-      check_run_name:
-        description: "GitHub Check Run name"
-        required: false
-        type: string
-        default: "Mobench"
-      regression_threshold_pct:
-        description: "Regression threshold percentage against committed baselines"
-        required: false
-        type: string
-        default: "5.0"
       head_sha:
         description: "Exact commit SHA to checkout in the caller repo (for compile-gated runs)"
         required: false
@@ -109,10 +99,6 @@ on:
         required: true
       BROWSERSTACK_ACCESS_KEY:
         required: true
-      MOBENCH_APP_PRIVATE_KEY:
-        required: false
-      MOBENCH_APP_ID:
-        required: false
 
 permissions:
   actions: read
@@ -866,83 +852,6 @@ jobs:
             echo "Created new PR comment"
           fi
 
-      - name: Generate GitHub App token
-        id: app-token
-        if: inputs.pr_number != ''
-        continue-on-error: true
-        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0 https://github.com/actions/create-github-app-token/releases/tag/v1.12.0
-        with:
-          app-id: ${{ secrets.MOBENCH_APP_ID }}
-          private-key: ${{ secrets.MOBENCH_APP_PRIVATE_KEY }}
-
-      - name: Resolve committed baselines for check-run
-        if: steps.app-token.outcome == 'success'
-        id: committed-baselines
-        shell: bash
-        env:
-          CRATE_PATH: ${{ inputs.crate_path }}
-        run: |
-          set -euo pipefail
-          mkdir -p baseline
-
-          crate_baselines="caller/${CRATE_PATH}/baselines"
-          meta_path="${crate_baselines}/meta.json"
-
-          if [ ! -f "${meta_path}" ] || [ "$(jq -r '.status // empty' "${meta_path}")" != "ready" ]; then
-            echo "::notice::Committed baselines are not ready (meta.status != ready); check runs will be descriptive only."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          ready_count=0
-          for platform in ios android; do
-            committed="${crate_baselines}/${platform}/summary.json"
-            if [ -s "${committed}" ]; then
-              mkdir -p "baseline/${platform}"
-              cp "${committed}" "baseline/${platform}/summary.json"
-              echo "Using committed baseline for ${platform}: ${committed}"
-              ready_count=$((ready_count + 1))
-            else
-              echo "::notice::Committed baseline missing for ${platform}; that platform check run will be descriptive only."
-            fi
-          done
-
-          if [ "${ready_count}" -gt 0 ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create Check Run
-        if: steps.app-token.outcome == 'success'
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          CHECK_RUN_NAME: ${{ inputs.check_run_name }}
-          REGRESSION_THRESHOLD: ${{ inputs.regression_threshold_pct }}
-          CRATE_PATH: ${{ inputs.crate_path }}
-          GH_REPO: ${{ github.repository }}
-          GH_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha || github.sha }}
-        run: |
-          for dir in results/ios results/android; do
-            if [ -d "$dir" ]; then
-              PLATFORM=$(basename "$dir")
-              baseline_args=()
-              if [ -s "baseline/${PLATFORM}/summary.json" ]; then
-                baseline_args=(--baseline "baseline/${PLATFORM}/summary.json")
-              fi
-              cargo-mobench ci check-run \
-                --results-dir "$dir" \
-                --repo "$GH_REPO" \
-                --sha "$GH_SHA" \
-                --name "$CHECK_RUN_NAME - ${PLATFORM}" \
-                --annotation-path "${CRATE_PATH}/src/lib.rs" \
-                --regression-threshold-pct "$REGRESSION_THRESHOLD" \
-                "${baseline_args[@]}" \
-                || true
-            fi
-          done
-
       - name: Build history bundle
         if: always()
         shell: bash
@@ -1165,7 +1074,7 @@ jobs:
           ## Test plan
           - [ ] Review \`LATEST.md\` / \`meta.json\` diffs
           - [ ] Confirm device profile and platforms look right
-          - [ ] Merge to adopt these numbers as the PR check-run baseline
+          - [ ] Merge to adopt these numbers as the in-repo reference
           EOF
           )"
           # Drop leading indentation from the heredoc body for GitHub markdown.

@@ -13,13 +13,4 @@ Checked-in BrowserStack reference results for the seven `zk-mobile-bench` functi
 
 Run **Actions → Mobile Benchmarks** on `main` with an empty `pr_number`. On success the workflow opens a PR that refreshes these files; merge that PR to adopt the new reference.
 
-PR `/mobench` and `bench`-label runs compare against these files when `meta.status` is `ready`; they do **not** modify them. Artifact-based baselines are not used.
-
-## Compare locally
-
-```bash
-cargo-mobench ci check-run \
-  --results-dir target/mobench/ci/ios \
-  --baseline crates/zk-mobile-bench/baselines/ios/summary.json \
-  --regression-threshold-pct 5.0
-```
+PR `/mobench` and `bench`-label runs post their own results in a sticky comment; they do **not** modify these files.
