@@ -16,7 +16,7 @@ use crate::takt::{TrustAnchorKeyToken, verify_takt};
 ///    `Sig_structure`).
 ///
 /// Both tokens must be unexpired at `now` and within their WIP-106 maximum
-/// lifetimes of it: `aat::MAX_AAT_LIFETIME_SECS` (12h) for the AAT,
+/// lifetimes of it: `aat::MAX_AAT_LIFETIME_SECS` (30 min) for the AAT,
 /// `takt::MAX_TAKT_LIFETIME_SECS` (7 days) for the TAKT.
 ///
 /// The two tokens are bound *solely* by the shared `assertion_key`.
@@ -67,7 +67,7 @@ fn test_aat_key_not_attested() {
 
 #[test(should_fail_with = "token lifetime exceeds the maximum")]
 fn test_attestation_aat_lifetime_capped() {
-    // The 12h cap must be reachable through the only public entrypoint. The
+    // The 30-min cap must be reachable through the only public entrypoint. The
     // TAKT is still fresh at this `now`: WIP-106 caps the AAT alone.
     verify_attestation(
         aat::test_deterministic_aat(),

@@ -15,12 +15,13 @@ use noir_ecdsa::ecdsa::verify_secp256r1_ecdsa;
 /// requires (RFC 8949 section 4.2.1).
 pub global AAT_SIG_STRUCTURE_LEN: u32 = 182;
 
-/// Maximum remaining validity of an AAT, in seconds (12h), mandated by WIP-106
-/// and enforced in [`verify_aat`].
+/// Maximum remaining validity of an AAT, in seconds (30 min), mandated by
+/// WIP-106 and enforced in [`verify_aat`].
 ///
 /// AATs have no revocation mechanism, so this bound is the whole of what keeps a
-/// stolen or misused token short-lived.
-pub global MAX_AAT_LIFETIME_SECS: Field = 43200;
+/// stolen or misused token short-lived. AATs are bound to RP requests that
+/// expire within minutes, so they never need a long validity.
+pub global MAX_AAT_LIFETIME_SECS: Field = 1800;
 
 /// The claims and signature of an Authenticator Assertion Token, as parsed from
 /// its `COSE_Sign1` encoding.
@@ -381,7 +382,7 @@ fn test_aat_at_max_lifetime_accepted() {
 
 #[test(should_fail_with = "token lifetime exceeds the maximum")]
 fn test_aat_lifetime_too_long_rejected() {
-    // One second past the 12h cap. Without this bound an authenticator could
+    // One second past the 30-min cap. Without this bound an authenticator could
     // mint AATs valid until 2106 (the only other constraint on `exp` is
     // `exp < 2^32`), and since AATs have no revocation mechanism a stolen
     // token would stay usable for decades.
