@@ -80,7 +80,7 @@ Checked-in BrowserStack results live in
 ## Benchmark Functions
 
 | Function | Proof | What it measures |
-| --- | --- | --- |
+|---|---|---|
 | `bench_query_proof_generation` | π1 query | Full measured path: fixture/input generation, witness generation, and Groth16 proving |
 | `bench_query_cached_proof_generation` | π1 query | `generate_proof` with cached input/material; includes witness generation and Groth16 proving, but excludes fixture setup |
 | `bench_query_witness_generation_only` | π1 query | Circom witness generation only, with cached input/material |
