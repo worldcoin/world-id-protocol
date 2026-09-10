@@ -83,9 +83,14 @@ on:
         type: string
         default: ""
       pr_number:
-        description: "PR number for reporting"
+        description: "PR number for sticky reporting (used by /mobench and bench-label runs)"
         required: false
         type: string
+      open_baselines_pr:
+        description: "If true, open a PR that refreshes checked-in baselines (main tip only; requires empty pr_number)"
+        required: false
+        type: boolean
+        default: false
       requested_by:
         description: "Who triggered the run"
         required: false
@@ -895,7 +900,7 @@ jobs:
       - name: Open baselines refresh PR
         if: >-
           always()
-          && inputs.pr_number == ''
+          && inputs.open_baselines_pr
           && (needs.ios.result == 'success' || needs.android.result == 'success')
         shell: bash
         env:
@@ -908,21 +913,27 @@ jobs:
           ITERATIONS: ${{ inputs.iterations }}
           WARMUP: ${{ inputs.warmup }}
           DEVICE_PROFILE: ${{ inputs.device_profile }}
+          PR_NUMBER: ${{ inputs.pr_number }}
         run: |
           set -euo pipefail
+
+          if [ -n "${PR_NUMBER:-}" ]; then
+            echo "::error::open_baselines_pr=true requires an empty pr_number (got pr_number=${PR_NUMBER})."
+            exit 1
+          fi
 
           default_branch="${DEFAULT_BRANCH:-main}"
           expected_ref="refs/heads/${default_branch}"
 
           if [ "${GITHUB_REF}" != "${expected_ref}" ]; then
-            echo "::notice::Skipping baseline PR: GITHUB_REF=${GITHUB_REF} is not ${expected_ref}."
-            exit 0
+            echo "::error::open_baselines_pr=true requires running on ${expected_ref} (got ${GITHUB_REF})."
+            exit 1
           fi
 
           remote_sha=$(gh api "repos/${GH_REPO}/commits/${default_branch}" --jq '.sha')
           if [ "${HEAD_SHA}" != "${remote_sha}" ]; then
-            echo "::notice::Skipping baseline PR: HEAD_SHA=${HEAD_SHA} is not ${default_branch} tip ${remote_sha}."
-            exit 0
+            echo "::error::open_baselines_pr=true requires benchmarking the ${default_branch} tip (HEAD_SHA=${HEAD_SHA}, tip=${remote_sha})."
+            exit 1
           fi
 
           has_ios=0

@@ -58,10 +58,15 @@ on:
         type: string
         default: "1800"
       pr_number:
-        description: "PR number for reporting"
+        description: "PR number for sticky reporting (used by /mobench and bench-label runs). Leave empty for manual runs."
         required: false
         type: string
         default: ""
+      open_baselines_pr:
+        description: "If true, open a PR that refreshes crates/zk-mobile-bench/baselines/ (main tip only; leave pr_number empty)"
+        required: false
+        type: boolean
+        default: false
       head_sha:
         description: "Exact commit SHA to benchmark"
         required: false
@@ -122,6 +127,7 @@ jobs:
       warmup: ${{ inputs.warmup }}
       fetch_timeout_secs: ${{ inputs.fetch_timeout_secs }}
       pr_number: ${{ inputs.pr_number }}
+      open_baselines_pr: ${{ inputs.open_baselines_pr }}
       head_sha: ${{ inputs.head_sha }}
       requested_by: ${{ inputs.requested_by }}
     secrets:

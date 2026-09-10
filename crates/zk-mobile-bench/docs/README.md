@@ -67,13 +67,14 @@ Benchmark reports also preserve optional semantic `phases` emitted by
 - **PR comment**: `/mobench platform=both iterations=30 warmup=5`
 - **PR label**: Add the `bench` label (dispatches after compile gate passes)
 - **Manual**: Actions > "Mobile Benchmarks" > Run workflow
+- **Refresh baselines**: same manual workflow on `main`, set **open_baselines_pr=true** (leave `pr_number` empty)
 
 ## Baselines
 
 Checked-in BrowserStack reference results live in
 [`../baselines/`](../baselines/) ([`LATEST.md`](../baselines/LATEST.md)).
 
-- **Refresh**: run Mobile Benchmarks on `main` with `pr_number` empty (typically after a circuit or proving-stack change). On success the workflow opens a PR that updates these files; merge it to adopt the new numbers.
+- **Refresh**: Actions → Mobile Benchmarks on `main` with `open_baselines_pr=true` (and empty `pr_number`). On success the workflow opens a PR that updates these files; merge it to adopt the new numbers.
 - **PR runs** (`/mobench`, `bench` label) post sticky comments with their own results; they do not modify the committed baselines.
 
 ## Benchmark Functions
