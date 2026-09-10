@@ -28,6 +28,19 @@ error UnregisteredIssuerSchemaId();
 /// @dev Thrown when the OPRF key ID has not been bridged (pubkey is zero).
 error UnregisteredOprfKeyId();
 
+/**
+ * @dev Thrown when the action is not valid for the type of proof. The prefix is enforced
+ *  to ensure any nullifier request for a Uniqueness Proof is signed by the RP (actions
+ *  without this prefix, i.e. for sessions, it doesn't need to be signed).
+ */
+error InvalidAction();
+
+/**
+ * @dev Thrown when a session-carrying verification is attempted with `sessionId == 0`. Zero is
+ *  the circuit's "no session" sentinel and is satisfiable by any World ID, so it proves nothing.
+ */
+error InvalidSessionId();
+
 /// @dev Thrown when the recipient does not return the expected ERC-7786 magic value.
 error InvalidRecipientResponse();
 
