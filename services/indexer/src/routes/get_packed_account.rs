@@ -22,7 +22,8 @@ const LEAF_INDEX_MASK: U256 = U256::from_limbs([u64::MAX, 0, 0, 0]);
     request_body = IndexerPackedAccountRequest,
     responses(
         (status = 200, body = IndexerPackedAccountResponse),
-        (status = 400, description = "Account does not exist for the given authenticator address, or the authenticator was revoked by recovery", body = IndexerErrorBody),
+        (status = 400, description = "Account does not exist for the given authenticator address", body = IndexerErrorBody),
+        (status = 403, description = "Authenticator was revoked by recovery", body = IndexerErrorBody),
     ),
     tag = "indexer"
 )]
@@ -48,23 +49,26 @@ pub(crate) async fn handler(
     }
 
     let leaf_index = (packed_account_data & LEAF_INDEX_MASK).to::<u64>();
-    let packed_recovery_counter = (packed_account_data >> RECOVERY_COUNTER_SHIFT).to::<u64>();
+    let packed_recovery_counter = packed_account_data >> RECOVERY_COUNTER_SHIFT;
 
-    let indexed_recovery_counter = state
-        .db
-        .accounts()
-        .get_recovery_counter(leaf_index)
+    // Packed mappings for revoked authenticators remain on-chain after recovery.
+    // Compare with the registry's current counter, not an eventually consistent
+    // indexer row: a missing or lagging row must never authorize the old device.
+    let current_recovery_counter = state
+        .registry
+        .getRecoveryCounter(leaf_index)
+        .call()
         .await
         .map_err(|err| {
-            tracing::error!(leaf_index, "DB error fetching recovery counter: {err}");
+            tracing::error!(leaf_index, "RPC error fetching recovery counter: {err}");
             IndexerErrorResponse::internal_server_error()
         })?;
 
-    // Fails open: rejects only if the authenticator is confirmed revoked
-    if indexed_recovery_counter.is_some_and(|indexed| indexed > packed_recovery_counter) {
-        return Err(IndexerErrorResponse::bad_request(
-            IndexerErrorCode::AccountDoesNotExist,
+    if current_recovery_counter != packed_recovery_counter {
+        return Err(IndexerErrorResponse::new(
+            IndexerErrorCode::AuthenticatorRevoked,
             "This authenticator was revoked by an account recovery".to_string(),
+            http::StatusCode::FORBIDDEN,
         ));
     }
 
