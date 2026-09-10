@@ -119,6 +119,9 @@ jobs:
     if: inputs.platform == 'ios' || inputs.platform == 'both'
     runs-on: macos-15
 
+    outputs:
+      bench_outcome: ${{ steps.run_ios_benchmarks.outcome }}
+
     env:
       BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
       BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
@@ -338,6 +341,9 @@ jobs:
     name: Android BrowserStack benchmark
     if: inputs.platform == 'android' || inputs.platform == 'both'
     runs-on: macos-14
+
+    outputs:
+      bench_outcome: ${{ steps.run_android_benchmarks.outcome }}
 
     env:
       BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
@@ -898,8 +904,9 @@ jobs:
           if-no-files-found: warn
 
       - name: Open results refresh PR
+        # Deliberately `||`: a half-successful run must reach the script and fail loudly, not skip silently.
         if: >-
-          always()
+          !cancelled()
           && inputs.open_results_pr
           && (needs.ios.result == 'success' || needs.android.result == 'success')
         shell: bash
@@ -913,50 +920,45 @@ jobs:
           ITERATIONS: ${{ inputs.iterations }}
           WARMUP: ${{ inputs.warmup }}
           DEVICE_PROFILE: ${{ inputs.device_profile }}
-          PR_NUMBER: ${{ inputs.pr_number }}
+          PLATFORM: ${{ inputs.platform }}
+          IOS_BENCH_OUTCOME: ${{ needs.ios.outputs.bench_outcome }}
+          ANDROID_BENCH_OUTCOME: ${{ needs.android.outputs.bench_outcome }}
         run: |
           set -euo pipefail
 
-          if [ -n "${PR_NUMBER:-}" ]; then
-            echo "::error::open_results_pr=true requires an empty pr_number (got pr_number=${PR_NUMBER})."
-            exit 1
-          fi
-
+          # pr_number and the dispatched ref are validated in the caller's preflight job.
+          # The benchmarked commit is recorded in meta.json rather than checked against the
+          # tip: main may advance during the run, and the numbers remain valid for their SHA.
           default_branch="${DEFAULT_BRANCH:-main}"
-          expected_ref="refs/heads/${default_branch}"
 
-          if [ "${GITHUB_REF}" != "${expected_ref}" ]; then
-            echo "::error::open_results_pr=true requires running on ${expected_ref} (got ${GITHUB_REF})."
+          # The snapshot is one artifact: publishing a single platform would leave the other
+          # platform's stale summary.json next to a meta.json claiming the new commit.
+          if [ "${PLATFORM}" != "both" ]; then
+            echo "::error::open_results_pr=true requires platform=both (got ${PLATFORM})."
             exit 1
           fi
 
-          remote_sha=$(gh api "repos/${GH_REPO}/commits/${default_branch}" --jq '.sha')
-          if [ "${HEAD_SHA}" != "${remote_sha}" ]; then
-            echo "::error::open_results_pr=true requires benchmarking the ${default_branch} tip (HEAD_SHA=${HEAD_SHA}, tip=${remote_sha})."
+          # The bench jobs tolerate a non-zero mobench exit as long as files landed, which is fine
+          # for a throwaway PR comment but not for the canonical checked-in snapshot.
+          if [ "${IOS_BENCH_OUTCOME}" != "success" ] || [ "${ANDROID_BENCH_OUTCOME}" != "success" ]; then
+            echo "::error::Refusing to publish; benchmarks did not exit cleanly (ios=${IOS_BENCH_OUTCOME}, android=${ANDROID_BENCH_OUTCOME})."
             exit 1
           fi
 
-          has_ios=0
-          has_android=0
-          [ -f results/ios/mobench/ci/ios/summary.json ] && has_ios=1
-          [ -f results/android/mobench/ci/android/summary.json ] && has_android=1
+          ios_summary=results/ios/mobench/ci/ios/summary.json
+          android_summary=results/android/mobench/ci/android/summary.json
 
-          if [ "${has_ios}" -eq 0 ] && [ "${has_android}" -eq 0 ]; then
-            echo "::error::No platform summary.json available to commit as checked-in results."
+          if [ ! -f "${ios_summary}" ] || [ ! -f "${android_summary}" ]; then
+            echo "::error::Refusing to publish a partial snapshot; both platform summaries are required."
             exit 1
           fi
 
           published_dir="caller/${CRATE_PATH}/results"
           mkdir -p "${published_dir}/ios" "${published_dir}/android"
 
-          if [ "${has_ios}" -eq 1 ]; then
-            cp results/ios/mobench/ci/ios/summary.json "${published_dir}/ios/summary.json"
-            rm -f "${published_dir}/ios/.gitkeep"
-          fi
-          if [ "${has_android}" -eq 1 ]; then
-            cp results/android/mobench/ci/android/summary.json "${published_dir}/android/summary.json"
-            rm -f "${published_dir}/android/.gitkeep"
-          fi
+          cp "${ios_summary}" "${published_dir}/ios/summary.json"
+          cp "${android_summary}" "${published_dir}/android/summary.json"
+          rm -f "${published_dir}/ios/.gitkeep" "${published_dir}/android/.gitkeep"
 
           timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
           run_url="https://github.com/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}"
@@ -978,8 +980,8 @@ jobs:
             ' "${summary}" 2>/dev/null || true
           }
 
-          ios_device=$(extract_device results/ios/mobench/ci/ios/summary.json)
-          android_device=$(extract_device results/android/mobench/ci/android/summary.json)
+          ios_device=$(extract_device "${ios_summary}")
+          android_device=$(extract_device "${android_summary}")
 
           jq -n \
             --arg schema "mobench-results-v1" \
@@ -1033,7 +1035,7 @@ jobs:
               echo
               cat rendered/ios/github-summary.md
               echo
-            elif [ "${has_ios}" -eq 1 ]; then
+            else
               echo "## iOS"
               echo
               echo "See \`ios/summary.json\` (markdown summary unavailable for this run)."
@@ -1044,7 +1046,7 @@ jobs:
               echo
               cat rendered/android/github-summary.md
               echo
-            elif [ "${has_android}" -eq 1 ]; then
+            else
               echo "## Android"
               echo
               echo "See \`android/summary.json\` (markdown summary unavailable for this run)."
@@ -1066,7 +1068,7 @@ jobs:
             exit 0
           fi
 
-          git -C caller commit -m "chore(mobench): refresh mobile ZK results" -m "[skip ci]"
+          git -C caller commit -m "chore(mobench): refresh mobile ZK results"
 
           if ! git -C caller push -u origin "HEAD:${branch}"; then
             echo "::error::Failed to push results branch ${branch}."
@@ -1088,8 +1090,6 @@ jobs:
           - [ ] Merge to adopt these numbers as the in-repo snapshot
           EOF
           )"
-          # Drop leading indentation from the heredoc body for GitHub markdown.
-          pr_body="$(printf '%s\n' "${pr_body}" | sed -e 's/^          //')"
 
           pr_url=$(gh pr create \
             --repo "${GH_REPO}" \
