@@ -2,6 +2,8 @@
 
 # World ID
 
+[![Protocol documentation](https://github.com/worldcoin/world-id-protocol/actions/workflows/docs.yml/badge.svg)](https://worldcoin.github.io/world-id-protocol/)
+
 World ID is a protocol built to enable anonymous proof of human (PoH) at global scale and to complement existing identity systems. World ID allows individuals to prove things about themselves — like they are a real and unique human, not a bot — without revealing any personal information. [Read more about World ID][website].
 
 This repository contains the **core components of the World ID Protocol**, including the smart contracts, Rust libraries, and services that power the protocol.
@@ -38,8 +40,10 @@ The [World Foundation](https://foundation.world.org/) maintains a set of referen
 
 | Service            | Environment | URL                                                   |
 | ------------------ | ----------- | ----------------------------------------------------- |
-| `world-id-indexer` | Production  | `https://indexer.us.id-infra.worldcoin.dev`<br />`https://indexer.eu.id-infra.worldcoin.dev`<br />`https://indexer.ap.id-infra.worldcoin.dev` |
+| `world-id-indexer` | Staging  | `https://indexer.us.id-infra.worldcoin.dev`<br />`https://indexer.eu.id-infra.worldcoin.dev`<br />`https://indexer.ap.id-infra.worldcoin.dev` |
 | `world-id-gateway` | Staging     | `https://gateway.id-infra.worldcoin.dev` |
+| `world-id-indexer` | Production  | `https://indexer.us.id-infra.world.org`<br />`https://indexer.eu.id-infra.world.org`<br />`https://indexer.ap.id-infra.world.org` |
+| `world-id-gateway` | Production     | `https://gateway.id-infra.world.org` |
 
 ## 🏗️ Project Structure
 

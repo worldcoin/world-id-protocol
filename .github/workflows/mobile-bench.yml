@@ -110,14 +110,17 @@ jobs:
     with:
       crate_path: ./crates/zk-mobile-bench
       functions: '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_cached_proof_generation","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only"]'
-      mobench_version: "0.1.40"
+      mobench_version: "0.2.0"
       mobench_ref: ""
       platform: ${{ inputs.platform }}
       device_profile: ${{ inputs.device_profile }}
       ios_device: ${{ inputs.ios_device }}
       ios_os_version: ${{ inputs.ios_os_version }}
-      android_device: ${{ inputs.android_device }}
-      android_os_version: ${{ inputs.android_os_version }}
+      # mobench's low-spec profile still resolves to Moto G9 Play-10.0, which
+      # the current BrowserStack inventory no longer exposes. Keep manual
+      # overrides intact and use the available low-spec replacement by default.
+      android_device: ${{ inputs.android_device != '' && inputs.android_device || 'Motorola Moto G71 5G' }}
+      android_os_version: ${{ inputs.android_os_version != '' && inputs.android_os_version || '11.0' }}
       iterations: ${{ inputs.iterations }}
       warmup: ${{ inputs.warmup }}
       fetch_timeout_secs: ${{ inputs.fetch_timeout_secs }}

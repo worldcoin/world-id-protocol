@@ -35,9 +35,11 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
+        with:
+          version: 1.7.1
 
       - name: Cache Forge dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0 https://github.com/actions/cache/releases/tag/v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 https://github.com/actions/cache/releases/tag/v6.1.0
         with:
           path: contracts/lib
           key: ${{ runner.os }}-forge-${{ hashFiles('contracts/foundry.lock', 'contracts/foundry.toml') }}
@@ -64,9 +66,11 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
+        with:
+          version: 1.7.1
 
       - name: Cache Forge dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0 https://github.com/actions/cache/releases/tag/v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 https://github.com/actions/cache/releases/tag/v6.1.0
         with:
           path: contracts/lib
           key: ${{ runner.os }}-forge-${{ hashFiles('contracts/foundry.lock', 'contracts/foundry.toml') }}

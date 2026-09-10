@@ -41,3 +41,6 @@ docs/world-id-4-trusted-setup/manim/media/
 
 # graph
 graph/
+
+# mdBook output
+book/

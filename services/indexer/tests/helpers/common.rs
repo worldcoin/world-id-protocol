@@ -6,11 +6,12 @@ use super::db_helpers::{TestDatabase, create_unique_test_db};
 use alloy::{
     network::EthereumWallet,
     primitives::{Address, U256, address},
-    providers::ProviderBuilder,
+    providers::{DynProvider, Provider, ProviderBuilder},
+    signers::local::PrivateKeySigner,
 };
 use sqlx::PgPool;
 use world_id_primitives::TREE_DEPTH;
-use world_id_registries::world_id::WorldIdRegistry;
+use world_id_registries::world_id::{WorldIdRegistry, domain, sign_recover_account};
 use world_id_test_utils::anvil::TestAnvil;
 
 pub const RECOVERY_ADDRESS: Address = address!("0x0000000000000000000000000000000000000001");
@@ -61,17 +62,33 @@ impl TestSetup {
         self._anvil.ws_endpoint().to_string()
     }
 
-    pub async fn create_account(&self, auth_addr: Address, pubkey: U256, commitment: u64) {
+    /// Provider that signs as the anvil deployer account.
+    fn provider(&self) -> DynProvider {
         let deployer = self._anvil.signer(0).unwrap();
-        let registry = WorldIdRegistry::new(
-            self.registry_address,
-            ProviderBuilder::new()
-                .wallet(EthereumWallet::from(deployer))
-                .connect_http(self._anvil.endpoint().parse().unwrap()),
-        );
+        ProviderBuilder::new()
+            .wallet(EthereumWallet::from(deployer))
+            .connect_http(self._anvil.endpoint().parse().unwrap())
+            .erased()
+    }
+
+    pub async fn create_account(&self, auth_addr: Address, pubkey: U256, commitment: u64) {
+        self.create_account_with_recovery_agent(auth_addr, pubkey, commitment, RECOVERY_ADDRESS)
+            .await;
+    }
+
+    /// Like [`Self::create_account`], but the caller picks the recovery agent so the account can
+    /// later be recovered with a signature via [`Self::recover_account`].
+    pub async fn create_account_with_recovery_agent(
+        &self,
+        auth_addr: Address,
+        pubkey: U256,
+        commitment: u64,
+        recovery_agent: Address,
+    ) {
+        let registry = WorldIdRegistry::new(self.registry_address, self.provider());
         registry
             .createAccount(
-                RECOVERY_ADDRESS,
+                recovery_agent,
                 vec![auth_addr],
                 vec![pubkey],
                 U256::from(commitment),
@@ -84,14 +101,54 @@ impl TestSetup {
             .expect("createAccount transaction failed");
     }
 
+    /// Recovers `leaf_index` onto `new_auth_addr`, bumping the on-chain recovery counter and
+    /// revoking every authenticator the account had before.
+    pub async fn recover_account(
+        &self,
+        leaf_index: u64,
+        new_auth_addr: Address,
+        new_pubkey: U256,
+        old_commitment: U256,
+        new_commitment: U256,
+        recovery_agent: &PrivateKeySigner,
+    ) {
+        let provider = self.provider();
+        let chain_id = provider.get_chain_id().await.unwrap();
+        let registry = WorldIdRegistry::new(self.registry_address, provider);
+        let nonce = registry.getSignatureNonce(leaf_index).call().await.unwrap();
+
+        let signature = sign_recover_account(
+            recovery_agent,
+            leaf_index,
+            new_auth_addr,
+            new_pubkey,
+            new_commitment,
+            nonce,
+            &domain(chain_id, self.registry_address),
+        )
+        .await
+        .expect("failed to sign recoverAccount payload");
+
+        registry
+            .recoverAccount(
+                leaf_index,
+                new_auth_addr,
+                new_pubkey,
+                old_commitment,
+                new_commitment,
+                signature.as_bytes().to_vec().into(),
+                nonce,
+            )
+            .send()
+            .await
+            .expect("failed to submit recoverAccount transaction")
+            .get_receipt()
+            .await
+            .expect("recoverAccount transaction failed");
+    }
+
     pub async fn get_root(&self) -> U256 {
-        let deployer = self._anvil.signer(0).unwrap();
-        let registry = WorldIdRegistry::new(
-            self.registry_address,
-            ProviderBuilder::new()
-                .wallet(EthereumWallet::from(deployer))
-                .connect_http(self._anvil.endpoint().parse().unwrap()),
-        );
+        let registry = WorldIdRegistry::new(self.registry_address, self.provider());
         registry.currentRoot().call().await.unwrap()
     }
 
