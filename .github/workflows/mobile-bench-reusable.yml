@@ -86,8 +86,8 @@ on:
         description: "PR number for sticky reporting (used by /mobench and bench-label runs)"
         required: false
         type: string
-      open_baselines_pr:
-        description: "If true, open a PR that refreshes checked-in baselines (main tip only; requires empty pr_number)"
+      open_results_pr:
+        description: "If true, open a PR that refreshes checked-in results under crates/zk-mobile-bench/results/ (main tip only; requires empty pr_number)"
         required: false
         type: boolean
         default: false
@@ -897,10 +897,10 @@ jobs:
           path: history-bundle/
           if-no-files-found: warn
 
-      - name: Open baselines refresh PR
+      - name: Open results refresh PR
         if: >-
           always()
-          && inputs.open_baselines_pr
+          && inputs.open_results_pr
           && (needs.ios.result == 'success' || needs.android.result == 'success')
         shell: bash
         env:
@@ -918,7 +918,7 @@ jobs:
           set -euo pipefail
 
           if [ -n "${PR_NUMBER:-}" ]; then
-            echo "::error::open_baselines_pr=true requires an empty pr_number (got pr_number=${PR_NUMBER})."
+            echo "::error::open_results_pr=true requires an empty pr_number (got pr_number=${PR_NUMBER})."
             exit 1
           fi
 
@@ -926,13 +926,13 @@ jobs:
           expected_ref="refs/heads/${default_branch}"
 
           if [ "${GITHUB_REF}" != "${expected_ref}" ]; then
-            echo "::error::open_baselines_pr=true requires running on ${expected_ref} (got ${GITHUB_REF})."
+            echo "::error::open_results_pr=true requires running on ${expected_ref} (got ${GITHUB_REF})."
             exit 1
           fi
 
           remote_sha=$(gh api "repos/${GH_REPO}/commits/${default_branch}" --jq '.sha')
           if [ "${HEAD_SHA}" != "${remote_sha}" ]; then
-            echo "::error::open_baselines_pr=true requires benchmarking the ${default_branch} tip (HEAD_SHA=${HEAD_SHA}, tip=${remote_sha})."
+            echo "::error::open_results_pr=true requires benchmarking the ${default_branch} tip (HEAD_SHA=${HEAD_SHA}, tip=${remote_sha})."
             exit 1
           fi
 
@@ -942,20 +942,20 @@ jobs:
           [ -f results/android/mobench/ci/android/summary.json ] && has_android=1
 
           if [ "${has_ios}" -eq 0 ] && [ "${has_android}" -eq 0 ]; then
-            echo "::error::No platform summary.json available to commit as baselines."
+            echo "::error::No platform summary.json available to commit as checked-in results."
             exit 1
           fi
 
-          baselines_dir="caller/${CRATE_PATH}/baselines"
-          mkdir -p "${baselines_dir}/ios" "${baselines_dir}/android"
+          published_dir="caller/${CRATE_PATH}/results"
+          mkdir -p "${published_dir}/ios" "${published_dir}/android"
 
           if [ "${has_ios}" -eq 1 ]; then
-            cp results/ios/mobench/ci/ios/summary.json "${baselines_dir}/ios/summary.json"
-            rm -f "${baselines_dir}/ios/.gitkeep"
+            cp results/ios/mobench/ci/ios/summary.json "${published_dir}/ios/summary.json"
+            rm -f "${published_dir}/ios/.gitkeep"
           fi
           if [ "${has_android}" -eq 1 ]; then
-            cp results/android/mobench/ci/android/summary.json "${baselines_dir}/android/summary.json"
-            rm -f "${baselines_dir}/android/.gitkeep"
+            cp results/android/mobench/ci/android/summary.json "${published_dir}/android/summary.json"
+            rm -f "${published_dir}/android/.gitkeep"
           fi
 
           timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -982,7 +982,7 @@ jobs:
           android_device=$(extract_device results/android/mobench/ci/android/summary.json)
 
           jq -n \
-            --arg schema "mobench-baseline-v1" \
+            --arg schema "mobench-results-v1" \
             --arg status "ready" \
             --arg ts "${timestamp}" \
             --arg sha "${HEAD_SHA}" \
@@ -1009,10 +1009,10 @@ jobs:
                 ios: (if $ios_device == "" then null else $ios_device end),
                 android: (if $android_device == "" then null else $android_device end)
               }
-            }' > "${baselines_dir}/meta.json"
+            }' > "${published_dir}/meta.json"
 
           {
-            echo "# Mobile ZK baselines"
+            echo "# Mobile ZK results"
             echo
             echo "- **Status:** ready"
             echo "- **Updated:** ${timestamp}"
@@ -1050,32 +1050,32 @@ jobs:
               echo "See \`android/summary.json\` (markdown summary unavailable for this run)."
               echo
             fi
-          } > "${baselines_dir}/LATEST.md"
+          } > "${published_dir}/LATEST.md"
 
           remote="https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
-          branch="chore/mobench-baselines-${GITHUB_RUN_ID}"
+          branch="chore/mobench-results-${GITHUB_RUN_ID}"
 
           git -C caller config user.name "github-actions[bot]"
           git -C caller config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C caller remote set-url origin "${remote}"
           git -C caller checkout -B "${branch}"
-          git -C caller add "${CRATE_PATH}/baselines"
+          git -C caller add "${CRATE_PATH}/results"
 
           if git -C caller diff --cached --quiet; then
-            echo "No baseline file changes to commit."
+            echo "No checked-in results changes to commit."
             exit 0
           fi
 
-          git -C caller commit -m "chore(mobench): refresh mobile ZK baselines" -m "[skip ci]"
+          git -C caller commit -m "chore(mobench): refresh mobile ZK results" -m "[skip ci]"
 
           if ! git -C caller push -u origin "HEAD:${branch}"; then
-            echo "::error::Failed to push baseline branch ${branch}."
+            echo "::error::Failed to push results branch ${branch}."
             exit 1
           fi
 
           pr_body="$(cat <<EOF
           ## Summary
-          Refresh checked-in BrowserStack baselines from [workflow run ${GITHUB_RUN_ID}](${run_url}).
+          Refresh checked-in BrowserStack results from [workflow run ${GITHUB_RUN_ID}](${run_url}).
 
           - Benchmarked commit: \`${HEAD_SHA}\`
           - mobench: ${MOBENCH_VERSION}
@@ -1085,7 +1085,7 @@ jobs:
           ## Test plan
           - [ ] Review \`LATEST.md\` / \`meta.json\` diffs
           - [ ] Confirm device profile and platforms look right
-          - [ ] Merge to adopt these numbers as the in-repo reference
+          - [ ] Merge to adopt these numbers as the in-repo snapshot
           EOF
           )"
           # Drop leading indentation from the heredoc body for GitHub markdown.
@@ -1095,8 +1095,8 @@ jobs:
             --repo "${GH_REPO}" \
             --base "${default_branch}" \
             --head "${branch}" \
-            --title "chore(mobench): refresh mobile ZK baselines" \
+            --title "chore(mobench): refresh mobile ZK results" \
             --body "${pr_body}")
 
-          echo "Opened baselines refresh PR: ${pr_url}"
-          echo "::notice::Baselines refresh PR: ${pr_url}"
+          echo "Opened results refresh PR: ${pr_url}"
+          echo "::notice::Results refresh PR: ${pr_url}"

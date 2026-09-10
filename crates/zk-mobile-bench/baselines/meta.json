@@ -1,5 +1,0 @@
-{
-  "schema_version": "mobench-baseline-v1",
-  "status": "placeholder",
-  "note": "No BrowserStack baseline committed yet. Run Actions → Mobile Benchmarks on main (leave pr_number empty) to populate ios/summary.json, android/summary.json, and LATEST.md."
-}

@@ -1,6 +1,6 @@
-# Mobile ZK baselines
+# Mobile ZK results
 
-Checked-in BrowserStack reference results for the seven `zk-mobile-bench` functions.
+Checked-in BrowserStack results for the seven `zk-mobile-bench` functions.
 
 | File | Role |
 | --- | --- |
@@ -11,6 +11,6 @@ Checked-in BrowserStack reference results for the seven `zk-mobile-bench` functi
 
 ## When these update
 
-Run **Actions → Mobile Benchmarks** on `main` with **`open_baselines_pr=true`** (leave `pr_number` empty). On success the workflow opens a PR that refreshes these files; merge that PR to adopt the new reference.
+Run **Actions → Mobile Benchmarks** on `main` with **`open_results_pr=true`** (leave `pr_number` empty). On success the workflow opens a PR that refreshes these files; merge that PR to adopt the new snapshot.
 
 PR `/mobench` and `bench`-label runs post their own results in a sticky comment; they do **not** modify these files.
