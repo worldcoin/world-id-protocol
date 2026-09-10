@@ -97,6 +97,29 @@ jobs:
       BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
       BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
     steps:
+      # Validated here rather than at publish time so a bad flag combination costs seconds, not a full BrowserStack run.
+      - name: Validate results-PR inputs
+        if: inputs.open_results_pr
+        shell: bash
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${PR_NUMBER}" ]; then
+            echo "::error::open_results_pr=true requires an empty pr_number (got pr_number=${PR_NUMBER})."
+            exit 1
+          fi
+
+          # The results branch is cut from the dispatched ref, so a feature branch would
+          # drag its unrelated commits into the PR against the default branch.
+          expected_ref="refs/heads/${DEFAULT_BRANCH:-main}"
+          if [ "${GITHUB_REF}" != "${expected_ref}" ]; then
+            echo "::error::open_results_pr=true requires running on ${expected_ref} (got ${GITHUB_REF})."
+            exit 1
+          fi
+
       - name: Check BrowserStack secrets
         id: check
         shell: bash
