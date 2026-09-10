@@ -983,7 +983,7 @@ jobs:
           path: history-bundle/
           if-no-files-found: warn
 
-      - name: Commit baselines to default branch
+      - name: Open baselines refresh PR
         if: >-
           always()
           && inputs.pr_number == ''
@@ -1006,13 +1006,13 @@ jobs:
           expected_ref="refs/heads/${default_branch}"
 
           if [ "${GITHUB_REF}" != "${expected_ref}" ]; then
-            echo "::notice::Skipping baseline commit: GITHUB_REF=${GITHUB_REF} is not ${expected_ref}."
+            echo "::notice::Skipping baseline PR: GITHUB_REF=${GITHUB_REF} is not ${expected_ref}."
             exit 0
           fi
 
           remote_sha=$(gh api "repos/${GH_REPO}/commits/${default_branch}" --jq '.sha')
           if [ "${HEAD_SHA}" != "${remote_sha}" ]; then
-            echo "::notice::Skipping baseline commit: HEAD_SHA=${HEAD_SHA} is not ${default_branch} tip ${remote_sha}."
+            echo "::notice::Skipping baseline PR: HEAD_SHA=${HEAD_SHA} is not ${default_branch} tip ${remote_sha}."
             exit 0
           fi
 
@@ -1133,9 +1133,12 @@ jobs:
           } > "${baselines_dir}/LATEST.md"
 
           remote="https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
+          branch="chore/mobench-baselines-${GITHUB_RUN_ID}"
+
           git -C caller config user.name "github-actions[bot]"
           git -C caller config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C caller remote set-url origin "${remote}"
+          git -C caller checkout -B "${branch}"
           git -C caller add "${CRATE_PATH}/baselines"
 
           if git -C caller diff --cached --quiet; then
@@ -1145,9 +1148,35 @@ jobs:
 
           git -C caller commit -m "chore(mobench): refresh mobile ZK baselines" -m "[skip ci]"
 
-          if ! git -C caller push origin "HEAD:${default_branch}"; then
-            echo "::error::Failed to push baseline commit to ${default_branch}."
+          if ! git -C caller push -u origin "HEAD:${branch}"; then
+            echo "::error::Failed to push baseline branch ${branch}."
             exit 1
           fi
 
-          echo "Committed and pushed mobile ZK baselines to ${default_branch}."
+          pr_body="$(cat <<EOF
+          ## Summary
+          Refresh checked-in BrowserStack baselines from [workflow run ${GITHUB_RUN_ID}](${run_url}).
+
+          - Benchmarked commit: \`${HEAD_SHA}\`
+          - mobench: ${MOBENCH_VERSION}
+          - Iterations / warmup: ${ITERATIONS} / ${WARMUP}
+          - Device profile: ${DEVICE_PROFILE}
+
+          ## Test plan
+          - [ ] Review \`LATEST.md\` / \`meta.json\` diffs
+          - [ ] Confirm device profile and platforms look right
+          - [ ] Merge to adopt these numbers as the PR check-run baseline
+          EOF
+          )"
+          # Drop leading indentation from the heredoc body for GitHub markdown.
+          pr_body="$(printf '%s\n' "${pr_body}" | sed -e 's/^          //')"
+
+          pr_url=$(gh pr create \
+            --repo "${GH_REPO}" \
+            --base "${default_branch}" \
+            --head "${branch}" \
+            --title "chore(mobench): refresh mobile ZK baselines" \
+            --body "${pr_body}")
+
+          echo "Opened baselines refresh PR: ${pr_url}"
+          echo "::notice::Baselines refresh PR: ${pr_url}"
