@@ -1,0 +1,44 @@
+[package]
+name = "world-id-fee-escrow"
+description = "YABS payment-channel authorisations for World ID proof requests (POC)."
+publish = false
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[features]
+# Anvil end-to-end test against the deployed escrow contracts. Requires `forge build`
+# artifacts under `contracts/out/` at compile time and `anvil` on PATH at run time.
+e2e = []
+
+[lints]
+workspace = true
+
+[dependencies]
+alloy = { workspace = true, features = ["sol-types", "signers"] }
+alloy-primitives = { workspace = true, features = ["serde", "std"] }
+serde = { workspace = true }
+thiserror = { workspace = true }
+world-id-primitives = { workspace = true }
+
+[dev-dependencies]
+alloy = { workspace = true, features = [
+  "contract",
+  "signer-local",
+  "json",
+  "network",
+  "provider-anvil-api",
+  "reqwest",
+  "rpc",
+  "rpc-types",
+] }
+alloy-node-bindings = { workspace = true }
+eyre = { workspace = true }
+k256 = { workspace = true, features = ["ecdsa"] }
+rand = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

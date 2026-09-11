@@ -21,6 +21,8 @@ use uuid as _;
 pub enum RequestVersion {
     /// Version 1
     V1 = 1,
+    /// Version 2: adds an optional escrow payment authorisation (YABS).
+    V2 = 2,
 }
 
 impl serde::Serialize for RequestVersion {
@@ -41,6 +43,7 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
         let v = u8::deserialize(deserializer)?;
         match v {
             1 => Ok(Self::V1),
+            2 => Ok(Self::V2),
             _ => Err(serde::de::Error::custom("unsupported version")),
         }
     }
