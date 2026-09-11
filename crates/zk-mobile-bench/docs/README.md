@@ -93,9 +93,3 @@ Checked-in BrowserStack results live in
 CI runs all eight functions by default. The function list is specified directly
 in the caller workflow (`mobile-bench.yml`) via the `functions` input to the
 reusable workflow.
-
-The ownership proof is a single benchmark because ProveKit's `Prove::prove`
-consumes the `Prover` (it frees its artifacts during proving to cap peak
-memory), so deserialize → prove → drop is the designed path and there is no
-warm path to benchmark separately. Its stage breakdown comes from semantic
-phases rather than dedicated cached/witness-only functions.
