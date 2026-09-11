@@ -23,6 +23,12 @@ const PKP_BYTES: &[u8] = include_bytes!(concat!(
     "/authenticator_assertion_bench.pkp"
 ));
 
+#[cfg(test)]
+const PKV_BYTES: &[u8] = include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/authenticator_assertion_bench.pkv"
+));
+
 /// Inputs for the bench circuit; the public inputs are derived from the token
 /// fields during witness generation, so they cannot diverge from the tokens.
 #[derive(Debug, Clone)]
@@ -48,6 +54,16 @@ pub struct AuthenticatorAssertionBenchInput {
 pub fn load_embedded_prover() -> eyre::Result<provekit_common::Prover> {
     provekit_common::register_ntt();
     provekit_common::file::deserialize(PKP_BYTES).map_err(|e| eyre::eyre!(e.to_string()))
+}
+
+/// Loads the embedded ProveKit verifier for the bench circuit.
+///
+/// # Errors
+/// Fails if the embedded bytes cannot be deserialized.
+#[cfg(test)]
+pub fn load_embedded_verifier() -> eyre::Result<provekit_common::Verifier> {
+    provekit_common::register_ntt();
+    provekit_common::file::deserialize(PKV_BYTES).map_err(|e| eyre::eyre!(e.to_string()))
 }
 
 /// Emulates the circuit's token freshness constraints so a broken fixture
@@ -176,6 +192,30 @@ mod tests {
 # GENERATED FILE. Do not edit by hand; regenerate with:
 #   UPDATE_PROVER_TOML=1 cargo test -p zk-mobile-bench prover_toml
 ";
+
+    /// End-to-end prove + verify, with a tampered-public-input negative control.
+    #[test]
+    #[ignore = "expensive proving test; the mobench workflow covers the proving path"]
+    fn proves_and_verifies_the_fixture() {
+        use provekit_prover::Prove as _;
+        use provekit_verifier::Verify as _;
+
+        let mut prover = load_embedded_prover().expect("embedded prover");
+        let mut verifier = load_embedded_verifier().expect("embedded verifier");
+
+        let witness = prover
+            .generate_witness(authenticator_assertion_bench_fixture().into_witness())
+            .expect("witness generation");
+        let proof = prover.prove_with_witness(witness).expect("WHIR proving");
+        verifier.verify(&proof).expect("proof verifies");
+
+        // Negative control: flipping `now` (public input index 2) must fail.
+        let mut tampered = proof;
+        tampered.public_inputs.0[2] += ark_bn254::Fr::from(1u64);
+        verifier
+            .verify(&tampered)
+            .expect_err("tampered public input must not verify");
+    }
 
     #[test]
     fn fixture_passes_the_freshness_checks() {

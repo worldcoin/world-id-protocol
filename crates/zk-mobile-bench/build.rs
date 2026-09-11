@@ -3,7 +3,7 @@
 
 use std::{env, path::PathBuf, process::Command};
 
-use provekit_common::{NoirProofScheme, Prover};
+use provekit_common::{NoirProofScheme, Prover, Verifier};
 use provekit_r1cs_compiler::NoirProofSchemeBuilder as _;
 
 /// Must match the pin in `crates/proof/build.rs`, `flake.nix` and provekit.
@@ -42,8 +42,13 @@ fn main() -> eyre::Result<()> {
     let scheme = NoirProofScheme::from_file(circuit_dir.join(format!("target/{TARGET_NAME}.json")))
         .map_err(|e| eyre::eyre!(e.to_string()))?;
     provekit_common::file::write(
-        &Prover::from_noir_proof_scheme(scheme),
+        &Prover::from_noir_proof_scheme(scheme.clone()),
         &out_dir.join(format!("{TARGET_NAME}.pkp")),
+    )
+    .map_err(|e| eyre::eyre!(e.to_string()))?;
+    provekit_common::file::write(
+        &Verifier::from_noir_proof_scheme(scheme),
+        &out_dir.join(format!("{TARGET_NAME}.pkv")),
     )
     .map_err(|e| eyre::eyre!(e.to_string()))?;
 

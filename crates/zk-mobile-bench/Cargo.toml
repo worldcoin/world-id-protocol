@@ -54,6 +54,7 @@ thiserror = { workspace = true }
 uniffi = { version = "0.32", features = ["cli"] }
 
 [dev-dependencies]
+provekit-verifier = { workspace = true }
 toml = { workspace = true }
 
 [build-dependencies]
