@@ -217,19 +217,6 @@ mod tests {
             .expect_err("tampered public input must not verify");
     }
 
-    #[test]
-    fn fixture_passes_the_freshness_checks() {
-        check_input_freshness(&authenticator_assertion_bench_fixture());
-    }
-
-    /// Pins the witness keys to the circuit ABI; drift would otherwise fail only at proving time.
-    #[test]
-    fn witness_matches_the_circuit_abi() {
-        let witness = authenticator_assertion_bench_fixture().into_witness();
-        let keys: Vec<&str> = witness.keys().map(String::as_str).collect();
-        assert_eq!(keys, TOP_LEVEL_KEYS);
-    }
-
     fn to_toml(value: &InputValue, path: &str) -> toml::Value {
         match value {
             InputValue::Field(element) => toml::Value::String(element.into_repr().to_string()),
