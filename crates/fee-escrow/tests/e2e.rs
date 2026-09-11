@@ -75,10 +75,10 @@ mod e2e {
 
     sol!(
         #[sol(rpc)]
-        FixedFeeSchedule,
+        RationalDecayFeeSchedule,
         concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../contracts/out/FixedFeeSchedule.sol/FixedFeeSchedule.json"
+            "/../../contracts/out/RationalDecayFeeSchedule.sol/RationalDecayFeeSchedule.json"
         )
     );
 
@@ -97,16 +97,70 @@ mod e2e {
     const RP_ID: u64 = 7;
     /// Lanes on the test channel.
     const LANE_COUNT: u32 = 2;
-    /// One token per verification, matching the deployed `FixedFeeSchedule`.
+    /// One token per verification, matching the deployed schedule.
     const PRICE: u128 = 1_000_000_000_000_000_000;
 
     fn price() -> U256 {
         U256::from(PRICE)
     }
 
-    /// Cumulative fee of the deployed `FixedFeeSchedule(1e18)`.
+    /// Verifications priced at the flat marginal rate before the decay begins.
+    const THRESHOLD: u64 = 1000;
+
+    /// `RationalDecayFeeSchedule.cumulativeFee`, in integer arithmetic.
+    ///
+    /// Flat `n * price` up to `threshold`, then `threshold * price` plus a term that decays
+    /// toward `threshold * price`, so the total is capped just under `2 * price * threshold`.
+    fn rational_decay_fee(n: U256, price: U256, threshold: U256) -> U256 {
+        if n <= threshold {
+            n * price
+        } else {
+            threshold * price + (price * threshold * (n - threshold)) / n
+        }
+    }
+
+    /// The channel in this test never leaves the linear region.
     fn fee(count: U256) -> U256 {
-        count * price()
+        rational_decay_fee(count, price(), U256::from(THRESHOLD))
+    }
+
+    #[test]
+    fn rational_decay_matches_the_contract_formula() {
+        let p = U256::from(PRICE);
+        let t = U256::from(4u64);
+        let at = |n: u64| rational_decay_fee(U256::from(n), p, t);
+
+        assert_eq!(at(0), U256::ZERO);
+        assert_eq!(
+            at(4),
+            U256::from(4_000_000_000_000_000_000u128),
+            "at the threshold"
+        );
+        assert_eq!(at(5), U256::from(4_800_000_000_000_000_000u128));
+        assert_eq!(at(8), U256::from(6_000_000_000_000_000_000u128));
+        assert_eq!(at(30), U256::from(7_466_666_666_666_666_666u128));
+        assert_eq!(at(1_000_000), U256::from(7_999_984_000_000_000_000u128));
+        assert_eq!(at(u64::MAX), U256::from(7_999_999_999_999_999_999u128));
+        assert!(
+            at(u64::MAX) < U256::from(2u64) * p * t,
+            "the total is capped just under 2 * price * threshold"
+        );
+    }
+
+    /// Floor division makes the marginal fee non-monotonic: it can rise by exactly one wei.
+    ///
+    /// The tail is `price * threshold - ceil(price * threshold^2 / n)`, so consecutive
+    /// marginals differ by at most one wei in either direction. Any property test on this
+    /// curve needs that tolerance.
+    #[test]
+    fn the_marginal_fee_can_rise_by_one_wei() {
+        let p = U256::from(PRICE);
+        let t = U256::from(4u64);
+        let at = |n: u64| rational_decay_fee(U256::from(n), p, t);
+
+        let pivot = 5_333_333_333_333_333_333u64;
+        assert_eq!(at(pivot) - at(pivot - 1), U256::ZERO);
+        assert_eq!(at(pivot + 1) - at(pivot), U256::from(1u64));
     }
 
     /// A minimal uniqueness request; only the digest-covered fields matter here.
@@ -185,7 +239,25 @@ mod e2e {
             .await?;
 
         // ── Escrow ──────────────────────────────────────────────────────────────
-        let schedule = FixedFeeSchedule::deploy(as_deployer.clone(), price()).await?;
+        let schedule =
+            RationalDecayFeeSchedule::deploy(as_deployer.clone(), price(), U256::from(THRESHOLD))
+                .await?;
+        // The Rust helper must agree with the deployed contract on both sides of the
+        // threshold, since the ledger prices admissions off the helper and the escrow charges
+        // off the contract.
+        for n in [0u64, 1, 999, 1000, 1001, 1500, 12_345] {
+            assert_eq!(
+                schedule.cumulativeFee(U256::from(n)).call().await?,
+                fee(U256::from(n)),
+                "cumulativeFee({n}) parity"
+            );
+        }
+        assert_eq!(
+            schedule.maxFee().call().await?,
+            U256::from(2u64) * price() * U256::from(THRESHOLD),
+            "maxFee parity"
+        );
+
         let escrow_impl = WorldIDFeeEscrow::deploy(as_deployer.clone()).await?;
         let escrow_proxy = ERC1967Proxy::deploy(
             as_deployer.clone(),

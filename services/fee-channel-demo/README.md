@@ -9,6 +9,11 @@ do paid work, settle on-chain, close and refund. Three roles run in one process.
   fee, priced off the on-chain `IFeeSchedule`, then batches settlements to the escrow.
 - **RP** — concurrent workers that lease a nonce, sign a `ProofRequestV2`, and ask for work.
 
+Pricing comes from `RationalDecayFeeSchedule(price, threshold)`: a flat `price` per verification
+up to `threshold`, then a marginal price decaying as roughly `price·threshold²/n²`, with the
+total capped just under `maxFee() = 2·price·threshold`. Fund a channel to `maxFee` and it can
+never be priced out, which is what the default run shows.
+
 The lease is this demo's answer to the spec's open problem: YABS leaves concurrent allocation of
 the same nonce unsolved, so a lane here is held by one caller until it records or releases it.
 

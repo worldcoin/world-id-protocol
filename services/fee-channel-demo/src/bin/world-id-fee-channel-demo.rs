@@ -23,14 +23,17 @@ struct Args {
     #[arg(long, default_value_t = 3)]
     workers: usize,
     /// Requests each worker issues.
-    #[arg(long, default_value_t = 6)]
+    #[arg(long, default_value_t = 10)]
     requests_per_worker: usize,
     /// WLD the payer escrows.
-    #[arg(long, default_value_t = 14)]
+    #[arg(long, default_value_t = 8)]
     deposit_wld: u64,
-    /// WLD charged per verification.
+    /// WLD charged per verification before the decay begins.
     #[arg(long, default_value_t = 1)]
     price_wld: u64,
+    /// Verifications priced at the flat marginal rate; past this the fee decays.
+    #[arg(long, default_value_t = 4)]
+    threshold: u64,
     /// Admissions between automatic settlements.
     #[arg(long, default_value_t = 5)]
     settle_every: usize,
@@ -50,6 +53,7 @@ async fn main() -> Result<()> {
         requests_per_worker: args.requests_per_worker,
         deposit_wld: args.deposit_wld,
         price_wld: args.price_wld,
+        threshold: args.threshold,
         settle_every: args.settle_every,
         collection_window_secs: args.collection_window_secs,
     })
@@ -57,7 +61,7 @@ async fn main() -> Result<()> {
 
     let lane_high_water = format!("{:?}", report.lane_high_water);
     let manager_counters = format!("{:?}", report.manager_lane_counters);
-    let rows: [(&str, String); 12] = [
+    let rows: [(&str, String); 14] = [
         ("channel", report.channel_id.to_string()),
         ("admitted", report.admitted.to_string()),
         (
@@ -70,6 +74,8 @@ async fn main() -> Result<()> {
         ("lane high water", lane_high_water),
         ("manager counters", manager_counters),
         ("collector WLD", report.collector_wld.to_string()),
+        ("cumulative fee", report.cumulative_fee_at_end.to_string()),
+        ("max fee (cap)", report.max_fee.to_string()),
         ("refund to payer", report.refund.to_string()),
         ("payer WLD", report.payer_wld_after_close.to_string()),
         ("escrow WLD", report.escrow_wld_after_close.to_string()),

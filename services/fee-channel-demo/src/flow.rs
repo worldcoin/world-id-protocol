@@ -32,8 +32,10 @@ pub struct FlowConfig {
     pub requests_per_worker: usize,
     /// WLD the payer escrows.
     pub deposit_wld: u64,
-    /// WLD charged per verification.
+    /// WLD charged per verification before the decay begins.
     pub price_wld: u64,
+    /// Verifications priced at the flat marginal rate; past this the fee decays.
+    pub threshold: u64,
     /// Admissions between automatic settlements.
     pub settle_every: usize,
     /// Seconds the collector has to settle.
@@ -45,9 +47,10 @@ impl Default for FlowConfig {
         Self {
             lane_count: 3,
             workers: 3,
-            requests_per_worker: 6,
-            deposit_wld: 14,
+            requests_per_worker: 10,
+            deposit_wld: 8,
             price_wld: 1,
+            threshold: 4,
             settle_every: 5,
             collection_window_secs: 600,
         }
@@ -85,6 +88,12 @@ pub struct FlowReport {
     pub manager_latest_verified: usize,
     /// WLD returned to the payer on close.
     pub refund: U256,
+    /// The schedule's ceiling, `2 * price * threshold`.
+    pub max_fee: U256,
+    /// `cumulativeFee(settled_count)` read from the deployed schedule.
+    pub cumulative_fee_at_end: U256,
+    /// `cumulativeFee(k)` for `k` in `0..=settled_count`, read from the deployed schedule.
+    pub cumulative_fee_curve: Vec<U256>,
 }
 
 /// Runs the demo end to end against a fresh anvil instance.
@@ -110,7 +119,13 @@ pub async fn run(cfg: FlowConfig) -> Result<FlowReport> {
     let as_collector = chain::wallet_provider(&rpc, &collector_key)?;
 
     let price = U256::from(cfg.price_wld) * U256::from(ONE_WLD);
-    let deployment = chain::deploy_all(&as_deployer, deployer.address(), price).await?;
+    let deployment = chain::deploy_all(
+        &as_deployer,
+        deployer.address(),
+        price,
+        U256::from(cfg.threshold),
+    )
+    .await?;
     tracing::info!(
         escrow = %deployment.escrow,
         wld = %deployment.wld,
@@ -273,6 +288,18 @@ pub async fn run(cfg: FlowConfig) -> Result<FlowReport> {
     }
     let collector_wld =
         chain::wld_balance(&as_deployer, deployment.wld, collector_key.address()).await?;
+    let max_fee = chain::max_fee(&as_deployer, deployment.fee_schedule).await?;
+    let cumulative_fee_at_end =
+        chain::cumulative_fee(&as_deployer, deployment.fee_schedule, channel.settledCount).await?;
+
+    // The whole curve up to the settled count, so callers can inspect the marginal price
+    // without needing the chain to still be running.
+    let mut cumulative_fee_curve = Vec::new();
+    for k in 0..=u64::try_from(channel.settledCount).unwrap_or(0) {
+        cumulative_fee_curve.push(
+            chain::cumulative_fee(&as_deployer, deployment.fee_schedule, U256::from(k)).await?,
+        );
+    }
 
     // ── Close after the collection window ───────────────────────────────────
     as_deployer
@@ -319,5 +346,8 @@ pub async fn run(cfg: FlowConfig) -> Result<FlowReport> {
         manager_lane_counters,
         manager_latest_verified,
         refund,
+        max_fee,
+        cumulative_fee_at_end,
+        cumulative_fee_curve,
     })
 }

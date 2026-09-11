@@ -50,10 +50,10 @@ sol!(
 
 sol!(
     #[sol(rpc)]
-    FixedFeeSchedule,
+    RationalDecayFeeSchedule,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/FixedFeeSchedule.sol/FixedFeeSchedule.json"
+        "/../../contracts/out/RationalDecayFeeSchedule.sol/RationalDecayFeeSchedule.json"
     )
 );
 
@@ -77,7 +77,7 @@ pub struct Deployment {
     pub rp_registry: Address,
     /// The ERC-20 standing in for WLD.
     pub wld: Address,
-    /// `FixedFeeSchedule` pricing the channel.
+    /// `RationalDecayFeeSchedule` pricing the channel.
     pub fee_schedule: Address,
     /// `WorldIDFeeEscrow` proxy.
     pub escrow: Address,
@@ -102,6 +102,7 @@ pub async fn deploy_all(
     provider: &DynProvider,
     deployer: Address,
     price: U256,
+    threshold: U256,
 ) -> Result<Deployment> {
     let oprf_registry = MockOprfKeyRegistry::deploy(provider.clone()).await?;
     let wld = ERC20Mock::deploy(provider.clone()).await?;
@@ -121,7 +122,7 @@ pub async fn deploy_all(
     )
     .await?;
 
-    let fee_schedule = FixedFeeSchedule::deploy(provider.clone(), price).await?;
+    let fee_schedule = RationalDecayFeeSchedule::deploy(provider.clone(), price, threshold).await?;
     let escrow_impl = WorldIDFeeEscrow::deploy(provider.clone()).await?;
     let escrow = ERC1967Proxy::deploy(
         provider.clone(),
@@ -228,10 +229,28 @@ pub async fn cumulative_fee(
     fee_schedule: Address,
     count: U256,
 ) -> Result<U256> {
-    Ok(FixedFeeSchedule::new(fee_schedule, provider.clone())
-        .cumulativeFee(count)
-        .call()
-        .await?)
+    Ok(
+        RationalDecayFeeSchedule::new(fee_schedule, provider.clone())
+            .cumulativeFee(count)
+            .call()
+            .await?,
+    )
+}
+
+/// Reads the schedule's ceiling, `2 * price * threshold`.
+///
+/// A channel funded to this can never be priced out: `cumulativeFee` approaches the ceiling
+/// but never reaches it, however much work is done.
+///
+/// # Errors
+/// Returns an error if the call fails.
+pub async fn max_fee(provider: &DynProvider, fee_schedule: Address) -> Result<U256> {
+    Ok(
+        RationalDecayFeeSchedule::new(fee_schedule, provider.clone())
+            .maxFee()
+            .call()
+            .await?,
+    )
 }
 
 /// Converts the contract binding's settings into the signing crate's equivalent.

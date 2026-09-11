@@ -261,7 +261,7 @@ mod tests {
     use alloy_primitives::{U256, address, b256};
 
     const RP_ID: u64 = 7;
-    /// One token per verification, matching the deployed `FixedFeeSchedule(1e18)`.
+    /// One token per verification. These unit tests price the flat region of the schedule.
     const PRICE: u64 = 1_000_000_000_000_000_000;
 
     fn fee(count: U256) -> U256 {

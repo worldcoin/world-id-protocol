@@ -5,8 +5,7 @@ import {Test, stdError} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {WorldIDBase} from "../../src/core/abstract/WorldIDBase.sol";
-import {FixedFeeSchedule} from "../../src/core/FixedFeeSchedule.sol";
-import {TieredFeeSchedule} from "../../src/core/TieredFeeSchedule.sol";
+import {RationalDecayFeeSchedule} from "../../src/core/RationalDecayFeeSchedule.sol";
 import {RpRegistry} from "../../src/core/RpRegistry.sol";
 import {WorldIDFeeEscrow} from "../../src/core/WorldIDFeeEscrow.sol";
 import {IFeeSchedule} from "../../src/core/interfaces/IFeeSchedule.sol";
@@ -55,8 +54,9 @@ contract WorldIDFeeEscrowTest is Test {
     RpRegistry internal registry;
     WorldIDFeeEscrow internal escrow;
     ERC20Mock internal token;
-    FixedFeeSchedule internal fixedSchedule;
-    TieredFeeSchedule internal tieredSchedule;
+    /// @dev Threshold is far above every counter these tests use, so the fee stays linear at `n * PRICE`
+    ///      and the arithmetic below is the same as a flat per-verification price.
+    RationalDecayFeeSchedule internal schedule;
     OprfKeyRegistryMock internal oprfKeyRegistry;
 
     uint256 internal spendKeyPk = 0xA11CE;
@@ -99,8 +99,7 @@ contract WorldIDFeeEscrowTest is Test {
         registry.register(RP_ID_1271, manager, address(wallet), "wallet.world.org");
 
         token = new ERC20Mock();
-        fixedSchedule = new FixedFeeSchedule(PRICE);
-        tieredSchedule = new TieredFeeSchedule(3, 2e18, 1e18);
+        schedule = new RationalDecayFeeSchedule(PRICE, 1000);
 
         WorldIDFeeEscrow escrowImpl = new WorldIDFeeEscrow();
         ERC1967Proxy escrowProxy = new ERC1967Proxy(
@@ -145,7 +144,7 @@ contract WorldIDFeeEscrowTest is Test {
     }
 
     function _defaultSettings() internal view returns (IWorldIDFeeEscrow.ChannelSettings memory) {
-        return _settings(address(fixedSchedule), 4, bytes32(0));
+        return _settings(address(schedule), 4, bytes32(0));
     }
 
     function _digest(bytes32 structHash) internal view returns (bytes32) {
@@ -304,7 +303,7 @@ contract WorldIDFeeEscrowTest is Test {
         assertEq(c.settings.spendKey, spendKey);
         assertEq(c.settings.collector, collector);
         assertEq(c.settings.token, address(token));
-        assertEq(c.settings.feeSchedule, address(fixedSchedule));
+        assertEq(c.settings.feeSchedule, address(schedule));
         assertEq(c.settings.laneCount, 4);
         assertEq(c.settings.collectionDeadline, deadline);
 
@@ -384,7 +383,7 @@ contract WorldIDFeeEscrowTest is Test {
     }
 
     function test_openChannel_revertsOnZeroLaneCount() public {
-        IWorldIDFeeEscrow.ChannelSettings memory s = _settings(address(fixedSchedule), 0, bytes32(0));
+        IWorldIDFeeEscrow.ChannelSettings memory s = _settings(address(schedule), 0, bytes32(0));
         bytes memory sig = _signOpenChannel(spendKeyPk, s);
 
         vm.prank(payer);
@@ -460,8 +459,8 @@ contract WorldIDFeeEscrowTest is Test {
     }
 
     function test_channelIdDependsOnSalt() public {
-        bytes32 a = _open(_settings(address(fixedSchedule), 4, bytes32(uint256(1))), 0);
-        bytes32 b = _open(_settings(address(fixedSchedule), 4, bytes32(uint256(2))), 0);
+        bytes32 a = _open(_settings(address(schedule), 4, bytes32(uint256(1))), 0);
+        bytes32 b = _open(_settings(address(schedule), 4, bytes32(uint256(2))), 0);
         assertTrue(a != b);
     }
 
@@ -582,8 +581,8 @@ contract WorldIDFeeEscrowTest is Test {
     }
 
     function test_settle_revertsWhenSignatureBoundToAnotherChannel() public {
-        bytes32 channelA = _open(_settings(address(fixedSchedule), 4, bytes32(uint256(1))), 10e18);
-        bytes32 channelB = _open(_settings(address(fixedSchedule), 4, bytes32(uint256(2))), 10e18);
+        bytes32 channelA = _open(_settings(address(schedule), 4, bytes32(uint256(1))), 10e18);
+        bytes32 channelB = _open(_settings(address(schedule), 4, bytes32(uint256(2))), 10e18);
 
         IWorldIDFeeEscrow.PaymentAuthorization memory a = _auth(spendKeyPk, channelA, 0, 1);
 
@@ -655,21 +654,40 @@ contract WorldIDFeeEscrowTest is Test {
         assertEq(escrow.getChannel(channelId).balance, 10e18);
     }
 
-    function test_settle_tieredSchedule() public {
-        IWorldIDFeeEscrow.ChannelSettings memory s = _settings(address(tieredSchedule), 4, bytes32(uint256(7)));
-        bytes32 channelId = _open(s, 20e18);
+    function test_settle_rationalDecayCapsTotal() public {
+        // p = 1e18, T = 2  =>  maxFee = 2 * p * T = 4e18, approached but never reached.
+        RationalDecayFeeSchedule decay = new RationalDecayFeeSchedule(PRICE, 2);
+        assertEq(decay.maxFee(), 4e18);
 
-        // tier: first 3 at 2e18, rest at 1e18.
-        uint256 first = escrow.settle(channelId, _one(_auth(spendKeyPk, channelId, 0, 2)));
-        assertEq(first, 4e18);
-        assertEq(escrow.getChannel(channelId).paid, 4e18);
+        bytes32 channelId = _open(_settings(address(decay), 4, bytes32(uint256(7))), 4e18);
 
-        // cumulativeFee(5) = 3*2e18 + 2*1e18 = 8e18, minus 4e18 already paid.
-        uint256 second = escrow.settle(channelId, _one(_auth(spendKeyPk, channelId, 0, 5)));
-        assertEq(second, 4e18);
-        assertEq(escrow.getChannel(channelId).paid, 8e18);
-        assertEq(escrow.getChannel(channelId).settledCount, 5);
-        assertEq(token.balanceOf(collector), 8e18);
+        // n = 2 is the linear region: 2 * 1e18.
+        assertEq(escrow.settle(channelId, _one(_auth(spendKeyPk, channelId, 0, 2))), 2e18);
+        assertEq(escrow.getChannel(channelId).paid, 2e18);
+
+        // n = 4:    2e18 + 2e18 * 2 / 4    = 3e18
+        assertEq(escrow.settle(channelId, _one(_auth(spendKeyPk, channelId, 0, 4))), 1e18);
+        assertEq(escrow.getChannel(channelId).paid, 3e18);
+
+        // n = 8:    2e18 + 2e18 * 6 / 8    = 3.5e18
+        assertEq(escrow.settle(channelId, _one(_auth(spendKeyPk, channelId, 0, 8))), 0.5e18);
+        assertEq(escrow.getChannel(channelId).paid, 3.5e18);
+
+        // n = 1000: 2e18 + 2e18 * 998 / 1000 = 3.996e18
+        assertEq(escrow.settle(channelId, _one(_auth(spendKeyPk, channelId, 0, 1000))), 0.496e18);
+        assertEq(escrow.getChannel(channelId).paid, 3.996e18);
+        assertEq(token.balanceOf(collector), 3.996e18);
+
+        // A channel funded to `maxFee` can never go insolvent: owed always fits in the remaining balance.
+        (uint256 owed, uint256 balance) = escrow.quote(channelId, 1e9);
+        assertEq(owed, 3999996000000000);
+        assertEq(balance, 4e15);
+        assertLe(owed, balance);
+
+        vm.warp(deadline + 1);
+        vm.prank(payer);
+        escrow.closeChannel(channelId);
+        assertEq(escrow.getChannel(channelId).balance, 0);
     }
 
     function test_settle_usesPinnedSpendKeyAfterRegistryRotation() public {
@@ -892,8 +910,8 @@ contract WorldIDFeeEscrowTest is Test {
     }
 
     function test_settle_revertsWhenScheduleOverflows() public {
-        // `type(uint64).max * 1e18` does not overflow a uint256, so the price is scaled up until it does.
-        FixedFeeSchedule huge = new FixedFeeSchedule(type(uint256).max / 1e6);
+        // With p = max/4 and T = 1 the tail multiplication `p * T * (n - T)` overflows from n = 6 up.
+        RationalDecayFeeSchedule huge = new RationalDecayFeeSchedule(type(uint256).max / 4, 1);
         bytes32 channelId = _open(_settings(address(huge), 4, bytes32(uint256(103))), 10e18);
 
         IWorldIDFeeEscrow.PaymentAuthorization memory a = _auth(spendKeyPk, channelId, 0, type(uint64).max);
@@ -925,7 +943,7 @@ contract WorldIDFeeEscrowTest is Test {
         laneCount = uint32(bound(laneCount, 1, 64));
         lane = uint32(bound(lane, laneCount, type(uint32).max));
 
-        bytes32 channelId = _open(_settings(address(fixedSchedule), laneCount, bytes32(uint256(laneCount))), 1e18);
+        bytes32 channelId = _open(_settings(address(schedule), laneCount, bytes32(uint256(laneCount))), 1e18);
 
         vm.expectRevert(abi.encodeWithSelector(IWorldIDFeeEscrow.InvalidLane.selector, lane, laneCount));
         escrow.settle(channelId, _one(_auth(spendKeyPk, channelId, lane, 1)));
@@ -936,7 +954,7 @@ contract WorldIDFeeEscrowTest is Test {
         lane = uint32(bound(lane, 0, laneCount - 1));
         counter = uint64(bound(counter, 1, 100));
 
-        bytes32 channelId = _open(_settings(address(fixedSchedule), laneCount, bytes32(uint256(laneCount))), 1000e18);
+        bytes32 channelId = _open(_settings(address(schedule), laneCount, bytes32(uint256(laneCount))), 1000e18);
 
         uint256 paidNow = escrow.settle(channelId, _one(_auth(spendKeyPk, channelId, lane, counter)));
         assertEq(paidNow, uint256(counter) * PRICE);
