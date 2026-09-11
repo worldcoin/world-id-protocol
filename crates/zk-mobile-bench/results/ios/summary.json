@@ -1,0 +1,2877 @@
+{
+  "ci": {
+    "metadata": {
+      "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+      "mobench_version": "0.2.0",
+      "request_command": "cargo-mobench ci run --target ios --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices iPhone 14-16 --crate-path ./crates/zk-mobile-bench --release --ios-completion-timeout-secs 1800 --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/ios",
+      "requested_by": "kilianglas"
+    },
+    "outputs": {
+      "results_csv": "target/mobench/ci/ios/results.csv",
+      "summary_json": "target/mobench/ci/ios/summary.json",
+      "summary_md": "target/mobench/ci/ios/summary.md"
+    },
+    "targets": {
+      "ios": {
+        "functions": {
+          "zk__mobile__bench_bench__nullifier__proof__generation": {
+            "results_csv": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__proof__generation/results.csv",
+            "summary_json": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__proof__generation/summary.json",
+            "summary_md": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__proof__generation/summary.md"
+          },
+          "zk__mobile__bench_bench__nullifier__proving__only": {
+            "results_csv": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__proving__only/results.csv",
+            "summary_json": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__proving__only/summary.json",
+            "summary_md": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__proving__only/summary.md"
+          },
+          "zk__mobile__bench_bench__nullifier__witness__generation__only": {
+            "results_csv": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__witness__generation__only/results.csv",
+            "summary_json": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__witness__generation__only/summary.json",
+            "summary_md": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__witness__generation__only/summary.md"
+          },
+          "zk__mobile__bench_bench__query__cached__proof__generation": {
+            "results_csv": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__cached__proof__generation/results.csv",
+            "summary_json": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__cached__proof__generation/summary.json",
+            "summary_md": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__cached__proof__generation/summary.md"
+          },
+          "zk__mobile__bench_bench__query__proof__generation": {
+            "results_csv": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__proof__generation/results.csv",
+            "summary_json": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__proof__generation/summary.json",
+            "summary_md": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__proof__generation/summary.md"
+          },
+          "zk__mobile__bench_bench__query__proving__only": {
+            "results_csv": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__proving__only/results.csv",
+            "summary_json": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__proving__only/summary.json",
+            "summary_md": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__proving__only/summary.md"
+          },
+          "zk__mobile__bench_bench__query__witness__generation__only": {
+            "results_csv": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__witness__generation__only/results.csv",
+            "summary_json": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__witness__generation__only/summary.json",
+            "summary_md": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__witness__generation__only/summary.md"
+          }
+        }
+      }
+    }
+  },
+  "summary": {
+    "device_summaries": [
+      {
+        "benchmarks": [
+          {
+            "function": "zk_mobile_bench::bench_nullifier_proof_generation",
+            "max_ns": 923558583,
+            "mean_ns": 876242400,
+            "median_ns": 873094729,
+            "min_ns": 831039875,
+            "p95_ns": 921080458,
+            "resource_usage": {
+              "cpu_median_ms": 4059,
+              "cpu_total_ms": 121379,
+              "peak_memory_growth_kb": 108128,
+              "peak_memory_kb": 108128,
+              "process_peak_memory_kb": 244304
+            },
+            "samples": 30
+          },
+          {
+            "function": "zk_mobile_bench::bench_nullifier_proving_only",
+            "max_ns": 543422375,
+            "mean_ns": 504879490,
+            "median_ns": 501227604,
+            "min_ns": 469866167,
+            "p95_ns": 541921625,
+            "resource_usage": {
+              "cpu_median_ms": 2596,
+              "cpu_total_ms": 77731,
+              "peak_memory_growth_kb": 57184,
+              "peak_memory_kb": 57184,
+              "process_peak_memory_kb": 220672
+            },
+            "samples": 30
+          },
+          {
+            "function": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+            "max_ns": 28395750,
+            "mean_ns": 27826569,
+            "median_ns": 27831021,
+            "min_ns": 27437042,
+            "p95_ns": 28141542,
+            "resource_usage": {
+              "cpu_median_ms": 28,
+              "cpu_total_ms": 842,
+              "peak_memory_growth_kb": 5792,
+              "peak_memory_kb": 5792,
+              "process_peak_memory_kb": 164976
+            },
+            "samples": 30
+          },
+          {
+            "function": "zk_mobile_bench::bench_query_cached_proof_generation",
+            "max_ns": 298767292,
+            "mean_ns": 269672102,
+            "median_ns": 268503542,
+            "min_ns": 250817167,
+            "p95_ns": 287462334,
+            "resource_usage": {
+              "cpu_median_ms": 1211,
+              "cpu_total_ms": 36391,
+              "peak_memory_growth_kb": 27664,
+              "peak_memory_kb": 27664,
+              "process_peak_memory_kb": 162608
+            },
+            "samples": 30
+          },
+          {
+            "function": "zk_mobile_bench::bench_query_proof_generation",
+            "max_ns": 316279083,
+            "mean_ns": 271971476,
+            "median_ns": 266631146,
+            "min_ns": 252091291,
+            "p95_ns": 304961959,
+            "resource_usage": {
+              "cpu_median_ms": 1267,
+              "cpu_total_ms": 38093,
+              "peak_memory_growth_kb": 64256,
+              "peak_memory_kb": 64256,
+              "process_peak_memory_kb": 190256
+            },
+            "samples": 30
+          },
+          {
+            "function": "zk_mobile_bench::bench_query_proving_only",
+            "max_ns": 291097959,
+            "mean_ns": 256933391,
+            "median_ns": 250142916,
+            "min_ns": 236628833,
+            "p95_ns": 290229333,
+            "resource_usage": {
+              "cpu_median_ms": 1329,
+              "cpu_total_ms": 39746,
+              "peak_memory_growth_kb": 26896,
+              "peak_memory_kb": 26896,
+              "process_peak_memory_kb": 165024
+            },
+            "samples": 30
+          },
+          {
+            "function": "zk_mobile_bench::bench_query_witness_generation_only",
+            "max_ns": 7919083,
+            "mean_ns": 7643174,
+            "median_ns": 7620041,
+            "min_ns": 7534417,
+            "p95_ns": 7855709,
+            "resource_usage": {
+              "cpu_median_ms": 8,
+              "cpu_total_ms": 265,
+              "peak_memory_growth_kb": 3456,
+              "peak_memory_kb": 3456,
+              "process_peak_memory_kb": 134784
+            },
+            "samples": 30
+          }
+        ],
+        "device": "iPhone 14-16"
+      }
+    ],
+    "devices": [
+      "iPhone 14-16"
+    ],
+    "function": "multiple",
+    "generated_at": "2026-09-11T13:49:03.468837Z",
+    "generated_at_unix": 1789134543,
+    "iterations": 30,
+    "target": "ios",
+    "warmup": 5
+  },
+  "targets": {
+    "ios": {
+      "functions": {
+        "zk__mobile__bench_bench__nullifier__proof__generation": {
+          "artifacts": {
+            "app": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunner.ipa",
+            "header": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/include/zk_mobile_bench.h",
+            "platform": "ios",
+            "test_suite": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunnerUITests.zip",
+            "xcframework": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/zk_mobile_bench.xcframework"
+          },
+          "benchmark_results": {
+            "iPhone 14-16": [
+              {
+                "function": "zk_mobile_bench::bench_nullifier_proof_generation",
+                "function_id": "zk_mobile_bench::bench_nullifier_proof_generation",
+                "logical_session_id": "logical-session-1b69ae0c20474fa85c6e1747be2cbbc5",
+                "max_ns": 923558583,
+                "mean_ns": 876242400,
+                "median_ns": 873094729,
+                "min_ns": 831039875,
+                "nonce": "nonce-ed6e83003b889bff855426f493e097cb7bd26fb8188905ff1c91840e14bef31b",
+                "observed": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "outcome": {
+                  "status": "success"
+                },
+                "p95_ns": 921080458,
+                "phases": [],
+                "producer": "ios-runner",
+                "requested": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "resources": {
+                  "cpu_median_ms": 4059,
+                  "cpu_total_ms": 121379,
+                  "elapsed_cpu_ms": 121379,
+                  "memory_process": "benchmark_app",
+                  "peak_memory_growth_kb": 108128,
+                  "peak_memory_kb": 108128,
+                  "platform": "ios",
+                  "process_peak_memory_kb": 244304,
+                  "timestamp_ms": 1789133350044
+                },
+                "run_id": "run-2a5aa6d0f32bb134196cc83febfd9053",
+                "samples": [
+                  {
+                    "cpu_time_ms": 3773,
+                    "duration_ns": 835324458,
+                    "peak_memory_kb": 107040,
+                    "process_peak_memory_kb": 240880
+                  },
+                  {
+                    "cpu_time_ms": 3842,
+                    "duration_ns": 833405084,
+                    "peak_memory_kb": 108128,
+                    "process_peak_memory_kb": 241920
+                  },
+                  {
+                    "cpu_time_ms": 3871,
+                    "duration_ns": 849352292,
+                    "peak_memory_kb": 106992,
+                    "process_peak_memory_kb": 241472
+                  },
+                  {
+                    "cpu_time_ms": 3902,
+                    "duration_ns": 861403250,
+                    "peak_memory_kb": 105248,
+                    "process_peak_memory_kb": 240208
+                  },
+                  {
+                    "cpu_time_ms": 3933,
+                    "duration_ns": 854899458,
+                    "peak_memory_kb": 107648,
+                    "process_peak_memory_kb": 242560
+                  },
+                  {
+                    "cpu_time_ms": 3916,
+                    "duration_ns": 871316042,
+                    "peak_memory_kb": 105952,
+                    "process_peak_memory_kb": 241136
+                  },
+                  {
+                    "cpu_time_ms": 3961,
+                    "duration_ns": 841810875,
+                    "peak_memory_kb": 104832,
+                    "process_peak_memory_kb": 240032
+                  },
+                  {
+                    "cpu_time_ms": 4047,
+                    "duration_ns": 831039875,
+                    "peak_memory_kb": 106496,
+                    "process_peak_memory_kb": 241600
+                  },
+                  {
+                    "cpu_time_ms": 3996,
+                    "duration_ns": 852908042,
+                    "peak_memory_kb": 107504,
+                    "process_peak_memory_kb": 242608
+                  },
+                  {
+                    "cpu_time_ms": 4017,
+                    "duration_ns": 863636833,
+                    "peak_memory_kb": 106912,
+                    "process_peak_memory_kb": 242016
+                  },
+                  {
+                    "cpu_time_ms": 4001,
+                    "duration_ns": 870239459,
+                    "peak_memory_kb": 106304,
+                    "process_peak_memory_kb": 241408
+                  },
+                  {
+                    "cpu_time_ms": 4040,
+                    "duration_ns": 870860125,
+                    "peak_memory_kb": 105936,
+                    "process_peak_memory_kb": 241120
+                  },
+                  {
+                    "cpu_time_ms": 3995,
+                    "duration_ns": 892530916,
+                    "peak_memory_kb": 106016,
+                    "process_peak_memory_kb": 241520
+                  },
+                  {
+                    "cpu_time_ms": 4061,
+                    "duration_ns": 851983458,
+                    "peak_memory_kb": 106320,
+                    "process_peak_memory_kb": 242656
+                  },
+                  {
+                    "cpu_time_ms": 4099,
+                    "duration_ns": 844806042,
+                    "peak_memory_kb": 104944,
+                    "process_peak_memory_kb": 241280
+                  },
+                  {
+                    "cpu_time_ms": 4058,
+                    "duration_ns": 888138459,
+                    "peak_memory_kb": 105968,
+                    "process_peak_memory_kb": 242304
+                  },
+                  {
+                    "cpu_time_ms": 4090,
+                    "duration_ns": 874873417,
+                    "peak_memory_kb": 105056,
+                    "process_peak_memory_kb": 241392
+                  },
+                  {
+                    "cpu_time_ms": 4084,
+                    "duration_ns": 894195250,
+                    "peak_memory_kb": 105168,
+                    "process_peak_memory_kb": 241520
+                  },
+                  {
+                    "cpu_time_ms": 4020,
+                    "duration_ns": 920883334,
+                    "peak_memory_kb": 104864,
+                    "process_peak_memory_kb": 241232
+                  },
+                  {
+                    "cpu_time_ms": 4095,
+                    "duration_ns": 892968500,
+                    "peak_memory_kb": 107040,
+                    "process_peak_memory_kb": 243408
+                  },
+                  {
+                    "cpu_time_ms": 4148,
+                    "duration_ns": 867265834,
+                    "peak_memory_kb": 106128,
+                    "process_peak_memory_kb": 242496
+                  },
+                  {
+                    "cpu_time_ms": 4068,
+                    "duration_ns": 921080458,
+                    "peak_memory_kb": 105216,
+                    "process_peak_memory_kb": 241584
+                  },
+                  {
+                    "cpu_time_ms": 4116,
+                    "duration_ns": 901585333,
+                    "peak_memory_kb": 105504,
+                    "process_peak_memory_kb": 241872
+                  },
+                  {
+                    "cpu_time_ms": 4143,
+                    "duration_ns": 902308875,
+                    "peak_memory_kb": 105408,
+                    "process_peak_memory_kb": 241776
+                  },
+                  {
+                    "cpu_time_ms": 4170,
+                    "duration_ns": 878489667,
+                    "peak_memory_kb": 106416,
+                    "process_peak_memory_kb": 242784
+                  },
+                  {
+                    "cpu_time_ms": 4149,
+                    "duration_ns": 923558583,
+                    "peak_memory_kb": 107648,
+                    "process_peak_memory_kb": 244016
+                  },
+                  {
+                    "cpu_time_ms": 4154,
+                    "duration_ns": 914580000,
+                    "peak_memory_kb": 107312,
+                    "process_peak_memory_kb": 243840
+                  },
+                  {
+                    "cpu_time_ms": 4201,
+                    "duration_ns": 899498208,
+                    "peak_memory_kb": 107392,
+                    "process_peak_memory_kb": 244304
+                  },
+                  {
+                    "cpu_time_ms": 4184,
+                    "duration_ns": 887255417,
+                    "peak_memory_kb": 106624,
+                    "process_peak_memory_kb": 243536
+                  },
+                  {
+                    "cpu_time_ms": 4245,
+                    "duration_ns": 895074459,
+                    "peak_memory_kb": 105552,
+                    "process_peak_memory_kb": 242464
+                  }
+                ],
+                "samples_ns": [
+                  835324458,
+                  833405084,
+                  849352292,
+                  861403250,
+                  854899458,
+                  871316042,
+                  841810875,
+                  831039875,
+                  852908042,
+                  863636833,
+                  870239459,
+                  870860125,
+                  892530916,
+                  851983458,
+                  844806042,
+                  888138459,
+                  874873417,
+                  894195250,
+                  920883334,
+                  892968500,
+                  867265834,
+                  921080458,
+                  901585333,
+                  902308875,
+                  878489667,
+                  923558583,
+                  914580000,
+                  899498208,
+                  887255417,
+                  895074459
+                ],
+                "schema_version": "mobench.run/v2",
+                "spec": {
+                  "iterations": 30,
+                  "name": "zk_mobile_bench::bench_nullifier_proof_generation",
+                  "warmup": 5
+                },
+                "stats": {
+                  "avg_ns": 876242400.1,
+                  "max_ns": 923558583,
+                  "mean_ns": 876242400,
+                  "median_ns": 873094729,
+                  "min_ns": 831039875
+                }
+              }
+            ]
+          },
+          "ci": {
+            "metadata": {
+              "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+              "mobench_version": "0.2.0",
+              "request_command": "cargo-mobench ci run --target ios --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices iPhone 14-16 --crate-path ./crates/zk-mobile-bench --release --ios-completion-timeout-secs 1800 --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/ios",
+              "requested_by": "kilianglas"
+            },
+            "outputs": {
+              "results_csv": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__proof__generation/results.csv",
+              "summary_json": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__proof__generation/summary.json",
+              "summary_md": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__proof__generation/summary.md"
+            },
+            "target": "ios"
+          },
+          "local_report": {
+            "reason": "Host benchmark disabled - benchmarks run on mobile devices",
+            "skipped": true
+          },
+          "performance_metrics": {
+            "iPhone 14-16": {
+              "cpu": {
+                "average_percent": 63.45,
+                "min_percent": 63.45,
+                "peak_percent": 81.67
+              },
+              "memory": {
+                "average_mb": 105.38,
+                "min_mb": 105.38,
+                "peak_mb": 153.29
+              },
+              "sample_count": 1
+            }
+          },
+          "remote_run": {
+            "app_url": "bs://18e23ebf08bcf535126c7bbe65fe8c744adaa16b",
+            "build_id": "ba9824bf0dea5eea8b858cbf83b96b537700a3db",
+            "platform": "ios",
+            "test_suite_url": "bs://3733b6e41e1bdd794dec11efe6b0321ff45e8133"
+          },
+          "spec": {
+            "devices": [
+              "iPhone 14-16"
+            ],
+            "function": "zk_mobile_bench::bench_nullifier_proof_generation",
+            "ios_completion_timeout_secs": 1800,
+            "ios_deployment_target": "15.0",
+            "ios_runner": "swiftui",
+            "ios_xcuitest": {
+              "app": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunner.ipa",
+              "test_suite": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunnerUITests.zip"
+            },
+            "iterations": 30,
+            "target": "ios",
+            "warmup": 5
+          },
+          "summary": {
+            "device_summaries": [
+              {
+                "benchmarks": [
+                  {
+                    "function": "zk_mobile_bench::bench_nullifier_proof_generation",
+                    "max_ns": 923558583,
+                    "mean_ns": 876242400,
+                    "median_ns": 873094729,
+                    "min_ns": 831039875,
+                    "p95_ns": 921080458,
+                    "resource_usage": {
+                      "cpu_median_ms": 4059,
+                      "cpu_total_ms": 121379,
+                      "peak_memory_growth_kb": 108128,
+                      "peak_memory_kb": 108128,
+                      "process_peak_memory_kb": 244304
+                    },
+                    "samples": 30
+                  }
+                ],
+                "device": "iPhone 14-16"
+              }
+            ],
+            "devices": [
+              "iPhone 14-16"
+            ],
+            "function": "zk_mobile_bench::bench_nullifier_proof_generation",
+            "generated_at": "2026-09-11T13:29:31.714557Z",
+            "generated_at_unix": 1789133371,
+            "iterations": 30,
+            "target": "ios",
+            "warmup": 5
+          }
+        },
+        "zk__mobile__bench_bench__nullifier__proving__only": {
+          "artifacts": {
+            "app": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunner.ipa",
+            "header": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/include/zk_mobile_bench.h",
+            "platform": "ios",
+            "test_suite": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunnerUITests.zip",
+            "xcframework": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/zk_mobile_bench.xcframework"
+          },
+          "benchmark_results": {
+            "iPhone 14-16": [
+              {
+                "function": "zk_mobile_bench::bench_nullifier_proving_only",
+                "function_id": "zk_mobile_bench::bench_nullifier_proving_only",
+                "logical_session_id": "logical-session-1d8dbc42ca4def0c40f4adad86cc7a09",
+                "max_ns": 543422375,
+                "mean_ns": 504879490,
+                "median_ns": 501227604,
+                "min_ns": 469866167,
+                "nonce": "nonce-ecdf41d394ce90d7a942a843cc6d8121a5c91c361475f37d70d8e79c9b67535d",
+                "observed": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "outcome": {
+                  "status": "success"
+                },
+                "p95_ns": 541921625,
+                "phases": [],
+                "producer": "ios-runner",
+                "requested": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "resources": {
+                  "cpu_median_ms": 2596,
+                  "cpu_total_ms": 77731,
+                  "elapsed_cpu_ms": 77731,
+                  "memory_process": "benchmark_app",
+                  "peak_memory_growth_kb": 57184,
+                  "peak_memory_kb": 57184,
+                  "platform": "ios",
+                  "process_peak_memory_kb": 220672,
+                  "timestamp_ms": 1789133724973
+                },
+                "run_id": "run-19ca5b785105ddc162c27e4bef9c5a1e",
+                "samples": [
+                  {
+                    "cpu_time_ms": 2475,
+                    "duration_ns": 471966500,
+                    "peak_memory_kb": 54528,
+                    "process_peak_memory_kb": 216608
+                  },
+                  {
+                    "cpu_time_ms": 2553,
+                    "duration_ns": 469866167,
+                    "peak_memory_kb": 45440,
+                    "process_peak_memory_kb": 207520
+                  },
+                  {
+                    "cpu_time_ms": 2449,
+                    "duration_ns": 503926333,
+                    "peak_memory_kb": 53776,
+                    "process_peak_memory_kb": 215856
+                  },
+                  {
+                    "cpu_time_ms": 2578,
+                    "duration_ns": 482654500,
+                    "peak_memory_kb": 53760,
+                    "process_peak_memory_kb": 215856
+                  },
+                  {
+                    "cpu_time_ms": 2492,
+                    "duration_ns": 491391125,
+                    "peak_memory_kb": 45888,
+                    "process_peak_memory_kb": 207984
+                  },
+                  {
+                    "cpu_time_ms": 2546,
+                    "duration_ns": 495737625,
+                    "peak_memory_kb": 42864,
+                    "process_peak_memory_kb": 204944
+                  },
+                  {
+                    "cpu_time_ms": 2531,
+                    "duration_ns": 502370541,
+                    "peak_memory_kb": 53120,
+                    "process_peak_memory_kb": 215376
+                  },
+                  {
+                    "cpu_time_ms": 2548,
+                    "duration_ns": 516890042,
+                    "peak_memory_kb": 40224,
+                    "process_peak_memory_kb": 202480
+                  },
+                  {
+                    "cpu_time_ms": 2485,
+                    "duration_ns": 524541458,
+                    "peak_memory_kb": 53712,
+                    "process_peak_memory_kb": 216768
+                  },
+                  {
+                    "cpu_time_ms": 2589,
+                    "duration_ns": 493670709,
+                    "peak_memory_kb": 53760,
+                    "process_peak_memory_kb": 216736
+                  },
+                  {
+                    "cpu_time_ms": 2567,
+                    "duration_ns": 496856416,
+                    "peak_memory_kb": 43520,
+                    "process_peak_memory_kb": 206496
+                  },
+                  {
+                    "cpu_time_ms": 2600,
+                    "duration_ns": 500380667,
+                    "peak_memory_kb": 53952,
+                    "process_peak_memory_kb": 216928
+                  },
+                  {
+                    "cpu_time_ms": 2554,
+                    "duration_ns": 499263375,
+                    "peak_memory_kb": 47200,
+                    "process_peak_memory_kb": 210192
+                  },
+                  {
+                    "cpu_time_ms": 2619,
+                    "duration_ns": 501958125,
+                    "peak_memory_kb": 53760,
+                    "process_peak_memory_kb": 216896
+                  },
+                  {
+                    "cpu_time_ms": 2611,
+                    "duration_ns": 500497083,
+                    "peak_memory_kb": 53760,
+                    "process_peak_memory_kb": 216896
+                  },
+                  {
+                    "cpu_time_ms": 2609,
+                    "duration_ns": 506050208,
+                    "peak_memory_kb": 41072,
+                    "process_peak_memory_kb": 204160
+                  },
+                  {
+                    "cpu_time_ms": 2587,
+                    "duration_ns": 495764084,
+                    "peak_memory_kb": 52624,
+                    "process_peak_memory_kb": 215728
+                  },
+                  {
+                    "cpu_time_ms": 2625,
+                    "duration_ns": 495538375,
+                    "peak_memory_kb": 49728,
+                    "process_peak_memory_kb": 212832
+                  },
+                  {
+                    "cpu_time_ms": 2559,
+                    "duration_ns": 528494208,
+                    "peak_memory_kb": 39888,
+                    "process_peak_memory_kb": 202992
+                  },
+                  {
+                    "cpu_time_ms": 2642,
+                    "duration_ns": 489590708,
+                    "peak_memory_kb": 53760,
+                    "process_peak_memory_kb": 216864
+                  },
+                  {
+                    "cpu_time_ms": 2631,
+                    "duration_ns": 517414334,
+                    "peak_memory_kb": 49472,
+                    "process_peak_memory_kb": 212576
+                  },
+                  {
+                    "cpu_time_ms": 2615,
+                    "duration_ns": 491156958,
+                    "peak_memory_kb": 50112,
+                    "process_peak_memory_kb": 213552
+                  },
+                  {
+                    "cpu_time_ms": 2675,
+                    "duration_ns": 514421292,
+                    "peak_memory_kb": 52992,
+                    "process_peak_memory_kb": 216432
+                  },
+                  {
+                    "cpu_time_ms": 2593,
+                    "duration_ns": 541921625,
+                    "peak_memory_kb": 45488,
+                    "process_peak_memory_kb": 208928
+                  },
+                  {
+                    "cpu_time_ms": 2667,
+                    "duration_ns": 524523583,
+                    "peak_memory_kb": 57184,
+                    "process_peak_memory_kb": 220672
+                  },
+                  {
+                    "cpu_time_ms": 2633,
+                    "duration_ns": 513332291,
+                    "peak_memory_kb": 39216,
+                    "process_peak_memory_kb": 202704
+                  },
+                  {
+                    "cpu_time_ms": 2676,
+                    "duration_ns": 521303708,
+                    "peak_memory_kb": 45056,
+                    "process_peak_memory_kb": 208560
+                  },
+                  {
+                    "cpu_time_ms": 2697,
+                    "duration_ns": 492049375,
+                    "peak_memory_kb": 53088,
+                    "process_peak_memory_kb": 216592
+                  },
+                  {
+                    "cpu_time_ms": 2645,
+                    "duration_ns": 543422375,
+                    "peak_memory_kb": 54832,
+                    "process_peak_memory_kb": 218432
+                  },
+                  {
+                    "cpu_time_ms": 2680,
+                    "duration_ns": 519430916,
+                    "peak_memory_kb": 48368,
+                    "process_peak_memory_kb": 211968
+                  }
+                ],
+                "samples_ns": [
+                  471966500,
+                  469866167,
+                  503926333,
+                  482654500,
+                  491391125,
+                  495737625,
+                  502370541,
+                  516890042,
+                  524541458,
+                  493670709,
+                  496856416,
+                  500380667,
+                  499263375,
+                  501958125,
+                  500497083,
+                  506050208,
+                  495764084,
+                  495538375,
+                  528494208,
+                  489590708,
+                  517414334,
+                  491156958,
+                  514421292,
+                  541921625,
+                  524523583,
+                  513332291,
+                  521303708,
+                  492049375,
+                  543422375,
+                  519430916
+                ],
+                "schema_version": "mobench.run/v2",
+                "spec": {
+                  "iterations": 30,
+                  "name": "zk_mobile_bench::bench_nullifier_proving_only",
+                  "warmup": 5
+                },
+                "stats": {
+                  "avg_ns": 504879490.2,
+                  "max_ns": 543422375,
+                  "mean_ns": 504879490,
+                  "median_ns": 501227604,
+                  "min_ns": 469866167
+                }
+              }
+            ]
+          },
+          "ci": {
+            "metadata": {
+              "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+              "mobench_version": "0.2.0",
+              "request_command": "cargo-mobench ci run --target ios --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices iPhone 14-16 --crate-path ./crates/zk-mobile-bench --release --ios-completion-timeout-secs 1800 --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/ios",
+              "requested_by": "kilianglas"
+            },
+            "outputs": {
+              "results_csv": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__proving__only/results.csv",
+              "summary_json": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__proving__only/summary.json",
+              "summary_md": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__proving__only/summary.md"
+            },
+            "target": "ios"
+          },
+          "local_report": {
+            "reason": "Host benchmark disabled - benchmarks run on mobile devices",
+            "skipped": true
+          },
+          "performance_metrics": {
+            "iPhone 14-16": {
+              "cpu": {
+                "average_percent": 69.29,
+                "min_percent": 69.29,
+                "peak_percent": 88.69
+              },
+              "memory": {
+                "average_mb": 116.86,
+                "min_mb": 116.86,
+                "peak_mb": 145.85
+              },
+              "sample_count": 1
+            }
+          },
+          "remote_run": {
+            "app_url": "bs://cc9c28991791cbf3884faaa7b39e8483fb0888f3",
+            "build_id": "7461c2ab2b8a67d8c7d8935eafcbad8b93855193",
+            "platform": "ios",
+            "test_suite_url": "bs://0dee01e999886b835c175d4c82ee4d338d6532c3"
+          },
+          "spec": {
+            "devices": [
+              "iPhone 14-16"
+            ],
+            "function": "zk_mobile_bench::bench_nullifier_proving_only",
+            "ios_completion_timeout_secs": 1800,
+            "ios_deployment_target": "15.0",
+            "ios_runner": "swiftui",
+            "ios_xcuitest": {
+              "app": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunner.ipa",
+              "test_suite": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunnerUITests.zip"
+            },
+            "iterations": 30,
+            "target": "ios",
+            "warmup": 5
+          },
+          "summary": {
+            "device_summaries": [
+              {
+                "benchmarks": [
+                  {
+                    "function": "zk_mobile_bench::bench_nullifier_proving_only",
+                    "max_ns": 543422375,
+                    "mean_ns": 504879490,
+                    "median_ns": 501227604,
+                    "min_ns": 469866167,
+                    "p95_ns": 541921625,
+                    "resource_usage": {
+                      "cpu_median_ms": 2596,
+                      "cpu_total_ms": 77731,
+                      "peak_memory_growth_kb": 57184,
+                      "peak_memory_kb": 57184,
+                      "process_peak_memory_kb": 220672
+                    },
+                    "samples": 30
+                  }
+                ],
+                "device": "iPhone 14-16"
+              }
+            ],
+            "devices": [
+              "iPhone 14-16"
+            ],
+            "function": "zk_mobile_bench::bench_nullifier_proving_only",
+            "generated_at": "2026-09-11T13:35:45.73706Z",
+            "generated_at_unix": 1789133745,
+            "iterations": 30,
+            "target": "ios",
+            "warmup": 5
+          }
+        },
+        "zk__mobile__bench_bench__nullifier__witness__generation__only": {
+          "artifacts": {
+            "app": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunner.ipa",
+            "header": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/include/zk_mobile_bench.h",
+            "platform": "ios",
+            "test_suite": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunnerUITests.zip",
+            "xcframework": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/zk_mobile_bench.xcframework"
+          },
+          "benchmark_results": {
+            "iPhone 14-16": [
+              {
+                "function": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+                "function_id": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+                "logical_session_id": "logical-session-d166b16338a953f4cbb7b46e29bec1cf",
+                "max_ns": 28395750,
+                "mean_ns": 27826569,
+                "median_ns": 27831021,
+                "min_ns": 27437042,
+                "nonce": "nonce-dbcd5c5d43c384fac345f6a80daf6d77cb81e6c666c661dbb6708c57686bcdba",
+                "observed": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "outcome": {
+                  "status": "success"
+                },
+                "p95_ns": 28141542,
+                "phases": [],
+                "producer": "ios-runner",
+                "requested": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "resources": {
+                  "cpu_median_ms": 28,
+                  "cpu_total_ms": 842,
+                  "elapsed_cpu_ms": 842,
+                  "memory_process": "benchmark_app",
+                  "peak_memory_growth_kb": 5792,
+                  "peak_memory_kb": 5792,
+                  "platform": "ios",
+                  "process_peak_memory_kb": 164976,
+                  "timestamp_ms": 1789133535017
+                },
+                "run_id": "run-274ffa310fcadf6cd353d72d4f41c95c",
+                "samples": [
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27723500,
+                    "peak_memory_kb": 4336,
+                    "process_peak_memory_kb": 163520
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27795875,
+                    "peak_memory_kb": 4320,
+                    "process_peak_memory_kb": 163504
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27675875,
+                    "peak_memory_kb": 4320,
+                    "process_peak_memory_kb": 163504
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27835333,
+                    "peak_memory_kb": 4272,
+                    "process_peak_memory_kb": 163456
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27552834,
+                    "peak_memory_kb": 4560,
+                    "process_peak_memory_kb": 163744
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27563417,
+                    "peak_memory_kb": 4576,
+                    "process_peak_memory_kb": 163760
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27646709,
+                    "peak_memory_kb": 4352,
+                    "process_peak_memory_kb": 163536
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27618292,
+                    "peak_memory_kb": 4336,
+                    "process_peak_memory_kb": 163520
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27910125,
+                    "peak_memory_kb": 4320,
+                    "process_peak_memory_kb": 163504
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27848292,
+                    "peak_memory_kb": 4336,
+                    "process_peak_memory_kb": 163520
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27765042,
+                    "peak_memory_kb": 4304,
+                    "process_peak_memory_kb": 163488
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27629959,
+                    "peak_memory_kb": 4352,
+                    "process_peak_memory_kb": 163536
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27437042,
+                    "peak_memory_kb": 5392,
+                    "process_peak_memory_kb": 164576
+                  },
+                  {
+                    "cpu_time_ms": 29,
+                    "duration_ns": 28141542,
+                    "peak_memory_kb": 4320,
+                    "process_peak_memory_kb": 163504
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27993000,
+                    "peak_memory_kb": 4336,
+                    "process_peak_memory_kb": 163520
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27876416,
+                    "peak_memory_kb": 4304,
+                    "process_peak_memory_kb": 163488
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 28055583,
+                    "peak_memory_kb": 4288,
+                    "process_peak_memory_kb": 163472
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27607375,
+                    "peak_memory_kb": 4352,
+                    "process_peak_memory_kb": 163536
+                  },
+                  {
+                    "cpu_time_ms": 29,
+                    "duration_ns": 28395750,
+                    "peak_memory_kb": 5792,
+                    "process_peak_memory_kb": 164976
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27831417,
+                    "peak_memory_kb": 4320,
+                    "process_peak_memory_kb": 163504
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27937167,
+                    "peak_memory_kb": 4304,
+                    "process_peak_memory_kb": 163488
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 28117375,
+                    "peak_memory_kb": 4288,
+                    "process_peak_memory_kb": 163472
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27973958,
+                    "peak_memory_kb": 4304,
+                    "process_peak_memory_kb": 163488
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 28067500,
+                    "peak_memory_kb": 4288,
+                    "process_peak_memory_kb": 163472
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27838375,
+                    "peak_memory_kb": 4320,
+                    "process_peak_memory_kb": 163504
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 28078584,
+                    "peak_memory_kb": 4272,
+                    "process_peak_memory_kb": 163456
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27728334,
+                    "peak_memory_kb": 4336,
+                    "process_peak_memory_kb": 163520
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27581833,
+                    "peak_memory_kb": 4368,
+                    "process_peak_memory_kb": 163552
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27739958,
+                    "peak_memory_kb": 4336,
+                    "process_peak_memory_kb": 163520
+                  },
+                  {
+                    "cpu_time_ms": 28,
+                    "duration_ns": 27830625,
+                    "peak_memory_kb": 4320,
+                    "process_peak_memory_kb": 163504
+                  }
+                ],
+                "samples_ns": [
+                  27723500,
+                  27795875,
+                  27675875,
+                  27835333,
+                  27552834,
+                  27563417,
+                  27646709,
+                  27618292,
+                  27910125,
+                  27848292,
+                  27765042,
+                  27629959,
+                  27437042,
+                  28141542,
+                  27993000,
+                  27876416,
+                  28055583,
+                  27607375,
+                  28395750,
+                  27831417,
+                  27937167,
+                  28117375,
+                  27973958,
+                  28067500,
+                  27838375,
+                  28078584,
+                  27728334,
+                  27581833,
+                  27739958,
+                  27830625
+                ],
+                "schema_version": "mobench.run/v2",
+                "spec": {
+                  "iterations": 30,
+                  "name": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+                  "warmup": 5
+                },
+                "stats": {
+                  "avg_ns": 27826569.566666663,
+                  "max_ns": 28395750,
+                  "mean_ns": 27826569,
+                  "median_ns": 27831021,
+                  "min_ns": 27437042
+                }
+              }
+            ]
+          },
+          "ci": {
+            "metadata": {
+              "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+              "mobench_version": "0.2.0",
+              "request_command": "cargo-mobench ci run --target ios --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices iPhone 14-16 --crate-path ./crates/zk-mobile-bench --release --ios-completion-timeout-secs 1800 --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/ios",
+              "requested_by": "kilianglas"
+            },
+            "outputs": {
+              "results_csv": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__witness__generation__only/results.csv",
+              "summary_json": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__witness__generation__only/summary.json",
+              "summary_md": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__nullifier__witness__generation__only/summary.md"
+            },
+            "target": "ios"
+          },
+          "local_report": {
+            "reason": "Host benchmark disabled - benchmarks run on mobile devices",
+            "skipped": true
+          },
+          "performance_metrics": {
+            "iPhone 14-16": {
+              "cpu": {
+                "average_percent": 4.76,
+                "min_percent": 4.76,
+                "peak_percent": 33.77
+              },
+              "memory": {
+                "average_mb": 82.83,
+                "min_mb": 82.83,
+                "peak_mb": 91.68
+              },
+              "sample_count": 1
+            }
+          },
+          "remote_run": {
+            "app_url": "bs://84125a161f6c010aaef4540d45d4e8f454cede0c",
+            "build_id": "b7e31e6ebe77187d96690780cdf3cf4b2a77de9c",
+            "platform": "ios",
+            "test_suite_url": "bs://991c8261b8ac8afbe8bdcdd39508aa581ec6ec6d"
+          },
+          "spec": {
+            "devices": [
+              "iPhone 14-16"
+            ],
+            "function": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+            "ios_completion_timeout_secs": 1800,
+            "ios_deployment_target": "15.0",
+            "ios_runner": "swiftui",
+            "ios_xcuitest": {
+              "app": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunner.ipa",
+              "test_suite": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunnerUITests.zip"
+            },
+            "iterations": 30,
+            "target": "ios",
+            "warmup": 5
+          },
+          "summary": {
+            "device_summaries": [
+              {
+                "benchmarks": [
+                  {
+                    "function": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+                    "max_ns": 28395750,
+                    "mean_ns": 27826569,
+                    "median_ns": 27831021,
+                    "min_ns": 27437042,
+                    "p95_ns": 28141542,
+                    "resource_usage": {
+                      "cpu_median_ms": 28,
+                      "cpu_total_ms": 842,
+                      "peak_memory_growth_kb": 5792,
+                      "peak_memory_kb": 5792,
+                      "process_peak_memory_kb": 164976
+                    },
+                    "samples": 30
+                  }
+                ],
+                "device": "iPhone 14-16"
+              }
+            ],
+            "devices": [
+              "iPhone 14-16"
+            ],
+            "function": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+            "generated_at": "2026-09-11T13:32:34.251988Z",
+            "generated_at_unix": 1789133554,
+            "iterations": 30,
+            "target": "ios",
+            "warmup": 5
+          }
+        },
+        "zk__mobile__bench_bench__query__cached__proof__generation": {
+          "artifacts": {
+            "app": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunner.ipa",
+            "header": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/include/zk_mobile_bench.h",
+            "platform": "ios",
+            "test_suite": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunnerUITests.zip",
+            "xcframework": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/zk_mobile_bench.xcframework"
+          },
+          "benchmark_results": {
+            "iPhone 14-16": [
+              {
+                "function": "zk_mobile_bench::bench_query_cached_proof_generation",
+                "function_id": "zk_mobile_bench::bench_query_cached_proof_generation",
+                "logical_session_id": "logical-session-72fb08806642c95b380cfceb139e95d0",
+                "max_ns": 298767292,
+                "mean_ns": 269672102,
+                "median_ns": 268503542,
+                "min_ns": 250817167,
+                "nonce": "nonce-9b2493c4adec4847641f72d1363d35fba11fdc6636ca3d74e93b82e5f72bd1c3",
+                "observed": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "outcome": {
+                  "status": "success"
+                },
+                "p95_ns": 287462334,
+                "phases": [],
+                "producer": "ios-runner",
+                "requested": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "resources": {
+                  "cpu_median_ms": 1211,
+                  "cpu_total_ms": 36391,
+                  "elapsed_cpu_ms": 36391,
+                  "memory_process": "benchmark_app",
+                  "peak_memory_growth_kb": 27664,
+                  "peak_memory_kb": 27664,
+                  "platform": "ios",
+                  "process_peak_memory_kb": 162608,
+                  "timestamp_ms": 1789134127203
+                },
+                "run_id": "run-2d5896fe17eb6a43754971b6ba833667",
+                "samples": [
+                  {
+                    "cpu_time_ms": 1163,
+                    "duration_ns": 273836083,
+                    "peak_memory_kb": 27504,
+                    "process_peak_memory_kb": 160576
+                  },
+                  {
+                    "cpu_time_ms": 1180,
+                    "duration_ns": 267430500,
+                    "peak_memory_kb": 27120,
+                    "process_peak_memory_kb": 160192
+                  },
+                  {
+                    "cpu_time_ms": 1190,
+                    "duration_ns": 259559458,
+                    "peak_memory_kb": 25072,
+                    "process_peak_memory_kb": 158144
+                  },
+                  {
+                    "cpu_time_ms": 1157,
+                    "duration_ns": 266187834,
+                    "peak_memory_kb": 26224,
+                    "process_peak_memory_kb": 160464
+                  },
+                  {
+                    "cpu_time_ms": 1185,
+                    "duration_ns": 256138833,
+                    "peak_memory_kb": 25632,
+                    "process_peak_memory_kb": 159872
+                  },
+                  {
+                    "cpu_time_ms": 1186,
+                    "duration_ns": 276917292,
+                    "peak_memory_kb": 17904,
+                    "process_peak_memory_kb": 152320
+                  },
+                  {
+                    "cpu_time_ms": 1146,
+                    "duration_ns": 277544750,
+                    "peak_memory_kb": 26288,
+                    "process_peak_memory_kb": 160960
+                  },
+                  {
+                    "cpu_time_ms": 1187,
+                    "duration_ns": 256072541,
+                    "peak_memory_kb": 27504,
+                    "process_peak_memory_kb": 162176
+                  },
+                  {
+                    "cpu_time_ms": 1187,
+                    "duration_ns": 268796250,
+                    "peak_memory_kb": 25968,
+                    "process_peak_memory_kb": 160640
+                  },
+                  {
+                    "cpu_time_ms": 1203,
+                    "duration_ns": 281421125,
+                    "peak_memory_kb": 24144,
+                    "process_peak_memory_kb": 158944
+                  },
+                  {
+                    "cpu_time_ms": 1222,
+                    "duration_ns": 250817167,
+                    "peak_memory_kb": 26224,
+                    "process_peak_memory_kb": 161248
+                  },
+                  {
+                    "cpu_time_ms": 1195,
+                    "duration_ns": 271237041,
+                    "peak_memory_kb": 18544,
+                    "process_peak_memory_kb": 153568
+                  },
+                  {
+                    "cpu_time_ms": 1230,
+                    "duration_ns": 263610417,
+                    "peak_memory_kb": 27664,
+                    "process_peak_memory_kb": 162608
+                  },
+                  {
+                    "cpu_time_ms": 1211,
+                    "duration_ns": 284773625,
+                    "peak_memory_kb": 27376,
+                    "process_peak_memory_kb": 162320
+                  },
+                  {
+                    "cpu_time_ms": 1173,
+                    "duration_ns": 283797292,
+                    "peak_memory_kb": 25840,
+                    "process_peak_memory_kb": 160736
+                  },
+                  {
+                    "cpu_time_ms": 1235,
+                    "duration_ns": 261603833,
+                    "peak_memory_kb": 25296,
+                    "process_peak_memory_kb": 160192
+                  },
+                  {
+                    "cpu_time_ms": 1243,
+                    "duration_ns": 268210834,
+                    "peak_memory_kb": 23184,
+                    "process_peak_memory_kb": 158080
+                  },
+                  {
+                    "cpu_time_ms": 1192,
+                    "duration_ns": 287462334,
+                    "peak_memory_kb": 27488,
+                    "process_peak_memory_kb": 162416
+                  },
+                  {
+                    "cpu_time_ms": 1245,
+                    "duration_ns": 252429625,
+                    "peak_memory_kb": 25456,
+                    "process_peak_memory_kb": 160880
+                  },
+                  {
+                    "cpu_time_ms": 1259,
+                    "duration_ns": 252500709,
+                    "peak_memory_kb": 25456,
+                    "process_peak_memory_kb": 160880
+                  },
+                  {
+                    "cpu_time_ms": 1230,
+                    "duration_ns": 281085750,
+                    "peak_memory_kb": 25632,
+                    "process_peak_memory_kb": 161056
+                  },
+                  {
+                    "cpu_time_ms": 1260,
+                    "duration_ns": 264999875,
+                    "peak_memory_kb": 24368,
+                    "process_peak_memory_kb": 159920
+                  },
+                  {
+                    "cpu_time_ms": 1235,
+                    "duration_ns": 263452583,
+                    "peak_memory_kb": 26560,
+                    "process_peak_memory_kb": 162112
+                  },
+                  {
+                    "cpu_time_ms": 1261,
+                    "duration_ns": 253598459,
+                    "peak_memory_kb": 26432,
+                    "process_peak_memory_kb": 161936
+                  },
+                  {
+                    "cpu_time_ms": 1212,
+                    "duration_ns": 298767292,
+                    "peak_memory_kb": 20976,
+                    "process_peak_memory_kb": 156688
+                  },
+                  {
+                    "cpu_time_ms": 1247,
+                    "duration_ns": 263116542,
+                    "peak_memory_kb": 20816,
+                    "process_peak_memory_kb": 156608
+                  },
+                  {
+                    "cpu_time_ms": 1204,
+                    "duration_ns": 282528750,
+                    "peak_memory_kb": 26576,
+                    "process_peak_memory_kb": 162384
+                  },
+                  {
+                    "cpu_time_ms": 1243,
+                    "duration_ns": 273941708,
+                    "peak_memory_kb": 21872,
+                    "process_peak_memory_kb": 158032
+                  },
+                  {
+                    "cpu_time_ms": 1260,
+                    "duration_ns": 278372167,
+                    "peak_memory_kb": 25840,
+                    "process_peak_memory_kb": 162000
+                  },
+                  {
+                    "cpu_time_ms": 1250,
+                    "duration_ns": 269952416,
+                    "peak_memory_kb": 26224,
+                    "process_peak_memory_kb": 162384
+                  }
+                ],
+                "samples_ns": [
+                  273836083,
+                  267430500,
+                  259559458,
+                  266187834,
+                  256138833,
+                  276917292,
+                  277544750,
+                  256072541,
+                  268796250,
+                  281421125,
+                  250817167,
+                  271237041,
+                  263610417,
+                  284773625,
+                  283797292,
+                  261603833,
+                  268210834,
+                  287462334,
+                  252429625,
+                  252500709,
+                  281085750,
+                  264999875,
+                  263452583,
+                  253598459,
+                  298767292,
+                  263116542,
+                  282528750,
+                  273941708,
+                  278372167,
+                  269952416
+                ],
+                "schema_version": "mobench.run/v2",
+                "spec": {
+                  "iterations": 30,
+                  "name": "zk_mobile_bench::bench_query_cached_proof_generation",
+                  "warmup": 5
+                },
+                "stats": {
+                  "avg_ns": 269672102.8333333,
+                  "max_ns": 298767292,
+                  "mean_ns": 269672102,
+                  "median_ns": 268503542,
+                  "min_ns": 250817167
+                }
+              }
+            ]
+          },
+          "ci": {
+            "metadata": {
+              "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+              "mobench_version": "0.2.0",
+              "request_command": "cargo-mobench ci run --target ios --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices iPhone 14-16 --crate-path ./crates/zk-mobile-bench --release --ios-completion-timeout-secs 1800 --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/ios",
+              "requested_by": "kilianglas"
+            },
+            "outputs": {
+              "results_csv": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__cached__proof__generation/results.csv",
+              "summary_json": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__cached__proof__generation/summary.json",
+              "summary_md": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__cached__proof__generation/summary.md"
+            },
+            "target": "ios"
+          },
+          "local_report": {
+            "reason": "Host benchmark disabled - benchmarks run on mobile devices",
+            "skipped": true
+          },
+          "performance_metrics": {
+            "iPhone 14-16": {
+              "cpu": {
+                "average_percent": 48.34,
+                "min_percent": 48.34,
+                "peak_percent": 77.53
+              },
+              "memory": {
+                "average_mb": 80.19,
+                "min_mb": 80.19,
+                "peak_mb": 93.31
+              },
+              "sample_count": 1
+            }
+          },
+          "remote_run": {
+            "app_url": "bs://962f250dd769eb1ed448c490065ba88735563506",
+            "build_id": "0aa99133b676b03575ac5f7ec20d9bceb6f2e802",
+            "platform": "ios",
+            "test_suite_url": "bs://92abc2821200b79774cc720da3fbf12e8086e457"
+          },
+          "spec": {
+            "devices": [
+              "iPhone 14-16"
+            ],
+            "function": "zk_mobile_bench::bench_query_cached_proof_generation",
+            "ios_completion_timeout_secs": 1800,
+            "ios_deployment_target": "15.0",
+            "ios_runner": "swiftui",
+            "ios_xcuitest": {
+              "app": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunner.ipa",
+              "test_suite": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunnerUITests.zip"
+            },
+            "iterations": 30,
+            "target": "ios",
+            "warmup": 5
+          },
+          "summary": {
+            "device_summaries": [
+              {
+                "benchmarks": [
+                  {
+                    "function": "zk_mobile_bench::bench_query_cached_proof_generation",
+                    "max_ns": 298767292,
+                    "mean_ns": 269672102,
+                    "median_ns": 268503542,
+                    "min_ns": 250817167,
+                    "p95_ns": 287462334,
+                    "resource_usage": {
+                      "cpu_median_ms": 1211,
+                      "cpu_total_ms": 36391,
+                      "peak_memory_growth_kb": 27664,
+                      "peak_memory_kb": 27664,
+                      "process_peak_memory_kb": 162608
+                    },
+                    "samples": 30
+                  }
+                ],
+                "device": "iPhone 14-16"
+              }
+            ],
+            "devices": [
+              "iPhone 14-16"
+            ],
+            "function": "zk_mobile_bench::bench_query_cached_proof_generation",
+            "generated_at": "2026-09-11T13:42:27.947805Z",
+            "generated_at_unix": 1789134147,
+            "iterations": 30,
+            "target": "ios",
+            "warmup": 5
+          }
+        },
+        "zk__mobile__bench_bench__query__proof__generation": {
+          "artifacts": {
+            "app": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunner.ipa",
+            "header": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/include/zk_mobile_bench.h",
+            "platform": "ios",
+            "test_suite": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunnerUITests.zip",
+            "xcframework": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/zk_mobile_bench.xcframework"
+          },
+          "benchmark_results": {
+            "iPhone 14-16": [
+              {
+                "function": "zk_mobile_bench::bench_query_proof_generation",
+                "function_id": "zk_mobile_bench::bench_query_proof_generation",
+                "logical_session_id": "logical-session-20ccf437e3c5764d6db4793d9608f6bb",
+                "max_ns": 316279083,
+                "mean_ns": 271971476,
+                "median_ns": 266631146,
+                "min_ns": 252091291,
+                "nonce": "nonce-78581550fb497c9dbb2e7dd5b1b37e7016c6304318ec8323151171a48310eb82",
+                "observed": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "outcome": {
+                  "status": "success"
+                },
+                "p95_ns": 304961959,
+                "phases": [],
+                "producer": "ios-runner",
+                "requested": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "resources": {
+                  "cpu_median_ms": 1267,
+                  "cpu_total_ms": 38093,
+                  "elapsed_cpu_ms": 38093,
+                  "memory_process": "benchmark_app",
+                  "peak_memory_growth_kb": 64256,
+                  "peak_memory_kb": 64256,
+                  "platform": "ios",
+                  "process_peak_memory_kb": 190256,
+                  "timestamp_ms": 1789133932883
+                },
+                "run_id": "run-3d87a8932ac9ca65028ce642c6bee229",
+                "samples": [
+                  {
+                    "cpu_time_ms": 1226,
+                    "duration_ns": 257133709,
+                    "peak_memory_kb": 63456,
+                    "process_peak_memory_kb": 187440
+                  },
+                  {
+                    "cpu_time_ms": 1240,
+                    "duration_ns": 252348000,
+                    "peak_memory_kb": 61376,
+                    "process_peak_memory_kb": 185760
+                  },
+                  {
+                    "cpu_time_ms": 1253,
+                    "duration_ns": 280964667,
+                    "peak_memory_kb": 62400,
+                    "process_peak_memory_kb": 187056
+                  },
+                  {
+                    "cpu_time_ms": 1231,
+                    "duration_ns": 257718708,
+                    "peak_memory_kb": 61632,
+                    "process_peak_memory_kb": 187632
+                  },
+                  {
+                    "cpu_time_ms": 1262,
+                    "duration_ns": 252091291,
+                    "peak_memory_kb": 64256,
+                    "process_peak_memory_kb": 190256
+                  },
+                  {
+                    "cpu_time_ms": 1251,
+                    "duration_ns": 262946333,
+                    "peak_memory_kb": 62704,
+                    "process_peak_memory_kb": 188848
+                  },
+                  {
+                    "cpu_time_ms": 1252,
+                    "duration_ns": 265307750,
+                    "peak_memory_kb": 62448,
+                    "process_peak_memory_kb": 188592
+                  },
+                  {
+                    "cpu_time_ms": 1252,
+                    "duration_ns": 260095334,
+                    "peak_memory_kb": 61856,
+                    "process_peak_memory_kb": 188000
+                  },
+                  {
+                    "cpu_time_ms": 1243,
+                    "duration_ns": 266579667,
+                    "peak_memory_kb": 61712,
+                    "process_peak_memory_kb": 187856
+                  },
+                  {
+                    "cpu_time_ms": 1255,
+                    "duration_ns": 284790500,
+                    "peak_memory_kb": 62464,
+                    "process_peak_memory_kb": 188608
+                  },
+                  {
+                    "cpu_time_ms": 1262,
+                    "duration_ns": 264546541,
+                    "peak_memory_kb": 61744,
+                    "process_peak_memory_kb": 187904
+                  },
+                  {
+                    "cpu_time_ms": 1279,
+                    "duration_ns": 257626208,
+                    "peak_memory_kb": 61424,
+                    "process_peak_memory_kb": 187584
+                  },
+                  {
+                    "cpu_time_ms": 1256,
+                    "duration_ns": 270314500,
+                    "peak_memory_kb": 62016,
+                    "process_peak_memory_kb": 188176
+                  },
+                  {
+                    "cpu_time_ms": 1269,
+                    "duration_ns": 289974958,
+                    "peak_memory_kb": 60544,
+                    "process_peak_memory_kb": 186704
+                  },
+                  {
+                    "cpu_time_ms": 1265,
+                    "duration_ns": 270300708,
+                    "peak_memory_kb": 60848,
+                    "process_peak_memory_kb": 187008
+                  },
+                  {
+                    "cpu_time_ms": 1276,
+                    "duration_ns": 268825083,
+                    "peak_memory_kb": 60336,
+                    "process_peak_memory_kb": 186448
+                  },
+                  {
+                    "cpu_time_ms": 1289,
+                    "duration_ns": 259400125,
+                    "peak_memory_kb": 61296,
+                    "process_peak_memory_kb": 187408
+                  },
+                  {
+                    "cpu_time_ms": 1279,
+                    "duration_ns": 294069334,
+                    "peak_memory_kb": 60800,
+                    "process_peak_memory_kb": 186976
+                  },
+                  {
+                    "cpu_time_ms": 1287,
+                    "duration_ns": 266532541,
+                    "peak_memory_kb": 61552,
+                    "process_peak_memory_kb": 188256
+                  },
+                  {
+                    "cpu_time_ms": 1290,
+                    "duration_ns": 266682625,
+                    "peak_memory_kb": 60448,
+                    "process_peak_memory_kb": 187152
+                  },
+                  {
+                    "cpu_time_ms": 1289,
+                    "duration_ns": 263485958,
+                    "peak_memory_kb": 61056,
+                    "process_peak_memory_kb": 187760
+                  },
+                  {
+                    "cpu_time_ms": 1262,
+                    "duration_ns": 304961959,
+                    "peak_memory_kb": 60320,
+                    "process_peak_memory_kb": 187200
+                  },
+                  {
+                    "cpu_time_ms": 1279,
+                    "duration_ns": 270503375,
+                    "peak_memory_kb": 62400,
+                    "process_peak_memory_kb": 189232
+                  },
+                  {
+                    "cpu_time_ms": 1299,
+                    "duration_ns": 263778542,
+                    "peak_memory_kb": 60432,
+                    "process_peak_memory_kb": 187264
+                  },
+                  {
+                    "cpu_time_ms": 1259,
+                    "duration_ns": 316279083,
+                    "peak_memory_kb": 62384,
+                    "process_peak_memory_kb": 189216
+                  },
+                  {
+                    "cpu_time_ms": 1294,
+                    "duration_ns": 276470500,
+                    "peak_memory_kb": 61200,
+                    "process_peak_memory_kb": 188032
+                  },
+                  {
+                    "cpu_time_ms": 1307,
+                    "duration_ns": 263780250,
+                    "peak_memory_kb": 60352,
+                    "process_peak_memory_kb": 187344
+                  },
+                  {
+                    "cpu_time_ms": 1276,
+                    "duration_ns": 280929250,
+                    "peak_memory_kb": 61040,
+                    "process_peak_memory_kb": 188032
+                  },
+                  {
+                    "cpu_time_ms": 1308,
+                    "duration_ns": 292977792,
+                    "peak_memory_kb": 62800,
+                    "process_peak_memory_kb": 189792
+                  },
+                  {
+                    "cpu_time_ms": 1303,
+                    "duration_ns": 277729000,
+                    "peak_memory_kb": 62176,
+                    "process_peak_memory_kb": 189168
+                  }
+                ],
+                "samples_ns": [
+                  257133709,
+                  252348000,
+                  280964667,
+                  257718708,
+                  252091291,
+                  262946333,
+                  265307750,
+                  260095334,
+                  266579667,
+                  284790500,
+                  264546541,
+                  257626208,
+                  270314500,
+                  289974958,
+                  270300708,
+                  268825083,
+                  259400125,
+                  294069334,
+                  266532541,
+                  266682625,
+                  263485958,
+                  304961959,
+                  270503375,
+                  263778542,
+                  316279083,
+                  276470500,
+                  263780250,
+                  280929250,
+                  292977792,
+                  277729000
+                ],
+                "schema_version": "mobench.run/v2",
+                "spec": {
+                  "iterations": 30,
+                  "name": "zk_mobile_bench::bench_query_proof_generation",
+                  "warmup": 5
+                },
+                "stats": {
+                  "avg_ns": 271971476.3666667,
+                  "max_ns": 316279083,
+                  "mean_ns": 271971476,
+                  "median_ns": 266631146,
+                  "min_ns": 252091291
+                }
+              }
+            ]
+          },
+          "ci": {
+            "metadata": {
+              "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+              "mobench_version": "0.2.0",
+              "request_command": "cargo-mobench ci run --target ios --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices iPhone 14-16 --crate-path ./crates/zk-mobile-bench --release --ios-completion-timeout-secs 1800 --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/ios",
+              "requested_by": "kilianglas"
+            },
+            "outputs": {
+              "results_csv": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__proof__generation/results.csv",
+              "summary_json": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__proof__generation/summary.json",
+              "summary_md": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__proof__generation/summary.md"
+            },
+            "target": "ios"
+          },
+          "local_report": {
+            "reason": "Host benchmark disabled - benchmarks run on mobile devices",
+            "skipped": true
+          },
+          "performance_metrics": {
+            "iPhone 14-16": {
+              "cpu": {
+                "average_percent": 51.33,
+                "min_percent": 51.33,
+                "peak_percent": 80.28
+              },
+              "memory": {
+                "average_mb": 75.92,
+                "min_mb": 75.92,
+                "peak_mb": 104.02
+              },
+              "sample_count": 1
+            }
+          },
+          "remote_run": {
+            "app_url": "bs://c69a7708793bce9ae9d6e15ee4a2e5ad0b2a23fc",
+            "build_id": "905e652e136300670ddfaeeddb344ba4fa5a1361",
+            "platform": "ios",
+            "test_suite_url": "bs://b283ee9d07cc140bfb38c88c96121078eb5be882"
+          },
+          "spec": {
+            "devices": [
+              "iPhone 14-16"
+            ],
+            "function": "zk_mobile_bench::bench_query_proof_generation",
+            "ios_completion_timeout_secs": 1800,
+            "ios_deployment_target": "15.0",
+            "ios_runner": "swiftui",
+            "ios_xcuitest": {
+              "app": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunner.ipa",
+              "test_suite": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunnerUITests.zip"
+            },
+            "iterations": 30,
+            "target": "ios",
+            "warmup": 5
+          },
+          "summary": {
+            "device_summaries": [
+              {
+                "benchmarks": [
+                  {
+                    "function": "zk_mobile_bench::bench_query_proof_generation",
+                    "max_ns": 316279083,
+                    "mean_ns": 271971476,
+                    "median_ns": 266631146,
+                    "min_ns": 252091291,
+                    "p95_ns": 304961959,
+                    "resource_usage": {
+                      "cpu_median_ms": 1267,
+                      "cpu_total_ms": 38093,
+                      "peak_memory_growth_kb": 64256,
+                      "peak_memory_kb": 64256,
+                      "process_peak_memory_kb": 190256
+                    },
+                    "samples": 30
+                  }
+                ],
+                "device": "iPhone 14-16"
+              }
+            ],
+            "devices": [
+              "iPhone 14-16"
+            ],
+            "function": "zk_mobile_bench::bench_query_proof_generation",
+            "generated_at": "2026-09-11T13:39:16.556399Z",
+            "generated_at_unix": 1789133956,
+            "iterations": 30,
+            "target": "ios",
+            "warmup": 5
+          }
+        },
+        "zk__mobile__bench_bench__query__proving__only": {
+          "artifacts": {
+            "app": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunner.ipa",
+            "header": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/include/zk_mobile_bench.h",
+            "platform": "ios",
+            "test_suite": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunnerUITests.zip",
+            "xcframework": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/zk_mobile_bench.xcframework"
+          },
+          "benchmark_results": {
+            "iPhone 14-16": [
+              {
+                "function": "zk_mobile_bench::bench_query_proving_only",
+                "function_id": "zk_mobile_bench::bench_query_proving_only",
+                "logical_session_id": "logical-session-7d021ade6a401316b72d468f6f986074",
+                "max_ns": 291097959,
+                "mean_ns": 256933391,
+                "median_ns": 250142916,
+                "min_ns": 236628833,
+                "nonce": "nonce-827f7c9ca1b04ae6c877462b4926cc10141c4d029ce2184ced7f2fada5ae08d2",
+                "observed": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "outcome": {
+                  "status": "success"
+                },
+                "p95_ns": 290229333,
+                "phases": [],
+                "producer": "ios-runner",
+                "requested": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "resources": {
+                  "cpu_median_ms": 1329,
+                  "cpu_total_ms": 39746,
+                  "elapsed_cpu_ms": 39746,
+                  "memory_process": "benchmark_app",
+                  "peak_memory_growth_kb": 26896,
+                  "peak_memory_kb": 26896,
+                  "platform": "ios",
+                  "process_peak_memory_kb": 165024,
+                  "timestamp_ms": 1789134519049
+                },
+                "run_id": "run-999e0aa2f40915f4fa11b4e06d76926e",
+                "samples": [
+                  {
+                    "cpu_time_ms": 1259,
+                    "duration_ns": 246736792,
+                    "peak_memory_kb": 25744,
+                    "process_peak_memory_kb": 162480
+                  },
+                  {
+                    "cpu_time_ms": 1267,
+                    "duration_ns": 241751500,
+                    "peak_memory_kb": 25280,
+                    "process_peak_memory_kb": 162096
+                  },
+                  {
+                    "cpu_time_ms": 1301,
+                    "duration_ns": 272689667,
+                    "peak_memory_kb": 24656,
+                    "process_peak_memory_kb": 161472
+                  },
+                  {
+                    "cpu_time_ms": 1281,
+                    "duration_ns": 239554292,
+                    "peak_memory_kb": 25664,
+                    "process_peak_memory_kb": 163328
+                  },
+                  {
+                    "cpu_time_ms": 1296,
+                    "duration_ns": 244250042,
+                    "peak_memory_kb": 24304,
+                    "process_peak_memory_kb": 161968
+                  },
+                  {
+                    "cpu_time_ms": 1301,
+                    "duration_ns": 236628833,
+                    "peak_memory_kb": 26128,
+                    "process_peak_memory_kb": 163824
+                  },
+                  {
+                    "cpu_time_ms": 1318,
+                    "duration_ns": 270549792,
+                    "peak_memory_kb": 21456,
+                    "process_peak_memory_kb": 159152
+                  },
+                  {
+                    "cpu_time_ms": 1300,
+                    "duration_ns": 244318584,
+                    "peak_memory_kb": 17632,
+                    "process_peak_memory_kb": 155424
+                  },
+                  {
+                    "cpu_time_ms": 1292,
+                    "duration_ns": 246853542,
+                    "peak_memory_kb": 22224,
+                    "process_peak_memory_kb": 160048
+                  },
+                  {
+                    "cpu_time_ms": 1313,
+                    "duration_ns": 244447417,
+                    "peak_memory_kb": 26048,
+                    "process_peak_memory_kb": 163872
+                  },
+                  {
+                    "cpu_time_ms": 1321,
+                    "duration_ns": 283015875,
+                    "peak_memory_kb": 26896,
+                    "process_peak_memory_kb": 164720
+                  },
+                  {
+                    "cpu_time_ms": 1300,
+                    "duration_ns": 249034834,
+                    "peak_memory_kb": 24368,
+                    "process_peak_memory_kb": 162192
+                  },
+                  {
+                    "cpu_time_ms": 1325,
+                    "duration_ns": 244529917,
+                    "peak_memory_kb": 25440,
+                    "process_peak_memory_kb": 163344
+                  },
+                  {
+                    "cpu_time_ms": 1332,
+                    "duration_ns": 247669042,
+                    "peak_memory_kb": 25664,
+                    "process_peak_memory_kb": 163728
+                  },
+                  {
+                    "cpu_time_ms": 1336,
+                    "duration_ns": 272742875,
+                    "peak_memory_kb": 25392,
+                    "process_peak_memory_kb": 163456
+                  },
+                  {
+                    "cpu_time_ms": 1335,
+                    "duration_ns": 248996500,
+                    "peak_memory_kb": 22592,
+                    "process_peak_memory_kb": 160768
+                  },
+                  {
+                    "cpu_time_ms": 1331,
+                    "duration_ns": 251831666,
+                    "peak_memory_kb": 26144,
+                    "process_peak_memory_kb": 164272
+                  },
+                  {
+                    "cpu_time_ms": 1342,
+                    "duration_ns": 242755208,
+                    "peak_memory_kb": 25312,
+                    "process_peak_memory_kb": 163440
+                  },
+                  {
+                    "cpu_time_ms": 1328,
+                    "duration_ns": 291097959,
+                    "peak_memory_kb": 21328,
+                    "process_peak_memory_kb": 159456
+                  },
+                  {
+                    "cpu_time_ms": 1344,
+                    "duration_ns": 250644541,
+                    "peak_memory_kb": 25264,
+                    "process_peak_memory_kb": 163424
+                  },
+                  {
+                    "cpu_time_ms": 1344,
+                    "duration_ns": 249641291,
+                    "peak_memory_kb": 25920,
+                    "process_peak_memory_kb": 164128
+                  },
+                  {
+                    "cpu_time_ms": 1330,
+                    "duration_ns": 260646333,
+                    "peak_memory_kb": 26816,
+                    "process_peak_memory_kb": 165024
+                  },
+                  {
+                    "cpu_time_ms": 1346,
+                    "duration_ns": 283483750,
+                    "peak_memory_kb": 25280,
+                    "process_peak_memory_kb": 163488
+                  },
+                  {
+                    "cpu_time_ms": 1371,
+                    "duration_ns": 246306584,
+                    "peak_memory_kb": 25664,
+                    "process_peak_memory_kb": 163824
+                  },
+                  {
+                    "cpu_time_ms": 1352,
+                    "duration_ns": 254215458,
+                    "peak_memory_kb": 25280,
+                    "process_peak_memory_kb": 163440
+                  },
+                  {
+                    "cpu_time_ms": 1325,
+                    "duration_ns": 267325375,
+                    "peak_memory_kb": 25280,
+                    "process_peak_memory_kb": 163440
+                  },
+                  {
+                    "cpu_time_ms": 1361,
+                    "duration_ns": 290229333,
+                    "peak_memory_kb": 23056,
+                    "process_peak_memory_kb": 161216
+                  },
+                  {
+                    "cpu_time_ms": 1364,
+                    "duration_ns": 259044666,
+                    "peak_memory_kb": 24832,
+                    "process_peak_memory_kb": 162992
+                  },
+                  {
+                    "cpu_time_ms": 1369,
+                    "duration_ns": 257831833,
+                    "peak_memory_kb": 18112,
+                    "process_peak_memory_kb": 156272
+                  },
+                  {
+                    "cpu_time_ms": 1362,
+                    "duration_ns": 269178250,
+                    "peak_memory_kb": 20960,
+                    "process_peak_memory_kb": 159120
+                  }
+                ],
+                "samples_ns": [
+                  246736792,
+                  241751500,
+                  272689667,
+                  239554292,
+                  244250042,
+                  236628833,
+                  270549792,
+                  244318584,
+                  246853542,
+                  244447417,
+                  283015875,
+                  249034834,
+                  244529917,
+                  247669042,
+                  272742875,
+                  248996500,
+                  251831666,
+                  242755208,
+                  291097959,
+                  250644541,
+                  249641291,
+                  260646333,
+                  283483750,
+                  246306584,
+                  254215458,
+                  267325375,
+                  290229333,
+                  259044666,
+                  257831833,
+                  269178250
+                ],
+                "schema_version": "mobench.run/v2",
+                "spec": {
+                  "iterations": 30,
+                  "name": "zk_mobile_bench::bench_query_proving_only",
+                  "warmup": 5
+                },
+                "stats": {
+                  "avg_ns": 256933391.7,
+                  "max_ns": 291097959,
+                  "mean_ns": 256933391,
+                  "median_ns": 250142916,
+                  "min_ns": 236628833
+                }
+              }
+            ]
+          },
+          "ci": {
+            "metadata": {
+              "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+              "mobench_version": "0.2.0",
+              "request_command": "cargo-mobench ci run --target ios --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices iPhone 14-16 --crate-path ./crates/zk-mobile-bench --release --ios-completion-timeout-secs 1800 --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/ios",
+              "requested_by": "kilianglas"
+            },
+            "outputs": {
+              "results_csv": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__proving__only/results.csv",
+              "summary_json": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__proving__only/summary.json",
+              "summary_md": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__proving__only/summary.md"
+            },
+            "target": "ios"
+          },
+          "local_report": {
+            "reason": "Host benchmark disabled - benchmarks run on mobile devices",
+            "skipped": true
+          },
+          "performance_metrics": {
+            "iPhone 14-16": {
+              "cpu": {
+                "average_percent": 46.85,
+                "min_percent": 46.85,
+                "peak_percent": 87.31
+              },
+              "memory": {
+                "average_mb": 75.51,
+                "min_mb": 75.51,
+                "peak_mb": 94.09
+              },
+              "sample_count": 1
+            }
+          },
+          "remote_run": {
+            "app_url": "bs://41094a38b948d604536265b8246e1c3fba972612",
+            "build_id": "154177c801a44b7ea5a3b8bb6153d926156ae529",
+            "platform": "ios",
+            "test_suite_url": "bs://91e99e2464ec55e788e26a7e4268a42093a92f59"
+          },
+          "spec": {
+            "devices": [
+              "iPhone 14-16"
+            ],
+            "function": "zk_mobile_bench::bench_query_proving_only",
+            "ios_completion_timeout_secs": 1800,
+            "ios_deployment_target": "15.0",
+            "ios_runner": "swiftui",
+            "ios_xcuitest": {
+              "app": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunner.ipa",
+              "test_suite": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunnerUITests.zip"
+            },
+            "iterations": 30,
+            "target": "ios",
+            "warmup": 5
+          },
+          "summary": {
+            "device_summaries": [
+              {
+                "benchmarks": [
+                  {
+                    "function": "zk_mobile_bench::bench_query_proving_only",
+                    "max_ns": 291097959,
+                    "mean_ns": 256933391,
+                    "median_ns": 250142916,
+                    "min_ns": 236628833,
+                    "p95_ns": 290229333,
+                    "resource_usage": {
+                      "cpu_median_ms": 1329,
+                      "cpu_total_ms": 39746,
+                      "peak_memory_growth_kb": 26896,
+                      "peak_memory_kb": 26896,
+                      "process_peak_memory_kb": 165024
+                    },
+                    "samples": 30
+                  }
+                ],
+                "device": "iPhone 14-16"
+              }
+            ],
+            "devices": [
+              "iPhone 14-16"
+            ],
+            "function": "zk_mobile_bench::bench_query_proving_only",
+            "generated_at": "2026-09-11T13:49:03.468837Z",
+            "generated_at_unix": 1789134543,
+            "iterations": 30,
+            "target": "ios",
+            "warmup": 5
+          }
+        },
+        "zk__mobile__bench_bench__query__witness__generation__only": {
+          "artifacts": {
+            "app": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunner.ipa",
+            "header": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/include/zk_mobile_bench.h",
+            "platform": "ios",
+            "test_suite": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunnerUITests.zip",
+            "xcframework": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/zk_mobile_bench.xcframework"
+          },
+          "benchmark_results": {
+            "iPhone 14-16": [
+              {
+                "function": "zk_mobile_bench::bench_query_witness_generation_only",
+                "function_id": "zk_mobile_bench::bench_query_witness_generation_only",
+                "logical_session_id": "logical-session-bbd2bcff0ff85dbeae0b2385a6a4bc42",
+                "max_ns": 7919083,
+                "mean_ns": 7643174,
+                "median_ns": 7620041,
+                "min_ns": 7534417,
+                "nonce": "nonce-95608154b884c83ccfc70b895d971d0a4aad97e6079e9bf72ed94df273578a20",
+                "observed": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "outcome": {
+                  "status": "success"
+                },
+                "p95_ns": 7855709,
+                "phases": [],
+                "producer": "ios-runner",
+                "requested": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "resources": {
+                  "cpu_median_ms": 8,
+                  "cpu_total_ms": 265,
+                  "elapsed_cpu_ms": 265,
+                  "memory_process": "benchmark_app",
+                  "peak_memory_growth_kb": 3456,
+                  "peak_memory_kb": 3456,
+                  "platform": "ios",
+                  "process_peak_memory_kb": 134784,
+                  "timestamp_ms": 1789134316612
+                },
+                "run_id": "run-3b0efc4ae56e740a1c1ebde6ddea3ff0",
+                "samples": [
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7658833,
+                    "peak_memory_kb": 2336,
+                    "process_peak_memory_kb": 132256
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7592750,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 131584
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7597041,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 131584
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7610875,
+                    "peak_memory_kb": 2336,
+                    "process_peak_memory_kb": 132256
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7626625,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 131584
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7570792,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 131584
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7622666,
+                    "peak_memory_kb": 1648,
+                    "process_peak_memory_kb": 131568
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7707250,
+                    "peak_memory_kb": 1648,
+                    "process_peak_memory_kb": 131568
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7604208,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 131584
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7562750,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 131584
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7584042,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 131584
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7658875,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 131584
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7579750,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 131600
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7612041,
+                    "peak_memory_kb": 2336,
+                    "process_peak_memory_kb": 132272
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7534417,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 131600
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7612792,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 131600
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7670708,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 131600
+                  },
+                  {
+                    "cpu_time_ms": 17,
+                    "duration_ns": 7830042,
+                    "peak_memory_kb": 2432,
+                    "process_peak_memory_kb": 132368
+                  },
+                  {
+                    "cpu_time_ms": 18,
+                    "duration_ns": 7919083,
+                    "peak_memory_kb": 3456,
+                    "process_peak_memory_kb": 134240
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 7855709,
+                    "peak_memory_kb": 2800,
+                    "process_peak_memory_kb": 134768
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7617417,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 134096
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7654542,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 134096
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7644625,
+                    "peak_memory_kb": 1648,
+                    "process_peak_memory_kb": 134096
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7629625,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 134112
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7616791,
+                    "peak_memory_kb": 1648,
+                    "process_peak_memory_kb": 134096
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7647666,
+                    "peak_memory_kb": 1648,
+                    "process_peak_memory_kb": 134096
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7589334,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 134112
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7628208,
+                    "peak_memory_kb": 1648,
+                    "process_peak_memory_kb": 134096
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7677708,
+                    "peak_memory_kb": 2336,
+                    "process_peak_memory_kb": 134784
+                  },
+                  {
+                    "cpu_time_ms": 8,
+                    "duration_ns": 7578083,
+                    "peak_memory_kb": 1664,
+                    "process_peak_memory_kb": 134112
+                  }
+                ],
+                "samples_ns": [
+                  7658833,
+                  7592750,
+                  7597041,
+                  7610875,
+                  7626625,
+                  7570792,
+                  7622666,
+                  7707250,
+                  7604208,
+                  7562750,
+                  7584042,
+                  7658875,
+                  7579750,
+                  7612041,
+                  7534417,
+                  7612792,
+                  7670708,
+                  7830042,
+                  7919083,
+                  7855709,
+                  7617417,
+                  7654542,
+                  7644625,
+                  7629625,
+                  7616791,
+                  7647666,
+                  7589334,
+                  7628208,
+                  7677708,
+                  7578083
+                ],
+                "schema_version": "mobench.run/v2",
+                "spec": {
+                  "iterations": 30,
+                  "name": "zk_mobile_bench::bench_query_witness_generation_only",
+                  "warmup": 5
+                },
+                "stats": {
+                  "avg_ns": 7643174.9333333345,
+                  "max_ns": 7919083,
+                  "mean_ns": 7643174,
+                  "median_ns": 7620041,
+                  "min_ns": 7534417
+                }
+              }
+            ]
+          },
+          "ci": {
+            "metadata": {
+              "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+              "mobench_version": "0.2.0",
+              "request_command": "cargo-mobench ci run --target ios --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices iPhone 14-16 --crate-path ./crates/zk-mobile-bench --release --ios-completion-timeout-secs 1800 --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/ios",
+              "requested_by": "kilianglas"
+            },
+            "outputs": {
+              "results_csv": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__witness__generation__only/results.csv",
+              "summary_json": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__witness__generation__only/summary.json",
+              "summary_md": "target/mobench/ci/ios/ios/zk__mobile__bench_bench__query__witness__generation__only/summary.md"
+            },
+            "target": "ios"
+          },
+          "local_report": {
+            "reason": "Host benchmark disabled - benchmarks run on mobile devices",
+            "skipped": true
+          },
+          "performance_metrics": {
+            "iPhone 14-16": {
+              "cpu": {
+                "average_percent": 0.16,
+                "min_percent": 0.16,
+                "peak_percent": 0.78
+              },
+              "memory": {
+                "average_mb": 62.19,
+                "min_mb": 62.19,
+                "peak_mb": 71.16
+              },
+              "sample_count": 1
+            }
+          },
+          "remote_run": {
+            "app_url": "bs://c6f6cbbbcd650a6f7090910a77bc37cca8e7c1fb",
+            "build_id": "0776f33bfac8c41d49f4c68a03dd7d98f5271eec",
+            "platform": "ios",
+            "test_suite_url": "bs://a6ddd4f5315f4ca355f7c298964e4235d2b17761"
+          },
+          "spec": {
+            "devices": [
+              "iPhone 14-16"
+            ],
+            "function": "zk_mobile_bench::bench_query_witness_generation_only",
+            "ios_completion_timeout_secs": 1800,
+            "ios_deployment_target": "15.0",
+            "ios_runner": "swiftui",
+            "ios_xcuitest": {
+              "app": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunner.ipa",
+              "test_suite": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/ios/BenchRunnerUITests.zip"
+            },
+            "iterations": 30,
+            "target": "ios",
+            "warmup": 5
+          },
+          "summary": {
+            "device_summaries": [
+              {
+                "benchmarks": [
+                  {
+                    "function": "zk_mobile_bench::bench_query_witness_generation_only",
+                    "max_ns": 7919083,
+                    "mean_ns": 7643174,
+                    "median_ns": 7620041,
+                    "min_ns": 7534417,
+                    "p95_ns": 7855709,
+                    "resource_usage": {
+                      "cpu_median_ms": 8,
+                      "cpu_total_ms": 265,
+                      "peak_memory_growth_kb": 3456,
+                      "peak_memory_kb": 3456,
+                      "process_peak_memory_kb": 134784
+                    },
+                    "samples": 30
+                  }
+                ],
+                "device": "iPhone 14-16"
+              }
+            ],
+            "devices": [
+              "iPhone 14-16"
+            ],
+            "function": "zk_mobile_bench::bench_query_witness_generation_only",
+            "generated_at": "2026-09-11T13:45:41.840312Z",
+            "generated_at_unix": 1789134341,
+            "iterations": 30,
+            "target": "ios",
+            "warmup": 5
+          }
+        }
+      },
+      "summary": {
+        "device_summaries": [
+          {
+            "benchmarks": [
+              {
+                "function": "zk_mobile_bench::bench_nullifier_proof_generation",
+                "max_ns": 923558583,
+                "mean_ns": 876242400,
+                "median_ns": 873094729,
+                "min_ns": 831039875,
+                "p95_ns": 921080458,
+                "resource_usage": {
+                  "cpu_median_ms": 4059,
+                  "cpu_total_ms": 121379,
+                  "peak_memory_growth_kb": 108128,
+                  "peak_memory_kb": 108128,
+                  "process_peak_memory_kb": 244304
+                },
+                "samples": 30
+              },
+              {
+                "function": "zk_mobile_bench::bench_nullifier_proving_only",
+                "max_ns": 543422375,
+                "mean_ns": 504879490,
+                "median_ns": 501227604,
+                "min_ns": 469866167,
+                "p95_ns": 541921625,
+                "resource_usage": {
+                  "cpu_median_ms": 2596,
+                  "cpu_total_ms": 77731,
+                  "peak_memory_growth_kb": 57184,
+                  "peak_memory_kb": 57184,
+                  "process_peak_memory_kb": 220672
+                },
+                "samples": 30
+              },
+              {
+                "function": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+                "max_ns": 28395750,
+                "mean_ns": 27826569,
+                "median_ns": 27831021,
+                "min_ns": 27437042,
+                "p95_ns": 28141542,
+                "resource_usage": {
+                  "cpu_median_ms": 28,
+                  "cpu_total_ms": 842,
+                  "peak_memory_growth_kb": 5792,
+                  "peak_memory_kb": 5792,
+                  "process_peak_memory_kb": 164976
+                },
+                "samples": 30
+              },
+              {
+                "function": "zk_mobile_bench::bench_query_cached_proof_generation",
+                "max_ns": 298767292,
+                "mean_ns": 269672102,
+                "median_ns": 268503542,
+                "min_ns": 250817167,
+                "p95_ns": 287462334,
+                "resource_usage": {
+                  "cpu_median_ms": 1211,
+                  "cpu_total_ms": 36391,
+                  "peak_memory_growth_kb": 27664,
+                  "peak_memory_kb": 27664,
+                  "process_peak_memory_kb": 162608
+                },
+                "samples": 30
+              },
+              {
+                "function": "zk_mobile_bench::bench_query_proof_generation",
+                "max_ns": 316279083,
+                "mean_ns": 271971476,
+                "median_ns": 266631146,
+                "min_ns": 252091291,
+                "p95_ns": 304961959,
+                "resource_usage": {
+                  "cpu_median_ms": 1267,
+                  "cpu_total_ms": 38093,
+                  "peak_memory_growth_kb": 64256,
+                  "peak_memory_kb": 64256,
+                  "process_peak_memory_kb": 190256
+                },
+                "samples": 30
+              },
+              {
+                "function": "zk_mobile_bench::bench_query_proving_only",
+                "max_ns": 291097959,
+                "mean_ns": 256933391,
+                "median_ns": 250142916,
+                "min_ns": 236628833,
+                "p95_ns": 290229333,
+                "resource_usage": {
+                  "cpu_median_ms": 1329,
+                  "cpu_total_ms": 39746,
+                  "peak_memory_growth_kb": 26896,
+                  "peak_memory_kb": 26896,
+                  "process_peak_memory_kb": 165024
+                },
+                "samples": 30
+              },
+              {
+                "function": "zk_mobile_bench::bench_query_witness_generation_only",
+                "max_ns": 7919083,
+                "mean_ns": 7643174,
+                "median_ns": 7620041,
+                "min_ns": 7534417,
+                "p95_ns": 7855709,
+                "resource_usage": {
+                  "cpu_median_ms": 8,
+                  "cpu_total_ms": 265,
+                  "peak_memory_growth_kb": 3456,
+                  "peak_memory_kb": 3456,
+                  "process_peak_memory_kb": 134784
+                },
+                "samples": 30
+              }
+            ],
+            "device": "iPhone 14-16"
+          }
+        ],
+        "devices": [
+          "iPhone 14-16"
+        ],
+        "function": "multiple",
+        "generated_at": "2026-09-11T13:49:03.468837Z",
+        "generated_at_unix": 1789134543,
+        "iterations": 30,
+        "target": "ios",
+        "warmup": 5
+      }
+    }
+  }
+}
