@@ -412,15 +412,9 @@ pub fn bench_nullifier_proving_only() {
     });
 }
 
-/// Benchmark: Attestation Proof (WIP-106) generation
-///
-/// The designed mobile path on the Noir/ProveKit backend: deserialize the embedded prover,
-/// solve the ACIR witness, WHIR-prove, drop. ProveKit consumes the `Prover` during proving
-/// (it frees its artifacts to cap peak memory), so there is no meaningful warm path to
-/// benchmark separately; stage times are reported via the `prover_load`, `witness`, and
-/// `prove` semantic phases instead of dedicated benchmark functions.
-///
-/// The body mirrors `generate_attestation_proof_with_prover`, split at the phase boundaries.
+/// Benchmark: Attestation Proof (WIP-106) generation on Noir/ProveKit, reported via the
+/// `prover_load` / `witness` / `prove` phases (ProveKit consumes the `Prover`, so there is no
+/// separate warm path).
 #[benchmark]
 pub fn bench_attestation_proof_generation() {
     let input = attestation_proof_fixture();
@@ -675,9 +669,7 @@ mod tests {
         bench_attestation_proof_generation();
     }
 
-    /// The attestation fixture must stay in sync with the one backing the circuit's
-    /// `Prover.toml` in `world-id-proof`; a drifted fixture would otherwise fail only at
-    /// proving time.
+    /// Guards the fixture against drifting from the one backing the circuit's `Prover.toml`.
     #[test]
     fn test_attestation_fixture_is_valid() {
         check_attestation_input_validity(&fixtures::attestation_proof_fixture())

@@ -2,16 +2,8 @@ use authenticator_assertion::aat::AuthenticatorAssertionToken;
 use authenticator_assertion::takt::TrustAnchorKeyToken;
 use authenticator_assertion::verify_attestation;
 
-/// Verifies a WIP-106 Authenticator Attestation (TAKT + AAT pair) and binds
-/// every claim a consumer circuit is obliged to expose (see
-/// crates/proof/noir/README.md).
-///
-/// `trust_anchor_key_x` / `_y` carry the RP's trust decision and `now` the
-/// verifier-supplied Unix time; both MUST be public. The remaining public
-/// inputs surface the token claims the library cannot enforce from inside:
-/// `aud`, `nonce` and `cdh` bind the AAT to the surrounding request, and
-/// `authenticator_meta` / `sec_flags` expose the integrity metadata for the
-/// RP's own rules.
+/// Verifies a WIP-106 attestation, binding every caller obligation from
+/// crates/proof/noir/README.md as a public input.
 fn main(
     trust_anchor_key_x: pub Field,
     trust_anchor_key_y: pub Field,

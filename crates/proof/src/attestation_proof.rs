@@ -1,9 +1,5 @@
-//! WIP-106: proving an Authenticator Attestation with ProveKit (Noir circuit
-//! backend).
-//!
-//! Drives the `attestation-proof` reference circuit, which verifies a TAKT +
-//! AAT pair via the `authenticator_assertion` library and binds every consumer
-//! obligation as a public input.
+//! WIP-106: proving an Authenticator Attestation with ProveKit, via the
+//! `attestation-proof` reference circuit.
 
 use std::{collections::BTreeMap, io::Read};
 
@@ -18,18 +14,16 @@ use crate::{
     circuit_inputs::AttestationProofCircuitInput, errors::ProofInputError,
 };
 
-/// Maximum remaining validity of an AAT in seconds. Mirrors
-/// `MAX_AAT_LIFETIME_SECS` in `noir/authenticator-assertion/src/aat.nr`.
+/// Maximum remaining AAT validity in seconds; mirrors `MAX_AAT_LIFETIME_SECS` in `aat.nr`.
 pub const MAX_AAT_LIFETIME_SECS: u32 = 1800;
 
-/// Maximum remaining validity of a TAKT in seconds. Mirrors
-/// `MAX_TAKT_LIFETIME_SECS` in `noir/authenticator-assertion/src/takt.nr`.
+/// Maximum remaining TAKT validity in seconds; mirrors `MAX_TAKT_LIFETIME_SECS` in `takt.nr`.
 pub const MAX_TAKT_LIFETIME_SECS: u32 = 604_800;
 
-/// Loads an attestation proof prover from a reader containing PKP bytes.
+/// Loads an attestation proof prover from PKP bytes.
 ///
 /// # Errors
-/// Returns an error if the reader cannot be read or the prover cannot be deserialized.
+/// Fails if the bytes cannot be read or deserialized.
 pub fn load_attestation_prover_from_reader(
     mut reader: impl Read,
 ) -> eyre::Result<provekit_common::Prover> {
@@ -40,10 +34,10 @@ pub fn load_attestation_prover_from_reader(
     provekit_common::file::deserialize(&bytes).map_err(|e| eyre::eyre!(e.to_string()))
 }
 
-/// Loads an attestation proof verifier from a reader containing PKV bytes.
+/// Loads an attestation proof verifier from PKV bytes.
 ///
 /// # Errors
-/// Returns an error if the reader cannot be read or the verifier cannot be deserialized.
+/// Fails if the bytes cannot be read or deserialized.
 pub fn load_attestation_verifier_from_reader(
     mut reader: impl Read,
 ) -> eyre::Result<provekit_common::Verifier> {
@@ -54,8 +48,7 @@ pub fn load_attestation_verifier_from_reader(
     provekit_common::file::deserialize(&bytes).map_err(|e| eyre::eyre!(e.to_string()))
 }
 
-/// Checks one token's freshness the way the circuit does (`now < exp`,
-/// `exp - now <= max`, `2^16 <= exp < 2^32`).
+/// Checks one token's freshness the way the circuit does.
 fn check_token_freshness(
     token: &'static str,
     exp: u32,
@@ -79,13 +72,9 @@ fn check_token_freshness(
     Ok(())
 }
 
-/// Checks the attestation proof inputs by emulating the freshness constraints
-/// the circuit enforces, so a caller mistake surfaces as a specific error
-/// instead of an opaque proving failure. This is only for error convenience,
-/// the actual constraints are verified in the circuit.
-///
-/// The claim bindings need no check: the public inputs are derived from the
-/// token fields during witness generation, so they hold by construction.
+/// Emulates the circuit's freshness constraints so caller mistakes surface as
+/// specific errors instead of opaque proving failures; the claim bindings hold
+/// by construction since the public inputs are derived from the token fields.
 ///
 /// # Errors
 /// Returns a [`ProofInputError`] if any check fails.
@@ -124,13 +113,11 @@ pub fn generate_attestation_proof_with_prover(
         .map_err(|e| ProofError::GenerationError(e.to_string()))
 }
 
-/// Verifies an attestation proof using the provided verifier.
-///
-/// The `NoirProof` carries its public inputs (in the circuit's parameter
-/// order); callers must check those values against their expectations.
+/// Verifies an attestation proof; callers must check the proof's public inputs
+/// against their expectations.
 ///
 /// # Errors
-/// Returns an error if verification fails.
+/// Returns [`ProofError`] if verification fails.
 pub fn verify_attestation_proof_with_verifier(
     proof: &NoirProof,
     verifier: &mut provekit_common::Verifier,
@@ -159,8 +146,7 @@ impl NoirCircuitInput for AttestationProofCircuitInput {
 
         let mut map = InputMap::new();
 
-        // Public inputs, derived from the token fields so the bindings hold by
-        // construction.
+        // Public inputs, derived from the token fields so the bindings hold by construction.
         map.insert(
             "trust_anchor_key_x".into(),
             InputValue::Field(NoirElement::from_repr(self.trust_anchor_key.x)),
@@ -190,7 +176,6 @@ impl NoirCircuitInput for AttestationProofCircuitInput {
             InputValue::Field(NoirElement::from(self.takt_claims.sec_flags())),
         );
 
-        // AAT struct (private)
         let mut aat: BTreeMap<String, InputValue> = BTreeMap::new();
         aat.insert(
             "aud".into(),
@@ -211,7 +196,6 @@ impl NoirCircuitInput for AttestationProofCircuitInput {
         aat.insert("signature".into(), bytes_to_noir(&self.aat_signature));
         map.insert("aat".into(), InputValue::Struct(aat));
 
-        // TAKT struct (private)
         let mut takt: BTreeMap<String, InputValue> = BTreeMap::new();
         takt.insert(
             "exp".into(),
@@ -253,9 +237,7 @@ mod proving_tests {
     use super::*;
     use crate::{artifacts::embedded::noir, fixtures::attestation_proof_fixture};
 
-    /// End-to-end prove + verify against the embedded artifacts, with a
-    /// tampered-public-input negative control so a green result cannot be
-    /// vacuous.
+    /// End-to-end prove + verify, with a tampered-public-input negative control.
     #[test]
     fn test_proves_and_verifies_the_fixture() {
         let prover = noir::load_embedded_attestation_prover().expect("embedded prover");
@@ -333,8 +315,7 @@ mod input_validation_tests {
         ));
     }
 
-    /// The witness map must carry exactly the circuit ABI's parameters; a
-    /// drifted key set would otherwise fail only at proving time.
+    /// Pins the witness keys to the circuit ABI; drift would otherwise fail only at proving time.
     #[test]
     fn test_witness_matches_the_circuit_abi() {
         let witness = attestation_proof_fixture().into_witness().expect("witness");

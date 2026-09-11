@@ -244,8 +244,7 @@ mod noir_artifacts {
     /// and what provekit expects (see https://github.com/worldfnd/provekit).
     const REQUIRED_NARGO_VERSION: &str = "1.0.0-beta.11";
 
-    /// Builds every Noir circuit whose embed feature is enabled (skipped
-    /// entirely on wasm32, where the ProveKit backend is unsupported).
+    /// Builds every Noir circuit whose embed feature is enabled (no-op on wasm32).
     pub(super) fn setup_all(out_dir: &Path) -> eyre::Result<()> {
         let target_arch = env::var("CARGO_CFG_TARGET_ARCH").ok();
         if target_arch.as_deref() == Some("wasm32") {
@@ -308,11 +307,8 @@ mod noir_artifacts {
         Ok(())
     }
 
-    /// Builds one Noir circuit's proof artifacts ad-hoc with `nargo` and the
-    /// provekit R1CS compiler. This is the only way to obtain them: the
-    /// proving/verifying keys must come from the checked-in circuit source, built
-    /// with the pinned nargo toolchain (see `flake.nix`), so every builder
-    /// produces identical bytes.
+    /// Builds one circuit's proof artifacts with `nargo` + the provekit R1CS compiler; keys must
+    /// come from checked-in source on the pinned toolchain so every builder produces identical bytes.
     fn setup(out_dir: &Path, circuit_dir: &str, target_name: &str) -> eyre::Result<()> {
         let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
         let circuit_dir = manifest_dir.join(circuit_dir);

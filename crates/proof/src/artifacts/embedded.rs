@@ -296,11 +296,9 @@ pub mod noir {
     #[cfg(all(feature = "embed-attestation-prover", docsrs))]
     const ATTESTATION_PKP_BYTES: &[u8] = &[];
 
-    /// Loads the embedded attestation proof prover (WIP-106 reference circuit).
-    ///
-    /// Not part of [`crate::artifacts::ZkArtifactSource`]: the attestation
-    /// circuit is a reference consumer used for benchmarking, not a proof type
-    /// apps are expected to source.
+    /// Loads the embedded attestation proof prover; not part of
+    /// [`crate::artifacts::ZkArtifactSource`] since the circuit is a benchmarking reference, not
+    /// a proof type apps source.
     ///
     /// # Errors
     /// Returns an error if embedded Noir artifacts are missing or invalid.
@@ -316,7 +314,7 @@ pub mod noir {
     #[cfg(all(feature = "embed-attestation-verifier", docsrs))]
     const ATTESTATION_PKV_BYTES: &[u8] = &[];
 
-    /// Loads the embedded attestation proof verifier (WIP-106 reference circuit).
+    /// Loads the embedded attestation proof verifier.
     ///
     /// # Errors
     /// Returns an error if embedded Noir artifacts are missing or invalid.

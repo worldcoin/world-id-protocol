@@ -227,29 +227,20 @@ impl<const MAX_DEPTH: usize> ProofInput for NullifierProofCircuitInput<MAX_DEPTH
     }
 }
 
-/// Inputs for the Authenticator Attestation (WIP-106) reference circuit.
-///
-/// The circuit's public inputs bind the consumer obligations from
-/// `crates/proof/noir/README.md`: the trust anchor key and `now` are
-/// verifier-supplied, and `aud`, `nonce`, `cdh`, `authenticator_meta` and
-/// `sec_flags` are re-exposed claim values. All of them are derived from the
-/// token fields below during witness generation, so they cannot diverge from
-/// the tokens being verified.
+/// Inputs for the Authenticator Attestation (WIP-106) reference circuit; the
+/// public inputs are derived from the token fields during witness generation,
+/// so they cannot diverge from the tokens being verified.
 #[derive(Debug, Clone)]
 pub struct AttestationProofCircuitInput {
-    /// **Public input.** The Authenticator Provider's `trust_anchor_key`
-    /// (BabyJubJub affine point) — the RP's trust decision.
+    /// **Public input.** The Authenticator Provider's `trust_anchor_key` — the RP's trust decision.
     pub trust_anchor_key: Affine,
     /// **Public input.** Verifier-supplied Unix time in seconds.
     pub now: u32,
-    /// Private input. The AAT claims; `aud`, `nonce`, `cdh` and
-    /// `authenticator_meta` are re-exposed as public inputs.
+    /// Private input. The AAT claims; the bound claims are re-exposed as public inputs.
     pub aat_claims: crate::authenticator_attestation::AuthenticatorAssertionClaims,
-    /// Private input. ES256 signature over the AAT's COSE `Sig_structure`
-    /// (`r || s`, low-S).
+    /// Private input. ES256 signature over the AAT's COSE `Sig_structure` (`r || s`, low-S).
     pub aat_signature: [u8; 64],
-    /// Private input. The TAKT claims; the packed `sec_flags` value is
-    /// re-exposed as a public input.
+    /// Private input. The TAKT claims; the packed `sec_flags` is re-exposed as a public input.
     pub takt_claims: crate::authenticator_attestation::TrustAnchorKeyClaims,
     /// Private input. EdDSA-BabyJubJub signature over the TAKT claim digest.
     pub takt_signature: EdDSASignature,

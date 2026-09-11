@@ -49,12 +49,8 @@ pub(crate) fn ownership_proof_fixture() -> OwnershipProofCircuitInput<TREE_DEPTH
     }
 }
 
-/// Builds the static WIP-106 Attestation Proof fixture.
-///
-/// Keys and claims match the known-answer tests in
-/// `authenticator_attestation::tests`, and `now` matches `TEST_NOW` in the
-/// Noir library's `takt.nr`. Both signatures are deterministic (EdDSA and
-/// RFC 6979 ECDSA), so the fixture is stable across runs.
+/// Builds the static, deterministic WIP-106 Attestation Proof fixture; keys and claims match
+/// the known-answer tests in `authenticator_attestation::tests`.
 ///
 /// # Panics
 /// Panics if the fixture cannot be built, not expected.
@@ -294,12 +290,9 @@ mod ownership_proof_prover {
 }
 
 mod attestation_proof_prover {
-    use serde::Serialize;
-
     use super::*;
 
-    /// Every key the circuit ABI is expected to have, in `BTreeMap` (alphabetical) order. A circuit
-    /// input added, removed or renamed without updating the renderer below fails these assertions.
+    /// Every key the circuit ABI is expected to have, in `BTreeMap` (alphabetical) order.
     const TOP_LEVEL_KEYS: [&str; 10] = [
         "aat",
         "aud",
@@ -312,105 +305,31 @@ mod attestation_proof_prover {
         "trust_anchor_key_x",
         "trust_anchor_key_y",
     ];
-    const AAT_KEYS: [&str; 6] = [
-        "aud",
-        "authenticator_meta",
-        "cdh",
-        "exp",
-        "nonce",
-        "signature",
-    ];
-    const TAKT_KEYS: [&str; 6] = [
-        "assertion_key_x",
-        "assertion_key_y",
-        "exp",
-        "sec_flags",
-        "sig_r",
-        "sig_s",
-    ];
 
     const HEADER: &str = "\
 # Prover.toml for the Attestation Proof reference circuit (WIP-106).
 #
 # GENERATED FILE. Do not edit by hand; regenerate with:
 #   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof prover_toml
-
-# Public inputs
 ";
 
-    #[derive(Serialize)]
-    struct ProverToml {
-        trust_anchor_key_x: String,
-        trust_anchor_key_y: String,
-        now: String,
-        aud: String,
-        nonce: String,
-        cdh: String,
-        authenticator_meta: String,
-        sec_flags: String,
-        aat: Aat,
-        takt: Takt,
-    }
-
-    #[derive(Serialize)]
-    struct Aat {
-        aud: String,
-        exp: String,
-        nonce: String,
-        cdh: String,
-        authenticator_meta: String,
-        signature: Vec<String>,
-    }
-
-    #[derive(Serialize)]
-    struct Takt {
-        exp: String,
-        assertion_key_x: Vec<String>,
-        assertion_key_y: Vec<String>,
-        sec_flags: String,
-        sig_s: String,
-        sig_r: Vec<String>,
-    }
-
-    fn fixture_witness() -> InputMap {
-        attestation_proof_fixture()
-            .into_witness()
-            .expect("witness generation succeeds")
-    }
-
-    fn decimal(value: &InputValue, path: &str) -> String {
+    fn to_toml(value: &InputValue, path: &str) -> toml::Value {
         match value {
-            InputValue::Field(element) => element.into_repr().to_string(),
-            other => panic!("expected `{path}` to be a field element, got {other:?}"),
-        }
-    }
-
-    fn field(map: &BTreeMap<String, InputValue>, key: &str) -> String {
-        decimal(
-            map.get(key)
-                .unwrap_or_else(|| panic!("missing field `{key}`")),
-            key,
-        )
-    }
-
-    fn decimals(map: &BTreeMap<String, InputValue>, key: &str) -> Vec<String> {
-        match map.get(key) {
-            Some(InputValue::Vec(values)) => values
-                .iter()
-                .enumerate()
-                .map(|(index, value)| decimal(value, &format!("{key}[{index}]")))
-                .collect(),
-            other => panic!("expected `{key}` to be an array, got {other:?}"),
-        }
-    }
-
-    fn table<'a>(
-        map: &'a BTreeMap<String, InputValue>,
-        key: &str,
-    ) -> &'a BTreeMap<String, InputValue> {
-        match map.get(key) {
-            Some(InputValue::Struct(fields)) => fields,
-            other => panic!("expected `{key}` to be a struct, got {other:?}"),
+            InputValue::Field(element) => toml::Value::String(element.into_repr().to_string()),
+            InputValue::Vec(values) => toml::Value::Array(
+                values
+                    .iter()
+                    .enumerate()
+                    .map(|(index, value)| to_toml(value, &format!("{path}[{index}]")))
+                    .collect(),
+            ),
+            InputValue::Struct(fields) => toml::Value::Table(
+                fields
+                    .iter()
+                    .map(|(key, value)| (key.clone(), to_toml(value, &format!("{path}.{key}"))))
+                    .collect(),
+            ),
+            other => panic!("`{path}` has no TOML rendering: {other:?}"),
         }
     }
 
@@ -418,51 +337,26 @@ mod attestation_proof_prover {
         let keys: Vec<&str> = witness.keys().map(String::as_str).collect();
         assert_eq!(
             keys, TOP_LEVEL_KEYS,
-            "circuit inputs changed; update this renderer"
-        );
-        let aat = table(witness, "aat");
-        let aat_keys: Vec<&str> = aat.keys().map(String::as_str).collect();
-        assert_eq!(
-            aat_keys, AAT_KEYS,
-            "AAT struct fields changed; update this renderer"
-        );
-        let takt = table(witness, "takt");
-        let takt_keys: Vec<&str> = takt.keys().map(String::as_str).collect();
-        assert_eq!(
-            takt_keys, TAKT_KEYS,
-            "TAKT struct fields changed; update this renderer"
+            "circuit inputs changed; update TOP_LEVEL_KEYS and regenerate"
         );
 
-        let prover_toml = ProverToml {
-            trust_anchor_key_x: field(witness, "trust_anchor_key_x"),
-            trust_anchor_key_y: field(witness, "trust_anchor_key_y"),
-            now: field(witness, "now"),
-            aud: field(witness, "aud"),
-            nonce: field(witness, "nonce"),
-            cdh: field(witness, "cdh"),
-            authenticator_meta: field(witness, "authenticator_meta"),
-            sec_flags: field(witness, "sec_flags"),
-            aat: Aat {
-                aud: field(aat, "aud"),
-                exp: field(aat, "exp"),
-                nonce: field(aat, "nonce"),
-                cdh: field(aat, "cdh"),
-                authenticator_meta: field(aat, "authenticator_meta"),
-                signature: decimals(aat, "signature"),
-            },
-            takt: Takt {
-                exp: field(takt, "exp"),
-                assertion_key_x: decimals(takt, "assertion_key_x"),
-                assertion_key_y: decimals(takt, "assertion_key_y"),
-                sec_flags: field(takt, "sec_flags"),
-                sig_s: field(takt, "sig_s"),
-                sig_r: decimals(takt, "sig_r"),
-            },
-        };
+        // Scalars must precede tables in TOML, so partition before rendering.
+        let mut table = toml::map::Map::new();
+        for (key, value) in witness
+            .iter()
+            .filter(|(_, v)| !matches!(v, InputValue::Struct(_)))
+            .chain(
+                witness
+                    .iter()
+                    .filter(|(_, v)| matches!(v, InputValue::Struct(_))),
+            )
+        {
+            table.insert(key.clone(), to_toml(value, key));
+        }
 
         format!(
             "{HEADER}{}",
-            toml::to_string_pretty(&prover_toml).expect("fixture serializes to TOML")
+            toml::to_string_pretty(&table).expect("fixture serializes to TOML")
         )
     }
 
@@ -470,7 +364,11 @@ mod attestation_proof_prover {
     fn prover_toml_matches_the_circuit_input_fixture() {
         let path =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("noir/attestation-proof/Prover.toml");
-        let rendered = render(&fixture_witness());
+        let rendered = render(
+            &attestation_proof_fixture()
+                .into_witness()
+                .expect("witness generation succeeds"),
+        );
 
         if env::var_os("UPDATE_PROVER_TOML").is_some() {
             fs::write(&path, &rendered)

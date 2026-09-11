@@ -57,9 +57,7 @@ jobs:
           toolchain: v1.0.0-beta.11
       - run: nargo fmt --check && nargo test
       - run: nargo execute --pedantic-solving
-      # WIP-106 consumer obligation (see crates/proof/noir/README.md): the
-      # trust anchor key, `now` and the bound claims MUST be public inputs.
-      # The compiled ABI records per-parameter visibility, so assert it here.
+      # The WIP-106 consumer obligations (crates/proof/noir/README.md) require these to be public.
       - name: Assert public-input visibility in the compiled ABI
         run: |
           for param in trust_anchor_key_x trust_anchor_key_y now aud nonce cdh authenticator_meta sec_flags; do

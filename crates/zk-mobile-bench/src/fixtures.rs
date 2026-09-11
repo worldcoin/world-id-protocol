@@ -69,13 +69,8 @@ pub fn first_leaf_merkle_path(leaf: Fq) -> ([FieldElement; TREE_DEPTH], FieldEle
     (siblings, current)
 }
 
-/// Builds the static WIP-106 Attestation Proof fixture.
-///
-/// Mirrors `world_id_proof::fixtures::attestation_proof_fixture`, which is
-/// `#[cfg(test)]` and so unreachable from here. Keep the two in sync — the
-/// same fixture backs the circuit's `Prover.toml`. Both signatures are
-/// deterministic (EdDSA and RFC 6979 ECDSA), so the fixture is stable across
-/// runs.
+/// Builds the static WIP-106 Attestation Proof fixture; mirrors the `#[cfg(test)]`
+/// `world_id_proof::fixtures::attestation_proof_fixture` — keep the two in sync.
 ///
 /// # Panics
 /// Panics if the fixture cannot be built, not expected.
