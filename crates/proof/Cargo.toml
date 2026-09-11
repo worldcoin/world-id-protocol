@@ -23,10 +23,6 @@ zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
 
 embed-ownership-prover = ["dep:provekit-r1cs-compiler"]
 embed-ownership-verifier = ["dep:provekit-r1cs-compiler"]
-embed-attestation-prover = ["dep:provekit-r1cs-compiler"]
-embed-attestation-verifier = ["dep:provekit-r1cs-compiler"]
-# Kept to the ownership artifacts: the attestation circuit is a reference
-# consumer used for benchmarking, so it stays opt-in and out of the umbrella.
 embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
 
 # Embed everything

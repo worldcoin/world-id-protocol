@@ -10,13 +10,12 @@ use coset::{CborSerializable as _, CoseSign1};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use rand::{CryptoRng, Rng};
 use world_id_primitives::{FieldElement, TREE_DEPTH, poseidon, rp::RpId};
-use world_id_proof::{
-    authenticator_attestation::{
-        AuthenticatorAssertionClaims, AuthenticatorAssertionToken, AuthenticatorMeta, Platform,
-        SecLevel, TrustAnchorKeyClaims, TrustAnchorKeyToken, UserPresence,
-    },
-    circuit_inputs::AttestationProofCircuitInput,
+use world_id_proof::authenticator_attestation::{
+    AuthenticatorAssertionClaims, AuthenticatorAssertionToken, AuthenticatorMeta, Platform,
+    SecLevel, TrustAnchorKeyClaims, TrustAnchorKeyToken, UserPresence,
 };
+
+use crate::authenticator_assertion_bench::AuthenticatorAssertionBenchInput;
 
 /// RP fixture data for benchmarks
 pub struct RpFixture {
@@ -69,12 +68,12 @@ pub fn first_leaf_merkle_path(leaf: Fq) -> ([FieldElement; TREE_DEPTH], FieldEle
     (siblings, current)
 }
 
-/// Builds the static WIP-106 Attestation Proof fixture; mirrors the `#[cfg(test)]`
-/// `world_id_proof::fixtures::attestation_proof_fixture` — keep the two in sync.
+/// Builds the static, deterministic WIP-106 fixture; the same fixture backs the bench
+/// circuit's committed `Prover.toml`.
 ///
 /// # Panics
 /// Panics if the fixture cannot be built, not expected.
-pub fn attestation_proof_fixture() -> AttestationProofCircuitInput {
+pub fn authenticator_assertion_bench_fixture() -> AuthenticatorAssertionBenchInput {
     let trust_anchor_key = EdDSAPrivateKey::from_bytes([7u8; 32]);
     let assertion_secret = p256::SecretKey::from_slice(&[11u8; 32]).expect("valid P-256 secret");
 
@@ -107,7 +106,7 @@ pub fn attestation_proof_fixture() -> AttestationProofCircuitInput {
         .try_into()
         .expect("64-byte ES256 signature");
 
-    AttestationProofCircuitInput {
+    AuthenticatorAssertionBenchInput {
         trust_anchor_key: trust_anchor_key.public().pk,
         now: 1_783_446_025, // exp - 900, within both lifetime caps
         aat_claims,

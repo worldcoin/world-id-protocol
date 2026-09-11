@@ -1,0 +1,10 @@
+[package]
+name = "authenticator_assertion_bench"
+type = "bin"
+description = "UNAUDITED. IN ACTIVE DEVELOPMENT, DO NOT USE YET. Reference consumer circuit for WIP-106 authenticator assertions, used for benchmarking. Not a standalone proof type."
+authors = ["@kilianglas"]
+license = "MIT"
+backend = "provekit"
+
+[dependencies]
+authenticator_assertion = { path = "../authenticator-assertion" }

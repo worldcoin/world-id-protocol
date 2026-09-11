@@ -253,9 +253,7 @@ pub mod zkeys {
     not(target_arch = "wasm32"),
     any(
         feature = "embed-ownership-prover",
-        feature = "embed-ownership-verifier",
-        feature = "embed-attestation-prover",
-        feature = "embed-attestation-verifier"
+        feature = "embed-ownership-verifier"
     )
 ))]
 pub mod noir {
@@ -287,40 +285,6 @@ pub mod noir {
     #[cfg(feature = "embed-ownership-verifier")]
     pub fn load_embedded_ownership_verifier() -> eyre::Result<crate::OwnershipVerifier> {
         crate::ownership_proof::load_ownership_verifier_from_reader(PKV_BYTES)
-    }
-
-    #[cfg(all(feature = "embed-attestation-prover", not(docsrs)))]
-    const ATTESTATION_PKP_BYTES: &[u8] =
-        include_bytes!(concat!(env!("OUT_DIR"), "/attestation_proof.pkp"));
-
-    #[cfg(all(feature = "embed-attestation-prover", docsrs))]
-    const ATTESTATION_PKP_BYTES: &[u8] = &[];
-
-    /// Loads the embedded attestation proof prover; not part of
-    /// [`crate::artifacts::ZkArtifactSource`] since the circuit is a benchmarking reference, not
-    /// a proof type apps source.
-    ///
-    /// # Errors
-    /// Returns an error if embedded Noir artifacts are missing or invalid.
-    #[cfg(feature = "embed-attestation-prover")]
-    pub fn load_embedded_attestation_prover() -> eyre::Result<provekit_common::Prover> {
-        crate::attestation_proof::load_attestation_prover_from_reader(ATTESTATION_PKP_BYTES)
-    }
-
-    #[cfg(all(feature = "embed-attestation-verifier", not(docsrs)))]
-    const ATTESTATION_PKV_BYTES: &[u8] =
-        include_bytes!(concat!(env!("OUT_DIR"), "/attestation_proof.pkv"));
-
-    #[cfg(all(feature = "embed-attestation-verifier", docsrs))]
-    const ATTESTATION_PKV_BYTES: &[u8] = &[];
-
-    /// Loads the embedded attestation proof verifier.
-    ///
-    /// # Errors
-    /// Returns an error if embedded Noir artifacts are missing or invalid.
-    #[cfg(feature = "embed-attestation-verifier")]
-    pub fn load_embedded_attestation_verifier() -> eyre::Result<provekit_common::Verifier> {
-        crate::attestation_proof::load_attestation_verifier_from_reader(ATTESTATION_PKV_BYTES)
     }
 }
 

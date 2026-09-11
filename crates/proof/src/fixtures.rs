@@ -1,24 +1,15 @@
 use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
-use coset::{CborSerializable as _, CoseSign1};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use provekit_common::{InputMap, InputValue};
 use world_id_primitives::{
     AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH,
     merkle::MerkleInclusionProof,
     poseidon::{self, ds},
-    rp::RpId,
 };
 use world_id_test_utils::merkle::first_leaf_merkle_path;
 
-use crate::{
-    NoirCircuitInput as _,
-    authenticator_attestation::{
-        AuthenticatorAssertionClaims, AuthenticatorAssertionToken, AuthenticatorMeta, Platform,
-        SecLevel, TrustAnchorKeyClaims, TrustAnchorKeyToken, UserPresence,
-    },
-    circuit_inputs::{AttestationProofCircuitInput, OwnershipProofCircuitInput},
-};
+use crate::{NoirCircuitInput as _, circuit_inputs::OwnershipProofCircuitInput};
 
 /// Builds static WIP-103 Ownership Proof fixture.
 ///
@@ -46,54 +37,6 @@ pub(crate) fn ownership_proof_fixture() -> OwnershipProofCircuitInput<TREE_DEPTH
         context,
         signature: sk.sign(*message),
         commitment_blinder,
-    }
-}
-
-/// Builds the static, deterministic WIP-106 Attestation Proof fixture; keys and claims match
-/// the known-answer tests in `authenticator_attestation::tests`.
-///
-/// # Panics
-/// Panics if the fixture cannot be built, not expected.
-pub(crate) fn attestation_proof_fixture() -> AttestationProofCircuitInput {
-    let trust_anchor_key = EdDSAPrivateKey::from_bytes([7u8; 32]);
-    let assertion_secret = p256::SecretKey::from_slice(&[11u8; 32]).unwrap();
-
-    let takt_claims = TrustAnchorKeyClaims {
-        exp: 1_783_446_925,
-        assertion_key: assertion_secret.public_key(),
-        sec_level: SecLevel::SecureElement,
-        platform: Platform::Ios,
-        build_version: 2006,
-        sec_meta: 0b11,
-    };
-    let takt = TrustAnchorKeyToken::new(takt_claims).unwrap();
-    let takt_signature = trust_anchor_key.sign(*takt.message_hash().unwrap());
-
-    let aat_claims = AuthenticatorAssertionClaims {
-        aud: RpId::new(1_928_118),
-        exp: 1_783_446_925,
-        nonce: FieldElement::from(0x11d2_23ce_7b91_ac21_u64), // <- example only, DO NOT use guessable nonces (see spec)
-        cdh: FieldElement::from(0x9f2c_1abc_u64),
-        authenticator_meta: AuthenticatorMeta {
-            user_presence: UserPresence::PresentBiometric,
-            provider_bits: 0b01,
-        },
-    };
-    let aat = AuthenticatorAssertionToken::new(aat_claims).unwrap();
-    let signed = aat.sign(&assertion_secret).unwrap();
-    let aat_signature: [u8; 64] = CoseSign1::from_slice(&signed)
-        .unwrap()
-        .signature
-        .try_into()
-        .unwrap();
-
-    AttestationProofCircuitInput {
-        trust_anchor_key: trust_anchor_key.public().pk,
-        now: 1_783_446_025, // exp - 900, within both lifetime caps
-        aat_claims,
-        aat_signature,
-        takt_claims,
-        takt_signature,
     }
 }
 
@@ -270,105 +213,6 @@ mod ownership_proof_prover {
         let path =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("noir/ownership-proof/Prover.toml");
         let rendered = render(&fixture_witness());
-
-        if env::var_os("UPDATE_PROVER_TOML").is_some() {
-            fs::write(&path, &rendered)
-                .unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
-            return;
-        }
-
-        let committed = fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
-        assert_eq!(
-            committed,
-            rendered,
-            "{} is out of date; regenerate with `UPDATE_PROVER_TOML=1 cargo test -p world-id-proof \
-         prover_toml`",
-            path.display()
-        );
-    }
-}
-
-mod attestation_proof_prover {
-    use super::*;
-
-    /// Every key the circuit ABI is expected to have, in `BTreeMap` (alphabetical) order.
-    const TOP_LEVEL_KEYS: [&str; 10] = [
-        "aat",
-        "aud",
-        "authenticator_meta",
-        "cdh",
-        "nonce",
-        "now",
-        "sec_flags",
-        "takt",
-        "trust_anchor_key_x",
-        "trust_anchor_key_y",
-    ];
-
-    const HEADER: &str = "\
-# Prover.toml for the Attestation Proof reference circuit (WIP-106).
-#
-# GENERATED FILE. Do not edit by hand; regenerate with:
-#   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof prover_toml
-";
-
-    fn to_toml(value: &InputValue, path: &str) -> toml::Value {
-        match value {
-            InputValue::Field(element) => toml::Value::String(element.into_repr().to_string()),
-            InputValue::Vec(values) => toml::Value::Array(
-                values
-                    .iter()
-                    .enumerate()
-                    .map(|(index, value)| to_toml(value, &format!("{path}[{index}]")))
-                    .collect(),
-            ),
-            InputValue::Struct(fields) => toml::Value::Table(
-                fields
-                    .iter()
-                    .map(|(key, value)| (key.clone(), to_toml(value, &format!("{path}.{key}"))))
-                    .collect(),
-            ),
-            other => panic!("`{path}` has no TOML rendering: {other:?}"),
-        }
-    }
-
-    fn render(witness: &InputMap) -> String {
-        let keys: Vec<&str> = witness.keys().map(String::as_str).collect();
-        assert_eq!(
-            keys, TOP_LEVEL_KEYS,
-            "circuit inputs changed; update TOP_LEVEL_KEYS and regenerate"
-        );
-
-        // Scalars must precede tables in TOML, so partition before rendering.
-        let mut table = toml::map::Map::new();
-        for (key, value) in witness
-            .iter()
-            .filter(|(_, v)| !matches!(v, InputValue::Struct(_)))
-            .chain(
-                witness
-                    .iter()
-                    .filter(|(_, v)| matches!(v, InputValue::Struct(_))),
-            )
-        {
-            table.insert(key.clone(), to_toml(value, key));
-        }
-
-        format!(
-            "{HEADER}{}",
-            toml::to_string_pretty(&table).expect("fixture serializes to TOML")
-        )
-    }
-
-    #[test]
-    fn prover_toml_matches_the_circuit_input_fixture() {
-        let path =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("noir/attestation-proof/Prover.toml");
-        let rendered = render(
-            &attestation_proof_fixture()
-                .into_witness()
-                .expect("witness generation succeeds"),
-        );
 
         if env::var_os("UPDATE_PROVER_TOML").is_some() {
             fs::write(&path, &rendered)

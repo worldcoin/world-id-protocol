@@ -42,12 +42,12 @@ jobs:
           toolchain: v1.0.0-beta.11
       - run: nargo fmt --check && nargo test
 
-  attestation-proof:
-    name: Noir CI (attestation-proof)
+  authenticator-assertion-bench:
+    name: Noir CI (authenticator-assertion-bench)
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./crates/proof/noir/attestation-proof
+        working-directory: ./crates/proof/noir/authenticator-assertion-bench
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
         with:
@@ -61,7 +61,7 @@ jobs:
       - name: Assert public-input visibility in the compiled ABI
         run: |
           for param in trust_anchor_key_x trust_anchor_key_y now aud nonce cdh authenticator_meta sec_flags; do
-            visibility=$(jq -r --arg p "$param" '.abi.parameters[] | select(.name == $p) | .visibility' target/attestation_proof.json)
+            visibility=$(jq -r --arg p "$param" '.abi.parameters[] | select(.name == $p) | .visibility' target/authenticator_assertion_bench.json)
             if [ "$visibility" != "public" ]; then
               echo "parameter $param must be public, got: $visibility" >&2
               exit 1

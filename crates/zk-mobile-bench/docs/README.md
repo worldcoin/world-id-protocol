@@ -88,7 +88,7 @@ Checked-in BrowserStack results live in
 | `bench_nullifier_proof_generation` | π2 nullifier | Full measured path: fixture/input generation, witness generation, and Groth16 proving |
 | `bench_nullifier_witness_generation_only` | π2 nullifier | Circom witness generation only, with cached input/material |
 | `bench_nullifier_proving_only` | π2 nullifier | Groth16 proving only, from a cached witness |
-| `bench_attestation_proof_generation` | WIP-106 attestation | Full Noir/ProveKit path: prover deserialization, ACIR witness solving, and WHIR proving, reported as `prover_load` / `witness` / `prove` phases |
+| `bench_authenticator_assertion_proof_generation` | WIP-106 assertion bench | Full Noir/ProveKit path: prover deserialization, ACIR witness solving, and WHIR proving, reported as `prover_load` / `witness` / `prove` phases |
 
 CI runs all eight functions by default. The function list is specified directly
 in the caller workflow (`mobile-bench.yml`) via the `functions` input to the

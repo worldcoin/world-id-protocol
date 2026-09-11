@@ -227,25 +227,6 @@ impl<const MAX_DEPTH: usize> ProofInput for NullifierProofCircuitInput<MAX_DEPTH
     }
 }
 
-/// Inputs for the Authenticator Attestation (WIP-106) reference circuit; the
-/// public inputs are derived from the token fields during witness generation,
-/// so they cannot diverge from the tokens being verified.
-#[derive(Debug, Clone)]
-pub struct AttestationProofCircuitInput {
-    /// **Public input.** The Authenticator Provider's `trust_anchor_key` — the RP's trust decision.
-    pub trust_anchor_key: Affine,
-    /// **Public input.** Verifier-supplied Unix time in seconds.
-    pub now: u32,
-    /// Private input. The AAT claims; the bound claims are re-exposed as public inputs.
-    pub aat_claims: crate::authenticator_attestation::AuthenticatorAssertionClaims,
-    /// Private input. ES256 signature over the AAT's COSE `Sig_structure` (`r || s`, low-S).
-    pub aat_signature: [u8; 64],
-    /// Private input. The TAKT claims; the packed `sec_flags` is re-exposed as a public input.
-    pub takt_claims: crate::authenticator_attestation::TrustAnchorKeyClaims,
-    /// Private input. EdDSA-BabyJubJub signature over the TAKT claim digest.
-    pub takt_signature: EdDSASignature,
-}
-
 /// Inputs for the "Proof of Ownership" (WIP-103) circuit.
 #[derive(Debug, Clone)]
 pub struct OwnershipProofCircuitInput<const MAX_DEPTH: usize> {

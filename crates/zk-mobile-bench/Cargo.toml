@@ -21,7 +21,7 @@ inventory = "0.3"
 # World ID
 world-id-core = { workspace = true, default-features = false, features = ["authenticator", "embed-zkeys", "issuer"] }
 world-id-primitives = { workspace = true }
-world-id-proof = { workspace = true, features = ["embed-attestation-prover"] }
+world-id-proof = { workspace = true }
 
 # ZK dependencies
 ark-babyjubjub = { workspace = true }
@@ -30,9 +30,10 @@ ark-ff = { workspace = true }
 ark-ec = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 groth16-material = { workspace = true, features = ["circom"] }
+provekit-common = { workspace = true }
 provekit-prover = { workspace = true }
 
-# WIP-106 token building for the attestation benchmark fixture
+# WIP-106 token building for the authenticator-assertion bench fixture
 coset = { workspace = true }
 p256 = { workspace = true }
 
@@ -44,9 +45,18 @@ serde_json = { workspace = true }
 taceo-oprf = { workspace = true }
 
 # Utilities
+eyre = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 thiserror = { workspace = true }
 
 # UniFFI for mobile bindings
 uniffi = { version = "0.32", features = ["cli"] }
+
+[dev-dependencies]
+toml = { workspace = true }
+
+[build-dependencies]
+eyre = { workspace = true }
+provekit-common = { workspace = true }
+provekit-r1cs-compiler = { workspace = true }

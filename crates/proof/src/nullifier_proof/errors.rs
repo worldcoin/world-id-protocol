@@ -114,38 +114,6 @@ pub enum ProofInputError {
     /// The provided commitment does not match the one derived from the leaf index and blinder.
     #[error("The provided expected commitment does not match the derived commitment")]
     InvalidExpectedCommitment,
-    /// A WIP-106 token is expired at the verification time.
-    #[error("The {token} is expired (exp: {exp}, now: {now}).")]
-    TokenExpired {
-        /// Which token failed the check, for the error message.
-        token: &'static str,
-        /// Expiration timestamp of the token.
-        exp: u32,
-        /// Verification timestamp.
-        now: u32,
-    },
-    /// A WIP-106 token's remaining validity exceeds its maximum lifetime.
-    #[error(
-        "The {token} exceeds its maximum lifetime (exp: {exp}, now: {now}, max: {max_lifetime_secs}s)."
-    )]
-    TokenLifetimeExceeded {
-        /// Which token failed the check, for the error message.
-        token: &'static str,
-        /// Expiration timestamp of the token.
-        exp: u32,
-        /// Verification timestamp.
-        now: u32,
-        /// Maximum allowed remaining validity in seconds.
-        max_lifetime_secs: u32,
-    },
-    /// A WIP-106 token's `exp` cannot use the fixed 4-byte CBOR encoding.
-    #[error("The {token} exp {exp} must be in [2^16, 2^32) for its fixed-width encoding.")]
-    TokenExpirationOutOfRange {
-        /// Which token failed the check, for the error message.
-        token: &'static str,
-        /// Expiration timestamp of the token.
-        exp: u32,
-    },
 }
 
 /// This method checks the validity of the input parameters by emulating the operations that are proved in ZK and raising Errors that would result in an invalid proof.

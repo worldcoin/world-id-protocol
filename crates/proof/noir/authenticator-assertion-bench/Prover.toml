@@ -1,7 +1,7 @@
-# Prover.toml for the Attestation Proof reference circuit (WIP-106).
+# Prover.toml for the Authenticator Assertion bench circuit (WIP-106).
 #
 # GENERATED FILE. Do not edit by hand; regenerate with:
-#   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof prover_toml
+#   UPDATE_PROVER_TOML=1 cargo test -p zk-mobile-bench prover_toml
 aud = "1928118"
 authenticator_meta = "10"
 cdh = "2670467772"

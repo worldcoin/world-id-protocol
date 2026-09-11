@@ -3,10 +3,11 @@
 //! This crate provides benchmarks for the main ZK proof generation functions:
 //! - Query Proof (`π1`) - proves knowledge of a valid OPRF query
 //! - Nullifier/Uniqueness Proof (`π2`) - proves uniqueness without revealing identity
-//! - Attestation Proof (WIP-106) - verifies an Authenticator Attestation, on Noir/ProveKit
+//! - Authenticator Assertion bench (WIP-106) - verifies an Authenticator Attestation, on Noir/ProveKit
 
 use mobench_sdk::{benchmark, profile_phase};
 
+mod authenticator_assertion_bench;
 mod fixtures;
 
 use ark_babyjubjub::Fq;
@@ -29,13 +30,14 @@ use world_id_primitives::{
     AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, authenticator::oprf_query_digest,
 };
 use world_id_proof::{
-    NoirCircuitInput as _,
-    artifacts::embedded::{noir, zkeys},
-    attestation_proof::check_attestation_input_validity,
+    artifacts::embedded::zkeys,
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
 };
 
-use fixtures::{attestation_proof_fixture, first_leaf_merkle_path, generate_rp_fixture};
+use authenticator_assertion_bench::{check_input_freshness, load_embedded_prover};
+use fixtures::{
+    authenticator_assertion_bench_fixture, first_leaf_merkle_path, generate_rp_fixture,
+};
 
 // ============================================================================
 // Fixture Generation (deterministic for reproducible benchmarks)
@@ -412,32 +414,29 @@ pub fn bench_nullifier_proving_only() {
     });
 }
 
-/// Benchmark: Attestation Proof (WIP-106) generation on Noir/ProveKit, reported via the
+/// Benchmark: Authenticator Assertion (WIP-106) proving on Noir/ProveKit, reported via the
 /// `prover_load` / `witness` / `prove` phases (ProveKit consumes the `Prover`, so there is no
 /// separate warm path).
 #[benchmark]
-pub fn bench_attestation_proof_generation() {
-    let input = attestation_proof_fixture();
+pub fn bench_authenticator_assertion_proof_generation() {
+    let input = authenticator_assertion_bench_fixture();
 
     let mut prover = profile_phase("prover_load", || {
-        noir::load_embedded_attestation_prover().expect("embedded attestation prover")
+        load_embedded_prover().expect("embedded assertion bench prover")
     });
 
-    check_attestation_input_validity(&input).expect("valid attestation input");
+    check_input_freshness(&input);
 
     let witness = profile_phase("witness", || {
-        let input_map = input
-            .into_witness()
-            .expect("attestation circuit input maps");
         prover
-            .generate_witness(input_map)
-            .expect("attestation witness generation")
+            .generate_witness(input.into_witness())
+            .expect("assertion witness generation")
     });
 
     let proof = profile_phase("prove", || {
         prover
             .prove_with_witness(witness)
-            .expect("attestation WHIR proving")
+            .expect("assertion WHIR proving")
     });
 
     std::hint::black_box(proof);
@@ -665,15 +664,8 @@ mod tests {
 
     #[test]
     #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
-    fn test_attestation_proof_benchmark() {
-        bench_attestation_proof_generation();
-    }
-
-    /// Guards the fixture against drifting from the one backing the circuit's `Prover.toml`.
-    #[test]
-    fn test_attestation_fixture_is_valid() {
-        check_attestation_input_validity(&fixtures::attestation_proof_fixture())
-            .expect("fixture passes the circuit's freshness checks");
+    fn test_authenticator_assertion_proof_benchmark() {
+        bench_authenticator_assertion_proof_generation();
     }
 
     #[test]
@@ -692,7 +684,7 @@ mod tests {
             "zk_mobile_bench::bench_nullifier_proof_generation",
             "zk_mobile_bench::bench_nullifier_witness_generation_only",
             "zk_mobile_bench::bench_nullifier_proving_only",
-            "zk_mobile_bench::bench_attestation_proof_generation",
+            "zk_mobile_bench::bench_authenticator_assertion_proof_generation",
         ] {
             assert!(
                 names.iter().any(|name| name == expected_name),
