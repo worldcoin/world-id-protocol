@@ -3,16 +3,16 @@
 //! the Credential, the WIP-110 Verifier token, and the WIP-106 attestation
 //! chain, plus the signed variants the Noir negative tests need.
 //!
-//! Regenerate the committed artifacts with:
-//! `UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity`
-//! then run `nargo fmt` in the Noir package (`src/test_fixtures.nr` is written
-//! without regard for formatting).
+//! It emits two artifacts: `Prover.toml` (executed by CI with
+//! `nargo execute --pedantic-solving`) and `src/test_fixtures.nr` (a flat list
+//! of value globals the Noir tests assemble into witnesses). Regenerate both
+//! with `UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity`.
 
-use std::{env, fmt::Write as _, fs, path::PathBuf};
+use std::{env, fs, path::PathBuf};
 
 use ark_ff::PrimeField;
 use coset::{CborSerializable, CoseSign1};
-use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSASignature};
+use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use world_id_primitives::{
     AuthenticatorPublicKeySet, Credential, DomainSeparator, FieldElement,
@@ -42,10 +42,7 @@ const DS_CHALLENGE: VariableLengthDomainSeparator =
 const LEAF_INDEX: u64 = 1;
 const RP_ID: u64 = 1_928_118;
 const NOW: u64 = 1_700_000_000;
-/// 60 seconds before `NOW`.
 const IAT: u64 = NOW - 60;
-const COMPARISON_AGE_MAX: u64 = 300;
-const SIMILARITY_MIN: u64 = 5_000;
 const SIMILARITY_LIVE: u64 = 9_000;
 const SIMILARITY_CHALLENGE: u64 = 8_000;
 /// 40_000 seconds after `NOW`: below the 43_200s WIP-111 lifetime ceiling.
@@ -54,58 +51,62 @@ const AAT_EXP: u64 = NOW + 40_000;
 const AAT_EXP_TOO_LONG: u64 = NOW + 43_201;
 const TAKT_EXP: u64 = 1_783_446_925;
 const GENESIS_ISSUED_AT: u64 = 1_600_000_000;
-const GENESIS_ISSUED_AT_MIN: u64 = 1_500_000_000;
 const EXPIRES_AT: u64 = 1_800_000_000;
 const ISSUER_SCHEMA_ID: u64 = 4_242;
 const ISSUER_VERSION: u8 = 1;
 const CRED_ID: u64 = 7;
 const CLAIM_INDEX: usize = 2;
+/// `sec_flags`: platform iOS (2), sec_level SecureElement (1), build 2006, sec_meta 3.
+const SEC_FLAGS: u64 = 0x0003_0000_07D6_0102;
 
-/// The one coherent WIP-111 witness the Noir happy-path test and `Prover.toml` share.
-struct Fixture {
-    key_set: AuthenticatorPublicKeySet,
-    siblings: Vec<FieldElement>,
-    merkle_root: FieldElement,
-    authorization: EdDSASignature,
-    credential: Credential,
-    sub_blinding_factor: FieldElement,
-    nonce: FieldElement,
-    session_id_r: FieldElement,
-    session_id: FieldElement,
-    live_commitment: FieldElement,
-    challenge_commitment: FieldElement,
-    credential_commitment: FieldElement,
-    cwt_signature: EdDSASignature,
-    verifier_pk: eddsa_babyjubjub::EdDSAPublicKey,
-    trust_anchor_pk: eddsa_babyjubjub::EdDSAPublicKey,
-    assertion_key: p256::PublicKey,
-    takt_signature: EdDSASignature,
-    aat_signature: [u8; 64],
-    sec_flags: u64,
-    // Signed variants for the Noir negative tests.
-    aat_signature_too_long_exp: [u8; 64],
-    cwt_signature_two_way: EdDSASignature,
-    cwt_signature_future_iat: EdDSASignature,
-    credential_expired_signature: EdDSASignature,
+fn dec(element: impl Into<ark_babyjubjub::Fq>) -> String {
+    element.into().into_bigint().to_string()
+}
+
+/// Renders bytes as `[1, 2, 3]`: a valid array literal in both Noir and TOML.
+fn byte_array(bytes: &[u8]) -> String {
+    let list = bytes
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("[{list}]")
+}
+
+/// `(s, [r.x, r.y], ["r.x", "r.y"])`: the signature scalar plus its point in
+/// Noir and TOML array syntax.
+fn sig(signature: &EdDSASignature) -> (String, String, String) {
+    let (x, y) = (dec(signature.r.x), dec(signature.r.y));
+    (
+        signature.s.into_bigint().to_string(),
+        format!("[{x}, {y}]"),
+        format!("[\"{x}\", \"{y}\"]"),
+    )
+}
+
+fn noir_point(pk: &EdDSAPublicKey) -> String {
+    format!("PublicKey {{ x: {}, y: {} }}", dec(pk.pk.x), dec(pk.pk.y))
+}
+
+fn toml_point(pk: &EdDSAPublicKey) -> String {
+    format!("x = \"{}\"\ny = \"{}\"", dec(pk.pk.x), dec(pk.pk.y))
 }
 
 fn verifier_token_signature(
     verifier_sk: &EdDSAPrivateKey,
     iat: u64,
-    credential_commitment: FieldElement,
-    live_commitment: FieldElement,
-    challenge_commitment: FieldElement,
-    similarity_live: u64,
+    commitments: [FieldElement; 3],
     similarity_challenge: u64,
 ) -> EdDSASignature {
+    let [credential, live, challenge] = commitments;
     let digest = poseidon::hash(
         DS_EVT_V1,
         [
             FieldElement::from(iat),
-            credential_commitment,
-            live_commitment,
-            challenge_commitment,
-            FieldElement::from(similarity_live),
+            credential,
+            live,
+            challenge,
+            FieldElement::from(SIMILARITY_LIVE),
             FieldElement::from(similarity_challenge),
         ],
     );
@@ -136,7 +137,9 @@ fn aat_signature(
     sign1.signature.try_into().unwrap()
 }
 
-fn fixture() -> Fixture {
+/// Computes the full witness and renders `(Prover.toml, test_fixtures.nr)`.
+#[expect(clippy::too_many_lines)]
+fn render() -> (String, String) {
     // Deterministic test keys (not real key material). The authenticator key
     // matches the WIP-103 ownership fixture; the trust anchor and assertion
     // keys match the WIP-106 attestation fixtures.
@@ -155,6 +158,7 @@ fn fixture() -> Fixture {
     let live_commitment = hash_bytes_to_field_element(DS_LIVE, b"live capture").unwrap();
     let challenge_commitment =
         hash_bytes_to_field_element(DS_CHALLENGE, b"challenge frame").unwrap();
+    let commitments = [credential_commitment, live_commitment, challenge_commitment];
 
     let nonce = FieldElement::from(0x11d2_23ce_7b91_ac21_u64);
     let authorization = authenticator_sk.sign(*poseidon::hash(
@@ -170,8 +174,6 @@ fn fixture() -> Fixture {
         .subject(Credential::compute_sub(LEAF_INDEX, sub_blinding_factor))
         .genesis_issued_at(GENESIS_ISSUED_AT)
         .expires_at(EXPIRES_AT)
-        .claim_hash(0, ruint::aliases::U256::from(1_u64))
-        .unwrap()
         .claim_hash(
             CLAIM_INDEX,
             ruint::aliases::U256::from_be_bytes(credential_commitment.to_be_bytes()),
@@ -179,10 +181,9 @@ fn fixture() -> Fixture {
         .unwrap()
         .sign(&issuer_sk)
         .unwrap();
-
     // An otherwise identical credential already expired at `NOW`, for the
     // validity-window rejection test (`now < expires_at` fails on equality).
-    let credential_expired_signature = {
+    let expired_signature = {
         let mut expired = credential.clone();
         expired.expires_at = NOW;
         expired.sign(&issuer_sk).unwrap().signature.unwrap()
@@ -194,437 +195,239 @@ fn fixture() -> Fixture {
         [FieldElement::from(LEAF_INDEX), session_id_r],
     );
 
-    let cwt_signature = verifier_token_signature(
-        &verifier_sk,
-        IAT,
-        credential_commitment,
-        live_commitment,
-        challenge_commitment,
-        SIMILARITY_LIVE,
-        SIMILARITY_CHALLENGE,
-    );
+    let cwt = verifier_token_signature(&verifier_sk, IAT, commitments, SIMILARITY_CHALLENGE);
     // 2-way flow: nil challenge commitment, nil challenge score.
-    let cwt_signature_two_way = verifier_token_signature(
+    let cwt_two_way = verifier_token_signature(
         &verifier_sk,
         IAT,
-        credential_commitment,
-        live_commitment,
-        FieldElement::ZERO,
-        SIMILARITY_LIVE,
+        [credential_commitment, live_commitment, FieldElement::ZERO],
         0,
     );
     // Future-dated token: `iat > now` must be rejected even when fresh-looking.
-    let cwt_signature_future_iat = verifier_token_signature(
-        &verifier_sk,
-        NOW + 10,
-        credential_commitment,
-        live_commitment,
-        challenge_commitment,
-        SIMILARITY_LIVE,
-        SIMILARITY_CHALLENGE,
-    );
+    let cwt_future_iat =
+        verifier_token_signature(&verifier_sk, NOW + 10, commitments, SIMILARITY_CHALLENGE);
 
-    let takt_claims = TrustAnchorKeyClaims {
+    let takt = TrustAnchorKeyToken::new(TrustAnchorKeyClaims {
         exp: TAKT_EXP,
         assertion_key: assertion_sk.public_key(),
         sec_level: SecLevel::SecureElement,
         platform: Platform::Ios,
         build_version: 2006,
         sec_meta: 0b11,
-    };
-    let takt = TrustAnchorKeyToken::new(takt_claims)
-        .unwrap()
-        .sign(&trust_anchor_sk)
-        .unwrap();
-    let takt_sign1 = CoseSign1::from_slice(&takt).unwrap();
-    let takt_signature =
-        EdDSASignature::from_compressed_bytes(takt_sign1.signature.clone().try_into().unwrap())
-            .unwrap();
-
-    Fixture {
-        key_set,
-        siblings: siblings.to_vec(),
-        merkle_root,
-        authorization,
-        credential,
-        sub_blinding_factor,
+    })
+    .unwrap()
+    .sign(&trust_anchor_sk)
+    .unwrap();
+    let takt_sig = EdDSASignature::from_compressed_bytes(
+        CoseSign1::from_slice(&takt)
+            .unwrap()
+            .signature
+            .try_into()
+            .unwrap(),
+    )
+    .unwrap();
+    let assertion_point = assertion_sk.public_key().to_encoded_point(false);
+    let assertion_key_x = byte_array(assertion_point.x().unwrap());
+    let assertion_key_y = byte_array(assertion_point.y().unwrap());
+    let aat_sig = byte_array(&aat_signature(
+        AAT_EXP,
         nonce,
-        session_id_r,
-        session_id,
         live_commitment,
-        challenge_commitment,
-        credential_commitment,
-        cwt_signature,
-        verifier_pk: verifier_sk.public(),
-        trust_anchor_pk: trust_anchor_sk.public(),
-        assertion_key: assertion_sk.public_key(),
-        takt_signature,
-        aat_signature: aat_signature(AAT_EXP, nonce, live_commitment, &takt, &assertion_sk),
-        sec_flags: (Platform::Ios as u64)
-            | ((SecLevel::SecureElement as u64) << 8)
-            | (2006_u64 << 16)
-            | (0b11_u64 << 48),
-        aat_signature_too_long_exp: aat_signature(
-            AAT_EXP_TOO_LONG,
-            nonce,
-            live_commitment,
-            &takt,
-            &assertion_sk,
-        ),
-        cwt_signature_two_way,
-        cwt_signature_future_iat,
-        credential_expired_signature,
-    }
-}
+        &takt,
+        &assertion_sk,
+    ));
+    let aat_sig_too_long = byte_array(&aat_signature(
+        AAT_EXP_TOO_LONG,
+        nonce,
+        live_commitment,
+        &takt,
+        &assertion_sk,
+    ));
 
-fn dec(element: FieldElement) -> String {
-    element.into_bigint().to_string()
-}
+    let (auth_s, auth_r, auth_r_toml) = sig(&authorization);
+    let (cred_s, cred_r, cred_r_toml) = sig(credential.signature.as_ref().unwrap());
+    let (cred_exp_s, cred_exp_r, _) = sig(&expired_signature);
+    let (cwt_s, cwt_r, cwt_r_toml) = sig(&cwt);
+    let (cwt2_s, cwt2_r, _) = sig(&cwt_two_way);
+    let (cwtf_s, cwtf_r, _) = sig(&cwt_future_iat);
+    let (takt_s, takt_r, takt_r_toml) = sig(&takt_sig);
 
-fn dec_fq(element: ark_babyjubjub::Fq) -> String {
-    element.into_bigint().to_string()
-}
+    // The Noir globals: `(name, type, value)`, one `pub global` each. Recipe
+    // scalars and computed values alike live here so the Noir tests share one
+    // source of truth with `Prover.toml`. Values Noir can recompute (siblings,
+    // merkle root, session commitment, the claims array) are not emitted.
+    #[rustfmt::skip]
+    let globals: Vec<(&str, &str, String)> = vec![
+        // Public inputs
+        ("TRUST_ANCHOR_KEY", "PublicKey", noir_point(&trust_anchor_sk.public())),
+        ("AUTHENTICATOR_META", "Field", "10".into()),
+        ("NONCE", "Field", dec(*nonce)),
+        ("RP_ID", "Field", RP_ID.to_string()),
+        ("NOW", "Field", NOW.to_string()),
+        ("GENESIS_ISSUED_AT_MIN", "Field", "1500000000".into()),
+        ("VERIFIER_KEY", "PublicKey", noir_point(&verifier_sk.public())),
+        ("CHALLENGE_COMMITMENT", "Field", dec(*challenge_commitment)),
+        ("COMPARISON_AGE_MAX", "Field", "300".into()),
+        ("SIMILARITY_MIN", "Field", "5000".into()),
+        ("ISSUER_SCHEMA_ID", "Field", ISSUER_SCHEMA_ID.to_string()),
+        ("CRED_PK", "PublicKey", noir_point(&credential.issuer)),
+        ("ISSUER_VERSION", "Field", ISSUER_VERSION.to_string()),
+        ("CLAIM_INDEX", "Field", CLAIM_INDEX.to_string()),
+        // Expected public outputs
+        ("SEC_LEVEL", "Field", (SecLevel::SecureElement as u64).to_string()),
+        ("SEC_META", "Field", "3".into()),
+        // Registry witness
+        ("USER_PK", "PublicKey", noir_point(&authenticator_sk.public())),
+        ("AUTH_SIG_S", "Field", auth_s.clone()),
+        ("AUTH_SIG_R", "[Field; 2]", auth_r),
+        ("LEAF_INDEX", "Field", LEAF_INDEX.to_string()),
+        // Credential witness (claims are all zero except `claims[CLAIM_INDEX]`)
+        ("GENESIS_ISSUED_AT", "Field", GENESIS_ISSUED_AT.to_string()),
+        ("EXPIRES_AT", "Field", EXPIRES_AT.to_string()),
+        ("SUB_BLINDING_FACTOR", "Field", dec(*sub_blinding_factor)),
+        ("CRED_ID", "Field", CRED_ID.to_string()),
+        ("CRED_SIG_S", "Field", cred_s.clone()),
+        ("CRED_SIG_R", "[Field; 2]", cred_r.clone()),
+        // Verifier token witness
+        ("IAT", "Field", IAT.to_string()),
+        ("CREDENTIAL_COMMITMENT", "Field", dec(*credential_commitment)),
+        ("LIVE_COMMITMENT", "Field", dec(*live_commitment)),
+        ("SIMILARITY_LIVE", "Field", SIMILARITY_LIVE.to_string()),
+        ("SIMILARITY_CHALLENGE", "Field", SIMILARITY_CHALLENGE.to_string()),
+        ("CWT_SIG_S", "Field", cwt_s.clone()),
+        ("CWT_SIG_R", "[Field; 2]", cwt_r.clone()),
+        // Attestation chain witness
+        ("TAKT_EXP", "Field", TAKT_EXP.to_string()),
+        ("ASSERTION_KEY_X", "[u8; 32]", assertion_key_x.clone()),
+        ("ASSERTION_KEY_Y", "[u8; 32]", assertion_key_y.clone()),
+        ("SEC_FLAGS", "Field", SEC_FLAGS.to_string()),
+        ("TAKT_SIG_S", "Field", takt_s.clone()),
+        ("TAKT_SIG_R", "[Field; 2]", takt_r.clone()),
+        ("AAT_EXP", "Field", AAT_EXP.to_string()),
+        ("AAT_SIGNATURE", "[u8; 64]", aat_sig.clone()),
+        ("SESSION_ID_R", "Field", dec(*session_id_r)),
+        // Signed variants for the negative tests
+        ("AAT_EXP_TOO_LONG", "Field", AAT_EXP_TOO_LONG.to_string()),
+        ("AAT_SIGNATURE_TOO_LONG_EXP", "[u8; 64]", aat_sig_too_long),
+        ("FUTURE_IAT", "Field", (NOW + 10).to_string()),
+        ("CWT_SIG_S_TWO_WAY", "Field", cwt2_s),
+        ("CWT_SIG_R_TWO_WAY", "[Field; 2]", cwt2_r),
+        ("CWT_SIG_S_FUTURE_IAT", "Field", cwtf_s),
+        ("CWT_SIG_R_FUTURE_IAT", "[Field; 2]", cwtf_r),
+        ("EXPIRED_EXPIRES_AT", "Field", NOW.to_string()),
+        ("CRED_SIG_S_EXPIRED", "Field", cred_exp_s),
+        ("CRED_SIG_R_EXPIRED", "[Field; 2]", cred_exp_r),
+    ];
 
-/// Renders an EdDSA signature as `(s, [r.x, r.y])` decimal strings.
-fn signature_parts(signature: &EdDSASignature) -> (String, String, String) {
-    (
-        signature.s.into_bigint().to_string(),
-        dec_fq(signature.r.x),
-        dec_fq(signature.r.y),
-    )
-}
-
-fn byte_list(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn quoted_list(values: &[String]) -> String {
-    values
-        .iter()
-        .map(|value| format!("\"{value}\""))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn user_pk_entries(fixture: &Fixture) -> Vec<(String, String)> {
-    fixture
-        .key_set
-        .as_affine_array()
-        .iter()
-        .map(|pk| (dec_fq(pk.x), dec_fq(pk.y)))
-        .collect()
-}
-
-fn render_prover_toml(fixture: &Fixture) -> String {
-    let (auth_s, auth_rx, auth_ry) = signature_parts(&fixture.authorization);
-    let cred_signature = fixture.credential.signature.as_ref().unwrap();
-    let (cred_s, cred_rx, cred_ry) = signature_parts(cred_signature);
-    let (cwt_s, cwt_rx, cwt_ry) = signature_parts(&fixture.cwt_signature);
-    let (takt_s, takt_rx, takt_ry) = signature_parts(&fixture.takt_signature);
-    let assertion_point = fixture.assertion_key.to_encoded_point(false);
-
-    let mut out = String::from(
-        "# Prover.toml for the Embedding Similarity circuit (WIP-111).\n#\n\
-         # GENERATED FILE. Do not edit by hand; regenerate with:\n\
-         #   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity\n\n\
-         # Public inputs\n",
-    );
-    let claims: Vec<String> = fixture.credential.claims.iter().map(|c| dec(*c)).collect();
-    let siblings: Vec<String> = fixture.siblings.iter().map(|s| dec(*s)).collect();
-
-    writeln!(out, "authenticator_meta = \"10\"").unwrap();
-    writeln!(out, "nonce = \"{}\"", dec(fixture.nonce)).unwrap();
-    writeln!(out, "rp_id = \"{RP_ID}\"").unwrap();
-    writeln!(out, "now = \"{NOW}\"").unwrap();
-    writeln!(out, "session_id = \"{}\"", dec(fixture.session_id)).unwrap();
-    writeln!(out, "genesis_issued_at_min = \"{GENESIS_ISSUED_AT_MIN}\"").unwrap();
-    writeln!(
-        out,
-        "challenge_commitment = \"{}\"",
-        dec(fixture.challenge_commitment)
-    )
-    .unwrap();
-    writeln!(out, "comparison_age_max = \"{COMPARISON_AGE_MAX}\"").unwrap();
-    writeln!(out, "similarity_min = \"{SIMILARITY_MIN}\"").unwrap();
-    writeln!(out, "merkle_root = \"{}\"", dec(fixture.merkle_root)).unwrap();
-    writeln!(out, "issuer_schema_id = \"{ISSUER_SCHEMA_ID}\"").unwrap();
-    writeln!(out, "issuer_version = \"{ISSUER_VERSION}\"").unwrap();
-    writeln!(out, "claim_index = \"{CLAIM_INDEX}\"").unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "[trust_anchor_key]").unwrap();
-    writeln!(out, "x = \"{}\"", dec_fq(fixture.trust_anchor_pk.pk.x)).unwrap();
-    writeln!(out, "y = \"{}\"", dec_fq(fixture.trust_anchor_pk.pk.y)).unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "[verifier_key]").unwrap();
-    writeln!(out, "x = \"{}\"", dec_fq(fixture.verifier_pk.pk.x)).unwrap();
-    writeln!(out, "y = \"{}\"", dec_fq(fixture.verifier_pk.pk.y)).unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "[cred_pk]").unwrap();
-    let issuer_pk = fixture.credential.issuer.pk;
-    writeln!(out, "x = \"{}\"", dec_fq(issuer_pk.x)).unwrap();
-    writeln!(out, "y = \"{}\"", dec_fq(issuer_pk.y)).unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "# Private inputs").unwrap();
-    writeln!(out, "[inputs]").unwrap();
-    writeln!(out, "aat_exp = \"{AAT_EXP}\"").unwrap();
-    writeln!(
-        out,
-        "aat_signature = [{}]",
-        byte_list(&fixture.aat_signature)
-    )
-    .unwrap();
-    writeln!(out, "session_id_r = \"{}\"", dec(fixture.session_id_r)).unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "[inputs.registry]").unwrap();
-    writeln!(out, "pk_index = \"0\"").unwrap();
-    writeln!(out, "sig_s = \"{auth_s}\"").unwrap();
-    writeln!(out, "sig_r = [\"{auth_rx}\", \"{auth_ry}\"]").unwrap();
-    writeln!(out, "leaf_index = \"{LEAF_INDEX}\"").unwrap();
-    writeln!(out, "siblings = [{}]", quoted_list(&siblings)).unwrap();
-    for (x, y) in user_pk_entries(fixture) {
-        writeln!(out).unwrap();
-        writeln!(out, "[[inputs.registry.user_pk]]").unwrap();
-        writeln!(out, "x = \"{x}\"").unwrap();
-        writeln!(out, "y = \"{y}\"").unwrap();
-    }
-    writeln!(out).unwrap();
-    writeln!(out, "[inputs.credential]").unwrap();
-    writeln!(out, "claims = [{}]", quoted_list(&claims)).unwrap();
-    writeln!(out, "associated_data_hash = \"0\"").unwrap();
-    writeln!(out, "genesis_issued_at = \"{GENESIS_ISSUED_AT}\"").unwrap();
-    writeln!(out, "expires_at = \"{EXPIRES_AT}\"").unwrap();
-    writeln!(
-        out,
-        "sub_blinding_factor = \"{}\"",
-        dec(fixture.sub_blinding_factor)
-    )
-    .unwrap();
-    writeln!(out, "id = \"{CRED_ID}\"").unwrap();
-    writeln!(out, "sig_s = \"{cred_s}\"").unwrap();
-    writeln!(out, "sig_r = [\"{cred_rx}\", \"{cred_ry}\"]").unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "[inputs.cwt]").unwrap();
-    writeln!(out, "iat = \"{IAT}\"").unwrap();
-    writeln!(
-        out,
-        "credential_commitment = \"{}\"",
-        dec(fixture.credential_commitment)
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "live_commitment = \"{}\"",
-        dec(fixture.live_commitment)
-    )
-    .unwrap();
-    writeln!(out, "similarity_live = \"{SIMILARITY_LIVE}\"").unwrap();
-    writeln!(out, "similarity_challenge = \"{SIMILARITY_CHALLENGE}\"").unwrap();
-    writeln!(out, "sig_s = \"{cwt_s}\"").unwrap();
-    writeln!(out, "sig_r = [\"{cwt_rx}\", \"{cwt_ry}\"]").unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "[inputs.takt]").unwrap();
-    writeln!(out, "exp = \"{TAKT_EXP}\"").unwrap();
-    writeln!(
-        out,
-        "assertion_key_x = [{}]",
-        byte_list(assertion_point.x().unwrap())
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "assertion_key_y = [{}]",
-        byte_list(assertion_point.y().unwrap())
-    )
-    .unwrap();
-    writeln!(out, "sec_flags = \"{}\"", fixture.sec_flags).unwrap();
-    writeln!(out, "sig_s = \"{takt_s}\"").unwrap();
-    writeln!(out, "sig_r = [\"{takt_rx}\", \"{takt_ry}\"]").unwrap();
-
-    out
-}
-
-fn render_noir_fixtures(fixture: &Fixture) -> String {
-    let (auth_s, auth_rx, auth_ry) = signature_parts(&fixture.authorization);
-    let cred_signature = fixture.credential.signature.as_ref().unwrap();
-    let (cred_s, cred_rx, cred_ry) = signature_parts(cred_signature);
-    let (cwt_s, cwt_rx, cwt_ry) = signature_parts(&fixture.cwt_signature);
-    let (cwt2_s, cwt2_rx, cwt2_ry) = signature_parts(&fixture.cwt_signature_two_way);
-    let (cwtf_s, cwtf_rx, cwtf_ry) = signature_parts(&fixture.cwt_signature_future_iat);
-    let (takt_s, takt_rx, takt_ry) = signature_parts(&fixture.takt_signature);
-    let assertion_point = fixture.assertion_key.to_encoded_point(false);
-    let claims: Vec<String> = fixture.credential.claims.iter().map(|c| dec(*c)).collect();
-    let siblings: Vec<String> = fixture.siblings.iter().map(|s| dec(*s)).collect();
-    let user_pk: Vec<String> = user_pk_entries(fixture)
-        .iter()
-        .map(|(x, y)| format!("PublicKey {{ x: {x}, y: {y} }}"))
-        .collect();
-
-    let mut out = String::from(
-        "// GENERATED FILE covering one coherent WIP-111 witness plus the signed\n\
-         // variants the negative tests need. Regenerate with:\n\
+    let noir = format!(
+        "// GENERATED FILE: one coherent WIP-111 witness plus the signed variants the\n\
+         // negative tests need, as flat value globals (`tests.nr` assembles them).\n\
+         // Regenerate with:\n\
          //   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity\n\
-         // then re-run `nargo fmt`. Keys derive from constant test seeds (not real\n\
-         // key material); values mirror `Prover.toml`.\n\
-         use super::types::{\n\
-         \x20   CredentialInputs, PrivateInputs, PublicKey, RegistryInputs, TaktInputs,\n\
-         \x20   VerifierTokenInputs,\n\
-         };\n\n",
+         // Keys derive from constant test seeds (not real key material); values\n\
+         // mirror `Prover.toml`.\n\
+         use super::types::PublicKey;\n\n{}",
+        globals
+            .iter()
+            .map(|(name, ty, value)| format!("pub global {name}: {ty} = {value};\n"))
+            .collect::<String>()
     );
 
-    let mut global = |name: &str, ty: &str, value: &str| {
-        writeln!(out, "pub global {name}: {ty} = {value};").unwrap();
-    };
+    // Inactive registry slots hold the BabyJubJub identity (0, 1).
+    let user_pk = std::iter::once(toml_point(&authenticator_sk.public()))
+        .chain(std::iter::repeat_n("x = \"0\"\ny = \"1\"".to_string(), 6))
+        .map(|point| format!("\n[[inputs.registry.user_pk]]\n{point}\n"))
+        .collect::<String>();
+    let mut claims = vec!["\"0\"".to_string(); Credential::MAX_CLAIMS];
+    claims[CLAIM_INDEX] = format!("\"{}\"", dec(*credential_commitment));
+    let claims = claims.join(", ");
+    let siblings = siblings
+        .iter()
+        .map(|s| format!("\"{}\"", dec(**s)))
+        .collect::<Vec<_>>()
+        .join(", ");
 
-    global("AUTHENTICATOR_META", "Field", "10");
-    global("NONCE", "Field", &dec(fixture.nonce));
-    global("RP_ID", "Field", &RP_ID.to_string());
-    global("NOW", "Field", &NOW.to_string());
-    global("SESSION_ID", "Field", &dec(fixture.session_id));
-    global(
-        "GENESIS_ISSUED_AT_MIN",
-        "Field",
-        &GENESIS_ISSUED_AT_MIN.to_string(),
-    );
-    global(
-        "CHALLENGE_COMMITMENT",
-        "Field",
-        &dec(fixture.challenge_commitment),
-    );
-    global(
-        "COMPARISON_AGE_MAX",
-        "Field",
-        &COMPARISON_AGE_MAX.to_string(),
-    );
-    global("SIMILARITY_MIN", "Field", &SIMILARITY_MIN.to_string());
-    global("MERKLE_ROOT", "Field", &dec(fixture.merkle_root));
-    global("ISSUER_SCHEMA_ID", "Field", &ISSUER_SCHEMA_ID.to_string());
-    global("ISSUER_VERSION", "Field", &ISSUER_VERSION.to_string());
-    global("CLAIM_INDEX", "Field", &CLAIM_INDEX.to_string());
-    global(
-        "TRUST_ANCHOR_KEY",
-        "PublicKey",
-        &format!(
-            "PublicKey {{ x: {}, y: {} }}",
-            dec_fq(fixture.trust_anchor_pk.pk.x),
-            dec_fq(fixture.trust_anchor_pk.pk.y)
-        ),
-    );
-    global(
-        "VERIFIER_KEY",
-        "PublicKey",
-        &format!(
-            "PublicKey {{ x: {}, y: {} }}",
-            dec_fq(fixture.verifier_pk.pk.x),
-            dec_fq(fixture.verifier_pk.pk.y)
-        ),
-    );
-    global(
-        "CRED_PK",
-        "PublicKey",
-        &format!(
-            "PublicKey {{ x: {}, y: {} }}",
-            dec_fq(fixture.credential.issuer.pk.x),
-            dec_fq(fixture.credential.issuer.pk.y)
-        ),
-    );
-    global(
-        "SEC_LEVEL",
-        "Field",
-        &(SecLevel::SecureElement as u64).to_string(),
-    );
-    global("SEC_META", "Field", "3");
-    global("AAT_EXP_TOO_LONG", "Field", &AAT_EXP_TOO_LONG.to_string());
-    global(
-        "AAT_SIGNATURE_TOO_LONG_EXP",
-        "[u8; 64]",
-        &format!("[{}]", byte_list(&fixture.aat_signature_too_long_exp)),
-    );
-    global("FUTURE_IAT", "Field", &(NOW + 10).to_string());
-    global("CWT_SIG_S_TWO_WAY", "Field", &cwt2_s);
-    global(
-        "CWT_SIG_R_TWO_WAY",
-        "[Field; 2]",
-        &format!("[{cwt2_rx}, {cwt2_ry}]"),
-    );
-    global("CWT_SIG_S_FUTURE_IAT", "Field", &cwtf_s);
-    global(
-        "CWT_SIG_R_FUTURE_IAT",
-        "[Field; 2]",
-        &format!("[{cwtf_rx}, {cwtf_ry}]"),
-    );
-    let (cred_exp_s, cred_exp_rx, cred_exp_ry) =
-        signature_parts(&fixture.credential_expired_signature);
-    global("EXPIRED_EXPIRES_AT", "Field", &NOW.to_string());
-    global("CRED_SIG_S_EXPIRED", "Field", &cred_exp_s);
-    global(
-        "CRED_SIG_R_EXPIRED",
-        "[Field; 2]",
-        &format!("[{cred_exp_rx}, {cred_exp_ry}]"),
+    let toml = format!(
+        "# Prover.toml for the Embedding Similarity circuit (WIP-111).\n\
+         #\n\
+         # GENERATED FILE. Do not edit by hand; regenerate with:\n\
+         #   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity\n\
+         \n\
+         # Public inputs\n\
+         authenticator_meta = \"10\"\n\
+         nonce = \"{nonce}\"\n\
+         rp_id = \"{RP_ID}\"\n\
+         now = \"{NOW}\"\n\
+         session_id = \"{session_id}\"\n\
+         genesis_issued_at_min = \"1500000000\"\n\
+         challenge_commitment = \"{challenge_commitment}\"\n\
+         comparison_age_max = \"300\"\n\
+         similarity_min = \"5000\"\n\
+         merkle_root = \"{merkle_root}\"\n\
+         issuer_schema_id = \"{ISSUER_SCHEMA_ID}\"\n\
+         issuer_version = \"{ISSUER_VERSION}\"\n\
+         claim_index = \"{CLAIM_INDEX}\"\n\
+         \n\
+         [trust_anchor_key]\n{trust_anchor_key}\n\
+         \n\
+         [verifier_key]\n{verifier_key}\n\
+         \n\
+         [cred_pk]\n{cred_pk}\n\
+         \n\
+         # Private inputs\n\
+         [inputs]\n\
+         aat_exp = \"{AAT_EXP}\"\n\
+         aat_signature = {aat_sig}\n\
+         session_id_r = \"{session_id_r}\"\n\
+         \n\
+         [inputs.registry]\n\
+         pk_index = \"0\"\n\
+         sig_s = \"{auth_s}\"\n\
+         sig_r = {auth_r_toml}\n\
+         leaf_index = \"{LEAF_INDEX}\"\n\
+         siblings = [{siblings}]\n\
+         {user_pk}\
+         \n\
+         [inputs.credential]\n\
+         claims = [{claims}]\n\
+         associated_data_hash = \"0\"\n\
+         genesis_issued_at = \"{GENESIS_ISSUED_AT}\"\n\
+         expires_at = \"{EXPIRES_AT}\"\n\
+         sub_blinding_factor = \"{sub_blinding_factor}\"\n\
+         id = \"{CRED_ID}\"\n\
+         sig_s = \"{cred_s}\"\n\
+         sig_r = {cred_r_toml}\n\
+         \n\
+         [inputs.cwt]\n\
+         iat = \"{IAT}\"\n\
+         credential_commitment = \"{credential_commitment}\"\n\
+         live_commitment = \"{live_commitment}\"\n\
+         similarity_live = \"{SIMILARITY_LIVE}\"\n\
+         similarity_challenge = \"{SIMILARITY_CHALLENGE}\"\n\
+         sig_s = \"{cwt_s}\"\n\
+         sig_r = {cwt_r_toml}\n\
+         \n\
+         [inputs.takt]\n\
+         exp = \"{TAKT_EXP}\"\n\
+         assertion_key_x = {assertion_key_x}\n\
+         assertion_key_y = {assertion_key_y}\n\
+         sec_flags = \"{SEC_FLAGS}\"\n\
+         sig_s = \"{takt_s}\"\n\
+         sig_r = {takt_r_toml}\n",
+        nonce = dec(*nonce),
+        session_id = dec(*session_id),
+        challenge_commitment = dec(*challenge_commitment),
+        merkle_root = dec(*merkle_root),
+        trust_anchor_key = toml_point(&trust_anchor_sk.public()),
+        verifier_key = toml_point(&verifier_sk.public()),
+        cred_pk = toml_point(&credential.issuer),
+        session_id_r = dec(*session_id_r),
+        sub_blinding_factor = dec(*sub_blinding_factor),
+        credential_commitment = dec(*credential_commitment),
+        live_commitment = dec(*live_commitment),
     );
 
-    writeln!(
-        out,
-        "\npub fn fixture_inputs() -> PrivateInputs {{\n\
-         \x20   PrivateInputs {{\n\
-         \x20       registry: RegistryInputs {{\n\
-         \x20           user_pk: [{user_pk}],\n\
-         \x20           pk_index: 0,\n\
-         \x20           sig_s: {auth_s},\n\
-         \x20           sig_r: [{auth_rx}, {auth_ry}],\n\
-         \x20           leaf_index: {LEAF_INDEX},\n\
-         \x20           siblings: [{siblings}],\n\
-         \x20       }},\n\
-         \x20       credential: CredentialInputs {{\n\
-         \x20           claims: [{claims}],\n\
-         \x20           associated_data_hash: 0,\n\
-         \x20           genesis_issued_at: {GENESIS_ISSUED_AT},\n\
-         \x20           expires_at: {EXPIRES_AT},\n\
-         \x20           sub_blinding_factor: {sub_blinding_factor},\n\
-         \x20           id: {CRED_ID},\n\
-         \x20           sig_s: {cred_s},\n\
-         \x20           sig_r: [{cred_rx}, {cred_ry}],\n\
-         \x20       }},\n\
-         \x20       cwt: VerifierTokenInputs {{\n\
-         \x20           iat: {IAT},\n\
-         \x20           credential_commitment: {credential_commitment},\n\
-         \x20           live_commitment: {live_commitment},\n\
-         \x20           similarity_live: {SIMILARITY_LIVE},\n\
-         \x20           similarity_challenge: {SIMILARITY_CHALLENGE},\n\
-         \x20           sig_s: {cwt_s},\n\
-         \x20           sig_r: [{cwt_rx}, {cwt_ry}],\n\
-         \x20       }},\n\
-         \x20       takt: TaktInputs {{\n\
-         \x20           exp: {TAKT_EXP},\n\
-         \x20           assertion_key_x: [{assertion_x}],\n\
-         \x20           assertion_key_y: [{assertion_y}],\n\
-         \x20           sec_flags: {sec_flags},\n\
-         \x20           sig_s: {takt_s},\n\
-         \x20           sig_r: [{takt_rx}, {takt_ry}],\n\
-         \x20       }},\n\
-         \x20       aat_exp: {AAT_EXP},\n\
-         \x20       aat_signature: [{aat_signature}],\n\
-         \x20       session_id_r: {session_id_r},\n\
-         \x20   }}\n\
-         }}",
-        user_pk = user_pk.join(", "),
-        siblings = siblings.join(", "),
-        claims = claims.join(", "),
-        sub_blinding_factor = dec(fixture.sub_blinding_factor),
-        credential_commitment = dec(fixture.credential_commitment),
-        live_commitment = dec(fixture.live_commitment),
-        sec_flags = fixture.sec_flags,
-        assertion_x = byte_list(assertion_point.x().unwrap()),
-        assertion_y = byte_list(assertion_point.y().unwrap()),
-        aat_signature = byte_list(&fixture.aat_signature),
-        session_id_r = dec(fixture.session_id_r),
-    )
-    .unwrap();
-
-    out
+    (toml, noir)
 }
 
 fn noir_package_path(file: &str) -> PathBuf {
@@ -633,15 +436,14 @@ fn noir_package_path(file: &str) -> PathBuf {
 
 #[test]
 fn prover_toml_matches_the_fixture() {
-    let fixture = fixture();
-    let rendered = render_prover_toml(&fixture);
+    let (toml, noir) = render();
     let path = noir_package_path("Prover.toml");
 
     if env::var_os("UPDATE_PROVER_TOML").is_some() {
-        fs::write(&path, &rendered)
+        fs::write(&path, &toml)
             .unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
         let noir_path = noir_package_path("src/test_fixtures.nr");
-        fs::write(&noir_path, render_noir_fixtures(&fixture))
+        fs::write(&noir_path, noir)
             .unwrap_or_else(|e| panic!("failed to write {}: {e}", noir_path.display()));
         return;
     }
@@ -650,7 +452,7 @@ fn prover_toml_matches_the_fixture() {
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
     assert_eq!(
         committed,
-        rendered,
+        toml,
         "{} is out of date; regenerate with `UPDATE_PROVER_TOML=1 cargo test -p world-id-proof \
          embedding_similarity` (and re-run `nargo fmt` for src/test_fixtures.nr)",
         path.display()
@@ -661,7 +463,7 @@ fn prover_toml_matches_the_fixture() {
 /// Noir package so the two implementations cannot silently diverge.
 #[test]
 fn domain_separators_match_the_noir_constants() {
-    let as_int = |tag: &[u8]| dec_fq(ark_babyjubjub::Fq::from_be_bytes_mod_order(tag));
+    let as_int = |tag: &[u8]| dec(ark_babyjubjub::Fq::from_be_bytes_mod_order(tag));
     assert_eq!(
         as_int(b"WORLD-ID/WIP-111/SIGN"),
         "127603488023523044162070750169730678246161835968334"
