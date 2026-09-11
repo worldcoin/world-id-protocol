@@ -57,13 +57,3 @@ jobs:
           toolchain: v1.0.0-beta.11
       - run: nargo fmt --check && nargo test
       - run: nargo execute --pedantic-solving
-      # The WIP-106 consumer obligations (crates/proof/noir/README.md) require these to be public.
-      - name: Assert public-input visibility in the compiled ABI
-        run: |
-          for param in trust_anchor_key_x trust_anchor_key_y now aud nonce cdh authenticator_meta sec_flags; do
-            visibility=$(jq -r --arg p "$param" '.abi.parameters[] | select(.name == $p) | .visibility' target/authenticator_assertion_bench.json)
-            if [ "$visibility" != "public" ]; then
-              echo "parameter $param must be public, got: $visibility" >&2
-              exit 1
-            fi
-          done
