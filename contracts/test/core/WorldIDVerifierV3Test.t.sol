@@ -7,6 +7,7 @@ import {IWorldIDVerifierV2} from "../../src/core/interfaces/IWorldIDVerifierV2.s
 import {WorldIDVerifier} from "../../src/core/WorldIDVerifier.sol";
 import {IWorldIDVerifierV3} from "../../src/core/interfaces/UnreleasedIWorldIDVerifierV3.sol";
 import {Verifier} from "../../src/core/Verifier.sol";
+import {PackedAccountData} from "../../src/core/libraries/PackedAccountData.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {
@@ -18,8 +19,32 @@ import {
     rootCorrect
 } from "./WorldIDVerifierTest.t.sol";
 
+/// Adds the account state `getPackedAccountData` reads: a packed value per authenticator and a
+/// recovery counter per leaf, both settable so tests can stage pre- and post-recovery states.
+contract WorldIDRegistryRecoveryMock is WorldIDRegistryMock {
+    mapping(address => uint256) internal packedAccountData;
+    mapping(uint64 => uint256) internal recoveryCounters;
+
+    function setPackedAccountData(address authenticatorAddress, uint256 packed) external {
+        packedAccountData[authenticatorAddress] = packed;
+    }
+
+    function setRecoveryCounter(uint64 leafIndex, uint256 counter) external {
+        recoveryCounters[leafIndex] = counter;
+    }
+
+    function getPackedAccountData(address authenticatorAddress) external view returns (uint256) {
+        return packedAccountData[authenticatorAddress];
+    }
+
+    function getRecoveryCounter(uint64 leafIndex) external view returns (uint256) {
+        return recoveryCounters[leafIndex];
+    }
+}
+
 contract WorldIDVerifierV3Test is Test {
     WorldIDVerifierV3 public verifier;
+    WorldIDRegistryRecoveryMock public registry;
 
     uint256 nullifier = 0x5968cd4d3c50bfd2305671d1092bee10ccb679b93db3ca779b6477e4885e476;
     uint64 expiresAtMin = 0x6a54cd68;
@@ -48,7 +73,8 @@ contract WorldIDVerifierV3Test is Test {
 
     function setUp() public {
         address oprfKeyRegistry = address(new OprfKeyRegistryMock());
-        address worldIDRegistryMock = address(new WorldIDRegistryMock());
+        registry = new WorldIDRegistryRecoveryMock();
+        address worldIDRegistryMock = address(registry);
         address credentialSchemaIssuerRegistryMock = address(new CredentialSchemaIssuerRegistryMock());
         address groth16Verifier = address(new Verifier());
         uint256 minExpirationThreshold = 5 hours;
@@ -219,5 +245,92 @@ contract WorldIDVerifierV3Test is Test {
         verifier.verify(
             nullifier, action, rpIdCorrect, nonce, signalHash, expiresAtMin, credentialIssuerIdCorrect, 0, proof
         );
+    }
+
+    ////////////////////////////////////////////////////////////
+    //            getPackedAccountData                        //
+    ////////////////////////////////////////////////////////////
+
+    address constant AUTHENTICATOR = address(0x11);
+    address constant RECOVERED_AUTHENTICATOR = address(0x22);
+    uint64 constant LEAF_INDEX = 7;
+
+    /// Stages an account at `LEAF_INDEX` whose authenticator is current (counters agree).
+    function _stageAccount(uint32 recoveryCounter) internal returns (uint256 packed) {
+        packed = PackedAccountData.pack(LEAF_INDEX, recoveryCounter, 0);
+        registry.setPackedAccountData(AUTHENTICATOR, packed);
+        registry.setRecoveryCounter(LEAF_INDEX, recoveryCounter);
+    }
+
+    function test_GetPackedAccountDataReturnsCurrentAuthenticator() public {
+        uint256 packed = _stageAccount(0);
+        assertEq(verifier.getPackedAccountData(AUTHENTICATOR), packed);
+    }
+
+    function test_GetPackedAccountDataRevertsForAuthenticatorRevokedByRecovery() public {
+        _stageAccount(0);
+        // `recoverAccount` bumps the account counter and leaves the old authenticator mapped.
+        registry.setRecoveryCounter(LEAF_INDEX, 1);
+        registry.setPackedAccountData(RECOVERED_AUTHENTICATOR, PackedAccountData.pack(LEAF_INDEX, 1, 0));
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifierV3.AuthenticatorRevoked.selector));
+        verifier.getPackedAccountData(AUTHENTICATOR);
+    }
+
+    function test_GetPackedAccountDataReturnsAuthenticatorInstalledByRecovery() public {
+        _stageAccount(0);
+        registry.setRecoveryCounter(LEAF_INDEX, 1);
+        uint256 packed = PackedAccountData.pack(LEAF_INDEX, 1, 0);
+        registry.setPackedAccountData(RECOVERED_AUTHENTICATOR, packed);
+
+        assertEq(verifier.getPackedAccountData(RECOVERED_AUTHENTICATOR), packed);
+    }
+
+    function test_GetPackedAccountDataRevertsForEveryAuthenticatorPredatingLatestRecovery() public {
+        // A second recovery must revoke the authenticator the first recovery installed.
+        registry.setPackedAccountData(AUTHENTICATOR, PackedAccountData.pack(LEAF_INDEX, 0, 0));
+        registry.setPackedAccountData(RECOVERED_AUTHENTICATOR, PackedAccountData.pack(LEAF_INDEX, 1, 0));
+        registry.setRecoveryCounter(LEAF_INDEX, 2);
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifierV3.AuthenticatorRevoked.selector));
+        verifier.getPackedAccountData(AUTHENTICATOR);
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifierV3.AuthenticatorRevoked.selector));
+        verifier.getPackedAccountData(RECOVERED_AUTHENTICATOR);
+    }
+
+    function test_GetPackedAccountDataReadsCounterOfItsOwnLeaf() public {
+        uint256 packed = _stageAccount(2);
+        registry.setRecoveryCounter(2, 9);
+
+        assertEq(verifier.getPackedAccountData(AUTHENTICATOR), packed);
+    }
+
+    function test_GetPackedAccountDataReturnsZeroForUnknownAuthenticator() public view {
+        // Parity with `WorldIDRegistry.getPackedAccountData`, which returns 0 rather than reverting.
+        assertEq(verifier.getPackedAccountData(address(0xdead)), 0);
+    }
+
+    function test_GetUnverifiedPackedAccountDataReturnsRevokedAuthenticator() public {
+        uint256 packed = _stageAccount(0);
+        registry.setRecoveryCounter(LEAF_INDEX, 1);
+
+        assertEq(verifier.getUnverifiedPackedAccountData(AUTHENTICATOR), packed);
+    }
+
+    function testFuzz_GetPackedAccountDataRevertsExactlyWhenCounterIsStale(
+        uint32 authenticatorCounter,
+        uint32 accountCounter
+    ) public {
+        uint256 packed = PackedAccountData.pack(LEAF_INDEX, authenticatorCounter, 0);
+        registry.setPackedAccountData(AUTHENTICATOR, packed);
+        registry.setRecoveryCounter(LEAF_INDEX, accountCounter);
+
+        if (authenticatorCounter < accountCounter) {
+            vm.expectRevert(abi.encodeWithSelector(IWorldIDVerifierV3.AuthenticatorRevoked.selector));
+            verifier.getPackedAccountData(AUTHENTICATOR);
+        } else {
+            assertEq(verifier.getPackedAccountData(AUTHENTICATOR), packed);
+        }
     }
 }

@@ -111,6 +111,7 @@ impl Authenticator {
     ///
     /// # Arguments
     /// - `proof_request`: the request received from the RP.
+    /// - `now`: the current Unix timestamp, used to reject expired requests.
     /// - `account_inclusion_proof`: an optionally cached object can be passed to
     ///   avoid an additional network call. If not passed, it'll be fetched from the indexer.
     ///
@@ -129,6 +130,7 @@ impl Authenticator {
     pub async fn generate_nullifier(
         &self,
         proof_request: &ProofRequest,
+        now: u64,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<FullOprfOutput, AuthenticatorError> {
         proof_request.validate_proof_type()?;
@@ -143,7 +145,7 @@ impl Authenticator {
             .await?;
 
         Ok(oprf_entrypoint
-            .gen_nullifier(&mut rng, proof_request)
+            .gen_nullifier(&mut rng, proof_request, now)
             .await?)
     }
 
@@ -261,7 +263,7 @@ impl Authenticator {
     /// # Typical flow
     /// ```rust,ignore
     /// // <- check request can be fulfilled with available credentials
-    /// let nullifier = authenticator.generate_nullifier(&request, None).await?;
+    /// let nullifier = authenticator.generate_nullifier(&request, now, None).await?;
     /// // <- check replay guard using nullifier.oprf_output()
     /// let (response, meta) = authenticator.generate_proof(&request, nullifier, &creds, ...).await?;
     /// // <- cache `session_id_r_seed` (to speed future proofs) and `nullifier` (to prevent replays)

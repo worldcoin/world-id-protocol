@@ -85,8 +85,13 @@ impl ProofType {
 }
 
 /// A proof request from a Relying Party (RP) for an Authenticator.
+///
+/// Unknown JSON fields are ignored during deserialization so that older
+/// Authenticators keep accepting requests from RPs speaking a newer minor
+/// revision of the protocol. The RP signature only covers the enumerated
+/// fields (see [`ProofRequest::digest_hash`]), so tolerated fields are
+/// never part of any signed or hashed message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ProofRequest {
     /// Unique identifier for this request.
     pub id: String,
@@ -135,8 +140,10 @@ pub struct ProofRequest {
 }
 
 /// Per-credential request payload.
+///
+/// Unknown JSON fields are ignored during deserialization; see
+/// [`ProofRequest`] for the forward-compatibility rationale.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RequestItem {
     /// An RP-defined identifier for this request item used to match against constraints and responses.
     ///
@@ -229,8 +236,12 @@ impl RequestItem {
 }
 
 /// Overall response from the Authenticator to the RP
+///
+/// Unknown JSON fields are ignored during deserialization so that older
+/// RPs keep accepting responses from Authenticators speaking a newer minor
+/// revision of the protocol (e.g. one that discloses additional
+/// credential data on response items).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ProofResponse {
     /// The response id references request id
     pub id: String,
@@ -271,8 +282,10 @@ pub struct ProofResponse {
 ///   The contract's `verifySession()` function expects `uint256[2] sessionNullifier`.
 ///
 /// Exactly one of `nullifier` or `session_nullifier` should be present.
+///
+/// Unknown JSON fields are ignored during deserialization; see
+/// [`ProofResponse`] for the forward-compatibility rationale.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ResponseItem {
     /// An RP-defined identifier for this request item used to match against constraints and responses.
     ///
@@ -1844,6 +1857,63 @@ mod tests {
         let req = ProofRequest::from_json(without_signal).expect("parse without signal");
         assert!(req.requests[0].signal.is_none());
         assert_eq!(req.requests[0].signal_hash(), FieldElement::ZERO);
+    }
+
+    #[test]
+    fn request_json_tolerates_unknown_fields() {
+        // A request from an RP speaking a newer minor protocol revision must
+        // still parse: unknown fields are ignored at every nesting level.
+        let json = r#"{
+  "id": "req_abc123",
+  "version": 1,
+  "created_at": 1725381192,
+  "expires_at": 1725381492,
+  "rp_id": "rp_0000000000000001",
+  "oprf_key_id": "0x1",
+  "session_id": null,
+  "action": "0x000000000000000000000000000000000000000000000000000000000000002a",
+  "signature": "0xa1fd06f0d8ceb541f6096fe2e865063eac1ff085c9d2bac2eedcc9ed03804bfc18d956b38c5ac3a8f7e71fde43deff3bda254d369c699f3c7a3f8e6b8477a5f51c",
+  "nonce": "0x0000000000000000000000000000000000000000000000000000000000000001",
+  "from_the_future": true,
+  "proof_requests": [
+    {
+      "identifier": "orb",
+      "issuer_schema_id": 1,
+      "also_from_the_future": {"nested": [1, 2, 3]}
+    }
+  ]
+}"#;
+
+        let req = ProofRequest::from_json(json).expect("unknown fields must be tolerated");
+        assert_eq!(req.id, "req_abc123");
+        assert_eq!(req.requests.len(), 1);
+        assert_eq!(req.requests[0].identifier, "orb");
+    }
+
+    #[test]
+    fn response_json_tolerates_unknown_fields() {
+        // A response from an Authenticator speaking a newer minor protocol
+        // revision must still parse: unknown fields are ignored at every
+        // nesting level.
+        let json = r#"{
+  "id": "req_18c0f7f03e7d",
+  "version": 1,
+  "from_the_future": "yes",
+  "responses": [
+    {
+      "identifier": "orb",
+      "issuer_schema_id": 100,
+      "proof": "00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
+      "nullifier": "nil_00000000000000000000000000000000000000000000000000000000000003e9",
+      "expires_at_min": 1725381192,
+      "claims": ["0x01", "0x02"]
+    }
+  ]
+}"#;
+
+        let resp = ProofResponse::from_json(json).expect("unknown fields must be tolerated");
+        assert_eq!(resp.successful_credentials(), vec![100]);
+        assert!(resp.responses[0].is_uniqueness());
     }
 
     #[test]

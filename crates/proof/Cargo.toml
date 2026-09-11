@@ -77,5 +77,6 @@ provekit-common = { workspace = true }
 provekit-r1cs-compiler = { workspace = true, optional = true }
 
 [dev-dependencies]
+test-case = { workspace = true }
 toml = { workspace = true }
 world-id-test-utils = { workspace = true }

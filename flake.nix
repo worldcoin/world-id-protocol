@@ -27,16 +27,29 @@
           inherit nargo;
         };
 
-        devShells.default = pkgs.mkShell {
-          packages = [
-            rustToolchain
-            nargo
-            pkgs.foundry # forge / cast / anvil
-            pkgs.circom
-            pkgs.just
-            pkgs.pkg-config
-            pkgs.openssl
-          ];
+        devShells = {
+          default = pkgs.mkShell {
+            packages = [
+              rustToolchain
+              nargo
+              pkgs.foundry # forge / cast / anvil
+              pkgs.circom
+              pkgs.just
+              pkgs.mdbook
+              pkgs.mdbook-mermaid
+              pkgs.pkg-config
+              pkgs.python3
+              pkgs.openssl
+            ];
+          };
+
+          docs = pkgs.mkShell {
+            packages = [
+              pkgs.mdbook
+              pkgs.mdbook-mermaid
+              pkgs.python3
+            ];
+          };
         };
       });
 }

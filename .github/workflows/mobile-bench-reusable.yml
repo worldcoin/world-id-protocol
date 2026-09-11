@@ -125,6 +125,7 @@ jobs:
     env:
       BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
       BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+      RUSTUP_TOOLCHAIN: stable
       IPHONEOS_DEPLOYMENT_TARGET: "13.0"
       CFLAGS_aarch64_apple_ios: "-miphoneos-version-min=13.0"
       CFLAGS_aarch64_apple_ios_sim: "-mios-simulator-version-min=13.0"
@@ -142,7 +143,7 @@ jobs:
           ref: ${{ inputs.head_sha || github.sha }}
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master branch https://github.com/dtolnay/rust-toolchain/commit/6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: stable
           targets: ${{ inputs.rust_targets_ios }}
@@ -150,10 +151,10 @@ jobs:
       - name: Ensure iOS Rust targets
         shell: bash
         run: |
-          rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
-          rustup component add rust-std --target aarch64-apple-ios
-          rustup component add rust-std --target aarch64-apple-ios-sim
-          rustup target list --installed | grep -E "ios|apple"
+          rustup +stable target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+          rustup +stable component add rust-std --target aarch64-apple-ios
+          rustup +stable component add rust-std --target aarch64-apple-ios-sim
+          rustup +stable target list --installed | grep -E "ios|apple"
 
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
@@ -161,7 +162,7 @@ jobs:
           toolchain: v1.0.0-beta.11
 
       - name: Cache cargo registry/git
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0 https://github.com/actions/cache/releases/tag/v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 https://github.com/actions/cache/releases/tag/v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -171,7 +172,7 @@ jobs:
             ${{ runner.os }}-cargo-ios-
 
       - name: Cache cargo target
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0 https://github.com/actions/cache/releases/tag/v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 https://github.com/actions/cache/releases/tag/v6.1.0
         with:
           path: caller/target
           key: ${{ runner.os }}-target-ios-${{ hashFiles('caller/**/Cargo.lock') }}
@@ -348,6 +349,7 @@ jobs:
     env:
       BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
       BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+      RUSTUP_TOOLCHAIN: stable
 
     steps:
       - name: Checkout caller repo
@@ -358,7 +360,7 @@ jobs:
           ref: ${{ inputs.head_sha || github.sha }}
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master branch https://github.com/dtolnay/rust-toolchain/commit/6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: stable
           targets: ${{ inputs.rust_targets_android }}
@@ -366,14 +368,14 @@ jobs:
       - name: Ensure Android Rust targets
         shell: bash
         run: |
-          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-          rustup component add rust-std --target aarch64-linux-android
-          rustup component add rust-std --target armv7-linux-androideabi
-          rustup component add rust-std --target x86_64-linux-android
-          rustup target list --installed | grep -E "android"
+          rustup +stable target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+          rustup +stable component add rust-std --target aarch64-linux-android
+          rustup +stable component add rust-std --target armv7-linux-androideabi
+          rustup +stable component add rust-std --target x86_64-linux-android
+          rustup +stable target list --installed | grep -E "android"
 
       - name: Cache cargo registry/git
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0 https://github.com/actions/cache/releases/tag/v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 https://github.com/actions/cache/releases/tag/v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -383,7 +385,7 @@ jobs:
             ${{ runner.os }}-cargo-android-
 
       - name: Cache cargo target
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0 https://github.com/actions/cache/releases/tag/v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 https://github.com/actions/cache/releases/tag/v6.1.0
         with:
           path: caller/target
           key: ${{ runner.os }}-target-android-${{ hashFiles('caller/**/Cargo.lock') }}
@@ -578,7 +580,7 @@ jobs:
           ref: ${{ inputs.head_sha || github.sha }}
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master branch https://github.com/dtolnay/rust-toolchain/commit/efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master branch https://github.com/dtolnay/rust-toolchain/commit/6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: stable
 
