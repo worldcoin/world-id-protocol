@@ -1,0 +1,2823 @@
+{
+  "ci": {
+    "metadata": {
+      "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+      "mobench_version": "0.2.0",
+      "request_command": "cargo-mobench ci run --target android --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices Motorola Moto G71 5G-11.0 --crate-path ./crates/zk-mobile-bench --release --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/android",
+      "requested_by": "kilianglas"
+    },
+    "outputs": {
+      "results_csv": "target/mobench/ci/android/results.csv",
+      "summary_json": "target/mobench/ci/android/summary.json",
+      "summary_md": "target/mobench/ci/android/summary.md"
+    },
+    "targets": {
+      "android": {
+        "functions": {
+          "zk__mobile__bench_bench__nullifier__proof__generation": {
+            "results_csv": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__proof__generation/results.csv",
+            "summary_json": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__proof__generation/summary.json",
+            "summary_md": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__proof__generation/summary.md"
+          },
+          "zk__mobile__bench_bench__nullifier__proving__only": {
+            "results_csv": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__proving__only/results.csv",
+            "summary_json": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__proving__only/summary.json",
+            "summary_md": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__proving__only/summary.md"
+          },
+          "zk__mobile__bench_bench__nullifier__witness__generation__only": {
+            "results_csv": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__witness__generation__only/results.csv",
+            "summary_json": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__witness__generation__only/summary.json",
+            "summary_md": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__witness__generation__only/summary.md"
+          },
+          "zk__mobile__bench_bench__query__cached__proof__generation": {
+            "results_csv": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__cached__proof__generation/results.csv",
+            "summary_json": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__cached__proof__generation/summary.json",
+            "summary_md": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__cached__proof__generation/summary.md"
+          },
+          "zk__mobile__bench_bench__query__proof__generation": {
+            "results_csv": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__proof__generation/results.csv",
+            "summary_json": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__proof__generation/summary.json",
+            "summary_md": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__proof__generation/summary.md"
+          },
+          "zk__mobile__bench_bench__query__proving__only": {
+            "results_csv": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__proving__only/results.csv",
+            "summary_json": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__proving__only/summary.json",
+            "summary_md": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__proving__only/summary.md"
+          },
+          "zk__mobile__bench_bench__query__witness__generation__only": {
+            "results_csv": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__witness__generation__only/results.csv",
+            "summary_json": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__witness__generation__only/summary.json",
+            "summary_md": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__witness__generation__only/summary.md"
+          }
+        }
+      }
+    }
+  },
+  "summary": {
+    "device_summaries": [
+      {
+        "benchmarks": [
+          {
+            "function": "zk_mobile_bench::bench_nullifier_proof_generation",
+            "max_ns": 3316012655,
+            "mean_ns": 3049308111,
+            "median_ns": 3064412942,
+            "min_ns": 2842399687,
+            "p95_ns": 3205216562,
+            "resource_usage": {
+              "cpu_median_ms": 11853,
+              "cpu_total_ms": 348783,
+              "java_heap_kb": 5777,
+              "native_heap_kb": 45913,
+              "peak_memory_growth_kb": 108604,
+              "peak_memory_kb": 108604,
+              "private_dirty_kb": 96084,
+              "process_peak_memory_kb": 342100,
+              "total_pss_kb": 140930
+            },
+            "samples": 30
+          },
+          {
+            "function": "zk_mobile_bench::bench_nullifier_proving_only",
+            "max_ns": 2039566249,
+            "mean_ns": 1901751212,
+            "median_ns": 1912729296,
+            "min_ns": 1678743228,
+            "p95_ns": 2024202187,
+            "resource_usage": {
+              "cpu_median_ms": 7535,
+              "cpu_total_ms": 224087,
+              "java_heap_kb": 4577,
+              "native_heap_kb": 87170,
+              "peak_memory_growth_kb": 68852,
+              "peak_memory_kb": 68852,
+              "private_dirty_kb": 107432,
+              "process_peak_memory_kb": 307148,
+              "total_pss_kb": 153044
+            },
+            "samples": 30
+          },
+          {
+            "function": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+            "max_ns": 76142969,
+            "mean_ns": 53167868,
+            "median_ns": 49487891,
+            "min_ns": 47794010,
+            "p95_ns": 68469844,
+            "resource_usage": {
+              "cpu_median_ms": 53,
+              "cpu_total_ms": 1692,
+              "java_heap_kb": 2412,
+              "native_heap_kb": 85339,
+              "peak_memory_growth_kb": 9608,
+              "peak_memory_kb": 9608,
+              "private_dirty_kb": 98580,
+              "process_peak_memory_kb": 253520,
+              "total_pss_kb": 143840
+            },
+            "samples": 30
+          },
+          {
+            "function": "zk_mobile_bench::bench_query_cached_proof_generation",
+            "max_ns": 1128247552,
+            "mean_ns": 965471260,
+            "median_ns": 978571978,
+            "min_ns": 765183490,
+            "p95_ns": 1108334114,
+            "resource_usage": {
+              "cpu_median_ms": 3715,
+              "cpu_total_ms": 111756,
+              "java_heap_kb": 3422,
+              "native_heap_kb": 62457,
+              "peak_memory_growth_kb": 37980,
+              "peak_memory_kb": 37980,
+              "private_dirty_kb": 84812,
+              "process_peak_memory_kb": 248744,
+              "total_pss_kb": 130286
+            },
+            "samples": 30
+          },
+          {
+            "function": "zk_mobile_bench::bench_query_proof_generation",
+            "max_ns": 1239256823,
+            "mean_ns": 1036475397,
+            "median_ns": 1027991484,
+            "min_ns": 885374687,
+            "p95_ns": 1190587552,
+            "resource_usage": {
+              "cpu_median_ms": 3826,
+              "cpu_total_ms": 116743,
+              "java_heap_kb": 3468,
+              "native_heap_kb": 44909,
+              "peak_memory_growth_kb": 61856,
+              "peak_memory_kb": 61856,
+              "private_dirty_kb": 67584,
+              "process_peak_memory_kb": 273084,
+              "total_pss_kb": 112629
+            },
+            "samples": 30
+          },
+          {
+            "function": "zk_mobile_bench::bench_query_proving_only",
+            "max_ns": 1165261718,
+            "mean_ns": 917982805,
+            "median_ns": 918796379,
+            "min_ns": 698529739,
+            "p95_ns": 1084287499,
+            "resource_usage": {
+              "cpu_median_ms": 3734,
+              "cpu_total_ms": 111231,
+              "java_heap_kb": 3365,
+              "native_heap_kb": 62908,
+              "peak_memory_growth_kb": 34520,
+              "peak_memory_kb": 34520,
+              "private_dirty_kb": 84696,
+              "process_peak_memory_kb": 243900,
+              "total_pss_kb": 129652
+            },
+            "samples": 30
+          },
+          {
+            "function": "zk_mobile_bench::bench_query_witness_generation_only",
+            "max_ns": 38345052,
+            "mean_ns": 17264211,
+            "median_ns": 14478984,
+            "min_ns": 12895469,
+            "p95_ns": 36816094,
+            "resource_usage": {
+              "cpu_median_ms": 14,
+              "cpu_total_ms": 523,
+              "java_heap_kb": 5472,
+              "native_heap_kb": 62137,
+              "peak_memory_growth_kb": 4,
+              "peak_memory_kb": 4,
+              "private_dirty_kb": 65996,
+              "process_peak_memory_kb": 204236,
+              "total_pss_kb": 111223
+            },
+            "samples": 30
+          }
+        ],
+        "device": "Motorola Moto G71 5G-11.0"
+      }
+    ],
+    "devices": [
+      "Motorola Moto G71 5G-11.0"
+    ],
+    "function": "multiple",
+    "generated_at": "2026-09-11T13:27:53.526848Z",
+    "generated_at_unix": 1789133273,
+    "iterations": 30,
+    "target": "android",
+    "warmup": 5
+  },
+  "targets": {
+    "android": {
+      "functions": {
+        "zk__mobile__bench_bench__nullifier__proof__generation": {
+          "artifacts": {
+            "apk": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/android/app/build/outputs/apk/release/app-release-unsigned.apk",
+            "platform": "android"
+          },
+          "benchmark_results": {
+            "Motorola Moto G71 5G-11.0": [
+              {
+                "function": "zk_mobile_bench::bench_nullifier_proof_generation",
+                "function_id": "zk_mobile_bench::bench_nullifier_proof_generation",
+                "logical_session_id": "logical-session-bf9f3672cecba3e577ea486b46f81f86",
+                "max_ns": 3316012655,
+                "mean_ns": 3049308111,
+                "median_ns": 3064412942,
+                "min_ns": 2842399687,
+                "nonce": "nonce-3915807c86705cad189f317cf231da1c394f3431bc7fd2d3b5f0d394c9879f5e",
+                "observed": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "outcome": {
+                  "status": "success"
+                },
+                "p95_ns": 3205216562,
+                "phases": [],
+                "producer": "android-runner",
+                "requested": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "resources": {
+                  "cpu_median_ms": 11853,
+                  "cpu_total_ms": 348783,
+                  "elapsed_cpu_ms": 348783,
+                  "isolated_process_peak_memory_kb": 342100,
+                  "java_heap_kb": 5777,
+                  "memory_process": "isolated_worker",
+                  "native_heap_kb": 45913,
+                  "peak_memory_growth_kb": 108604,
+                  "peak_memory_kb": 108604,
+                  "platform": "android",
+                  "private_dirty_kb": 96084,
+                  "process_peak_memory_kb": 342100,
+                  "timestamp_ms": 1789132325536,
+                  "total_pss_kb": 140930
+                },
+                "run_id": "run-7668a7742b7151178b5aa571ba4b7d4a",
+                "samples": [
+                  {
+                    "cpu_time_ms": 12377,
+                    "duration_ns": 3105693853,
+                    "peak_memory_kb": 107400,
+                    "process_peak_memory_kb": 318916
+                  },
+                  {
+                    "cpu_time_ms": 12118,
+                    "duration_ns": 3316012655,
+                    "peak_memory_kb": 107704,
+                    "process_peak_memory_kb": 314136
+                  },
+                  {
+                    "cpu_time_ms": 11444,
+                    "duration_ns": 3056750312,
+                    "peak_memory_kb": 106384,
+                    "process_peak_memory_kb": 319932
+                  },
+                  {
+                    "cpu_time_ms": 11259,
+                    "duration_ns": 2960279166,
+                    "peak_memory_kb": 106108,
+                    "process_peak_memory_kb": 342100
+                  },
+                  {
+                    "cpu_time_ms": 12201,
+                    "duration_ns": 3158283124,
+                    "peak_memory_kb": 108020,
+                    "process_peak_memory_kb": 308292
+                  },
+                  {
+                    "cpu_time_ms": 11940,
+                    "duration_ns": 2968623540,
+                    "peak_memory_kb": 101048,
+                    "process_peak_memory_kb": 310536
+                  },
+                  {
+                    "cpu_time_ms": 11965,
+                    "duration_ns": 2908981666,
+                    "peak_memory_kb": 86144,
+                    "process_peak_memory_kb": 310820
+                  },
+                  {
+                    "cpu_time_ms": 10553,
+                    "duration_ns": 2946857447,
+                    "peak_memory_kb": 90228,
+                    "process_peak_memory_kb": 310176
+                  },
+                  {
+                    "cpu_time_ms": 11833,
+                    "duration_ns": 3078809895,
+                    "peak_memory_kb": 97148,
+                    "process_peak_memory_kb": 309008
+                  },
+                  {
+                    "cpu_time_ms": 12521,
+                    "duration_ns": 3165682030,
+                    "peak_memory_kb": 106624,
+                    "process_peak_memory_kb": 328780
+                  },
+                  {
+                    "cpu_time_ms": 12078,
+                    "duration_ns": 3205216562,
+                    "peak_memory_kb": 107256,
+                    "process_peak_memory_kb": 331920
+                  },
+                  {
+                    "cpu_time_ms": 12337,
+                    "duration_ns": 3011992863,
+                    "peak_memory_kb": 106024,
+                    "process_peak_memory_kb": 326668
+                  },
+                  {
+                    "cpu_time_ms": 10245,
+                    "duration_ns": 2842399687,
+                    "peak_memory_kb": 107508,
+                    "process_peak_memory_kb": 332468
+                  },
+                  {
+                    "cpu_time_ms": 12024,
+                    "duration_ns": 2998556353,
+                    "peak_memory_kb": 107532,
+                    "process_peak_memory_kb": 331648
+                  },
+                  {
+                    "cpu_time_ms": 11718,
+                    "duration_ns": 2915587447,
+                    "peak_memory_kb": 107720,
+                    "process_peak_memory_kb": 336192
+                  },
+                  {
+                    "cpu_time_ms": 10331,
+                    "duration_ns": 3072075572,
+                    "peak_memory_kb": 107368,
+                    "process_peak_memory_kb": 336236
+                  },
+                  {
+                    "cpu_time_ms": 12387,
+                    "duration_ns": 3164854166,
+                    "peak_memory_kb": 108604,
+                    "process_peak_memory_kb": 324724
+                  },
+                  {
+                    "cpu_time_ms": 11168,
+                    "duration_ns": 3085501301,
+                    "peak_memory_kb": 105672,
+                    "process_peak_memory_kb": 315644
+                  },
+                  {
+                    "cpu_time_ms": 11673,
+                    "duration_ns": 3119105728,
+                    "peak_memory_kb": 107704,
+                    "process_peak_memory_kb": 332460
+                  },
+                  {
+                    "cpu_time_ms": 12059,
+                    "duration_ns": 2963265676,
+                    "peak_memory_kb": 108132,
+                    "process_peak_memory_kb": 324132
+                  },
+                  {
+                    "cpu_time_ms": 10680,
+                    "duration_ns": 2948239582,
+                    "peak_memory_kb": 107476,
+                    "process_peak_memory_kb": 317356
+                  },
+                  {
+                    "cpu_time_ms": 11432,
+                    "duration_ns": 3101683853,
+                    "peak_memory_kb": 107040,
+                    "process_peak_memory_kb": 330176
+                  },
+                  {
+                    "cpu_time_ms": 10329,
+                    "duration_ns": 2925213905,
+                    "peak_memory_kb": 98576,
+                    "process_peak_memory_kb": 311612
+                  },
+                  {
+                    "cpu_time_ms": 12520,
+                    "duration_ns": 3159119322,
+                    "peak_memory_kb": 107020,
+                    "process_peak_memory_kb": 327368
+                  },
+                  {
+                    "cpu_time_ms": 12143,
+                    "duration_ns": 3173293592,
+                    "peak_memory_kb": 107472,
+                    "process_peak_memory_kb": 336116
+                  },
+                  {
+                    "cpu_time_ms": 11874,
+                    "duration_ns": 3121984270,
+                    "peak_memory_kb": 108300,
+                    "process_peak_memory_kb": 326468
+                  },
+                  {
+                    "cpu_time_ms": 12108,
+                    "duration_ns": 3157106040,
+                    "peak_memory_kb": 106988,
+                    "process_peak_memory_kb": 329268
+                  },
+                  {
+                    "cpu_time_ms": 10684,
+                    "duration_ns": 2949164843,
+                    "peak_memory_kb": 108596,
+                    "process_peak_memory_kb": 325316
+                  },
+                  {
+                    "cpu_time_ms": 11485,
+                    "duration_ns": 3035956353,
+                    "peak_memory_kb": 108140,
+                    "process_peak_memory_kb": 328508
+                  },
+                  {
+                    "cpu_time_ms": 11297,
+                    "duration_ns": 2862952551,
+                    "peak_memory_kb": 107036,
+                    "process_peak_memory_kb": 313860
+                  }
+                ],
+                "samples_ns": [
+                  3105693853,
+                  3316012655,
+                  3056750312,
+                  2960279166,
+                  3158283124,
+                  2968623540,
+                  2908981666,
+                  2946857447,
+                  3078809895,
+                  3165682030,
+                  3205216562,
+                  3011992863,
+                  2842399687,
+                  2998556353,
+                  2915587447,
+                  3072075572,
+                  3164854166,
+                  3085501301,
+                  3119105728,
+                  2963265676,
+                  2948239582,
+                  3101683853,
+                  2925213905,
+                  3159119322,
+                  3173293592,
+                  3121984270,
+                  3157106040,
+                  2949164843,
+                  3035956353,
+                  2862952551
+                ],
+                "schema_version": "mobench.run/v2",
+                "spec": {
+                  "iterations": 30,
+                  "name": "zk_mobile_bench::bench_nullifier_proof_generation",
+                  "warmup": 5
+                },
+                "stats": {
+                  "avg_ns": 3049308111.8,
+                  "max_ns": 3316012655,
+                  "min_ns": 2842399687
+                }
+              }
+            ]
+          },
+          "ci": {
+            "metadata": {
+              "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+              "mobench_version": "0.2.0",
+              "request_command": "cargo-mobench ci run --target android --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices Motorola Moto G71 5G-11.0 --crate-path ./crates/zk-mobile-bench --release --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/android",
+              "requested_by": "kilianglas"
+            },
+            "outputs": {
+              "results_csv": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__proof__generation/results.csv",
+              "summary_json": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__proof__generation/summary.json",
+              "summary_md": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__proof__generation/summary.md"
+            },
+            "target": "android"
+          },
+          "local_report": {
+            "reason": "Host benchmark disabled - benchmarks run on mobile devices",
+            "skipped": true
+          },
+          "performance_metrics": {},
+          "remote_run": {
+            "app_url": "bs://6e6d65b6c33b0fb3f73ff475d2f2941c8ecf0157",
+            "build_id": "4323efed26bd785515bbef219bec9debbe0da77c",
+            "platform": "android"
+          },
+          "spec": {
+            "devices": [
+              "Motorola Moto G71 5G-11.0"
+            ],
+            "function": "zk_mobile_bench::bench_nullifier_proof_generation",
+            "iterations": 30,
+            "target": "android",
+            "warmup": 5
+          },
+          "summary": {
+            "device_summaries": [
+              {
+                "benchmarks": [
+                  {
+                    "function": "zk_mobile_bench::bench_nullifier_proof_generation",
+                    "max_ns": 3316012655,
+                    "mean_ns": 3049308111,
+                    "median_ns": 3064412942,
+                    "min_ns": 2842399687,
+                    "p95_ns": 3205216562,
+                    "resource_usage": {
+                      "cpu_median_ms": 11853,
+                      "cpu_total_ms": 348783,
+                      "java_heap_kb": 5777,
+                      "native_heap_kb": 45913,
+                      "peak_memory_growth_kb": 108604,
+                      "peak_memory_kb": 108604,
+                      "private_dirty_kb": 96084,
+                      "process_peak_memory_kb": 342100,
+                      "total_pss_kb": 140930
+                    },
+                    "samples": 30
+                  }
+                ],
+                "device": "Motorola Moto G71 5G-11.0"
+              }
+            ],
+            "devices": [
+              "Motorola Moto G71 5G-11.0"
+            ],
+            "function": "zk_mobile_bench::bench_nullifier_proof_generation",
+            "generated_at": "2026-09-11T13:12:40.951901Z",
+            "generated_at_unix": 1789132360,
+            "iterations": 30,
+            "target": "android",
+            "warmup": 5
+          }
+        },
+        "zk__mobile__bench_bench__nullifier__proving__only": {
+          "artifacts": {
+            "apk": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/android/app/build/outputs/apk/release/app-release-unsigned.apk",
+            "platform": "android"
+          },
+          "benchmark_results": {
+            "Motorola Moto G71 5G-11.0": [
+              {
+                "function": "zk_mobile_bench::bench_nullifier_proving_only",
+                "function_id": "zk_mobile_bench::bench_nullifier_proving_only",
+                "logical_session_id": "logical-session-bf4fb89929645afa8be35058960e529d",
+                "max_ns": 2039566249,
+                "mean_ns": 1901751212,
+                "median_ns": 1912729296,
+                "min_ns": 1678743228,
+                "nonce": "nonce-d5de53564a43e269eca24baaf6dae16f504dbb6edf37f4b39bdfbcc65c40fccf",
+                "observed": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "outcome": {
+                  "status": "success"
+                },
+                "p95_ns": 2024202187,
+                "phases": [],
+                "producer": "android-runner",
+                "requested": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "resources": {
+                  "cpu_median_ms": 7535,
+                  "cpu_total_ms": 224087,
+                  "elapsed_cpu_ms": 224087,
+                  "isolated_process_peak_memory_kb": 307148,
+                  "java_heap_kb": 4577,
+                  "memory_process": "isolated_worker",
+                  "native_heap_kb": 87170,
+                  "peak_memory_growth_kb": 68852,
+                  "peak_memory_kb": 68852,
+                  "platform": "android",
+                  "private_dirty_kb": 107432,
+                  "process_peak_memory_kb": 307148,
+                  "timestamp_ms": 1789132634206,
+                  "total_pss_kb": 153044
+                },
+                "run_id": "run-2fb9bbe26183bb6d30bb6254b76640c5",
+                "samples": [
+                  {
+                    "cpu_time_ms": 7297,
+                    "duration_ns": 1824350520,
+                    "peak_memory_kb": 46500,
+                    "process_peak_memory_kb": 292652
+                  },
+                  {
+                    "cpu_time_ms": 8973,
+                    "duration_ns": 2016897395,
+                    "peak_memory_kb": 49068,
+                    "process_peak_memory_kb": 301740
+                  },
+                  {
+                    "cpu_time_ms": 8176,
+                    "duration_ns": 1952122291,
+                    "peak_memory_kb": 34892,
+                    "process_peak_memory_kb": 297532
+                  },
+                  {
+                    "cpu_time_ms": 7652,
+                    "duration_ns": 1909618124,
+                    "peak_memory_kb": 38012,
+                    "process_peak_memory_kb": 291828
+                  },
+                  {
+                    "cpu_time_ms": 7753,
+                    "duration_ns": 1896417186,
+                    "peak_memory_kb": 52368,
+                    "process_peak_memory_kb": 295912
+                  },
+                  {
+                    "cpu_time_ms": 7121,
+                    "duration_ns": 1871631458,
+                    "peak_memory_kb": 36756,
+                    "process_peak_memory_kb": 288760
+                  },
+                  {
+                    "cpu_time_ms": 7153,
+                    "duration_ns": 1948109114,
+                    "peak_memory_kb": 36172,
+                    "process_peak_memory_kb": 289828
+                  },
+                  {
+                    "cpu_time_ms": 8106,
+                    "duration_ns": 1885112238,
+                    "peak_memory_kb": 32300,
+                    "process_peak_memory_kb": 284096
+                  },
+                  {
+                    "cpu_time_ms": 6620,
+                    "duration_ns": 1761854895,
+                    "peak_memory_kb": 35256,
+                    "process_peak_memory_kb": 289716
+                  },
+                  {
+                    "cpu_time_ms": 7788,
+                    "duration_ns": 1942774530,
+                    "peak_memory_kb": 28132,
+                    "process_peak_memory_kb": 287920
+                  },
+                  {
+                    "cpu_time_ms": 7828,
+                    "duration_ns": 1915840468,
+                    "peak_memory_kb": 39236,
+                    "process_peak_memory_kb": 284792
+                  },
+                  {
+                    "cpu_time_ms": 6871,
+                    "duration_ns": 1716340676,
+                    "peak_memory_kb": 68852,
+                    "process_peak_memory_kb": 307148
+                  },
+                  {
+                    "cpu_time_ms": 6933,
+                    "duration_ns": 1763206249,
+                    "peak_memory_kb": 53080,
+                    "process_peak_memory_kb": 293336
+                  },
+                  {
+                    "cpu_time_ms": 8247,
+                    "duration_ns": 1907119009,
+                    "peak_memory_kb": 62104,
+                    "process_peak_memory_kb": 300888
+                  },
+                  {
+                    "cpu_time_ms": 7646,
+                    "duration_ns": 1975345051,
+                    "peak_memory_kb": 59096,
+                    "process_peak_memory_kb": 290284
+                  },
+                  {
+                    "cpu_time_ms": 7594,
+                    "duration_ns": 1905452707,
+                    "peak_memory_kb": 65348,
+                    "process_peak_memory_kb": 299680
+                  },
+                  {
+                    "cpu_time_ms": 8273,
+                    "duration_ns": 1920879895,
+                    "peak_memory_kb": 49108,
+                    "process_peak_memory_kb": 295624
+                  },
+                  {
+                    "cpu_time_ms": 7477,
+                    "duration_ns": 2039566249,
+                    "peak_memory_kb": 59616,
+                    "process_peak_memory_kb": 292412
+                  },
+                  {
+                    "cpu_time_ms": 6488,
+                    "duration_ns": 2009139843,
+                    "peak_memory_kb": 37168,
+                    "process_peak_memory_kb": 281460
+                  },
+                  {
+                    "cpu_time_ms": 6436,
+                    "duration_ns": 1819924323,
+                    "peak_memory_kb": 61604,
+                    "process_peak_memory_kb": 295852
+                  },
+                  {
+                    "cpu_time_ms": 7338,
+                    "duration_ns": 2024202187,
+                    "peak_memory_kb": 45944,
+                    "process_peak_memory_kb": 292500
+                  },
+                  {
+                    "cpu_time_ms": 7231,
+                    "duration_ns": 1944800260,
+                    "peak_memory_kb": 45444,
+                    "process_peak_memory_kb": 280592
+                  },
+                  {
+                    "cpu_time_ms": 7751,
+                    "duration_ns": 1954014895,
+                    "peak_memory_kb": 52892,
+                    "process_peak_memory_kb": 293128
+                  },
+                  {
+                    "cpu_time_ms": 7092,
+                    "duration_ns": 1953189999,
+                    "peak_memory_kb": 22020,
+                    "process_peak_memory_kb": 279284
+                  },
+                  {
+                    "cpu_time_ms": 8004,
+                    "duration_ns": 1849300989,
+                    "peak_memory_kb": 58320,
+                    "process_peak_memory_kb": 289792
+                  },
+                  {
+                    "cpu_time_ms": 7670,
+                    "duration_ns": 1857235729,
+                    "peak_memory_kb": 48644,
+                    "process_peak_memory_kb": 300560
+                  },
+                  {
+                    "cpu_time_ms": 6833,
+                    "duration_ns": 1678743228,
+                    "peak_memory_kb": 36248,
+                    "process_peak_memory_kb": 287664
+                  },
+                  {
+                    "cpu_time_ms": 6534,
+                    "duration_ns": 1871844114,
+                    "peak_memory_kb": 48548,
+                    "process_peak_memory_kb": 291388
+                  },
+                  {
+                    "cpu_time_ms": 8083,
+                    "duration_ns": 1943710312,
+                    "peak_memory_kb": 47968,
+                    "process_peak_memory_kb": 292184
+                  },
+                  {
+                    "cpu_time_ms": 7119,
+                    "duration_ns": 1993792447,
+                    "peak_memory_kb": 56284,
+                    "process_peak_memory_kb": 294056
+                  }
+                ],
+                "samples_ns": [
+                  1824350520,
+                  2016897395,
+                  1952122291,
+                  1909618124,
+                  1896417186,
+                  1871631458,
+                  1948109114,
+                  1885112238,
+                  1761854895,
+                  1942774530,
+                  1915840468,
+                  1716340676,
+                  1763206249,
+                  1907119009,
+                  1975345051,
+                  1905452707,
+                  1920879895,
+                  2039566249,
+                  2009139843,
+                  1819924323,
+                  2024202187,
+                  1944800260,
+                  1954014895,
+                  1953189999,
+                  1849300989,
+                  1857235729,
+                  1678743228,
+                  1871844114,
+                  1943710312,
+                  1993792447
+                ],
+                "schema_version": "mobench.run/v2",
+                "spec": {
+                  "iterations": 30,
+                  "name": "zk_mobile_bench::bench_nullifier_proving_only",
+                  "warmup": 5
+                },
+                "stats": {
+                  "avg_ns": 1901751212.7,
+                  "max_ns": 2039566249,
+                  "min_ns": 1678743228
+                }
+              }
+            ]
+          },
+          "ci": {
+            "metadata": {
+              "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+              "mobench_version": "0.2.0",
+              "request_command": "cargo-mobench ci run --target android --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices Motorola Moto G71 5G-11.0 --crate-path ./crates/zk-mobile-bench --release --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/android",
+              "requested_by": "kilianglas"
+            },
+            "outputs": {
+              "results_csv": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__proving__only/results.csv",
+              "summary_json": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__proving__only/summary.json",
+              "summary_md": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__proving__only/summary.md"
+            },
+            "target": "android"
+          },
+          "local_report": {
+            "reason": "Host benchmark disabled - benchmarks run on mobile devices",
+            "skipped": true
+          },
+          "performance_metrics": {},
+          "remote_run": {
+            "app_url": "bs://40ba7557351df3ee0e254855f1e8aa6450da201d",
+            "build_id": "f5ea5685ef7d1de6810fd91b2ab8109bda0ce0e8",
+            "platform": "android"
+          },
+          "spec": {
+            "devices": [
+              "Motorola Moto G71 5G-11.0"
+            ],
+            "function": "zk_mobile_bench::bench_nullifier_proving_only",
+            "iterations": 30,
+            "target": "android",
+            "warmup": 5
+          },
+          "summary": {
+            "device_summaries": [
+              {
+                "benchmarks": [
+                  {
+                    "function": "zk_mobile_bench::bench_nullifier_proving_only",
+                    "max_ns": 2039566249,
+                    "mean_ns": 1901751212,
+                    "median_ns": 1912729296,
+                    "min_ns": 1678743228,
+                    "p95_ns": 2024202187,
+                    "resource_usage": {
+                      "cpu_median_ms": 7535,
+                      "cpu_total_ms": 224087,
+                      "java_heap_kb": 4577,
+                      "native_heap_kb": 87170,
+                      "peak_memory_growth_kb": 68852,
+                      "peak_memory_kb": 68852,
+                      "private_dirty_kb": 107432,
+                      "process_peak_memory_kb": 307148,
+                      "total_pss_kb": 153044
+                    },
+                    "samples": 30
+                  }
+                ],
+                "device": "Motorola Moto G71 5G-11.0"
+              }
+            ],
+            "devices": [
+              "Motorola Moto G71 5G-11.0"
+            ],
+            "function": "zk_mobile_bench::bench_nullifier_proving_only",
+            "generated_at": "2026-09-11T13:17:48.792005Z",
+            "generated_at_unix": 1789132668,
+            "iterations": 30,
+            "target": "android",
+            "warmup": 5
+          }
+        },
+        "zk__mobile__bench_bench__nullifier__witness__generation__only": {
+          "artifacts": {
+            "apk": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/android/app/build/outputs/apk/release/app-release-unsigned.apk",
+            "platform": "android"
+          },
+          "benchmark_results": {
+            "Motorola Moto G71 5G-11.0": [
+              {
+                "function": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+                "function_id": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+                "logical_session_id": "logical-session-53844cd569fa488b0e47e7442769a45b",
+                "max_ns": 76142969,
+                "mean_ns": 53167868,
+                "median_ns": 49487891,
+                "min_ns": 47794010,
+                "nonce": "nonce-76fcda931fe23c4341230a33d40b5403349f0ba8f3d8c53fc9710e681328714f",
+                "observed": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "outcome": {
+                  "status": "success"
+                },
+                "p95_ns": 68469844,
+                "phases": [],
+                "producer": "android-runner",
+                "requested": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "resources": {
+                  "cpu_median_ms": 53,
+                  "cpu_total_ms": 1692,
+                  "elapsed_cpu_ms": 1692,
+                  "isolated_process_peak_memory_kb": 253520,
+                  "java_heap_kb": 2412,
+                  "memory_process": "isolated_worker",
+                  "native_heap_kb": 85339,
+                  "peak_memory_growth_kb": 9608,
+                  "peak_memory_kb": 9608,
+                  "platform": "android",
+                  "private_dirty_kb": 98580,
+                  "process_peak_memory_kb": 253520,
+                  "timestamp_ms": 1789132446018,
+                  "total_pss_kb": 143840
+                },
+                "run_id": "run-67b0c92714b794e0732b625eaeea69fd",
+                "samples": [
+                  {
+                    "cpu_time_ms": 54,
+                    "duration_ns": 61206563,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 248432
+                  },
+                  {
+                    "cpu_time_ms": 53,
+                    "duration_ns": 48012083,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 248432
+                  },
+                  {
+                    "cpu_time_ms": 69,
+                    "duration_ns": 64460521,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 248432
+                  },
+                  {
+                    "cpu_time_ms": 54,
+                    "duration_ns": 52549479,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 248312
+                  },
+                  {
+                    "cpu_time_ms": 53,
+                    "duration_ns": 48011770,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 248312
+                  },
+                  {
+                    "cpu_time_ms": 74,
+                    "duration_ns": 48773125,
+                    "peak_memory_kb": 9608,
+                    "process_peak_memory_kb": 253520
+                  },
+                  {
+                    "cpu_time_ms": 53,
+                    "duration_ns": 48317865,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 248300
+                  },
+                  {
+                    "cpu_time_ms": 58,
+                    "duration_ns": 48275990,
+                    "peak_memory_kb": 4420,
+                    "process_peak_memory_kb": 248312
+                  },
+                  {
+                    "cpu_time_ms": 52,
+                    "duration_ns": 47872135,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 248312
+                  },
+                  {
+                    "cpu_time_ms": 53,
+                    "duration_ns": 48657917,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 248312
+                  },
+                  {
+                    "cpu_time_ms": 52,
+                    "duration_ns": 47794010,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 248312
+                  },
+                  {
+                    "cpu_time_ms": 53,
+                    "duration_ns": 47927396,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 248312
+                  },
+                  {
+                    "cpu_time_ms": 57,
+                    "duration_ns": 56079063,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 248312
+                  },
+                  {
+                    "cpu_time_ms": 53,
+                    "duration_ns": 53072968,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 236952
+                  },
+                  {
+                    "cpu_time_ms": 53,
+                    "duration_ns": 53330261,
+                    "peak_memory_kb": 4404,
+                    "process_peak_memory_kb": 236956
+                  },
+                  {
+                    "cpu_time_ms": 54,
+                    "duration_ns": 52414739,
+                    "peak_memory_kb": 4404,
+                    "process_peak_memory_kb": 236960
+                  },
+                  {
+                    "cpu_time_ms": 66,
+                    "duration_ns": 67441093,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 236960
+                  },
+                  {
+                    "cpu_time_ms": 52,
+                    "duration_ns": 48117187,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 236960
+                  },
+                  {
+                    "cpu_time_ms": 54,
+                    "duration_ns": 49610573,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 236960
+                  },
+                  {
+                    "cpu_time_ms": 53,
+                    "duration_ns": 48393490,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 236960
+                  },
+                  {
+                    "cpu_time_ms": 60,
+                    "duration_ns": 54991406,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 236960
+                  },
+                  {
+                    "cpu_time_ms": 52,
+                    "duration_ns": 47964271,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 236960
+                  },
+                  {
+                    "cpu_time_ms": 53,
+                    "duration_ns": 58622604,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 236960
+                  },
+                  {
+                    "cpu_time_ms": 52,
+                    "duration_ns": 49102865,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 236960
+                  },
+                  {
+                    "cpu_time_ms": 52,
+                    "duration_ns": 51567761,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 236960
+                  },
+                  {
+                    "cpu_time_ms": 71,
+                    "duration_ns": 68469844,
+                    "peak_memory_kb": 4408,
+                    "process_peak_memory_kb": 236968
+                  },
+                  {
+                    "cpu_time_ms": 73,
+                    "duration_ns": 76142969,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 236972
+                  },
+                  {
+                    "cpu_time_ms": 53,
+                    "duration_ns": 50526927,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 236972
+                  },
+                  {
+                    "cpu_time_ms": 53,
+                    "duration_ns": 47963958,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 236972
+                  },
+                  {
+                    "cpu_time_ms": 53,
+                    "duration_ns": 49365209,
+                    "peak_memory_kb": 4400,
+                    "process_peak_memory_kb": 236952
+                  }
+                ],
+                "samples_ns": [
+                  61206563,
+                  48012083,
+                  64460521,
+                  52549479,
+                  48011770,
+                  48773125,
+                  48317865,
+                  48275990,
+                  47872135,
+                  48657917,
+                  47794010,
+                  47927396,
+                  56079063,
+                  53072968,
+                  53330261,
+                  52414739,
+                  67441093,
+                  48117187,
+                  49610573,
+                  48393490,
+                  54991406,
+                  47964271,
+                  58622604,
+                  49102865,
+                  51567761,
+                  68469844,
+                  76142969,
+                  50526927,
+                  47963958,
+                  49365209
+                ],
+                "schema_version": "mobench.run/v2",
+                "spec": {
+                  "iterations": 30,
+                  "name": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+                  "warmup": 5
+                },
+                "stats": {
+                  "avg_ns": 53167868.06666667,
+                  "max_ns": 76142969,
+                  "min_ns": 47794010
+                }
+              }
+            ]
+          },
+          "ci": {
+            "metadata": {
+              "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+              "mobench_version": "0.2.0",
+              "request_command": "cargo-mobench ci run --target android --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices Motorola Moto G71 5G-11.0 --crate-path ./crates/zk-mobile-bench --release --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/android",
+              "requested_by": "kilianglas"
+            },
+            "outputs": {
+              "results_csv": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__witness__generation__only/results.csv",
+              "summary_json": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__witness__generation__only/summary.json",
+              "summary_md": "target/mobench/ci/android/android/zk__mobile__bench_bench__nullifier__witness__generation__only/summary.md"
+            },
+            "target": "android"
+          },
+          "local_report": {
+            "reason": "Host benchmark disabled - benchmarks run on mobile devices",
+            "skipped": true
+          },
+          "performance_metrics": {},
+          "remote_run": {
+            "app_url": "bs://d0cd4fd9051872852759a466ae4288e597167cc8",
+            "build_id": "25cce414ac41bd2d6afa210ff63075c798f9655b",
+            "platform": "android"
+          },
+          "spec": {
+            "devices": [
+              "Motorola Moto G71 5G-11.0"
+            ],
+            "function": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+            "iterations": 30,
+            "target": "android",
+            "warmup": 5
+          },
+          "summary": {
+            "device_summaries": [
+              {
+                "benchmarks": [
+                  {
+                    "function": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+                    "max_ns": 76142969,
+                    "mean_ns": 53167868,
+                    "median_ns": 49487891,
+                    "min_ns": 47794010,
+                    "p95_ns": 68469844,
+                    "resource_usage": {
+                      "cpu_median_ms": 53,
+                      "cpu_total_ms": 1692,
+                      "java_heap_kb": 2412,
+                      "native_heap_kb": 85339,
+                      "peak_memory_growth_kb": 9608,
+                      "peak_memory_kb": 9608,
+                      "private_dirty_kb": 98580,
+                      "process_peak_memory_kb": 253520,
+                      "total_pss_kb": 143840
+                    },
+                    "samples": 30
+                  }
+                ],
+                "device": "Motorola Moto G71 5G-11.0"
+              }
+            ],
+            "devices": [
+              "Motorola Moto G71 5G-11.0"
+            ],
+            "function": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+            "generated_at": "2026-09-11T13:14:44.390756Z",
+            "generated_at_unix": 1789132484,
+            "iterations": 30,
+            "target": "android",
+            "warmup": 5
+          }
+        },
+        "zk__mobile__bench_bench__query__cached__proof__generation": {
+          "artifacts": {
+            "apk": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/android/app/build/outputs/apk/release/app-release-unsigned.apk",
+            "platform": "android"
+          },
+          "benchmark_results": {
+            "Motorola Moto G71 5G-11.0": [
+              {
+                "function": "zk_mobile_bench::bench_query_cached_proof_generation",
+                "function_id": "zk_mobile_bench::bench_query_cached_proof_generation",
+                "logical_session_id": "logical-session-27ed95c0a4dbe9daea32ee450d708958",
+                "max_ns": 1128247552,
+                "mean_ns": 965471260,
+                "median_ns": 978571978,
+                "min_ns": 765183490,
+                "nonce": "nonce-4d7238fac80967702da474e28161e5b05ab3b27ff971f98d5268e14b0ae9a73e",
+                "observed": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "outcome": {
+                  "status": "success"
+                },
+                "p95_ns": 1108334114,
+                "phases": [],
+                "producer": "android-runner",
+                "requested": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "resources": {
+                  "cpu_median_ms": 3715,
+                  "cpu_total_ms": 111756,
+                  "elapsed_cpu_ms": 111756,
+                  "isolated_process_peak_memory_kb": 248744,
+                  "java_heap_kb": 3422,
+                  "memory_process": "isolated_worker",
+                  "native_heap_kb": 62457,
+                  "peak_memory_growth_kb": 37980,
+                  "peak_memory_kb": 37980,
+                  "platform": "android",
+                  "private_dirty_kb": 84812,
+                  "process_peak_memory_kb": 248744,
+                  "timestamp_ms": 1789132961350,
+                  "total_pss_kb": 130286
+                },
+                "run_id": "run-adb75ddaafb9122dd7e7810bd0040e34",
+                "samples": [
+                  {
+                    "cpu_time_ms": 3476,
+                    "duration_ns": 981775833,
+                    "peak_memory_kb": 35660,
+                    "process_peak_memory_kb": 245548
+                  },
+                  {
+                    "cpu_time_ms": 3848,
+                    "duration_ns": 978820051,
+                    "peak_memory_kb": 24344,
+                    "process_peak_memory_kb": 234296
+                  },
+                  {
+                    "cpu_time_ms": 4307,
+                    "duration_ns": 1012788124,
+                    "peak_memory_kb": 29028,
+                    "process_peak_memory_kb": 240960
+                  },
+                  {
+                    "cpu_time_ms": 3363,
+                    "duration_ns": 824733541,
+                    "peak_memory_kb": 18872,
+                    "process_peak_memory_kb": 233412
+                  },
+                  {
+                    "cpu_time_ms": 3452,
+                    "duration_ns": 1019076614,
+                    "peak_memory_kb": 19008,
+                    "process_peak_memory_kb": 237504
+                  },
+                  {
+                    "cpu_time_ms": 3843,
+                    "duration_ns": 993049218,
+                    "peak_memory_kb": 24712,
+                    "process_peak_memory_kb": 235940
+                  },
+                  {
+                    "cpu_time_ms": 3896,
+                    "duration_ns": 862791041,
+                    "peak_memory_kb": 22240,
+                    "process_peak_memory_kb": 237872
+                  },
+                  {
+                    "cpu_time_ms": 3513,
+                    "duration_ns": 997235156,
+                    "peak_memory_kb": 22120,
+                    "process_peak_memory_kb": 241980
+                  },
+                  {
+                    "cpu_time_ms": 3908,
+                    "duration_ns": 937082500,
+                    "peak_memory_kb": 13752,
+                    "process_peak_memory_kb": 235324
+                  },
+                  {
+                    "cpu_time_ms": 4122,
+                    "duration_ns": 1066835051,
+                    "peak_memory_kb": 8416,
+                    "process_peak_memory_kb": 231980
+                  },
+                  {
+                    "cpu_time_ms": 4132,
+                    "duration_ns": 923130677,
+                    "peak_memory_kb": 30100,
+                    "process_peak_memory_kb": 244880
+                  },
+                  {
+                    "cpu_time_ms": 3889,
+                    "duration_ns": 1108334114,
+                    "peak_memory_kb": 37980,
+                    "process_peak_memory_kb": 238468
+                  },
+                  {
+                    "cpu_time_ms": 3351,
+                    "duration_ns": 839143385,
+                    "peak_memory_kb": 22608,
+                    "process_peak_memory_kb": 239112
+                  },
+                  {
+                    "cpu_time_ms": 3820,
+                    "duration_ns": 1002602916,
+                    "peak_memory_kb": 23784,
+                    "process_peak_memory_kb": 246716
+                  },
+                  {
+                    "cpu_time_ms": 3909,
+                    "duration_ns": 997717708,
+                    "peak_memory_kb": 19972,
+                    "process_peak_memory_kb": 235784
+                  },
+                  {
+                    "cpu_time_ms": 3613,
+                    "duration_ns": 879025833,
+                    "peak_memory_kb": 30608,
+                    "process_peak_memory_kb": 248744
+                  },
+                  {
+                    "cpu_time_ms": 3634,
+                    "duration_ns": 978323906,
+                    "peak_memory_kb": 22448,
+                    "process_peak_memory_kb": 235744
+                  },
+                  {
+                    "cpu_time_ms": 3868,
+                    "duration_ns": 1055240000,
+                    "peak_memory_kb": 23584,
+                    "process_peak_memory_kb": 236460
+                  },
+                  {
+                    "cpu_time_ms": 3388,
+                    "duration_ns": 847169166,
+                    "peak_memory_kb": 26584,
+                    "process_peak_memory_kb": 233348
+                  },
+                  {
+                    "cpu_time_ms": 3964,
+                    "duration_ns": 960951302,
+                    "peak_memory_kb": 27124,
+                    "process_peak_memory_kb": 237812
+                  },
+                  {
+                    "cpu_time_ms": 3549,
+                    "duration_ns": 1086281250,
+                    "peak_memory_kb": 11604,
+                    "process_peak_memory_kb": 229432
+                  },
+                  {
+                    "cpu_time_ms": 3653,
+                    "duration_ns": 885987396,
+                    "peak_memory_kb": 29364,
+                    "process_peak_memory_kb": 239364
+                  },
+                  {
+                    "cpu_time_ms": 3774,
+                    "duration_ns": 920515625,
+                    "peak_memory_kb": 18872,
+                    "process_peak_memory_kb": 240328
+                  },
+                  {
+                    "cpu_time_ms": 4139,
+                    "duration_ns": 1060417135,
+                    "peak_memory_kb": 22844,
+                    "process_peak_memory_kb": 235264
+                  },
+                  {
+                    "cpu_time_ms": 3457,
+                    "duration_ns": 1084580729,
+                    "peak_memory_kb": 28480,
+                    "process_peak_memory_kb": 234548
+                  },
+                  {
+                    "cpu_time_ms": 3656,
+                    "duration_ns": 956808489,
+                    "peak_memory_kb": 32704,
+                    "process_peak_memory_kb": 236604
+                  },
+                  {
+                    "cpu_time_ms": 3639,
+                    "duration_ns": 881912656,
+                    "peak_memory_kb": 18912,
+                    "process_peak_memory_kb": 236444
+                  },
+                  {
+                    "cpu_time_ms": 4178,
+                    "duration_ns": 1128247552,
+                    "peak_memory_kb": 15556,
+                    "process_peak_memory_kb": 234048
+                  },
+                  {
+                    "cpu_time_ms": 3193,
+                    "duration_ns": 765183490,
+                    "peak_memory_kb": 14756,
+                    "process_peak_memory_kb": 233964
+                  },
+                  {
+                    "cpu_time_ms": 3222,
+                    "duration_ns": 928377343,
+                    "peak_memory_kb": 24664,
+                    "process_peak_memory_kb": 240720
+                  }
+                ],
+                "samples_ns": [
+                  981775833,
+                  978820051,
+                  1012788124,
+                  824733541,
+                  1019076614,
+                  993049218,
+                  862791041,
+                  997235156,
+                  937082500,
+                  1066835051,
+                  923130677,
+                  1108334114,
+                  839143385,
+                  1002602916,
+                  997717708,
+                  879025833,
+                  978323906,
+                  1055240000,
+                  847169166,
+                  960951302,
+                  1086281250,
+                  885987396,
+                  920515625,
+                  1060417135,
+                  1084580729,
+                  956808489,
+                  881912656,
+                  1128247552,
+                  765183490,
+                  928377343
+                ],
+                "schema_version": "mobench.run/v2",
+                "spec": {
+                  "iterations": 30,
+                  "name": "zk_mobile_bench::bench_query_cached_proof_generation",
+                  "warmup": 5
+                },
+                "stats": {
+                  "avg_ns": 965471260.0333332,
+                  "max_ns": 1128247552,
+                  "min_ns": 765183490
+                }
+              }
+            ]
+          },
+          "ci": {
+            "metadata": {
+              "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+              "mobench_version": "0.2.0",
+              "request_command": "cargo-mobench ci run --target android --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices Motorola Moto G71 5G-11.0 --crate-path ./crates/zk-mobile-bench --release --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/android",
+              "requested_by": "kilianglas"
+            },
+            "outputs": {
+              "results_csv": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__cached__proof__generation/results.csv",
+              "summary_json": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__cached__proof__generation/summary.json",
+              "summary_md": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__cached__proof__generation/summary.md"
+            },
+            "target": "android"
+          },
+          "local_report": {
+            "reason": "Host benchmark disabled - benchmarks run on mobile devices",
+            "skipped": true
+          },
+          "performance_metrics": {
+            "Motorola Moto G71 5G-11.0": {
+              "cpu": {
+                "average_percent": 0.54,
+                "min_percent": 0.54,
+                "peak_percent": 3.01
+              },
+              "memory": {
+                "average_mb": 51.11,
+                "min_mb": 51.11,
+                "peak_mb": 59.34
+              },
+              "sample_count": 1
+            }
+          },
+          "remote_run": {
+            "app_url": "bs://f3bc234735497a5b9998e0e630ad6f0db0b8d4ce",
+            "build_id": "813cebc8fc071d15f0c5046f040b16a98e70c53e",
+            "platform": "android"
+          },
+          "spec": {
+            "devices": [
+              "Motorola Moto G71 5G-11.0"
+            ],
+            "function": "zk_mobile_bench::bench_query_cached_proof_generation",
+            "iterations": 30,
+            "target": "android",
+            "warmup": 5
+          },
+          "summary": {
+            "device_summaries": [
+              {
+                "benchmarks": [
+                  {
+                    "function": "zk_mobile_bench::bench_query_cached_proof_generation",
+                    "max_ns": 1128247552,
+                    "mean_ns": 965471260,
+                    "median_ns": 978571978,
+                    "min_ns": 765183490,
+                    "p95_ns": 1108334114,
+                    "resource_usage": {
+                      "cpu_median_ms": 3715,
+                      "cpu_total_ms": 111756,
+                      "java_heap_kb": 3422,
+                      "native_heap_kb": 62457,
+                      "peak_memory_growth_kb": 37980,
+                      "peak_memory_kb": 37980,
+                      "private_dirty_kb": 84812,
+                      "process_peak_memory_kb": 248744,
+                      "total_pss_kb": 130286
+                    },
+                    "samples": 30
+                  }
+                ],
+                "device": "Motorola Moto G71 5G-11.0"
+              }
+            ],
+            "devices": [
+              "Motorola Moto G71 5G-11.0"
+            ],
+            "function": "zk_mobile_bench::bench_query_cached_proof_generation",
+            "generated_at": "2026-09-11T13:23:25.311246Z",
+            "generated_at_unix": 1789133005,
+            "iterations": 30,
+            "target": "android",
+            "warmup": 5
+          }
+        },
+        "zk__mobile__bench_bench__query__proof__generation": {
+          "artifacts": {
+            "apk": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/android/app/build/outputs/apk/release/app-release-unsigned.apk",
+            "platform": "android"
+          },
+          "benchmark_results": {
+            "Motorola Moto G71 5G-11.0": [
+              {
+                "function": "zk_mobile_bench::bench_query_proof_generation",
+                "function_id": "zk_mobile_bench::bench_query_proof_generation",
+                "logical_session_id": "logical-session-9c18ddad3683d8c957425b77bf425d76",
+                "max_ns": 1239256823,
+                "mean_ns": 1036475397,
+                "median_ns": 1027991484,
+                "min_ns": 885374687,
+                "nonce": "nonce-20e2abd789b755ec5314067203d2f913c4a786deca2be964fda018d883486e01",
+                "observed": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "outcome": {
+                  "status": "success"
+                },
+                "p95_ns": 1190587552,
+                "phases": [],
+                "producer": "android-runner",
+                "requested": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "resources": {
+                  "cpu_median_ms": 3826,
+                  "cpu_total_ms": 116743,
+                  "elapsed_cpu_ms": 116743,
+                  "isolated_process_peak_memory_kb": 273084,
+                  "java_heap_kb": 3468,
+                  "memory_process": "isolated_worker",
+                  "native_heap_kb": 44909,
+                  "peak_memory_growth_kb": 61856,
+                  "peak_memory_kb": 61856,
+                  "platform": "android",
+                  "private_dirty_kb": 67584,
+                  "process_peak_memory_kb": 273084,
+                  "timestamp_ms": 1789132786639,
+                  "total_pss_kb": 112629
+                },
+                "run_id": "run-522f904e951401bd1cfc24b3214b3924",
+                "samples": [
+                  {
+                    "cpu_time_ms": 4137,
+                    "duration_ns": 1031414687,
+                    "peak_memory_kb": 56888,
+                    "process_peak_memory_kb": 268288
+                  },
+                  {
+                    "cpu_time_ms": 3277,
+                    "duration_ns": 1008443646,
+                    "peak_memory_kb": 59436,
+                    "process_peak_memory_kb": 270340
+                  },
+                  {
+                    "cpu_time_ms": 3829,
+                    "duration_ns": 1049656302,
+                    "peak_memory_kb": 56920,
+                    "process_peak_memory_kb": 262712
+                  },
+                  {
+                    "cpu_time_ms": 3669,
+                    "duration_ns": 935735885,
+                    "peak_memory_kb": 57704,
+                    "process_peak_memory_kb": 259492
+                  },
+                  {
+                    "cpu_time_ms": 3403,
+                    "duration_ns": 932831875,
+                    "peak_memory_kb": 57928,
+                    "process_peak_memory_kb": 253044
+                  },
+                  {
+                    "cpu_time_ms": 4216,
+                    "duration_ns": 1190587552,
+                    "peak_memory_kb": 56812,
+                    "process_peak_memory_kb": 257200
+                  },
+                  {
+                    "cpu_time_ms": 3773,
+                    "duration_ns": 951737499,
+                    "peak_memory_kb": 58664,
+                    "process_peak_memory_kb": 253704
+                  },
+                  {
+                    "cpu_time_ms": 3814,
+                    "duration_ns": 1045935364,
+                    "peak_memory_kb": 56800,
+                    "process_peak_memory_kb": 262320
+                  },
+                  {
+                    "cpu_time_ms": 3433,
+                    "duration_ns": 944857812,
+                    "peak_memory_kb": 58372,
+                    "process_peak_memory_kb": 262356
+                  },
+                  {
+                    "cpu_time_ms": 3440,
+                    "duration_ns": 1056638385,
+                    "peak_memory_kb": 60296,
+                    "process_peak_memory_kb": 260116
+                  },
+                  {
+                    "cpu_time_ms": 3695,
+                    "duration_ns": 1024568281,
+                    "peak_memory_kb": 57720,
+                    "process_peak_memory_kb": 254888
+                  },
+                  {
+                    "cpu_time_ms": 4663,
+                    "duration_ns": 1239256823,
+                    "peak_memory_kb": 57760,
+                    "process_peak_memory_kb": 268844
+                  },
+                  {
+                    "cpu_time_ms": 4520,
+                    "duration_ns": 1020841406,
+                    "peak_memory_kb": 56548,
+                    "process_peak_memory_kb": 267256
+                  },
+                  {
+                    "cpu_time_ms": 3906,
+                    "duration_ns": 1046858281,
+                    "peak_memory_kb": 57152,
+                    "process_peak_memory_kb": 262652
+                  },
+                  {
+                    "cpu_time_ms": 4100,
+                    "duration_ns": 1049151614,
+                    "peak_memory_kb": 57932,
+                    "process_peak_memory_kb": 260808
+                  },
+                  {
+                    "cpu_time_ms": 4253,
+                    "duration_ns": 998251145,
+                    "peak_memory_kb": 56480,
+                    "process_peak_memory_kb": 270540
+                  },
+                  {
+                    "cpu_time_ms": 3811,
+                    "duration_ns": 1062469166,
+                    "peak_memory_kb": 58636,
+                    "process_peak_memory_kb": 261312
+                  },
+                  {
+                    "cpu_time_ms": 4069,
+                    "duration_ns": 1157958906,
+                    "peak_memory_kb": 58228,
+                    "process_peak_memory_kb": 259364
+                  },
+                  {
+                    "cpu_time_ms": 3205,
+                    "duration_ns": 885374687,
+                    "peak_memory_kb": 56908,
+                    "process_peak_memory_kb": 258272
+                  },
+                  {
+                    "cpu_time_ms": 3934,
+                    "duration_ns": 1006059010,
+                    "peak_memory_kb": 60308,
+                    "process_peak_memory_kb": 273084
+                  },
+                  {
+                    "cpu_time_ms": 3571,
+                    "duration_ns": 987381145,
+                    "peak_memory_kb": 60044,
+                    "process_peak_memory_kb": 258340
+                  },
+                  {
+                    "cpu_time_ms": 4146,
+                    "duration_ns": 1143268906,
+                    "peak_memory_kb": 58376,
+                    "process_peak_memory_kb": 267696
+                  },
+                  {
+                    "cpu_time_ms": 3695,
+                    "duration_ns": 957319114,
+                    "peak_memory_kb": 61856,
+                    "process_peak_memory_kb": 258476
+                  },
+                  {
+                    "cpu_time_ms": 3354,
+                    "duration_ns": 1013429635,
+                    "peak_memory_kb": 58156,
+                    "process_peak_memory_kb": 263912
+                  },
+                  {
+                    "cpu_time_ms": 4512,
+                    "duration_ns": 1123887760,
+                    "peak_memory_kb": 58876,
+                    "process_peak_memory_kb": 260276
+                  },
+                  {
+                    "cpu_time_ms": 4269,
+                    "duration_ns": 1088387031,
+                    "peak_memory_kb": 57868,
+                    "process_peak_memory_kb": 262648
+                  },
+                  {
+                    "cpu_time_ms": 3543,
+                    "duration_ns": 892886875,
+                    "peak_memory_kb": 56464,
+                    "process_peak_memory_kb": 260836
+                  },
+                  {
+                    "cpu_time_ms": 4654,
+                    "duration_ns": 1158915521,
+                    "peak_memory_kb": 56356,
+                    "process_peak_memory_kb": 270780
+                  },
+                  {
+                    "cpu_time_ms": 3823,
+                    "duration_ns": 1016251198,
+                    "peak_memory_kb": 57788,
+                    "process_peak_memory_kb": 264984
+                  },
+                  {
+                    "cpu_time_ms": 4029,
+                    "duration_ns": 1073906406,
+                    "peak_memory_kb": 57700,
+                    "process_peak_memory_kb": 260068
+                  }
+                ],
+                "samples_ns": [
+                  1031414687,
+                  1008443646,
+                  1049656302,
+                  935735885,
+                  932831875,
+                  1190587552,
+                  951737499,
+                  1045935364,
+                  944857812,
+                  1056638385,
+                  1024568281,
+                  1239256823,
+                  1020841406,
+                  1046858281,
+                  1049151614,
+                  998251145,
+                  1062469166,
+                  1157958906,
+                  885374687,
+                  1006059010,
+                  987381145,
+                  1143268906,
+                  957319114,
+                  1013429635,
+                  1123887760,
+                  1088387031,
+                  892886875,
+                  1158915521,
+                  1016251198,
+                  1073906406
+                ],
+                "schema_version": "mobench.run/v2",
+                "spec": {
+                  "iterations": 30,
+                  "name": "zk_mobile_bench::bench_query_proof_generation",
+                  "warmup": 5
+                },
+                "stats": {
+                  "avg_ns": 1036475397.2333332,
+                  "max_ns": 1239256823,
+                  "min_ns": 885374687
+                }
+              }
+            ]
+          },
+          "ci": {
+            "metadata": {
+              "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+              "mobench_version": "0.2.0",
+              "request_command": "cargo-mobench ci run --target android --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices Motorola Moto G71 5G-11.0 --crate-path ./crates/zk-mobile-bench --release --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/android",
+              "requested_by": "kilianglas"
+            },
+            "outputs": {
+              "results_csv": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__proof__generation/results.csv",
+              "summary_json": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__proof__generation/summary.json",
+              "summary_md": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__proof__generation/summary.md"
+            },
+            "target": "android"
+          },
+          "local_report": {
+            "reason": "Host benchmark disabled - benchmarks run on mobile devices",
+            "skipped": true
+          },
+          "performance_metrics": {
+            "Motorola Moto G71 5G-11.0": {
+              "cpu": {
+                "average_percent": 0.39,
+                "min_percent": 0.39,
+                "peak_percent": 1.83
+              },
+              "memory": {
+                "average_mb": 50.18,
+                "min_mb": 50.18,
+                "peak_mb": 61.12
+              },
+              "sample_count": 1
+            }
+          },
+          "remote_run": {
+            "app_url": "bs://21e6317037eae31664b4cf745415891ad8308dda",
+            "build_id": "e9453b7c06c4df1bb132d9a528a7889845e23518",
+            "platform": "android"
+          },
+          "spec": {
+            "devices": [
+              "Motorola Moto G71 5G-11.0"
+            ],
+            "function": "zk_mobile_bench::bench_query_proof_generation",
+            "iterations": 30,
+            "target": "android",
+            "warmup": 5
+          },
+          "summary": {
+            "device_summaries": [
+              {
+                "benchmarks": [
+                  {
+                    "function": "zk_mobile_bench::bench_query_proof_generation",
+                    "max_ns": 1239256823,
+                    "mean_ns": 1036475397,
+                    "median_ns": 1027991484,
+                    "min_ns": 885374687,
+                    "p95_ns": 1190587552,
+                    "resource_usage": {
+                      "cpu_median_ms": 3826,
+                      "cpu_total_ms": 116743,
+                      "java_heap_kb": 3468,
+                      "native_heap_kb": 44909,
+                      "peak_memory_growth_kb": 61856,
+                      "peak_memory_kb": 61856,
+                      "private_dirty_kb": 67584,
+                      "process_peak_memory_kb": 273084,
+                      "total_pss_kb": 112629
+                    },
+                    "samples": 30
+                  }
+                ],
+                "device": "Motorola Moto G71 5G-11.0"
+              }
+            ],
+            "devices": [
+              "Motorola Moto G71 5G-11.0"
+            ],
+            "function": "zk_mobile_bench::bench_query_proof_generation",
+            "generated_at": "2026-09-11T13:20:44.367648Z",
+            "generated_at_unix": 1789132844,
+            "iterations": 30,
+            "target": "android",
+            "warmup": 5
+          }
+        },
+        "zk__mobile__bench_bench__query__proving__only": {
+          "artifacts": {
+            "apk": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/android/app/build/outputs/apk/release/app-release-unsigned.apk",
+            "platform": "android"
+          },
+          "benchmark_results": {
+            "Motorola Moto G71 5G-11.0": [
+              {
+                "function": "zk_mobile_bench::bench_query_proving_only",
+                "function_id": "zk_mobile_bench::bench_query_proving_only",
+                "logical_session_id": "logical-session-2b815c3193db40d78ba4933e0a0190a2",
+                "max_ns": 1165261718,
+                "mean_ns": 917982805,
+                "median_ns": 918796379,
+                "min_ns": 698529739,
+                "nonce": "nonce-fb41148f514d07418aff418ea3df43cfd5c5ab730ff411c691aa423252eb4dbf",
+                "observed": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "outcome": {
+                  "status": "success"
+                },
+                "p95_ns": 1084287499,
+                "phases": [],
+                "producer": "android-runner",
+                "requested": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "resources": {
+                  "cpu_median_ms": 3734,
+                  "cpu_total_ms": 111231,
+                  "elapsed_cpu_ms": 111231,
+                  "isolated_process_peak_memory_kb": 243900,
+                  "java_heap_kb": 3365,
+                  "memory_process": "isolated_worker",
+                  "native_heap_kb": 62908,
+                  "peak_memory_growth_kb": 34520,
+                  "peak_memory_kb": 34520,
+                  "platform": "android",
+                  "private_dirty_kb": 84696,
+                  "process_peak_memory_kb": 243900,
+                  "timestamp_ms": 1789133236171,
+                  "total_pss_kb": 129652
+                },
+                "run_id": "run-e80fef077ec7f8a8f1d14b1ce97f17ae",
+                "samples": [
+                  {
+                    "cpu_time_ms": 3213,
+                    "duration_ns": 698529739,
+                    "peak_memory_kb": 28532,
+                    "process_peak_memory_kb": 241728
+                  },
+                  {
+                    "cpu_time_ms": 4397,
+                    "duration_ns": 1165261718,
+                    "peak_memory_kb": 16360,
+                    "process_peak_memory_kb": 237716
+                  },
+                  {
+                    "cpu_time_ms": 3846,
+                    "duration_ns": 900447969,
+                    "peak_memory_kb": 34520,
+                    "process_peak_memory_kb": 241020
+                  },
+                  {
+                    "cpu_time_ms": 3912,
+                    "duration_ns": 1027854114,
+                    "peak_memory_kb": 15736,
+                    "process_peak_memory_kb": 232524
+                  },
+                  {
+                    "cpu_time_ms": 4025,
+                    "duration_ns": 914552760,
+                    "peak_memory_kb": 20760,
+                    "process_peak_memory_kb": 234004
+                  },
+                  {
+                    "cpu_time_ms": 4342,
+                    "duration_ns": 964091354,
+                    "peak_memory_kb": 31000,
+                    "process_peak_memory_kb": 240212
+                  },
+                  {
+                    "cpu_time_ms": 4023,
+                    "duration_ns": 1072056615,
+                    "peak_memory_kb": 29100,
+                    "process_peak_memory_kb": 233796
+                  },
+                  {
+                    "cpu_time_ms": 3737,
+                    "duration_ns": 772376771,
+                    "peak_memory_kb": 19412,
+                    "process_peak_memory_kb": 238008
+                  },
+                  {
+                    "cpu_time_ms": 3732,
+                    "duration_ns": 867353333,
+                    "peak_memory_kb": 24052,
+                    "process_peak_memory_kb": 243448
+                  },
+                  {
+                    "cpu_time_ms": 3761,
+                    "duration_ns": 894105417,
+                    "peak_memory_kb": 28808,
+                    "process_peak_memory_kb": 241304
+                  },
+                  {
+                    "cpu_time_ms": 3475,
+                    "duration_ns": 808835156,
+                    "peak_memory_kb": 14656,
+                    "process_peak_memory_kb": 233908
+                  },
+                  {
+                    "cpu_time_ms": 3951,
+                    "duration_ns": 1084287499,
+                    "peak_memory_kb": 27140,
+                    "process_peak_memory_kb": 236360
+                  },
+                  {
+                    "cpu_time_ms": 4126,
+                    "duration_ns": 976804062,
+                    "peak_memory_kb": 27192,
+                    "process_peak_memory_kb": 239780
+                  },
+                  {
+                    "cpu_time_ms": 3729,
+                    "duration_ns": 908893750,
+                    "peak_memory_kb": 23156,
+                    "process_peak_memory_kb": 233284
+                  },
+                  {
+                    "cpu_time_ms": 3740,
+                    "duration_ns": 874028906,
+                    "peak_memory_kb": 23588,
+                    "process_peak_memory_kb": 243120
+                  },
+                  {
+                    "cpu_time_ms": 3337,
+                    "duration_ns": 907863489,
+                    "peak_memory_kb": 20360,
+                    "process_peak_memory_kb": 233428
+                  },
+                  {
+                    "cpu_time_ms": 3336,
+                    "duration_ns": 765882916,
+                    "peak_memory_kb": 18704,
+                    "process_peak_memory_kb": 239500
+                  },
+                  {
+                    "cpu_time_ms": 3150,
+                    "duration_ns": 892447187,
+                    "peak_memory_kb": 29556,
+                    "process_peak_memory_kb": 241516
+                  },
+                  {
+                    "cpu_time_ms": 3642,
+                    "duration_ns": 969036146,
+                    "peak_memory_kb": 12204,
+                    "process_peak_memory_kb": 229892
+                  },
+                  {
+                    "cpu_time_ms": 3533,
+                    "duration_ns": 1002109687,
+                    "peak_memory_kb": 23528,
+                    "process_peak_memory_kb": 235960
+                  },
+                  {
+                    "cpu_time_ms": 3596,
+                    "duration_ns": 932279583,
+                    "peak_memory_kb": 18984,
+                    "process_peak_memory_kb": 230328
+                  },
+                  {
+                    "cpu_time_ms": 3877,
+                    "duration_ns": 1002717655,
+                    "peak_memory_kb": 19808,
+                    "process_peak_memory_kb": 229936
+                  },
+                  {
+                    "cpu_time_ms": 3819,
+                    "duration_ns": 934074218,
+                    "peak_memory_kb": 20812,
+                    "process_peak_memory_kb": 241548
+                  },
+                  {
+                    "cpu_time_ms": 3682,
+                    "duration_ns": 925180156,
+                    "peak_memory_kb": 31048,
+                    "process_peak_memory_kb": 239104
+                  },
+                  {
+                    "cpu_time_ms": 3814,
+                    "duration_ns": 923039999,
+                    "peak_memory_kb": 26308,
+                    "process_peak_memory_kb": 240712
+                  },
+                  {
+                    "cpu_time_ms": 3794,
+                    "duration_ns": 943586353,
+                    "peak_memory_kb": 20448,
+                    "process_peak_memory_kb": 239404
+                  },
+                  {
+                    "cpu_time_ms": 3106,
+                    "duration_ns": 749536197,
+                    "peak_memory_kb": 27152,
+                    "process_peak_memory_kb": 241896
+                  },
+                  {
+                    "cpu_time_ms": 3119,
+                    "duration_ns": 797916667,
+                    "peak_memory_kb": 26740,
+                    "process_peak_memory_kb": 238828
+                  },
+                  {
+                    "cpu_time_ms": 3691,
+                    "duration_ns": 873111197,
+                    "peak_memory_kb": 19888,
+                    "process_peak_memory_kb": 243900
+                  },
+                  {
+                    "cpu_time_ms": 3726,
+                    "duration_ns": 991223542,
+                    "peak_memory_kb": 6644,
+                    "process_peak_memory_kb": 230768
+                  }
+                ],
+                "samples_ns": [
+                  698529739,
+                  1165261718,
+                  900447969,
+                  1027854114,
+                  914552760,
+                  964091354,
+                  1072056615,
+                  772376771,
+                  867353333,
+                  894105417,
+                  808835156,
+                  1084287499,
+                  976804062,
+                  908893750,
+                  874028906,
+                  907863489,
+                  765882916,
+                  892447187,
+                  969036146,
+                  1002109687,
+                  932279583,
+                  1002717655,
+                  934074218,
+                  925180156,
+                  923039999,
+                  943586353,
+                  749536197,
+                  797916667,
+                  873111197,
+                  991223542
+                ],
+                "schema_version": "mobench.run/v2",
+                "spec": {
+                  "iterations": 30,
+                  "name": "zk_mobile_bench::bench_query_proving_only",
+                  "warmup": 5
+                },
+                "stats": {
+                  "avg_ns": 917982805.1666666,
+                  "max_ns": 1165261718,
+                  "min_ns": 698529739
+                }
+              }
+            ]
+          },
+          "ci": {
+            "metadata": {
+              "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+              "mobench_version": "0.2.0",
+              "request_command": "cargo-mobench ci run --target android --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices Motorola Moto G71 5G-11.0 --crate-path ./crates/zk-mobile-bench --release --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/android",
+              "requested_by": "kilianglas"
+            },
+            "outputs": {
+              "results_csv": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__proving__only/results.csv",
+              "summary_json": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__proving__only/summary.json",
+              "summary_md": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__proving__only/summary.md"
+            },
+            "target": "android"
+          },
+          "local_report": {
+            "reason": "Host benchmark disabled - benchmarks run on mobile devices",
+            "skipped": true
+          },
+          "performance_metrics": {},
+          "remote_run": {
+            "app_url": "bs://3fa662d4a33e632569b95e163166368ac9c485c0",
+            "build_id": "6fcc964b5a28c32629e0c9bb7fc37ed8bf5d133a",
+            "platform": "android"
+          },
+          "spec": {
+            "devices": [
+              "Motorola Moto G71 5G-11.0"
+            ],
+            "function": "zk_mobile_bench::bench_query_proving_only",
+            "iterations": 30,
+            "target": "android",
+            "warmup": 5
+          },
+          "summary": {
+            "device_summaries": [
+              {
+                "benchmarks": [
+                  {
+                    "function": "zk_mobile_bench::bench_query_proving_only",
+                    "max_ns": 1165261718,
+                    "mean_ns": 917982805,
+                    "median_ns": 918796379,
+                    "min_ns": 698529739,
+                    "p95_ns": 1084287499,
+                    "resource_usage": {
+                      "cpu_median_ms": 3734,
+                      "cpu_total_ms": 111231,
+                      "java_heap_kb": 3365,
+                      "native_heap_kb": 62908,
+                      "peak_memory_growth_kb": 34520,
+                      "peak_memory_kb": 34520,
+                      "private_dirty_kb": 84696,
+                      "process_peak_memory_kb": 243900,
+                      "total_pss_kb": 129652
+                    },
+                    "samples": 30
+                  }
+                ],
+                "device": "Motorola Moto G71 5G-11.0"
+              }
+            ],
+            "devices": [
+              "Motorola Moto G71 5G-11.0"
+            ],
+            "function": "zk_mobile_bench::bench_query_proving_only",
+            "generated_at": "2026-09-11T13:27:53.526848Z",
+            "generated_at_unix": 1789133273,
+            "iterations": 30,
+            "target": "android",
+            "warmup": 5
+          }
+        },
+        "zk__mobile__bench_bench__query__witness__generation__only": {
+          "artifacts": {
+            "apk": "/Users/runner/work/world-id-protocol/world-id-protocol/caller/target/mobench/android/app/build/outputs/apk/release/app-release-unsigned.apk",
+            "platform": "android"
+          },
+          "benchmark_results": {
+            "Motorola Moto G71 5G-11.0": [
+              {
+                "function": "zk_mobile_bench::bench_query_witness_generation_only",
+                "function_id": "zk_mobile_bench::bench_query_witness_generation_only",
+                "logical_session_id": "logical-session-fcc9ba5719a7864a8d2a3bc654f323aa",
+                "max_ns": 38345052,
+                "mean_ns": 17264211,
+                "median_ns": 14478984,
+                "min_ns": 12895469,
+                "nonce": "nonce-d1a6a037453cf5ac6b2a709433b4c31edbab988306347208f5fd56deec9ab3a0",
+                "observed": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "outcome": {
+                  "status": "success"
+                },
+                "p95_ns": 36816094,
+                "phases": [],
+                "producer": "android-runner",
+                "requested": {
+                  "iterations": 30,
+                  "warmup": 5
+                },
+                "resources": {
+                  "cpu_median_ms": 14,
+                  "cpu_total_ms": 523,
+                  "elapsed_cpu_ms": 523,
+                  "isolated_process_peak_memory_kb": 204236,
+                  "java_heap_kb": 5472,
+                  "memory_process": "isolated_worker",
+                  "native_heap_kb": 62137,
+                  "peak_memory_growth_kb": 4,
+                  "peak_memory_kb": 4,
+                  "platform": "android",
+                  "private_dirty_kb": 65996,
+                  "process_peak_memory_kb": 204236,
+                  "timestamp_ms": 1789133080779,
+                  "total_pss_kb": 111223
+                },
+                "run_id": "run-b759f5aa3068fe597361b6e1b84c1f6c",
+                "samples": [
+                  {
+                    "cpu_time_ms": 20,
+                    "duration_ns": 22003907,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 15,
+                    "duration_ns": 18645521,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 13096458,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 15,
+                    "duration_ns": 13919167,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 14627760,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 15,
+                    "duration_ns": 15142188,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 16,
+                    "duration_ns": 14479948,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 24,
+                    "duration_ns": 22943333,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 22,
+                    "duration_ns": 25640521,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 33,
+                    "duration_ns": 36816094,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 13929167,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 13034271,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 12933073,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 13602708,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 12964427,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 12911458,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 17,
+                    "duration_ns": 15602292,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 12905781,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 12955469,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 12895469,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 16,
+                    "duration_ns": 15859375,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 15,
+                    "duration_ns": 14245834,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 13042761,
+                    "process_peak_memory_kb": 204212
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 12912188,
+                    "peak_memory_kb": 4,
+                    "process_peak_memory_kb": 204216
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 14478021,
+                    "peak_memory_kb": 4,
+                    "process_peak_memory_kb": 204220
+                  },
+                  {
+                    "cpu_time_ms": 14,
+                    "duration_ns": 16915105,
+                    "process_peak_memory_kb": 204220
+                  },
+                  {
+                    "cpu_time_ms": 27,
+                    "duration_ns": 25703125,
+                    "peak_memory_kb": 4,
+                    "process_peak_memory_kb": 204224
+                  },
+                  {
+                    "cpu_time_ms": 42,
+                    "duration_ns": 38345052,
+                    "process_peak_memory_kb": 204224
+                  },
+                  {
+                    "cpu_time_ms": 21,
+                    "duration_ns": 20689947,
+                    "process_peak_memory_kb": 204232
+                  },
+                  {
+                    "cpu_time_ms": 15,
+                    "duration_ns": 14685937,
+                    "peak_memory_kb": 4,
+                    "process_peak_memory_kb": 204236
+                  }
+                ],
+                "samples_ns": [
+                  22003907,
+                  18645521,
+                  13096458,
+                  13919167,
+                  14627760,
+                  15142188,
+                  14479948,
+                  22943333,
+                  25640521,
+                  36816094,
+                  13929167,
+                  13034271,
+                  12933073,
+                  13602708,
+                  12964427,
+                  12911458,
+                  15602292,
+                  12905781,
+                  12955469,
+                  12895469,
+                  15859375,
+                  14245834,
+                  13042761,
+                  12912188,
+                  14478021,
+                  16915105,
+                  25703125,
+                  38345052,
+                  20689947,
+                  14685937
+                ],
+                "schema_version": "mobench.run/v2",
+                "spec": {
+                  "iterations": 30,
+                  "name": "zk_mobile_bench::bench_query_witness_generation_only",
+                  "warmup": 5
+                },
+                "stats": {
+                  "avg_ns": 17264211.9,
+                  "max_ns": 38345052,
+                  "min_ns": 12895469
+                }
+              }
+            ]
+          },
+          "ci": {
+            "metadata": {
+              "mobench_ref": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+              "mobench_version": "0.2.0",
+              "request_command": "cargo-mobench ci run --target android --functions zk_mobile_bench::bench_nullifier_proof_generation,zk_mobile_bench::bench_nullifier_witness_generation_only,zk_mobile_bench::bench_nullifier_proving_only,zk_mobile_bench::bench_query_proof_generation,zk_mobile_bench::bench_query_cached_proof_generation,zk_mobile_bench::bench_query_witness_generation_only,zk_mobile_bench::bench_query_proving_only --iterations 30 --warmup 5 --devices Motorola Moto G71 5G-11.0 --crate-path ./crates/zk-mobile-bench --release --fetch --fetch-timeout-secs 1800 --output-dir target/mobench/ci/android",
+              "requested_by": "kilianglas"
+            },
+            "outputs": {
+              "results_csv": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__witness__generation__only/results.csv",
+              "summary_json": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__witness__generation__only/summary.json",
+              "summary_md": "target/mobench/ci/android/android/zk__mobile__bench_bench__query__witness__generation__only/summary.md"
+            },
+            "target": "android"
+          },
+          "local_report": {
+            "reason": "Host benchmark disabled - benchmarks run on mobile devices",
+            "skipped": true
+          },
+          "performance_metrics": {
+            "Motorola Moto G71 5G-11.0": {
+              "cpu": {
+                "average_percent": 0.74,
+                "min_percent": 0.74,
+                "peak_percent": 2.72
+              },
+              "memory": {
+                "average_mb": 57.88,
+                "min_mb": 57.88,
+                "peak_mb": 60.15
+              },
+              "sample_count": 1
+            }
+          },
+          "remote_run": {
+            "app_url": "bs://e16e8f098fe69e2726f0072cc8cf13c05570793d",
+            "build_id": "e262cbb92fa1609e30c437634ec0e485d0ebc995",
+            "platform": "android"
+          },
+          "spec": {
+            "devices": [
+              "Motorola Moto G71 5G-11.0"
+            ],
+            "function": "zk_mobile_bench::bench_query_witness_generation_only",
+            "iterations": 30,
+            "target": "android",
+            "warmup": 5
+          },
+          "summary": {
+            "device_summaries": [
+              {
+                "benchmarks": [
+                  {
+                    "function": "zk_mobile_bench::bench_query_witness_generation_only",
+                    "max_ns": 38345052,
+                    "mean_ns": 17264211,
+                    "median_ns": 14478984,
+                    "min_ns": 12895469,
+                    "p95_ns": 36816094,
+                    "resource_usage": {
+                      "cpu_median_ms": 14,
+                      "cpu_total_ms": 523,
+                      "java_heap_kb": 5472,
+                      "native_heap_kb": 62137,
+                      "peak_memory_growth_kb": 4,
+                      "peak_memory_kb": 4,
+                      "private_dirty_kb": 65996,
+                      "process_peak_memory_kb": 204236,
+                      "total_pss_kb": 111223
+                    },
+                    "samples": 30
+                  }
+                ],
+                "device": "Motorola Moto G71 5G-11.0"
+              }
+            ],
+            "devices": [
+              "Motorola Moto G71 5G-11.0"
+            ],
+            "function": "zk_mobile_bench::bench_query_witness_generation_only",
+            "generated_at": "2026-09-11T13:25:26.506665Z",
+            "generated_at_unix": 1789133126,
+            "iterations": 30,
+            "target": "android",
+            "warmup": 5
+          }
+        }
+      },
+      "summary": {
+        "device_summaries": [
+          {
+            "benchmarks": [
+              {
+                "function": "zk_mobile_bench::bench_nullifier_proof_generation",
+                "max_ns": 3316012655,
+                "mean_ns": 3049308111,
+                "median_ns": 3064412942,
+                "min_ns": 2842399687,
+                "p95_ns": 3205216562,
+                "resource_usage": {
+                  "cpu_median_ms": 11853,
+                  "cpu_total_ms": 348783,
+                  "java_heap_kb": 5777,
+                  "native_heap_kb": 45913,
+                  "peak_memory_growth_kb": 108604,
+                  "peak_memory_kb": 108604,
+                  "private_dirty_kb": 96084,
+                  "process_peak_memory_kb": 342100,
+                  "total_pss_kb": 140930
+                },
+                "samples": 30
+              },
+              {
+                "function": "zk_mobile_bench::bench_nullifier_proving_only",
+                "max_ns": 2039566249,
+                "mean_ns": 1901751212,
+                "median_ns": 1912729296,
+                "min_ns": 1678743228,
+                "p95_ns": 2024202187,
+                "resource_usage": {
+                  "cpu_median_ms": 7535,
+                  "cpu_total_ms": 224087,
+                  "java_heap_kb": 4577,
+                  "native_heap_kb": 87170,
+                  "peak_memory_growth_kb": 68852,
+                  "peak_memory_kb": 68852,
+                  "private_dirty_kb": 107432,
+                  "process_peak_memory_kb": 307148,
+                  "total_pss_kb": 153044
+                },
+                "samples": 30
+              },
+              {
+                "function": "zk_mobile_bench::bench_nullifier_witness_generation_only",
+                "max_ns": 76142969,
+                "mean_ns": 53167868,
+                "median_ns": 49487891,
+                "min_ns": 47794010,
+                "p95_ns": 68469844,
+                "resource_usage": {
+                  "cpu_median_ms": 53,
+                  "cpu_total_ms": 1692,
+                  "java_heap_kb": 2412,
+                  "native_heap_kb": 85339,
+                  "peak_memory_growth_kb": 9608,
+                  "peak_memory_kb": 9608,
+                  "private_dirty_kb": 98580,
+                  "process_peak_memory_kb": 253520,
+                  "total_pss_kb": 143840
+                },
+                "samples": 30
+              },
+              {
+                "function": "zk_mobile_bench::bench_query_cached_proof_generation",
+                "max_ns": 1128247552,
+                "mean_ns": 965471260,
+                "median_ns": 978571978,
+                "min_ns": 765183490,
+                "p95_ns": 1108334114,
+                "resource_usage": {
+                  "cpu_median_ms": 3715,
+                  "cpu_total_ms": 111756,
+                  "java_heap_kb": 3422,
+                  "native_heap_kb": 62457,
+                  "peak_memory_growth_kb": 37980,
+                  "peak_memory_kb": 37980,
+                  "private_dirty_kb": 84812,
+                  "process_peak_memory_kb": 248744,
+                  "total_pss_kb": 130286
+                },
+                "samples": 30
+              },
+              {
+                "function": "zk_mobile_bench::bench_query_proof_generation",
+                "max_ns": 1239256823,
+                "mean_ns": 1036475397,
+                "median_ns": 1027991484,
+                "min_ns": 885374687,
+                "p95_ns": 1190587552,
+                "resource_usage": {
+                  "cpu_median_ms": 3826,
+                  "cpu_total_ms": 116743,
+                  "java_heap_kb": 3468,
+                  "native_heap_kb": 44909,
+                  "peak_memory_growth_kb": 61856,
+                  "peak_memory_kb": 61856,
+                  "private_dirty_kb": 67584,
+                  "process_peak_memory_kb": 273084,
+                  "total_pss_kb": 112629
+                },
+                "samples": 30
+              },
+              {
+                "function": "zk_mobile_bench::bench_query_proving_only",
+                "max_ns": 1165261718,
+                "mean_ns": 917982805,
+                "median_ns": 918796379,
+                "min_ns": 698529739,
+                "p95_ns": 1084287499,
+                "resource_usage": {
+                  "cpu_median_ms": 3734,
+                  "cpu_total_ms": 111231,
+                  "java_heap_kb": 3365,
+                  "native_heap_kb": 62908,
+                  "peak_memory_growth_kb": 34520,
+                  "peak_memory_kb": 34520,
+                  "private_dirty_kb": 84696,
+                  "process_peak_memory_kb": 243900,
+                  "total_pss_kb": 129652
+                },
+                "samples": 30
+              },
+              {
+                "function": "zk_mobile_bench::bench_query_witness_generation_only",
+                "max_ns": 38345052,
+                "mean_ns": 17264211,
+                "median_ns": 14478984,
+                "min_ns": 12895469,
+                "p95_ns": 36816094,
+                "resource_usage": {
+                  "cpu_median_ms": 14,
+                  "cpu_total_ms": 523,
+                  "java_heap_kb": 5472,
+                  "native_heap_kb": 62137,
+                  "peak_memory_growth_kb": 4,
+                  "peak_memory_kb": 4,
+                  "private_dirty_kb": 65996,
+                  "process_peak_memory_kb": 204236,
+                  "total_pss_kb": 111223
+                },
+                "samples": 30
+              }
+            ],
+            "device": "Motorola Moto G71 5G-11.0"
+          }
+        ],
+        "devices": [
+          "Motorola Moto G71 5G-11.0"
+        ],
+        "function": "multiple",
+        "generated_at": "2026-09-11T13:27:53.526848Z",
+        "generated_at_unix": 1789133273,
+        "iterations": 30,
+        "target": "android",
+        "warmup": 5
+      }
+    }
+  }
+}

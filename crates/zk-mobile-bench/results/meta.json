@@ -1,5 +1,16 @@
 {
   "schema_version": "mobench-results-v1",
-  "status": "placeholder",
-  "note": "No BrowserStack results committed yet. Run Actions → Mobile Benchmarks on main with open_results_pr=true (leave pr_number empty) to populate ios/summary.json, android/summary.json, and LATEST.md."
+  "status": "ready",
+  "timestamp": "2026-09-11T13:53:37Z",
+  "commit_sha": "a913f24cad47ae7bc7990fe32ea9a17e96b57432",
+  "workflow_run_id": 34599588466,
+  "workflow_run_url": "https://github.com/worldcoin/world-id-protocol/actions/runs/34599588466",
+  "mobench_version": "0.2.0",
+  "iterations": 30,
+  "warmup": 5,
+  "device_profile": "low-spec",
+  "devices": {
+    "ios": null,
+    "android": null
+  }
 }
