@@ -3,10 +3,12 @@
 //! the Credential, the WIP-110 Verifier token, and the WIP-106 attestation
 //! chain, plus the signed variants the Noir negative tests need.
 //!
-//! It emits two artifacts: `Prover.toml` (executed by CI with
-//! `nargo execute --pedantic-solving`) and `src/test_fixtures.nr` (a flat list
-//! of value globals the Noir tests assemble into witnesses). Regenerate both
-//! with `UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity`.
+//! It emits a `Prover.toml` (executed by CI with `nargo execute
+//! --pedantic-solving`) and a `src/test_fixtures.nr` (a flat list of value
+//! globals the Noir tests assemble into witnesses) for both the full circuit
+//! and its no-attestation variant, which shares the witness minus the
+//! AAT/TAKT values. Regenerate all four artifacts with
+//! `UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity`.
 
 use std::{env, fs, path::PathBuf};
 
@@ -137,9 +139,36 @@ fn aat_signature(
     sign1.signature.try_into().unwrap()
 }
 
-/// Computes the full witness and renders `(Prover.toml, test_fixtures.nr)`.
+/// Globals (and their `Prover.toml` counterparts) that only exist for the
+/// in-circuit WIP-106 attestation; the no-attestation variant filters them out.
+const ATTESTATION_GLOBALS: [&str; 14] = [
+    "TRUST_ANCHOR_KEY",
+    "AUTHENTICATOR_META",
+    "SEC_LEVEL",
+    "SEC_META",
+    "TAKT_EXP",
+    "ASSERTION_KEY_X",
+    "ASSERTION_KEY_Y",
+    "SEC_FLAGS",
+    "TAKT_SIG_S",
+    "TAKT_SIG_R",
+    "AAT_EXP",
+    "AAT_SIGNATURE",
+    "AAT_EXP_TOO_LONG",
+    "AAT_SIGNATURE_TOO_LONG_EXP",
+];
+
+/// One `(Prover.toml, test_fixtures.nr)` pair per package.
+struct Rendered {
+    toml: String,
+    noir: String,
+    toml_no_attestation: String,
+    noir_no_attestation: String,
+}
+
+/// Computes the full witness and renders the fixture artifacts.
 #[expect(clippy::too_many_lines)]
-fn render() -> (String, String) {
+fn render() -> Rendered {
     // Deterministic test keys (not real key material). The authenticator key
     // matches the WIP-103 ownership fixture; the trust anchor and assertion
     // keys match the WIP-106 attestation fixtures.
@@ -319,19 +348,28 @@ fn render() -> (String, String) {
         ("CRED_SIG_R_EXPIRED", "[Field; 2]", cred_exp_r),
     ];
 
-    let noir = format!(
-        "// GENERATED FILE: one coherent WIP-111 witness plus the signed variants the\n\
-         // negative tests need, as flat value globals (`tests.nr` assembles them).\n\
-         // Regenerate with:\n\
-         //   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity\n\
-         // Keys derive from constant test seeds (not real key material); values\n\
-         // mirror `Prover.toml`.\n\
-         use super::types::PublicKey;\n\n{}",
-        globals
-            .iter()
-            .map(|(name, ty, value)| format!("pub global {name}: {ty} = {value};\n"))
-            .collect::<String>()
-    );
+    let render_globals = |names: &[(&str, &str, String)]| {
+        format!(
+            "// GENERATED FILE: one coherent WIP-111 witness plus the signed variants the\n\
+             // negative tests need, as flat value globals (`tests.nr` assembles them).\n\
+             // Regenerate with:\n\
+             //   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity\n\
+             // Keys derive from constant test seeds (not real key material); values\n\
+             // mirror `Prover.toml`.\n\
+             use super::types::PublicKey;\n\n{}",
+            names
+                .iter()
+                .map(|(name, ty, value)| format!("pub global {name}: {ty} = {value};\n"))
+                .collect::<String>()
+        )
+    };
+    let noir = render_globals(&globals);
+    let filtered: Vec<_> = globals
+        .iter()
+        .filter(|(name, _, _)| !ATTESTATION_GLOBALS.contains(name))
+        .cloned()
+        .collect();
+    let noir_no_attestation = render_globals(&filtered);
 
     // Inactive registry slots hold the BabyJubJub identity (0, 1).
     let user_pk = std::iter::once(toml_point(&authenticator_sk.public()))
@@ -427,36 +465,79 @@ fn render() -> (String, String) {
         live_commitment = dec(*live_commitment),
     );
 
-    (toml, noir)
+    let toml_no_attestation = strip_attestation_toml(&toml);
+    Rendered {
+        toml,
+        noir,
+        toml_no_attestation,
+        noir_no_attestation,
+    }
 }
 
-fn noir_package_path(file: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("noir/embedding-similarity/{file}"))
+/// Derives the no-attestation `Prover.toml` from the full one by dropping the
+/// attestation public inputs, the `aat_*` keys, and the `[inputs.takt]` and
+/// `[trust_anchor_key]` sections. Both files are machine-generated, so the
+/// line-oriented filter is exact.
+fn strip_attestation_toml(toml: &str) -> String {
+    let mut skip_section = false;
+    toml.lines()
+        .filter(|line| {
+            if line.starts_with('[') {
+                skip_section = *line == "[trust_anchor_key]" || *line == "[inputs.takt]";
+            }
+            !(skip_section
+                || line.starts_with("authenticator_meta = ")
+                || line.starts_with("aat_exp = ")
+                || line.starts_with("aat_signature = "))
+        })
+        .map(|line| format!("{line}\n"))
+        .collect()
 }
 
 #[test]
 fn prover_toml_matches_the_fixture() {
-    let (toml, noir) = render();
-    let path = noir_package_path("Prover.toml");
+    let rendered = render();
+    let artifacts = [
+        ("embedding-similarity/Prover.toml", &rendered.toml, true),
+        (
+            "embedding-similarity/src/test_fixtures.nr",
+            &rendered.noir,
+            false,
+        ),
+        (
+            "embedding-similarity-no-attestation/Prover.toml",
+            &rendered.toml_no_attestation,
+            true,
+        ),
+        (
+            "embedding-similarity-no-attestation/src/test_fixtures.nr",
+            &rendered.noir_no_attestation,
+            false,
+        ),
+    ];
 
-    if env::var_os("UPDATE_PROVER_TOML").is_some() {
-        fs::write(&path, &toml)
-            .unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
-        let noir_path = noir_package_path("src/test_fixtures.nr");
-        fs::write(&noir_path, noir)
-            .unwrap_or_else(|e| panic!("failed to write {}: {e}", noir_path.display()));
-        return;
+    for (file, content, check) in artifacts {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("noir/{file}"));
+        if env::var_os("UPDATE_PROVER_TOML").is_some() {
+            fs::write(&path, content)
+                .unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
+            continue;
+        }
+        // Only the TOMLs are compared byte-for-byte: `nargo fmt` reformats the
+        // generated Noir files.
+        if !check {
+            continue;
+        }
+        let committed = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+        assert_eq!(
+            &committed,
+            content,
+            "{} is out of date; regenerate with `UPDATE_PROVER_TOML=1 cargo test -p \
+             world-id-proof embedding_similarity` (and re-run `nargo fmt`)",
+            path.display()
+        );
     }
-
-    let committed = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
-    assert_eq!(
-        committed,
-        toml,
-        "{} is out of date; regenerate with `UPDATE_PROVER_TOML=1 cargo test -p world-id-proof \
-         embedding_similarity` (and re-run `nargo fmt` for src/test_fixtures.nr)",
-        path.display()
-    );
 }
 
 /// Pins the WIP-111/WIP-110 domain separators to the integers hardcoded in the
