@@ -6,8 +6,15 @@
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::UniformRand;
+use eddsa_babyjubjub::EdDSAPrivateKey;
 use rand::{CryptoRng, Rng};
-use world_id_primitives::{FieldElement, TREE_DEPTH, poseidon, rp::RpId};
+use world_id_primitives::{
+    AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH,
+    merkle::MerkleInclusionProof,
+    poseidon::{self, ds},
+    rp::RpId,
+};
+use world_id_proof::circuit_inputs::OwnershipProofCircuitInput;
 
 /// RP fixture data for benchmarks
 pub struct RpFixture {
@@ -58,4 +65,37 @@ pub fn first_leaf_merkle_path(leaf: Fq) -> ([FieldElement; TREE_DEPTH], FieldEle
     }
 
     (siblings, current)
+}
+
+/// Builds the static WIP-103 Ownership Proof fixture.
+///
+/// Mirrors `world_id_proof::fixtures::ownership_proof_fixture`, which is `#[cfg(test)]` and so
+/// unreachable from here. Keep the two in sync — the same fixture backs the circuit's
+/// `Prover.toml`.
+///
+/// # Panics
+/// Panics if the fixture cannot be built, not expected.
+pub fn ownership_proof_fixture() -> OwnershipProofCircuitInput<TREE_DEPTH> {
+    const LEAF_INDEX: u64 = 1;
+
+    let sk = EdDSAPrivateKey::from_bytes([42u8; 32]);
+    let key_set = AuthenticatorPublicKeySet::new(vec![sk.public()]).expect("valid key set");
+    let (siblings, root) = first_leaf_merkle_path(key_set.leaf_hash());
+
+    let nonce = FieldElement::from(1_234_567_890u64);
+    let context = FieldElement::from(42u64);
+    let commitment_blinder = FieldElement::from(999u64);
+    let expected_commitment = Credential::compute_sub(LEAF_INDEX, commitment_blinder);
+    let message = poseidon::hash(ds::OWNERSHIP_PROOF, [expected_commitment, nonce, context]);
+
+    OwnershipProofCircuitInput {
+        key_index: 0,
+        key_set,
+        inclusion_proof: MerkleInclusionProof::new(root, LEAF_INDEX, siblings),
+        nonce,
+        expected_commitment,
+        context,
+        signature: sk.sign(*message),
+        commitment_blinder,
+    }
 }
