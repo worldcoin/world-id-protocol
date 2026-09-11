@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.2](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.14.1...world-id-primitives-v0.14.2) - 2026-09-11
+
+### Added
+
+- WIP-100 Cryptographic Primitives for the Protocol ([#888](https://github.com/worldcoin/world-id-protocol/pull/888))
+
 ## [0.14.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.14.0...world-id-primitives-v0.14.1) - 2026-09-08
 
 ### Fixed
