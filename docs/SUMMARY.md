@@ -14,3 +14,4 @@
 - [WIP-102: Simplified Optimistic Recovery Agent Update](WIPs/wip-102.md)
 - [WIP-103: Proof of Ownership](WIPs/wip-103.md)
 - [WIP-104: Proving and Admin Authenticators with Fixed Permission Sets](WIPs/wip-104.md)
+- [WIP-113: Passkey Ownership Proof](WIPs/wip-113.md)

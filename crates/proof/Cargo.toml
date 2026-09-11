@@ -23,7 +23,15 @@ zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
 
 embed-ownership-prover = ["dep:provekit-r1cs-compiler"]
 embed-ownership-verifier = ["dep:provekit-r1cs-compiler"]
-embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
+# Embed the checked-in (unaudited, demo) passkey ownership circuit artifacts
+embed-passkey-prover = []
+embed-passkey-verifier = []
+embed-noir-artifacts = [
+  "embed-ownership-prover",
+  "embed-ownership-verifier",
+  "embed-passkey-prover",
+  "embed-passkey-verifier",
+]
 
 # Embed everything
 embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
@@ -52,6 +60,7 @@ rand = { workspace = true }
 serde = { workspace = true }
 groth16-material = { workspace = true, features = ["circom"] }
 ruint = { workspace = true, features = ["ark-ff-05"] }
+sha2 = { workspace = true }
 taceo-groth16-sol = { workspace = true }
 taceo-oprf = { workspace = true, features = ["client", "core"] }
 eyre = { workspace = true }

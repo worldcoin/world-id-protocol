@@ -10,12 +10,30 @@ use ark_ff::{BigInteger as _, PrimeField as _};
 use provekit_common::{InputMap, InputValue, NoirElement, NoirProof, PublicInputs};
 use provekit_prover::Prove;
 use provekit_verifier::Verify;
-use world_id_primitives::{Credential, FieldElement, TREE_DEPTH, proof::OwnershipProof};
+use world_id_primitives::{
+    Credential, FieldElement, TREE_DEPTH,
+    poseidon::{self, ds},
+    proof::OwnershipProof,
+};
 
 use crate::{
     NoirCircuitInput, NoirRepresentable, ProofError, artifacts::ZkArtifactSource,
-    circuit_inputs::OwnershipProofCircuitInput, errors::ProofInputError,
+    circuit_inputs::OwnershipProofCircuitInput, errors::ProofInputError, noir_element_from_field,
+    provekit_field_from_field,
 };
+
+/// Computes the Poseidon2 message signed for an ownership proof.
+///
+/// The domain separator and input order are part of WIP-103 and must stay in
+/// sync with `noir/ownership-proof/src/commitment.nr`.
+#[must_use]
+pub fn message_digest(
+    expected_commitment: FieldElement,
+    nonce: FieldElement,
+    context: FieldElement,
+) -> FieldElement {
+    poseidon::hash(ds::OWNERSHIP_PROOF, [expected_commitment, nonce, context])
+}
 
 /// Loads an ownership proof prover from a reader containing PKP bytes.
 ///
@@ -160,11 +178,11 @@ pub fn verify_ownership_proof_with_verifier(
 
     // Order must match the public parameters of `main` in the Noir circuit.
     let public_inputs = PublicInputs::from_vec(vec![
-        *proof.merkle_root,
-        ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
-        *nonce,
-        *expected_commitment,
-        *context,
+        provekit_field_from_field(*proof.merkle_root),
+        provekit_field_from_field(ark_babyjubjub::Fq::from(TREE_DEPTH as u64)),
+        provekit_field_from_field(*nonce),
+        provekit_field_from_field(*expected_commitment),
+        provekit_field_from_field(*context),
     ]);
 
     let noir_proof = NoirProof {
@@ -205,8 +223,8 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
             .iter()
             .map(|pk| {
                 let mut s = BTreeMap::new();
-                s.insert("x".into(), InputValue::Field(NoirElement::from_repr(pk.x)));
-                s.insert("y".into(), InputValue::Field(NoirElement::from_repr(pk.y)));
+                s.insert("x".into(), InputValue::Field(noir_element_from_field(pk.x)));
+                s.insert("y".into(), InputValue::Field(noir_element_from_field(pk.y)));
                 InputValue::Struct(s)
             })
             .collect();
@@ -223,15 +241,15 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
             ark_bn254::Fr::from_be_bytes_mod_order(&self.signature.s.into_bigint().to_bytes_be());
         inputs.insert(
             "query_s".into(),
-            InputValue::Field(NoirElement::from_repr(s_native)),
+            InputValue::Field(noir_element_from_field(s_native)),
         );
 
         // query_r: [Field; 2]  (point x, y)
         inputs.insert(
             "query_r".into(),
             InputValue::Vec(vec![
-                InputValue::Field(NoirElement::from_repr(self.signature.r.x)),
-                InputValue::Field(NoirElement::from_repr(self.signature.r.y)),
+                InputValue::Field(noir_element_from_field(self.signature.r.x)),
+                InputValue::Field(noir_element_from_field(self.signature.r.y)),
             ]),
         );
 

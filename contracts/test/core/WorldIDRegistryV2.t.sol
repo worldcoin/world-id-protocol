@@ -145,6 +145,20 @@ contract WorldIDRegistryV2WIP104Test is WorldIDRegistryV2TestBase {
         assertEq(PackedAccountData.leafIndex(registry.getPackedAccountData(auth1)), leafIndex);
     }
 
+    function test_InsertProvingAuthenticator_UpdatesLatestRoot() public {
+        uint64 leafIndex = _createAccount(auth1, recoveryAddress);
+        uint256 oldRoot = registry.getLatestRoot();
+        uint256 commitment = OFFCHAIN_SIGNER_COMMITMENT;
+
+        uint256 newCommitment = _insertAuthenticator(leafIndex, address(0), 1, AUTH1_PRIVATE_KEY, commitment);
+        uint256 newRoot = registry.getLatestRoot();
+
+        assertNotEq(newRoot, oldRoot);
+        assertTrue(registry.isValidRoot(newRoot));
+        assertEq(registry.currentRoot(), newRoot);
+        assertEq(newCommitment, commitment + 1);
+    }
+
     function test_InsertAdminAuthenticator() public {
         uint64 leafIndex = _createAccount(auth1, recoveryAddress);
         uint256 commitment = OFFCHAIN_SIGNER_COMMITMENT;

@@ -49,6 +49,8 @@ embed-doc-image = "0.1.4"
 # WASM support: getrandom needs 'wasm_js' feature in browsers
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
+# Enable getrandom 0.4's browser backend for Alloy/ProveKit transitive users.
+getrandom04 = { workspace = true }
 
 [dev-dependencies]
 ark-ec = { workspace = true }

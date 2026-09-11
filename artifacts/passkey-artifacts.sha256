@@ -1,0 +1,15 @@
+# Native: worldfnd/provekit 4ee40639fb8849aeeba37761fdda07f28367e81d, nargo 1.0.0-beta.26 (noirc 40d6574f851d926f93e0c3a271bac3e6e82ac905)
+# Browser: worldfnd/provekit 4b61b5d68e633a044eb41de4a6934d52ffdcbedc, nargo 1.0.0-beta.20 (noirc b4236c1957d0c26cb65d82adc9e5447b6ff1d629)
+4ebc54f32949f543fea8c6170f5695d0bb596a7a7be652374956d30b2231a5d8  crates/proof/noir/passkey-ownership-proof/Nargo.toml
+8001049105d96f2c1495dc16b40c0d58752ff9bfb7b49f38c41c367c9800d0ff  crates/proof/noir/passkey-ownership-proof/src/commitment.nr
+d6b4321457430294db72e59ddbf9d51b87b94f6bb94a4b04f1555d9ad5f077d9  crates/proof/noir/passkey-ownership-proof/src/constants.nr
+9467b805428e345dc47d74700b6deaef24a2ebac510eaebac1b37c817aadeff6  crates/proof/noir/passkey-ownership-proof/src/main.nr
+9b1d6688414d3557feafd4da68a9ddfc0646c261de14979bedc9df2f7ef2f8c3  crates/proof/noir/passkey-ownership-proof/src/merkle_proof.nr
+aee81d1faa28496a3e757a71197639f45f71b663a3bbc5aeae7c6ac9057e7c52  crates/proof/noir/passkey-ownership-proof/src/types.nr
+22acb30bd0abd70f3c8f941eeee3e4e622b3b94fbcc8750b8c092d75bd2e6d9b  crates/proof/noir/passkey-ownership-proof/src/webauthn.nr
+876f281dc281c4fc88f6d4c6b29fbe9c984299f44c6c214ed0bae07335530e7f  apps/passkey-demo/prepare-browser-artifacts.sh
+2778d875401ee700e1ebfc1fb7ece1a040c02d0a9496ffde3767c7ac9bf2a10c  scripts/passkey-artifacts.sh
+ef5147b0193742e124d41fbd8acc0b5ee7aeb2525319b38ca9ed713c651481a4  crates/proof/noir/passkey-ownership-proof/artifacts/passkey_ownership_proof.pkp
+4120148eabe3adeb560c26fb056e36cb00f73f71277625a95b6ccb256b3c882b  crates/proof/noir/passkey-ownership-proof/artifacts/passkey_ownership_proof.pkv
+e49c55402ba703f37cf92942fef8a7e7b4368b5e08a32c979b967a0ac86fce45  apps/passkey-demo/artifacts/passkey_ownership_proof.pkp
+c074e7d65457b967e6f60ff2c0b173ef9763864813d4707c575882f708687e78  apps/passkey-demo/artifacts/passkey_ownership_proof.pkv

@@ -20,6 +20,11 @@ Each ZK artifact type has exactly one way of being obtained:
   `nargo` version is pinned (see `flake.nix` and `REQUIRED_NARGO_VERSION` in `build.rs`); the build
   fails if a different version is on PATH, since a version mismatch can produce keys
   incompatible with everyone else's.
+- **Passkey demo artifacts** are checked in for the native and browser ProveKit formats.
+  From the repository root, `bash scripts/passkey-artifacts.sh verify` checks their SHA-256
+  manifest against the circuit source and generation recipes. See
+  [`apps/passkey-demo/README.md`](../../apps/passkey-demo/README.md) for the pinned builders
+  and native/browser acceptance procedure.
 
 ### Features
 
@@ -47,12 +52,18 @@ one(s) into the binary. The prover is multi-MB; verifying-only consumers should 
 the verifier. Requires `nargo` on PATH at the pinned version — use `nix develop` or:
 
 ```sh
-noirup --version v1.0.0-beta.11
+noirup --version v1.0.0-beta.26
 ```
+
+##### `embed-passkey-prover` / `embed-passkey-verifier`
+
+Embeds the checked-in artifacts of the **unaudited** WebAuthn passkey ownership demo circuit
+(`noir/passkey-ownership-proof/artifacts`, ProveKit V1 format, Noir beta.26). No build step is
+required, but the pair adds roughly 10 MB to the binary.
 
 ##### Umbrellas
 
-- `embed-noir-artifacts` = ownership prover + verifier
+- `embed-noir-artifacts` = ownership prover + verifier, passkey prover + verifier
 - `embed-zk-artifacts` = everything
 
 ## Circom circuit artifacts

@@ -41,6 +41,10 @@ use world_id_primitives::FieldElement;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ownership_proof;
 
+/// WebAuthn passkey ownership proof support (unaudited demo circuit).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod passkey_ownership_proof;
+
 pub use provekit_common::{
     NoirProof, Prover as OwnershipProver, Verifier as OwnershipVerifier, WhirR1CSProof,
 };
@@ -85,9 +89,26 @@ pub trait NoirRepresentable {
     fn into_noir_value(self) -> InputValue;
 }
 
+/// Convert a protocol field (compiled with the protocol's arkworks version)
+/// into ProveKit's Noir field. ProveKit v1.0.2 uses arkworks 0.6 while the
+/// protocol's Circom/Groth16 stack remains on arkworks 0.5, so passing the
+/// underlying field value directly would create an incompatible Rust type.
+/// The canonical decimal representation preserves the field element exactly.
+pub(crate) fn noir_element_from_field<T: ark_ff::PrimeField>(value: T) -> NoirElement {
+    NoirElement::try_from_str(&value.to_string())
+        .expect("a canonical protocol field must fit in the Noir field")
+}
+
+/// Convert a protocol field into ProveKit's native public-input field type.
+pub(crate) fn provekit_field_from_field<T: ark_ff::PrimeField>(
+    value: T,
+) -> provekit_common::FieldElement {
+    noir_element_from_field(value).into_repr()
+}
+
 impl NoirRepresentable for FieldElement {
     fn into_noir_value(self) -> InputValue {
-        InputValue::Field(NoirElement::from_repr(*self))
+        InputValue::Field(noir_element_from_field(*self))
     }
 }
 

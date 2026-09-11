@@ -5,7 +5,10 @@ pub(crate) mod merkle_proof;
 
 use commitment::{generate_commitment, generate_message};
 use constants::{MAX_DEPTH, NUM_KEYS};
-use eddsa_poseidon2::verify_eddsa_poseidon2;
+use eddsa_poseidon2::{
+    BabyJubJubPoint, BabyJubJubPointInSubgroup, BabyJubJubScalarFieldElement,
+    verify_eddsa_poseidon2,
+};
 use merkle_proof::{compute_merkle_root_poseidon2, merkle_leaf};
 use std::field::bn254::assert_lt;
 use types::OwnershipProofPrivateInputs;
@@ -31,11 +34,21 @@ pub fn main(
     let message = generate_message(commitment, nonce, context);
     let chosen_pk = inputs.user_pk[inputs.pk_index as u32];
 
+    // Keep the protocol-specific diagnostics from the former verifier while
+    // constructing the typed points required by the current eddsa_poseidon2
+    // API. The unchecked constructors are safe here because each property is
+    // asserted immediately before wrapping the point.
+    let chosen_pk_point = BabyJubJubPoint::new_unchecked(chosen_pk.x, chosen_pk.y);
+    assert(chosen_pk_point.is_on_curve(), "Public key must be on curve");
+    assert(chosen_pk_point.check_sub_group(), "Public key must be in subgroup");
+    let chosen_pk_subgroup = BabyJubJubPointInSubgroup::from_point_unchecked(chosen_pk_point);
+    let signature_r = BabyJubJubPoint::new_unchecked(inputs.query_r[0], inputs.query_r[1]);
+    assert(signature_r.is_on_curve(), "R must be on curve");
+
     let is_valid = verify_eddsa_poseidon2(
-        chosen_pk.x,
-        chosen_pk.y,
-        inputs.query_s,
-        inputs.query_r,
+        chosen_pk_subgroup,
+        BabyJubJubScalarFieldElement::new(inputs.query_s),
+        signature_r,
         message,
     );
     assert(is_valid, "invalid signature");
@@ -57,7 +70,10 @@ mod tests {
     use super::main;
     use super::merkle_proof::{compute_merkle_root_poseidon2, merkle_leaf};
     use super::types::{MerkleProof, OwnershipProofPrivateInputs, PublicKey};
-    use eddsa_poseidon2::verify_eddsa_poseidon2;
+    use eddsa_poseidon2::{
+        BabyJubJubPoint, BabyJubJubPointInSubgroup, BabyJubJubScalarFieldElement,
+        verify_eddsa_poseidon2,
+    };
 
     // A signature cannot be produced inside the circuit, so the key and signature below are taken
     // from `Prover.toml`
@@ -146,6 +162,15 @@ mod tests {
 
     fn fixture_commitment() -> Field {
         generate_commitment(LEAF_INDEX, COMMITMENT_BLINDER)
+    }
+
+    fn verify_fixture(pk: PublicKey, s: Field, r: [Field; 2], message: Field) -> bool {
+        verify_eddsa_poseidon2(
+            BabyJubJubPointInSubgroup::new(pk.x, pk.y),
+            BabyJubJubScalarFieldElement::new(s),
+            BabyJubJubPoint::new(r[0], r[1]),
+            message,
+        )
     }
 
     /// The root the fixture's key set and sibling path hash up to at the full tree depth.
@@ -513,24 +538,24 @@ mod tests {
     #[test]
     fn test_eddsa_accepts_fixture_signature() {
         let message = generate_message(fixture_commitment(), NONCE, CONTEXT);
-        assert(verify_eddsa_poseidon2(PK.x, PK.y, QUERY_S, QUERY_R, message));
+        assert(verify_fixture(PK, QUERY_S, QUERY_R, message));
     }
 
     #[test]
     fn test_eddsa_rejects_signature_over_another_message() {
         let message = generate_message(fixture_commitment(), NONCE, CONTEXT) + 1;
-        assert(!verify_eddsa_poseidon2(PK.x, PK.y, QUERY_S, QUERY_R, message));
+        assert(!verify_fixture(PK, QUERY_S, QUERY_R, message));
     }
 
     #[test]
     fn test_eddsa_rejects_signature_under_another_key() {
         let message = generate_message(fixture_commitment(), NONCE, CONTEXT);
-        assert(!verify_eddsa_poseidon2(OTHER_KEY.x, OTHER_KEY.y, QUERY_S, QUERY_R, message));
+        assert(!verify_fixture(OTHER_KEY, QUERY_S, QUERY_R, message));
     }
 
     #[test(should_fail_with = "Public key cannot be identity")]
     fn test_eddsa_rejects_identity_public_key() {
         let message = generate_message(fixture_commitment(), NONCE, CONTEXT);
-        let _ = verify_eddsa_poseidon2(UNUSED_KEY.x, UNUSED_KEY.y, QUERY_S, QUERY_R, message);
+        let _ = verify_fixture(UNUSED_KEY, QUERY_S, QUERY_R, message);
     }
 }
