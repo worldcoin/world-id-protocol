@@ -6,8 +6,17 @@
 use ark_babyjubjub::{EdwardsAffine, Fq, Fr};
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::UniformRand;
+use coset::{CborSerializable as _, CoseSign1};
+use eddsa_babyjubjub::EdDSAPrivateKey;
 use rand::{CryptoRng, Rng};
 use world_id_primitives::{FieldElement, TREE_DEPTH, poseidon, rp::RpId};
+use world_id_proof::{
+    authenticator_attestation::{
+        AuthenticatorAssertionClaims, AuthenticatorAssertionToken, AuthenticatorMeta, Platform,
+        SecLevel, TrustAnchorKeyClaims, TrustAnchorKeyToken, UserPresence,
+    },
+    circuit_inputs::AttestationProofCircuitInput,
+};
 
 /// RP fixture data for benchmarks
 pub struct RpFixture {
@@ -58,4 +67,57 @@ pub fn first_leaf_merkle_path(leaf: Fq) -> ([FieldElement; TREE_DEPTH], FieldEle
     }
 
     (siblings, current)
+}
+
+/// Builds the static WIP-106 Attestation Proof fixture.
+///
+/// Mirrors `world_id_proof::fixtures::attestation_proof_fixture`, which is
+/// `#[cfg(test)]` and so unreachable from here. Keep the two in sync — the
+/// same fixture backs the circuit's `Prover.toml`. Both signatures are
+/// deterministic (EdDSA and RFC 6979 ECDSA), so the fixture is stable across
+/// runs.
+///
+/// # Panics
+/// Panics if the fixture cannot be built, not expected.
+pub fn attestation_proof_fixture() -> AttestationProofCircuitInput {
+    let trust_anchor_key = EdDSAPrivateKey::from_bytes([7u8; 32]);
+    let assertion_secret = p256::SecretKey::from_slice(&[11u8; 32]).expect("valid P-256 secret");
+
+    let takt_claims = TrustAnchorKeyClaims {
+        exp: 1_783_446_925,
+        assertion_key: assertion_secret.public_key(),
+        sec_level: SecLevel::SecureElement,
+        platform: Platform::Ios,
+        build_version: 2006,
+        sec_meta: 0b11,
+    };
+    let takt = TrustAnchorKeyToken::new(takt_claims).expect("valid TAKT claims");
+    let takt_signature = trust_anchor_key.sign(*takt.message_hash().expect("TAKT digest"));
+
+    let aat_claims = AuthenticatorAssertionClaims {
+        aud: RpId::new(1_928_118),
+        exp: 1_783_446_925,
+        nonce: FieldElement::from(0x11d2_23ce_7b91_ac21_u64),
+        cdh: FieldElement::from(0x9f2c_1abc_u64),
+        authenticator_meta: AuthenticatorMeta {
+            user_presence: UserPresence::PresentBiometric,
+            provider_bits: 0b01,
+        },
+    };
+    let aat = AuthenticatorAssertionToken::new(aat_claims).expect("valid AAT claims");
+    let signed = aat.sign(&assertion_secret).expect("AAT signs");
+    let aat_signature: [u8; 64] = CoseSign1::from_slice(&signed)
+        .expect("valid COSE_Sign1")
+        .signature
+        .try_into()
+        .expect("64-byte ES256 signature");
+
+    AttestationProofCircuitInput {
+        trust_anchor_key: trust_anchor_key.public().pk,
+        now: 1_783_446_025, // exp - 900, within both lifetime caps
+        aat_claims,
+        aat_signature,
+        takt_claims,
+        takt_signature,
+    }
 }

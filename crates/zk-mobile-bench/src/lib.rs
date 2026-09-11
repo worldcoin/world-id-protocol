@@ -1,10 +1,11 @@
 //! Mobile benchmarks for World ID ZK proof generation.
 //!
-//! This crate provides benchmarks for the two main ZK proof generation functions:
+//! This crate provides benchmarks for the main ZK proof generation functions:
 //! - Query Proof (`π1`) - proves knowledge of a valid OPRF query
 //! - Nullifier/Uniqueness Proof (`π2`) - proves uniqueness without revealing identity
+//! - Attestation Proof (WIP-106) - verifies an Authenticator Attestation, on Noir/ProveKit
 
-use mobench_sdk::benchmark;
+use mobench_sdk::{benchmark, profile_phase};
 
 mod fixtures;
 
@@ -13,6 +14,7 @@ use ark_ec::CurveGroup;
 use ark_ff::BigInt;
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use groth16_material::circom::CircomGroth16Material;
+use provekit_prover::Prove as _;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use std::{
@@ -27,11 +29,13 @@ use world_id_primitives::{
     AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, authenticator::oprf_query_digest,
 };
 use world_id_proof::{
-    artifacts::embedded::zkeys,
+    NoirCircuitInput as _,
+    artifacts::embedded::{noir, zkeys},
+    attestation_proof::check_attestation_input_validity,
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
 };
 
-use fixtures::{first_leaf_merkle_path, generate_rp_fixture};
+use fixtures::{attestation_proof_fixture, first_leaf_merkle_path, generate_rp_fixture};
 
 // ============================================================================
 // Fixture Generation (deterministic for reproducible benchmarks)
@@ -408,6 +412,43 @@ pub fn bench_nullifier_proving_only() {
     });
 }
 
+/// Benchmark: Attestation Proof (WIP-106) generation
+///
+/// The designed mobile path on the Noir/ProveKit backend: deserialize the embedded prover,
+/// solve the ACIR witness, WHIR-prove, drop. ProveKit consumes the `Prover` during proving
+/// (it frees its artifacts to cap peak memory), so there is no meaningful warm path to
+/// benchmark separately; stage times are reported via the `prover_load`, `witness`, and
+/// `prove` semantic phases instead of dedicated benchmark functions.
+///
+/// The body mirrors `generate_attestation_proof_with_prover`, split at the phase boundaries.
+#[benchmark]
+pub fn bench_attestation_proof_generation() {
+    let input = attestation_proof_fixture();
+
+    let mut prover = profile_phase("prover_load", || {
+        noir::load_embedded_attestation_prover().expect("embedded attestation prover")
+    });
+
+    check_attestation_input_validity(&input).expect("valid attestation input");
+
+    let witness = profile_phase("witness", || {
+        let input_map = input
+            .into_witness()
+            .expect("attestation circuit input maps");
+        prover
+            .generate_witness(input_map)
+            .expect("attestation witness generation")
+    });
+
+    let proof = profile_phase("prove", || {
+        prover
+            .prove_with_witness(witness)
+            .expect("attestation WHIR proving")
+    });
+
+    std::hint::black_box(proof);
+}
+
 // ============================================================================
 // UniFFI Exports for Mobile
 // ============================================================================
@@ -629,6 +670,21 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
+    fn test_attestation_proof_benchmark() {
+        bench_attestation_proof_generation();
+    }
+
+    /// The attestation fixture must stay in sync with the one backing the circuit's
+    /// `Prover.toml` in `world-id-proof`; a drifted fixture would otherwise fail only at
+    /// proving time.
+    #[test]
+    fn test_attestation_fixture_is_valid() {
+        check_attestation_input_validity(&fixtures::attestation_proof_fixture())
+            .expect("fixture passes the circuit's freshness checks");
+    }
+
+    #[test]
     fn test_benchmark_registry_contains_expected_functions() {
         let benchmarks = mobench_sdk::discover_benchmarks();
         let names = benchmarks
@@ -644,6 +700,7 @@ mod tests {
             "zk_mobile_bench::bench_nullifier_proof_generation",
             "zk_mobile_bench::bench_nullifier_witness_generation_only",
             "zk_mobile_bench::bench_nullifier_proving_only",
+            "zk_mobile_bench::bench_attestation_proof_generation",
         ] {
             assert!(
                 names.iter().any(|name| name == expected_name),

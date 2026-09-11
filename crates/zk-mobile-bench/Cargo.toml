@@ -21,7 +21,7 @@ inventory = "0.3"
 # World ID
 world-id-core = { workspace = true, default-features = false, features = ["authenticator", "embed-zkeys", "issuer"] }
 world-id-primitives = { workspace = true }
-world-id-proof = { workspace = true }
+world-id-proof = { workspace = true, features = ["embed-attestation-prover"] }
 
 # ZK dependencies
 ark-babyjubjub = { workspace = true }
@@ -30,6 +30,11 @@ ark-ff = { workspace = true }
 ark-ec = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 groth16-material = { workspace = true, features = ["circom"] }
+provekit-prover = { workspace = true }
+
+# WIP-106 token building for the attestation benchmark fixture
+coset = { workspace = true }
+p256 = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
