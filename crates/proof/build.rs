@@ -33,11 +33,11 @@ fn main() -> eyre::Result<()> {
 
     #[cfg(any(
         feature = "embed-ownership-prover",
-        feature = "embed-ownership-verifier"
+        feature = "embed-ownership-verifier",
+        feature = "embed-attestation-prover",
+        feature = "embed-attestation-verifier"
     ))]
-    if noir_artifacts::should_embed() {
-        noir_artifacts::setup(&out_dir)?;
-    }
+    noir_artifacts::setup_all(&out_dir)?;
 
     if env::var("CARGO_FEATURE_EMBED_ZKEYS").is_err() {
         return Ok(());
@@ -228,7 +228,9 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
 
 #[cfg(any(
     feature = "embed-ownership-prover",
-    feature = "embed-ownership-verifier"
+    feature = "embed-ownership-verifier",
+    feature = "embed-attestation-prover",
+    feature = "embed-attestation-verifier"
 ))]
 mod noir_artifacts {
     use std::process::Command;
@@ -242,11 +244,35 @@ mod noir_artifacts {
     /// and what provekit expects (see https://github.com/worldfnd/provekit).
     const REQUIRED_NARGO_VERSION: &str = "1.0.0-beta.11";
 
-    pub(super) fn should_embed() -> bool {
+    /// Builds every Noir circuit whose embed feature is enabled (skipped
+    /// entirely on wasm32, where the ProveKit backend is unsupported).
+    pub(super) fn setup_all(out_dir: &Path) -> eyre::Result<()> {
         let target_arch = env::var("CARGO_CFG_TARGET_ARCH").ok();
-        target_arch.as_deref() != Some("wasm32")
-            && (env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_PROVER").is_some()
-                || env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_VERIFIER").is_some())
+        if target_arch.as_deref() == Some("wasm32") {
+            return Ok(());
+        }
+
+        let mut circuits = Vec::new();
+        if env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_PROVER").is_some()
+            || env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_VERIFIER").is_some()
+        {
+            circuits.push(("noir/ownership-proof", "ownership_proof"));
+        }
+        if env::var_os("CARGO_FEATURE_EMBED_ATTESTATION_PROVER").is_some()
+            || env::var_os("CARGO_FEATURE_EMBED_ATTESTATION_VERIFIER").is_some()
+        {
+            circuits.push(("noir/attestation-proof", "attestation_proof"));
+        }
+
+        if circuits.is_empty() {
+            return Ok(());
+        }
+
+        check_nargo()?;
+        for (circuit_dir, target_name) in circuits {
+            setup(out_dir, circuit_dir, target_name)?;
+        }
+        Ok(())
     }
 
     /// Checks that `nargo` is on PATH and is exactly [`REQUIRED_NARGO_VERSION`].
@@ -282,14 +308,14 @@ mod noir_artifacts {
         Ok(())
     }
 
-    /// Builds the Noir ownership proof artifacts ad-hoc with `nargo` and the
+    /// Builds one Noir circuit's proof artifacts ad-hoc with `nargo` and the
     /// provekit R1CS compiler. This is the only way to obtain them: the
     /// proving/verifying keys must come from the checked-in circuit source, built
     /// with the pinned nargo toolchain (see `flake.nix`), so every builder
     /// produces identical bytes.
-    pub(super) fn setup(out_dir: &Path) -> eyre::Result<()> {
+    fn setup(out_dir: &Path, circuit_dir: &str, target_name: &str) -> eyre::Result<()> {
         let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-        let circuit_dir = manifest_dir.join("noir/ownership-proof");
+        let circuit_dir = manifest_dir.join(circuit_dir);
 
         println!(
             "cargo:rerun-if-changed={}",
@@ -299,8 +325,6 @@ mod noir_artifacts {
             "cargo:rerun-if-changed={}",
             circuit_dir.join("Nargo.toml").display()
         );
-
-        check_nargo()?;
 
         let nargo_output = Command::new("nargo")
             .arg("compile")
@@ -313,18 +337,19 @@ mod noir_artifacts {
             eyre::bail!("nargo compile failed:\n{stderr}");
         }
 
-        let scheme = NoirProofScheme::from_file(circuit_dir.join("target/ownership_proof.json"))
-            .map_err(|e| eyre::eyre!(e.to_string()))?;
+        let scheme =
+            NoirProofScheme::from_file(circuit_dir.join(format!("target/{target_name}.json")))
+                .map_err(|e| eyre::eyre!(e.to_string()))?;
 
         provekit_common::file::write(
             &Prover::from_noir_proof_scheme(scheme.clone()),
-            &out_dir.join("ownership_proof.pkp"),
+            &out_dir.join(format!("{target_name}.pkp")),
         )
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
         provekit_common::file::write(
             &Verifier::from_noir_proof_scheme(scheme),
-            &out_dir.join("ownership_proof.pkv"),
+            &out_dir.join(format!("{target_name}.pkv")),
         )
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 

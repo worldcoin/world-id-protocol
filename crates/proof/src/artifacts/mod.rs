@@ -36,7 +36,9 @@ pub mod dummy;
 #[cfg(any(
     feature = "embed-zkeys",
     feature = "embed-ownership-prover",
-    feature = "embed-ownership-verifier"
+    feature = "embed-ownership-verifier",
+    feature = "embed-attestation-prover",
+    feature = "embed-attestation-verifier"
 ))]
 pub mod embedded;
 pub mod error;

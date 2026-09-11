@@ -41,6 +41,10 @@ use world_id_primitives::FieldElement;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod ownership_proof;
 
+// Same WASM limitation as ownership proofs (ProveKit backend).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod attestation_proof;
+
 pub use provekit_common::{
     NoirProof, Prover as OwnershipProver, Verifier as OwnershipVerifier, WhirR1CSProof,
 };
