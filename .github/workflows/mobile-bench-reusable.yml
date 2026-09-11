@@ -985,6 +985,15 @@ jobs:
           cp "${android_summary}" "${published_dir}/android/summary.json"
           rm -f "${published_dir}/ios/.gitkeep" "${published_dir}/android/.gitkeep"
 
+          # Check the rendered SVG plots in next to the summaries so LATEST.md is
+          # self-contained; wipe first so plots of removed benchmarks don't linger.
+          for platform in ios android; do
+            rm -rf "${published_dir}/${platform}/plots"
+            if [ -d "rendered/${platform}/plots" ]; then
+              cp -R "rendered/${platform}/plots" "${published_dir}/${platform}/plots"
+            fi
+          done
+
           timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
           run_url="https://github.com/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}"
 
@@ -1051,28 +1060,21 @@ jobs:
               echo "- **Android devices:** ${android_device}"
             fi
             echo
-            if [ -f rendered/ios/github-summary.md ]; then
-              echo "## iOS"
+            # Embed the relative-link summaries (not github-summary.md, whose plot
+            # links point at the ephemeral mobench-plots branch) and retarget the
+            # plot links at the checked-in copies next to this file.
+            for platform in ios android; do
+              heading="iOS"
+              [ "${platform}" = "android" ] && heading="Android"
+              echo "## ${heading}"
               echo
-              cat rendered/ios/github-summary.md
+              if [ -f "rendered/${platform}/summary.md" ]; then
+                sed "s#](plots/#](${platform}/plots/#g" "rendered/${platform}/summary.md"
+              else
+                echo "See \`${platform}/summary.json\` (markdown summary unavailable for this run)."
+              fi
               echo
-            else
-              echo "## iOS"
-              echo
-              echo "See \`ios/summary.json\` (markdown summary unavailable for this run)."
-              echo
-            fi
-            if [ -f rendered/android/github-summary.md ]; then
-              echo "## Android"
-              echo
-              cat rendered/android/github-summary.md
-              echo
-            else
-              echo "## Android"
-              echo
-              echo "See \`android/summary.json\` (markdown summary unavailable for this run)."
-              echo
-            fi
+            done
           } > "${published_dir}/LATEST.md"
 
           remote="https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
