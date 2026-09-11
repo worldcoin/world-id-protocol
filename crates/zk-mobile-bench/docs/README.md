@@ -88,17 +88,14 @@ Checked-in BrowserStack results live in
 | `bench_nullifier_proof_generation` | π2 nullifier | Full measured path: fixture/input generation, witness generation, and Groth16 proving |
 | `bench_nullifier_witness_generation_only` | π2 nullifier | Circom witness generation only, with cached input/material |
 | `bench_nullifier_proving_only` | π2 nullifier | Groth16 proving only, from a cached witness |
-| `bench_ownership_proof_generation` | WIP-103 ownership | Full measured path: fixture generation, prover deserialization, ACIR witness solving, and WHIR proving |
-| `bench_ownership_cached_proof_generation` | WIP-103 ownership | Witness solving and WHIR proving with a cached input/prover; excludes fixture setup and prover deserialization |
-| `bench_ownership_witness_generation_only` | WIP-103 ownership | ACIR witness solving only, with a cached input/prover |
+| `bench_ownership_proof_generation` | WIP-103 ownership | Full path: prover deserialization, ACIR witness solving, and WHIR proving; stage times reported via the `prover_load`, `witness`, and `prove` phases |
 
-CI runs all ten functions by default. The function list is specified directly
+CI runs all eight functions by default. The function list is specified directly
 in the caller workflow (`mobile-bench.yml`) via the `functions` input to the
 reusable workflow.
 
-The ownership proof has no proving-only counterpart: ProveKit's `Prove::prove`
-and `prove_with_witness` consume the `Prover`, so any repeated-proving benchmark
-folds a `Prover::clone` into the measured region.
-`bench_ownership_cached_proof_generation` minus
-`bench_ownership_witness_generation_only` therefore bounds WHIR proving from
-above — it still carries that clone.
+The ownership proof is a single benchmark because ProveKit's `Prove::prove`
+consumes the `Prover` (it frees its artifacts during proving to cap peak
+memory), so deserialize → prove → drop is the designed path and there is no
+warm path to benchmark separately. Its stage breakdown comes from semantic
+phases rather than dedicated cached/witness-only functions.

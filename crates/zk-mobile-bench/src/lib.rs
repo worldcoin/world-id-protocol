@@ -5,7 +5,7 @@
 //! - Nullifier/Uniqueness Proof (`π2`) - proves uniqueness without revealing identity
 //! - Ownership Proof (WIP-103) - proves control of a World ID account, on Noir/ProveKit
 
-use mobench_sdk::benchmark;
+use mobench_sdk::{benchmark, profile_phase};
 
 mod fixtures;
 
@@ -29,15 +29,13 @@ use world_id_primitives::{
     AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, authenticator::oprf_query_digest,
 };
 use world_id_proof::{
-    NoirCircuitInput as _, OwnershipProver,
+    NoirCircuitInput as _,
     artifacts::{
         ZkArtifactSource as _,
         embedded::{EmbeddedZkArtifacts, zkeys},
     },
-    circuit_inputs::{
-        NullifierProofCircuitInput, OwnershipProofCircuitInput, QueryProofCircuitInput,
-    },
-    ownership_proof::generate_ownership_proof_with_prover,
+    circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
+    ownership_proof::check_ownership_input_validity,
 };
 
 use fixtures::{first_leaf_merkle_path, generate_rp_fixture, ownership_proof_fixture};
@@ -264,8 +262,6 @@ thread_local! {
         const { RefCell::new(None) };
     static NULLIFIER_WITNESS_CACHE: RefCell<Option<(CircomGroth16Material, Vec<ark_bn254::Fr>)>> =
         const { RefCell::new(None) };
-    static OWNERSHIP_CACHE: RefCell<Option<(OwnershipProofCircuitInput<TREE_DEPTH>, OwnershipProver)>> =
-        const { RefCell::new(None) };
 }
 
 /// Benchmark: Query Proof (π1) generation from cached input
@@ -419,78 +415,41 @@ pub fn bench_nullifier_proving_only() {
     });
 }
 
-/// Loads the embedded ownership prover and fixture input into the thread-local cache.
-fn init_ownership_cache(
-    cache: &RefCell<Option<(OwnershipProofCircuitInput<TREE_DEPTH>, OwnershipProver)>>,
-) {
-    if cache.borrow().is_none() {
-        let prover = EmbeddedZkArtifacts
-            .ownership_prover()
-            .expect("embedded ownership prover");
-        *cache.borrow_mut() = Some((ownership_proof_fixture(), prover));
-    }
-}
-
 /// Benchmark: Ownership Proof (WIP-103) generation
 ///
-/// Full measured path on the Noir/ProveKit backend: fixture generation, deserializing the
-/// embedded prover, ACIR witness solving and WHIR proving.
+/// The designed mobile path on the Noir/ProveKit backend: deserialize the embedded prover,
+/// solve the ACIR witness, WHIR-prove, drop. ProveKit consumes the `Prover` during proving
+/// (it frees its artifacts to cap peak memory), so there is no meaningful warm path to
+/// benchmark separately; stage times are reported via the `prover_load`, `witness`, and
+/// `prove` semantic phases instead of dedicated benchmark functions.
+///
+/// The body mirrors `generate_ownership_proof_with_prover`, split at the phase boundaries.
 #[benchmark]
 pub fn bench_ownership_proof_generation() {
     let input = ownership_proof_fixture();
-    let prover = EmbeddedZkArtifacts
-        .ownership_prover()
-        .expect("embedded ownership prover");
 
-    let proof =
-        generate_ownership_proof_with_prover(input, prover).expect("ownership proof generation");
+    let mut prover = profile_phase("prover_load", || {
+        EmbeddedZkArtifacts
+            .ownership_prover()
+            .expect("embedded ownership prover")
+    });
+
+    check_ownership_input_validity(&input).expect("valid ownership input");
+
+    let witness = profile_phase("witness", || {
+        let input_map = input.into_witness().expect("ownership circuit input maps");
+        prover
+            .generate_witness(input_map)
+            .expect("ownership witness generation")
+    });
+
+    let proof = profile_phase("prove", || {
+        prover
+            .prove_with_witness(witness)
+            .expect("ownership WHIR proving")
+    });
 
     std::hint::black_box(proof);
-}
-
-/// Benchmark: Ownership Proof (WIP-103) generation from a cached input and prover
-///
-/// Excludes fixture setup and prover deserialization, and still covers witness solving plus
-/// WHIR proving. `Prove::prove` consumes the `Prover`, so the measured region necessarily
-/// includes one `Prover::clone`. Subtracting `bench_ownership_witness_generation_only` leaves
-/// that clone plus WHIR proving, not proving alone.
-#[benchmark]
-pub fn bench_ownership_cached_proof_generation() {
-    OWNERSHIP_CACHE.with(|cache| {
-        init_ownership_cache(cache);
-
-        let cache_ref = cache.borrow();
-        let (input, prover) = cache_ref.as_ref().expect("ownership cache initialized");
-
-        let proof = generate_ownership_proof_with_prover(input.clone(), prover.clone())
-            .expect("ownership proof generation");
-
-        std::hint::black_box(proof);
-    });
-}
-
-/// Benchmark: Ownership Proof (WIP-103) witness generation only
-///
-/// Measures only ACIR witness solving, excluding WHIR proving. Input and prover are cached
-/// after the first call, and `generate_witness` borrows the prover, so no clone is included.
-#[benchmark]
-pub fn bench_ownership_witness_generation_only() {
-    OWNERSHIP_CACHE.with(|cache| {
-        init_ownership_cache(cache);
-
-        let mut cache_ref = cache.borrow_mut();
-        let (input, prover) = cache_ref.as_mut().expect("ownership cache initialized");
-
-        let input_map = input
-            .clone()
-            .into_witness()
-            .expect("ownership circuit input maps");
-        let witness = prover
-            .generate_witness(input_map)
-            .expect("ownership witness generation");
-
-        std::hint::black_box(witness);
-    });
 }
 
 // ============================================================================
@@ -719,18 +678,6 @@ mod tests {
         bench_ownership_proof_generation();
     }
 
-    #[test]
-    #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
-    fn test_ownership_cached_proof_generation_benchmark() {
-        bench_ownership_cached_proof_generation();
-    }
-
-    #[test]
-    #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
-    fn test_ownership_witness_only_benchmark() {
-        bench_ownership_witness_generation_only();
-    }
-
     /// The ownership fixture must stay in sync with the one backing the circuit's `Prover.toml`
     /// in `world-id-proof`; a drifted fixture would otherwise fail only at proving time.
     #[test]
@@ -770,8 +717,6 @@ mod tests {
             "zk_mobile_bench::bench_nullifier_witness_generation_only",
             "zk_mobile_bench::bench_nullifier_proving_only",
             "zk_mobile_bench::bench_ownership_proof_generation",
-            "zk_mobile_bench::bench_ownership_cached_proof_generation",
-            "zk_mobile_bench::bench_ownership_witness_generation_only",
         ] {
             assert!(
                 names.iter().any(|name| name == expected_name),
