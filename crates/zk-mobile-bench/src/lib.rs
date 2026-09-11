@@ -416,14 +416,6 @@ pub fn bench_nullifier_proving_only() {
 }
 
 /// Benchmark: Ownership Proof (WIP-103) generation
-///
-/// The designed mobile path on the Noir/ProveKit backend: deserialize the embedded prover,
-/// solve the ACIR witness, WHIR-prove, drop. ProveKit consumes the `Prover` during proving
-/// (it frees its artifacts to cap peak memory), so there is no meaningful warm path to
-/// benchmark separately; stage times are reported via the `prover_load`, `witness`, and
-/// `prove` semantic phases instead of dedicated benchmark functions.
-///
-/// The body mirrors `generate_ownership_proof_with_prover`, split at the phase boundaries.
 #[benchmark]
 pub fn bench_ownership_proof_generation() {
     let input = ownership_proof_fixture();
