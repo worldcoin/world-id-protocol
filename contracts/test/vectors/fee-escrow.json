@@ -1,0 +1,25 @@
+{
+  "channelId": "0x2445d3989582ca28df4e2dc71b1e21dc0f752bbc6398d7461a71f676011eb4c5",
+  "domain": {
+    "chainId": 4801,
+    "name": "WorldIDFeeEscrow",
+    "verifyingContract": "0x0000000000000000000000000000000000FeE5c0",
+    "version": "1"
+  },
+  "paymentAuthorization": {
+    "channelId": "0x2445d3989582ca28df4e2dc71b1e21dc0f752bbc6398d7461a71f676011eb4c5",
+    "channelNonce": "0x3000000000000002a",
+    "digest": "0xe48a4f68fee8fe87bfd02bbb52eaad7786f3471f385b2dd9542ec87495609df7",
+    "epoch": 7
+  },
+  "settings": {
+    "collector": "0x2222222222222222222222222222222222222222",
+    "epochLength": 86400,
+    "epochZero": 1700000000,
+    "pricePerUnit": "1000000000000000000",
+    "rpId": 1,
+    "salt": "0x000000000000000000000000000000000000000000000000000000000000002a",
+    "spendKey": "0x1111111111111111111111111111111111111111",
+    "token": "0x3333333333333333333333333333333333333333"
+  }
+}

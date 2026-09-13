@@ -1,6 +1,6 @@
 [package]
 name = "world-id-fee-channel-demo"
-description = "Local end-to-end demo of a YABS fee channel: RP, nonce manager, and collector."
+description = "Local end-to-end demo of a fixed-rate World ID fee channel: RP and collector."
 publish = false
 edition.workspace = true
 version.workspace = true
@@ -16,6 +16,7 @@ workspace = true
 [dependencies]
 alloy = { workspace = true, features = [
   "contract",
+  "eips",
   "json",
   "network",
   "provider-anvil-api",
@@ -37,6 +38,7 @@ serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-uuid = { workspace = true, features = ["v4"] }
 world-id-fee-escrow = { workspace = true }
-world-id-primitives = { workspace = true }
+
+[dev-dependencies]
+base64 = { workspace = true }

@@ -1,241 +1,278 @@
-# YABS
 
-This specification outlines a simple protocol that allows a service (e.g. the Deep Face Verifier) to create a unidirectional payment channel that charges a fee per unit of work at a negotiated `feeSchedule`. We extend the World ID `ProofRequest` with two optional fields so it can authorize a payment from an RP and allow a `collector` to check the payment’s solvency against the channel.
+
+**Status:** draft. Supersedes [YABS (previous draft)](https://app.notion.com/p/worldcoin/YABS-3d88614bdf8c80558e35e70f23e9c10f) for the fixed-rate design. Source of truth: [Notion](https://app.notion.com/p/worldcoin/YABS-Fixed-Rate-Channels-3d98614bdf8c803389b4d60e2f680b1b).
+
+## Invariants
+
+Every later section must satisfy these. A change that breaks one is a new protocol, not a revision.
+
+**Economic**
+
+- **Fixed price.** Every unit in a channel costs exactly `pricePerUnit`, set at open and never changed.
+- **Full price.** Every token funded into an epoch reaches the collector, by settlement during the epoch or by the closing settlement after it. Once an epoch is closed, `paid = funded`. No path returns tokens to a funder.
+- **Capacity bound.** Units admitted in an epoch never exceed `funded / pricePerUnit`. Capacity is exceeded only by funding more, and funding raises capacity in the same block.
+- **Nothing early.** Before an epoch ends, the escrow releases at most `pricePerUnit × settledUnits`. The remainder moves only after the epoch ends.
+
+**Cryptographic**
+
+- **Signed usage.** No unit is counted, settled, or used to justify a refusal unless the RP's `spendKey` signed it. The collector may propose a counter only one above a counter the RP has already signed on that lane, and must prove it with that signature.
+- **One signature per lane.** An authorization with counter `n` proves `n` units on its lane. Proof and settlement cost are proportional to lanes, never to capacity.
+- **Bound once.** Each authorization names one channel, one epoch, and one lane counter, and is admitted at most once.
+
+**Compatibility**
+
+- **Protocol unchanged.** `ProofRequest`, its signature, and every party that verifies it are untouched. A `Payment` is a separate object presented to the collector; binding it to a specific request is a later extension.
+- **Stateless RP.** The RP holds no nonce state. Every proposal it receives carries the proof it needs to check it, its own previous signature, so it remembers nothing between requests.
+- **Fail closed.** A collector that cannot read current chain state, or cannot persist an admission, refuses rather than serves.
+
+## Overview
+
+This specification defines a fixed-rate, epoch-based payment channel between a Relying Party (RP) and a collector such as the Deep Face Verifier host. Funding an epoch buys capacity at a fixed `pricePerUnit`. Capacity can be raised at any time by funding more, and it cannot be exceeded without funding more. Unused capacity is never refunded: whatever remains in an epoch's escrow is paid to the collector when the epoch ends.
+
+Every verification the RP wants performed is authorized by one `Payment`: a standalone object the RP signs over a cumulative counter and hands to the user, who presents it to the collector with the verification request. Those counters are the only evidence of usage the protocol relies on. The collector cannot bill a unit the RP did not sign, and the RP cannot use a unit it did not fund.
+
+A billing unit is one authorization for the service agreed by the RP and collector. It is not a count of proofs inside a request.
+
+## Roles
+
+- **RP**: the relying party whose requests are paid for, identified by `rpId` in the RpRegistry.
+- **spendKey**: the RP's registry signer at open. Signs every payment authorization. Fixed for the channel's life.
+- **Collector**: the service being paid. Issues nonces, admits requests, settles, and receives every token that enters the channel.
+- **Funder**: whoever calls `fund`. The RP, a sponsor, or anyone. Funding is a purchase, so the funder holds no claim afterwards.
+- **Escrow**: the contract holding per-epoch balances.
 
 ## Channel
 
-A `channel` is a contract which prices future computational work on World ID proofs, entered into by the `payer` and the `collector`. The `payer` (either the RP or a provider) pre-funds the escrow. At channel opening, `spendKey` must equal the signer associated with `rpId` in the `RpRegistry`. The RP uses this key to sign payment authorizations funded by the `payer`. The `collector` batches these authorizations for atomic settlement and collects payment. It also negotiates the channel’s terms with the RP and verifies solvency before performing computational work for the RP.
+A channel is a record in the escrow that fixes who pays whom, at what price, on what schedule. Each epoch has its own capacity and balance.
 
 ```mermaid
 flowchart LR
-    Payer["Payer (RP or sponsor)"] -->|"Funds channel"| Escrow["Escrow"]
-    RP["Relying Party"] -->|"Signed ProofRequestV2"| Collector["Collector / service host"]
-    Collector -->|"Checks solvency and submits signed requests"| Escrow
-    Escrow -->|"Transfers funds"| Collector
+    Funder["Funder (RP or sponsor)"] -->|"fund(epoch): buys capacity"| Escrow["Escrow"]
+    RP["Relying Party"] -->|"Reserves nonce, verifies predecessor"| Collector
+    RP -->|"Signed Payment"| User["User"]
+    User -->|"Verification request + Payment"| Collector["Collector"]
+    Collector -->|"settle(epoch): signed units, then the remainder once the epoch ends"| Escrow
+    Escrow -->|"Transfers tokens"| Collector
 ```
-
-A channel has the following settings:
 
 ```solidity
 struct ChannelSettings {
-    /// The RP being sponsored by `payer`.
+    /// RP whose requests this channel pays for.
     uint64 rpId;
-    /// Unix timestamp when the channel was created.
-    uint64 periodStart;
-    /// The payer funding the channel with WLD for the RP.
-    address payer;
-    /// Address of the RP's request-signing key.
+    /// RP registry signer at open. Signs every PaymentAuthorization.
     address spendKey;
-    /// Address of the `IFeeSchedule` contract.
-    address feeSchedule;
-    /// Number of independent nonce lanes.
-    uint32 laneCount;
-    /// Address of the collector receiving settled funds.
+    /// Receives every token funded into the channel.
     address collector;
+    /// Exact-transfer ERC-20 the channel is denominated in.
+    address token;
+    /// Price of one unit, in `token`'s smallest unit.
+    uint256 pricePerUnit;
+    /// Epoch length in seconds.
+    uint64 epochLength;
+    /// Unix timestamp at which epoch 0 begins.
+    uint64 epochZero;
+    /// Disambiguates otherwise-identical channels.
+    bytes32 salt;
 }
 ```
 
-The `escrow` contract opens, closes, and settles channels under agreed fee schedules. Opening a channel between an RP and a `collector` *requires* consent from the RP associated with the channel’s `rpId` in the `RpRegistry`. Opening is trustless when the RP provides a signature over the channel settings.
+`channelId` is the EIP-712 digest of `ChannelSettings` (see Signatures). It commits to the chain, the escrow, and every setting. Settings are immutable.
 
-**Note:** the contract’s role is to manage the funds held in channels opened with an RP’s signature. The `collector` decides whether it will accept payment under a given `feeSchedule`. For example, the Deep Face TEE host gates access to the TEE based on RP solvency. It also defines the `feeSchedule` parameters under which it will accept payment.
+The epoch of a timestamp `t` is `(t − epochZero) / epochLength` with integer division. Timestamps before `epochZero` have no epoch.
 
-This allows fee schedules to vary by the application performing the verifications. Providers can also fine-tune the schedules they offer RPs over time. In [TODO](https://app.notion.com/p/TODO-3b18614bdf8c8066920bdc13924637ea?pvs=21), we outline a `feeSchedule` that mirrors a fixed-price, seat-based subscription model that charges a fixed amount for a set number of World IDs each month.
+Per `(channelId, epoch)` the escrow stores `funded`, `settledUnits`, and `closed`, and derives:
+
+- `capacity = funded / pricePerUnit`
+- `balance = funded − pricePerUnit × settledUnits` until closed, then zero
+- `settledUnits ≤ capacity`
+
+## Escrow interface
 
 ```solidity
-/// @title A contract that manages World ID fees
-interface IWorldIDFeeEscrow {
-  /// @notice Opens a unidirectional channel with the given settings.
-  function openChannel(ChannelSettings calldata channelSettings, bytes calldata rpSignature) external returns (bytes32 channelId);
+struct PaymentAuthorization {
+    /// lane << 64 | counter, counter >= 1.
+    uint96 channelNonce;
+    /// spendKey signature over EIP-712 PaymentAuthorization(channelId, epoch, channelNonce).
+    /// epoch is the settle call's epoch; it is not repeated per entry.
+    bytes signature;
+}
 
-  /// @notice Settles the signed requests associated with this channel.
-  function closeChannel(bytes32 channelId, bytes[] calldata encodedProofRequests) external;
+struct EpochState {
+    /// Tokens funded into this epoch.
+    uint256 funded;
+    /// Sum of lane high-water marks.
+    uint64 settledUnits;
+    /// True once the closing settlement has paid the remainder.
+    bool closed;
+}
+
+interface IWorldIDFeeEscrow {
+    /// Registers a channel. spendKey must equal the RpRegistry signer for rpId.
+    function openChannel(ChannelSettings calldata settings) external returns (bytes32 channelId);
+    /// Buys capacity for the current or a future epoch. amount must be a multiple of pricePerUnit.
+    function fund(bytes32 channelId, uint64 epoch, uint256 amount) external;
+    /// Raises lane marks for epoch and pays pricePerUnit * new units to the collector.
+    /// After the epoch ends, also pays the remaining balance and closes the epoch. Anyone may call.
+    function settle(bytes32 channelId, uint64 epoch, PaymentAuthorization[] calldata auths) external;
+
+    function computeChannelId(ChannelSettings calldata settings) external view returns (bytes32);
+    function epochState(bytes32 channelId, uint64 epoch) external view returns (EpochState memory);
+    function laneHighWater(bytes32 channelId, uint64 epoch, uint32 lane) external view returns (uint64);
+
+    event ChannelOpened(bytes32 indexed channelId, ChannelSettings settings);
+    event EpochFunded(bytes32 indexed channelId, uint64 indexed epoch, address funder, uint256 amount);
+    event EpochSettled(bytes32 indexed channelId, uint64 indexed epoch, uint64 settledUnits, uint256 paid, bool closed);
 }
 ```
 
-We define `channelId = keccak256(abi.encode(chainId, address(escrow), ChannelSettings[..]))`.
+Capacity and balance are derived from `EpochState` by the formulas above; the epoch of a timestamp is derived from the settings. Lanes touched by a settlement are visible in its calldata, so no per-lane event is emitted.
 
-**A note on the protocol’s trust assumptions**
+## Lifecycle
 
-A service may offer different fee schedules to different RPs. A TEE host already controls access to computation. For example, an AWS host can refuse to forward requests to a Deep Face enclave. Under the [seat-based design](https://app.notion.com/p/YABS-3ab8614bdf8c80d9801ae9692f5ab7aa?pvs=21), the host also controls pricing and seat allocation.
+- **Open.** Anyone may call. Require nonzero `spendKey`, `collector`, `token`, `pricePerUnit`, and `epochLength`, and require `spendKey` to equal `RpRegistry.getRp(rpId).signer`, which also requires an active RP. Reject an existing `channelId`. No RP signature is required: the RP consents to the terms by signing its first `PaymentAuthorization` naming this `channelId`, and it can only do so after reading the settings the id commits to.
+- **Fund.** Anyone may fund the current epoch or any future epoch. Reject ended epochs and amounts that are not a multiple of `pricePerUnit`. Tokens move from the caller to the escrow. Capacity rises immediately, so a mid-epoch top-up lifts the cap in the same block.
+- **Settle.** Anyone may call on an epoch that is not closed. The batch names one `epoch`, and every signature is verified against it. For each authorization: require `counter ≥ 1`; if `counter ≤ laneHighWater`, skip it; otherwise require the signature to recover to `spendKey` and raise the mark. Revert the whole batch if the new `settledUnits` would exceed `capacity`; the collector must never have admitted those units. Pay `pricePerUnit × Δunits` to `collector`.
+- **Close.** If `block.timestamp ≥ epochZero + (epoch + 1) × epochLength`, the same `settle` call then transfers the remaining `balance` to `collector` and marks the epoch closed. An empty batch after the epoch ends is the plain close. Closing requires no signatures because it claims nothing about usage; it is the non-refundable part of the price. A closed epoch rejects `fund` and `settle`.
+- **Token safety.** Support only exact-transfer, non-rebasing ERC-20 tokens. Use checked arithmetic and safe token calls, guard every mutation against reentrancy, and revert accounting on transfer failure. Unsolicited transfers do not fund anything.
 
-This design makes the agreed pricing enforceable. Opening a channel binds the payer and collector to an immutable fee schedule. The host checks solvency against that channel and retains control over admission, but **cannot** change its pricing terms.
+There is no refund, no channel close, no deadline, and no payer role. A channel is abandoned by not funding its next epoch. Rotating the RP's registry signer does not affect an open channel; open a new channel under the new key.
 
-A channel sets the terms for paying for future computational work. The service proposes a price, and the RP chooses whether to accept it. When providers can enter the market and RPs can switch between them, competitors have an incentive to offer better prices and serve customers others reject. This can support price discovery and discourage censorship; it does not guarantee equal prices or universal access.
+## Signatures
 
-## ProofRequest Extension
+One EIP-712 domain, two typed structs.
+
+```solidity
+EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)
+name = "WorldIDFeeEscrow", version = "1", chainId = <settlement chain>, verifyingContract = <escrow>
+
+// Never signed. Its EIP-712 digest keccak256(0x1901 || domainSeparator || hashStruct(settings)) is the channelId.
+ChannelSettings(uint64 rpId,address spendKey,address collector,address token,uint256 pricePerUnit,uint64 epochLength,uint64 epochZero,bytes32 salt)
+
+// Signed by spendKey once per paid verification.
+PaymentAuthorization(bytes32 channelId,uint64 epoch,uint96 channelNonce)
+```
+
+Field names and order are normative. Hash with EIP-712 struct encoding, not packed encoding. Accept canonical 65-byte ECDSA signatures with low `s` and `v` of 27 or 28; reject malformed signatures and zero-address recovery. `spendKey` is an ECDSA key; contract signers are out of scope for this version.
+
+**Request binding, deferred.** This version does not bind a `Payment` to a `ProofRequest`. A later version may add `bytes32 rpRequestDigest`, the existing [`ProofRequest::digest_hash`](crates/primitives/src/request/mod.rs), as a fourth field of the signed struct so that one `Payment` can pay for exactly one request. Nothing else would change.
+
+**Nonce packing.**
+
+```solidity
+uint96 channelNonce = (uint96(lane) << 64) | uint96(counter);
+uint32 lane    = uint32(channelNonce >> 64);
+uint64 counter = uint64(channelNonce);
+```
+
+A counter is the cumulative number of units authorized on that lane in that epoch. An authorization with counter `n` proves `n` units on its lane by itself, whether or not lower counters were ever seen.
+
+## Payment object
+
+A `Payment` is a standalone bearer authorization for one unit of work. `ProofRequest` is not modified.
 
 ```rust
-/// A proof request from a Relying Party (RP) for an Authenticator.
-///
-/// Unknown JSON fields are ignored during deserialization so that older
-/// Authenticators keep accepting requests from RPs speaking a newer minor
-/// revision of the protocol. The RP signature only covers the enumerated
-/// fields (see [`ProofRequest::digest_hash`]), so tolerated fields are
-/// never part of any signed or hashed message.
+/// RP-signed authorization for one unit of work on a channel.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProofRequest {
-    /// Unique identifier for this request.
-    pub id: String,
-    /// Version of the request.
-    pub version: RequestVersion,
-    /// Requested high-level proof flow.
-    ///
-    /// If omitted, the request is strictly treated as a [`ProofType::Uniqueness`] request.
-    /// Session creation and session proving must opt in explicitly.
-    #[serde(default)]
-    pub proof_type: ProofType,
-    /// Unix timestamp (seconds) when the request was created.
-    pub created_at: u64,
-    /// Unix timestamp (seconds) when the request expires.
-    pub expires_at: u64,
-    /// Registered RP identifier from the `RpRegistry`.
-    pub rp_id: RpId,
-    /// `OprfKeyId` of the RP.
-    pub oprf_key_id: OprfKeyId,
-    /// Session identifier that links proofs for the same user/RP pair across requests.
-    ///
-    /// Three states: absent/`null` (no session), `"create"` (mint a fresh session),
-    /// or an existing `"session_"`-prefixed id. [`ProofType::Uniqueness`] accepts
-    /// absent or `"create"` (see [`Self::binds_session`]); [`ProofType::Session`]
-    /// requires `"create"` or an existing id.
-    /// The proof will only be valid if the session ID is meant for this context and
-    /// this particular World ID holder.
-    #[serde(default)]
-    pub session_id: SessionRef,
-    /// An RP-defined context that scopes what the user is proving uniqueness on.
-    ///
-    /// This parameter expects a field element. When dealing with strings or bytes,
-    /// hash with a byte-friendly hash function like keccak256 or SHA256 and reduce to the field.
-    pub action: Option<FieldElement>,
-    /// The RP's ECDSA signature over the request.
+pub struct Payment {
+    /// EIP-712 digest of the channel's settings.
+    pub channel_id: FixedBytes<32>,
+    /// Epoch the reservation was issued for.
+    pub epoch: u64,
+    /// `lane << 64 | counter`, issued by the collector and verified by the RP.
+    pub channel_nonce: U96,
+    /// `spendKey` signature over EIP-712 `PaymentAuthorization`.
     #[serde(with = "crate::serde_utils::hex_signature")]
     pub signature: alloy::signers::Signature,
-    /// Unique nonce for this request provided by the RP.
-    pub nonce: FieldElement,
-    /// Credentials requested by the RP.
-    #[serde(rename = "proof_requests")]
-    pub requests: Vec<RequestItem>,
-    /// Optional constraint expression (all, any, or enumerate).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub constraints: Option<ConstraintExpr<'static>>,
 }
 ```
 
-We extend the standard World ID `ProofRequest` with optional parameters that attach a payment authorization to an existing escrow channel identified by `channelId`.
+JSON encoding: `channel_id` as 32 bytes of hex, `epoch` as a JSON number, `channel_nonce` as a hex string and never a JSON number, rejecting values outside `uint96`, `signature` as 65 bytes of hex, all `0x`-prefixed. `epoch` travels on the wire because there is no request timestamp to derive it from.
 
-```rust
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProofRequestV2 {
-  pub inner: ProofRequest,
-  /// An optional channel identifier for this payment authorization.
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub channelId: Option<FixedBytes<32>>,
-  /// An optional 96-bit nonce with the lane ID in the high 32 bits and the counter in the low 64 bits.
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub channelNonce: Option<u128>,
-}
-```
+The RP hands the `Payment` to the user, who forwards it unchanged alongside the verification request. Whoever presents it first consumes it; the collector admits each `(channel, epoch, lane, counter)` once.
 
-A `ProofRequestV2` requires `inner.version = V2`. If both `channelId` and `channelNonce` are absent, the request has no associated payment. Both fields must be present to authorize a payment. Reject requests with only one payment field.
+## Nonce issuance
 
-The signature is stored in `inner.signature`. `ProofRequestV2` extends request signing with an EIP-712 domain.
+The RP holds no nonce state. The collector issues counters and proves each proposal with the RP's own previous signature.
 
-The `ProofRequestV2` signature is computed as follows:
+**Reserve.** Before signing, the RP calls `POST /channels/{channelId}/nonces` with the request's `epoch` and a fresh random `requestId` as an idempotency key. Authenticate the endpoint with an API key or mTLS; a reservation carries no funds, so a protocol-level signature is unnecessary. The collector allocates the lowest lane with no pending reservation for that epoch, records the reservation with `expires_by = now + T` where `T` is its maximum request lifetime, and returns `{lane, counter, expires_by, previous}`. `previous` is the RP-signed `Payment` for `counter − 1` on that lane and epoch, or `null` when `counter` is 1. Retries with the same `requestId` return the same reservation.
 
-1. **Domain:** `name = "WorldIDFeeEscrow"`, `version = "2"`, `chainId` is the fee escrow’s chain ID, and `verifyingContract` is the fee escrow’s address.
-2. **Inner digest:** `rpRequestDigest = SHA256(0x01 || nonce[32] || created_at[8] || expires_at[8] || action[32, if present])`.
-3. **Typed message:** `typeHash = keccak256("ProofRequest(bytes32 channelId,uint64 rpId,uint96 channelNonce,bytes32 rpRequestDigest)")`. Compute `structHash = keccak256(abi.encode(typeHash, channelId, inner.rp_id, channelNonce, rpRequestDigest))`.
-4. **Signature:** sign `messageHash = keccak256(0x1901 || domainSeparator || structHash)`.
+**Verify.** The RP requires either `previous` to be `null` and `counter` to be 1, or `previous.signature` to recover to its `spendKey` over `(channelId, epoch, lane, counter − 1)`. Nothing else is checked and nothing is remembered. The collector can therefore propose `n` only by holding the RP's signature on `n − 1`, so the sum of counters never exceeds the number of signatures the RP produced.
 
-A `ProofRequest` carries the relying party’s authorization to request an OPRF evaluation for nullifier derivation. When channel fields are present, the same RP signature also authorizes payment from that channel under its agreed fee schedule.
+**Sign.** The RP signs the `Payment` for `counter` and hands it to the user. The reservation lapses at `expires_by`, so the user must present it before then.
 
-**Verification**
+**Lane lifecycle.** One reservation is pending per lane at a time, because the collector cannot propose `n + 1` before it holds the signature on `n`. A lane frees when the signed authorization for its pending counter is admitted, or when `expires_by` passes, in which case the same counter is reissued: every request signed with it has already expired, so no duplicate can be admitted and no capacity is lost. Never skip a counter. Lanes therefore number about the peak in-flight requests, and settlement costs one signature per lane per epoch.
 
-Require the request’s RP ID to match the channel, `channelNonce < 2^96`, a valid lane, and a positive counter. Recover the fixed, nonzero `spendKey` recorded when the channel opened. At opening, this key must match the registered signer for `rpId` in the associated `RpRegistry`. Identity verification checks current RP authorization. Settlement checks the channel’s fixed key and remains valid after request expiry or registry rotation, subject to the channel’s collection deadline. Reject malformed signatures and never fall back to V1 after V2 verification fails.
+**Optional: return the signature early.** After signing, the RP may `PUT` the signed authorization to `/channels/{channelId}/nonces/{lane}/{counter}`. The lane frees at once, so lanes fall to the RP's instantaneous signing concurrency rather than user completion time. A signed-but-abandoned request then consumes one unit of capacity, since the collector holds a valid authorization for it.
 
-## Nonce Management
+**Durability.** The collector persists every reservation before returning it and every admitted authorization before doing the work. Counters never wrap; after `uint64::MAX`, use a new lane. Bound pending reservations per RP and per epoch to prevent resource exhaustion.
 
-The additional `channelNonce` field requires the RP to track a monotonically increasing nonce for each of the channel’s `laneCount` lanes.
+## Collector admission and settlement
 
-We propose two ways to track this state:
+On a verification request carrying a `Payment`, in order:
 
-1. The RP may track its own nonces, for example in a local database.
-2. The RP may fetch its nonces from a public nonce management service.
+1. `channel_id` names a channel whose `collector` is this service.
+2. `epoch`, `lane`, and `counter` match a pending reservation that has not passed its `expires_by`.
+3. The counter has not been admitted before. A repeat is refused as `already_admitted`; a `Payment` is consumed by its first admission.
+4. The signature recovers to `spendKey` over `(channelId, epoch, channelNonce)`.
+5. `admittedUnits(epoch)` is below `capacity(epoch)`, where `admittedUnits` counts every admitted counter in the epoch, settled or not, and `capacity` is read from a chain snapshot within a declared staleness bound. Otherwise refuse with `capacity_exhausted`.
 
-> The service publicly stores the latest signed nonce for each channel and lane of each participating RP. RPs rely on its availability to sign payment authorizations in `ProofRequestV2`. For each lane, the service stores the latest nonce `n` and its signed `ProofRequestV2`. When an RP requests nonce `n + 1`, the service returns the signed request for nonce `n`. Verifying that signature prevents the service from inventing an arbitrarily high nonce, but does not prove that the returned nonce is the latest. Entropy in `inner.nonce` distinguishes requests; it does not prevent reuse of a `channelNonce`. Preventing stale responses and concurrent allocation of the same nonce remains an open requirement for this option.
-> 
+Persist `(epoch, lane, counter, signature)` before doing the work. Keep the highest authorization per lane for settlement and a bitmap per lane for dedupe; drop both once the epoch is closed.
 
-## Host Solvency Verification
+Settle whenever cash or an up-to-date on-chain record is wanted; only the highest authorization per lane is needed. Close the epoch with a final `settle` after it ends, once the collector's own late-admission grace has passed. Requests for a closed epoch may still be admitted within capacity; they are simply no longer recorded on-chain.
 
-The TEE host checks channel solvency before admitting requests to the TEE. Different World ID computations may use different channels, and an RP is not locked to one `channelId` for a month. Multiple channels may be active in parallel.
+Fail closed when the chain read is stale or unavailable or durable storage fails. Readiness fails on critical dependency breakage; liveness only checks the process. Bound remote calls and retries with exponential backoff and jitter, and rate-limit admission.
 
-The details of host solvency verification are outside the scope of this specification.
+Telemetry: admitted units against capacity per channel and epoch, refusals by class, settlement failures, time to epoch end with unsettled units, chain-read staleness. Alert on capacity headroom and on unsettled units approaching the close. Failure logs carry channel, epoch, dependency, upstream status, retry count, and trace ID, never signatures or proof payloads.
 
-## Fee Schedule
+## Channel accounting
 
-An `IFeeSchedule` maps a lane's signed counter to its cumulative fee. Payment is authorized by the signature; settlement does not require proof that work completed.
-
-```solidity
-interface IFeeSchedule {
-	/// Returns the cumulative fee for the given number of verifications.
-	function cumulativeFee(uint64 nonce) external pure returns (uint256 fee);
-}
-```
-
-### Channel accounting
-
-For each lane $\ell\in\{0,\ldots,L-1\}$, let $n_\ell$ be its highest valid signed counter and $s_\ell$ its highest settled counter, initially zero. The schedule takes the low 64-bit counter, not the packed nonce $(\ell\ll64)\mathbin{|}n_\ell$. Require $C(0)=0$ and a nondecreasing $C$.
+Let $p$ be `pricePerUnit`, $F_e$ the amount funded in epoch $e$, and $s_{e,\ell}$ the highest settled counter in lane $\ell$ of epoch $e$.
 
 $$
-A(\mathbf n)=\sum_{\ell=0}^{L-1}C(n_\ell),\qquad
-S(\mathbf s)=\sum_{\ell=0}^{L-1}C(s_\ell).
+K_e=\frac{F_e}{p},\qquad U_e=\sum_\ell s_{e,\ell},\qquad B_e=F_e-p\,U_e,\qquad U_e\le K_e.
 $$
 
-$A$ is the maximum cumulative amount authorized; $S$ is the amount already settled. A batch containing valid signed counters $q$ updates each lane to $s'_\ell=\max(s_\ell,\{q\text{ submitted for lane }\ell\})$, leaving lanes without submissions unchanged, and pays:
+A settlement batch raises each $s_{e,\ell}$ to the batch maximum for that lane and pays $p\,\Delta U_e$. The closing settlement pays $B_e$ after epoch $e$ ends. Over the epoch's life the collector receives exactly $F_e$.
 
-$$
-\Delta=S(\mathbf s')-S(\mathbf s)
-=\sum_{\ell=0}^{L-1}\bigl[C(s'_\ell)-C(s_\ell)\bigr].
-$$
+Example: `p = 2` and `F = 200`, so `K = 100`. Settled counters `(3, 1)` and a batch with lane maxima `(5, 4)` pay `2 × ((5 − 3) + (4 − 1)) = 10`. Replaying the batch pays zero. A batch that would push `U` past 100 reverts. After the epoch ends, the next `settle` pays the remaining `200 − 2 × U` and closes the epoch.
 
-Only the highest authorization per lane is needed; intermediate signatures are unnecessary. Replayed or lower counters add zero liability. Signing counter $N$ authorizes $C(N)$, even if earlier counters were skipped. Atomic settlement requires remaining escrow balance $E\ge\Delta$; covering all outstanding authorizations requires $E\ge A-S$.
+## Trust and guarantees
 
-### Rational decay
+- **Provable usage.** Every unit is an RP signature over a cumulative counter. To prove `n` units on a lane the collector shows one authorization, not `n`. To justify a refusal it shows the highest authorization per lane; the RP verifies its own signatures and sums the counters. Cost is proportional to lanes, not to capacity.
+- **Provable price.** The price is in the settings the `channelId` commits to. Funding and settlement, including the close, are on-chain events.
+- **No inflation.** The collector cannot settle a counter the RP did not sign, and it can propose a counter only by presenting the RP's signature on the previous one. A stale or fabricated proposal fails the RP's check before anything is signed.
+- **Full price, always.** The closing settlement pays the collector whatever signed usage did not. This is the design intent, not a leak.
+- **Delivery is trusted.** The escrow proves spending authority, not completed work. The collector is trusted to serve what it admits. Maximum loss for a funder is the sum of its funding.
+- **Key compromise.** A leaked `spendKey` can consume funded capacity through real work at the collector. It cannot move funds anywhere but to the collector. Stop funding and open a new channel under a rotated key.
+- **Privacy.** Settlement publishes per-lane counters for the channel and epoch, and closing amounts reveal unused capacity per epoch. Nothing about individual verifications reaches the chain.
+- **Upgradeability.** The escrow follows the repository's upgradeable proxy pattern. The upgrade authority is therefore a trust assumption on top of the collector: it can change settlement rules for open channels. Channel settings are immutable under any implementation, and the EIP-712 domain binds to the proxy address, so `channelId` and every signed authorization survive an upgrade.
 
-For fee cap $B>0$, half-decay point $T>0$, and counter $N\ge0$:
+## Design decisions
 
-$$
-C(N)=\frac{BN}{T+N},\qquad
-C(N)-C(N-1)=\frac{BT}{(T+N)(T+N-1)}\quad(N\ge1).
-$$
+Recorded so they are not relitigated.
 
-Here $C(T)=B/2$ and $\lim_{N\to\infty}C(N)=B$. The marginal price stays positive at every finite counter and tends to zero; there is no hard free-usage threshold in this real-valued schedule.
+- Fixed epoch length in seconds, so calendar months are not expressible. Use 30 days or accept drift.
+- No refunds, no payer, no channel close, no deadline. Epochs close; channels are abandoned by not funding the next epoch.
+- Open is permissionless. Explicit RP consent at open is unnecessary for safety; add an `OpenChannel` signature only if a product requirement calls for it.
+- Capacity beyond the initial bundle is bought at the same `pricePerUnit`. There is no separate overage price.
+- A closed epoch rejects further settlement. The collector closes an epoch when it no longer needs on-chain records for it.
+- One state-changing path per concern: `openChannel`, `fund`, `settle`. There is no separate sweep function, capacity and balance are derived rather than stored, and lanes are read from settlement calldata rather than events.
+- `Payment` is detached from `ProofRequest` in this version. It carries `epoch` explicitly, since there is no request timestamp to derive it from, and no request digest. Binding to a request is deferred; when added, `bytes32 rpRequestDigest` joins the signed struct and nothing else changes. On-chain, `epoch` remains the `settle` call's parameter rather than a per-entry field.
+- Counters are issued by the collector and verified by the RP against its own previous signature, as in the previous draft. Dropped from that draft: the requirement that the RP durably record its last counter, which the predecessor proof makes unnecessary, and the ban on reissuing abandoned counters, which froze a lane whenever a user never forwarded a request. Reservations are authenticated by API key or mTLS rather than a protocol signature, because they carry no funds.
+- Per-unit metering with refunds and non-linear fee schedules are out of scope. They would be a different fee function over the same signatures.
 
-For one lane and monthly bundle price $P$, protocol revenue is $C(N)$ and the provider's retained amount before costs is:
+## Required validation
 
-$$
-M(N)=P-C(N)=P-B+\frac{BT}{T+N}.
-$$
+- Cross-language vectors for `channelId`, `PaymentAuthorization`, and JSON nonces above 2⁵³.
+- Settle: stale skip, out-of-order and multi-lane batches, duplicate lanes in one batch, invalid signature revert, capacity overflow revert, cross-channel and cross-epoch replay, settle after close rejected.
+- Fund: non-multiple amount, ended epoch, future epoch, mid-epoch top-up raising capacity in the same block.
+- Close: settle on an ended epoch just before and at the boundary, with and without a batch, repeated settle after close rejected, zero remainder, and `paid = funded` once closed.
+- Nonce issuance: `null` predecessor only at counter 1, predecessor signature verification, rejection of a proposal whose predecessor is missing or not the RP's, one pending reservation per lane, reissue after `expires_by`, idempotent retry on the same `requestId`, early signature return freeing the lane, concurrent reservations across lanes.
+- Collector: repeat of an admitted `Payment` refused, presentation after `expires_by` rejected, refusal at capacity with a verifiable proof, wrong-epoch rejection, stale RPC fail-closed, restart with and without persisted state.
+- Compatibility: `ProofRequest` and every existing verifier are byte-for-byte unchanged; the user client forwards a `Payment` unchanged alongside the verification request.
 
-When $B=P$, $M(N)=PT/(T+N)\to0$. For example, with $P=B=100$ WLD and $T=1{,}000$, counters $1{,}000$, $9{,}000$, and $99{,}000$ authorize $50$, $90$, and $99$ WLD. The provider retains $50$, $10$, and $1$ WLD respectively. An RP buying directly can treat this remainder as unused budget; neither amount accounts for operating costs.
+## Sources
 
-Caps apply per lane: a channel with $L$ lanes has total cap $LB$ and retained amount $P-\sum_\ell C(n_\ell)$. Setting $B=P$ caps a bundle at $P$ only for one lane; a shared bundle cap requires $LB\le P$. Fees depend on how usage is distributed across lanes. A monthly interpretation also requires a fresh accounting period; this function does not reset counters with time.
-
-### Hard-capped fixed unit price
-
-For unit price $p>0$ and per-lane cap $B>0$:
-
-$$
-C(N)=\min(pN,B),\qquad
-C(N)-C(N-1)=\min\bigl(p,\max(0,B-p(N-1))\bigr).
-$$
-
-For $p=0.1$ WLD and $B=100$ WLD, the first $1{,}000$ increments cost $0.1$ WLD each; subsequent increments cost zero. Both schedules bound revenue while usage can keep growing. The party bearing computation costs bears burst-usage risk; rational decay approaches free marginal usage, while this schedule reaches it at a finite threshold.
-
-### Integer settlement
-
-Contracts return fees in token base units. For rational decay use $\widehat C(N)=\lfloor BN/(T+N)\rfloor$, with overflow-safe multiplication and division; settle differences of rounded cumulative fees, not rounded marginal fees. This preserves settlement totals across batches, although individual counter increments can cost zero after rounding. The formulas above describe the real-valued economics.
-
-## Design Tradeoffs
-
-TL;DR Major design tradeoffs is complexity of nonce management, and `feeSchedule` assumptions. Major benefits are simplicity, end to end cryptographic verifiability, and modularity (very simple for different external protocols beyond Deep Face to build on top)
+- [World ID request digest](crates/primitives/src/request/mod.rs) and [byte encoding](crates/primitives/src/rp.rs).
+- [RP registry](contracts/src/core/RpRegistry.sol) and [EIP-712](https://eips.ethereum.org/EIPS/eip-712).
+- Previous draft: [YABS](https://app.notion.com/p/worldcoin/YABS-3d88614bdf8c80558e35e70f23e9c10f). Enrollment-based alternative: [YABS (enrollment)](https://app.notion.com/p/worldcoin/YABS-3ab8614bdf8c80d9801ae9692f5ab7aa).

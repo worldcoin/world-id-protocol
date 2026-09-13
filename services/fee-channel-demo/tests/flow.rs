@@ -6,154 +6,122 @@
 )]
 
 use alloy::primitives::U256;
-use world_id_fee_channel_demo::flow::{self, FlowConfig};
+use world_id_fee_channel_demo::{
+    flow::{self, FlowConfig},
+    init_tracing,
+};
 
-/// One WLD, in wei.
-fn wld(n: u64) -> U256 {
+/// `n` whole tokens, in wei.
+fn tokens(n: u64) -> U256 {
     U256::from(n) * U256::from(1_000_000_000_000_000_000u128)
 }
 
-/// 18 requests against a 14 WLD deposit: the channel funds 14 and refuses the rest.
+/// The whole lifecycle: funded capacity is spent exactly, the next request is refused with a
+/// proof, a top-up lifts the cap, and closing pays the collector everything that was funded.
 #[tokio::test(flavor = "multi_thread")]
-async fn channel_pays_for_what_it_can_afford() -> eyre::Result<()> {
-    // A threshold far above the request count keeps the schedule in its linear region, so the
-    // fee is a flat 1 WLD per verification and the arithmetic below stays readable.
+async fn capacity_is_bought_spent_proven_and_closed() -> eyre::Result<()> {
+    // Only the first test to run installs a subscriber; the rest share it.
+    let _ = init_tracing();
     let report = flow::run(FlowConfig {
-        requests_per_worker: 6,
-        deposit_wld: 14,
-        threshold: 1000,
+        first_funding_units: 4,
+        top_up_units: 2,
         ..FlowConfig::default()
     })
     .await?;
 
-    assert_eq!(report.admitted, 14, "the deposit funds exactly 14 units");
-    assert_eq!(report.rejected_insolvent, 4);
     assert_eq!(
-        report.rejected_other, 0,
-        "no request may fail for any reason other than funding"
+        report.admitted_before_refusal, 4,
+        "the first funding buys exactly four units"
     );
-    for reason in &report.rejection_reasons {
-        assert!(
-            reason.contains("owe"),
-            "every refusal must be an insolvency: {reason}"
-        );
-    }
+    assert_eq!(
+        report.refusal_class, "capacity_exhausted",
+        "the fifth request must fail for want of funding, not for any other reason"
+    );
+    assert_eq!(
+        report.proven_units, 4,
+        "the refusal proof accounts for every unit the collector claims"
+    );
+    assert_eq!(report.admitted_after_top_up, 2, "a top-up lifts the cap");
 
-    assert_eq!(report.collector_wld, wld(14));
-    assert_eq!(report.settled_count, U256::from(14u64));
+    assert_eq!(report.stats.admitted, 6);
+    assert_eq!(report.stats.refused_other, 0);
+
+    assert_eq!(
+        report.settled_units, 6,
+        "the escrow counts the units the collector admitted"
+    );
     assert_eq!(
         report.lane_high_water.iter().sum::<u64>(),
-        14,
-        "the escrow charges on the sum of lane high-water marks"
+        6,
+        "settled units are the sum of the lane marks"
     );
+
+    assert_eq!(report.funded, tokens(6));
     assert!(
-        report.settlements >= 3,
-        "two automatic settlements at 5 and 10, plus the final sweep, got {}",
-        report.settlements
+        report.closed,
+        "an empty batch after the epoch ends closes it"
     );
-
-    // Rejected requests still burned a nonce: the RP signs before the collector decides, and
-    // the counter is what the escrow bills on. Gaps are paid for.
     assert_eq!(
-        report.manager_lane_counters.iter().sum::<u64>(),
-        18,
-        "all 18 requests consumed a nonce, including the 4 that were refused"
+        report.collector_balance,
+        tokens(6),
+        "once closed, paid equals funded"
     );
-    assert_eq!(report.manager_lane_counters.len(), 3);
     assert_eq!(
-        report.manager_latest_verified, 3,
-        "every lane's stored request must verify against the spend key"
-    );
-
-    assert_eq!(report.refund, U256::ZERO, "the deposit was spent exactly");
-    assert_eq!(report.escrow_wld_after_close, U256::ZERO);
-    assert_eq!(
-        report.payer_wld_after_close,
+        report.escrow_balance,
         U256::ZERO,
-        "the payer deposited 14 and got nothing back"
+        "no path returns tokens to a funder"
     );
     Ok(())
 }
 
-/// A deposit with room to spare: everything is admitted and the rest comes back.
+/// Returning the signature early books the unit and frees the lane at once, so a serial
+/// workload uses one lane and the whole epoch settles with a single signature.
 #[tokio::test(flavor = "multi_thread")]
-async fn all_requests_fit_and_payer_is_refunded() -> eyre::Result<()> {
+async fn early_return_keeps_the_epoch_to_one_lane() -> eyre::Result<()> {
+    let _ = init_tracing();
     let report = flow::run(FlowConfig {
-        lane_count: 2,
-        workers: 2,
-        requests_per_worker: 4,
-        deposit_wld: 20,
-        threshold: 1000,
+        first_funding_units: 3,
+        top_up_units: 1,
+        early_return: true,
         ..FlowConfig::default()
     })
     .await?;
 
-    assert_eq!(report.admitted, 8);
-    assert_eq!(report.rejected_insolvent, 0);
-    assert_eq!(report.rejected_other, 0);
-    assert_eq!(report.collector_wld, wld(8));
-    assert_eq!(report.settled_count, U256::from(8u64));
-    assert_eq!(report.refund, wld(12));
-    assert_eq!(report.payer_wld_after_close, wld(12));
-    assert_eq!(report.escrow_wld_after_close, U256::ZERO);
-    assert_eq!(report.manager_lane_counters.iter().sum::<u64>(), 8);
-    assert_eq!(report.manager_latest_verified, 2);
-    Ok(())
-}
-
-/// Past the threshold the marginal price decays, so a channel funded to the schedule's ceiling
-/// keeps admitting work indefinitely and still costs less than the cap.
-#[tokio::test(flavor = "multi_thread")]
-async fn rational_decay_never_runs_dry_and_caps_the_month() -> eyre::Result<()> {
-    let report = flow::run(FlowConfig {
-        lane_count: 3,
-        workers: 3,
-        requests_per_worker: 10,
-        deposit_wld: 8,
-        price_wld: 1,
-        threshold: 4,
-        ..FlowConfig::default()
-    })
-    .await?;
-
-    assert_eq!(report.admitted, 30, "every request is affordable");
-    assert_eq!(report.rejected_insolvent, 0);
-    assert_eq!(report.rejected_other, 0);
-    assert_eq!(report.settled_count, U256::from(30u64));
-
-    let expected = U256::from(7_466_666_666_666_666_666u128);
-    assert_eq!(report.collector_wld, expected);
-    assert_eq!(report.cumulative_fee_at_end, expected);
-    assert_eq!(report.max_fee, wld(8), "2 * price * threshold");
-    assert!(
-        report.collector_wld < report.max_fee,
-        "the total stays under the cap however much work is done"
-    );
-
-    assert_eq!(report.refund, U256::from(533_333_333_333_333_334u128));
-    assert_eq!(report.refund, wld(8) - report.collector_wld);
-    assert_eq!(report.escrow_wld_after_close, U256::ZERO);
-
-    // The marginal price never rises by more than a wei, and the first verification past the
-    // threshold already costs 0.8 WLD instead of 1. The one wei of slack is not cosmetic:
-    // floor division makes the marginal genuinely non-monotonic far out on the tail.
-    let curve = &report.cumulative_fee_curve;
-    assert_eq!(curve.len(), 31, "cumulativeFee(0..=30)");
+    assert_eq!(report.admitted_before_refusal, 3);
+    assert_eq!(report.admitted_after_top_up, 1);
     assert_eq!(
-        curve[5] - curve[4],
-        U256::from(800_000_000_000_000_000u128),
-        "first post-threshold marginal"
+        report.lane_high_water,
+        vec![4],
+        "one lane, counter four: four units proved by one signature"
     );
-    let mut previous_marginal: Option<U256> = None;
-    for k in 4..30usize {
-        let marginal = curve[k + 1] - curve[k];
-        if let Some(previous) = previous_marginal {
-            assert!(
-                marginal <= previous + U256::from(1u64),
-                "marginal price rose by more than a wei at k={k}: {marginal} > {previous}"
-            );
-        }
-        previous_marginal = Some(marginal);
-    }
+    assert_eq!(report.settled_units, 4);
+    assert_eq!(report.collector_balance, tokens(4));
+    assert!(report.closed);
+    Ok(())
+}
+
+/// Unused capacity is never refunded: the closing settlement pays it to the collector.
+#[tokio::test(flavor = "multi_thread")]
+async fn unused_capacity_is_paid_to_the_collector_at_close() -> eyre::Result<()> {
+    let _ = init_tracing();
+    let report = flow::run(FlowConfig {
+        first_funding_units: 2,
+        top_up_units: 1,
+        unspent_units: 3,
+        ..FlowConfig::default()
+    })
+    .await?;
+
+    assert_eq!(report.settled_units, 3, "only three units were ever signed");
+    assert_eq!(report.funded, tokens(6), "six were funded");
+    assert_eq!(
+        report.collector_balance, report.funded,
+        "once closed, paid equals funded however little was used"
+    );
+    assert_eq!(
+        report.escrow_balance,
+        U256::ZERO,
+        "no path returns tokens to a funder"
+    );
     Ok(())
 }

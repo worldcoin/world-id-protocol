@@ -1,24 +1,37 @@
-//! A local, end-to-end demo of a YABS fee channel.
+//! A local, end-to-end demo of a fixed-rate epoch payment channel.
 //!
-//! Three roles run in one process against anvil:
+//! Two roles run in one process against anvil:
 //!
-//! - the **nonce manager** ([`nonce_manager`]), the spec's public nonce service, with a lease
-//!   so two RP workers cannot be handed the same counter;
-//! - the **collector** ([`collector`]), a mock work host that admits a request only if the
-//!   channel can still pay for it, and settles on-chain in batches;
-//! - the **RP** ([`rp`]), which leases a nonce, signs a `ProofRequestV2`, and asks for work.
+//! - the **collector** ([`collector`]), which issues nonces, admits paid requests, and settles
+//!   on chain;
+//! - the **RP** ([`rp`]), which holds no nonce state and signs one authorisation per request.
 //!
-//! [`flow::run`] wires all three together: deploy, register, open, work, settle, close.
+//! [`flow::run`] wires them together: deploy, register, open, fund, work, refuse at capacity,
+//! fund again, settle, close.
+//!
+//! [`harness::run`] does the same against the real flamingo verifier host, which speaks the
+//! same protocol over its own API. See the README for the two commands it takes.
 
 pub mod chain;
 pub mod collector;
+pub mod flamingo;
 pub mod flow;
-pub mod nonce_manager;
+pub mod harness;
 pub mod rp;
 
-// Used by the demo binary and by JSON assertions in the tests, not the library itself.
+// Used by the demo binary, not the library itself.
 use clap as _;
-use serde_json as _;
+
+/// Wall-clock seconds since the Unix epoch.
+///
+/// Saturates at zero rather than panicking; a clock before 1970 is not a case this demo needs
+/// to distinguish, and every caller would otherwise have to handle an impossible error.
+#[must_use]
+pub fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
 
 /// Installs a tracing subscriber honouring `RUST_LOG`, defaulting to `info`.
 ///

@@ -1,25 +1,55 @@
 # world-id-fee-channel-demo
 
-Runs a whole YABS fee channel locally: deploy to anvil, register an RP, open a funded channel,
-do paid work, settle on-chain, close and refund. Three roles run in one process.
+Runs a whole fixed-rate fee channel locally: deploy to anvil, register an RP, open a channel,
+fund an epoch, spend the capacity, fund more, settle, then close. Two roles run in one process.
 
-- **Nonce manager** — the spec's public nonce service. Leases a lane, returns the previous
-  signed request so the RP can check the service is not inventing nonces, records the new one.
-- **Collector** — a mock work host. Admits a request only if the channel can still cover the
-  fee, priced off the on-chain `IFeeSchedule`, then batches settlements to the escrow.
-- **RP** — concurrent workers that lease a nonce, sign a `ProofRequestV2`, and ask for work.
+- **Collector** — issues nonces over `POST /channels/{id}/nonces`, takes early signatures over
+  `PUT /channels/{id}/nonces/{lane}/{counter}`, admits payments at `POST /admit`, and settles
+  the epoch on chain. It reads capacity from a snapshot of `epochState` bounded by a staleness
+  limit, and refuses rather than serves when that read is stale or unavailable.
+- **RP** — holds no nonce state. For each unit it reserves a counter, checks the collector's
+  proposal against its own signature on the counter below it, signs a `Payment`, and hands it
+  on.
 
-Pricing comes from `RationalDecayFeeSchedule(price, threshold)`: a flat `price` per verification
-up to `threshold`, then a marginal price decaying as roughly `price·threshold²/n²`, with the
-total capped just under `maxFee() = 2·price·threshold`. Fund a channel to `maxFee` and it can
-never be priced out, which is what the default run shows.
+A `Payment` is consumed by its first admission, so returning the signature early and presenting
+it for work are alternatives rather than a sequence; `--early-return` picks the first.
 
-The lease is this demo's answer to the spec's open problem: YABS leaves concurrent allocation of
-the same nonce unsolved, so a lane here is held by one caller until it records or releases it.
+A refusal at capacity carries the highest payment per lane. The RP verifies those signatures and
+sums the counters, so the proof costs one signature per lane rather than one per unit. Nothing is
+ever refunded: whatever an epoch was funded for reaches the collector, by settlement during the
+epoch or by the closing settlement after it.
 
 ```bash
-cargo run -p world-id-fee-channel-demo            # watch it, RUST_LOG=debug for more
-cargo nextest run -p world-id-fee-channel-demo    # the same flow, asserted
+cargo run -p world-id-fee-channel-demo -- demo          # watch it, RUST_LOG=debug for more
+cargo nextest run -p world-id-fee-channel-demo          # the same flow, asserted
 ```
 
-Needs `forge build` artifacts under `contracts/out/` at compile time and `anvil` on PATH.
+Needs `forge build` artifacts under `contracts/out/` and `anvil` on PATH at run time.
+
+## Local end-to-end with the flamingo host
+
+The same channel, driven against the real collector: the flamingo verifier host. Two terminals,
+in this order.
+
+```bash
+# Terminal 1: deploys everything, writes the env block, then waits for the host.
+cargo run -p world-id-fee-channel-demo -- local-e2e
+
+# Terminal 2: once terminal 1 has printed the env block.
+cd ~/work/flamingo
+cargo build -p flamingo-verifier-host --features mock-enclave
+set -a; source ~/work/world-id-protocol/target/local-e2e.env; set +a
+cargo run -p flamingo-verifier-host --features mock-enclave
+```
+
+Terminal 1 starts anvil on a fixed mnemonic, deploys the registry, the token, and the escrow
+behind its proxy, registers an RP, opens a channel, funds epoch 0, and writes
+`target/local-e2e.env`. It then polls the host's `/ready` until it answers, drives the funded
+units through `POST /v1/matches`, checks that the next one is refused as `capacity_exhausted`,
+verifies every signature in `error.details.authorizations` against the RP's own spend key, funds
+more, drives one more unit, and prints a summary.
+
+`ENCLAVE_MODE=mock` answers matches from a hash, so the ciphertext is a placeholder and nothing
+is attested. The host does not settle on chain in this version, so no lane mark is ever raised:
+the harness closes the epoch itself with an empty `settle`, which pays the collector the whole
+funded amount.

@@ -16,3 +16,5 @@ WRN 2026-09-10T17:33:02.169 ?.45564    server_start:199: Failed to start server:
 WRN 2026-09-10T17:33:22.779 ?.45803    server_start:199: Failed to start server: operation not permitted: /var/folders/99/tjz1_nzj1x73hyft1566znmc0000gp/T/nvim.leyton.taylor/x3ucb1/nvim.45803.0
 WRN 2026-09-10T17:37:31.876 ?.54795    server_start:199: Failed to start server: operation not permitted: /var/folders/99/tjz1_nzj1x73hyft1566znmc0000gp/T/nvim.leyton.taylor/T66iyd/nvim.54795.0
 WRN 2026-09-10T20:59:00.611 ?.61300    server_start:199: Failed to start server: operation not permitted: /var/folders/99/tjz1_nzj1x73hyft1566znmc0000gp/T/nvim.leyton.taylor/9XaflA/nvim.61300.0
+WRN 2026-09-13T13:19:40.148 ?.69254    server_start:199: Failed to start server: operation not permitted: /var/folders/99/tjz1_nzj1x73hyft1566znmc0000gp/T/nvim.leyton.taylor/xc7N5K/nvim.69254.0
+WRN 2026-09-13T13:20:29.922 ?.75385    server_start:199: Failed to start server: operation not permitted: /var/folders/99/tjz1_nzj1x73hyft1566znmc0000gp/T/nvim.leyton.taylor/6mps1B/nvim.75385.0

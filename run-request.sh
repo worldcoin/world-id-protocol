@@ -1,4 +1,4 @@
-#!/bin/bash
+
 
 cargo run -p world-id-core --bin issuer --features cli -- 0 > /tmp/credential.json
 cargo run -p world-id-core --bin rp --features cli > /tmp/rp_request.json

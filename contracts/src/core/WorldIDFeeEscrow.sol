@@ -3,20 +3,22 @@ pragma solidity ^0.8.13;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {WorldIDBase} from "./abstract/WorldIDBase.sol";
-import {IFeeSchedule} from "./interfaces/IFeeSchedule.sol";
 import {IRpRegistry} from "./interfaces/IRpRegistry.sol";
 import {IWorldIDFeeEscrow} from "./interfaces/IWorldIDFeeEscrow.sol";
 
 /**
  * @title WorldIDFeeEscrow (World ID)
  * @author World Contributors
- * @notice Unidirectional payment channels that pay a `collector` for World ID work authorised by an RP.
- * @dev POC implementation of YABS. See {IWorldIDFeeEscrow} for the resolved spec semantics.
+ * @notice Fixed-rate, epoch-based payment channels that pay a `collector` for World ID work authorised by an RP.
+ * @dev The EIP-712 `verifyingContract` is the proxy, so every `channelId` and payment digest is bound to the
+ *      proxy address rather than to an implementation. Reentrancy is guarded with transient storage, which
+ *      keeps the guard out of the upgradeable storage layout entirely.
  * @custom:repo https://github.com/world-id/world-id-protocol
  */
-contract WorldIDFeeEscrow is WorldIDBase, IWorldIDFeeEscrow {
+contract WorldIDFeeEscrow is WorldIDBase, ReentrancyGuardTransient, IWorldIDFeeEscrow {
     using SafeERC20 for IERC20;
 
     ////////////////////////////////////////////////////////////
@@ -30,28 +32,31 @@ contract WorldIDFeeEscrow is WorldIDBase, IWorldIDFeeEscrow {
     /// @dev Registry consulted at open to pin `spendKey` to the RP's registered signer.
     IRpRegistry internal _rpRegistry;
 
-    /// @dev channelId -> channel state
-    mapping(bytes32 => Channel) internal _channels;
+    /// @dev channelId -> immutable settings. A zero `spendKey` means the channel does not exist.
+    mapping(bytes32 => ChannelSettings) internal _channels;
 
-    /// @dev channelId -> lane -> highest settled counter
-    mapping(bytes32 => mapping(uint32 => uint64)) internal _laneHighWater;
+    /// @dev channelId -> epoch -> state
+    mapping(bytes32 => mapping(uint64 => EpochState)) internal _epochs;
+
+    /// @dev channelId -> epoch -> lane -> highest settled counter
+    mapping(bytes32 => mapping(uint64 => mapping(uint32 => uint64))) internal _laneHighWater;
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
     ////////////////////////////////////////////////////////////
 
     string public constant EIP712_NAME = "WorldIDFeeEscrow";
-    string public constant EIP712_VERSION = "1.0";
+    string public constant EIP712_VERSION = "1";
 
-    bytes32 public constant OPEN_CHANNEL_TYPEHASH = keccak256(
-        "OpenChannel(uint64 rpId,address payer,address spendKey,address collector,address token,address feeSchedule,uint32 laneCount,uint64 collectionDeadline,bytes32 salt)"
+    bytes32 public constant CHANNEL_SETTINGS_TYPEHASH = keccak256(
+        "ChannelSettings(uint64 rpId,address spendKey,address collector,address token,uint256 pricePerUnit,uint64 epochLength,uint64 epochZero,bytes32 salt)"
     );
 
     bytes32 public constant PAYMENT_AUTHORIZATION_TYPEHASH =
-        keccak256("PaymentAuthorization(bytes32 channelId,uint64 rpId,uint96 channelNonce,bytes32 rpRequestDigest)");
+        keccak256("PaymentAuthorization(bytes32 channelId,uint64 epoch,uint96 channelNonce)");
 
     ////////////////////////////////////////////////////////////
-    //                        Constructor                     //
+    //                      Constructor                       //
     ////////////////////////////////////////////////////////////
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -64,6 +69,7 @@ contract WorldIDFeeEscrow is WorldIDBase, IWorldIDFeeEscrow {
     function initialize(address rpRegistry) public virtual initializer {
         if (rpRegistry == address(0)) revert ZeroAddress();
 
+        // The escrow charges no registration fee, so the fee configuration stays empty.
         __BaseUpgradeable_init(EIP712_NAME, EIP712_VERSION, address(0), address(0), 0);
         _rpRegistry = IRpRegistry(rpRegistry);
     }
@@ -73,151 +79,115 @@ contract WorldIDFeeEscrow is WorldIDBase, IWorldIDFeeEscrow {
     ////////////////////////////////////////////////////////////
 
     /// @inheritdoc IWorldIDFeeEscrow
-    function openChannel(ChannelSettings calldata settings, uint256 deposit, bytes calldata rpSignature)
+    function openChannel(ChannelSettings calldata settings)
         external
         virtual
         onlyProxy
         onlyInitialized
         returns (bytes32 channelId)
     {
-        if (msg.sender != settings.payer) revert NotPayer();
-        if (settings.laneCount == 0) revert ZeroLaneCount();
-        if (settings.collectionDeadline <= block.timestamp) {
-            revert DeadlineInPast();
-        }
-        if (
-            settings.spendKey == address(0) || settings.collector == address(0) || settings.token == address(0)
-                || settings.feeSchedule == address(0)
-        ) {
+        if (settings.spendKey == address(0) || settings.collector == address(0) || settings.token == address(0)) {
             revert ZeroAddress();
         }
+        if (settings.pricePerUnit == 0 || settings.epochLength == 0) revert ZeroValue();
 
         // Reverts for unknown or inactive RPs.
         (, address signer) = _rpRegistry.getOprfKeyIdAndSigner(settings.rpId);
-        if (signer != settings.spendKey) {
-            revert SpendKeyMismatch(signer, settings.spendKey);
-        }
-
-        if (!SignatureChecker.isValidSignatureNow(settings.spendKey, openChannelHash(settings), rpSignature)) {
-            revert InvalidRpSignature();
-        }
+        if (signer != settings.spendKey) revert SpendKeyMismatch(signer, settings.spendKey);
 
         channelId = computeChannelId(settings);
-        Channel storage channel = _channels[channelId];
-        if (channel.openedAt != 0) revert ChannelAlreadyExists(channelId);
+        if (_channels[channelId].spendKey != address(0)) revert ChannelAlreadyExists(channelId);
 
-        channel.settings = settings;
-        channel.openedAt = uint64(block.timestamp);
-        channel.balance = deposit;
+        _channels[channelId] = settings;
 
-        emit ChannelOpened(channelId, settings.rpId, settings.collector, settings.payer, deposit);
-
-        if (deposit > 0) {
-            IERC20(settings.token).safeTransferFrom(msg.sender, address(this), deposit);
-        }
+        emit ChannelOpened(channelId, settings);
     }
 
     /// @inheritdoc IWorldIDFeeEscrow
-    function fund(bytes32 channelId, uint256 amount) external virtual onlyProxy onlyInitialized {
-        Channel storage channel = _channels[channelId];
-        if (channel.openedAt == 0) revert ChannelNotFound(channelId);
-        if (channel.closed) revert ChannelAlreadyClosed(channelId);
-
-        channel.balance += amount;
-
-        emit ChannelFunded(channelId, msg.sender, amount);
-
-        if (amount > 0) {
-            IERC20(channel.settings.token).safeTransferFrom(msg.sender, address(this), amount);
-        }
-    }
-
-    /// @inheritdoc IWorldIDFeeEscrow
-    function settle(bytes32 channelId, PaymentAuthorization[] calldata auths)
+    function fund(bytes32 channelId, uint64 epoch, uint256 amount)
         external
         virtual
         onlyProxy
         onlyInitialized
-        returns (uint256 paidNow)
+        nonReentrant
     {
-        Channel storage channel = _channels[channelId];
-        if (channel.openedAt == 0) revert ChannelNotFound(channelId);
-        if (channel.closed) revert ChannelAlreadyClosed(channelId);
+        ChannelSettings storage settings = _channelOrRevert(channelId);
+        EpochState storage state = _epochs[channelId][epoch];
 
-        uint64 deadline = channel.settings.collectionDeadline;
-        if (block.timestamp > deadline) revert CollectionWindowClosed(deadline);
+        if (state.closed) revert EpochClosed(channelId, epoch);
+        if (block.timestamp >= _epochEnd(settings, epoch)) revert EpochEnded(channelId, epoch);
 
-        uint32 laneCount = channel.settings.laneCount;
-        address spendKey = channel.settings.spendKey;
-        uint64 rpId = channel.settings.rpId;
-        mapping(uint32 => uint64) storage highWater = _laneHighWater[channelId];
+        uint256 pricePerUnit = settings.pricePerUnit;
+        if (amount == 0) revert ZeroValue();
+        if (amount % pricePerUnit != 0) revert AmountNotMultipleOfPrice(amount, pricePerUnit);
 
-        uint256 added;
+        state.funded += amount;
+
+        emit EpochFunded(channelId, epoch, msg.sender, amount);
+
+        IERC20(settings.token).safeTransferFrom(msg.sender, address(this), amount);
+    }
+
+    /// @inheritdoc IWorldIDFeeEscrow
+    function settle(bytes32 channelId, uint64 epoch, PaymentAuthorization[] calldata auths)
+        external
+        virtual
+        onlyProxy
+        onlyInitialized
+        nonReentrant
+    {
+        ChannelSettings storage settings = _channelOrRevert(channelId);
+        EpochState storage state = _epochs[channelId][epoch];
+
+        if (state.closed) revert EpochClosed(channelId, epoch);
+
+        address spendKey = settings.spendKey;
+        uint256 pricePerUnit = settings.pricePerUnit;
+        mapping(uint32 => uint64) storage marks = _laneHighWater[channelId][epoch];
+
+        uint64 added;
         for (uint256 i = 0; i < auths.length; i++) {
             PaymentAuthorization calldata auth = auths[i];
             uint32 lane = uint32(auth.channelNonce >> 64);
             uint64 counter = uint64(auth.channelNonce);
 
-            if (lane >= laneCount) revert InvalidLane(lane, laneCount);
             if (counter == 0) revert ZeroCounter();
 
-            uint64 previous = highWater[lane];
-            if (counter <= previous) revert StaleNonce(lane, counter, previous);
+            // A running mark, so duplicate lanes within one batch settle to the batch maximum and a
+            // replayed batch is a no-op rather than a revert. Stale entries are never signature-checked.
+            uint64 previous = marks[lane];
+            if (counter <= previous) continue;
 
-            bytes32 digest = paymentAuthorizationHash(channelId, rpId, auth.channelNonce, auth.rpRequestDigest);
-            if (!SignatureChecker.isValidSignatureNow(spendKey, digest, auth.signature)) {
+            bytes32 digest = paymentAuthorizationDigest(channelId, epoch, auth.channelNonce);
+            if (!_isValidSpendKeySignature(spendKey, digest, auth.signature)) {
                 revert InvalidPaymentSignature(auth.channelNonce);
             }
 
-            highWater[lane] = counter;
+            marks[lane] = counter;
             added += counter - previous;
         }
 
-        if (added > 0) channel.settledCount += added;
+        uint256 funded = state.funded;
+        uint64 settledUnits = state.settledUnits + added;
 
-        uint256 outstanding;
-        (paidNow, outstanding) = _payOut(channelId);
+        // Equivalent to `settledUnits * pricePerUnit > funded`, without the multiplication overflowing.
+        uint256 capacity = funded / pricePerUnit;
+        if (settledUnits > capacity) revert CapacityExceeded(settledUnits, capacity);
 
-        emit ChannelSettled(channelId, channel.settledCount, paidNow, outstanding);
-    }
+        state.settledUnits = settledUnits;
 
-    /// @inheritdoc IWorldIDFeeEscrow
-    function closeChannel(bytes32 channelId) external virtual onlyProxy onlyInitialized {
-        Channel storage channel = _channels[channelId];
-        if (channel.openedAt == 0) revert ChannelNotFound(channelId);
-        if (channel.closed) revert ChannelAlreadyClosed(channelId);
+        uint256 paid = pricePerUnit * added;
 
-        uint64 deadline = channel.settings.collectionDeadline;
-        if (msg.sender != channel.settings.collector) {
-            if (msg.sender != channel.settings.payer) {
-                revert NotPayerOrCollector();
-            }
-            if (block.timestamp <= deadline) {
-                revert CollectionWindowOpen(deadline);
-            }
+        bool closed = block.timestamp >= _epochEnd(settings, epoch);
+        if (closed) {
+            // The non-refundable part of the price. Claims nothing about usage, so it needs no signatures.
+            state.closed = true;
+            paid += funded - pricePerUnit * settledUnits;
         }
 
-        channel.closed = true;
+        emit EpochSettled(channelId, epoch, settledUnits, paid, closed);
 
-        // The payer's exit must not depend on the schedule contract behaving. A schedule that reverts
-        // or overflows would otherwise lock the deposit here forever; treat the fee as zero instead.
-        uint256 paidToCollector;
-        try IFeeSchedule(channel.settings.feeSchedule).cumulativeFee(channel.settledCount) returns (
-            uint256 cumulative
-        ) {
-            (paidToCollector,) = _disburse(channelId, cumulative);
-        } catch {
-            emit FeeScheduleFailed(channelId);
-        }
-
-        uint256 refund = channel.balance;
-        channel.balance = 0;
-
-        emit ChannelClosed(channelId, paidToCollector, refund);
-
-        if (refund > 0) {
-            IERC20(channel.settings.token).safeTransfer(channel.settings.payer, refund);
-        }
+        if (paid > 0) IERC20(settings.token).safeTransfer(settings.collector, paid);
     }
 
     ////////////////////////////////////////////////////////////
@@ -233,16 +203,49 @@ contract WorldIDFeeEscrow is WorldIDBase, IWorldIDFeeEscrow {
         onlyInitialized
         returns (bytes32)
     {
-        return keccak256(abi.encode(block.chainid, address(this), settings));
+        return _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    CHANNEL_SETTINGS_TYPEHASH,
+                    settings.rpId,
+                    settings.spendKey,
+                    settings.collector,
+                    settings.token,
+                    settings.pricePerUnit,
+                    settings.epochLength,
+                    settings.epochZero,
+                    settings.salt
+                )
+            )
+        );
     }
 
     /// @inheritdoc IWorldIDFeeEscrow
-    function getChannel(bytes32 channelId) external view virtual onlyProxy onlyInitialized returns (Channel memory) {
-        return _channels[channelId];
+    function paymentAuthorizationDigest(bytes32 channelId, uint64 epoch, uint96 channelNonce)
+        public
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (bytes32)
+    {
+        return _hashTypedDataV4(keccak256(abi.encode(PAYMENT_AUTHORIZATION_TYPEHASH, channelId, epoch, channelNonce)));
     }
 
     /// @inheritdoc IWorldIDFeeEscrow
-    function laneHighWater(bytes32 channelId, uint32 lane)
+    function epochState(bytes32 channelId, uint64 epoch)
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (EpochState memory)
+    {
+        return _epochs[channelId][epoch];
+    }
+
+    /// @inheritdoc IWorldIDFeeEscrow
+    function laneHighWater(bytes32 channelId, uint64 epoch, uint32 lane)
         external
         view
         virtual
@@ -250,66 +253,31 @@ contract WorldIDFeeEscrow is WorldIDBase, IWorldIDFeeEscrow {
         onlyInitialized
         returns (uint64)
     {
-        return _laneHighWater[channelId][lane];
+        return _laneHighWater[channelId][epoch][lane];
     }
 
     /// @inheritdoc IWorldIDFeeEscrow
-    function quote(bytes32 channelId, uint256 totalCount)
+    function channelSettings(bytes32 channelId)
         external
         view
         virtual
         onlyProxy
         onlyInitialized
-        returns (uint256 owed, uint256 balance)
+        returns (ChannelSettings memory)
     {
-        Channel storage channel = _channels[channelId];
-        if (channel.openedAt == 0) revert ChannelNotFound(channelId);
-
-        uint256 cumulative = IFeeSchedule(channel.settings.feeSchedule).cumulativeFee(totalCount);
-        uint256 paid = channel.paid;
-        owed = cumulative > paid ? cumulative - paid : 0;
-        balance = channel.balance;
+        return _channelOrRevert(channelId);
     }
 
     /// @inheritdoc IWorldIDFeeEscrow
-    function paymentAuthorizationHash(bytes32 channelId, uint64 rpId, uint96 channelNonce, bytes32 rpRequestDigest)
-        public
+    function epochEnd(bytes32 channelId, uint64 epoch)
+        external
         view
         virtual
         onlyProxy
         onlyInitialized
-        returns (bytes32)
+        returns (uint256)
     {
-        return _hashTypedDataV4(
-            keccak256(abi.encode(PAYMENT_AUTHORIZATION_TYPEHASH, channelId, rpId, channelNonce, rpRequestDigest))
-        );
-    }
-
-    /// @inheritdoc IWorldIDFeeEscrow
-    function openChannelHash(ChannelSettings calldata settings)
-        public
-        view
-        virtual
-        onlyProxy
-        onlyInitialized
-        returns (bytes32)
-    {
-        return _hashTypedDataV4(
-            keccak256(
-                abi.encode(
-                    OPEN_CHANNEL_TYPEHASH,
-                    settings.rpId,
-                    settings.payer,
-                    settings.spendKey,
-                    settings.collector,
-                    settings.token,
-                    settings.feeSchedule,
-                    settings.laneCount,
-                    settings.collectionDeadline,
-                    settings.salt
-                )
-            )
-        );
+        return _epochEnd(_channelOrRevert(channelId), epoch);
     }
 
     /// @inheritdoc IWorldIDFeeEscrow
@@ -326,45 +294,33 @@ contract WorldIDFeeEscrow is WorldIDBase, IWorldIDFeeEscrow {
     //                   INTERNAL FUNCTIONS                   //
     ////////////////////////////////////////////////////////////
 
-    /**
-     * @dev Pays the collector `cumulativeFee(settledCount) - paid`, capped at the channel balance.
-     *      `feeSchedule` is pinned at open and agreed by both parties, so it is trusted here; state is
-     *      still read after the call and written before the transfer so a reentrant schedule can only
-     *      underpay itself. Strict: a reverting schedule reverts the settlement, since the collector chose it.
-     * @return paidNow Tokens transferred to the collector.
-     * @return outstanding Fee accrued but unpayable because the channel is underfunded.
-     */
-    function _payOut(bytes32 channelId) internal virtual returns (uint256 paidNow, uint256 outstanding) {
-        Channel storage channel = _channels[channelId];
-        uint256 cumulative = IFeeSchedule(channel.settings.feeSchedule).cumulativeFee(channel.settledCount);
-        return _disburse(channelId, cumulative);
+    /// @dev Settings of `channelId`, reverting if no channel was ever opened under it.
+    function _channelOrRevert(bytes32 channelId) internal view virtual returns (ChannelSettings storage settings) {
+        settings = _channels[channelId];
+        if (settings.spendKey == address(0)) revert ChannelNotFound(channelId);
     }
 
     /**
-     * @dev Pays the collector `cumulative - paid`, capped at the channel balance. Split out of {_payOut} so
-     *      {closeChannel} can supply a cumulative fee obtained from a fallible call.
-     * @return paidNow Tokens transferred to the collector.
-     * @return outstanding Fee accrued but unpayable because the channel is underfunded.
+     * @dev First timestamp at which `epoch` is over. Widened to `uint256` before multiplying, so the
+     *      largest expressible epoch and epoch length still compute exactly rather than wrapping.
      */
-    function _disburse(bytes32 channelId, uint256 cumulative)
+    function _epochEnd(ChannelSettings storage settings, uint64 epoch) internal view virtual returns (uint256) {
+        return uint256(settings.epochZero) + (uint256(epoch) + 1) * uint256(settings.epochLength);
+    }
+
+    /**
+     * @dev True if `signature` is a canonical 65-byte ECDSA signature by `spendKey` over `digest`.
+     *      `tryRecover` already rejects a wrong length, a high `s`, and a `v` outside {27, 28}, and
+     *      returns the zero address on failure, which no `spendKey` can equal. Contract signers are
+     *      out of scope: an ERC-1271 `spendKey` could change its own answer after the RP signed.
+     */
+    function _isValidSpendKeySignature(address spendKey, bytes32 digest, bytes calldata signature)
         internal
+        pure
         virtual
-        returns (uint256 paidNow, uint256 outstanding)
+        returns (bool)
     {
-        Channel storage channel = _channels[channelId];
-
-        uint256 paid = channel.paid;
-        // A non-monotonic schedule would underflow here; treat it as nothing owed instead.
-        uint256 owed = cumulative > paid ? cumulative - paid : 0;
-
-        uint256 balance = channel.balance;
-        paidNow = owed < balance ? owed : balance;
-        outstanding = owed - paidNow;
-
-        if (paidNow > 0) {
-            channel.paid = paid + paidNow;
-            channel.balance = balance - paidNow;
-            IERC20(channel.settings.token).safeTransfer(channel.settings.collector, paidNow);
-        }
+        (address recovered, ECDSA.RecoverError err,) = ECDSA.tryRecover(digest, signature);
+        return err == ECDSA.RecoverError.NoError && recovered == spendKey;
     }
 }

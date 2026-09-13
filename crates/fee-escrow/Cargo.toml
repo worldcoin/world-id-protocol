@@ -28,6 +28,7 @@ world-id-primitives = { workspace = true }
 [dev-dependencies]
 alloy = { workspace = true, features = [
   "contract",
+  "eips",
   "signer-local",
   "json",
   "network",

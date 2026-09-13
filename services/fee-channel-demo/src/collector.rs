@@ -1,45 +1,99 @@
-//! The mock service that gates work on a signed request and settles the channel on-chain.
+//! The collector: issues nonces, admits payments, and settles the channel on chain.
 //!
-//! Stands in for something like a Deep Face TEE host: it admits a request only if the channel
-//! it names can still pay for the work, then batches the highest authorisation per lane into
-//! `IWorldIDFeeEscrow.settle`.
+//! Stands in for a service like a Deep Face verifier host. It refuses rather than serves
+//! whenever it cannot read current chain state, and it refuses at capacity with a proof the RP
+//! can check against its own signatures.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    collections::BTreeSet,
+    str::FromStr as _,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
 };
 
 use alloy::{
     primitives::{Address, B256, U256},
     providers::DynProvider,
-    sol_types::Eip712Domain,
 };
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use world_id_fee_escrow::{ProofRequestV2, collector::AdmitError};
+use world_id_fee_escrow::{
+    AdmitError, LaneNonce, Ledger, LedgerConfig, Payment, ReserveError,
+    typed_data::{ChannelSettings, epoch_end},
+};
 
-use crate::chain::{self, WorldIDFeeEscrow};
+use crate::{
+    chain::{self, ChainSnapshot},
+    rp::Admitted,
+    unix_now,
+};
 
-/// Counters the test and the demo binary assert on.
+/// Body of `POST /channels/{channel_id}/nonces`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ReserveRequest {
+    /// Epoch the payment will be billed to.
+    pub epoch: u64,
+    /// Fresh random idempotency key.
+    pub request_id: String,
+}
+
+/// Body of `PUT /channels/{channel_id}/nonces/{lane}/{counter}`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RecordRequest {
+    /// The idempotency key the reservation was issued under.
+    pub request_id: String,
+    /// The signed payment. Its channel and nonce must match the path.
+    pub payment: Payment,
+}
+
+/// A refusal, carrying the proof of usage when the epoch ran out of capacity.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Refusal {
+    /// Stable refusal class, for example `capacity_exhausted`.
+    pub error: String,
+    /// Human-readable detail.
+    pub message: String,
+    /// Highest payment per lane. Present only for `capacity_exhausted`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal_proof: Option<Vec<Payment>>,
+}
+
+/// Counters the demo and its test assert on.
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
 pub struct Stats {
-    /// Requests admitted for work.
-    pub admitted: usize,
-    /// Requests refused because the channel could not cover the fee.
-    pub rejected_insolvent: usize,
+    /// Units booked.
+    pub admitted: u64,
+    /// Requests refused because the epoch had no capacity left.
+    pub refused_capacity: u64,
     /// Requests refused for any other reason.
-    pub rejected_other: usize,
-    /// Number of `settle` transactions sent.
-    pub settlements: usize,
-    /// Total WLD received across those settlements.
+    pub refused_other: u64,
+    /// `settle` transactions sent.
+    pub settlements: u64,
+    /// Epochs closed by a settlement after they ended.
+    pub epochs_closed: u64,
+    /// Tokens received across every settlement.
     pub paid_total: U256,
+}
+
+/// What one settlement sweep did.
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
+pub struct SweepReport {
+    /// `settle` transactions this sweep sent.
+    pub settlements: u64,
+    /// Epochs this sweep closed.
+    pub closed: u64,
+    /// Tokens this sweep moved to the collector.
+    pub paid: U256,
 }
 
 /// Collector service state.
@@ -47,70 +101,52 @@ pub struct Stats {
 pub struct Collector {
     provider: DynProvider,
     escrow: Address,
-    fee_schedule: Address,
-    domain: Eip712Domain,
-    ledger: Mutex<world_id_fee_escrow::Ledger>,
+    snapshot: ChainSnapshot,
+    settings: ChannelSettings,
+    channel_id: B256,
+    ledger: Mutex<Ledger<ChainSnapshot>>,
     stats: Mutex<Stats>,
-    settle_every: usize,
-    pending_since_settle: AtomicUsize,
-    sequence: AtomicUsize,
+    /// Epochs this collector has seen traffic for and may still owe a settlement on.
+    open_epochs: Mutex<BTreeSet<u64>>,
+    sequence: AtomicU64,
 }
 
 /// Shared handle to the collector.
 pub type SharedCollector = Arc<Collector>;
 
-/// Successful admission response.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WorkAccepted {
-    /// Always true.
-    pub admitted: bool,
-    /// Stand-in for whatever the real service returns.
-    pub receipt: String,
-    /// Lane the request drew from.
-    pub lane: u32,
-    /// Counter the request carried.
-    pub counter: u64,
-}
-
-/// Refusal response.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct WorkRejected {
-    /// Always false.
-    pub admitted: bool,
-    /// Why the request was refused.
-    pub reason: String,
-}
-
-/// Result of a settlement sweep.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
-pub struct SettleReport {
-    /// Settlements performed in this sweep.
-    pub settlements: usize,
-    /// WLD collected across the whole service lifetime.
-    pub paid_total: U256,
-}
-
 impl Collector {
-    /// Creates a collector that settles once `settle_every` requests have been admitted.
+    /// Creates a collector serving one channel.
     #[must_use]
     pub fn new(
         provider: DynProvider,
         escrow: Address,
-        fee_schedule: Address,
-        domain: Eip712Domain,
-        settle_every: usize,
+        chain_id: u64,
+        snapshot: ChainSnapshot,
+        settings: ChannelSettings,
+        config: LedgerConfig,
     ) -> SharedCollector {
+        let domain = world_id_fee_escrow::domain(chain_id, escrow);
+        let mut ledger = Ledger::new(domain, snapshot.clone(), config);
+        let channel_id = ledger.register_channel(settings.clone());
+        snapshot.track(channel_id, settings.pricePerUnit);
+
         Arc::new(Self {
             provider,
             escrow,
-            fee_schedule,
-            domain,
-            ledger: Mutex::new(world_id_fee_escrow::Ledger::new()),
+            snapshot,
+            settings,
+            channel_id,
+            ledger: Mutex::new(ledger),
             stats: Mutex::new(Stats::default()),
-            settle_every,
-            pending_since_settle: AtomicUsize::new(0),
-            sequence: AtomicUsize::new(0),
+            open_epochs: Mutex::new(BTreeSet::new()),
+            sequence: AtomicU64::new(0),
         })
+    }
+
+    /// The channel this collector serves.
+    #[must_use]
+    pub const fn channel_id(&self) -> B256 {
+        self.channel_id
     }
 
     /// Current counters.
@@ -118,202 +154,320 @@ impl Collector {
         *self.stats.lock().await
     }
 
-    /// Settles every channel that has pending authorisations.
+    /// Refreshes the capacity snapshot for an epoch before it is used to admit anything.
     ///
-    /// Holds the ledger lock for the whole sweep. Releasing it between `settlement_batch` and
-    /// `mark_settled` would let an admission land in between and have its authorisation
-    /// cleared without ever being submitted.
+    /// A failure is logged and swallowed: the cached reading then either satisfies the
+    /// staleness bound or does not, and [`ChainView`](world_id_fee_escrow::ChainView) refuses.
+    async fn refresh(&self, epoch: u64) {
+        if let Err(error) = self.snapshot.refresh(self.channel_id, epoch).await {
+            tracing::warn!(
+                channel = %self.channel_id,
+                epoch,
+                dependency = "escrow.epochState",
+                %error,
+                "capacity refresh failed, falling back to the cached reading"
+            );
+        }
+        self.open_epochs.lock().await.insert(epoch);
+    }
+
+    /// Settles every epoch with new signed usage, then closes the ones that have ended.
     ///
     /// # Errors
     /// Returns an error if a `settle` transaction fails.
-    #[expect(
-        clippy::significant_drop_tightening,
-        reason = "the ledger lock must span the whole sweep, see above"
-    )]
-    pub async fn settle_all(&self) -> eyre::Result<usize> {
-        let mut performed = 0usize;
-        {
-            let mut ledger = self.ledger.lock().await;
-            let escrow = WorldIDFeeEscrow::new(self.escrow, self.provider.clone());
-            let channels: Vec<B256> = ledger.channels_with_pending();
+    pub async fn sweep(&self) -> eyre::Result<SweepReport> {
+        let now = chain::block_timestamp(&self.provider).await?;
+        let epochs: Vec<u64> = self.open_epochs.lock().await.iter().copied().collect();
+        let mut report = SweepReport::default();
 
-            for channel_id in channels {
-                let batch = ledger.settlement_batch(channel_id);
-                if batch.is_empty() {
-                    continue;
-                }
-                let auths = batch.iter().map(chain::to_sol_auth).collect();
-                let receipt = escrow
-                    .settle(channel_id, auths)
-                    .send()
-                    .await?
-                    .get_receipt()
-                    .await?;
-
-                let paid_now: U256 = receipt
-                    .inner
-                    .logs()
-                    .iter()
-                    .filter_map(|log| log.log_decode::<WorldIDFeeEscrow::ChannelSettled>().ok())
-                    .map(|log| log.inner.paidNow)
-                    .sum();
-
-                ledger.mark_settled(channel_id);
-                performed += 1;
-                {
-                    let mut counters = self.stats.lock().await;
-                    counters.settlements += 1;
-                    counters.paid_total += paid_now;
-                }
+        for epoch in epochs {
+            let batch = self
+                .ledger
+                .lock()
+                .await
+                .settlement_batch(self.channel_id, epoch);
+            if !batch.is_empty() {
+                let settled =
+                    chain::settle(&self.provider, self.escrow, self.channel_id, epoch, &batch)
+                        .await?;
+                self.ledger
+                    .lock()
+                    .await
+                    .mark_settled(self.channel_id, epoch, &batch);
+                report.settlements += 1;
+                report.paid += settled.paid;
                 tracing::info!(
-                    channel = %channel_id,
+                    channel = %self.channel_id,
+                    epoch,
                     authorisations = batch.len(),
-                    paid_now = %paid_now,
-                    "settled on-chain"
+                    settled_units = settled.settled_units,
+                    "settled"
                 );
+            }
+
+            // The closing settlement pays whatever signed usage did not. It needs no
+            // signatures because it claims nothing about usage.
+            let ended = epoch_end(&self.settings, epoch).is_some_and(|end| now >= end);
+            if ended {
+                let closed =
+                    chain::settle(&self.provider, self.escrow, self.channel_id, epoch, &[]).await?;
+                report.settlements += 1;
+                report.paid += closed.paid;
+                if closed.closed {
+                    report.closed += 1;
+                    self.ledger.lock().await.close_epoch(self.channel_id, epoch);
+                    self.open_epochs.lock().await.remove(&epoch);
+                    tracing::info!(channel = %self.channel_id, epoch, "epoch closed");
+                }
             }
         }
 
-        self.pending_since_settle.store(0, Ordering::SeqCst);
-        Ok(performed)
+        {
+            let mut stats = self.stats.lock().await;
+            stats.settlements += report.settlements;
+            stats.epochs_closed += report.closed;
+            stats.paid_total += report.paid;
+        }
+        Ok(report)
     }
+}
+
+/// Runs a settlement sweep every `interval` until the returned handle is aborted.
+#[must_use]
+pub fn settlement_task(state: SharedCollector, interval: Duration) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            if let Err(error) = state.sweep().await {
+                tracing::error!(channel = %state.channel_id, %error, "settlement sweep failed");
+            }
+        }
+    })
 }
 
 /// Routes for the collector service.
 pub fn router(state: SharedCollector) -> Router {
     Router::new()
-        .route("/work", post(work))
-        .route("/settle", post(settle))
+        .route("/channels/{channel_id}/nonces", post(reserve))
+        .route(
+            "/channels/{channel_id}/nonces/{lane}/{counter}",
+            put(record),
+        )
+        .route("/admit", post(admit))
+        .route("/settle", post(sweep))
         .route("/stats", get(stats))
         .with_state(state)
 }
 
 /// Serves `router` on `listener` until the returned handle is aborted.
+#[must_use]
 pub fn serve(
     listener: tokio::net::TcpListener,
     state: SharedCollector,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, router(state)).await {
-            tracing::error!(error = %e, "collector stopped");
+        if let Err(error) = axum::serve(listener, router(state)).await {
+            tracing::error!(%error, "collector stopped");
         }
     })
 }
 
-fn reject(reason: String) -> Response {
+/// Binds an ephemeral local port.
+///
+/// # Errors
+/// Returns an error if the port cannot be bound.
+pub async fn bind_ephemeral() -> eyre::Result<(std::net::SocketAddr, tokio::net::TcpListener)> {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    Ok((listener.local_addr()?, listener))
+}
+
+fn refuse(
+    status: StatusCode,
+    error: &str,
+    message: String,
+    refusal_proof: Option<Vec<Payment>>,
+) -> Response {
     (
-        StatusCode::PAYMENT_REQUIRED,
-        Json(WorkRejected {
-            admitted: false,
-            reason,
+        status,
+        Json(Refusal {
+            error: error.to_string(),
+            message,
+            refusal_proof,
         }),
     )
         .into_response()
 }
 
-async fn work(
+fn bad_channel(raw: &str) -> Response {
+    refuse(
+        StatusCode::BAD_REQUEST,
+        "malformed_channel_id",
+        format!("{raw:?} is not a 32-byte hex channel id"),
+        None,
+    )
+}
+
+async fn reserve(
     State(state): State<SharedCollector>,
-    Json(request): Json<ProofRequestV2>,
+    Path(channel_id): Path<String>,
+    Json(body): Json<ReserveRequest>,
 ) -> Response {
-    let payment = match request.payment() {
-        Ok(Some(payment)) => payment,
-        Ok(None) => return reject("request carries no payment authorisation".to_string()),
-        Err(e) => return reject(e.to_string()),
+    let Ok(channel_id) = B256::from_str(&channel_id) else {
+        return bad_channel(&channel_id);
     };
-    let (channel_id, nonce) = payment;
+    state.refresh(body.epoch).await;
 
-    // The whole admission runs under the ledger lock, including the two chain reads. The fee
-    // is priced off the ledger's own projection, so anything that mutates the ledger in
-    // between would invalidate the quote.
-    let outcome = {
-        let mut ledger = state.ledger.lock().await;
-
-        let view = match chain::read_channel_view(&state.provider, state.escrow, channel_id).await {
-            Ok(view) => view,
-            Err(e) => return reject(format!("cannot read channel: {e}")),
-        };
-        let projected =
-            ledger.projected_total(channel_id, nonce.lane, nonce.counter, view.settled_count);
-        let quoted =
-            match chain::cumulative_fee(&state.provider, state.fee_schedule, projected).await {
-                Ok(fee) => fee,
-                Err(e) => return reject(format!("cannot price the fee: {e}")),
-            };
-
-        let fee = |count: U256| {
-            debug_assert_eq!(
-                count, projected,
-                "admit priced a different total than projected_total"
-            );
-            quoted
-        };
-        ledger.admit(&request, &view, &fee, &state.domain)
-    };
-
-    match outcome {
-        Ok(()) => {
-            let sequence = state.sequence.fetch_add(1, Ordering::SeqCst);
-            {
-                let mut counters = state.stats.lock().await;
-                counters.admitted += 1;
-            }
-            tracing::info!(
-                lane = nonce.lane,
-                counter = nonce.counter,
-                "admitted, doing the work"
-            );
-
-            let pending = state.pending_since_settle.fetch_add(1, Ordering::SeqCst) + 1;
-            if pending >= state.settle_every
-                && let Err(e) = state.settle_all().await
-            {
-                tracing::error!(error = %e, "settlement failed");
-            }
-
-            Json(WorkAccepted {
-                admitted: true,
-                receipt: format!("deepface-mock-{sequence}"),
-                lane: nonce.lane,
-                counter: nonce.counter,
-            })
-            .into_response()
-        }
-        Err(e) => {
-            let insolvent = matches!(e, AdmitError::Insolvent { .. });
-            {
-                let mut counters = state.stats.lock().await;
-                if insolvent {
-                    counters.rejected_insolvent += 1;
-                } else {
-                    counters.rejected_other += 1;
+    let issued =
+        state
+            .ledger
+            .lock()
+            .await
+            .reserve(channel_id, body.epoch, &body.request_id, unix_now());
+    match issued {
+        Ok(issued) => Json(issued).into_response(),
+        Err(error) => {
+            let (status, class) = match error {
+                ReserveError::UnknownChannel(_) => (StatusCode::NOT_FOUND, "unknown_channel"),
+                ReserveError::EpochOutOfRange { .. } | ReserveError::NoCurrentEpoch(_) => {
+                    (StatusCode::BAD_REQUEST, "epoch_out_of_range")
                 }
-            }
-            tracing::warn!(
-                lane = nonce.lane,
-                counter = nonce.counter,
-                error = %e,
-                "refused"
-            );
-            reject(e.to_string())
+                ReserveError::Chain(_) => (StatusCode::SERVICE_UNAVAILABLE, "chain_unavailable"),
+                ReserveError::CapacityExhausted { .. } => {
+                    (StatusCode::PAYMENT_REQUIRED, "capacity_exhausted")
+                }
+                ReserveError::TooManyPending { .. } => {
+                    (StatusCode::TOO_MANY_REQUESTS, "too_many_pending")
+                }
+                ReserveError::Nonce(_) => (StatusCode::CONFLICT, "lane_exhausted"),
+            };
+            let proof = if class == "capacity_exhausted" {
+                Some(
+                    state
+                        .ledger
+                        .lock()
+                        .await
+                        .refusal_proof(channel_id, body.epoch),
+                )
+            } else {
+                None
+            };
+            tracing::warn!(channel = %channel_id, epoch = body.epoch, class, %error, "nonce refused");
+            refuse(status, class, error.to_string(), proof)
         }
     }
 }
 
-async fn settle(State(state): State<SharedCollector>) -> Response {
-    match state.settle_all().await {
-        Ok(settlements) => Json(SettleReport {
-            settlements,
-            paid_total: state.stats().await.paid_total,
-        })
-        .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(WorkRejected {
-                admitted: false,
-                reason: e.to_string(),
-            }),
-        )
-            .into_response(),
+async fn record(
+    State(state): State<SharedCollector>,
+    Path((channel_id, lane, counter)): Path<(String, u32, u64)>,
+    Json(body): Json<RecordRequest>,
+) -> Response {
+    let Ok(channel_id) = B256::from_str(&channel_id) else {
+        return bad_channel(&channel_id);
+    };
+    // The path is the caller's claim; the payment itself is what gets banked, so they must agree.
+    let claimed = body.payment.lane_nonce().ok();
+    if body.payment.channel_id != channel_id || claimed != Some(LaneNonce::new(lane, counter)) {
+        return refuse(
+            StatusCode::BAD_REQUEST,
+            "path_mismatch",
+            "the payment does not match the channel, lane, and counter in the path".to_string(),
+            None,
+        );
+    }
+
+    let epoch = body.payment.epoch;
+    let recorded = state
+        .ledger
+        .lock()
+        .await
+        .record(&body.payment, &body.request_id, unix_now());
+    match recorded {
+        Ok(_) => {
+            state.stats.lock().await.admitted += 1;
+            state.open_epochs.lock().await.insert(epoch);
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Err(error) => {
+            state.stats.lock().await.refused_other += 1;
+            tracing::warn!(
+                channel = %channel_id,
+                epoch,
+                lane,
+                counter,
+                class = error.class(),
+                %error,
+                "early payment refused"
+            );
+            refuse(StatusCode::CONFLICT, error.class(), error.to_string(), None)
+        }
+    }
+}
+
+async fn admit(State(state): State<SharedCollector>, Json(payment): Json<Payment>) -> Response {
+    let epoch = payment.epoch;
+    state.refresh(epoch).await;
+
+    let outcome = state.ledger.lock().await.admit(&payment, unix_now());
+    match outcome {
+        Ok(unit) => {
+            state.stats.lock().await.admitted += 1;
+            Json(Admitted {
+                receipt: format!(
+                    "verifier-mock-{}",
+                    state.sequence.fetch_add(1, Ordering::SeqCst)
+                ),
+                epoch: unit.epoch,
+                lane: unit.lane_nonce.lane,
+                counter: unit.lane_nonce.counter,
+            })
+            .into_response()
+        }
+        Err(error) => {
+            let class = error.class();
+            let (status, proof) = match &error {
+                AdmitError::CapacityExhausted { .. } => (
+                    StatusCode::PAYMENT_REQUIRED,
+                    Some(
+                        state
+                            .ledger
+                            .lock()
+                            .await
+                            .refusal_proof(state.channel_id, epoch),
+                    ),
+                ),
+                AdmitError::Chain(_) => (StatusCode::SERVICE_UNAVAILABLE, None),
+                AdmitError::UnknownChannel(_) => (StatusCode::NOT_FOUND, None),
+                _ => (StatusCode::CONFLICT, None),
+            };
+            {
+                let mut counters = state.stats.lock().await;
+                if matches!(error, AdmitError::CapacityExhausted { .. }) {
+                    counters.refused_capacity += 1;
+                } else {
+                    counters.refused_other += 1;
+                }
+            }
+            tracing::warn!(channel = %state.channel_id, epoch, class, %error, "admission refused");
+            refuse(status, class, error.to_string(), proof)
+        }
+    }
+}
+
+async fn sweep(State(state): State<SharedCollector>) -> Response {
+    match state.sweep().await {
+        Ok(report) => Json(report).into_response(),
+        Err(error) => {
+            tracing::error!(channel = %state.channel_id, %error, "settlement failed");
+            refuse(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "settlement_failed",
+                error.to_string(),
+                None,
+            )
+        }
     }
 }
 

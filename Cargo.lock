@@ -13038,6 +13038,7 @@ dependencies = [
  "alloy",
  "alloy-node-bindings",
  "axum",
+ "base64 0.22.1",
  "clap",
  "eyre",
  "rand 0.8.6",
@@ -13047,9 +13048,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.22",
- "uuid",
  "world-id-fee-escrow",
- "world-id-primitives",
 ]
 
 [[package]]

@@ -48,6 +48,7 @@ fs_permissions = [
     { access = "read-write", path = "test/crosschain/fixtures" },
     { access = "read-write", path = "test/crosschain/fixtures/e2e_mpt" },
     { access = "read", path = "script/crosschain/config" },
+    { access = "read-write", path = "test/vectors" },
 ]
 
 [lint]

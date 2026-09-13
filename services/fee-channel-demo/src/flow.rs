@@ -1,58 +1,59 @@
 //! The whole scenario, shared by the demo binary and the integration test.
 
+use std::time::Duration;
+
+use crate::{
+    chain::{self, ChainSnapshot},
+    collector::{self, Stats},
+    rp::{self, Outcome},
+};
 use alloy::{
     primitives::{B256, U256},
     providers::ext::AnvilApi as _,
     signers::local::PrivateKeySigner,
 };
 use alloy_node_bindings::Anvil;
-use eyre::{Result, eyre};
+use eyre::{OptionExt as _, Result, bail};
 use rand::Rng as _;
-use world_id_fee_escrow::typed_data::{self, ChannelSettings};
-use world_id_primitives::{OprfKeyId, rp::RpId};
-
-use crate::{
-    chain::{self, ERC20Mock, WorldIDFeeEscrow},
-    collector, nonce_manager, rp,
+use world_id_fee_escrow::{
+    LedgerConfig,
+    typed_data::{ChannelSettings, domain, epoch_end, epoch_of},
 };
 
 /// The RP this demo registers and pays for.
 const RP_ID: u64 = 7;
-/// One WLD, in wei.
-const ONE_WLD: u128 = 1_000_000_000_000_000_000;
+/// One token, in wei.
+const ONE_TOKEN: u128 = 1_000_000_000_000_000_000;
 
 /// Knobs for one run of the demo.
 #[derive(Debug, Clone, Copy)]
 pub struct FlowConfig {
-    /// Independent nonce lanes on the channel.
-    pub lane_count: u32,
-    /// Concurrent RP workers.
-    pub workers: usize,
-    /// Requests each worker issues.
-    pub requests_per_worker: usize,
-    /// WLD the payer escrows.
-    pub deposit_wld: u64,
-    /// WLD charged per verification before the decay begins.
-    pub price_wld: u64,
-    /// Verifications priced at the flat marginal rate; past this the fee decays.
-    pub threshold: u64,
-    /// Admissions between automatic settlements.
-    pub settle_every: usize,
-    /// Seconds the collector has to settle.
-    pub collection_window_secs: u64,
+    /// Units funded before the first batch of requests.
+    pub first_funding_units: u64,
+    /// Units funded after the epoch runs out.
+    pub top_up_units: u64,
+    /// Units funded and deliberately never spent, to exercise the closing settlement.
+    pub unspent_units: u64,
+    /// Price of one unit, in whole tokens.
+    pub price_tokens: u64,
+    /// Epoch length in seconds.
+    pub epoch_length_secs: u64,
+    /// Longest a signed request may live, in seconds.
+    pub max_request_lifetime_secs: u64,
+    /// Whether the RP returns each signature before the request is forwarded.
+    pub early_return: bool,
 }
 
 impl Default for FlowConfig {
     fn default() -> Self {
         Self {
-            lane_count: 3,
-            workers: 3,
-            requests_per_worker: 10,
-            deposit_wld: 8,
-            price_wld: 1,
-            threshold: 4,
-            settle_every: 5,
-            collection_window_secs: 600,
+            first_funding_units: 4,
+            top_up_units: 2,
+            unspent_units: 0,
+            price_tokens: 1,
+            epoch_length_secs: 3_600,
+            max_request_lifetime_secs: 600,
+            early_return: false,
         }
     }
 }
@@ -62,44 +63,36 @@ impl Default for FlowConfig {
 pub struct FlowReport {
     /// The opened channel.
     pub channel_id: B256,
-    /// Requests the collector admitted.
-    pub admitted: usize,
-    /// Requests refused for want of funds.
-    pub rejected_insolvent: usize,
-    /// Requests refused for any other reason.
-    pub rejected_other: usize,
-    /// Reasons the RP saw, in completion order.
-    pub rejection_reasons: Vec<String>,
-    /// `settle` transactions sent.
-    pub settlements: usize,
-    /// The collector's WLD balance after the run.
-    pub collector_wld: U256,
-    /// The payer's WLD balance after the channel closed.
-    pub payer_wld_after_close: U256,
-    /// The escrow's WLD balance after the channel closed.
-    pub escrow_wld_after_close: U256,
-    /// On-chain Σ lane high-water marks.
-    pub settled_count: U256,
-    /// On-chain high-water mark per lane.
+    /// Epoch every request in the run was billed to.
+    pub epoch: u64,
+    /// Units admitted before the epoch ran out.
+    pub admitted_before_refusal: u64,
+    /// The class the collector refused the over-capacity request with.
+    pub refusal_class: String,
+    /// Units the refusal proof established, verified against the RP's own key.
+    pub proven_units: u64,
+    /// Units admitted after the top-up.
+    pub admitted_after_top_up: u64,
+    /// The collector's counters at the end of the run.
+    pub stats: Stats,
+    /// On-chain `settledUnits` before the epoch closed.
+    pub settled_units: u64,
+    /// Per-lane high-water marks on chain, lane-ordered.
     pub lane_high_water: Vec<u64>,
-    /// The nonce manager's counter per lane.
-    pub manager_lane_counters: Vec<u64>,
-    /// Lanes whose latest recorded request verifies against the RP's spend key.
-    pub manager_latest_verified: usize,
-    /// WLD returned to the payer on close.
-    pub refund: U256,
-    /// The schedule's ceiling, `2 * price * threshold`.
-    pub max_fee: U256,
-    /// `cumulativeFee(settled_count)` read from the deployed schedule.
-    pub cumulative_fee_at_end: U256,
-    /// `cumulativeFee(k)` for `k` in `0..=settled_count`, read from the deployed schedule.
-    pub cumulative_fee_curve: Vec<U256>,
+    /// Total funded into the epoch.
+    pub funded: U256,
+    /// The collector's token balance once the epoch closed.
+    pub collector_balance: U256,
+    /// The escrow's token balance once the epoch closed.
+    pub escrow_balance: U256,
+    /// Whether the closing settlement marked the epoch closed.
+    pub closed: bool,
 }
 
 /// Runs the demo end to end against a fresh anvil instance.
 ///
 /// # Errors
-/// Returns an error if any step fails. Anvil and both services stop when this returns.
+/// Returns an error if any step fails. Anvil and the collector stop when this returns.
 #[allow(
     clippy::too_many_lines,
     reason = "a linear scenario script reads better whole"
@@ -110,244 +103,193 @@ pub async fn run(cfg: FlowConfig) -> Result<FlowReport> {
     tracing::info!(endpoint = %rpc, "anvil up");
 
     let deployer: PrivateKeySigner = anvil.keys()[0].clone().into();
-    let payer: PrivateKeySigner = anvil.keys()[1].clone().into();
+    let funder: PrivateKeySigner = anvil.keys()[1].clone().into();
     let spend_key: PrivateKeySigner = anvil.keys()[2].clone().into();
     let collector_key: PrivateKeySigner = anvil.keys()[3].clone().into();
 
     let as_deployer = chain::wallet_provider(&rpc, &deployer)?;
-    let as_payer = chain::wallet_provider(&rpc, &payer)?;
+    let as_funder = chain::wallet_provider(&rpc, &funder)?;
     let as_collector = chain::wallet_provider(&rpc, &collector_key)?;
 
-    let price = U256::from(cfg.price_wld) * U256::from(ONE_WLD);
-    let deployment = chain::deploy_all(
-        &as_deployer,
-        deployer.address(),
-        price,
-        U256::from(cfg.threshold),
-    )
-    .await?;
-    tracing::info!(
-        escrow = %deployment.escrow,
-        wld = %deployment.wld,
-        fee_schedule = %deployment.fee_schedule,
-        "contracts deployed"
-    );
+    let deployment = chain::deploy_all(&as_deployer, deployer.address()).await?;
+    tracing::info!(escrow = %deployment.escrow, token = %deployment.token, "contracts deployed");
 
     chain::register_rp(
         &as_deployer,
         deployment.rp_registry,
         RP_ID,
-        payer.address(),
+        deployer.address(),
         spend_key.address(),
     )
     .await?;
-    tracing::info!(rp_id = RP_ID, spend_key = %spend_key.address(), "rp registered");
 
-    let deposit = U256::from(cfg.deposit_wld) * U256::from(ONE_WLD);
-    chain::mint_wld(&as_deployer, deployment.wld, payer.address(), deposit).await?;
-    ERC20Mock::new(deployment.wld, as_payer.clone())
-        .approve(deployment.escrow, deposit)
-        .send()
-        .await?
-        .watch()
-        .await?;
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_secs();
+    // ── Open ────────────────────────────────────────────────────────────────
+    let price = U256::from(cfg.price_tokens) * U256::from(ONE_TOKEN);
+    let now = chain::block_timestamp(&as_deployer).await?;
     let settings = ChannelSettings {
         rpId: RP_ID,
-        payer: payer.address(),
         spendKey: spend_key.address(),
         collector: collector_key.address(),
-        token: deployment.wld,
-        feeSchedule: deployment.fee_schedule,
-        laneCount: cfg.lane_count,
-        collectionDeadline: now + cfg.collection_window_secs,
+        token: deployment.token,
+        pricePerUnit: price,
+        epochLength: cfg.epoch_length_secs,
+        // Epoch 0 starts now, so the whole run bills to one epoch.
+        epochZero: now,
         salt: B256::from(rand::thread_rng().r#gen::<[u8; 32]>()),
     };
-    let domain = typed_data::domain(deployment.chain_id, deployment.escrow);
-    let channel_id = typed_data::channel_id(deployment.chain_id, deployment.escrow, &settings);
-    let rp_signature = typed_data::sign_open_channel(&spend_key, &settings, &domain)?;
+    let escrow_domain = domain(deployment.chain_id, deployment.escrow);
+    let channel_id = chain::open_channel(
+        &as_funder,
+        deployment.escrow,
+        &settings,
+        settings.channel_id(&escrow_domain),
+    )
+    .await?;
+    let epoch = epoch_of(now, &settings).ok_or_eyre("the channel has no epoch at open")?;
+    tracing::info!(channel = %channel_id, epoch, price = %price, "channel opened");
 
-    let escrow_as_payer = WorldIDFeeEscrow::new(deployment.escrow, as_payer.clone());
-    let open_receipt = escrow_as_payer
-        .openChannel(
-            chain::to_sol_settings(&settings),
-            deposit,
-            alloy::primitives::Bytes::from(rp_signature.as_bytes()),
-        )
-        .send()
-        .await?
-        .get_receipt()
-        .await?;
+    // ── Fund ────────────────────────────────────────────────────────────────
+    let total_units = cfg.first_funding_units + cfg.top_up_units + cfg.unspent_units;
+    let budget = U256::from(total_units) * price;
+    chain::mint(&as_deployer, deployment.token, funder.address(), budget).await?;
+    chain::approve(&as_funder, deployment.token, deployment.escrow, budget).await?;
 
-    let opened = open_receipt
-        .inner
-        .logs()
-        .iter()
-        .find_map(|log| log.log_decode::<WorldIDFeeEscrow::ChannelOpened>().ok())
-        .ok_or_else(|| eyre!("openChannel emitted no ChannelOpened log"))?;
-    if opened.inner.channelId != channel_id {
-        return Err(eyre!(
-            "channel id mismatch: log {} vs computed {channel_id}",
-            opened.inner.channelId
-        ));
-    }
-    tracing::info!(channel = %channel_id, deposit = %deposit, lanes = cfg.lane_count, "channel opened");
+    let first = U256::from(cfg.first_funding_units) * price;
+    chain::fund(&as_funder, deployment.escrow, channel_id, epoch, first).await?;
+    tracing::info!(units = cfg.first_funding_units, "epoch funded");
 
     // ── Services ────────────────────────────────────────────────────────────
-    let manager_state = nonce_manager::state();
-    let (manager_addr, manager_listener) = nonce_manager::bind_ephemeral().await?;
-    let manager_task = nonce_manager::serve(manager_listener, manager_state.clone());
-
-    let collector_state = collector::Collector::new(
+    let snapshot = ChainSnapshot::new(
         as_collector.clone(),
         deployment.escrow,
-        deployment.fee_schedule,
-        domain.clone(),
-        cfg.settle_every,
+        Duration::from_secs(5),
+        Duration::from_secs(5),
     );
-    let (collector_addr, collector_listener) = nonce_manager::bind_ephemeral().await?;
-    let collector_task = collector::serve(collector_listener, collector_state.clone());
+    let state = collector::Collector::new(
+        as_collector.clone(),
+        deployment.escrow,
+        deployment.chain_id,
+        snapshot,
+        settings.clone(),
+        LedgerConfig {
+            max_request_lifetime: cfg.max_request_lifetime_secs,
+            ..LedgerConfig::default()
+        },
+    );
+    let (addr, listener) = collector::bind_ephemeral().await?;
+    let server = collector::serve(listener, state.clone());
+    let collector_url: reqwest::Url = format!("http://{addr}").parse()?;
+    tracing::info!(collector = %collector_url, "collector up");
 
-    let manager_url: reqwest::Url = format!("http://{manager_addr}").parse()?;
-    let collector_url: reqwest::Url = format!("http://{collector_addr}").parse()?;
-    tracing::info!(nonce_manager = %manager_url, collector = %collector_url, "services up");
-
-    let http = reqwest::Client::new();
-    http.post(manager_url.join("/channels")?)
-        .json(&nonce_manager::RegisterChannel {
-            channel_id,
-            lane_count: cfg.lane_count,
-        })
-        .send()
-        .await?
-        .error_for_status()?;
-
-    // ── The RP does its work ────────────────────────────────────────────────
-    let rp = rp::RpService::new(
-        manager_url.clone(),
-        collector_url.clone(),
+    let mut rp = rp::RpService::new(
+        rp::Transport::demo(collector_url),
         spend_key.clone(),
-        domain.clone(),
-        channel_id,
-        RpId::new(RP_ID),
-        OprfKeyId::new(alloy::primitives::Uint::<160, 3>::from(1u64)),
+        escrow_domain,
+        settings.clone(),
     );
-    let rp_report = rp.run(cfg.workers, cfg.requests_per_worker).await?;
-    tracing::info!(
-        admitted = rp_report.admitted,
-        rejected = rp_report.rejected.len(),
-        "rp finished"
-    );
+    rp.early_return = cfg.early_return;
 
-    http.post(collector_url.join("/settle")?)
-        .send()
-        .await?
-        .error_for_status()?;
-    let stats = collector_state.stats().await;
-
-    // ── Read everything back ────────────────────────────────────────────────
-    let manager_status: nonce_manager::ChannelStatus = http
-        .get(manager_url.join(&format!("/channels/{channel_id}"))?)
-        .send()
-        .await?
-        .json()
-        .await?;
-    let manager_lane_counters = manager_status.lanes.iter().map(|l| l.counter).collect();
-
-    // Every request the manager kept must still verify under the RP's own key. This is the
-    // same check the RP runs on `previous` before trusting a lease.
-    let manager_latest_verified =
-        manager_state
-            .lock()
-            .await
-            .get(&channel_id)
-            .map_or(0, |channel| {
-                channel
-                    .lanes
-                    .iter()
-                    .filter(|lane| {
-                        lane.latest
-                            .as_ref()
-                            .is_some_and(|req| req.verify(&domain, spend_key.address()).is_ok())
-                    })
-                    .count()
-            });
-
-    let channel = escrow_as_payer.getChannel(channel_id).call().await?;
-    let mut lane_high_water = Vec::with_capacity(cfg.lane_count as usize);
-    for lane in 0..cfg.lane_count {
-        lane_high_water.push(
-            escrow_as_payer
-                .laneHighWater(channel_id, lane)
-                .call()
-                .await?,
-        );
-    }
-    let collector_wld =
-        chain::wld_balance(&as_deployer, deployment.wld, collector_key.address()).await?;
-    let max_fee = chain::max_fee(&as_deployer, deployment.fee_schedule).await?;
-    let cumulative_fee_at_end =
-        chain::cumulative_fee(&as_deployer, deployment.fee_schedule, channel.settledCount).await?;
-
-    // The whole curve up to the settled count, so callers can inspect the marginal price
-    // without needing the chain to still be running.
-    let mut cumulative_fee_curve = Vec::new();
-    for k in 0..=u64::try_from(channel.settledCount).unwrap_or(0) {
-        cumulative_fee_curve.push(
-            chain::cumulative_fee(&as_deployer, deployment.fee_schedule, U256::from(k)).await?,
-        );
+    // ── Spend the funded capacity ───────────────────────────────────────────
+    let mut admitted_before_refusal = 0;
+    for _ in 0..cfg.first_funding_units {
+        match rp.one_request().await? {
+            Outcome::Admitted(_) => admitted_before_refusal += 1,
+            Outcome::Refused(refused) => {
+                server.abort();
+                bail!(
+                    "funded request refused: {} {}",
+                    refused.code,
+                    refused.message
+                );
+            }
+        }
     }
 
-    // ── Close after the collection window ───────────────────────────────────
-    as_deployer
-        .anvil_increase_time(cfg.collection_window_secs + 1)
-        .await?;
+    // ── The next request must be refused, with a proof ──────────────────────
+    let (refusal_class, proven_units) = match rp.one_request().await? {
+        Outcome::Admitted(_) => {
+            server.abort();
+            bail!("the epoch admitted more units than it was funded for");
+        }
+        Outcome::Refused(refused) => {
+            let proven = rp.verify_refusal(epoch, &refused)?;
+            (refused.code, proven)
+        }
+    };
+    tracing::info!(class = %refusal_class, proven_units, "refused at capacity");
+
+    // ── Fund more; capacity rises in the same block ─────────────────────────
+    let top_up = U256::from(cfg.top_up_units) * price;
+    chain::fund(&as_funder, deployment.escrow, channel_id, epoch, top_up).await?;
+    let mut admitted_after_top_up = 0;
+    for _ in 0..cfg.top_up_units {
+        match rp.one_request().await? {
+            Outcome::Admitted(_) => admitted_after_top_up += 1,
+            Outcome::Refused(refused) => {
+                server.abort();
+                bail!(
+                    "a request refused after a top-up: {} {}",
+                    refused.code,
+                    refused.message
+                );
+            }
+        }
+    }
+
+    // Capacity bought and never spent. The closing settlement pays it out anyway, which is
+    // the design intent rather than a leak.
+    if cfg.unspent_units > 0 {
+        let unspent = U256::from(cfg.unspent_units) * price;
+        chain::fund(&as_funder, deployment.escrow, channel_id, epoch, unspent).await?;
+    }
+
+    // ── Settle during the epoch ─────────────────────────────────────────────
+    state.sweep().await?;
+    let on_chain = chain::epoch_state(&as_collector, deployment.escrow, channel_id, epoch).await?;
+    let settled_units = on_chain.settledUnits;
+    let mut lane_high_water = Vec::new();
+    for lane in 0..u32::try_from(settled_units).unwrap_or(u32::MAX) {
+        let mark =
+            chain::lane_high_water(&as_collector, deployment.escrow, channel_id, epoch, lane)
+                .await?;
+        if mark == 0 {
+            break;
+        }
+        lane_high_water.push(mark);
+    }
+
+    // ── Close after the epoch ends ──────────────────────────────────────────
+    let ends_at = epoch_end(&settings, epoch).ok_or_eyre("epoch end overflowed")?;
+    as_deployer.anvil_set_next_block_timestamp(ends_at).await?;
     as_deployer.anvil_mine(Some(1), None).await?;
+    let closing = state.sweep().await?;
 
-    let close_receipt = escrow_as_payer
-        .closeChannel(channel_id)
-        .send()
-        .await?
-        .get_receipt()
-        .await?;
-    let closed = close_receipt
-        .inner
-        .logs()
-        .iter()
-        .find_map(|log| log.log_decode::<WorldIDFeeEscrow::ChannelClosed>().ok())
-        .ok_or_else(|| eyre!("closeChannel emitted no ChannelClosed log"))?;
-    let refund = closed.inner.refundedToPayer;
-    tracing::info!(refund = %refund, "channel closed");
-
-    // Awaiting the aborted handles guarantees both listeners are closed before this returns,
-    // rather than at some later point in the runtime's shutdown.
-    manager_task.abort();
-    collector_task.abort();
-    let _ = manager_task.await;
-    let _ = collector_task.await;
-
-    Ok(FlowReport {
+    let final_state =
+        chain::epoch_state(&as_collector, deployment.escrow, channel_id, epoch).await?;
+    let report = FlowReport {
         channel_id,
-        admitted: stats.admitted,
-        rejected_insolvent: stats.rejected_insolvent,
-        rejected_other: stats.rejected_other,
-        rejection_reasons: rp_report.rejected,
-        settlements: stats.settlements,
-        collector_wld,
-        payer_wld_after_close: chain::wld_balance(&as_deployer, deployment.wld, payer.address())
-            .await?,
-        escrow_wld_after_close: chain::wld_balance(&as_deployer, deployment.wld, deployment.escrow)
-            .await?,
-        settled_count: channel.settledCount,
+        epoch,
+        admitted_before_refusal,
+        refusal_class,
+        proven_units,
+        admitted_after_top_up,
+        stats: state.stats().await,
+        settled_units,
         lane_high_water,
-        manager_lane_counters,
-        manager_latest_verified,
-        refund,
-        max_fee,
-        cumulative_fee_at_end,
-        cumulative_fee_curve,
-    })
+        funded: final_state.funded,
+        collector_balance: chain::balance_of(
+            &as_deployer,
+            deployment.token,
+            collector_key.address(),
+        )
+        .await?,
+        escrow_balance: chain::balance_of(&as_deployer, deployment.token, deployment.escrow)
+            .await?,
+        closed: final_state.closed && closing.closed == 1,
+    };
+
+    // Awaiting the aborted handle guarantees the listener is closed before this returns.
+    server.abort();
+    let _ = server.await;
+    Ok(report)
 }

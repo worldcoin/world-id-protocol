@@ -1,44 +1,65 @@
-//! YABS payment-channel authorisations for World ID proof requests.
+//! Fixed-rate epoch payment channels between a relying party and a collector.
 //!
-//! A relying party opens an escrow channel funded by a `payer`, then attaches a channel id and
-//! a lane nonce to each [`ProofRequestV2`]. The RP's `spendKey` signs the pair as EIP-712
-//! `PaymentAuthorization` typed data bound to the escrow's domain. A collector verifies that
-//! signature, checks the channel can still cover the fee, and later batches the highest
-//! authorisation per lane into `IWorldIDFeeEscrow.settle`.
+//! Funding an epoch buys capacity at a fixed `pricePerUnit`. Each unit of paid work is a
+//! standalone [`Payment`]: a channel id, an epoch, a `lane << 64 | counter` nonce, and the
+//! RP's `spendKey` signature over an EIP-712 `PaymentAuthorization`. Counters are cumulative,
+//! so one signature per lane proves the epoch's whole usage and settlement costs one signature
+//! per lane rather than one per unit.
+//!
+//! A `Payment` names no request, so `ProofRequest` and every party that verifies it are
+//! untouched. Binding a payment to one request is deferred to a later version.
+//!
+//! The RP holds no nonce state. The collector issues counters and proves each proposal with
+//! the RP's own signature on the counter below it, which the RP checks statelessly with
+//! [`verify_predecessor`].
 //!
 //! ```no_run
 //! use alloy::signers::local::PrivateKeySigner;
 //! use world_id_fee_escrow::{
-//!     nonce::NonceAllocator,
-//!     request::ProofRequestV2,
-//!     typed_data::{channel_id, domain},
+//!     Payment, verify_predecessor,
+//!     typed_data::{ChannelSettings, domain},
 //! };
 //!
-//! # fn run(inner: world_id_primitives::ProofRequest, spend_key: PrivateKeySigner,
-//! #        escrow: alloy_primitives::Address, settings: world_id_fee_escrow::typed_data::ChannelSettings)
-//! # -> eyre::Result<()> {
+//! # fn run(
+//! #     spend_key: PrivateKeySigner,
+//! #     escrow: alloy_primitives::Address,
+//! #     settings: ChannelSettings,
+//! #     issued: world_id_fee_escrow::IssuedNonce,
+//! #     epoch: u64,
+//! # ) -> eyre::Result<()> {
 //! let domain = domain(480, escrow);
-//! let cid = channel_id(480, escrow, &settings);
-//! let mut nonces = NonceAllocator::new(settings.laneCount)?;
-//! let request = ProofRequestV2::sign(inner, cid, nonces.next_round_robin()?, &spend_key, &domain)?;
-//! request.verify(&domain, settings.spendKey)?;
+//! let channel_id = settings.channel_id(&domain);
+//!
+//! // The collector proposed a counter; believe it only if it holds the previous signature.
+//! verify_predecessor(
+//!     issued.previous.as_ref(),
+//!     channel_id,
+//!     epoch,
+//!     issued.lane_nonce(),
+//!     spend_key.address(),
+//!     &domain,
+//! )?;
+//!
+//! let payment = Payment::sign(channel_id, epoch, issued.lane_nonce(), &spend_key, &domain)?;
 //! # Ok(()) }
 //! ```
 //!
-//! This is a proof of concept. Both [`nonce::NonceAllocator`] and [`collector::Ledger`] are
-//! in-memory and single-process; production use needs durable, serialised state on both sides.
+//! [`Ledger`] is in-memory and single-process; production needs durable state serialised per
+//! `(channel, epoch)`.
 
 pub mod collector;
 pub mod nonce;
-pub mod request;
+pub mod payment;
 pub mod typed_data;
 
-pub use collector::{AdmitError, ChannelView, Ledger};
-pub use nonce::{LaneNonce, NonceAllocator, NonceError};
-pub use request::{OnchainPaymentAuthorization, ProofRequestV2, RequestV2Error};
+pub use collector::{
+    AdmitError, AdmittedUnit, ChainView, IssuedNonce, Ledger, LedgerConfig, ReserveError,
+    StaleOrUnavailable,
+};
+pub use nonce::{LaneNonce, NonceError};
+pub use payment::{Payment, PaymentError, verify_predecessor};
 pub use typed_data::{
-    ChannelSettings, OpenChannelTypedData, PaymentAuthorizationTypedData, channel_id, domain,
-    sign_open_channel,
+    ChannelSettings, PaymentAuthorization, RecoverError, domain, epoch_end, epoch_of,
 };
 
 /// Dev-dependencies used only by the feature-gated anvil end-to-end test.
