@@ -50,6 +50,18 @@ jobs:
         with:
           version: 1.7.1
 
+      - name: Install contract dependencies
+        if: steps.cache-contracts.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git_auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$git_auth"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $git_auth" \
+          forge install --root contracts
+
       - name: Build contracts and extract ABIs
         if: steps.cache-contracts.outputs.cache-hit != 'true'
         run: make sol-build
@@ -314,6 +326,17 @@ jobs:
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
           toolchain: v1.0.0-beta.11
+
+      - name: Install contract dependencies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git_auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$git_auth"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $git_auth" \
+          forge install --root contracts
 
       - name: Build contracts
         run: |

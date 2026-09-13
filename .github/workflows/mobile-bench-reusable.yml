@@ -83,23 +83,18 @@ on:
         type: string
         default: ""
       pr_number:
-        description: "PR number for reporting"
+        description: "PR number for sticky reporting (used by /mobench and bench-label runs)"
         required: false
         type: string
+      open_results_pr:
+        description: "If true, open a PR that refreshes checked-in results under crates/zk-mobile-bench/results/ (main tip only; requires empty pr_number)"
+        required: false
+        type: boolean
+        default: false
       requested_by:
         description: "Who triggered the run"
         required: false
         type: string
-      check_run_name:
-        description: "GitHub Check Run name"
-        required: false
-        type: string
-        default: "Mobench"
-      regression_threshold_pct:
-        description: "Regression threshold percentage"
-        required: false
-        type: string
-        default: "5.0"
       head_sha:
         description: "Exact commit SHA to checkout in the caller repo (for compile-gated runs)"
         required: false
@@ -109,10 +104,6 @@ on:
         required: true
       BROWSERSTACK_ACCESS_KEY:
         required: true
-      MOBENCH_APP_PRIVATE_KEY:
-        required: false
-      MOBENCH_APP_ID:
-        required: false
 
 permissions:
   actions: read
@@ -127,6 +118,9 @@ jobs:
     name: iOS BrowserStack benchmark
     if: inputs.platform == 'ios' || inputs.platform == 'both'
     runs-on: macos-15
+
+    outputs:
+      bench_outcome: ${{ steps.run_ios_benchmarks.outcome }}
 
     env:
       BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
@@ -348,6 +342,9 @@ jobs:
     name: Android BrowserStack benchmark
     if: inputs.platform == 'android' || inputs.platform == 'both'
     runs-on: macos-14
+
+    outputs:
+      bench_outcome: ${{ steps.run_android_benchmarks.outcome }}
 
     env:
       BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
@@ -868,89 +865,6 @@ jobs:
             echo "Created new PR comment"
           fi
 
-      - name: Generate GitHub App token
-        id: app-token
-        if: inputs.pr_number != ''
-        continue-on-error: true
-        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0 https://github.com/actions/create-github-app-token/releases/tag/v1.12.0
-        with:
-          app-id: ${{ secrets.MOBENCH_APP_ID }}
-          private-key: ${{ secrets.MOBENCH_APP_PRIVATE_KEY }}
-
-      - name: Download baseline artifacts
-        if: steps.app-token.outcome == 'success'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          set -euo pipefail
-          default_branch="${DEFAULT_BRANCH:-main}"
-          mkdir -p baseline
-
-          workflow_id=$(gh api "repos/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}" --jq '.workflow_id')
-          baseline_run_id=$(gh api "repos/${GH_REPO}/actions/workflows/${workflow_id}/runs?branch=${default_branch}&status=completed&per_page=20" \
-            --jq ".workflow_runs[] | select(.id != ${GITHUB_RUN_ID} and .conclusion == \"success\") | .id" | head -1)
-
-          if [ -z "${baseline_run_id}" ]; then
-            echo "::notice::No successful baseline run found on ${default_branch}; check runs will be descriptive only."
-            exit 0
-          fi
-
-          echo "Using baseline run ${baseline_run_id} from ${default_branch}"
-          for platform in ios android; do
-            artifact_name="mobench-results-${platform}"
-            destination="baseline/${platform}"
-            mkdir -p "${destination}"
-
-            if gh run download "${baseline_run_id}" \
-              --repo "${GH_REPO}" \
-              --name "${artifact_name}" \
-              --dir "${destination}" >/dev/null 2>&1; then
-              summary_path=$(find "${destination}" -type f -name summary.json | head -1)
-              if [ -n "${summary_path}" ]; then
-                echo "Downloaded baseline ${artifact_name}"
-              else
-                echo "::warning::Downloaded ${artifact_name} from run ${baseline_run_id}, but summary.json was missing."
-              fi
-            else
-              echo "::notice::Baseline artifact ${artifact_name} not found in run ${baseline_run_id}."
-            fi
-          done
-
-      - name: Create Check Run
-        if: steps.app-token.outcome == 'success'
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          CHECK_RUN_NAME: ${{ inputs.check_run_name }}
-          REGRESSION_THRESHOLD: ${{ inputs.regression_threshold_pct }}
-          CRATE_PATH: ${{ inputs.crate_path }}
-          GH_REPO: ${{ github.repository }}
-          GH_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha || github.sha }}
-        run: |
-          for dir in results/ios results/android; do
-            if [ -d "$dir" ]; then
-              PLATFORM=$(basename "$dir")
-              baseline_args=()
-              baseline_path=$(find "baseline/${PLATFORM}" -type f -name summary.json | head -1)
-              if [ -n "${baseline_path}" ]; then
-                baseline_args=(--baseline "${baseline_path}")
-              fi
-              cargo-mobench ci check-run \
-                --results-dir "$dir" \
-                --repo "$GH_REPO" \
-                --sha "$GH_SHA" \
-                --name "$CHECK_RUN_NAME - ${PLATFORM}" \
-                --annotation-path "${CRATE_PATH}/src/lib.rs" \
-                --regression-threshold-pct "$REGRESSION_THRESHOLD" \
-                "${baseline_args[@]}" \
-                || true
-            fi
-          done
-
       - name: Build history bundle
         if: always()
         shell: bash
@@ -990,3 +904,201 @@ jobs:
           name: mobench-history-bundle
           path: history-bundle/
           if-no-files-found: warn
+
+      - name: Open results refresh PR
+        # Deliberately `||`: a half-successful run must reach the script and fail loudly, not skip silently.
+        if: >-
+          !cancelled()
+          && inputs.open_results_pr
+          && (needs.ios.result == 'success' || needs.android.result == 'success')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          HEAD_SHA: ${{ inputs.head_sha || github.sha }}
+          CRATE_PATH: ${{ inputs.crate_path }}
+          MOBENCH_VERSION: ${{ inputs.mobench_version }}
+          ITERATIONS: ${{ inputs.iterations }}
+          WARMUP: ${{ inputs.warmup }}
+          DEVICE_PROFILE: ${{ inputs.device_profile }}
+          PLATFORM: ${{ inputs.platform }}
+          IOS_BENCH_OUTCOME: ${{ needs.ios.outputs.bench_outcome }}
+          ANDROID_BENCH_OUTCOME: ${{ needs.android.outputs.bench_outcome }}
+        run: |
+          set -euo pipefail
+
+          # pr_number and the dispatched ref are validated in the caller's preflight job.
+          # The benchmarked commit is recorded in meta.json rather than checked against the
+          # tip: main may advance during the run, and the numbers remain valid for their SHA.
+          default_branch="${DEFAULT_BRANCH:-main}"
+
+          # The snapshot is one artifact: publishing a single platform would leave the other
+          # platform's stale summary.json next to a meta.json claiming the new commit.
+          if [ "${PLATFORM}" != "both" ]; then
+            echo "::error::open_results_pr=true requires platform=both (got ${PLATFORM})."
+            exit 1
+          fi
+
+          # The bench jobs tolerate a non-zero mobench exit as long as files landed, which is fine
+          # for a throwaway PR comment but not for the canonical checked-in snapshot.
+          if [ "${IOS_BENCH_OUTCOME}" != "success" ] || [ "${ANDROID_BENCH_OUTCOME}" != "success" ]; then
+            echo "::error::Refusing to publish; benchmarks did not exit cleanly (ios=${IOS_BENCH_OUTCOME}, android=${ANDROID_BENCH_OUTCOME})."
+            exit 1
+          fi
+
+          ios_summary=results/ios/mobench/ci/ios/summary.json
+          android_summary=results/android/mobench/ci/android/summary.json
+
+          if [ ! -f "${ios_summary}" ] || [ ! -f "${android_summary}" ]; then
+            echo "::error::Refusing to publish a partial snapshot; both platform summaries are required."
+            exit 1
+          fi
+
+          published_dir="caller/${CRATE_PATH}/results"
+          mkdir -p "${published_dir}/ios" "${published_dir}/android"
+
+          cp "${ios_summary}" "${published_dir}/ios/summary.json"
+          cp "${android_summary}" "${published_dir}/android/summary.json"
+          rm -f "${published_dir}/ios/.gitkeep" "${published_dir}/android/.gitkeep"
+
+          timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          run_url="https://github.com/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}"
+
+          extract_device() {
+            local summary="$1"
+            if [ ! -f "${summary}" ]; then
+              echo ""
+              return 0
+            fi
+            jq -r '
+              (.device // .devices[0].device // .devices[0].name // .runs[0].device // .platform.device // empty)
+              as $d
+              | (.os_version // .devices[0].os_version // .runs[0].os_version // .platform.os_version // empty)
+              as $os
+              | if ($d|length) > 0 then
+                  if ($os|length) > 0 then "\($d) (\($os))" else $d end
+                else empty end
+            ' "${summary}" 2>/dev/null || true
+          }
+
+          ios_device=$(extract_device "${ios_summary}")
+          android_device=$(extract_device "${android_summary}")
+
+          jq -n \
+            --arg schema "mobench-results-v1" \
+            --arg status "ready" \
+            --arg ts "${timestamp}" \
+            --arg sha "${HEAD_SHA}" \
+            --argjson run_id "${GITHUB_RUN_ID}" \
+            --arg run_url "${run_url}" \
+            --arg mobench "${MOBENCH_VERSION}" \
+            --arg iterations "${ITERATIONS}" \
+            --arg warmup "${WARMUP}" \
+            --arg profile "${DEVICE_PROFILE}" \
+            --arg ios_device "${ios_device}" \
+            --arg android_device "${android_device}" \
+            '{
+              schema_version: $schema,
+              status: $status,
+              timestamp: $ts,
+              commit_sha: $sha,
+              workflow_run_id: $run_id,
+              workflow_run_url: $run_url,
+              mobench_version: $mobench,
+              iterations: ($iterations | tonumber),
+              warmup: ($warmup | tonumber),
+              device_profile: $profile,
+              devices: {
+                ios: (if $ios_device == "" then null else $ios_device end),
+                android: (if $android_device == "" then null else $android_device end)
+              }
+            }' > "${published_dir}/meta.json"
+
+          {
+            echo "# Mobile ZK results"
+            echo
+            echo "- **Status:** ready"
+            echo "- **Updated:** ${timestamp}"
+            echo "- **Commit:** \`${HEAD_SHA}\`"
+            echo "- **Workflow run:** [${GITHUB_RUN_ID}](${run_url})"
+            echo "- **mobench:** ${MOBENCH_VERSION}"
+            echo "- **Iterations / warmup:** ${ITERATIONS} / ${WARMUP}"
+            echo "- **Device profile:** ${DEVICE_PROFILE}"
+            if [ -n "${ios_device}" ]; then
+              echo "- **iOS device:** ${ios_device}"
+            fi
+            if [ -n "${android_device}" ]; then
+              echo "- **Android device:** ${android_device}"
+            fi
+            echo
+            if [ -f rendered/ios/github-summary.md ]; then
+              echo "## iOS"
+              echo
+              cat rendered/ios/github-summary.md
+              echo
+            else
+              echo "## iOS"
+              echo
+              echo "See \`ios/summary.json\` (markdown summary unavailable for this run)."
+              echo
+            fi
+            if [ -f rendered/android/github-summary.md ]; then
+              echo "## Android"
+              echo
+              cat rendered/android/github-summary.md
+              echo
+            else
+              echo "## Android"
+              echo
+              echo "See \`android/summary.json\` (markdown summary unavailable for this run)."
+              echo
+            fi
+          } > "${published_dir}/LATEST.md"
+
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
+          branch="chore/mobench-results-${GITHUB_RUN_ID}"
+
+          git -C caller config user.name "github-actions[bot]"
+          git -C caller config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C caller remote set-url origin "${remote}"
+          git -C caller checkout -B "${branch}"
+          git -C caller add "${CRATE_PATH}/results"
+
+          if git -C caller diff --cached --quiet; then
+            echo "No checked-in results changes to commit."
+            exit 0
+          fi
+
+          git -C caller commit -m "chore(mobench): refresh mobile ZK results"
+
+          if ! git -C caller push -u origin "HEAD:${branch}"; then
+            echo "::error::Failed to push results branch ${branch}."
+            exit 1
+          fi
+
+          pr_body="$(cat <<EOF
+          ## Summary
+          Refresh checked-in BrowserStack results from [workflow run ${GITHUB_RUN_ID}](${run_url}).
+
+          - Benchmarked commit: \`${HEAD_SHA}\`
+          - mobench: ${MOBENCH_VERSION}
+          - Iterations / warmup: ${ITERATIONS} / ${WARMUP}
+          - Device profile: ${DEVICE_PROFILE}
+
+          ## Test plan
+          - [ ] Review \`LATEST.md\` / \`meta.json\` diffs
+          - [ ] Confirm device profile and platforms look right
+          - [ ] Merge to adopt these numbers as the in-repo snapshot
+          EOF
+          )"
+
+          pr_url=$(gh pr create \
+            --repo "${GH_REPO}" \
+            --base "${default_branch}" \
+            --head "${branch}" \
+            --title "chore(mobench): refresh mobile ZK results" \
+            --body "${pr_body}")
+
+          echo "Opened results refresh PR: ${pr_url}"
+          echo "::notice::Results refresh PR: ${pr_url}"

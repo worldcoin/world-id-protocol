@@ -51,6 +51,8 @@ embed-doc-image = "0.1.4"
 getrandom = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
+ark-ec = { workspace = true }
 ark-serialize = { workspace = true }
 ciborium = { workspace = true }
 k256 = { workspace = true, features = ["ecdsa"] }
+taceo-oprf = { workspace = true, features = ["core", "types"] }

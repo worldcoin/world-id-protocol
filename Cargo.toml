@@ -25,7 +25,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.14.0"
+version = "0.14.1"
 license = "MIT"
 authors = [
   "World Foundation",
@@ -142,9 +142,9 @@ provekit-r1cs-compiler = { version = "0.1.4" }
 rayon = "1.11"
 redis = "1"
 regex = "1"
-semaphore-rs-hasher = "0.5.0"
-semaphore-rs-trees = "0.5.0"
-semaphore-rs-storage = "0.5.0"
+semaphore-rs-hasher = "0.6.0"
+semaphore-rs-trees = "0.6.0"
+semaphore-rs-storage = "0.6.0"
 serial_test = "3"
 testcontainers = { version = "0.27", features = ["http_wait_plain", "host-port-exposure"] }
 testcontainers-modules = { version = "0.15", features = ["redis"] }
@@ -159,13 +159,13 @@ tower = "0.5.3"
 p256 = { version = "0.13.2", default-features = false }
 
 # Internal
-world-id-core = { version = "0.14.0", default-features = false, path = "crates/core" }
-world-id-issuer = { version = "0.14.0", path = "crates/issuer" }
-world-id-proof = { version = "0.14.0", path = "crates/proof" }
-world-id-registries = { version = "0.14.0", path = "crates/registries" }
-world-id-authenticator = { version = "0.14.0", path = "crates/authenticator" }
-world-id-fee-escrow = { version = "0.14.0", path = "crates/fee-escrow" }
-world-id-primitives = { version = "0.14.0", path = "crates/primitives", default-features = false }
+world-id-core = { version = "0.14.1", default-features = false, path = "crates/core" }
+world-id-issuer = { version = "0.14.1", path = "crates/issuer" }
+world-id-proof = { version = "0.14.1", path = "crates/proof" }
+world-id-registries = { version = "0.14.1", path = "crates/registries" }
+world-id-authenticator = { version = "0.14.1", path = "crates/authenticator" }
+world-id-fee-escrow = { version = "0.14.1", path = "crates/fee-escrow" }
+world-id-primitives = { version = "0.14.1", path = "crates/primitives", default-features = false }
 world-id-oprf-node = { version = "1.2.0", path = "services/oprf-node" }
 world-id-test-utils = { path = "crates/test-utils" }
 world-id-services-common = { path = "services/common", version = "0.1.0" }

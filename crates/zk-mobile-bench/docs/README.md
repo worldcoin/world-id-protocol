@@ -67,6 +67,15 @@ Benchmark reports also preserve optional semantic `phases` emitted by
 - **PR comment**: `/mobench platform=both iterations=30 warmup=5`
 - **PR label**: Add the `bench` label (dispatches after compile gate passes)
 - **Manual**: Actions > "Mobile Benchmarks" > Run workflow
+- **Publish results**: same manual workflow on `main`, set **open_results_pr=true** (leave `pr_number` empty)
+
+## Results
+
+Checked-in BrowserStack results live in
+[`../results/`](../results/) ([`LATEST.md`](../results/LATEST.md)).
+
+- **Refresh**: Actions → Mobile Benchmarks on `main` with `open_results_pr=true` (and empty `pr_number`). On success the workflow opens a PR that updates these files; merge it to adopt the new snapshot.
+- **PR runs** (`/mobench`, `bench` label) post sticky comments with their own results; they do not modify the checked-in snapshot.
 
 ## Benchmark Functions
 
