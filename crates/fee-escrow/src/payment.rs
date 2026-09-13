@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     nonce::{LaneNonce, NonceError},
-    typed_data::{PaymentAuthorization, RecoverError},
+    typed_data::{
+        NonceReservation, PaymentAuthorization, RESERVATION_CLOCK_SKEW_SECS, RecoverError,
+    },
 };
 
 /// Errors raised while signing or verifying a payment.
@@ -504,4 +506,65 @@ pub(crate) mod tests {
             Err(PaymentError::EpochMismatch { .. })
         ));
     }
+}
+
+/// Why a collector refused to hold a lane.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ReservationError {
+    /// The reservation was signed too far from the collector's clock.
+    #[error("reservation issued at {issued_at} is more than {skew}s from {now}")]
+    Stale {
+        /// When the RP says it signed.
+        issued_at: u64,
+        /// The collector's clock.
+        now: u64,
+        /// The accepted window, in seconds either side.
+        skew: u64,
+    },
+    /// The signature is malformed or non-canonical.
+    #[error(transparent)]
+    Recover(#[from] RecoverError),
+    /// The signature recovered to somebody other than the channel's `spendKey`.
+    #[error("reservation signed by {recovered}, expected spend key {expected}")]
+    SignerMismatch {
+        /// The channel's pinned `spendKey`.
+        expected: Address,
+        /// The address the signature recovers to.
+        recovered: Address,
+    },
+}
+
+/// Checks a request to hold a lane.
+///
+/// A reservation holds capacity for its lifetime, so it is signed: anyone who could send one
+/// unsigned could starve the channel that funds it. The freshness window keeps a captured
+/// reservation from being replayed later.
+///
+/// # Errors
+/// See [`ReservationError`].
+pub fn verify_reservation(
+    channel_id: B256,
+    epoch: u64,
+    issued_at: u64,
+    signature: &Signature,
+    spend_key: Address,
+    domain: &Eip712Domain,
+    now: u64,
+) -> Result<(), ReservationError> {
+    let reservation = NonceReservation::new(channel_id, epoch, issued_at);
+    if !reservation.is_fresh(now) {
+        return Err(ReservationError::Stale {
+            issued_at,
+            now,
+            skew: RESERVATION_CLOCK_SKEW_SECS,
+        });
+    }
+    let recovered = reservation.recover(domain, signature)?;
+    if recovered != spend_key {
+        return Err(ReservationError::SignerMismatch {
+            expected: spend_key,
+            recovered,
+        });
+    }
+    Ok(())
 }

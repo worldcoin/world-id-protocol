@@ -133,13 +133,13 @@ Capacity and balance are derived from `EpochState` by the formulas above; the ep
 - **Fund.** Anyone may fund the current epoch or any future epoch. Reject ended epochs and amounts that are not a multiple of `pricePerUnit`. Tokens move from the caller to the escrow. Capacity rises immediately, so a mid-epoch top-up lifts the cap in the same block.
 - **Settle.** Anyone may call on an epoch that is not closed. The batch names one `epoch`, and every signature is verified against it. For each authorization: require `counter ≥ 1`; if `counter ≤ laneHighWater`, skip it; otherwise require the signature to recover to `spendKey` and raise the mark. Revert the whole batch if the new `settledUnits` would exceed `capacity`; the collector must never have admitted those units. Pay `pricePerUnit × Δunits` to `collector`.
 - **Close.** If `block.timestamp ≥ epochZero + (epoch + 1) × epochLength`, the same `settle` call then transfers the remaining `balance` to `collector` and marks the epoch closed. An empty batch after the epoch ends is the plain close. Closing requires no signatures because it claims nothing about usage; it is the non-refundable part of the price. A closed epoch rejects `fund` and `settle`.
-- **Token safety.** Support only exact-transfer, non-rebasing ERC-20 tokens. Use checked arithmetic and safe token calls, guard every mutation against reentrancy, and revert accounting on transfer failure. Unsolicited transfers do not fund anything.
+- **Token safety.** `fund` measures the escrow's balance before and after the transfer and reverts unless the delta equals `amount`, so a fee-on-transfer or rebasing token cannot create an epoch the escrow cannot pay out. Use checked arithmetic and safe token calls, guard every mutation against reentrancy, and revert accounting on transfer failure. Unsolicited transfers do not fund anything.
 
 There is no refund, no channel close, no deadline, and no payer role. A channel is abandoned by not funding its next epoch. Rotating the RP's registry signer does not affect an open channel; open a new channel under the new key.
 
 ## Signatures
 
-One EIP-712 domain, two typed structs.
+One EIP-712 domain, three typed structs.
 
 ```solidity
 EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)
@@ -150,6 +150,9 @@ ChannelSettings(uint64 rpId,address spendKey,address collector,address token,uin
 
 // Signed by spendKey once per paid verification.
 PaymentAuthorization(bytes32 channelId,uint64 epoch,uint96 channelNonce)
+
+// Signed by spendKey once per reserve call. Never on-chain.
+NonceReservation(bytes32 channelId,uint64 epoch,uint64 issuedAt)
 ```
 
 Field names and order are normative. Hash with EIP-712 struct encoding, not packed encoding. Accept canonical 65-byte ECDSA signatures with low `s` and `v` of 27 or 28; reject malformed signatures and zero-address recovery. `spendKey` is an ECDSA key; contract signers are out of scope for this version.
@@ -194,7 +197,7 @@ The RP hands the `Payment` to the user, who forwards it unchanged alongside the 
 
 The RP holds no nonce state. The collector issues counters and proves each proposal with the RP's own previous signature.
 
-**Reserve.** Before signing, the RP calls `POST /channels/{channelId}/nonces` with the request's `epoch` and a fresh random `requestId` as an idempotency key. Authenticate the endpoint with an API key or mTLS; a reservation carries no funds, so a protocol-level signature is unnecessary. The collector allocates the lowest lane with no pending reservation for that epoch, records the reservation with `expires_by = now + T` where `T` is its maximum request lifetime, and returns `{lane, counter, expires_by, previous}`. `previous` is the RP-signed `Payment` for `counter − 1` on that lane and epoch, or `null` when `counter` is 1. Retries with the same `requestId` return the same reservation.
+**Reserve.** Before signing, the RP calls `POST /channels/{channelId}/nonces` with `{epoch, issued_at, signature}`, where `signature` is its `spendKey` over `NonceReservation(channelId, epoch, issuedAt)`. A reservation holds capacity for `T`, so it must come from the RP: the collector rejects any other signer and any `issued_at` more than 60 seconds from its clock before touching state. The collector takes the lowest lane with no live reservation for that epoch, marks it reserved until `expires_by = now + T` where `T` is its maximum request lifetime, and returns `{lane, counter, expires_by, previous}`. `counter` is one above the lane's latest admitted authorization, or 1 on a fresh lane. `previous` is that authorization, the RP-signed `Payment` for `counter − 1`, or `null` when `counter` is 1. A reserve call retried after a timeout simply takes another lane; the orphaned reservation frees itself at `expires_by` and costs no capacity. If admitted units already equal capacity, refuse with `capacity_exhausted` and the proof. If only live reservations make up the shortfall, refuse with a retryable `capacity_reserved` that names the earliest `expires_by`; the RP has not run out, it is racing itself.
 
 **Verify.** The RP requires either `previous` to be `null` and `counter` to be 1, or `previous.signature` to recover to its `spendKey` over `(channelId, epoch, lane, counter − 1)`. Nothing else is checked and nothing is remembered. The collector can therefore propose `n` only by holding the RP's signature on `n − 1`, so the sum of counters never exceeds the number of signatures the RP produced.
 
@@ -204,23 +207,23 @@ The RP holds no nonce state. The collector issues counters and proves each propo
 
 **Optional: return the signature early.** After signing, the RP may `PUT` the signed authorization to `/channels/{channelId}/nonces/{lane}/{counter}`. The lane frees at once, so lanes fall to the RP's instantaneous signing concurrency rather than user completion time. A signed-but-abandoned request then consumes one unit of capacity, since the collector holds a valid authorization for it.
 
-**Durability.** The collector persists every reservation before returning it and every admitted authorization before doing the work. Counters never wrap; after `uint64::MAX`, use a new lane. Bound pending reservations per RP and per epoch to prevent resource exhaustion.
+**Durability.** The collector persists every reservation before returning it and every admitted authorization before doing the work. Counters never wrap; after `uint64::MAX`, use a new lane. Bound the number of lanes per channel and epoch to prevent resource exhaustion.
 
 ## Collector admission and settlement
 
 On a verification request carrying a `Payment`, in order:
 
-1. `channel_id` names a channel whose `collector` is this service.
+1. `channel_id` names a channel whose `collector` is this service and whose `token` and `pricePerUnit` the collector accepts. The escrow enforces whatever price was signed; only the collector can refuse a price, so it must.
 2. `epoch`, `lane`, and `counter` match a pending reservation that has not passed its `expires_by`.
 3. The counter has not been admitted before. A repeat is refused as `already_admitted`; a `Payment` is consumed by its first admission.
 4. The signature recovers to `spendKey` over `(channelId, epoch, channelNonce)`.
 5. `admittedUnits(epoch)` is below `capacity(epoch)`, where `admittedUnits` counts every admitted counter in the epoch, settled or not, and `capacity` is read from a chain snapshot within a declared staleness bound. Otherwise refuse with `capacity_exhausted`.
 
-Persist `(epoch, lane, counter, signature)` before doing the work. Keep the highest authorization per lane for settlement and a bitmap per lane for dedupe; drop both once the epoch is closed.
+Persist the admitted authorization before doing the work. The whole state of a lane is its latest admitted authorization and whether a reservation is live. That authorization is the settlement entry, the predecessor proof, and the dedupe boundary, since the only admissible counter on a lane is one above it. Drop the epoch's lanes once it is closed.
 
 Settle whenever cash or an up-to-date on-chain record is wanted; only the highest authorization per lane is needed. Close the epoch with a final `settle` after it ends, once the collector's own late-admission grace has passed. Requests for a closed epoch may still be admitted within capacity; they are simply no longer recorded on-chain.
 
-Fail closed when the chain read is stale or unavailable or durable storage fails. Readiness fails on critical dependency breakage; liveness only checks the process. Bound remote calls and retries with exponential backoff and jitter, and rate-limit admission.
+Fail closed when the chain read is stale or unavailable or durable storage fails. Only a `ChannelNotFound` revert or a zero `spendKey` means an unknown channel; a rate limit, a transport error, a timeout, or an undecodable response is unavailability and is answered with a retryable 503, never with a business refusal. Readiness performs a real escrow read, not a chain-id probe. Readiness fails on critical dependency breakage; liveness only checks the process. Bound remote calls and retries with exponential backoff and jitter, and rate-limit admission.
 
 Telemetry: admitted units against capacity per channel and epoch, refusals by class, settlement failures, time to epoch end with unsettled units, chain-read staleness. Alert on capacity headroom and on unsettled units approaching the close. Failure logs carry channel, epoch, dependency, upstream status, retry count, and trace ID, never signatures or proof payloads.
 
@@ -258,7 +261,7 @@ Recorded so they are not relitigated.
 - A closed epoch rejects further settlement. The collector closes an epoch when it no longer needs on-chain records for it.
 - One state-changing path per concern: `openChannel`, `fund`, `settle`. There is no separate sweep function, capacity and balance are derived rather than stored, and lanes are read from settlement calldata rather than events.
 - `Payment` is detached from `ProofRequest` in this version. It carries `epoch` explicitly, since there is no request timestamp to derive it from, and no request digest. Binding to a request is deferred; when added, `bytes32 rpRequestDigest` joins the signed struct and nothing else changes. On-chain, `epoch` remains the `settle` call's parameter rather than a per-entry field.
-- Counters are issued by the collector and verified by the RP against its own previous signature, as in the previous draft. Dropped from that draft: the requirement that the RP durably record its last counter, which the predecessor proof makes unnecessary, and the ban on reissuing abandoned counters, which froze a lane whenever a user never forwarded a request. Reservations are authenticated by API key or mTLS rather than a protocol signature, because they carry no funds.
+- Counters are issued by the collector and verified by the RP against its own previous signature, as in the previous draft. Dropped from that draft: the requirement that the RP durably record its last counter, which the predecessor proof makes unnecessary, and the ban on reissuing abandoned counters, which froze a lane whenever a user never forwarded a request. Reservations are authenticated by a `spendKey` signature. An earlier draft used an API key on the grounds that a reservation carries no funds; it carries capacity for `T`, which is enough for a stranger to exhaust an RP's epoch.
 - Per-unit metering with refunds and non-linear fee schedules are out of scope. They would be a different fee function over the same signatures.
 
 ## Required validation
@@ -267,7 +270,7 @@ Recorded so they are not relitigated.
 - Settle: stale skip, out-of-order and multi-lane batches, duplicate lanes in one batch, invalid signature revert, capacity overflow revert, cross-channel and cross-epoch replay, settle after close rejected.
 - Fund: non-multiple amount, ended epoch, future epoch, mid-epoch top-up raising capacity in the same block.
 - Close: settle on an ended epoch just before and at the boundary, with and without a batch, repeated settle after close rejected, zero remainder, and `paid = funded` once closed.
-- Nonce issuance: `null` predecessor only at counter 1, predecessor signature verification, rejection of a proposal whose predecessor is missing or not the RP's, one pending reservation per lane, reissue after `expires_by`, idempotent retry on the same `requestId`, early signature return freeing the lane, concurrent reservations across lanes.
+- Nonce issuance: `null` predecessor only at counter 1, predecessor signature verification, rejection of a proposal whose predecessor is missing or not the RP's, one live reservation per lane, reissue after `expires_by`, a retried reserve taking a fresh lane whose orphan frees at `expires_by`, the lane bound, concurrent reservations across lanes.
 - Collector: repeat of an admitted `Payment` refused, presentation after `expires_by` rejected, refusal at capacity with a verifiable proof, wrong-epoch rejection, stale RPC fail-closed, restart with and without persisted state.
 - Compatibility: `ProofRequest` and every existing verifier are byte-for-byte unchanged; the user client forwards a `Payment` unchanged alongside the verification request.
 

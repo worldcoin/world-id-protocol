@@ -1,9 +1,13 @@
 {
   "chainId": 480,
   "deployer": "0x45F838078ccad0850a3416279e26003a8216181B",
-  "implementation": "0xF2f7bEB6a03ef1A1A9Eb4313c5a086de203f88c3",
+  "implementation": "0x603abF686540C01205cEf2a674015811E3864D23",
   "mockToken": "0xdfA5E455beBc4345Dc1EFc217c625354Bf39Ec2F",
   "proxy": "0x31e992A8cb95382067EAd3aEC8B0bc330bd7bc52",
   "rpRegistry": "0x37d2462fE7B4a07987263AAd062C6593C4f567b9",
-  "timestamp": 1789335751
+  "timestamp": 1789335751,
+  "previousImplementations": [
+    "0xF2f7bEB6a03ef1A1A9Eb4313c5a086de203f88c3"
+  ],
+  "upgradedAt": 1789340249
 }

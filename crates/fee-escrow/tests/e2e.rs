@@ -10,8 +10,6 @@
 
 #[cfg(feature = "e2e")]
 mod e2e {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
     use alloy::{
         network::EthereumWallet,
         primitives::{B256, Bytes, U256},
@@ -24,9 +22,9 @@ mod e2e {
     use eyre::{Context as _, OptionExt as _, Result};
     use rand::Rng as _;
     use world_id_fee_escrow::{
-        ChainView, Ledger, LedgerConfig, Payment, StaleOrUnavailable,
+        LaneNonce, NonceReservation, Payment,
         typed_data::{ChannelSettings, domain, epoch_end, epoch_of},
-        verify_predecessor,
+        verify_predecessor, verify_reservation,
     };
 
     sol!(
@@ -85,19 +83,6 @@ mod e2e {
     const EPOCH_LENGTH: u64 = 3_600;
     /// Units funded into the epoch.
     const UNITS: u64 = 4;
-
-    /// Capacity the test refreshes by hand after every on-chain funding step.
-    ///
-    /// A real collector polls the chain and refuses once its snapshot is older than a declared
-    /// staleness bound; here the test controls the snapshot so the assertions are exact.
-    #[derive(Debug, Default)]
-    struct Snapshot(AtomicU64);
-
-    impl ChainView for Snapshot {
-        fn capacity(&self, _channel_id: B256, _epoch: u64) -> Result<u64, StaleOrUnavailable> {
-            Ok(self.0.load(Ordering::SeqCst))
-        }
-    }
 
     const fn to_sol_settings(settings: &ChannelSettings) -> IWorldIDFeeEscrow::ChannelSettings {
         IWorldIDFeeEscrow::ChannelSettings {
@@ -265,49 +250,48 @@ mod e2e {
             .await?;
         assert_eq!(state.funded, deposit);
 
-        // ── Reserve, verify, sign, admit ────────────────────────────────────────
-        let snapshot = Snapshot::default();
-        snapshot.0.store(UNITS, Ordering::SeqCst);
-        let mut ledger = Ledger::new(
-            escrow_domain.clone(),
-            snapshot,
-            LedgerConfig {
-                max_request_lifetime: 600,
-                ..LedgerConfig::default()
-            },
-        );
-        ledger.register_channel(settings.clone());
-
+        // ── Sign the epoch's units ──────────────────────────────────────────────
+        // No collector here: this test is the library against the contract. It plays both
+        // sides of the nonce protocol, so a lane's counters walk 1..=UNITS and each signature
+        // is checked the way a stateless RP would check the one before it.
+        let mut previous: Option<Payment> = None;
         for unit in 1..=UNITS {
-            let request_id = format!("req-{unit}");
-            let issued = ledger.reserve(channel_id, epoch, &request_id, now)?;
+            let lane_nonce = LaneNonce::new(0, unit);
 
-            // The RP is stateless: it believes the proposed counter only because the
-            // collector handed back the RP's own signature on the counter below it.
-            verify_predecessor(
-                issued.previous.as_ref(),
+            // What a collector would send to hold the lane, and what the RP checks back.
+            let reservation = NonceReservation::new(channel_id, epoch, now);
+            let signed = reservation.sign(&spend_key, &escrow_domain)?;
+            verify_reservation(
                 channel_id,
                 epoch,
-                issued.lane_nonce(),
+                now,
+                &signed,
+                spend_key.address(),
+                &escrow_domain,
+                now,
+            )?;
+            verify_predecessor(
+                previous.as_ref(),
+                channel_id,
+                epoch,
+                lane_nonce,
                 spend_key.address(),
                 &escrow_domain,
             )?;
 
-            let payment = Payment::sign(
-                channel_id,
-                epoch,
-                issued.lane_nonce(),
-                &spend_key,
-                &escrow_domain,
-            )?;
-            let admitted = ledger.admit(&payment, now)?;
-            assert_eq!(admitted.epoch, epoch, "unit {unit}");
+            let payment = Payment::sign(channel_id, epoch, lane_nonce, &spend_key, &escrow_domain)?;
+            assert_eq!(
+                payment.verify(channel_id, epoch, spend_key.address(), &escrow_domain)?,
+                lane_nonce,
+                "unit {unit}"
+            );
+            previous = Some(payment);
         }
-        assert_eq!(ledger.admitted_units(channel_id, epoch), UNITS);
+
+        // One signature per lane proves the lane's whole usage, so the batch is one entry.
+        let batch = vec![previous.clone().ok_or_eyre("no unit was signed")?];
 
         // ── Settle during the epoch ─────────────────────────────────────────────
-        let batch = ledger.settlement_batch(channel_id, epoch);
-        assert!(!batch.is_empty(), "there is signed usage to settle");
         let escrow_as_collector = WorldIDFeeEscrow::new(escrow_addr, as_collector.clone());
         escrow_as_collector
             .settle(
@@ -319,7 +303,6 @@ mod e2e {
             .await?
             .watch()
             .await?;
-        ledger.mark_settled(channel_id, epoch, &batch);
 
         let state = escrow_as_collector
             .epochState(channel_id, epoch)
@@ -408,8 +391,6 @@ mod e2e {
             "the escrow keeps nothing"
         );
 
-        ledger.close_epoch(channel_id, epoch);
-        assert!(ledger.settlement_batch(channel_id, epoch).is_empty());
         Ok(())
     }
 }

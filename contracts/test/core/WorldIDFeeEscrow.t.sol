@@ -32,6 +32,23 @@ contract ReentrantToken is ERC20Mock {
     }
 }
 
+/// @dev Delivers less than it is asked to move. Models a fee-on-transfer or deflationary ERC-20.
+contract FeeOnTransferToken is ERC20Mock {
+    uint256 public immutable feeBps;
+
+    constructor(uint256 feeBps_) {
+        feeBps = feeBps_;
+    }
+
+    function transferFrom(address from, address to, uint256 value) public override returns (bool) {
+        _spendAllowance(from, msg.sender, value);
+        uint256 fee = (value * feeBps) / 10_000;
+        _transfer(from, to, value - fee);
+        _burn(from, fee);
+        return true;
+    }
+}
+
 /// @dev Adds a storage variable after the escrow's own, to prove the layout survives an upgrade.
 contract WorldIDFeeEscrowV2Mock is WorldIDFeeEscrow {
     uint256 public newFeature;
@@ -438,6 +455,60 @@ contract WorldIDFeeEscrowTest is Test {
         assertEq(token.balanceOf(collector), 6 * PRICE);
         assertEq(block.number, blockAtStart);
         assertEq(block.timestamp, timeAtStart);
+    }
+
+    function test_fund_revertsForFeeOnTransferToken() public {
+        FeeOnTransferToken lossy = new FeeOnTransferToken(100); // 1%
+        lossy.mint(funder, 100e18);
+        vm.prank(funder);
+        lossy.approve(address(escrow), type(uint256).max);
+
+        IWorldIDFeeEscrow.ChannelSettings memory s = _defaultSettings();
+        s.token = address(lossy);
+        s.salt = bytes32(uint256(0xF0F));
+        bytes32 channelId = escrow.openChannel(s);
+
+        vm.prank(funder);
+        vm.expectRevert(
+            abi.encodeWithSelector(IWorldIDFeeEscrow.InexactTransfer.selector, 10 * PRICE, 10 * PRICE - 0.1e18)
+        );
+        escrow.fund(channelId, 0, 10 * PRICE);
+
+        // Nothing was credited, so no epoch exists that the escrow could fail to pay out.
+        assertEq(escrow.epochState(channelId, 0).funded, 0);
+        assertEq(lossy.balanceOf(address(escrow)), 0);
+    }
+
+    function test_fund_creditsExactlyWhatTheEscrowReceived() public {
+        bytes32 channelId = _openDefault();
+        uint256 escrowBefore = token.balanceOf(address(escrow));
+
+        vm.prank(funder);
+        escrow.fund(channelId, 0, 7 * PRICE);
+
+        assertEq(token.balanceOf(address(escrow)) - escrowBefore, 7 * PRICE);
+        assertEq(escrow.epochState(channelId, 0).funded, 7 * PRICE);
+    }
+
+    function test_fund_exactTransferTokenStillFundsAndClosesWithPaidEqualToFunded() public {
+        bytes32 channelId = _openDefault();
+
+        vm.prank(funder);
+        escrow.fund(channelId, 0, 4 * PRICE);
+        vm.prank(stranger);
+        escrow.fund(channelId, 0, 2 * PRICE);
+
+        escrow.settle(channelId, 0, _batch(_auth(channelId, 0, 0, 3)));
+
+        uint256 funded = escrow.epochState(channelId, 0).funded;
+        assertEq(funded, 6 * PRICE);
+        assertEq(token.balanceOf(address(escrow)), funded - 3 * PRICE);
+
+        vm.warp(_epochEnd(0));
+        escrow.settle(channelId, 0, _empty());
+
+        assertEq(token.balanceOf(collector), funded);
+        assertEq(token.balanceOf(address(escrow)), 0);
     }
 
     ////////////////////////////////////////////////////////////

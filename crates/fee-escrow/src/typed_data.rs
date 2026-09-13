@@ -31,6 +31,17 @@ mod sol_types {
             bytes32 salt;
         }
 
+        /// A request to hold a lane, signed by the channel's `spendKey`.
+        ///
+        /// Signed because a reservation holds capacity for its lifetime, so anyone who could
+        /// send one unsigned could starve the channel that funds it.
+        #[derive(Debug)]
+        struct NonceReservation {
+            bytes32 channelId;
+            uint64 epoch;
+            uint64 issuedAt;
+        }
+
         /// One unit of paid work, signed by the channel's `spendKey`.
         ///
         /// Names a channel, an epoch, and a lane counter, and nothing else. Binding an
@@ -49,6 +60,14 @@ mod sol_types {
 pub type ChannelSettings = sol_types::ChannelSettings;
 /// EIP-712 payload the `spendKey` signs once per paid request.
 pub type PaymentAuthorization = sol_types::PaymentAuthorization;
+/// EIP-712 payload the `spendKey` signs to hold a lane.
+pub type NonceReservation = sol_types::NonceReservation;
+
+/// How far a reservation's `issuedAt` may sit from the collector's clock, in seconds.
+///
+/// Wide enough for ordinary clock skew, narrow enough that a captured reservation is useless
+/// a minute later.
+pub const RESERVATION_CLOCK_SKEW_SECS: u64 = 60;
 
 /// Errors raised while recovering a signer from a payment authorisation.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -86,6 +105,78 @@ impl ChannelSettings {
     #[must_use]
     pub fn channel_id(&self, domain: &Eip712Domain) -> B256 {
         self.eip712_signing_hash(domain)
+    }
+}
+
+/// Recovers a signer, rejecting anything the escrow's `ECDSA.recover` would reject.
+///
+/// Rejects high-`s` signatures, a zero `r` or `s`, and zero-address recovery. The `v` byte is
+/// not checked here: [`Signature`] only holds a parity bit and re-serialises it as 27 or 28, so
+/// a non-canonical `v` cannot survive parsing into that type.
+///
+/// # Errors
+/// See [`RecoverError`].
+pub fn recover_canonical(digest: B256, signature: &Signature) -> Result<Address, RecoverError> {
+    if signature.r().is_zero() || signature.s().is_zero() {
+        return Err(RecoverError::ZeroComponent);
+    }
+    if signature.normalize_s().is_some() {
+        return Err(RecoverError::HighS);
+    }
+    let recovered = signature
+        .recover_address_from_prehash(&digest)
+        .map_err(|e| RecoverError::Failed(e.to_string()))?;
+    if recovered.is_zero() {
+        return Err(RecoverError::ZeroAddress);
+    }
+    Ok(recovered)
+}
+
+impl NonceReservation {
+    /// Builds the payload for a reservation issued at `issued_at`.
+    #[must_use]
+    pub const fn new(channel_id: B256, epoch: u64, issued_at: u64) -> Self {
+        Self {
+            channelId: channel_id,
+            epoch,
+            issuedAt: issued_at,
+        }
+    }
+
+    /// EIP-712 signing hash.
+    #[must_use]
+    pub fn digest(&self, domain: &Eip712Domain) -> B256 {
+        self.eip712_signing_hash(domain)
+    }
+
+    /// Signs this reservation.
+    ///
+    /// # Errors
+    /// Returns an error if the signer fails.
+    pub fn sign<S: SignerSync>(
+        &self,
+        signer: &S,
+        domain: &Eip712Domain,
+    ) -> Result<Signature, alloy::signers::Error> {
+        signer.sign_hash_sync(&self.digest(domain))
+    }
+
+    /// Recovers the signer.
+    ///
+    /// # Errors
+    /// See [`RecoverError`].
+    pub fn recover(
+        &self,
+        domain: &Eip712Domain,
+        signature: &Signature,
+    ) -> Result<Address, RecoverError> {
+        recover_canonical(self.digest(domain), signature)
+    }
+
+    /// Whether `issuedAt` sits near enough to `now` to be worth checking.
+    #[must_use]
+    pub const fn is_fresh(&self, now: u64) -> bool {
+        self.issuedAt.abs_diff(now) <= RESERVATION_CLOCK_SKEW_SECS
     }
 }
 
@@ -131,19 +222,7 @@ impl PaymentAuthorization {
         domain: &Eip712Domain,
         signature: &Signature,
     ) -> Result<Address, RecoverError> {
-        if signature.r().is_zero() || signature.s().is_zero() {
-            return Err(RecoverError::ZeroComponent);
-        }
-        if signature.normalize_s().is_some() {
-            return Err(RecoverError::HighS);
-        }
-        let recovered = signature
-            .recover_address_from_prehash(&self.digest(domain))
-            .map_err(|e| RecoverError::Failed(e.to_string()))?;
-        if recovered.is_zero() {
-            return Err(RecoverError::ZeroAddress);
-        }
-        Ok(recovered)
+        recover_canonical(self.digest(domain), signature)
     }
 }
 
@@ -223,6 +302,10 @@ pub(crate) mod tests {
         assert_eq!(
             PaymentAuthorization::eip712_encode_type(),
             "PaymentAuthorization(bytes32 channelId,uint64 epoch,uint96 channelNonce)"
+        );
+        assert_eq!(
+            NonceReservation::eip712_encode_type(),
+            "NonceReservation(bytes32 channelId,uint64 epoch,uint64 issuedAt)"
         );
     }
 

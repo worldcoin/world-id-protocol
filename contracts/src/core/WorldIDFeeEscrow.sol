@@ -121,11 +121,18 @@ contract WorldIDFeeEscrow is WorldIDBase, ReentrancyGuardTransient, IWorldIDFeeE
         if (amount == 0) revert ZeroValue();
         if (amount % pricePerUnit != 0) revert AmountNotMultipleOfPrice(amount, pricePerUnit);
 
+        // Receipt has to be measured, so the transfer necessarily precedes the accounting here. A token
+        // that delivers less than `amount` would otherwise leave the epoch permanently unpayable: its
+        // closing settlement owes `funded` but the escrow never held it. `nonReentrant` covers the window.
+        IERC20 token = IERC20(settings.token);
+        uint256 balanceBefore = token.balanceOf(address(this));
+        token.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 received = token.balanceOf(address(this)) - balanceBefore;
+        if (received != amount) revert InexactTransfer(amount, received);
+
         state.funded += amount;
 
         emit EpochFunded(channelId, epoch, msg.sender, amount);
-
-        IERC20(settings.token).safeTransferFrom(msg.sender, address(this), amount);
     }
 
     /// @inheritdoc IWorldIDFeeEscrow

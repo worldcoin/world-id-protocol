@@ -71,6 +71,8 @@ interface IWorldIDFeeEscrow {
     error EpochClosed(bytes32 channelId, uint64 epoch);
     /// @dev Funding must buy whole units, so the escrow never holds an unspendable fraction.
     error AmountNotMultipleOfPrice(uint256 amount, uint256 pricePerUnit);
+    /// @dev The escrow received less than `amount`. Only exact-transfer ERC-20s can fund a channel.
+    error InexactTransfer(uint256 expected, uint256 received);
     /// @dev Counter zero proves no units, so it is never a valid authorisation.
     error ZeroCounter();
     error InvalidPaymentSignature(uint96 channelNonce);
@@ -103,7 +105,9 @@ interface IWorldIDFeeEscrow {
     /**
      * @notice Buys capacity for the current or a future epoch. Anyone may fund.
      * @dev `amount` must be a nonzero multiple of `pricePerUnit`. Capacity rises in the same block.
-     *      Funding is a purchase: the funder holds no claim afterwards.
+     *      Funding is a purchase: the funder holds no claim afterwards. The escrow credits the epoch only
+     *      after confirming its own balance rose by exactly `amount`, so a fee-on-transfer or otherwise
+     *      inexact token reverts with `InexactTransfer` rather than creating an epoch it cannot pay out.
      */
     function fund(bytes32 channelId, uint64 epoch, uint256 amount) external;
 
