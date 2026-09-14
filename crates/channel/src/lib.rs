@@ -19,7 +19,7 @@
 //!
 //! ```no_run
 //! use alloy::signers::local::PrivateKeySigner;
-//! use world_id_fee_escrow::{
+//! use world_id_channel::{
 //!     Payment, verify_predecessor,
 //!     typed_data::{ChannelSettings, domain},
 //! };
@@ -28,7 +28,7 @@
 //! #     spend_key: PrivateKeySigner,
 //! #     escrow: alloy_primitives::Address,
 //! #     settings: ChannelSettings,
-//! #     lane_nonce: world_id_fee_escrow::LaneNonce,
+//! #     lane_nonce: world_id_channel::LaneNonce,
 //! #     previous: Option<Payment>,
 //! #     epoch: u64,
 //! # ) -> eyre::Result<()> {

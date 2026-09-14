@@ -1,5 +1,5 @@
 [package]
-name = "world-id-fee-escrow"
+name = "world-id-channel"
 description = "YABS payment-channel authorisations for World ID proof requests (POC)."
 publish = false
 edition.workspace = true

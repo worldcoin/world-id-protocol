@@ -13011,6 +13011,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-id-channel"
+version = "0.14.1"
+dependencies = [
+ "alloy",
+ "alloy-node-bindings",
+ "alloy-primitives",
+ "eyre",
+ "k256",
+ "rand 0.8.6",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "world-id-primitives",
+]
+
+[[package]]
 name = "world-id-core"
 version = "0.14.1"
 dependencies = [
@@ -13055,23 +13072,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.22",
- "world-id-primitives",
-]
-
-[[package]]
-name = "world-id-fee-escrow"
-version = "0.14.1"
-dependencies = [
- "alloy",
- "alloy-node-bindings",
- "alloy-primitives",
- "eyre",
- "k256",
- "rand 0.8.6",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
  "world-id-primitives",
 ]
 

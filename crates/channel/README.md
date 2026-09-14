@@ -1,4 +1,4 @@
-# world-id-fee-escrow
+# world-id-channel
 
 The protocol side of fixed-rate epoch payment channels: the EIP-712 types the escrow verifies,
 the `Payment` a relying party signs, and the stateless checks an RP makes before signing one.
@@ -20,7 +20,7 @@ payment to one request is deferred to a later version, which would add the reque
 signed struct.
 
 ```bash
-cargo test -p world-id-fee-escrow                 # unit tests and the cross-language vectors
+cargo test -p world-id-channel                 # unit tests and the cross-language vectors
 forge build --root contracts                      # required once for the e2e artifacts
-cargo test -p world-id-fee-escrow --features e2e  # anvil end to end, needs `anvil` on PATH
+cargo test -p world-id-channel --features e2e  # anvil end to end, needs `anvil` on PATH
 ```

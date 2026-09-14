@@ -5,7 +5,7 @@ members = [
   "crates/issuer",
   "crates/proof",
   "crates/primitives",
-  "crates/fee-escrow",
+  "crates/channel",
   "crates/registries",
   "crates/test-utils",
   "crates/zk-mobile-bench",
@@ -163,7 +163,7 @@ world-id-issuer = { version = "0.14.1", path = "crates/issuer" }
 world-id-proof = { version = "0.14.1", path = "crates/proof" }
 world-id-registries = { version = "0.14.1", path = "crates/registries" }
 world-id-authenticator = { version = "0.14.1", path = "crates/authenticator" }
-world-id-fee-escrow = { version = "0.14.1", path = "crates/fee-escrow" }
+world-id-channel = { version = "0.14.1", path = "crates/channel" }
 world-id-primitives = { version = "0.14.1", path = "crates/primitives", default-features = false }
 world-id-oprf-node = { version = "1.2.0", path = "services/oprf-node" }
 world-id-test-utils = { path = "crates/test-utils" }

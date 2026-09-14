@@ -21,7 +21,7 @@ mod e2e {
     use alloy_node_bindings::Anvil;
     use eyre::{Context as _, OptionExt as _, Result};
     use rand::Rng as _;
-    use world_id_fee_escrow::{
+    use world_id_channel::{
         LaneNonce, NonceReservation, Payment,
         typed_data::{ChannelSettings, domain, epoch_end, epoch_of},
         verify_predecessor, verify_reservation,
