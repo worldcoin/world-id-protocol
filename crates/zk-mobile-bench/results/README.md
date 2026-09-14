@@ -11,6 +11,6 @@ Checked-in BrowserStack results for the seven `zk-mobile-bench` functions.
 
 ## When these update
 
-Run **Actions → Mobile Benchmarks** on `main` with **`open_results_pr=true`** (leave `pr_number` empty). On success the workflow opens a PR that refreshes these files; merge that PR to adopt the new snapshot.
+Run **Actions → Mobile Benchmarks** on `main` with **`open_results_pr=true`**, **`device_profile=all`** (leave `pr_number` empty). The `all` profile runs the low/mid/high tiers from [`../device-matrix.yaml`](../device-matrix.yaml) so the snapshot and its plots cover the full device spread. On success the workflow opens a PR that refreshes these files; merge that PR to adopt the new snapshot.
 
 PR `/mobench` and `bench`-label runs post their own results in a sticky comment; they do **not** modify these files.

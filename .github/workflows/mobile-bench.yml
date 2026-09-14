@@ -13,7 +13,7 @@ on:
           - ios
           - both
       device_profile:
-        description: "Device profile: low-spec, mid-spec, high-spec, custom"
+        description: "Device profile: low-spec, mid-spec, high-spec, all (full tier spread; use for open_results_pr snapshots), custom"
         required: false
         type: choice
         default: low-spec
@@ -21,6 +21,7 @@ on:
           - low-spec
           - mid-spec
           - high-spec
+          - all
           - custom
       ios_device:
         description: "Custom iOS device name"
@@ -144,11 +145,10 @@ jobs:
       device_profile: ${{ inputs.device_profile }}
       ios_device: ${{ inputs.ios_device }}
       ios_os_version: ${{ inputs.ios_os_version }}
-      # mobench's low-spec profile still resolves to Moto G9 Play-10.0, which
-      # the current BrowserStack inventory no longer exposes. Keep manual
-      # overrides intact and use the available low-spec replacement by default.
-      android_device: ${{ inputs.android_device != '' && inputs.android_device || 'Motorola Moto G71 5G' }}
-      android_os_version: ${{ inputs.android_os_version != '' && inputs.android_os_version || '11.0' }}
+      # BrowserStack-inventory workarounds (e.g. the dead Moto G9 Play low-spec
+      # device) live in crates/zk-mobile-bench/device-matrix.yaml, not here.
+      android_device: ${{ inputs.android_device }}
+      android_os_version: ${{ inputs.android_os_version }}
       iterations: ${{ inputs.iterations }}
       warmup: ${{ inputs.warmup }}
       fetch_timeout_secs: ${{ inputs.fetch_timeout_secs }}

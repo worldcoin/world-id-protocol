@@ -37,7 +37,7 @@ on:
         type: string
         default: "both"
       device_profile:
-        description: "Device profile: low-spec, mid-spec, high-spec, custom"
+        description: "Device profile tag resolved against the caller's device-matrix.yaml (e.g. low-spec, mid-spec, high-spec, all)"
         required: false
         type: string
         default: "low-spec"
@@ -207,7 +207,7 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Resolve iOS device
+      - name: Resolve iOS devices
         id: resolve_device
         working-directory: caller
         shell: bash
@@ -215,30 +215,36 @@ jobs:
           DEVICE_PROFILE: ${{ inputs.device_profile }}
           IOS_DEVICE_OVERRIDE: ${{ inputs.ios_device }}
           IOS_OS_VERSION_OVERRIDE: ${{ inputs.ios_os_version }}
+          CRATE_PATH: ${{ inputs.crate_path }}
         run: |
+          set -euo pipefail
           if [ -n "$IOS_DEVICE_OVERRIDE" ] && [ -n "$IOS_OS_VERSION_OVERRIDE" ]; then
-            echo "device_name=${IOS_DEVICE_OVERRIDE}" >> "$GITHUB_OUTPUT"
-            echo "os_version=${IOS_OS_VERSION_OVERRIDE}" >> "$GITHUB_OUTPUT"
-            echo "Using custom device: ${IOS_DEVICE_OVERRIDE} (${IOS_OS_VERSION_OVERRIDE})"
+            specs="${IOS_DEVICE_OVERRIDE}-${IOS_OS_VERSION_OVERRIDE}"
+            echo "Using custom device: ${specs}"
           else
-            PROFILE_TO_RESOLVE="${DEVICE_PROFILE}"
-            if [ "$PROFILE_TO_RESOLVE" = "low-spec" ]; then
-              PROFILE_TO_RESOLVE="mid-spec"
-              echo "::warning::Using iOS mid-spec profile because the current low-spec iOS profile is incompatible with the generated BrowserStack app bundle"
-            fi
+            # Profiles (including `all`) are tags in the repo-owned device matrix,
+            # which also encodes the BrowserStack-inventory workarounds.
             output=$(cargo-mobench devices resolve \
               --platform ios \
-              --profile "${PROFILE_TO_RESOLVE}" \
+              --profile "${DEVICE_PROFILE}" \
+              --device-matrix "${CRATE_PATH}/device-matrix.yaml" \
               --format json 2>&1) || {
-                echo "::error::Failed to resolve iOS device: $output"
+                echo "::error::Failed to resolve iOS devices: $output"
                 exit 1
               }
-            device_name=$(echo "$output" | jq -r '.device // .name')
-            os_version=$(echo "$output" | jq -r '.os_version')
-            echo "device_name=${device_name}" >> "$GITHUB_OUTPUT"
-            echo "os_version=${os_version}" >> "$GITHUB_OUTPUT"
-            echo "Resolved iOS device: ${device_name} (${os_version})"
+            specs=$(jq -r '.devices[].identifier' <<<"$output")
+            if [ -z "${specs}" ]; then
+              echo "::error::Profile ${DEVICE_PROFILE} resolved to no iOS devices"
+              exit 1
+            fi
+            echo "Resolved iOS devices:"
+            echo "${specs}"
           fi
+          {
+            echo "device_specs<<SPECS_EOF"
+            echo "${specs}"
+            echo "SPECS_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Debug target sysroot
         shell: bash
@@ -279,18 +285,21 @@ jobs:
           WARMUP: ${{ inputs.warmup }}
           FETCH_TIMEOUT_SECS: ${{ inputs.fetch_timeout_secs }}
           IOS_COMPLETION_TIMEOUT_SECS: ${{ inputs.ios_completion_timeout_secs }}
-          IOS_DEVICE: ${{ steps.resolve_device.outputs.device_name }}
-          IOS_OS_VERSION: ${{ steps.resolve_device.outputs.os_version }}
+          DEVICE_SPECS: ${{ steps.resolve_device.outputs.device_specs }}
           RELEASE_FLAG: ${{ inputs.build_release && '--release' || '' }}
           CRATE_PATH: ${{ inputs.crate_path }}
         run: |
           set -euo pipefail
-          device_spec="${IOS_DEVICE}-${IOS_OS_VERSION}"
+          device_args=()
+          while IFS= read -r spec; do
+            [ -n "${spec}" ] && device_args+=(--devices "${spec}")
+          done <<<"${DEVICE_SPECS}"
           functions_arg="${FUNCTIONS}"
           if [[ "${FUNCTIONS}" == \[* ]]; then
             functions_arg=$(jq -r 'join(",")' <<<"${FUNCTIONS}")
           fi
-          echo "Running iOS benchmarks on: ${device_spec}"
+          echo "Running iOS benchmarks on:"
+          echo "${DEVICE_SPECS}"
           echo "Resolved functions: ${functions_arg}"
 
           cargo-mobench ci run \
@@ -298,7 +307,7 @@ jobs:
             --functions "${functions_arg}" \
             --iterations "${ITERATIONS}" \
             --warmup "${WARMUP}" \
-            --devices "${device_spec}" \
+            "${device_args[@]}" \
             --crate-path "$CRATE_PATH" \
             $RELEASE_FLAG \
             --ios-completion-timeout-secs "${IOS_COMPLETION_TIMEOUT_SECS}" \
@@ -460,7 +469,7 @@ jobs:
           fi
           cargo install --path mobench-src/crates/mobench --locked
 
-      - name: Resolve Android device
+      - name: Resolve Android devices
         id: resolve_device
         working-directory: caller
         shell: bash
@@ -468,25 +477,36 @@ jobs:
           DEVICE_PROFILE: ${{ inputs.device_profile }}
           ANDROID_DEVICE_OVERRIDE: ${{ inputs.android_device }}
           ANDROID_OS_VERSION_OVERRIDE: ${{ inputs.android_os_version }}
+          CRATE_PATH: ${{ inputs.crate_path }}
         run: |
+          set -euo pipefail
           if [ -n "$ANDROID_DEVICE_OVERRIDE" ] && [ -n "$ANDROID_OS_VERSION_OVERRIDE" ]; then
-            echo "device_name=${ANDROID_DEVICE_OVERRIDE}" >> "$GITHUB_OUTPUT"
-            echo "os_version=${ANDROID_OS_VERSION_OVERRIDE}" >> "$GITHUB_OUTPUT"
-            echo "Using custom device: ${ANDROID_DEVICE_OVERRIDE} (${ANDROID_OS_VERSION_OVERRIDE})"
+            specs="${ANDROID_DEVICE_OVERRIDE}-${ANDROID_OS_VERSION_OVERRIDE}"
+            echo "Using custom device: ${specs}"
           else
+            # Profiles (including `all`) are tags in the repo-owned device matrix,
+            # which also encodes the BrowserStack-inventory workarounds.
             output=$(cargo-mobench devices resolve \
               --platform android \
               --profile "${DEVICE_PROFILE}" \
+              --device-matrix "${CRATE_PATH}/device-matrix.yaml" \
               --format json 2>&1) || {
-                echo "::error::Failed to resolve Android device: $output"
+                echo "::error::Failed to resolve Android devices: $output"
                 exit 1
               }
-            device_name=$(echo "$output" | jq -r '.device // .name')
-            os_version=$(echo "$output" | jq -r '.os_version')
-            echo "device_name=${device_name}" >> "$GITHUB_OUTPUT"
-            echo "os_version=${os_version}" >> "$GITHUB_OUTPUT"
-            echo "Resolved Android device: ${device_name} (${os_version})"
+            specs=$(jq -r '.devices[].identifier' <<<"$output")
+            if [ -z "${specs}" ]; then
+              echo "::error::Profile ${DEVICE_PROFILE} resolved to no Android devices"
+              exit 1
+            fi
+            echo "Resolved Android devices:"
+            echo "${specs}"
           fi
+          {
+            echo "device_specs<<SPECS_EOF"
+            echo "${specs}"
+            echo "SPECS_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build Android artifacts
         working-directory: caller
@@ -507,18 +527,21 @@ jobs:
           ITERATIONS: ${{ inputs.iterations }}
           WARMUP: ${{ inputs.warmup }}
           FETCH_TIMEOUT_SECS: ${{ inputs.fetch_timeout_secs }}
-          ANDROID_DEVICE: ${{ steps.resolve_device.outputs.device_name }}
-          ANDROID_OS_VERSION: ${{ steps.resolve_device.outputs.os_version }}
+          DEVICE_SPECS: ${{ steps.resolve_device.outputs.device_specs }}
           RELEASE_FLAG: ${{ inputs.build_release && '--release' || '' }}
           CRATE_PATH: ${{ inputs.crate_path }}
         run: |
           set -euo pipefail
-          device_spec="${ANDROID_DEVICE}-${ANDROID_OS_VERSION}"
+          device_args=()
+          while IFS= read -r spec; do
+            [ -n "${spec}" ] && device_args+=(--devices "${spec}")
+          done <<<"${DEVICE_SPECS}"
           functions_arg="${FUNCTIONS}"
           if [[ "${FUNCTIONS}" == \[* ]]; then
             functions_arg=$(jq -r 'join(",")' <<<"${FUNCTIONS}")
           fi
-          echo "Running Android benchmarks on: ${device_spec}"
+          echo "Running Android benchmarks on:"
+          echo "${DEVICE_SPECS}"
           echo "Resolved functions: ${functions_arg}"
 
           cargo-mobench ci run \
@@ -526,7 +549,7 @@ jobs:
             --functions "${functions_arg}" \
             --iterations "${ITERATIONS}" \
             --warmup "${WARMUP}" \
-            --devices "${device_spec}" \
+            "${device_args[@]}" \
             --crate-path "$CRATE_PATH" \
             $RELEASE_FLAG \
             --fetch \
@@ -965,25 +988,21 @@ jobs:
           timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
           run_url="https://github.com/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}"
 
-          extract_device() {
+          # summary.json's `devices` is a list of device identifiers; a snapshot run may carry several.
+          extract_devices() {
             local summary="$1"
             if [ ! -f "${summary}" ]; then
               echo ""
               return 0
             fi
             jq -r '
-              (.device // .devices[0].device // .devices[0].name // .runs[0].device // .platform.device // empty)
-              as $d
-              | (.os_version // .devices[0].os_version // .runs[0].os_version // .platform.os_version // empty)
-              as $os
-              | if ($d|length) > 0 then
-                  if ($os|length) > 0 then "\($d) (\($os))" else $d end
-                else empty end
+              [(.devices // [])[] | if type == "string" then . else (.device // .name // empty) end]
+              | join(", ")
             ' "${summary}" 2>/dev/null || true
           }
 
-          ios_device=$(extract_device "${ios_summary}")
-          android_device=$(extract_device "${android_summary}")
+          ios_device=$(extract_devices "${ios_summary}")
+          android_device=$(extract_devices "${android_summary}")
 
           jq -n \
             --arg schema "mobench-results-v1" \
@@ -1026,10 +1045,10 @@ jobs:
             echo "- **Iterations / warmup:** ${ITERATIONS} / ${WARMUP}"
             echo "- **Device profile:** ${DEVICE_PROFILE}"
             if [ -n "${ios_device}" ]; then
-              echo "- **iOS device:** ${ios_device}"
+              echo "- **iOS devices:** ${ios_device}"
             fi
             if [ -n "${android_device}" ]; then
-              echo "- **Android device:** ${android_device}"
+              echo "- **Android devices:** ${android_device}"
             fi
             echo
             if [ -f rendered/ios/github-summary.md ]; then
