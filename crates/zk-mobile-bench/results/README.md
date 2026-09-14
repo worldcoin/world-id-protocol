@@ -8,6 +8,7 @@ Checked-in BrowserStack results for the seven `zk-mobile-bench` functions.
 | [`meta.json`](meta.json) | Provenance (commit, run, devices, mobench version) |
 | [`ios/summary.json`](ios/summary.json) | Machine-readable iOS mobench summary (when present) |
 | [`android/summary.json`](android/summary.json) | Machine-readable Android mobench summary (when present) |
+| `ios/plots/`, `android/plots/` | Per-function SVG plots embedded by `LATEST.md` (when present) |
 
 ## When these update
 
