@@ -109,6 +109,10 @@ jobs:
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        with:
+          # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
+          # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Download contract ABIs
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
@@ -158,6 +162,10 @@ jobs:
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        with:
+          # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
+          # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Download contract ABIs
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
@@ -195,6 +203,10 @@ jobs:
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        with:
+          # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
+          # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Download contract ABIs
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
@@ -250,6 +262,10 @@ jobs:
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        with:
+          # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
+          # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
@@ -316,6 +332,10 @@ jobs:
 
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        with:
+          # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
+          # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
