@@ -123,9 +123,29 @@ pub fn spawn_satellite(
                     Some(_) => continue,
                     None if local_head == B256::ZERO => continue,
                     None => {
-                        // local_head not in log — re-sync from destination.
-                        local_head = resync_head(&satellite, &log, local_head).await;
-                        continue;
+                        // The head may fall inside an entry: a split relay that
+                        // stopped part-way through one (failed part, timeout,
+                        // restart) leaves the destination on an intermediate
+                        // head the log never indexed. Re-derive the outstanding
+                        // commitments before falling back to a re-sync, which
+                        // cannot resolve such a head either.
+                        match log
+                            .since(B256::ZERO)
+                            .and_then(|all| resume_suffix(&all, local_head))
+                        {
+                            Some(suffix) => {
+                                tracing::info!(
+                                    head = %local_head,
+                                    entries = suffix.len(),
+                                    "resuming mid-entry after a partial split relay"
+                                );
+                                suffix
+                            }
+                            None => {
+                                local_head = resync_head(&satellite, &log, local_head).await;
+                                continue;
+                            }
+                        }
                     }
                 };
 
@@ -264,6 +284,56 @@ fn commitment_count(commitment: &ChainCommitment) -> usize {
         .map(|c| c.len())
         .unwrap_or(1)
         .max(1)
+}
+
+/// Locates a head that falls *inside* an entry and returns the commitments
+/// still outstanding from there.
+///
+/// Splitting relays attests intermediate heads, and the log only indexes heads
+/// the source actually emitted — so after a failed part, a timeout, or a
+/// restart, the destination can sit on a head `CommitmentLog::since` cannot
+/// resolve. Folding the log forward re-derives where that head sits, and the
+/// remainder of its entry is emitted as one entry ending on the entry's real
+/// (indexed) head, which puts the relay back on indexed heads as soon as it
+/// lands.
+///
+/// Returns `None` if `head` is not an interior head of any entry, which is the
+/// ordinary case and leaves the caller to fall back to a destination re-query.
+fn resume_suffix(
+    entries: &[Arc<ChainCommitment>],
+    head: B256,
+) -> Option<Vec<Arc<ChainCommitment>>> {
+    let mut running = B256::ZERO;
+
+    for (idx, entry) in entries.iter().enumerate() {
+        let commits =
+            Vec::<IWorldIDSource::Commitment>::abi_decode_params(&entry.commitment_payload).ok()?;
+
+        let mut folded = running;
+        for (applied, commit) in commits.iter().enumerate() {
+            folded = KeccakChain::new(folded, 0).hash_chained(std::slice::from_ref(commit));
+
+            // A match on the final commitment is the entry's own head, which
+            // the log already indexes — `since` handles that case.
+            if folded == head && applied + 1 < commits.len() {
+                let remainder = commits[applied + 1..].to_vec();
+                let mut out = Vec::with_capacity(entries.len() - idx);
+                out.push(Arc::new(ChainCommitment {
+                    chain_head: entry.chain_head,
+                    block_number: entry.block_number,
+                    chain_id: entry.chain_id,
+                    commitment_payload: remainder.abi_encode_params().into(),
+                    timestamp: entry.timestamp,
+                }));
+                out.extend(entries[idx + 1..].iter().cloned());
+                return Some(out);
+            }
+        }
+
+        running = entry.chain_head;
+    }
+
+    None
 }
 
 /// Splits any entry carrying more than `max_commitments` commitments into
@@ -525,6 +595,60 @@ mod tests {
             err.to_string().contains("did not reproduce its chain head"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn resume_suffix_recovers_from_an_intermediate_head() {
+        // The log holds entries as the source emitted them.
+        let mut head = B256::ZERO;
+        let mut entries = Vec::new();
+        for n in [2usize, 38, 3] {
+            let entry = chained_commitment(head, n);
+            head = entry.chain_head;
+            entries.push(entry);
+        }
+        let final_head = head;
+
+        // Relay splits the 38-commitment entry and lands only its first part,
+        // leaving the destination on a head the log never indexed.
+        let split = split_oversized(entries.clone(), B256::ZERO, 8).unwrap();
+        let stranded = split[1].chain_head; // first part of the oversized entry
+        assert!(
+            !entries.iter().any(|e| e.chain_head == stranded),
+            "the stranded head must not be one the log indexes"
+        );
+
+        let suffix = resume_suffix(&entries, stranded).expect("must resolve the intermediate head");
+
+        // The outstanding commitments are exactly those not yet applied, and
+        // folding them from the stranded head reaches the source tip.
+        let mut folded = stranded;
+        for entry in &suffix {
+            folded = KeccakChain::new(folded, 0).hash_chained(&commits_of(entry));
+            assert_eq!(entry.chain_head, folded);
+        }
+        assert_eq!(folded, final_head, "resuming must reach the source tip");
+        assert_eq!(
+            suffix.iter().map(|e| commitment_count(e)).sum::<usize>(),
+            38 - 8 + 3,
+            "only the unapplied commitments are relayed"
+        );
+    }
+
+    #[test]
+    fn resume_suffix_ignores_heads_the_log_already_indexes() {
+        let mut head = B256::ZERO;
+        let mut entries = Vec::new();
+        for n in [2usize, 5] {
+            let entry = chained_commitment(head, n);
+            head = entry.chain_head;
+            entries.push(entry);
+        }
+
+        // An entry's own head is resolvable by `since`, so this must decline.
+        assert!(resume_suffix(&entries, entries[0].chain_head).is_none());
+        // As must a head belonging to no entry at all.
+        assert!(resume_suffix(&entries, B256::with_last_byte(0x99)).is_none());
     }
 
     #[test]
