@@ -5,6 +5,8 @@
 //! satellite chain with the same wallet, so the signer must not be pinned to one
 //! chain id.
 
+use std::time::Duration;
+
 use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet},
     signers::{
@@ -13,6 +15,15 @@ use alloy::{
     },
 };
 use alloy_primitives::Address;
+use aws_config::{retry::RetryConfig, timeout::TimeoutConfig};
+
+/// Per-attempt cap on a KMS call. `Sign` is a p99-sub-second operation, so this
+/// is generous enough never to fire on a healthy path.
+const KMS_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Total cap across all retries of one KMS call, bounding how long a satellite
+/// task can block on signing.
+const KMS_OPERATION_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Signing credentials. Exactly one of the two may be set; clap enforces
 /// mutual exclusion at parse time via `group(multiple = false)`.
@@ -34,15 +45,15 @@ pub struct SignerArgs {
     pub aws_kms_key_id: Option<String>,
 }
 
-/// Which signing backend is in use. Logged at startup so operators can
-/// confirm a migrated deployment is really on KMS.
+/// Which signer is in use. Logged at startup so operators can confirm a
+/// migrated deployment is really on KMS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SignerBackend {
+pub enum SignerKind {
     PrivateKey,
     AwsKms,
 }
 
-impl SignerBackend {
+impl SignerKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::PrivateKey => "private_key",
@@ -56,7 +67,7 @@ impl SignerBackend {
 pub struct RelayWallet {
     pub wallet: EthereumWallet,
     pub address: Address,
-    pub backend: SignerBackend,
+    pub signer: SignerKind,
 }
 
 impl SignerArgs {
@@ -73,6 +84,7 @@ impl SignerArgs {
                     .map_err(|e| eyre::eyre!("failed to parse WALLET_PRIVATE_KEY: {e}"))?;
                 let address = signer.address();
                 tracing::warn!(
+                    signer = SignerKind::PrivateKey.as_str(),
                     wallet = %address,
                     "signing with a raw private key from the environment; \
                      migrate this deployment to AWS_KMS_KEY_ID"
@@ -80,11 +92,26 @@ impl SignerArgs {
                 Ok(RelayWallet {
                     wallet: EthereumWallet::from(signer),
                     address,
-                    backend: SignerBackend::PrivateKey,
+                    signer: SignerKind::PrivateKey,
                 })
             }
             (None, Some(key_id)) => {
-                let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+                let config = aws_config::defaults(BehaviorVersion::latest())
+                    // Every relay transaction now costs a KMS round trip. The SDK
+                    // sets no operation timeout by default, so a hung `Sign` would
+                    // stall the satellite task indefinitely.
+                    .timeout_config(
+                        TimeoutConfig::builder()
+                            .connect_timeout(Duration::from_secs(3))
+                            .operation_attempt_timeout(KMS_ATTEMPT_TIMEOUT)
+                            .operation_timeout(KMS_OPERATION_TIMEOUT)
+                            .build(),
+                    )
+                    // `standard` is exponential backoff with jitter, capped at
+                    // 3 attempts. Signing is idempotent, so retries are safe.
+                    .retry_config(RetryConfig::standard().with_max_attempts(3))
+                    .load()
+                    .await;
                 let client = aws_sdk_kms::Client::new(&config);
                 // `chain_id: None` keeps the signer usable across every chain the
                 // relay bridges to; a `Some(..)` here rejects txs for other chains.
@@ -94,11 +121,16 @@ impl SignerArgs {
                 let wallet = EthereumWallet::from(signer);
                 let address =
                     <EthereumWallet as NetworkWallet<Ethereum>>::default_signer_address(&wallet);
-                tracing::info!(%key_id, wallet = %address, "initialized AWS KMS relay signer");
+                tracing::info!(
+                    signer = SignerKind::AwsKms.as_str(),
+                    %key_id,
+                    wallet = %address,
+                    "initialized AWS KMS relay signer"
+                );
                 Ok(RelayWallet {
                     wallet,
                     address,
-                    backend: SignerBackend::AwsKms,
+                    signer: SignerKind::AwsKms,
                 })
             }
             (None, None) => Err(eyre::eyre!(
@@ -126,7 +158,7 @@ mod tests {
     async fn private_key_backend_resolves_address() {
         let key = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
         let built = args(Some(key), None).build().await.unwrap();
-        assert_eq!(built.backend, SignerBackend::PrivateKey);
+        assert_eq!(built.signer, SignerKind::PrivateKey);
         assert_eq!(
             built.address,
             "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"

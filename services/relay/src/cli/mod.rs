@@ -476,13 +476,8 @@ impl Cli {
         let RelayWallet {
             wallet,
             address: wallet_address,
-            backend: signer_backend,
+            ..
         } = self.signer.build().await?;
-        tracing::info!(
-            backend = signer_backend.as_str(),
-            wallet = %wallet_address,
-            "relay signer ready"
-        );
 
         // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
         // NOTE: blocks the health server briefly so `Engine` can own the single
