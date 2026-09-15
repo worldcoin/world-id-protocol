@@ -22,10 +22,10 @@ on:
         type: string
         default: "5"
       fetch_timeout_secs:
-        description: "Seconds to wait for each BrowserStack run to complete"
+        description: "Seconds to wait for each BrowserStack run to complete; sized for a multi-device (all) run"
         required: false
         type: string
-        default: "1800"
+        default: "5400"
       ios_completion_timeout_secs:
         description: "Seconds before the generated iOS XCUITest harness times out"
         required: false

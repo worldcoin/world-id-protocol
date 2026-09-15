@@ -54,10 +54,10 @@ on:
         type: string
         default: "5"
       fetch_timeout_secs:
-        description: "Seconds to wait for each BrowserStack run to complete"
+        description: "Seconds to wait for each BrowserStack run to complete; sized for a multi-device (all) run"
         required: false
         type: string
-        default: "1800"
+        default: "5400"
       pr_number:
         description: "PR number for sticky reporting (used by /mobench and bench-label runs). Leave empty for manual runs."
         required: false
