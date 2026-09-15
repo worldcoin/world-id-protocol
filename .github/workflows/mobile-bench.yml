@@ -73,6 +73,16 @@ on:
         required: false
         type: string
         default: ""
+      crate_path:
+        description: "Path to the benchmark crate"
+        required: false
+        type: string
+        default: "./crates/zk-mobile-bench"
+      functions:
+        description: "JSON array of benchmark functions to run (empty = workflow default)"
+        required: false
+        type: string
+        default: ""
       requested_by:
         description: "Who triggered the run"
         required: false
@@ -137,8 +147,8 @@ jobs:
     if: ${{ needs.browserstack-preflight.outputs.available == 'true' }}
     uses: ./.github/workflows/mobile-bench-reusable.yml
     with:
-      crate_path: ./crates/zk-mobile-bench
-      functions: '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_cached_proof_generation","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only","zk_mobile_bench::bench_ownership_proof_generation"]'
+      crate_path: ${{ inputs.crate_path }}
+      functions: ${{ inputs.functions != '' && inputs.functions || '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_cached_proof_generation","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only","zk_mobile_bench::bench_ownership_proof_generation"]' }}
       mobench_version: "0.2.0"
       mobench_ref: ""
       platform: ${{ inputs.platform }}
