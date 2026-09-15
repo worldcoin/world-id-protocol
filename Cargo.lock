@@ -13325,6 +13325,8 @@ dependencies = [
  "alloy-primitives",
  "ark-ff 0.5.0",
  "ark-serialize 0.5.0",
+ "aws-config",
+ "aws-sdk-kms",
  "axum",
  "clap",
  "config",

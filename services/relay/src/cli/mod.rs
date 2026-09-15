@@ -6,7 +6,6 @@ use serde::Deserialize;
 use alloy::{
     network::EthereumWallet,
     providers::{DynProvider, Provider, ProviderBuilder},
-    signers::local::PrivateKeySigner,
 };
 use alloy_primitives::{
     Address,
@@ -24,6 +23,7 @@ use crate::{
         EthereumMptSatellite, PermissionedSatellite, TempoSatellite,
         permissioned::tempo::FEE_TOKEN as TEMPO_FEE_TOKEN,
     },
+    signer::{RelayWallet, SignerArgs},
 };
 
 pub mod chain;
@@ -44,6 +44,9 @@ pub struct Cli {
     /// Address the health-check HTTP server binds to.
     #[arg(long, env = "HEALTH_BIND_ADDR", default_value = "0.0.0.0:8081")]
     pub health_bind_addr: std::net::SocketAddr,
+
+    #[command(flatten)]
+    pub signer: SignerArgs,
 }
 
 // ---------------------------------------------------------------------------
@@ -469,15 +472,17 @@ impl Cli {
 
         let config = parse_config(&self.config)?;
 
-        // Build a wallet for relay transactions.
-        let wallet_key = std::env::var("WALLET_PRIVATE_KEY").map_err(|_| {
-            eyre::eyre!("WALLET_PRIVATE_KEY env var is required for signing relay transactions")
-        })?;
-        let signer: PrivateKeySigner = wallet_key
-            .parse()
-            .map_err(|e| eyre::eyre!("failed to parse WALLET_PRIVATE_KEY: {e}"))?;
-        let wallet_address = signer.address();
-        let wallet = EthereumWallet::from(signer.clone());
+        // Build a wallet for relay transactions (raw private key or AWS KMS).
+        let RelayWallet {
+            wallet,
+            address: wallet_address,
+            backend: signer_backend,
+        } = self.signer.build().await?;
+        tracing::info!(
+            backend = signer_backend.as_str(),
+            wallet = %wallet_address,
+            "relay signer ready"
+        );
 
         // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
         // NOTE: blocks the health server briefly so `Engine` can own the single
@@ -497,7 +502,7 @@ impl Cli {
 
         spawn_wallet_metrics_task(wc_provider.clone(), wc_config.chain_id, wallet_address);
 
-        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone(), &signer);
+        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone(), wallet_address);
 
         let mut engine = Engine::new(world_chain);
 

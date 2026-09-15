@@ -100,12 +100,22 @@ Relay failures are logged but non-fatal -- the satellite retries on the next cha
 
 ## Configuration
 
-The relay is configured via a single JSON string passed through the `RELAY_CONFIG` environment variable (or `--config` CLI flag). RPC endpoints and the wallet key are passed as separate environment variables.
+The relay is configured via a single JSON string passed through the `RELAY_CONFIG` environment variable (or `--config` CLI flag). RPC endpoints and the signing credentials are passed as separate environment variables.
+
+### Signing
+
+Exactly one signing backend must be configured; startup fails if both or neither are set.
+
+- **AWS KMS** (`AWS_KMS_KEY_ID`) — preferred. The key is an `ECC_SECG_P256K1` / `SIGN_VERIFY` KMS key, never exported; AWS credentials come from the ambient provider chain (EKS Pod Identity in-cluster). The signer is built with no pinned chain id, so the same key signs on World Chain and every satellite.
+- **Raw private key** (`WALLET_PRIVATE_KEY`) — legacy, kept for local development and as a rollback path. Logs a warning at startup.
+
+Both backends resolve to the same wallet address only if the KMS key was imported from the existing private key; a freshly generated KMS key is a **new address** that must be funded on World Chain and every satellite chain before cutover.
 
 | Variable | Required | Description |
 |---|---|---|
 | `RELAY_CONFIG` | yes | JSON configuration string (see schema below) |
-| `WALLET_PRIVATE_KEY` | yes | Private key for signing relay transactions |
+| `AWS_KMS_KEY_ID` | one of | KMS key id/ARN used to sign relay transactions (**preferred**). Mutually exclusive with `WALLET_PRIVATE_KEY` |
+| `WALLET_PRIVATE_KEY` | one of | Hex private key for signing relay transactions (legacy). Mutually exclusive with `AWS_KMS_KEY_ID` |
 | `WORLDCHAIN_RPC_URL` | yes | World Chain RPC endpoint |
 | `{NAME}_RPC_URL` | per satellite | Satellite chain RPC endpoint, where `{NAME}` matches the satellite's `name` field in upper case (e.g. `ETHEREUM_RPC_URL`, `BASE_RPC_URL`) |
 
