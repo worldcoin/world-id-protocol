@@ -1098,8 +1098,19 @@ jobs:
             exit 1
           fi
 
+          # A snapshot without the full tier spread is allowed (e.g. a cheap single-tier
+          # re-run) but must be impossible to merge unknowingly.
+          coverage_warning=""
+          if [ "${DEVICE_PROFILE}" != "all" ]; then
+            echo "::warning::Snapshot benchmarked with device_profile=${DEVICE_PROFILE}; the checked-in results do not cover the full tier spread."
+            coverage_warning="> [!WARNING]
+          > This snapshot was produced with \`device_profile=${DEVICE_PROFILE}\`, not the full tier spread (\`device_profile=all\`). The checked-in results and plots cover fewer devices than a full snapshot — see \`${CRATE_PATH}/results/README.md\`.
+
+          "
+          fi
+
           pr_body="$(cat <<EOF
-          ## Summary
+          ${coverage_warning}## Summary
           Refresh checked-in BrowserStack results from [workflow run ${GITHUB_RUN_ID}](${run_url}).
 
           - Benchmarked commit: \`${HEAD_SHA}\`
