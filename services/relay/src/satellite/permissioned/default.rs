@@ -67,6 +67,12 @@ impl Satellite for PermissionedSatellite {
         self.chain_id
     }
 
+    /// The permissioned gateway reads the chain head from an owner-supplied
+    /// attribute, so intermediate heads the relay folds itself are accepted.
+    fn splittable(&self) -> bool {
+        true
+    }
+
     fn remote_chain_head<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<B256>> + Send + 'a>> {
         Box::pin(async move {
             let result = self.satellite.KECCAK_CHAIN().call().await?;

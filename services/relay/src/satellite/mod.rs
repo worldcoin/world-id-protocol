@@ -17,7 +17,7 @@ use crate::{
     bindings::IWorldIDSource,
     log::CommitmentLog,
     metrics as relay_metrics,
-    primitives::{ChainCommitment, reduce},
+    primitives::{ChainCommitment, KeccakChain, reduce},
 };
 
 /// Maximum time to wait for a single relay attempt (proof + transaction).
@@ -42,6 +42,20 @@ pub trait Satellite: Send + Sync {
     /// throughput for every other satellite.
     fn max_commitments_per_relay(&self) -> usize {
         DEFAULT_MAX_COMMITMENTS_PER_RELAY
+    }
+
+    /// Whether an entry carrying more commitments than
+    /// [`Self::max_commitments_per_relay`] may be split across several
+    /// transactions.
+    ///
+    /// Only sound where the destination's chain head is asserted by the relay
+    /// operator. `hashChained` folds one commitment at a time with no
+    /// batch-level binding, so the head after a prefix of an entry is itself a
+    /// valid chain state the satellite will accept. Adapters that prove the
+    /// head against source-chain state can only attest heads the source
+    /// actually emitted, so they must keep every entry whole.
+    fn splittable(&self) -> bool {
+        false
     }
 
     /// Queries the destination chain's current keccak chain head.
@@ -109,9 +123,29 @@ pub fn spawn_satellite(
                     Some(_) => continue,
                     None if local_head == B256::ZERO => continue,
                     None => {
-                        // local_head not in log — re-sync from destination.
-                        local_head = resync_head(&satellite, &log, local_head).await;
-                        continue;
+                        // The head may fall inside an entry: a split relay that
+                        // stopped part-way through one (failed part, timeout,
+                        // restart) leaves the destination on an intermediate
+                        // head the log never indexed. Re-derive the outstanding
+                        // commitments before falling back to a re-sync, which
+                        // cannot resolve such a head either.
+                        match log
+                            .since(B256::ZERO)
+                            .and_then(|all| resume_suffix(&all, local_head))
+                        {
+                            Some(suffix) => {
+                                tracing::info!(
+                                    head = %local_head,
+                                    entries = suffix.len(),
+                                    "resuming mid-entry after a partial split relay"
+                                );
+                                suffix
+                            }
+                            None => {
+                                local_head = resync_head(&satellite, &log, local_head).await;
+                                continue;
+                            }
+                        }
                     }
                 };
 
@@ -122,6 +156,28 @@ pub fn spawn_satellite(
                 // the first failure we stop and retry the remainder (from the
                 // now-advanced `local_head`) on the next head change.
                 let max_commitments = satellite.max_commitments_per_relay();
+
+                // A single source entry can itself exceed `max_commitments`:
+                // the source batches everything accumulated since its previous
+                // `propagateState`, so a stall on that side emits one large
+                // entry. Chunking alone cannot help, because it never splits an
+                // entry — so where the gateway lets the relay attest
+                // intermediate heads, split it instead of wedging forever.
+                let delta = if satellite.splittable() {
+                    match split_oversized(delta, local_head, max_commitments) {
+                        Ok(split) => split,
+                        Err(e) => {
+                            tracing::error!(
+                                error = %e,
+                                "failed to split oversized entry, skipping this round"
+                            );
+                            continue;
+                        }
+                    }
+                } else {
+                    delta
+                };
+
                 let chunks = chunk_by_commitments(&delta, max_commitments);
                 let chunk_total = chunks.len();
 
@@ -228,6 +284,126 @@ fn commitment_count(commitment: &ChainCommitment) -> usize {
         .map(|c| c.len())
         .unwrap_or(1)
         .max(1)
+}
+
+/// Locates a head that falls *inside* an entry and returns the commitments
+/// still outstanding from there.
+///
+/// Splitting relays attests intermediate heads, and the log only indexes heads
+/// the source actually emitted — so after a failed part, a timeout, or a
+/// restart, the destination can sit on a head `CommitmentLog::since` cannot
+/// resolve. Folding the log forward re-derives where that head sits, and the
+/// remainder of its entry is emitted as one entry ending on the entry's real
+/// (indexed) head, which puts the relay back on indexed heads as soon as it
+/// lands.
+///
+/// Returns `None` if `head` is not an interior head of any entry, which is the
+/// ordinary case and leaves the caller to fall back to a destination re-query.
+fn resume_suffix(
+    entries: &[Arc<ChainCommitment>],
+    head: B256,
+) -> Option<Vec<Arc<ChainCommitment>>> {
+    let mut running = B256::ZERO;
+
+    for (idx, entry) in entries.iter().enumerate() {
+        let commits =
+            Vec::<IWorldIDSource::Commitment>::abi_decode_params(&entry.commitment_payload).ok()?;
+
+        let mut folded = running;
+        for (applied, commit) in commits.iter().enumerate() {
+            folded = KeccakChain::new(folded, 0).hash_chained(std::slice::from_ref(commit));
+
+            // A match on the final commitment is the entry's own head, which
+            // the log already indexes — `since` handles that case.
+            if folded == head && applied + 1 < commits.len() {
+                let remainder = commits[applied + 1..].to_vec();
+                let mut out = Vec::with_capacity(entries.len() - idx);
+                out.push(Arc::new(ChainCommitment {
+                    chain_head: entry.chain_head,
+                    block_number: entry.block_number,
+                    chain_id: entry.chain_id,
+                    commitment_payload: remainder.abi_encode_params().into(),
+                    timestamp: entry.timestamp,
+                }));
+                out.extend(entries[idx + 1..].iter().cloned());
+                return Some(out);
+            }
+        }
+
+        running = entry.chain_head;
+    }
+
+    None
+}
+
+/// Splits any entry carrying more than `max_commitments` commitments into
+/// several entries of at most that size, each ending on a locally recomputed
+/// chain head.
+///
+/// `start_head` is the head the destination is currently at; heads are folded
+/// forward from there exactly as `Lib.hashChained` does on-chain, so every
+/// emitted entry ends on a head the satellite will accept. Entries already
+/// within the limit are passed through untouched, and the fold over each split
+/// entry must reproduce that entry's own head — otherwise the payload and head
+/// disagree and we refuse to relay rather than attest something unverified.
+///
+/// Only call this for satellites whose [`Satellite::splittable`] is true.
+fn split_oversized(
+    delta: Vec<Arc<ChainCommitment>>,
+    start_head: B256,
+    max_commitments: usize,
+) -> Result<Vec<Arc<ChainCommitment>>> {
+    if !delta
+        .iter()
+        .any(|entry| commitment_count(entry) > max_commitments)
+    {
+        return Ok(delta);
+    }
+
+    let mut out = Vec::with_capacity(delta.len());
+    let mut head = start_head;
+
+    for entry in delta {
+        let commits =
+            Vec::<IWorldIDSource::Commitment>::abi_decode_params(&entry.commitment_payload)?;
+
+        if commits.len() <= max_commitments {
+            head = entry.chain_head;
+            out.push(entry);
+            continue;
+        }
+
+        let parts = commits.len().div_ceil(max_commitments);
+        tracing::info!(
+            block_number = entry.block_number,
+            commitments = commits.len(),
+            max_commitments,
+            parts,
+            "splitting oversized entry"
+        );
+
+        for group in commits.chunks(max_commitments) {
+            head = KeccakChain::new(head, 0).hash_chained(group);
+            out.push(Arc::new(ChainCommitment {
+                chain_head: head,
+                block_number: entry.block_number,
+                chain_id: entry.chain_id,
+                commitment_payload: group.abi_encode_params().into(),
+                timestamp: entry.timestamp,
+            }));
+        }
+
+        eyre::ensure!(
+            head == entry.chain_head,
+            "split of entry at block {} did not reproduce its chain head \
+             (expected {}, folded to {})",
+            entry.block_number,
+            entry.chain_head,
+            head,
+        );
+    }
+
+    Ok(out)
 }
 
 /// Splits `delta` into contiguous chunks, each holding at most
@@ -341,6 +517,172 @@ mod tests {
         let delta = vec![commitment_with(1)];
         let chunks = chunk_by_commitments(&delta, DEFAULT_MAX_COMMITMENTS_PER_RELAY);
         assert_eq!(chunks.len(), 1);
+    }
+
+    /// Decodes an entry's payload back into individual commitments.
+    fn commits_of(entry: &ChainCommitment) -> Vec<IWorldIDSource::Commitment> {
+        Vec::<IWorldIDSource::Commitment>::abi_decode_params(&entry.commitment_payload).unwrap()
+    }
+
+    /// Builds an entry of `n` commitments whose `chain_head` is the real fold
+    /// from `start`, as the source emits and the satellite recomputes it.
+    fn chained_commitment(start: B256, n: usize) -> Arc<ChainCommitment> {
+        let entry = commitment_with(n);
+        let head = KeccakChain::new(start, 0).hash_chained(&commits_of(&entry));
+        Arc::new(ChainCommitment {
+            chain_head: head,
+            ..(*entry).clone()
+        })
+    }
+
+    #[test]
+    fn split_preserves_commitments_and_reproduces_the_head() {
+        let start = B256::with_last_byte(0xAA);
+        let entry = chained_commitment(start, 38);
+        let original = commits_of(&entry);
+
+        let split = split_oversized(vec![entry.clone()], start, 8).unwrap();
+
+        assert_eq!(split.len(), 5, "38 commitments at a cap of 8 is 5 parts");
+        assert!(split.iter().all(|e| commitment_count(e) <= 8));
+
+        // Every commitment survives, in order.
+        let flat: Vec<_> = split.iter().flat_map(|e| commits_of(e)).collect();
+        assert_eq!(flat.len(), original.len());
+        assert!(
+            flat.iter()
+                .zip(original.iter())
+                .all(|(a, b)| a.blockHash == b.blockHash && a.data == b.data)
+        );
+
+        // Each part ends on the head the satellite will fold to, and the last
+        // one lands exactly on the entry's own head.
+        let mut head = start;
+        for part in &split {
+            head = KeccakChain::new(head, 0).hash_chained(&commits_of(part));
+            assert_eq!(part.chain_head, head);
+        }
+        assert_eq!(head, entry.chain_head);
+    }
+
+    #[test]
+    fn split_leaves_entries_within_the_cap_untouched() {
+        let start = B256::ZERO;
+        let delta = vec![commitment_with(2), commitment_with(8)];
+
+        let split = split_oversized(delta.clone(), start, 8).unwrap();
+
+        assert_eq!(split.len(), delta.len());
+        assert!(
+            split
+                .iter()
+                .zip(delta.iter())
+                .all(|(a, b)| Arc::ptr_eq(a, b)),
+            "entries within the cap must pass through untouched"
+        );
+    }
+
+    #[test]
+    fn split_rejects_an_entry_whose_head_disagrees_with_its_payload() {
+        let start = B256::ZERO;
+        let bad = Arc::new(ChainCommitment {
+            chain_head: B256::with_last_byte(0xFF), // not the fold of the payload
+            ..(*commitment_with(20)).clone()
+        });
+
+        let err = split_oversized(vec![bad], start, 8).unwrap_err();
+        assert!(
+            err.to_string().contains("did not reproduce its chain head"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn resume_suffix_recovers_from_an_intermediate_head() {
+        // The log holds entries as the source emitted them.
+        let mut head = B256::ZERO;
+        let mut entries = Vec::new();
+        for n in [2usize, 38, 3] {
+            let entry = chained_commitment(head, n);
+            head = entry.chain_head;
+            entries.push(entry);
+        }
+        let final_head = head;
+
+        // Relay splits the 38-commitment entry and lands only its first part,
+        // leaving the destination on a head the log never indexed.
+        let split = split_oversized(entries.clone(), B256::ZERO, 8).unwrap();
+        let stranded = split[1].chain_head; // first part of the oversized entry
+        assert!(
+            !entries.iter().any(|e| e.chain_head == stranded),
+            "the stranded head must not be one the log indexes"
+        );
+
+        let suffix = resume_suffix(&entries, stranded).expect("must resolve the intermediate head");
+
+        // The outstanding commitments are exactly those not yet applied, and
+        // folding them from the stranded head reaches the source tip.
+        let mut folded = stranded;
+        for entry in &suffix {
+            folded = KeccakChain::new(folded, 0).hash_chained(&commits_of(entry));
+            assert_eq!(entry.chain_head, folded);
+        }
+        assert_eq!(folded, final_head, "resuming must reach the source tip");
+        assert_eq!(
+            suffix.iter().map(|e| commitment_count(e)).sum::<usize>(),
+            38 - 8 + 3,
+            "only the unapplied commitments are relayed"
+        );
+    }
+
+    #[test]
+    fn resume_suffix_ignores_heads_the_log_already_indexes() {
+        let mut head = B256::ZERO;
+        let mut entries = Vec::new();
+        for n in [2usize, 5] {
+            let entry = chained_commitment(head, n);
+            head = entry.chain_head;
+            entries.push(entry);
+        }
+
+        // An entry's own head is resolvable by `since`, so this must decline.
+        assert!(resume_suffix(&entries, entries[0].chain_head).is_none());
+        // As must a head belonging to no entry at all.
+        assert!(resume_suffix(&entries, B256::with_last_byte(0x99)).is_none());
+    }
+
+    #[test]
+    fn split_then_chunk_keeps_every_chunk_within_the_cap() {
+        // A mixed delta, including the shape Tempo wedged on: one huge entry
+        // surrounded by ordinary ones.
+        let start = B256::ZERO;
+        let mut head = start;
+        let mut delta = Vec::new();
+        for n in [2usize, 38, 1, 85, 3] {
+            let entry = chained_commitment(head, n);
+            head = entry.chain_head;
+            delta.push(entry);
+        }
+        let total: usize = delta.iter().map(|e| commitment_count(e)).sum();
+
+        let split = split_oversized(delta, start, 8).unwrap();
+        assert_eq!(
+            split.iter().map(|e| commitment_count(e)).sum::<usize>(),
+            total
+        );
+
+        for chunk in chunk_by_commitments(&split, 8) {
+            assert!(
+                total_commitments(chunk) <= 8,
+                "chunk of {} exceeds the cap after splitting",
+                total_commitments(chunk)
+            );
+        }
+        assert_eq!(
+            split.last().unwrap().chain_head,
+            head,
+            "final head preserved"
+        );
     }
 
     /// End-to-end: fork Arc Mainnet, impersonate the relay operator, and drive
