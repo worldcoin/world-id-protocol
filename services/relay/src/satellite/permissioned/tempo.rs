@@ -27,6 +27,10 @@ pub const FEE_TOKEN: Address = address!("0x20c000000000000000000000b9537d11c60e8
 
 const MAX_COMMITMENTS_PER_RELAY: usize = 8;
 
+/// Ceiling `eth_estimateGas` returns on Tempo. An estimate landing on it means
+/// the estimator gave up rather than measuring the call.
+const GAS_ESTIMATE_CEILING: u64 = 30_000_000;
+
 /// A permissioned satellite targeting a Tempo blockchain destination.
 ///
 /// Uses `TempoNetwork` provider with 2D random nonces and pays gas fees
@@ -80,6 +84,12 @@ impl<P: Provider<TempoNetwork> + Send + Sync + Clone + 'static> Satellite for Te
         MAX_COMMITMENTS_PER_RELAY
     }
 
+    /// The permissioned gateway reads the chain head from an owner-supplied
+    /// attribute, so intermediate heads the relay folds itself are accepted.
+    fn splittable(&self) -> bool {
+        true
+    }
+
     fn remote_chain_head<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<B256>> + Send + 'a>> {
         Box::pin(async move {
             let result = self.satellite_instance.KECCAK_CHAIN().call().await?;
@@ -123,6 +133,18 @@ impl<P: Provider<TempoNetwork> + Send + Sync + Clone + 'static> Satellite for Te
                 fee_token: Some(FEE_TOKEN),
                 ..Default::default()
             };
+
+            // Tempo's `eth_estimateGas` saturates at the node ceiling instead
+            // of reporting that the call does not fit. Submitting that value
+            // produces an out-of-gas revert carrying no return data, which is
+            // indistinguishable in the logs from a contract error — so treat a
+            // saturated estimate as the size failure it actually is.
+            let gas = self.provider.estimate_gas(tx.clone()).await?;
+            eyre::ensure!(
+                gas < GAS_ESTIMATE_CEILING,
+                "gas estimate saturated at the node ceiling ({gas}); this relay \
+                 carries more commitments than one Tempo transaction can apply"
+            );
 
             let pending = self.provider.send_transaction(tx).await?;
             let tx_hash = *pending.tx_hash();
