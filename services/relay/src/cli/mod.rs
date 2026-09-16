@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use eyre::Result;
 use serde::Deserialize;
+use world_id_services_common::alloy::provider::SignerArgs;
 
 use alloy::{
-    network::EthereumWallet,
+    network::{Ethereum, EthereumWallet, NetworkWallet},
     providers::{DynProvider, Provider, ProviderBuilder},
 };
 use alloy_primitives::{
@@ -23,7 +24,6 @@ use crate::{
         EthereumMptSatellite, PermissionedSatellite, TempoSatellite,
         permissioned::tempo::FEE_TOKEN as TEMPO_FEE_TOKEN,
     },
-    signer::{RelayWallet, SignerArgs},
 };
 
 pub mod chain;
@@ -472,12 +472,11 @@ impl Cli {
 
         let config = parse_config(&self.config)?;
 
-        // Build a wallet for relay transactions (raw private key or AWS KMS).
-        let RelayWallet {
-            wallet,
-            address: wallet_address,
-            ..
-        } = self.signer.build().await?;
+        // The relay signs on World Chain and every satellite with one key, so the
+        // wallet must not be pinned to a chain id.
+        let wallet = self.signer.chain_agnostic_wallet().await?;
+        let wallet_address =
+            <EthereumWallet as NetworkWallet<Ethereum>>::default_signer_address(&wallet);
 
         // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
         // NOTE: blocks the health server briefly so `Engine` can own the single

@@ -107,7 +107,9 @@ The relay is configured via a single JSON string passed through the `RELAY_CONFI
 Exactly one signing backend must be configured; startup fails if both or neither are set.
 
 - **AWS KMS** (`AWS_KMS_KEY_ID`) — preferred. The key is an `ECC_SECG_P256K1` / `SIGN_VERIFY` KMS key, never exported; AWS credentials come from the ambient provider chain (EKS Pod Identity in-cluster). The signer is built with no pinned chain id, so the same key signs on World Chain and every satellite.
-- **Raw private key** (`WALLET_PRIVATE_KEY`) — legacy, kept for local development and as a rollback path. Logs a warning at startup.
+- **Raw private key** (`WALLET_PRIVATE_KEY`) — legacy, kept for local development and as a rollback path.
+
+The signer args come from `world-id-services-common`, so `AWS_KMS_KEY_IDS` (one key per replica, selected by pod ordinal) also parses. It is not useful here: each replica would sign from a different address, and every one of them would need funding on World Chain and each satellite. Use `AWS_KMS_KEY_ID`.
 
 Both backends resolve to the same wallet address only if the KMS key was imported from the existing private key; a freshly generated KMS key is a **new address** that must be funded on World Chain and every satellite chain before cutover.
 
@@ -116,6 +118,7 @@ Both backends resolve to the same wallet address only if the KMS key was importe
 | `RELAY_CONFIG` | yes | JSON configuration string (see schema below) |
 | `AWS_KMS_KEY_ID` | one of | KMS key id/ARN used to sign relay transactions (**preferred**). Mutually exclusive with `WALLET_PRIVATE_KEY` |
 | `WALLET_PRIVATE_KEY` | one of | Hex private key for signing relay transactions (legacy). Mutually exclusive with `AWS_KMS_KEY_ID` |
+| `AWS_KMS_KEY_IDS` | no | Per-replica key list, inherited from the shared signer args. Not recommended for the relay (see above) |
 | `WORLDCHAIN_RPC_URL` | yes | World Chain RPC endpoint |
 | `{NAME}_RPC_URL` | per satellite | Satellite chain RPC endpoint, where `{NAME}` matches the satellite's `name` field in upper case (e.g. `ETHEREUM_RPC_URL`, `BASE_RPC_URL`) |
 
