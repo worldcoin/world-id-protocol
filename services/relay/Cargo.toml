@@ -20,12 +20,16 @@ alloy = { workspace = true, features = [
     "rlp",
     "sol-types",
     "signer-local",
+    "signer-aws",
     "provider-http",
     "reqwest-rustls-tls",
 ] }
 alloy-primitives = { workspace = true }
-world-id-services-common = { workspace = true }
 tempo-alloy = { workspace = true }
+
+# aws (per-network KMS signers)
+aws-config = { workspace = true }
+aws-sdk-kms = { workspace = true }
 
 # async 
 dashmap = { workspace = true }

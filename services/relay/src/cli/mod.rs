@@ -2,10 +2,9 @@ use std::sync::Arc;
 
 use eyre::Result;
 use serde::Deserialize;
-use world_id_services_common::alloy::provider::SignerArgs;
 
 use alloy::{
-    network::{Ethereum, EthereumWallet, NetworkWallet},
+    network::EthereumWallet,
     providers::{DynProvider, Provider, ProviderBuilder},
 };
 use alloy_primitives::{
@@ -24,6 +23,7 @@ use crate::{
         EthereumMptSatellite, PermissionedSatellite, TempoSatellite,
         permissioned::tempo::FEE_TOKEN as TEMPO_FEE_TOKEN,
     },
+    signer::{RelaySigners, SignerArgs},
 };
 
 pub mod chain;
@@ -256,6 +256,10 @@ fn parse_config(json: &str) -> eyre::Result<RelayConfig> {
 /// The env var name used for the World Chain (source) RPC endpoint.
 const SOURCE_RPC_ENV: &str = "WORLDCHAIN_RPC_URL";
 
+/// Network name for the source chain, used to derive its KMS key env var
+/// (`WORLDCHAIN_AWS_KMS_KEY_ID`).
+const SOURCE_NETWORK: &str = "WORLDCHAIN";
+
 /// Reads an RPC URL from the environment.
 ///
 /// For the source chain this is `WORLDCHAIN_RPC_URL`. For satellite chains
@@ -472,31 +476,33 @@ impl Cli {
 
         let config = parse_config(&self.config)?;
 
-        // The relay signs on World Chain and every satellite with one key, so the
-        // wallet must not be pinned to a chain id.
-        let wallet = self.signer.chain_agnostic_wallet().await?;
-        let wallet_address =
-            <EthereumWallet as NetworkWallet<Ethereum>>::default_signer_address(&wallet);
+        // One signer per network: each KMS key is its own identity, so every
+        // chain has a distinct address to fund and authorise.
+        let signers = RelaySigners::init(&self.signer).await?;
+
+        let wc_config = WorldChainConfig::from(&config.source);
+        let wc_wallet = signers
+            .wallet_for(SOURCE_NETWORK, wc_config.chain_id)
+            .await?;
 
         // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
         // NOTE: blocks the health server briefly so `Engine` can own the single
         // `Arc<CommitmentLog>` shared with `/readyz`.
         let wc_rpc_url = rpc_url_from_env(SOURCE_RPC_ENV)?;
-        let wc_provider = Arc::new(build_provider(&wc_rpc_url, &wallet).await?);
-
-        let wc_config = WorldChainConfig::from(&config.source);
+        let wc_provider = Arc::new(build_provider(&wc_rpc_url, &wc_wallet.wallet).await?);
 
         log_wallet_status(
             wc_provider.as_ref(),
-            wallet_address,
+            wc_wallet.address,
             wc_config.chain_id,
             "world_chain",
         )
         .await?;
 
-        spawn_wallet_metrics_task(wc_provider.clone(), wc_config.chain_id, wallet_address);
+        spawn_wallet_metrics_task(wc_provider.clone(), wc_config.chain_id, wc_wallet.address);
 
-        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone(), wallet_address);
+        let world_chain =
+            chain::WorldChain::new(&wc_config, wc_provider.clone(), wc_wallet.address);
 
         let mut engine = Engine::new(world_chain);
 
@@ -517,11 +523,15 @@ impl Cli {
         for sat_config in config.permissioned_gateways.iter().flatten() {
             match sat_config.chain_type {
                 ChainType::Default => {
-                    let provider = Arc::new(satellite_provider(&sat_config.name, &wallet).await?);
+                    let sat_wallet = signers
+                        .wallet_for(&sat_config.name, sat_config.destination_chain_id)
+                        .await?;
+                    let provider =
+                        Arc::new(satellite_provider(&sat_config.name, &sat_wallet.wallet).await?);
 
                     log_wallet_status(
                         provider.as_ref(),
-                        wallet_address,
+                        sat_wallet.address,
                         sat_config.destination_chain_id,
                         &sat_config.name,
                     )
@@ -530,7 +540,7 @@ impl Cli {
                     spawn_wallet_metrics_task(
                         provider.clone(),
                         sat_config.destination_chain_id,
-                        wallet_address,
+                        sat_wallet.address,
                     );
 
                     let satellite = PermissionedSatellite::new(
@@ -543,14 +553,17 @@ impl Cli {
                 }
                 ChainType::Tempo => {
                     let rpc_url = rpc_url_from_env(&sat_config.rpc_env_var())?;
+                    let sat_wallet = signers
+                        .wallet_for(&sat_config.name, sat_config.destination_chain_id)
+                        .await?;
 
                     // Standard Ethereum provider for contract reads (sol! bindings).
                     let read_provider =
-                        Arc::new(satellite_provider(&sat_config.name, &wallet).await?);
+                        Arc::new(satellite_provider(&sat_config.name, &sat_wallet.wallet).await?);
 
                     log_tempo_wallet_status(
                         read_provider.as_ref(),
-                        wallet_address,
+                        sat_wallet.address,
                         sat_config.destination_chain_id,
                         &sat_config.name,
                     )
@@ -559,13 +572,13 @@ impl Cli {
                     spawn_tempo_wallet_metrics_task(
                         read_provider.clone(),
                         sat_config.destination_chain_id,
-                        wallet_address,
+                        sat_wallet.address,
                     );
 
                     // Tempo-typed provider for sending transactions with 2D nonces.
                     let tempo_provider = ProviderBuilder::new_with_network::<TempoNetwork>()
                         .with_random_2d_nonces()
-                        .wallet(wallet.clone())
+                        .wallet(sat_wallet.wallet.clone())
                         .connect(&rpc_url)
                         .await?;
 
@@ -593,11 +606,15 @@ impl Cli {
 
         // Spawn Ethereum MPT gateway satellites.
         for sat_config in config.ethereum_mpt_gateways.iter().flatten() {
-            let provider = Arc::new(satellite_provider(&sat_config.name, &wallet).await?);
+            let sat_wallet = signers
+                .wallet_for(&sat_config.name, sat_config.destination_chain_id)
+                .await?;
+            let provider =
+                Arc::new(satellite_provider(&sat_config.name, &sat_wallet.wallet).await?);
 
             log_wallet_status(
                 provider.as_ref(),
-                wallet_address,
+                sat_wallet.address,
                 sat_config.destination_chain_id,
                 &sat_config.name,
             )
@@ -606,7 +623,7 @@ impl Cli {
             spawn_wallet_metrics_task(
                 provider.clone(),
                 sat_config.destination_chain_id,
-                wallet_address,
+                sat_wallet.address,
             );
 
             let satellite = EthereumMptSatellite::from_config(

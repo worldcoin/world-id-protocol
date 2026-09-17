@@ -114,6 +114,9 @@ pub mod relay;
 /// helper runs the subscribe → merge → prove → relay loop.
 pub mod satellite;
 
+/// Relay transaction signers (per-network AWS KMS, or a shared private key).
+pub mod signer;
+
 // ---------------------------------------------------------------------------
 // Convenience re-exports
 // ---------------------------------------------------------------------------
