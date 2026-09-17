@@ -15,7 +15,8 @@ Each ZK artifact type has exactly one way of being obtained:
   and otherwise downloads them from the GitHub release tag pinned in `build.rs`.
   Material loaders verify them against SHA-256 fingerprints pinned in `src/oprf_query.rs`
   (query proof) and `src/nullifier_proof.rs` (nullifier proof).
-- **Noir ownership proof artifacts** (`ownership_proof.pkp` / `.pkv`) are always built
+- **Noir proof artifacts** (`ownership_proof.pkp` / `.pkv` and
+  `claims_proof.pkp` / `.pkv`) are always built
   ad-hoc by `build.rs` from the checked-in circuit source using `nargo`. The required
   `nargo` version is pinned (see `flake.nix` and `REQUIRED_NARGO_VERSION` in `build.rs`); the build
   fails if a different version is on PATH, since a version mismatch can produce keys
@@ -42,7 +43,7 @@ At runtime, zkeys are decompressed in memory during initialization.
 
 ##### `embed-ownership-prover` / `embed-ownership-verifier`
 
-build.rs will build the Noir ownership proof artifacts with `nargo` and embed the selected
+build.rs will build the Noir ownership-proof artifacts with `nargo` and embed the selected
 one(s) into the binary. The prover is multi-MB; verifying-only consumers should enable just
 the verifier. Requires `nargo` on PATH at the pinned version — use `nix develop` or:
 
@@ -50,9 +51,14 @@ the verifier. Requires `nargo` on PATH at the pinned version — use `nix develo
 noirup --version v1.0.0-beta.11
 ```
 
+##### `embed-claims-prover` / `embed-claims-verifier`
+
+build.rs will build and embed the selected claims co-proof material. Authenticators need
+the prover; RP-side native verifiers need the verifier.
+
 ##### Umbrellas
 
-- `embed-noir-artifacts` = ownership prover + verifier
+- `embed-noir-artifacts` = ownership and claims provers + verifiers
 - `embed-zk-artifacts` = everything
 
 ## Circom circuit artifacts
@@ -76,8 +82,8 @@ attaches the Circom artifact files listed above (committed in this repository). 
 publishing a new tag, update both the pinned tag in `build.rs` and the pinned SHA-256
 fingerprints in `src/oprf_query.rs` and `src/nullifier_proof.rs`.
 
-## Noir ownership proof
+## Noir proofs
 
-The Noir ownership proof APIs are available on native targets. They can either use explicit
-prover/verifier material loaded from readers or paths, or embedded artifacts when the
-corresponding `embed-ownership-prover` / `embed-ownership-verifier` feature is enabled.
+The Noir ownership and claims proof interfaces are available on native targets. They can use
+explicit prover/verifier material loaded from readers or paths, or embedded artifacts when the
+corresponding feature is enabled.

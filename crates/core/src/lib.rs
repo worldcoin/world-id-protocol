@@ -30,6 +30,9 @@ pub use world_id_primitives::Signer;
 #[cfg(feature = "authenticator")]
 pub use world_id_proof::{artifacts, nullifier_proof};
 
+#[cfg(all(feature = "authenticator", not(target_arch = "wasm32")))]
+pub use world_id_proof::claims_proof;
+
 #[cfg(any(feature = "authenticator", feature = "rp"))]
 pub use world_id_primitives::request as requests;
 

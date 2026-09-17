@@ -23,10 +23,17 @@ embed-zkeys = ["world-id-proof/embed-zkeys"]
 compress-zkeys = ["embed-zkeys", "world-id-proof/compress-zkeys"]
 # Compress the tar archive with zstd
 zstd-compress-zkeys = ["embed-zkeys", "world-id-proof/zstd-compress-zkeys"]
-# Embed the Noir ownership prover/verifier (built ad-hoc with nargo)
+# Embed Noir prover/verifier artifacts (built ad-hoc with nargo)
 embed-ownership-prover = ["world-id-proof/embed-ownership-prover"]
 embed-ownership-verifier = ["world-id-proof/embed-ownership-verifier"]
-embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
+embed-claims-prover = ["world-id-proof/embed-claims-prover"]
+embed-claims-verifier = ["world-id-proof/embed-claims-verifier"]
+embed-noir-artifacts = [
+    "embed-ownership-prover",
+    "embed-ownership-verifier",
+    "embed-claims-prover",
+    "embed-claims-verifier",
+]
 # Embed everything
 embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
 
