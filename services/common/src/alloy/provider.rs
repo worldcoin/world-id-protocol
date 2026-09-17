@@ -250,6 +250,15 @@ impl SignerArgs {
     /// that sign on several chains with one key. Needs no RPC endpoint, since the
     /// chain id is exactly what is being skipped.
     pub async fn chain_agnostic_wallet(&self) -> ProviderResult<EthereumWallet> {
+        self.wallet_for_chain(None).await
+    }
+
+    /// Builds the configured wallet, optionally pinned to `chain_id`.
+    ///
+    /// Needs no RPC endpoint: callers that already know the chain id skip the
+    /// `eth_chainId` round trip `signer` makes. Pinning is what makes a
+    /// per-network key fail loudly if it is wired to the wrong chain.
+    pub async fn wallet_for_chain(&self, chain_id: Option<u64>) -> ProviderResult<EthereumWallet> {
         match (
             &self.wallet_private_key,
             &self.aws_kms_key_id,
@@ -257,16 +266,13 @@ impl SignerArgs {
         ) {
             (Some(s), None, None) => Ok(EthereumWallet::from(s.parse::<PrivateKeySigner>()?)),
             (None, Some(key_id), None) => {
-                tracing::info!(key_id, "Initializing chain-agnostic AWS KMS signer");
-                Self::aws_kms_wallet_for_chain(key_id, None).await
+                tracing::info!(key_id, ?chain_id, "Initializing AWS KMS signer");
+                Self::aws_kms_wallet_for_chain(key_id, chain_id).await
             }
             (None, None, Some(key_ids)) => {
                 let key_id = self.per_replica_key(key_ids)?;
-                tracing::info!(
-                    key_id,
-                    "Initializing chain-agnostic per-replica AWS KMS signer"
-                );
-                Self::aws_kms_wallet_for_chain(&key_id, None).await
+                tracing::info!(key_id, ?chain_id, "Initializing per-replica AWS KMS signer");
+                Self::aws_kms_wallet_for_chain(&key_id, chain_id).await
             }
             _ => Err(ProviderError::SignerConfigMissing),
         }

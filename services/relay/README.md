@@ -120,6 +120,10 @@ Each KMS signer is pinned to its network's chain id, so a key id wired to the wr
 network fails at signing time instead of submitting a transaction on the wrong chain.
 The private-key backend is not pinned, matching its previous behaviour.
 
+Signer construction lives in `world-id-services-common`
+(`SignerArgs::wallet_for_chain`), shared with the gateway; the relay only decides which
+key signs for which network.
+
 Under KMS every network has a **different address**. Each one must be funded on its own
 chain, and each satellite address must be the owner of that chain's
 `PermissionedGatewayAdapter` — its verification path calls `_checkOwner()`, so any other
