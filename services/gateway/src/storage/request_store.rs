@@ -1,5 +1,6 @@
 use std::{collections::HashSet, time::Duration};
 
+use alloy::primitives::Address;
 use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -14,10 +15,18 @@ pub struct RequestRecord {
     pub updated_at: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inflight_keys: Vec<String>,
+    /// Wallet that signed the transaction resolving this request, when known.
+    ///
+    /// NOTE: additive. Records written before this field existed deserialize as
+    /// `None`, which is how the legacy-submission path tells them apart. The
+    /// transaction hash is deliberately not duplicated here; it already appears
+    /// in [`GatewayRequestState::Submitted`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>)]
+    pub wallet: Option<Address>,
 }
 
 const REQUESTS_TTL: Duration = Duration::from_secs(86_400);
-const INFLIGHT_TTL: Duration = Duration::from_secs(300);
 const PENDING_SET_KEY: &str = "gateway:pending_requests";
 
 /// Discriminator of a stored [`GatewayRequestState`], used to guard a
@@ -31,6 +40,7 @@ const PENDING_SET_KEY: &str = "gateway:pending_requests";
 pub(crate) enum StatusGuard {
     Queued,
     Batching,
+    Submitted,
 }
 
 /// Result of a compare-and-set status write.
@@ -69,23 +79,32 @@ pub(crate) enum RateLimitOutcome {
 #[derive(Clone)]
 pub(crate) struct RequestStore {
     manager: ConnectionManager,
+    /// Lifetime of an in-flight lock. Must outlive the request it protects, or
+    /// duplicate detection lapses while the request is still being submitted.
+    inflight_ttl: Duration,
 }
 
 impl RequestStore {
     /// Connects to Redis and creates a cloneable connection manager.
     ///
+    /// `inflight_ttl` bounds how long a request's in-flight lock survives; see
+    /// [`Self::inflight_ttl`].
+    ///
     /// # Panics
     ///
     /// Panics if `redis_url` is invalid or the initial connection cannot be
     /// established.
-    pub(crate) async fn connect(redis_url: &str) -> Self {
+    pub(crate) async fn connect(redis_url: &str, inflight_ttl: Duration) -> Self {
         let client = Client::open(redis_url).expect("Unable to connect to Redis");
         let manager = ConnectionManager::new(client)
             .await
             .expect("Unable to create Redis connection manager");
 
         tracing::info!("Connection to Redis established");
-        Self { manager }
+        Self {
+            manager,
+            inflight_ttl,
+        }
     }
 
     /// Stores a terminal request record without adding pending or in-flight entries.
@@ -104,6 +123,7 @@ impl RequestStore {
             status,
             updated_at,
             inflight_keys: Vec::new(),
+            wallet: None,
         };
         let json = serde_json::to_string(&record)?;
         let mut manager = self.manager.clone();
@@ -117,107 +137,6 @@ impl RequestStore {
             .query_async(&mut manager)
             .await?;
         Ok(())
-    }
-
-    /// Atomically applies a status only while the stored status is one of
-    /// `allowed`, preserving the record's TTL.
-    ///
-    /// This is the guard that keeps two independent owners from clobbering each
-    /// other: an owner that decided from a stale snapshot may only write while
-    /// the request is still in a state it was responsible for.
-    ///
-    /// Terminal statuses additionally remove the request from the pending set
-    /// and delete the in-flight locks it still owns, matching
-    /// [`Self::update_status`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when serialization or the Redis call fails.
-    pub(crate) async fn update_status_if(
-        &self,
-        id: &str,
-        allowed: &[StatusGuard],
-        status: &GatewayRequestState,
-        updated_at: u64,
-    ) -> GatewayResult<StatusWriteOutcome> {
-        let allowed_json = Self::status_guard_json(allowed)?;
-        let status_json = serde_json::to_string(status)?;
-
-        let mut manager = self.manager.clone();
-        let outcome: i64 = redis::Script::new(
-            r#"
-                local request_key = KEYS[1]
-                local pending_set_key = KEYS[2]
-
-                local allowed = cjson.decode(ARGV[1])
-                local status = ARGV[2]
-                local updated_at = tonumber(ARGV[3])
-                local request_id = ARGV[4]
-
-                local record = redis.call('GET', request_key)
-                if not record then
-                    return -1
-                end
-
-                local decoded = cjson.decode(record)
-                local current = decoded.status.state
-                local accepted = false
-                for _, name in ipairs(allowed) do
-                    if current == name then
-                        accepted = true
-                        break
-                    end
-                end
-                if not accepted then
-                    return 0
-                end
-
-                decoded.status = cjson.decode(status)
-                decoded.updated_at = updated_at
-                redis.call('SET', request_key, cjson.encode(decoded), 'KEEPTTL')
-
-                local state = decoded.status.state
-                if state == 'finalized' or state == 'failed' then
-                    redis.call('SREM', pending_set_key, request_id)
-                    local inflight = decoded.inflight_keys
-                    if inflight then
-                        for _, key in ipairs(inflight) do
-                            local owner = redis.call('GET', key)
-                            -- Gateway versions predating lock ownership stored literal 1.
-                            if owner == request_id or owner == '1' then
-                                redis.call('DEL', key)
-                            end
-                        end
-                    end
-                end
-
-                return 1
-                "#,
-        )
-        .key(Self::request_key(id))
-        .key(PENDING_SET_KEY)
-        .arg(allowed_json)
-        .arg(status_json)
-        .arg(updated_at)
-        .arg(id)
-        .invoke_async(&mut manager)
-        .await?;
-        Ok(Self::status_write_outcome(outcome))
-    }
-
-    /// Serializes a guard list into the JSON array the Lua scripts expect.
-    fn status_guard_json(allowed: &[StatusGuard]) -> GatewayResult<String> {
-        let names: Vec<String> = allowed.iter().map(ToString::to_string).collect();
-        Ok(serde_json::to_string(&names)?)
-    }
-
-    /// Maps the integer convention used by the guarded status scripts.
-    const fn status_write_outcome(value: i64) -> StatusWriteOutcome {
-        match value {
-            1 => StatusWriteOutcome::Applied,
-            0 => StatusWriteOutcome::Guarded,
-            _ => StatusWriteOutcome::Missing,
-        }
     }
 
     /// Atomically creates a queued request, pending entry, and in-flight locks.
@@ -244,6 +163,7 @@ impl RequestStore {
             status: GatewayRequestState::Queued,
             updated_at,
             inflight_keys: redis_inflight_keys.clone(),
+            wallet: None,
         };
         let json = serde_json::to_string(&record)?;
         let mut manager = self.manager.clone();
@@ -292,7 +212,7 @@ impl RequestStore {
         invocation.arg(json);
         invocation.arg(REQUESTS_TTL.as_secs());
         invocation.arg(id);
-        invocation.arg(INFLIGHT_TTL.as_secs());
+        invocation.arg(self.inflight_ttl.as_secs());
 
         let duplicate: Option<String> = invocation.invoke_async(&mut manager).await?;
         Ok(match duplicate {
@@ -371,6 +291,231 @@ impl RequestStore {
         .invoke_async(&mut manager)
         .await?;
         Ok(())
+    }
+
+    /// Atomically applies a status only while the stored status is one of
+    /// `allowed`, preserving the record's TTL.
+    ///
+    /// This is the guard that keeps two independent owners from clobbering each
+    /// other: the orphan sweeper may only move a request out of
+    /// `Queued`/`Batching`, and the resolver may only move it out of
+    /// `Batching`/`Submitted`. Without the guard, a sweeper reading a stale
+    /// snapshot can overwrite a status another task has already advanced,
+    /// reporting a request as failed while its transaction is on chain.
+    ///
+    /// `wallet` is written when supplied and left untouched when `None`, so a
+    /// legacy record is never given a budget it did not earn.
+    ///
+    /// Terminal statuses additionally remove the request from the pending set
+    /// and delete the in-flight locks it still owns, matching
+    /// [`Self::update_status`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when serialization or the Redis call fails.
+    pub(crate) async fn update_status_if(
+        &self,
+        id: &str,
+        allowed: &[StatusGuard],
+        status: &GatewayRequestState,
+        updated_at: u64,
+        wallet: Option<Address>,
+    ) -> GatewayResult<StatusWriteOutcome> {
+        let allowed_json = Self::status_guard_json(allowed)?;
+        let status_json = serde_json::to_string(status)?;
+        let wallet = wallet.map_or_else(String::new, |wallet| wallet.to_string());
+
+        let mut manager = self.manager.clone();
+        let outcome: i64 = redis::Script::new(
+            r#"
+            local request_key = KEYS[1]
+            local pending_set_key = KEYS[2]
+
+            local allowed = cjson.decode(ARGV[1])
+            local status = ARGV[2]
+            local updated_at = tonumber(ARGV[3])
+            local request_id = ARGV[4]
+            local wallet = ARGV[5]
+
+            local record = redis.call('GET', request_key)
+            if not record then
+                return -1
+            end
+
+            local decoded = cjson.decode(record)
+            local current = decoded.status.state
+            local accepted = false
+            for _, name in ipairs(allowed) do
+                if current == name then
+                    accepted = true
+                    break
+                end
+            end
+            if not accepted then
+                return 0
+            end
+
+            decoded.status = cjson.decode(status)
+            decoded.updated_at = updated_at
+            if wallet ~= '' then
+                decoded.wallet = wallet
+            end
+            redis.call('SET', request_key, cjson.encode(decoded), 'KEEPTTL')
+
+            local state = decoded.status.state
+            if state == 'finalized' or state == 'failed' then
+                redis.call('SREM', pending_set_key, request_id)
+                local inflight = decoded.inflight_keys
+                if inflight then
+                    for _, key in ipairs(inflight) do
+                        local owner = redis.call('GET', key)
+                        -- Gateway versions predating lock ownership stored literal 1.
+                        if owner == request_id or owner == '1' then
+                            redis.call('DEL', key)
+                        end
+                    end
+                end
+            end
+
+            return 1
+            "#,
+        )
+        .key(Self::request_key(id))
+        .key(PENDING_SET_KEY)
+        .arg(allowed_json)
+        .arg(status_json)
+        .arg(updated_at)
+        .arg(id)
+        .arg(wallet)
+        .invoke_async(&mut manager)
+        .await?;
+
+        Ok(Self::status_write_outcome(outcome))
+    }
+
+    /// Atomically applies a status to every request in a batch, or to none of
+    /// them.
+    ///
+    /// All-or-nothing matters here: a partially applied transition would leave
+    /// some requests recorded as `Submitted` for a transaction the caller is
+    /// about to discard, with no wallet record for the resolver to pick up.
+    /// Callers treat [`StatusWriteOutcome::Guarded`] as "do not broadcast".
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `ids` is empty, serialization fails, or the Redis
+    /// call fails.
+    pub(crate) async fn update_status_batch_if(
+        &self,
+        ids: &[String],
+        allowed: &[StatusGuard],
+        status: &GatewayRequestState,
+        updated_at: u64,
+        wallet: Option<Address>,
+    ) -> GatewayResult<StatusWriteOutcome> {
+        if ids.is_empty() {
+            return Ok(StatusWriteOutcome::Missing);
+        }
+
+        let allowed_json = Self::status_guard_json(allowed)?;
+        let status_json = serde_json::to_string(status)?;
+        let wallet = wallet.map_or_else(String::new, |wallet| wallet.to_string());
+
+        let mut manager = self.manager.clone();
+        let script = redis::Script::new(
+            r#"
+            local last = #KEYS
+            local pending_set_key = KEYS[last]
+            local count = last - 1
+
+            local allowed = cjson.decode(ARGV[1])
+            local status = ARGV[2]
+            local updated_at = tonumber(ARGV[3])
+            local wallet = ARGV[4]
+
+            local decoded_records = {}
+            for i = 1, count do
+                local record = redis.call('GET', KEYS[i])
+                if not record then
+                    return -1
+                end
+
+                local decoded = cjson.decode(record)
+                local current = decoded.status.state
+                local accepted = false
+                for _, name in ipairs(allowed) do
+                    if current == name then
+                        accepted = true
+                        break
+                    end
+                end
+                if not accepted then
+                    return 0
+                end
+
+                decoded_records[i] = decoded
+            end
+
+            for i = 1, count do
+                local decoded = decoded_records[i]
+                local request_id = ARGV[i + 4]
+
+                decoded.status = cjson.decode(status)
+                decoded.updated_at = updated_at
+                if wallet ~= '' then
+                    decoded.wallet = wallet
+                end
+                redis.call('SET', KEYS[i], cjson.encode(decoded), 'KEEPTTL')
+
+                local state = decoded.status.state
+                if state == 'finalized' or state == 'failed' then
+                    redis.call('SREM', pending_set_key, request_id)
+                    local inflight = decoded.inflight_keys
+                    if inflight then
+                        for _, key in ipairs(inflight) do
+                            local owner = redis.call('GET', key)
+                            if owner == request_id or owner == '1' then
+                                redis.call('DEL', key)
+                            end
+                        end
+                    end
+                end
+            end
+
+            return 1
+            "#,
+        );
+        let mut invocation = script.prepare_invoke();
+
+        for id in ids {
+            invocation.key(Self::request_key(id));
+        }
+        invocation.key(PENDING_SET_KEY);
+        invocation.arg(allowed_json);
+        invocation.arg(status_json);
+        invocation.arg(updated_at);
+        invocation.arg(wallet);
+        for id in ids {
+            invocation.arg(id);
+        }
+
+        let outcome: i64 = invocation.invoke_async(&mut manager).await?;
+        Ok(Self::status_write_outcome(outcome))
+    }
+
+    /// Serializes a guard list into the JSON array the Lua scripts expect.
+    fn status_guard_json(allowed: &[StatusGuard]) -> GatewayResult<String> {
+        let names: Vec<String> = allowed.iter().map(ToString::to_string).collect();
+        Ok(serde_json::to_string(&names)?)
+    }
+
+    /// Maps the integer convention used by the guarded status scripts.
+    const fn status_write_outcome(value: i64) -> StatusWriteOutcome {
+        match value {
+            1 => StatusWriteOutcome::Applied,
+            0 => StatusWriteOutcome::Guarded,
+            _ => StatusWriteOutcome::Missing,
+        }
     }
 
     /// Returns every request ID in the pending set.
@@ -521,7 +666,9 @@ mod tests {
             .get_host_port_ipv4(REDIS_PORT)
             .await
             .expect("failed to get Redis port");
-        let store = RequestStore::connect(&format!("redis://{host}:{port}")).await;
+        let store =
+            RequestStore::connect(&format!("redis://{host}:{port}"), Duration::from_secs(300))
+                .await;
         (store, container)
     }
 
@@ -532,6 +679,7 @@ mod tests {
             status: GatewayRequestState::Queued,
             updated_at: 42,
             inflight_keys: vec!["gateway:inflight:create:0x1234".to_string()],
+            wallet: None,
         };
 
         assert_eq!(
@@ -788,6 +936,7 @@ mod tests {
     async fn guarded_status_write_only_applies_from_an_allowed_state() {
         let (store, _redis) = store().await;
         let id = "guarded-status";
+        let wallet = Address::repeat_byte(0x11);
         store
             .create_request(id, GatewayRequestKind::CreateAccount, &[], 10)
             .await
@@ -800,30 +949,74 @@ mod tests {
                     id,
                     &[StatusGuard::Queued],
                     &GatewayRequestState::Batching,
-                    11
+                    11,
+                    None
                 )
                 .await
                 .unwrap(),
             StatusWriteOutcome::Applied
         );
 
-        // A writer that decided from a stale snapshot must be refused.
+        // A write decided from a stale snapshot must be refused. The sweeper
+        // matches a `Queued` request, and by the time it writes a batcher owns
+        // it, so a guard on the state the sweeper actually observed is rejected.
         assert_eq!(
             store
                 .update_status_if(
                     id,
                     &[StatusGuard::Queued],
-                    &GatewayRequestState::Batching,
-                    12
+                    &GatewayRequestState::failed(
+                        "stale",
+                        Some(GatewayErrorCode::InternalServerError)
+                    ),
+                    12,
+                    None,
                 )
                 .await
                 .unwrap(),
             StatusWriteOutcome::Guarded
         );
 
-        let record = store.request(id).await.unwrap().expect("record exists");
-        assert!(matches!(record.status, GatewayRequestState::Batching));
-        assert_eq!(record.updated_at, 11);
+        // A guard that legitimately includes the current state still applies:
+        // that is how the sweeper fails a stale in-progress request.
+        assert_eq!(
+            store
+                .update_status_if(
+                    id,
+                    &[StatusGuard::Batching],
+                    &GatewayRequestState::Batching,
+                    12,
+                    None,
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Applied
+        );
+
+        // A submitted write from the owning batcher records the wallet.
+        assert_eq!(
+            store
+                .update_status_if(
+                    id,
+                    &[StatusGuard::Batching],
+                    &GatewayRequestState::Submitted {
+                        tx_hash: "0xabc".to_string(),
+                    },
+                    13,
+                    Some(wallet),
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Applied
+        );
+
+        let record = store.request(id).await.unwrap().unwrap();
+        assert!(matches!(
+            record.status,
+            GatewayRequestState::Submitted { .. }
+        ));
+        assert_eq!(record.wallet, Some(wallet));
+        assert_eq!(record.updated_at, 13);
     }
 
     #[tokio::test]
@@ -832,14 +1025,150 @@ mod tests {
         assert_eq!(
             store
                 .update_status_if(
-                    "guarded-missing",
+                    "never-created",
                     &[StatusGuard::Queued],
                     &GatewayRequestState::Batching,
-                    0,
+                    1,
+                    None,
                 )
                 .await
                 .unwrap(),
             StatusWriteOutcome::Missing
         );
+    }
+
+    #[tokio::test]
+    async fn batch_guarded_status_write_is_all_or_nothing() {
+        let (store, _redis) = store().await;
+        let first = "batch-guard-1";
+        let second = "batch-guard-2";
+        for id in [first, second] {
+            store
+                .create_request(id, GatewayRequestKind::CreateAccount, &[], 10)
+                .await
+                .unwrap();
+        }
+
+        // The awaiting record is deliberately first: a naive write-as-you-go
+        // implementation would write it before discovering the guard failure on
+        // the second, and this test would then catch it.
+        let ids = vec![second.to_string(), first.to_string()];
+
+        // Only one of the two is still awaiting submission.
+        store
+            .update_status_if(
+                first,
+                &[StatusGuard::Queued],
+                &GatewayRequestState::Batching,
+                11,
+                None,
+            )
+            .await
+            .unwrap();
+        store
+            .update_status_if(
+                first,
+                &[StatusGuard::Batching],
+                &GatewayRequestState::Submitted {
+                    tx_hash: "0xdef".to_string(),
+                },
+                12,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store
+                .update_status_if(
+                    second,
+                    &[StatusGuard::Queued],
+                    &GatewayRequestState::Batching,
+                    12,
+                    None
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Applied
+        );
+
+        // A transaction must not be broadcast for a partly-recorded batch.
+        assert_eq!(
+            store
+                .update_status_batch_if(
+                    &ids,
+                    &[StatusGuard::Batching],
+                    &GatewayRequestState::Submitted {
+                        tx_hash: "0xdead".to_string(),
+                    },
+                    13,
+                    None,
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Guarded
+        );
+
+        let first_record = store.request(first).await.unwrap().unwrap();
+        assert!(
+            matches!(
+                first_record.status,
+                GatewayRequestState::Submitted { ref tx_hash } if tx_hash == "0xdef"
+            ),
+            "the already-submitted request must keep its original transaction"
+        );
+        let second_record = store.request(second).await.unwrap().unwrap();
+        assert!(
+            matches!(second_record.status, GatewayRequestState::Batching),
+            "nothing may be written when the batch guard fails"
+        );
+    }
+
+    #[tokio::test]
+    async fn batch_guarded_status_write_applies_to_every_request() {
+        let (store, _redis) = store().await;
+        let ids: Vec<String> = (0..3).map(|index| format!("batch-apply-{index}")).collect();
+        for id in &ids {
+            store
+                .create_request(id, GatewayRequestKind::CreateAccount, &[], 10)
+                .await
+                .unwrap();
+            store
+                .update_status_if(
+                    id,
+                    &[StatusGuard::Queued],
+                    &GatewayRequestState::Batching,
+                    11,
+                    None,
+                )
+                .await
+                .unwrap();
+        }
+
+        let wallet = Address::repeat_byte(0x22);
+        assert_eq!(
+            store
+                .update_status_batch_if(
+                    &ids,
+                    &[StatusGuard::Batching],
+                    &GatewayRequestState::Submitted {
+                        tx_hash: "0xfeed".to_string(),
+                    },
+                    12,
+                    Some(wallet),
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Applied
+        );
+
+        for id in &ids {
+            let record = store.request(id).await.unwrap().unwrap();
+            assert!(matches!(
+                record.status,
+                GatewayRequestState::Submitted { .. }
+            ));
+            assert_eq!(record.wallet, Some(wallet));
+        }
     }
 }

@@ -34,7 +34,7 @@ use world_id_core::{
     requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
 };
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, WalletArgs, defaults,
     spawn_gateway_for_tests,
 };
 use world_id_primitives::{
@@ -100,6 +100,7 @@ async fn main() -> Result<()> {
         sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
         stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
+        wallet: WalletArgs::default(),
         batch_policy: BatchPolicyConfig::default(),
     };
     let _gateway = spawn_gateway_for_tests(gateway_config)

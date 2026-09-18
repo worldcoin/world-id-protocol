@@ -122,6 +122,39 @@ pub struct SignerArgs {
     /// Mutually exclusive with `AWS_KMS_KEY_ID`.
     #[arg(long, env = "AWS_KMS_KEY_IDS")]
     aws_kms_key_ids: Option<String>,
+
+    /// Comma-separated AWS KMS key ARNs forming a wallet pool shared by every
+    /// replica.
+    ///
+    /// Unlike `AWS_KMS_KEY_IDS`, which assigns one key per pod ordinal, every
+    /// replica is configured with the whole pool and leases individual wallets
+    /// through Redis. Adding capacity is therefore a change to this variable
+    /// alone, with no ordinal arithmetic.
+    ///
+    /// The keys must be distinct from any key still in use through the legacy
+    /// variables, so that a rolling changeover never has two builds driving the
+    /// same wallet. Mutually exclusive with the other signer variables.
+    ///
+    /// Every key in the pool must hold native gas: each one signs and pays for
+    /// its own transactions, so a wallet that cannot pay stalls the pool once
+    /// the funded ones are busy.
+    #[arg(long, env = "AWS_KMS_WALLET_KEYS")]
+    aws_kms_wallet_keys: Option<String>,
+
+    /// Comma-separated signer private keys forming a wallet pool shared by every
+    /// replica. The development and `Anvil` equivalent of
+    /// `AWS_KMS_WALLET_KEYS`.
+    #[arg(long, env = "WALLET_PRIVATE_KEYS")]
+    wallet_private_keys: Option<String>,
+}
+
+/// Splits a comma-separated key list, dropping blanks so a trailing comma does
+/// not silently add an empty entry.
+fn split_pool_keys(keys: &str) -> Vec<&str> {
+    keys.split(',')
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .collect()
 }
 
 /// Parse the pod ordinal from the trailing numeric suffix of a StatefulSet
@@ -165,7 +198,7 @@ impl SignerArgs {
                 let ordinal = pod_ordinal().ok_or_else(|| ProviderError::OrdinalUnresolvable {
                     hostname: std::env::var("HOSTNAME").ok(),
                 })?;
-                let keys: Vec<&str> = key_ids.split(',').map(str::trim).collect();
+                let keys: Vec<&str> = split_pool_keys(key_ids);
                 let key_id = keys.get(ordinal).copied().ok_or_else(|| {
                     tracing::error!(
                         ordinal,
@@ -225,6 +258,8 @@ impl SignerArgs {
             wallet_private_key: Some(wallet_private_key),
             aws_kms_key_id: None,
             aws_kms_key_ids: None,
+            aws_kms_wallet_keys: None,
+            wallet_private_keys: None,
         }
     }
 
@@ -234,7 +269,64 @@ impl SignerArgs {
             wallet_private_key: None,
             aws_kms_key_id: Some(aws_kms_key_id),
             aws_kms_key_ids: None,
+            aws_kms_wallet_keys: None,
+            wallet_private_keys: None,
         }
+    }
+
+    /// Whether this configuration describes a shared wallet pool.
+    #[must_use]
+    pub fn is_pool_signer(&self) -> bool {
+        self.aws_kms_wallet_keys.is_some() || self.wallet_private_keys.is_some()
+    }
+
+    /// Whether any of the per-replica signer variables is set.
+    ///
+    /// A configuration that sets both a pool and a legacy variable is ambiguous
+    /// about how many wallets this process owns, so it is rejected rather than
+    /// resolved in either direction.
+    #[must_use]
+    pub fn has_legacy_signer(&self) -> bool {
+        self.wallet_private_key.is_some()
+            || self.aws_kms_key_id.is_some()
+            || self.aws_kms_key_ids.is_some()
+    }
+
+    /// Splits a pooled configuration into one single-signer configuration per
+    /// wallet.
+    ///
+    /// Each wallet is then built by [`ProviderArgs::http_wallet`], so the pool
+    /// reuses the exact construction path a single-wallet gateway always used
+    /// rather than introducing a second one. A legacy configuration yields
+    /// exactly one entry, which is what makes this change additive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a pool variable is set but contains no keys.
+    pub fn pool_signers(&self) -> ProviderResult<Vec<Self>> {
+        if let Some(keys) = &self.wallet_private_keys {
+            let keys = split_pool_keys(keys);
+            if keys.is_empty() {
+                return Err(ProviderError::SignerConfigMissing);
+            }
+            return Ok(keys
+                .into_iter()
+                .map(|key| Self::from_wallet(key.to_string()))
+                .collect());
+        }
+
+        if let Some(keys) = &self.aws_kms_wallet_keys {
+            let keys = split_pool_keys(keys);
+            if keys.is_empty() {
+                return Err(ProviderError::SignerConfigMissing);
+            }
+            return Ok(keys
+                .into_iter()
+                .map(|key| Self::from_aws(key.to_string()))
+                .collect());
+        }
+
+        Ok(vec![self.clone()])
     }
 
     /// Create a new `SignerArgs` with a comma-separated list of per-replica
@@ -244,11 +336,19 @@ impl SignerArgs {
             wallet_private_key: None,
             aws_kms_key_id: None,
             aws_kms_key_ids: Some(aws_kms_key_ids),
+            aws_kms_wallet_keys: None,
+            wallet_private_keys: None,
         }
     }
 
     /// Create and return a `SignerConfig`, if a signer key is configured.
     pub fn signer_config(&self) -> Option<SignerConfig> {
+        if let Some(keys) = &self.wallet_private_keys {
+            return Some(SignerConfig::PrivateKeyPool(keys.clone()));
+        }
+        if let Some(keys) = &self.aws_kms_wallet_keys {
+            return Some(SignerConfig::AwsKmsPool(keys.clone()));
+        }
         match (
             &self.wallet_private_key,
             &self.aws_kms_key_id,
@@ -268,6 +368,10 @@ pub enum SignerConfig {
     AwsKms(String),
     /// Per-replica KMS signing: comma-separated list of key ARNs, one per pod ordinal.
     AwsKmsPerReplica(String),
+    /// Shared pool of signer private keys, used by every replica.
+    PrivateKeyPool(String),
+    /// Shared pool of KMS key ARNs, used by every replica.
+    AwsKmsPool(String),
 }
 
 /// A transaction signer paired with the provider stack that fills its transactions.
@@ -366,6 +470,32 @@ impl ProviderArgs {
         self.http_with_nonce_manager_and_address(SimpleNonceManager::default())
             .await?
             .try_into_wallet()
+    }
+
+    /// Builds one provider wallet per configured signer.
+    ///
+    /// Pool configurations (`WALLET_PRIVATE_KEYS`, `AWS_KMS_WALLET_KEYS`) yield
+    /// several wallets shared by all replicas; a legacy configuration yields
+    /// exactly one, unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a signer cannot be constructed, or when no signer
+    /// is configured at all.
+    pub async fn http_wallets(self) -> ProviderResult<Vec<ProviderWallet>> {
+        if self.signer.signer_config().is_none() {
+            return Err(ProviderError::SignerConfigMissing);
+        }
+
+        let mut wallets = Vec::new();
+        for signer in self.signer.pool_signers()? {
+            let args = Self {
+                signer,
+                ..self.clone()
+            };
+            wallets.push(args.http_wallet().await?);
+        }
+        Ok(wallets)
     }
 
     /// Build a dynamic provider using a caller-supplied [`NonceManager`].
@@ -682,5 +812,102 @@ mod tests {
             endpoint_label(&internal),
             "worldchain-rpc.internal.worldcoin.dev:9545"
         );
+    }
+
+    #[test]
+    fn pool_signers_splits_a_private_key_pool() {
+        let keys: Vec<String> = (0..3)
+            .map(|_| alloy::hex::encode(PrivateKeySigner::random().to_bytes()))
+            .collect();
+        let args = SignerArgs {
+            wallet_private_keys: Some(keys.join(",")),
+            ..Default::default()
+        };
+
+        assert!(args.is_pool_signer());
+        assert!(matches!(
+            args.signer_config(),
+            Some(SignerConfig::PrivateKeyPool(_))
+        ));
+
+        let signers = args.pool_signers().unwrap();
+        assert_eq!(signers.len(), 3);
+        assert!(
+            signers
+                .iter()
+                .all(|signer| !signer.is_pool_signer() && signer.signer_config().is_some()),
+            "each pool entry must become a single-signer configuration"
+        );
+    }
+
+    #[test]
+    fn pool_signers_tolerates_blank_entries() {
+        let args = SignerArgs {
+            aws_kms_wallet_keys: Some("key-a, ,key-b,".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(args.pool_signers().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn pool_signers_rejects_empty_pools() {
+        let args = SignerArgs {
+            aws_kms_wallet_keys: Some(" , ".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            args.pool_signers(),
+            Err(ProviderError::SignerConfigMissing)
+        ));
+    }
+
+    #[test]
+    fn pool_signers_pass_a_legacy_configuration_through_unchanged() {
+        let args = SignerArgs::from_aws("arn:aws:kms:us-east-1:1:key/abc".to_string());
+        assert!(!args.is_pool_signer());
+        let signers = args.pool_signers().unwrap();
+        assert_eq!(signers.len(), 1);
+        assert!(matches!(
+            signers[0].signer_config(),
+            Some(SignerConfig::AwsKms(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn http_wallets_builds_one_wallet_per_pool_key() {
+        let signers: Vec<PrivateKeySigner> = (0..3).map(|_| PrivateKeySigner::random()).collect();
+        let expected: Vec<Address> = signers.iter().map(PrivateKeySigner::address).collect();
+        let keys = signers
+            .iter()
+            .map(|signer| alloy::hex::encode(signer.to_bytes()))
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let wallets = ProviderArgs::new()
+            .with_http_urls(["http://127.0.0.1:8545"])
+            .with_signer(SignerArgs {
+                wallet_private_keys: Some(keys),
+                ..Default::default()
+            })
+            .http_wallets()
+            .await
+            .unwrap();
+
+        assert_eq!(
+            wallets
+                .into_iter()
+                .map(|wallet| wallet.address)
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
+
+    #[tokio::test]
+    async fn http_wallets_requires_a_signer() {
+        let result = ProviderArgs::new()
+            .with_http_urls(["http://127.0.0.1:8545"])
+            .http_wallets()
+            .await;
+        assert!(matches!(result, Err(ProviderError::SignerConfigMissing)));
     }
 }

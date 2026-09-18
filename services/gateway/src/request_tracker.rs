@@ -1,7 +1,6 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use alloy::{network::Ethereum, providers::PendingTransactionBuilder};
-use tokio::time::Instant;
+use alloy::primitives::Address;
 use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
 
 pub use crate::storage::request_store::RequestRecord;
@@ -46,24 +45,25 @@ pub struct RequestTracker {
     store: RequestStore,
     /// Rate limiting configuration, if enabled.
     rate_limit: Option<RateLimitConfig>,
-    /// Safety timeout for receipt polling tasks so they don't run forever.
-    receipt_timeout_secs: u64,
 }
 
 impl RequestTracker {
     /// Initializes the request tracker instance.
+    ///
+    /// `inflight_ttl` is the lifetime of the in-flight locks that deduplicate
+    /// concurrent requests for the same account or authenticator. It must
+    /// outlive the submission it protects.
     ///
     /// # Panics
     /// If the connection to Redis fails.
     pub async fn new(
         redis_url: String,
         rate_limit: Option<RateLimitConfig>,
-        receipt_timeout_secs: u64,
+        inflight_ttl: std::time::Duration,
     ) -> Self {
         Self {
-            store: RequestStore::connect(&redis_url).await,
+            store: RequestStore::connect(&redis_url, inflight_ttl).await,
             rate_limit,
-            receipt_timeout_secs,
         }
     }
 
@@ -141,104 +141,48 @@ impl RequestTracker {
         self.set_status_batch(&[id.to_string()], status).await;
     }
 
-    /// Resolves a batch of requests based on a transaction receipt outcome.
+    /// Applies a status only while the stored status is one of `allowed`.
     ///
-    /// If the receipt indicates success, marks all requests as `Finalized`.
-    /// If the receipt indicates a revert, marks all requests as `Failed`.
-    pub async fn finalize_from_receipt(
+    /// Returns the outcome so the caller can tell "the write landed" apart from
+    /// "another owner already advanced this request". Per-request guarded
+    /// writes are used where a caller owns exactly one request; batch
+    /// submission uses [`Self::set_status_batch_if`] instead.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the underlying Redis call fails.
+    pub(crate) async fn set_status_if(
         &self,
-        ids: &[String],
-        receipt_succeeded: bool,
-        tx_hash: &str,
-    ) {
-        let status = if receipt_succeeded {
-            GatewayRequestState::Finalized {
-                tx_hash: tx_hash.to_string(),
-            }
-        } else {
-            GatewayRequestState::failed(
-                format!("transaction reverted on-chain (tx: {tx_hash})"),
-                Some(GatewayErrorCode::TransactionReverted),
-            )
-        };
-        self.set_status_batch(ids, status).await;
+        id: &str,
+        allowed: &[StatusGuard],
+        status: GatewayRequestState,
+        wallet: Option<Address>,
+    ) -> GatewayResult<StatusWriteOutcome> {
+        self.store
+            .update_status_if(id, allowed, &status, now_unix_secs(), wallet)
+            .await
     }
 
-    /// Spawns a background task that awaits a pending transaction receipt and
-    /// finalizes the associated requests based on the outcome.
+    /// All-or-nothing guarded status write over a whole batch.
     ///
-    /// `batch_type` and `submitted_at` are used to record on-chain confirmation
-    /// metrics (`batch.success`, `batch.failure`, `batch.latency_ms`) once the
-    /// receipt is obtained.  Success and failure metrics are intentionally
-    /// deferred to this point so they reflect the actual on-chain outcome
-    /// rather than the RPC submission result.
-    pub fn spawn_receipt_tracker(
+    /// A transaction may only be broadcast once every request it carries has
+    /// transitioned, so partial application is reported as
+    /// [`StatusWriteOutcome::Guarded`] and the caller must abandon the
+    /// transaction rather than broadcast it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the underlying Redis call fails.
+    pub(crate) async fn set_status_batch_if(
         &self,
-        ids: Vec<String>,
-        builder: PendingTransactionBuilder<Ethereum>,
-        tx_hash: String,
-        batch_type: &'static str,
-        submitted_at: Instant,
-    ) {
-        let tracker = self.clone();
-        let timeout = Duration::from_secs(self.receipt_timeout_secs);
-        tokio::spawn(async move {
-            let result = tokio::time::timeout(timeout, builder.get_receipt()).await;
-            match result {
-                Ok(Ok(receipt)) => {
-                    let confirmed = receipt.status();
-                    let latency_ms = submitted_at.elapsed().as_millis() as f64;
-                    metrics::record_batch_confirmed(batch_type, confirmed, latency_ms);
-
-                    if confirmed {
-                        tracing::info!(
-                            tx_hash = %tx_hash,
-                            batch_type,
-                            latency_ms,
-                            "batch transaction confirmed on-chain"
-                        );
-                    } else {
-                        tracing::error!(
-                            tx_hash = %tx_hash,
-                            batch_type,
-                            "batch transaction reverted on-chain"
-                        );
-                    }
-
-                    tracker
-                        .finalize_from_receipt(&ids, confirmed, &tx_hash)
-                        .await;
-                }
-                Ok(Err(err)) => {
-                    let latency_ms = submitted_at.elapsed().as_millis() as f64;
-                    metrics::record_batch_confirmed(batch_type, false, latency_ms);
-
-                    tracing::error!(
-                        tx_hash = %tx_hash,
-                        batch_type,
-                        error = %err,
-                        "batch transaction confirmation error"
-                    );
-
-                    tracker
-                        .set_status_batch(
-                            &ids,
-                            GatewayRequestState::failed(
-                                format!("transaction confirmation error: {err}"),
-                                Some(GatewayErrorCode::ConfirmationError),
-                            ),
-                        )
-                        .await;
-                }
-                Err(_) => {
-                    tracing::warn!(
-                        tx_hash = %tx_hash,
-                        batch_type,
-                        "receipt polling timed out, orphan sweeper will handle cleanup",
-                    );
-                }
-            }
-        });
+        ids: &[String],
+        allowed: &[StatusGuard],
+        status: GatewayRequestState,
+        wallet: Option<Address>,
+    ) -> GatewayResult<StatusWriteOutcome> {
+        self.store
+            .update_status_batch_if(ids, allowed, &status, now_unix_secs(), wallet)
+            .await
     }
 
     /// Returns a snapshot of the current state of a request, if it exists.
@@ -259,25 +203,6 @@ impl RequestTracker {
         status: &GatewayRequestState,
     ) -> GatewayResult<()> {
         self.store.update_status(id, status, now_unix_secs()).await
-    }
-
-    /// Applies a status only while the stored status is one of `allowed`.
-    ///
-    /// Returns the outcome so a caller can tell "the write landed" apart from
-    /// "another owner already advanced this request".
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the underlying Redis call fails.
-    pub(crate) async fn set_status_if(
-        &self,
-        id: &str,
-        allowed: &[StatusGuard],
-        status: GatewayRequestState,
-    ) -> GatewayResult<StatusWriteOutcome> {
-        self.store
-            .update_status_if(id, allowed, &status, now_unix_secs())
-            .await
     }
 
     // =========================================================================
@@ -306,8 +231,8 @@ impl RequestTracker {
 
     /// Computes queued-backlog urgency statistics from pending requests in a given scope.
     ///
-    /// The stats are based only on requests currently in `Queued` state and whose
-    /// [`GatewayRequestKind`] belongs to `scope`.
+    /// The stats count requests in `Queued` state and, separately, requests a
+    /// batcher has already taken, whose [`GatewayRequestKind`] belongs to `scope`.
     pub async fn queued_backlog_stats_for_scope(
         &self,
         scope: BacklogScope,
@@ -320,6 +245,7 @@ impl RequestTracker {
         let records = self.snapshot_batch(&ids).await?;
         let now = now_unix_secs();
         let mut queued_count = 0usize;
+        let mut in_progress_count = 0usize;
         let mut oldest_age_secs = 0u64;
         for (_, maybe_record) in records {
             let Some(record) = maybe_record else {
@@ -328,19 +254,24 @@ impl RequestTracker {
             if !matches_scope(record.kind, scope) {
                 continue;
             }
-            if matches!(record.status, GatewayRequestState::Queued) {
-                let age = now.saturating_sub(record.updated_at);
-                queued_count += 1;
-                oldest_age_secs = oldest_age_secs.max(age);
+            match record.status {
+                GatewayRequestState::Queued => {
+                    let age = now.saturating_sub(record.updated_at);
+                    queued_count += 1;
+                    oldest_age_secs = oldest_age_secs.max(age);
+                }
+                GatewayRequestState::Batching => in_progress_count += 1,
+                _ => {}
             }
         }
 
-        if queued_count == 0 {
+        if queued_count == 0 && in_progress_count == 0 {
             return Ok(BacklogUrgencyStats::default());
         }
 
         Ok(BacklogUrgencyStats {
             queued_count,
+            in_progress_count,
             oldest_age_secs,
         })
     }
