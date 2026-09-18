@@ -35,6 +35,22 @@ pub enum AuthenticatorError {
         body: String,
     },
 
+    /// A service (gateway or indexer), or an upstream target it depends on, is
+    /// temporarily unavailable (HTTP 502/503/504). Distinct from a generic 5xx
+    /// application error: these statuses specifically indicate an unreachable or
+    /// overloaded upstream. Per RFC 9458 §5.2 a gateway that cannot reach its
+    /// target returns 504, so an OHTTP inner 504 surfaces here once the gateway
+    /// emits it.
+    #[error(
+        "{service} is unavailable (status {status}); the service or an upstream target may be down or unreachable"
+    )]
+    ServiceUnavailable {
+        /// Which service was being called (e.g. `gateway`, `indexer`).
+        service: String,
+        /// The HTTP status code (502, 503, or 504).
+        status: StatusCode,
+    },
+
     /// Indexer returned an error response.
     #[error("Indexer error (status {status}): {body}")]
     IndexerError {
@@ -102,21 +118,53 @@ pub enum AuthenticatorError {
         max_supported_slot: usize,
     },
 
-    /// OHTTP encapsulation or decapsulation error.
+    /// OHTTP encapsulation error (encrypting the request, or parsing the
+    /// relay's key config list). This is a client-side crypto/encoding failure.
     #[error("OHTTP encapsulation error: {0}")]
     OhttpEncapsulationError(#[from] ohttp::Error),
+
+    /// OHTTP decapsulation error: the relay returned a `message/ohttp-res`
+    /// response that could not be decrypted. Indicates a genuine OHTTP crypto
+    /// failure (e.g. key mismatch), distinct from a non-OHTTP response body.
+    #[error("OHTTP decapsulation error: {0}")]
+    OhttpDecapsulationError(ohttp::Error),
 
     /// Binary HTTP framing error.
     #[error("Binary HTTP error: {0}")]
     BhttpError(#[from] bhttp::Error),
 
-    /// The OHTTP relay itself returned a non-success status.
-    #[error("OHTTP relay error (status {status}): {body}")]
+    /// The OHTTP request was rejected before decapsulation: the relay (or the
+    /// gateway, via an RFC 9458 §5.2 plaintext error such as a 401 key/config
+    /// mismatch) returned a non-success status. The fault is on the relay leg
+    /// or the gateway's pre-decapsulation handling, not the target service.
+    #[error(
+        "OHTTP request for {service} rejected before decapsulation (status {status}) via relay {relay_url}: {body}"
+    )]
     OhttpRelayError {
+        /// Service scope this request was for (e.g. `ohttp_gateway`).
+        service: String,
+        /// URL of the OHTTP relay the request was sent to.
+        relay_url: String,
         /// HTTP status code from the relay.
         status: StatusCode,
         /// Response body from the relay.
         body: String,
+    },
+
+    /// The OHTTP relay returned a 2xx response that is not `message/ohttp-res`,
+    /// so there is nothing to decapsulate. The gateway only sets that
+    /// content-type on a successful 2xx, so this never originates from the
+    /// gateway — it is a relay-leg condition, most commonly a captive portal or
+    /// transparent proxy on the client network intercepting the connection.
+    #[error(
+        "OHTTP relay {relay_url} returned a non-OHTTP response (content-type: {}); a captive portal or proxy may be intercepting the connection",
+        content_type.as_deref().unwrap_or("none")
+    )]
+    OhttpRelayInvalidResponse {
+        /// URL of the OHTTP relay the request was sent to.
+        relay_url: String,
+        /// The `Content-Type` of the unexpected response, if present.
+        content_type: Option<String>,
     },
 
     /// A service returned a success status but the response body could not be
