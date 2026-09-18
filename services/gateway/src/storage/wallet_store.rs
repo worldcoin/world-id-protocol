@@ -12,17 +12,12 @@
 //! ([`WalletState::Parked`]). A wallet is reusable only when its record is
 //! gone, so the record must be deleted by an explicit, guarded transition.
 //!
-//! The record intentionally stores the signed transaction bytes. Without them a
-//! process that died between signing and broadcasting can only wait for a
-//! timeout and then guess; with them the resolver can re-send byte-identical
-//! input and converge.
-//!
 //! This is the only Redis key family the wallet mechanism adds, so a gateway
 //! build that predates it ignores these keys entirely.
 
 use std::time::Duration;
 
-use alloy::primitives::{Address, Bytes, TxHash};
+use alloy::primitives::{Address, TxHash};
 use redis::{Client, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -90,21 +85,12 @@ pub(crate) struct Submission {
     pub(crate) nonce: u64,
     /// Hash computed locally from the signed bytes.
     pub(crate) tx_hash: TxHash,
-    /// EIP-2718 signed bytes, so an ambiguous broadcast can be retried with
-    /// identical input. `None` only on a record rebuilt by the lost-record
-    /// recovery path, which therefore cannot re-broadcast.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) raw_tx: Option<Bytes>,
     /// Requests that this transaction resolves.
     pub(crate) request_ids: Vec<String>,
     /// Which batch stream submitted it.
     pub(crate) batch_type: BatchType,
     /// Unix seconds at which the record was committed.
     pub(crate) submitted_at: u64,
-    /// Unix seconds of the most recent broadcast attempt.
-    pub(crate) last_attempt_at: u64,
-    /// Number of broadcast attempts made so far.
-    pub(crate) attempts: u32,
 }
 
 /// The durable record for one wallet.
@@ -249,15 +235,12 @@ impl WalletStore {
         Ok(CasOutcome::from_lua(outcome))
     }
 
-    /// Replaces a record, guarded by `lease_id`, by `expected_state`, and, when
-    /// supplied, by `expected_last_attempt_at`.
+    /// Replaces a record, guarded by `lease_id` and `expected_state`.
     ///
     /// The state guard is what stops a resolver pass acting on a snapshot that
     /// has since been parked: without it, an in-flight replacement would rewrite
-    /// a parked record and re-broadcast a transaction whose requests were already
-    /// failed. The attempt guard keeps concurrent resolvers from each
-    /// incrementing `attempts` and from issuing duplicate re-broadcasts: only the
-    /// pass that read the current `last_attempt_at` may write the next one.
+    /// a parked record and resurrect a transaction whose requests were already
+    /// failed.
     ///
     /// # Errors
     ///
@@ -267,7 +250,6 @@ impl WalletStore {
         wallet: Address,
         lease_id: Uuid,
         expected_state: WalletState,
-        expected_last_attempt_at: Option<u64>,
         next: &WalletRecord,
         ttl: Duration,
     ) -> GatewayResult<CasOutcome> {
@@ -276,8 +258,6 @@ impl WalletStore {
             "replacement must keep the lease identity it is guarded by"
         );
         let value = serde_json::to_string(next)?;
-        let expected_attempt = expected_last_attempt_at
-            .map_or_else(|| "-1".to_string(), |attempt| attempt.to_string());
         let mut manager = self.manager.clone();
         let outcome: i64 = redis::Script::new(
             r#"
@@ -291,22 +271,13 @@ impl WalletStore {
                 return -1
             end
 
-            local expected = tonumber(ARGV[3])
-            if expected >= 0 then
-                local attempt = decoded.submission and tonumber(decoded.submission.last_attempt_at)
-                if attempt == nil or attempt ~= expected then
-                    return -1
-                end
-            end
-
-            redis.call('SET', KEYS[1], ARGV[4], 'EX', ARGV[5])
+            redis.call('SET', KEYS[1], ARGV[3], 'EX', ARGV[4])
             return 1
             "#,
         )
         .key(Self::key(wallet))
         .arg(lease_id.to_string())
         .arg(expected_state.to_string())
-        .arg(expected_attempt)
         .arg(value)
         .arg(ttl.as_secs())
         .invoke_async(&mut manager)
@@ -481,16 +452,13 @@ mod tests {
         (store, container)
     }
 
-    fn submission(attempts: u32, last_attempt_at: u64) -> Submission {
+    fn submission() -> Submission {
         Submission {
             nonce: 7,
             tx_hash: TxHash::repeat_byte(0x11),
-            raw_tx: Some(Bytes::from(vec![0x02, 0x01, 0x02])),
             request_ids: vec!["request-1".to_string()],
             batch_type: BatchType::Ops,
             submitted_at: 1_737_000_000,
-            last_attempt_at,
-            attempts,
         }
     }
 
@@ -540,7 +508,7 @@ mod tests {
         // A lease that no longer owns the record cannot commit a transaction.
         assert_eq!(
             store
-                .mark_in_flight(wallet, Uuid::new_v4(), submission(0, 10), STATE_TTL)
+                .mark_in_flight(wallet, Uuid::new_v4(), submission(), STATE_TTL)
                 .await
                 .unwrap(),
             CasOutcome::Conflict,
@@ -548,7 +516,7 @@ mod tests {
 
         assert_eq!(
             store
-                .mark_in_flight(wallet, lease_id, submission(0, 10), STATE_TTL)
+                .mark_in_flight(wallet, lease_id, submission(), STATE_TTL)
                 .await
                 .unwrap(),
             CasOutcome::Applied,
@@ -563,7 +531,7 @@ mod tests {
         // A committed record is no longer signing, so it cannot commit twice.
         assert_eq!(
             store
-                .mark_in_flight(wallet, lease_id, submission(0, 11), STATE_TTL)
+                .mark_in_flight(wallet, lease_id, submission(), STATE_TTL)
                 .await
                 .unwrap(),
             CasOutcome::Conflict,
@@ -571,52 +539,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn replace_is_guarded_by_the_attempt_counter() {
+    async fn replace_is_guarded_by_the_state() {
         let (store, _redis) = store().await;
         let wallet = address!("3333333333333333333333333333333333333333");
         let lease_id = Uuid::new_v4();
         store.reserve(wallet, lease_id, LEASE).await.unwrap();
         store
-            .mark_in_flight(wallet, lease_id, submission(0, 10), STATE_TTL)
+            .mark_in_flight(wallet, lease_id, submission(), STATE_TTL)
             .await
             .unwrap();
 
-        let next = submission(1, 20);
+        let next = WalletRecord::parked(lease_id, submission());
 
-        // A stale attempt value must not be able to advance the record.
+        // A snapshot taken while the record was still signing must not be able to
+        // overwrite the committed one.
         assert_eq!(
             store
-                .replace(
-                    wallet,
-                    lease_id,
-                    WalletState::InFlight,
-                    Some(9),
-                    &WalletRecord::in_flight(lease_id, next.clone()),
-                    STATE_TTL
-                )
+                .replace(wallet, lease_id, WalletState::Signing, &next, STATE_TTL)
                 .await
                 .unwrap(),
             CasOutcome::Conflict,
         );
-
         assert_eq!(
             store
-                .replace(
-                    wallet,
-                    lease_id,
-                    WalletState::InFlight,
-                    Some(10),
-                    &WalletRecord::in_flight(lease_id, next),
-                    STATE_TTL
-                )
+                .replace(wallet, lease_id, WalletState::InFlight, &next, STATE_TTL)
                 .await
                 .unwrap(),
             CasOutcome::Applied,
         );
 
         let record = store.get(wallet).await.unwrap().expect("record exists");
-        assert_eq!(record.submission().unwrap().attempts, 1);
-        assert_eq!(record.submission().unwrap().last_attempt_at, 20);
+        assert_eq!(record.state, WalletState::Parked);
     }
 
     #[tokio::test]
@@ -647,12 +600,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn parked_records_keep_their_signed_bytes() {
+    async fn parked_records_keep_their_submission() {
         let (store, _redis) = store().await;
         let wallet = address!("5555555555555555555555555555555555555555");
         let lease_id = Uuid::new_v4();
         store.reserve(wallet, lease_id, LEASE).await.unwrap();
-        let submission = submission(3, 30);
+        let submission = submission();
         store
             .mark_in_flight(wallet, lease_id, submission.clone(), STATE_TTL)
             .await
@@ -664,7 +617,6 @@ mod tests {
                     wallet,
                     lease_id,
                     WalletState::InFlight,
-                    Some(30),
                     &WalletRecord::parked(lease_id, submission.clone()),
                     STATE_TTL
                 )
@@ -675,11 +627,10 @@ mod tests {
 
         let record = store.get(wallet).await.unwrap().expect("record exists");
         assert_eq!(record.state, WalletState::Parked);
-        assert_eq!(record.submission().unwrap().tx_hash, submission.tx_hash);
         assert_eq!(
-            record.submission().unwrap().raw_tx,
-            submission.raw_tx,
-            "parked records keep the signed bytes so the fate can still be probed"
+            record.submission().unwrap(),
+            &submission,
+            "parked records keep the submission so the fate can still be probed"
         );
     }
 
@@ -690,7 +641,7 @@ mod tests {
         let lease_id = Uuid::new_v4();
         store.reserve(wallet, lease_id, LEASE).await.unwrap();
         store
-            .mark_in_flight(wallet, lease_id, submission(0, 40), STATE_TTL)
+            .mark_in_flight(wallet, lease_id, submission(), STATE_TTL)
             .await
             .unwrap();
 
@@ -700,8 +651,7 @@ mod tests {
                 wallet,
                 lease_id,
                 WalletState::InFlight,
-                Some(40),
-                &WalletRecord::in_flight(lease_id, submission(0, 41)),
+                &WalletRecord::in_flight(lease_id, submission()),
                 Duration::from_secs(5),
             )
             .await

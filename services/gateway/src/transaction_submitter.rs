@@ -20,8 +20,7 @@ use std::{
 
 use alloy::{
     consensus::Transaction as _,
-    eips::eip2718::Encodable2718,
-    primitives::{Address, Bytes, TxHash},
+    primitives::{Address, TxHash},
     providers::{DynProvider, Provider},
     rpc::types::{TransactionReceipt, TransactionRequest},
 };
@@ -257,12 +256,9 @@ impl TransactionSubmitter {
         let submission = Submission {
             nonce: signed.nonce(),
             tx_hash: *signed.tx_hash(),
-            raw_tx: Some(Bytes::from(signed.encoded_2718())),
             request_ids: request_ids.clone(),
             batch_type,
             submitted_at: now_unix_secs(),
-            last_attempt_at: 0,
-            attempts: 0,
         };
         let tx_hash = submission.tx_hash;
         let formatted_tx_hash = format!("0x{tx_hash:x}");
@@ -355,7 +351,6 @@ impl TransactionSubmitter {
             }
         }
 
-        self.record_attempt(wallet, lease_id).await;
         Ok(SubmitOutcome::Submitted)
     }
 
@@ -551,9 +546,9 @@ impl TransactionSubmitter {
                 return;
             }
             Probe::Absent => {
-                if !parked {
-                    self.rebroadcast(entry, record, submission, provider).await;
-                }
+                self.fail_absent(entry, record, submission).await;
+                // Resolved: the transaction never landed, so its wallet is free.
+                return;
             }
             // Resolved inside the nonce probe; a reorged receipt never reaches
             // this arm with a decision outstanding.
@@ -873,11 +868,8 @@ impl TransactionSubmitter {
                 wallet,
                 record.lease_id,
                 WalletState::InFlight,
-                // Deliberately not guarded on the attempt counter: a
-                // re-broadcast earlier in the same pass advances it, and parking
-                // must not depend on winning that race. The lease and state
-                // guards already ensure this is the record we decided about.
-                None,
+                // The lease and state guards already ensure this is the record we
+                // decided about.
                 &next,
                 self.state_ttl(),
             )
@@ -889,7 +881,6 @@ impl TransactionSubmitter {
                     %wallet,
                     tx_hash = %format!("0x{:x}", submission.tx_hash),
                     nonce = submission.nonce,
-                    attempts = submission.attempts,
                     "wallet parked: transaction fate could not be decided; it will not be reused until resolved"
                 );
             }
@@ -902,110 +893,31 @@ impl TransactionSubmitter {
         }
     }
 
-    /// Re-broadcasts the exact signed bytes when the transaction is still absent.
+    /// Fails a batch whose transaction is neither on chain nor pending.
     ///
-    /// Re-sending identical bytes is safe: the hash and nonce are unchanged, and
-    /// a node that already has the transaction answers `already known`, which is
-    /// evidence of liveness rather than a failure.
-    async fn rebroadcast(
+    /// [`Probe::Absent`] established that the nonce is unconsumed and the signed
+    /// hash is unknown to the endpoint, so the transaction never landed and the
+    /// wallet's nonce is free to reuse. Nothing is retried: the requests are
+    /// answered and the wallet returns to the pool.
+    async fn fail_absent(
         &self,
         entry: &WalletEntry,
         record: &WalletRecord,
         submission: &Submission,
-        provider: &DynProvider,
     ) {
         let wallet = entry.wallet.address;
+        let tx_hash = format!("0x{:x}", submission.tx_hash);
+        let status = GatewayRequestState::failed(
+            format!("transaction was not accepted by the network (tx: {tx_hash})"),
+            Some(GatewayErrorCode::ConfirmationError),
+        );
 
-        let Some(raw_tx) = submission.raw_tx.clone() else {
-            // A record rebuilt from request state has no signed bytes, so it can
-            // only be resolved by observing the chain.
-            tracing::debug!(
-                %wallet,
-                "wallet record has no signed bytes; it can only be resolved by observing the chain"
-            );
-            return;
-        };
-
-        if submission.attempts >= self.config.rebroadcast_max_attempts {
-            return;
-        }
-
-        let now = now_unix_secs();
-        if now.saturating_sub(submission.last_attempt_at) < self.config.rebroadcast_interval_secs {
-            return;
-        }
-
-        // Claim the attempt before sending. The compare-and-set is what stops two
-        // resolver passes from each issuing a re-broadcast, and from losing an
-        // increment of the cap.
-        if !self
-            .advance_attempt(wallet, record.lease_id, submission, now)
+        if self
+            .mark_terminal(&submission.request_ids, &status, wallet)
             .await
         {
-            return;
-        }
-
-        match provider.send_raw_transaction(&raw_tx).await {
-            Ok(_) => {
-                tracing::info!(
-                    tx_hash = %format!("0x{:x}", submission.tx_hash),
-                    %wallet,
-                    attempts = submission.attempts + 1,
-                    "re-broadcast transaction that had not been included"
-                );
-            }
-            Err(error) => {
-                // `already known` and friends prove the transaction is in a
-                // mempool, so this is not treated as a failure and does not stop
-                // the wallet from resolving.
-                tracing::warn!(
-                    %error,
-                    tx_hash = %format!("0x{:x}", submission.tx_hash),
-                    %wallet,
-                    "re-broadcast attempt did not succeed"
-                );
-            }
-        }
-        metrics::increment_wallet_rebroadcast();
-    }
-
-    /// Advances the broadcast attempt counter under a compare-and-set.
-    ///
-    /// Returns whether this caller claimed the attempt. Only an `InFlight` record
-    /// may be advanced, because the replacement is written back as `InFlight`.
-    async fn advance_attempt(
-        &self,
-        wallet: Address,
-        lease_id: Uuid,
-        submission: &Submission,
-        now: u64,
-    ) -> bool {
-        let mut next = submission.clone();
-        next.attempts = next.attempts.saturating_add(1);
-        next.last_attempt_at = now;
-
-        let replacement = WalletRecord::in_flight(lease_id, next);
-        match self
-            .wallet_store
-            .replace(
-                wallet,
-                lease_id,
-                WalletState::InFlight,
-                Some(submission.last_attempt_at),
-                &replacement,
-                self.state_ttl(),
-            )
-            .await
-        {
-            Ok(CasOutcome::Applied) => true,
-            Ok(outcome) => {
-                tracing::debug!(%wallet, ?outcome, "another resolver pass advanced this record");
-                false
-            }
-            Err(error) => {
-                tracing::warn!(%error, %wallet, "failed to record a broadcast attempt");
-                false
-            }
+            metrics::record_wallet_outcome("absent");
+            self.release_lease(wallet, record.lease_id).await;
         }
     }
 
@@ -1125,30 +1037,6 @@ impl TransactionSubmitter {
             Ok(Some(record)) => record.lease_id == lease_id,
             Ok(None) | Err(_) => false,
         }
-    }
-
-    /// Records that a broadcast was attempted, so the resolver does not race it.
-    async fn record_attempt(&self, wallet: Address, lease_id: Uuid) {
-        let Some(record) = self
-            .wallet_store
-            .get(wallet)
-            .await
-            .ok()
-            .flatten()
-            .filter(|record| record.lease_id == lease_id)
-        else {
-            return;
-        };
-        if record.state != WalletState::InFlight {
-            return;
-        }
-        let Some(submission) = record.submission() else {
-            return;
-        };
-
-        let _ = self
-            .advance_attempt(wallet, lease_id, submission, now_unix_secs())
-            .await;
     }
 
     /// Acquires a free wallet, waiting up to the configured timeout.

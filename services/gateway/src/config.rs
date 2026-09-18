@@ -24,8 +24,6 @@ pub mod defaults {
     /// `STALE_QUEUED_THRESHOLD_SECS` so a batch waiting on capacity cannot be
     /// mistaken for an abandoned request.
     pub const WALLET_ACQUIRE_TIMEOUT_SECS: u64 = 20;
-    pub const WALLET_REBROADCAST_INTERVAL_SECS: u64 = 30;
-    pub const WALLET_REBROADCAST_MAX_ATTEMPTS: u32 = 10;
     /// Slack added to the resolution timeout when deriving the in-flight lock
     /// lifetime, so a lock never lapses while its request is still being
     /// submitted.
@@ -123,11 +121,6 @@ pub struct WalletConfig {
     pub first_probe_delay_secs: u64,
     /// Bounded wait for a free wallet before a batch is returned to the queue.
     pub acquire_timeout_secs: u64,
-    /// Minimum spacing between re-broadcasts of the same transaction.
-    pub rebroadcast_interval_secs: u64,
-    /// Re-broadcast attempts before the resolver stops trying and lets the
-    /// resolution timeout park the wallet.
-    pub rebroadcast_max_attempts: u32,
     /// Wallets excluded from new work but still resolved.
     ///
     /// Draining is the way to remove a wallet from service: it keeps being
@@ -156,8 +149,6 @@ impl Default for WalletConfig {
             tracker_interval_secs: defaults::WALLET_TRACKER_INTERVAL_SECS,
             first_probe_delay_secs: defaults::WALLET_FIRST_PROBE_DELAY_SECS,
             acquire_timeout_secs: defaults::WALLET_ACQUIRE_TIMEOUT_SECS,
-            rebroadcast_interval_secs: defaults::WALLET_REBROADCAST_INTERVAL_SECS,
-            rebroadcast_max_attempts: defaults::WALLET_REBROADCAST_MAX_ATTEMPTS,
             draining_addresses: Vec::new(),
         }
     }
@@ -194,14 +185,6 @@ pub struct WalletArgs {
     #[arg(long, env = "WALLET_ACQUIRE_TIMEOUT_SECS", default_value_t = defaults::WALLET_ACQUIRE_TIMEOUT_SECS)]
     pub acquire_timeout_secs: u64,
 
-    /// Minimum spacing between re-broadcasts of the same transaction, in seconds.
-    #[arg(long, env = "WALLET_REBROADCAST_INTERVAL_SECS", default_value_t = defaults::WALLET_REBROADCAST_INTERVAL_SECS)]
-    pub rebroadcast_interval_secs: u64,
-
-    /// Re-broadcast attempts before a wallet is left for the resolution timeout to park.
-    #[arg(long, env = "WALLET_REBROADCAST_MAX_ATTEMPTS", default_value_t = defaults::WALLET_REBROADCAST_MAX_ATTEMPTS)]
-    pub rebroadcast_max_attempts: u32,
-
     /// Comma-separated wallet addresses to drain.
     ///
     /// A draining wallet is excluded from new work but still resolved, so a
@@ -220,8 +203,6 @@ impl Default for WalletArgs {
             tracker_interval_secs: defaults::WALLET_TRACKER_INTERVAL_SECS,
             first_probe_delay_secs: defaults::WALLET_FIRST_PROBE_DELAY_SECS,
             acquire_timeout_secs: defaults::WALLET_ACQUIRE_TIMEOUT_SECS,
-            rebroadcast_interval_secs: defaults::WALLET_REBROADCAST_INTERVAL_SECS,
-            rebroadcast_max_attempts: defaults::WALLET_REBROADCAST_MAX_ATTEMPTS,
             draining_addresses: None,
         }
     }
@@ -473,19 +454,6 @@ impl GatewayConfig {
             ));
         }
 
-        if wallet.rebroadcast_interval_secs < wallet.tracker_interval_secs {
-            return Err(GatewayError::Config(
-                "WALLET_REBROADCAST_INTERVAL_SECS must be at least WALLET_TRACKER_INTERVAL_SECS"
-                    .to_string(),
-            ));
-        }
-
-        if wallet.rebroadcast_max_attempts == 0 {
-            return Err(GatewayError::Config(
-                "WALLET_REBROADCAST_MAX_ATTEMPTS must be at least 1".to_string(),
-            ));
-        }
-
         Ok(())
     }
 
@@ -545,8 +513,6 @@ impl GatewayConfig {
             tracker_interval_secs: self.wallet.tracker_interval_secs,
             first_probe_delay_secs: self.wallet.first_probe_delay_secs,
             acquire_timeout_secs: self.wallet.acquire_timeout_secs,
-            rebroadcast_interval_secs: self.wallet.rebroadcast_interval_secs,
-            rebroadcast_max_attempts: self.wallet.rebroadcast_max_attempts,
             draining_addresses,
         })
     }

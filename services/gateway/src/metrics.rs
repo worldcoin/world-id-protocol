@@ -38,7 +38,6 @@ pub const METRICS_WALLET_ACQUIRE_EMPTY: &str = "wallet.acquire_empty";
 pub const METRICS_WALLET_OUTCOME: &str = "wallet.outcome";
 pub const METRICS_WALLET_TIME_IN_FLIGHT_MS: &str = "wallet.time_in_flight_ms";
 pub const METRICS_WALLET_CONFIRMATIONS_AT_RELEASE: &str = "wallet.confirmations_at_release";
-pub const METRICS_WALLET_REBROADCAST: &str = "wallet.rebroadcast";
 pub const METRICS_WALLET_TRACKER_ERRORS: &str = "wallet.tracker_error";
 
 pub fn describe_metrics() {
@@ -165,11 +164,6 @@ pub fn describe_metrics() {
         "Confirmations observed when a wallet was released; evidence for the release threshold."
     );
     ::metrics::describe_counter!(
-        METRICS_WALLET_REBROADCAST,
-        ::metrics::Unit::Count,
-        "Number of transactions re-broadcast because their inclusion was unconfirmed."
-    );
-    ::metrics::describe_counter!(
         METRICS_WALLET_TRACKER_ERRORS,
         ::metrics::Unit::Count,
         "Number of errors while resolving wallet transactions."
@@ -287,11 +281,6 @@ pub fn record_wallet_time_in_flight(latency_ms: f64) {
 /// Records the confirmations observed when a wallet was released.
 pub fn record_wallet_confirmations_at_release(confirmations: u64) {
     ::metrics::histogram!(METRICS_WALLET_CONFIRMATIONS_AT_RELEASE).record(confirmations as f64);
-}
-
-/// Records a re-broadcast of a transaction whose inclusion was unconfirmed.
-pub fn increment_wallet_rebroadcast() {
-    ::metrics::counter!(METRICS_WALLET_REBROADCAST).increment(1);
 }
 
 /// Records an error while resolving wallet transactions.
