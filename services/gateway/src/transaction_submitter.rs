@@ -66,6 +66,10 @@ enum Probe {
     Replaced,
     /// The transaction is in no mempool and its nonce is untouched.
     Absent,
+    /// The transaction had a receipt, but its inclusion block is no longer
+    /// canonical. Internal to [`TransactionSubmitter::probe`], which continues
+    /// with the nonce probe rather than deciding here.
+    Reorged,
 }
 
 /// Whether a batch may be broadcast after its requests were guarded.
@@ -553,6 +557,9 @@ impl TransactionSubmitter {
                     self.rebroadcast(entry, record, submission, provider).await;
                 }
             }
+            // Resolved inside the nonce probe; a reorged receipt never reaches
+            // this arm with a decision outstanding.
+            Probe::Reorged => {}
         }
 
         if !parked && age >= self.config.resolution_timeout_secs {
@@ -608,7 +615,12 @@ impl TransactionSubmitter {
         };
 
         if let Some(receipt) = receipt {
-            return self.classify_receipt(provider, submission, &receipt).await;
+            match self.classify_receipt(provider, submission, &receipt).await {
+                // Fall through: a reorg can also have consumed the nonce with a
+                // different transaction, which only the probe below can tell.
+                Probe::Reorged => {}
+                decided => return decided,
+            }
         }
 
         // No receipt. Distinguish "never landed" from "landed then reorged out"
@@ -641,7 +653,14 @@ impl TransactionSubmitter {
             // load-balanced RPC fleet can answer these two calls from different
             // nodes, so re-read the receipt before drawing a conclusion.
             return match provider.get_transaction_receipt(tx_hash).await {
-                Ok(Some(receipt)) => self.classify_receipt(provider, submission, &receipt).await,
+                Ok(Some(receipt)) => {
+                    match self.classify_receipt(provider, submission, &receipt).await {
+                        // Reorged out again: let the next pass start over rather
+                        // than concluding a replacement from a stale snapshot.
+                        Probe::Reorged => Probe::Wait,
+                        decided => decided,
+                    }
+                }
                 Ok(None) => Probe::Replaced,
                 Err(error) => {
                     metrics::increment_wallet_tracker_error();
@@ -700,7 +719,7 @@ impl TransactionSubmitter {
             Ok(Some(block)) if block.header.hash == receipt_block_hash => {}
             // The block that included this transaction is no longer canonical,
             // so the transaction is no longer included.
-            Ok(Some(_) | None) => return Probe::Absent,
+            Ok(Some(_) | None) => return Probe::Reorged,
             Err(error) => {
                 metrics::increment_wallet_tracker_error();
                 tracing::warn!(
@@ -851,7 +870,11 @@ impl TransactionSubmitter {
                 wallet,
                 record.lease_id,
                 WalletState::InFlight,
-                Some(submission.last_attempt_at),
+                // Deliberately not guarded on the attempt counter: a
+                // re-broadcast earlier in the same pass advances it, and parking
+                // must not depend on winning that race. The lease and state
+                // guards already ensure this is the record we decided about.
+                None,
                 &next,
                 self.state_ttl(),
             )
