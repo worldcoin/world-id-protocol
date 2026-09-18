@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   dispatch:
-    uses: worldcoin/mobile-bench-rs/.github/workflows/reusable-pr-auto.yml@08b2a1514a99b736670d7bb600e7eae2b33937d6 # main https://github.com/worldcoin/mobile-bench-rs/commit/08b2a1514a99b736670d7bb600e7eae2b33937d6
+    uses: worldcoin/mobile-bench-rs/.github/workflows/reusable-pr-auto.yml@6404b968a3b8d83a9a84e9c89069430de45c6354 # main https://github.com/worldcoin/mobile-bench-rs/commit/08b2a1514a99b736670d7bb600e7eae2b33937d6
     with:
       benchmark_workflow: .github/workflows/mobile-bench.yml
       compile_gate_workflow_name: "Tests (stable)"
