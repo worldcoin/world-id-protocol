@@ -146,8 +146,7 @@ pub(crate) async fn build_app(
 
     tracing::info!("Ops batcher initialized");
 
-    // Resolves every outstanding wallet transaction. This owns receipt polling:
-    // the sweeper no longer looks up receipts at all.
+    // Resolves every outstanding wallet transaction, including receipt polling.
     tokio::spawn(submitter.clone().run_resolver());
     tracing::info!(
         wallets = submitter.pool_size(),

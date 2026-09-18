@@ -6,9 +6,9 @@
 //! request that never reached a batcher, a batcher that died holding a batch, or
 //! a submission written by a gateway build that predates wallet records.
 //!
-//! This sweeper handles only the second class. It deliberately does not poll
-//! receipts any more; doing so would duplicate the resolver's work and let two
-//! owners race to decide the same request.
+//! This sweeper handles only the second class. Receipt polling belongs to the
+//! transaction resolver; duplicating it here would let two owners race to decide
+//! the same request.
 
 use std::time::Duration;
 
