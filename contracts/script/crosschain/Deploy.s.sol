@@ -11,6 +11,7 @@ import {IStateBridge} from "../../src/crosschain/interfaces/IStateBridge.sol";
 import {PermissionedGatewayAdapter} from "../../src/crosschain/adapters/PermissionedGatewayAdapter.sol";
 import {EthereumMPTGatewayAdapter} from "../../src/crosschain/adapters/EthereumMPTGatewayAdapter.sol";
 import {LightClientGatewayAdapter} from "../../src/crosschain/adapters/LightClientGatewayAdapter.sol";
+import {OpStackGatewayAdapter} from "../../src/crosschain/adapters/OpStackGatewayAdapter.sol";
 import {Verifier} from "../../src/core/Verifier.sol";
 
 /// @title BridgeDeployer
@@ -71,6 +72,7 @@ contract Deploy is Script {
     uint256 internal _wcChainId;
     address internal _l1BridgeProxy;
     uint256 internal _l1ChainId;
+    address internal _l1GatewayAddr;
     address internal _broadcaster;
     string[] internal _deployFilter;
 
@@ -307,6 +309,10 @@ contract Deploy is Script {
         if (_hasKey(_config, string.concat(np, ".zkGateway"))) {
             _deployLightClientGateway(deployments, network, owner);
         }
+
+        if (_hasKey(_config, string.concat(np, ".opStackGateway"))) {
+            _deployOpStackGateway(deployments, network);
+        }
     }
 
     function _deployPermissionedGateway(string memory deployments, string memory network, address owner) internal {
@@ -338,6 +344,7 @@ contract Deploy is Script {
         address existing = _tryLoadAddress(deployments, deployKey);
         if (existing != address(0)) {
             console2.log("  EthereumMPTGateway already deployed at", existing);
+            _l1GatewayAddr = existing;
             return;
         }
 
@@ -356,6 +363,7 @@ contract Deploy is Script {
         address addr = _deployer.deploy(salt, initCode);
         console2.log("  EthereumMPTGateway:", addr);
 
+        _l1GatewayAddr = addr;
         _gwAddrs.push(addr);
         _gwTypes.push("ethereumMPTGateway");
     }
@@ -406,6 +414,48 @@ contract Deploy is Script {
 
         _gwAddrs.push(addr);
         _gwTypes.push("lightClientGateway");
+    }
+
+    /// @dev OP Stack `L2CrossDomainMessenger` predeploy, identical across OP Stack chains.
+    address internal constant L2_CROSS_DOMAIN_MESSENGER = 0x4200000000000000000000000000000000000007;
+
+    /// @dev Deploys the native OP Stack gateway on an L2. Receives state pushed from L1 via the
+    ///   `EthereumMPTGatewayAdapter` (the trusted L1 cross-domain sender), so the L1 network must
+    ///   be deployed first.
+    function _deployOpStackGateway(string memory deployments, string memory network) internal {
+        string memory deployKey = string.concat(".", network, ".gateways.opStackGateway");
+
+        address existing = _tryLoadAddress(deployments, deployKey);
+        if (existing != address(0)) {
+            console2.log("  OpStackGateway already deployed at", existing);
+            return;
+        }
+
+        require(_l1BridgeProxy != address(0), "L1 bridge not deployed - deploy L1 network first");
+        require(_l1GatewayAddr != address(0), "L1 MPT gateway not deployed - deploy L1 network first");
+
+        // The L2CrossDomainMessenger is a predeploy at a fixed address, but allow a config override.
+        string memory gp = string.concat(".", network, ".opStackGateway");
+        address messenger = _tryLoadAddress(_config, string.concat(gp, ".messenger"));
+        if (messenger == address(0)) {
+            messenger = L2_CROSS_DOMAIN_MESSENGER;
+        }
+
+        console2.log("--- Deploying OpStackGateway ---");
+        console2.log("  Messenger:", messenger);
+        console2.log("  L1 sender:", _l1GatewayAddr);
+
+        bytes32 salt = keccak256(abi.encodePacked(vm.parseJsonBytes32(_config, ".salts.opStackGateway"), network));
+        bytes memory initCode = abi.encodePacked(
+            type(OpStackGatewayAdapter).creationCode,
+            abi.encode(messenger, _l1GatewayAddr, bridgeProxy, _l1BridgeProxy, _l1ChainId)
+        );
+
+        address addr = _deployer.deploy(salt, initCode);
+        console2.log("  OpStackGateway:", addr);
+
+        _gwAddrs.push(addr);
+        _gwTypes.push("opStackGateway");
     }
 
     ////////////////////////////////////////////////////////////

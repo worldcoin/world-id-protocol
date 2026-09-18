@@ -2,13 +2,19 @@
 pragma solidity ^0.8.28;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC7786GatewaySource} from "@openzeppelin/contracts/interfaces/draft-IERC7786.sol";
 import {IDisputeGameFactory} from "interfaces/dispute/IDisputeGameFactory.sol";
 import {IDisputeGame} from "interfaces/dispute/IDisputeGame.sol";
+import {ICrossDomainMessenger} from "interfaces/universal/ICrossDomainMessenger.sol";
 import {GameStatus, Claim, GameType} from "@optimism-bedrock/src/dispute/lib/Types.sol";
 import {Lib} from "@world-id-bridge/lib/Lib.sol";
 import "@world-id-bridge/lib/StateBridge.sol";
 import {WorldIDGateway} from "@world-id-bridge/lib/Gateway.sol";
 import "@world-id-bridge/Error.sol";
+
+/// @notice Emitted when verified World Chain state is forwarded to a native OP Stack L2 gateway
+///   through the `L1CrossDomainMessenger`.
+event ForwardedToL2(address indexed messenger, address indexed l2Adapter, bytes32 chainHead);
 
 /// @title EthereumMPTGatewayAdapter
 /// @author World Contributors
@@ -81,6 +87,43 @@ contract EthereumMPTGatewayAdapter is WorldIDGateway, Ownable {
 
         chainHead =
             Lib.proveStorageSlot(ANCHOR_BRIDGE, STATE_BRIDGE_STORAGE_SLOT, wcAccountProof, wcStorageProof, wcStateRoot);
+    }
+
+    /// @notice Verifies World Chain state (dispute game + MPT), then forwards the proven chain
+    ///   head to a native OP Stack L2 gateway through the `L1CrossDomainMessenger`.
+    /// @dev This adapter is the L1 cross-domain sender that the destination `OpStackGatewayAdapter`
+    ///   trusts: the L2 message is delivered with this contract as `xDomainMessageSender`. The
+    ///   proof is re-verified here so only authentic chain heads can ever be forwarded, making the
+    ///   call permissionless like `sendMessage`. The same `payload` (commitment delta) is delivered
+    ///   to L2; the destination satellite checks it hashes to `chainHead`.
+    /// @param messenger The `L1CrossDomainMessenger` for the destination rollup.
+    /// @param l2Adapter The `OpStackGatewayAdapter` address on the destination L2.
+    /// @param recipient ERC-7930 interoperable address of the destination `WorldIDSatellite`.
+    /// @param payload ABI-encoded `Lib.Commitment[]` delta to apply on L2.
+    /// @param attributes Gateway attributes carrying the MPT proof (`l1ProofAttributes`).
+    /// @param minGasLimit Minimum L2 gas for the relayed `sendMessage` call.
+    function forwardToL2(
+        address messenger,
+        address l2Adapter,
+        bytes calldata recipient,
+        bytes calldata payload,
+        bytes[] calldata attributes,
+        uint32 minGasLimit
+    ) external virtual {
+        if (messenger == address(0) || l2Adapter == address(0)) revert ZeroAddress();
+        if (payload.length == 0) revert EmptyPayload();
+
+        bytes memory attributeData = validateAttributes(attributes);
+        bytes32 chainHead = _verifyAndExtract(payload, attributeData);
+
+        bytes[] memory l2Attributes = new bytes[](1);
+        l2Attributes[0] = abi.encodePacked(bytes4(keccak256("chainHead(bytes32)")), abi.encode(chainHead));
+
+        bytes memory message = abi.encodeCall(IERC7786GatewaySource.sendMessage, (recipient, payload, l2Attributes));
+
+        ICrossDomainMessenger(messenger).sendMessage(l2Adapter, message, minGasLimit);
+
+        emit ForwardedToL2(messenger, l2Adapter, chainHead);
     }
 
     ////////////////////////////////////////////////////////////

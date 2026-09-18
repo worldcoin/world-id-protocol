@@ -7,7 +7,7 @@ use alloy::{
 use eyre::Result;
 use tracing::info;
 
-use crate::bindings::IGateway;
+use crate::bindings::{IEthereumMPTGatewayAdapter, IGateway};
 
 /// Sends a relay transaction to a gateway contract.
 ///
@@ -54,6 +54,56 @@ pub async fn send_relay_tx(
     }
 
     info!(%tx_hash, "relay transaction confirmed");
+    Ok(tx_hash)
+}
+
+/// Pushes verified state to a native OP Stack L2 by calling `forwardToL2` on the L1
+/// `EthereumMPTGatewayAdapter`.
+///
+/// The L1 adapter re-verifies the MPT proof (`attribute`) and, on success, relays the proven
+/// chain head and `payload` to the destination `OpStackGatewayAdapter` through the
+/// `L1CrossDomainMessenger`. The transaction is sent on L1.
+#[allow(clippy::too_many_arguments)]
+pub async fn send_forward_to_l2_tx(
+    l1_provider: &DynProvider,
+    l1_adapter: Address,
+    messenger: Address,
+    l2_adapter: Address,
+    l2_chain_id: u64,
+    l2_satellite: Address,
+    payload: Bytes,
+    attribute: Bytes,
+    min_gas_limit: u32,
+) -> Result<alloy_primitives::B256> {
+    // The L2 message ultimately calls `sendMessage` on the L2 adapter, whose recipient must be the
+    // destination satellite. The chain ref in the ERC-7930 address is not validated on-chain.
+    let recipient = encode_evm_v1_address(l2_chain_id, l2_satellite);
+
+    let call = IEthereumMPTGatewayAdapter::forwardToL2Call {
+        messenger,
+        l2Adapter: l2_adapter,
+        recipient: recipient.into(),
+        payload,
+        attributes: vec![attribute],
+        minGasLimit: min_gas_limit,
+    };
+
+    let tx = TransactionRequest::default()
+        .to(l1_adapter)
+        .input(call.abi_encode().into());
+
+    let pending = l1_provider.send_transaction(tx).await?;
+    let tx_hash = *pending.tx_hash();
+
+    info!(%tx_hash, %l1_adapter, %l2_adapter, "forwardToL2 transaction sent");
+
+    let receipt = pending.get_receipt().await?;
+
+    if !receipt.status() {
+        eyre::bail!("forwardToL2 transaction reverted: {tx_hash}");
+    }
+
+    info!(%tx_hash, "forwardToL2 transaction confirmed");
     Ok(tx_hash)
 }
 
