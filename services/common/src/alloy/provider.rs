@@ -122,6 +122,35 @@ pub struct SignerArgs {
     /// Mutually exclusive with `AWS_KMS_KEY_ID`.
     #[arg(long, env = "AWS_KMS_KEY_IDS")]
     aws_kms_key_ids: Option<String>,
+
+    /// Comma-separated AWS KMS key ARNs forming a wallet pool shared by every
+    /// replica.
+    ///
+    /// Unlike `AWS_KMS_KEY_IDS`, which assigns one key per pod ordinal, every
+    /// replica is configured with the whole pool and leases individual wallets
+    /// through Redis. Adding capacity is therefore a change to this variable
+    /// alone, with no ordinal arithmetic.
+    ///
+    /// The keys must be distinct from any key still in use through the legacy
+    /// variables, so that a rolling changeover never has two builds driving the
+    /// same wallet. Mutually exclusive with the other signer variables.
+    #[arg(long, env = "AWS_KMS_WALLET_KEYS")]
+    aws_kms_wallet_keys: Option<String>,
+
+    /// Comma-separated signer private keys forming a wallet pool shared by every
+    /// replica. The development and `Anvil` equivalent of
+    /// `AWS_KMS_WALLET_KEYS`.
+    #[arg(long, env = "WALLET_PRIVATE_KEYS")]
+    wallet_private_keys: Option<String>,
+}
+
+/// Splits a comma-separated key list, dropping blanks so a trailing comma does
+/// not silently add an empty entry.
+fn split_pool_keys(keys: &str) -> Vec<&str> {
+    keys.split(',')
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .collect()
 }
 
 /// Parse the pod ordinal from the trailing numeric suffix of a StatefulSet
@@ -225,6 +254,8 @@ impl SignerArgs {
             wallet_private_key: Some(wallet_private_key),
             aws_kms_key_id: None,
             aws_kms_key_ids: None,
+            aws_kms_wallet_keys: None,
+            wallet_private_keys: None,
         }
     }
 
@@ -234,7 +265,52 @@ impl SignerArgs {
             wallet_private_key: None,
             aws_kms_key_id: Some(aws_kms_key_id),
             aws_kms_key_ids: None,
+            aws_kms_wallet_keys: None,
+            wallet_private_keys: None,
         }
+    }
+
+    /// Whether this configuration describes a shared wallet pool.
+    #[must_use]
+    pub fn is_pool_signer(&self) -> bool {
+        self.aws_kms_wallet_keys.is_some() || self.wallet_private_keys.is_some()
+    }
+
+    /// Splits a pooled configuration into one single-signer configuration per
+    /// wallet.
+    ///
+    /// Each wallet is then built by [`ProviderArgs::http_wallet`], so the pool
+    /// reuses the exact construction path a single-wallet gateway always used
+    /// rather than introducing a second one. A legacy configuration yields
+    /// exactly one entry, which is what makes this change additive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a pool variable is set but contains no keys.
+    pub fn pool_signers(&self) -> ProviderResult<Vec<Self>> {
+        if let Some(keys) = &self.wallet_private_keys {
+            let keys = split_pool_keys(keys);
+            if keys.is_empty() {
+                return Err(ProviderError::SignerConfigMissing);
+            }
+            return Ok(keys
+                .into_iter()
+                .map(|key| Self::from_wallet(key.to_string()))
+                .collect());
+        }
+
+        if let Some(keys) = &self.aws_kms_wallet_keys {
+            let keys = split_pool_keys(keys);
+            if keys.is_empty() {
+                return Err(ProviderError::SignerConfigMissing);
+            }
+            return Ok(keys
+                .into_iter()
+                .map(|key| Self::from_aws(key.to_string()))
+                .collect());
+        }
+
+        Ok(vec![self.clone()])
     }
 
     /// Create a new `SignerArgs` with a comma-separated list of per-replica
@@ -244,11 +320,19 @@ impl SignerArgs {
             wallet_private_key: None,
             aws_kms_key_id: None,
             aws_kms_key_ids: Some(aws_kms_key_ids),
+            aws_kms_wallet_keys: None,
+            wallet_private_keys: None,
         }
     }
 
     /// Create and return a `SignerConfig`, if a signer key is configured.
     pub fn signer_config(&self) -> Option<SignerConfig> {
+        if let Some(keys) = &self.wallet_private_keys {
+            return Some(SignerConfig::PrivateKeyPool(keys.clone()));
+        }
+        if let Some(keys) = &self.aws_kms_wallet_keys {
+            return Some(SignerConfig::AwsKmsPool(keys.clone()));
+        }
         match (
             &self.wallet_private_key,
             &self.aws_kms_key_id,
@@ -268,6 +352,10 @@ pub enum SignerConfig {
     AwsKms(String),
     /// Per-replica KMS signing: comma-separated list of key ARNs, one per pod ordinal.
     AwsKmsPerReplica(String),
+    /// Shared pool of signer private keys, used by every replica.
+    PrivateKeyPool(String),
+    /// Shared pool of KMS key ARNs, used by every replica.
+    AwsKmsPool(String),
 }
 
 /// A transaction signer paired with the provider stack that fills its transactions.
@@ -366,6 +454,32 @@ impl ProviderArgs {
         self.http_with_nonce_manager_and_address(SimpleNonceManager::default())
             .await?
             .try_into_wallet()
+    }
+
+    /// Builds one provider wallet per configured signer.
+    ///
+    /// Pool configurations (`WALLET_PRIVATE_KEYS`, `AWS_KMS_WALLET_KEYS`) yield
+    /// several wallets shared by all replicas; a legacy configuration yields
+    /// exactly one, unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a signer cannot be constructed, or when no signer
+    /// is configured at all.
+    pub async fn http_wallets(self) -> ProviderResult<Vec<ProviderWallet>> {
+        if !self.signer.is_pool_signer() && self.signer.signer_config().is_none() {
+            return Err(ProviderError::SignerConfigMissing);
+        }
+
+        let mut wallets = Vec::new();
+        for signer in self.signer.pool_signers()? {
+            let args = Self {
+                signer,
+                ..self.clone()
+            };
+            wallets.push(args.http_wallet().await?);
+        }
+        Ok(wallets)
     }
 
     /// Build a dynamic provider using a caller-supplied [`NonceManager`].

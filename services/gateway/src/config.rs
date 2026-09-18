@@ -124,6 +124,13 @@ pub struct WalletConfig {
     /// Re-broadcast attempts before the resolver stops trying and lets the
     /// resolution timeout park the wallet.
     pub rebroadcast_max_attempts: u32,
+    /// Wallets excluded from new work but still resolved.
+    ///
+    /// Draining is the way to remove a wallet from service: it keeps being
+    /// resolved until its record clears, then silently stops being used. Simply
+    /// dropping it from the pool would leave an in-flight transaction with no
+    /// one responsible for it.
+    pub draining_addresses: Vec<Address>,
 }
 
 impl WalletConfig {
@@ -147,6 +154,7 @@ impl Default for WalletConfig {
             acquire_timeout_secs: defaults::WALLET_ACQUIRE_TIMEOUT_SECS,
             rebroadcast_interval_secs: defaults::WALLET_REBROADCAST_INTERVAL_SECS,
             rebroadcast_max_attempts: defaults::WALLET_REBROADCAST_MAX_ATTEMPTS,
+            draining_addresses: Vec::new(),
         }
     }
 }
@@ -192,6 +200,13 @@ pub struct WalletArgs {
     /// Re-broadcast attempts before a wallet is left for the resolution timeout to park.
     #[arg(long, env = "WALLET_REBROADCAST_MAX_ATTEMPTS", default_value_t = defaults::WALLET_REBROADCAST_MAX_ATTEMPTS)]
     pub rebroadcast_max_attempts: u32,
+
+    /// Comma-separated wallet addresses to drain.
+    ///
+    /// A draining wallet is excluded from new work but still resolved, so a
+    /// wallet can be retired without abandoning a transaction it signed.
+    #[arg(long, env = "WALLET_DRAINING_ADDRESSES")]
+    pub draining_addresses: Option<String>,
 }
 
 impl Default for WalletArgs {
@@ -206,6 +221,7 @@ impl Default for WalletArgs {
             acquire_timeout_secs: defaults::WALLET_ACQUIRE_TIMEOUT_SECS,
             rebroadcast_interval_secs: defaults::WALLET_REBROADCAST_INTERVAL_SECS,
             rebroadcast_max_attempts: defaults::WALLET_REBROADCAST_MAX_ATTEMPTS,
+            draining_addresses: None,
         }
     }
 }
@@ -395,7 +411,7 @@ impl GatewayConfig {
 
     /// Check the durable wallet knobs against their documented bounds.
     fn validate_wallet(&self) -> GatewayResult<()> {
-        let wallet = self.wallet();
+        let wallet = self.wallet()?;
 
         if wallet.sign_lease_secs < 5 {
             return Err(GatewayError::Config(
@@ -490,9 +506,29 @@ impl GatewayConfig {
     }
 
     /// Durable wallet submission configuration.
-    #[must_use]
-    pub fn wallet(&self) -> WalletConfig {
-        WalletConfig {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `WALLET_DRAINING_ADDRESSES` is not a
+    /// comma-separated list of addresses.
+    pub fn wallet(&self) -> GatewayResult<WalletConfig> {
+        let draining_addresses = match &self.wallet.draining_addresses {
+            None => Vec::new(),
+            Some(raw) => raw
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(|entry| {
+                    entry.parse::<Address>().map_err(|_| {
+                        GatewayError::Config(format!(
+                            "WALLET_DRAINING_ADDRESSES contains an invalid address: {entry}"
+                        ))
+                    })
+                })
+                .collect::<GatewayResult<Vec<Address>>>()?,
+        };
+
+        Ok(WalletConfig {
             sign_lease_secs: self.wallet.sign_lease_secs,
             state_ttl_secs: self.wallet.state_ttl_secs,
             release_confirmations: self.wallet.release_confirmations,
@@ -502,7 +538,8 @@ impl GatewayConfig {
             acquire_timeout_secs: self.wallet.acquire_timeout_secs,
             rebroadcast_interval_secs: self.wallet.rebroadcast_interval_secs,
             rebroadcast_max_attempts: self.wallet.rebroadcast_max_attempts,
-        }
+            draining_addresses,
+        })
     }
 }
 

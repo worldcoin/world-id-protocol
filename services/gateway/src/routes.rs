@@ -151,6 +151,7 @@ pub(crate) async fn build_app(
     tokio::spawn(submitter.clone().run_resolver());
     tracing::info!(
         wallets = submitter.pool_size(),
+        acquirable = submitter.acquirable_size(),
         "Transaction resolver initialized"
     );
 

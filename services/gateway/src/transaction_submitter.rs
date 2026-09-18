@@ -96,6 +96,11 @@ struct WalletEntry {
 /// Signs, commits, broadcasts and resolves one transaction per wallet at a time.
 pub(crate) struct TransactionSubmitter {
     wallets: Vec<WalletEntry>,
+    /// Indices into `wallets` that may be handed out for new work.
+    ///
+    /// A draining wallet is deliberately still in `wallets` so the resolver
+    /// keeps deciding its outstanding transaction, but it is never acquired.
+    acquirable: Vec<usize>,
     wallet_store: WalletStore,
     tracker: RequestTracker,
     config: WalletConfig,
@@ -109,7 +114,8 @@ impl TransactionSubmitter {
     /// # Errors
     ///
     /// Returns an error when no wallet is configured, when two wallets share an
-    /// address, or when Redis cannot be reached.
+    /// address, when a drained address is not configured, when every configured
+    /// wallet is draining, or when Redis cannot be reached.
     pub(crate) async fn connect(
         wallets: Vec<ProviderWallet>,
         tracker: RequestTracker,
@@ -131,7 +137,39 @@ impl TransactionSubmitter {
             ));
         }
 
+        // A drained address that is not configured is a typo, and silently
+        // ignoring it would leave a wallet in service that the operator
+        // believed was retired.
+        for address in &config.draining_addresses {
+            if !unique.contains(address) {
+                return Err(GatewayError::Config(format!(
+                    "WALLET_DRAINING_ADDRESSES names {address}, which is not a configured wallet"
+                )));
+            }
+        }
+
+        let acquirable: Vec<usize> = wallets
+            .iter()
+            .enumerate()
+            .filter(|(_, wallet)| !config.draining_addresses.contains(&wallet.address))
+            .map(|(index, _)| index)
+            .collect();
+
+        if acquirable.is_empty() {
+            return Err(GatewayError::Config(
+                "every configured wallet is draining, so no batch could ever be submitted"
+                    .to_string(),
+            ));
+        }
+
         metrics::record_wallet_pool_size(wallets.len());
+        if !config.draining_addresses.is_empty() {
+            tracing::info!(
+                draining = config.draining_addresses.len(),
+                acquirable = acquirable.len(),
+                "wallet pool prepared with draining wallets; they are resolved but not reused"
+            );
+        }
 
         let wallets = wallets
             .into_iter()
@@ -140,6 +178,7 @@ impl TransactionSubmitter {
 
         Ok(Arc::new(Self {
             wallets,
+            acquirable,
             wallet_store: WalletStore::connect(redis_url).await?,
             tracker,
             config,
@@ -148,10 +187,16 @@ impl TransactionSubmitter {
         }))
     }
 
-    /// Number of configured wallets.
+    /// Number of configured wallets, including draining ones.
     #[must_use]
     pub(crate) fn pool_size(&self) -> usize {
         self.wallets.len()
+    }
+
+    /// Number of wallets currently available for new work.
+    #[must_use]
+    pub(crate) fn acquirable_size(&self) -> usize {
+        self.acquirable.len()
     }
 
     /// Signs, durably records and broadcasts one batch transaction.
@@ -977,8 +1022,8 @@ impl TransactionSubmitter {
         loop {
             let start = self.next_wallet.fetch_add(1, Ordering::Relaxed);
 
-            for offset in 0..self.wallets.len() {
-                let index = start.wrapping_add(offset) % self.wallets.len();
+            for offset in 0..self.acquirable.len() {
+                let index = self.acquirable[start.wrapping_add(offset) % self.acquirable.len()];
                 let entry = self.wallets[index].clone();
                 let lease_id = Uuid::new_v4();
 
