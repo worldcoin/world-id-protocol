@@ -717,6 +717,38 @@ async fn packed_account_not_found_maps_to_account_does_not_exist() -> eyre::Resu
 }
 
 #[tokio::test]
+async fn revoked_authenticator_never_registers_a_replacement() -> eyre::Result<()> {
+    install_crypto_provider();
+    let f = OhttpFixture::start().await?;
+
+    let error_body = json!({
+        "code": "authenticator_revoked",
+        "message": "Authenticator revoked by recovery",
+    });
+
+    f.set_indexer_response(
+        "/packed-account",
+        AxumStatusCode::FORBIDDEN,
+        serde_json::to_vec(&error_body)?,
+    )
+    .await;
+
+    let config = f.authenticator_config();
+
+    let result = Authenticator::init_or_register(&TEST_SEED, config, None, dummy_zk_source()).await;
+    assert!(
+        matches!(result, Err(AuthenticatorError::PublicKeyNotFound)),
+        "expected PublicKeyNotFound, got: {result:?}"
+    );
+
+    assert!(
+        f.last_gateway_request().await.is_none(),
+        "Revocation must not create another account"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn gateway_error_propagates_through_ohttp() -> eyre::Result<()> {
     let f = OhttpFixture::start().await?;
 

@@ -537,6 +537,8 @@ pub enum IndexerErrorCode {
     Locked,
     /// The account does not exist.
     AccountDoesNotExist,
+    /// This authenticator lost access after account recovery.
+    AuthenticatorRevoked,
     /// The request timed out.
     RequestTimeout,
 }
