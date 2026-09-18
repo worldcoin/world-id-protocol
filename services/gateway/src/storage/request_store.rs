@@ -17,10 +17,10 @@ pub struct RequestRecord {
     pub inflight_keys: Vec<String>,
     /// Wallet that signed the transaction resolving this request, when known.
     ///
-    /// Additive: records written before this field existed deserialize with
-    /// `None`, which is how the lost-wallet-record recovery path tells legacy
-    /// requests apart. The transaction hash is not duplicated here because it
-    /// already appears in [`GatewayRequestState::Submitted`].
+    /// NOTE: additive. Records written before this field existed deserialize as
+    /// `None`, which is how the legacy-submission path tells them apart. The
+    /// transaction hash is deliberately not duplicated here; it already appears
+    /// in [`GatewayRequestState::Submitted`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>)]
     pub wallet: Option<Address>,
@@ -32,23 +32,15 @@ const PENDING_SET_KEY: &str = "gateway:pending_requests";
 /// Discriminator of a stored [`GatewayRequestState`], used to guard a
 /// compare-and-set status write.
 ///
-/// The names match the serialized `status.state` values so the guard can be
-/// evaluated inside the Lua script without a second representation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The rendered names are compared against the serialized `status.state` values
+/// inside the Lua script, so `snake_case` must stay in step with
+/// `GatewayRequestState`'s own serde representation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::Display)]
+#[strum(serialize_all = "snake_case")]
 pub(crate) enum StatusGuard {
     Queued,
     Batching,
     Submitted,
-}
-
-impl StatusGuard {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Queued => "queued",
-            Self::Batching => "batching",
-            Self::Submitted => "submitted",
-        }
-    }
 }
 
 /// Result of a compare-and-set status write.
@@ -513,7 +505,7 @@ impl RequestStore {
 
     /// Serializes a guard list into the JSON array the Lua scripts expect.
     fn status_guard_json(allowed: &[StatusGuard]) -> GatewayResult<String> {
-        let names: Vec<&'static str> = allowed.iter().map(|guard| guard.as_str()).collect();
+        let names: Vec<String> = allowed.iter().map(ToString::to_string).collect();
         Ok(serde_json::to_string(&names)?)
     }
 

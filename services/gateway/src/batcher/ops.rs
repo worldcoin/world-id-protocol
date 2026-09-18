@@ -79,8 +79,7 @@ impl BatchSubmitStrategy<OpsEnvelope> for OpsStrategy {
 
         // No explicit gas limit — the GasEstimateWithFallbackFiller in the
         // shared provider stack will call eth_estimateGas on the assembled
-        // Multicall3 batch and apply a 20 % margin automatically. That happens
-        // when the submitter signs the transaction, not here.
+        // Multicall3 batch and apply a 20 % margin automatically.
         mc.aggregate3(calls).into_transaction_request()
     }
 }

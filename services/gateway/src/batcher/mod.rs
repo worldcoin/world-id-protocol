@@ -88,9 +88,6 @@ pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>: Send + Default + 'stat
     fn backlog_scope(&self) -> BacklogScope;
 
     /// Builds the unsigned transaction for a batch.
-    ///
-    /// The transaction is deliberately not sent here: it is signed, committed to
-    /// Redis and only then broadcast by the submitter.
     fn build_tx(
         &self,
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
