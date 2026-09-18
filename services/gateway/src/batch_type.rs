@@ -1,8 +1,8 @@
 //! The two independent transaction streams the gateway submits.
 //!
-//! Replaces the stringly-typed batch labels that used to be threaded through the
-//! batcher, the policy and the metrics. Serializes as `snake_case` so it can be
-//! stored in wallet records without a separate representation.
+//! One value identifies a batch stream wherever it is labelled: metrics, policy
+//! decisions, and the wallet record that carries its transaction. Serializes as
+//! `snake_case` so those uses share a single representation.
 
 use serde::{Deserialize, Serialize};
 

@@ -6,9 +6,8 @@
 //! that survive a restart, and the stored signed bytes are what let an
 //! ambiguous broadcast be retried with identical input instead of guessed at.
 //!
-//! This replaces the per-batch receipt task. Receipt polling for requests that
-//! a wallet record owns now happens here; the orphan sweeper keeps only the
-//! requests no wallet record owns.
+//! Receipt polling for requests a wallet record owns lives here; the orphan
+//! sweeper keeps only the requests no wallet record owns.
 //!
 
 use std::{
