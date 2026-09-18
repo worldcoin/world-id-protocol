@@ -104,7 +104,7 @@ The relay is configured via a single JSON string passed through the `RELAY_CONFI
 
 ### Signing
 
-Exactly one signing backend must be configured; startup fails if both or neither are set.
+Select one signing backend. `AWS_KMS_SIGNING=false` allows `WALLET_PRIVATE_KEY`.
 
 - **AWS KMS** (`AWS_KMS_SIGNING=true`) — preferred. One key **per network**, read from
   `{NETWORK}_AWS_KMS_KEY_ID` using the same naming as `{NETWORK}_RPC_URL`:

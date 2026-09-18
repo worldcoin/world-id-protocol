@@ -9,10 +9,8 @@ use alloy::network::{Ethereum, EthereumWallet, NetworkWallet};
 use alloy_primitives::Address;
 use world_id_services_common::alloy::provider::SignerArgs as CommonSignerArgs;
 
-/// Which signing backend to use. Exactly one is required; clap enforces that at
-/// parse time via `group(required = true, multiple = false)`.
+/// Signing backend, checked by `RelaySigners::init` after parsing.
 #[derive(clap::Args, Debug, Clone, Default)]
-#[group(required = true, multiple = false)]
 pub struct SignerArgs {
     /// Sign with AWS KMS, reading one key per network from
     /// `{NETWORK}_AWS_KMS_KEY_ID` (same naming as `{NETWORK}_RPC_URL`).
@@ -108,6 +106,76 @@ impl RelaySigners {
                 );
                 Ok(wallet)
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+    use std::process::Command;
+
+    #[derive(Parser)]
+    struct TestCli {
+        #[command(flatten)]
+        signer: SignerArgs,
+    }
+
+    #[test]
+    fn signer_environment() {
+        const CASE: &str = "RELAY_SIGNER_TEST_CASE";
+        const TEST_KEY: &str = "0000000000000000000000000000000000000000000000000000000000000001";
+
+        if let Ok(expected) = std::env::var(CASE) {
+            let result = TestCli::try_parse_from(["relay"])
+                .map_err(eyre::Report::from)
+                .and_then(|cli| {
+                    tokio::runtime::Runtime::new()?.block_on(RelaySigners::init(&cli.signer))
+                });
+            match expected.as_str() {
+                "private" => assert!(matches!(result, Ok(RelaySigners::Shared(_))), "{result:?}"),
+                "kms" => assert!(
+                    matches!(result, Ok(RelaySigners::AwsKmsPerNetwork)),
+                    "{result:?}"
+                ),
+                "invalid" => assert!(result.is_err()),
+                _ => panic!("unknown signer test case"),
+            }
+            return;
+        }
+
+        for (kms, private_key, expected) in [
+            (Some("false"), Some(TEST_KEY), "private"),
+            (None, Some(TEST_KEY), "private"),
+            (Some("true"), None, "kms"),
+            (Some("true"), Some(TEST_KEY), "invalid"),
+            (Some("false"), None, "invalid"),
+            (None, None, "invalid"),
+        ] {
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "signer::tests::signer_environment",
+                    "--nocapture",
+                ])
+                .env_clear()
+                .env(CASE, expected);
+            if let Some(value) = kms {
+                command.env("AWS_KMS_SIGNING", value);
+            }
+            if let Some(value) = private_key {
+                command.env("WALLET_PRIVATE_KEY", value);
+            }
+            let output = command.output().unwrap();
+            assert!(
+                output.status.success(),
+                "KMS={kms:?}, private_key={}: {}{}",
+                private_key.is_some(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
     }
 }
