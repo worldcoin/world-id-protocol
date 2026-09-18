@@ -10,6 +10,10 @@ import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
  * @notice Interface for verifying World ID proofs (Uniqueness and Session proofs).
  * @dev In addition to verifying the Groth16 Proof, it verifies relevant public inputs to the
  *  circuits through checks with the WorldIDRegistry, CredentialSchemaIssuerRegistry, and OprfKeyRegistry.
+ * @dev The convenience entry points enforce the action-prefix convention, matching `WorldIDVerifierV2`
+ *  and `WorldIDVerifierV3` on World Chain: `verify` requires the action's most significant byte to be
+ *  `0x00`, `verifySession` requires `0x02` and a non-zero `sessionId`. Use `verifyProofAndSignals` to
+ *  verify any proof type with explicit inputs and no convention enforcement.
  */
 interface IWorldID {
     /**
@@ -20,7 +24,8 @@ interface IWorldID {
      * @param nullifier Public output. A unique, one-time identifier derived from (user, rpId, action) that
      *   lets RPs detect duplicate actions without learning who the user is.
      * @param action Public input. An RP-defined context that scopes what the user is proving uniqueness on.
-     *  This parameter generally expects a hashed version reduced to the field.
+     *  This parameter generally expects a hashed version reduced to the field. Its most significant byte
+     *  MUST be `0x00`; reverts with `InvalidAction` otherwise.
      * @param rpId Public input. Registered RP identifier from the `RpRegistry`.
      * @param nonce Public input. Unique nonce for this request provided by the RP.
      * @param signalHash Public input. Hash of arbitrary data provided by the RP that gets cryptographically bound into the proof.
@@ -58,7 +63,10 @@ interface IWorldID {
      * @param credentialGenesisIssuedAtMin Public input. Minimum `genesis_issued_at` timestamp that the used credential
      *   must meet. Can be set to 0 to skip.
      * @param sessionId Public input. Session identifier that connects proofs for the same user+RP pair across requests.
-     * @param sessionNullifier Session nullifier tuple: index 0 is the nullifier, index 1 is a randomly generated action.
+     *   MUST be non-zero; zero is the circuit's "no session" sentinel and is satisfiable by any World ID,
+     *   so it proves nothing. Reverts with `InvalidSessionId` otherwise.
+     * @param sessionNullifier Session nullifier tuple: index 0 is the nullifier, index 1 is a randomly generated
+     *   action whose most significant byte MUST be `0x02`; reverts with `InvalidAction` otherwise.
      * @param zeroKnowledgeProof Encoded World ID Proof. Internally, the first 4 elements are a
      *   compressed Groth16 proof [a (G1), b (G2), b (G2), c (G1)], and the last element is the Merkle root from the `WorldIDRegistry`.
      */

@@ -193,13 +193,19 @@ contract SatelliteVerifierParityTest is Test {
 
         vm.warp(EXPIRES_AT_MIN + 1 hours);
 
+        // Verification goes through `verifyProofAndSignals` on both sides: this fixture's action has a
+        // `0x15` most significant byte, so it is outside the uniqueness domain that `verify` enforces.
+        // The key lookup under test is identical on either entry point.
+
         // Canonical verifier accepts this proof.
-        coreVerifier.verify(NULLIFIER, ACTION, RP_ID, NONCE, SIGNAL_HASH, EXPIRES_AT_MIN, ISSUER_SCHEMA_ID, 0, proof);
+        coreVerifier.verifyProofAndSignals(
+            NULLIFIER, ACTION, RP_ID, NONCE, SIGNAL_HASH, EXPIRES_AT_MIN, ISSUER_SCHEMA_ID, 0, 0, proof
+        );
 
         // Expected parity behavior: this should also verify on satellite.
         // Current behavior: reverts UnregisteredOprfKeyId() because satellite looks up by issuerSchemaId.
-        satelliteWithRpKey.verify(
-            NULLIFIER, ACTION, RP_ID, NONCE, SIGNAL_HASH, EXPIRES_AT_MIN, ISSUER_SCHEMA_ID, 0, proof
+        satelliteWithRpKey.verifyProofAndSignals(
+            NULLIFIER, ACTION, RP_ID, NONCE, SIGNAL_HASH, EXPIRES_AT_MIN, ISSUER_SCHEMA_ID, 0, 0, proof
         );
     }
 }

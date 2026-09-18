@@ -63,6 +63,8 @@ contract WorldIDSatellite is IWorldID, ERC7786Recipient, StateBridge {
         uint256 credentialGenesisIssuedAtMin,
         uint256[5] calldata zeroKnowledgeProof
     ) external view virtual {
+        if (uint8(action >> 248) != uint8(0)) revert InvalidAction();
+
         verifyProofAndSignals(
             nullifier,
             action,
@@ -72,6 +74,8 @@ contract WorldIDSatellite is IWorldID, ERC7786Recipient, StateBridge {
             expiresAtMin,
             issuerSchemaId,
             credentialGenesisIssuedAtMin,
+            // For Uniqueness Proofs, the `session_id` is not used, hence the constraint defaults to 0
+            // To verify a Session Proof use `verifySession` instead.
             0,
             zeroKnowledgeProof
         );
@@ -89,9 +93,13 @@ contract WorldIDSatellite is IWorldID, ERC7786Recipient, StateBridge {
         uint256[2] calldata sessionNullifier,
         uint256[5] calldata zeroKnowledgeProof
     ) external view virtual {
+        uint256 action = sessionNullifier[1];
+        if (uint8(action >> 248) != uint8(2)) revert InvalidAction();
+        if (sessionId == 0) revert InvalidSessionId();
+
         verifyProofAndSignals(
             sessionNullifier[0],
-            sessionNullifier[1],
+            action,
             rpId,
             nonce,
             signalHash,
