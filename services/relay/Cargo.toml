@@ -24,7 +24,9 @@ alloy = { workspace = true, features = [
     "reqwest-rustls-tls",
 ] }
 alloy-primitives = { workspace = true }
+world-id-services-common = { workspace = true }
 tempo-alloy = { workspace = true }
+
 
 # async 
 dashmap = { workspace = true }

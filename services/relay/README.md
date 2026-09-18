@@ -100,12 +100,45 @@ Relay failures are logged but non-fatal -- the satellite retries on the next cha
 
 ## Configuration
 
-The relay is configured via a single JSON string passed through the `RELAY_CONFIG` environment variable (or `--config` CLI flag). RPC endpoints and the wallet key are passed as separate environment variables.
+The relay is configured via a single JSON string passed through the `RELAY_CONFIG` environment variable (or `--config` CLI flag). RPC endpoints and the signing credentials are passed as separate environment variables.
+
+### Signing
+
+Select one signing backend. `AWS_KMS_SIGNING=false` allows `WALLET_PRIVATE_KEY`.
+
+- **AWS KMS** (`AWS_KMS_SIGNING=true`) — preferred. One key **per network**, read from
+  `{NETWORK}_AWS_KMS_KEY_ID` using the same naming as `{NETWORK}_RPC_URL`:
+  `WORLDCHAIN_AWS_KMS_KEY_ID` for the source chain and `{NAME}_AWS_KMS_KEY_ID` for each
+  satellite, where `{NAME}` is its `name` field upper-cased. Each is an
+  `ECC_SECG_P256K1` / `SIGN_VERIFY` key; credentials come from the ambient AWS provider
+  chain (EKS Pod Identity in-cluster), so no key material reaches the pod. A missing var
+  for a configured network fails startup.
+- **Raw private key** (`WALLET_PRIVATE_KEY`) — legacy, one key shared by every network.
+  Kept for local development and as a rollback path; logs a warning at startup.
+
+Each KMS signer is pinned to its network's chain id, so a key id wired to the wrong
+network fails at signing time instead of submitting a transaction on the wrong chain.
+The private-key backend is not pinned, matching its previous behaviour.
+
+Signer construction lives in `world-id-services-common`
+(`SignerArgs::wallet_for_chain`), shared with the gateway; the relay only decides which
+key signs for which network.
+
+Under KMS every network has a **different address**. Each one must be funded on its own
+chain, and each satellite address must be the owner of that chain's
+`PermissionedGatewayAdapter` — its verification path calls `_checkOwner()`, so any other
+caller reverts. The satellite contract allow-lists the gateway address, not the relay, so
+changing signers needs no satellite-side change. See
+[the KMS runbook](https://github.com/worldcoin/infrastructure/blob/main/docs/CRYPTO_KMS_SIGNING.md)
+for the provisioned keys and cutover order.
 
 | Variable | Required | Description |
 |---|---|---|
 | `RELAY_CONFIG` | yes | JSON configuration string (see schema below) |
-| `WALLET_PRIVATE_KEY` | yes | Private key for signing relay transactions |
+| `AWS_KMS_SIGNING` | one of | Set to `true` to sign with per-network AWS KMS keys (**preferred**). Mutually exclusive with `WALLET_PRIVATE_KEY` |
+| `{NETWORK}_AWS_KMS_KEY_ID` | per network | KMS key id/ARN for that network, e.g. `WORLDCHAIN_AWS_KMS_KEY_ID`, `BASE_AWS_KMS_KEY_ID`. Required for every configured network when `AWS_KMS_SIGNING` is set |
+| `WALLET_PRIVATE_KEY` | one of | Hex private key used for every network (legacy). Mutually exclusive with `AWS_KMS_SIGNING` |
+| `AWS_KMS_KEY_IDS` | no | Per-replica key list, inherited from the shared signer args. Not recommended for the relay (see above) |
 | `WORLDCHAIN_RPC_URL` | yes | World Chain RPC endpoint |
 | `{NAME}_RPC_URL` | per satellite | Satellite chain RPC endpoint, where `{NAME}` matches the satellite's `name` field in upper case (e.g. `ETHEREUM_RPC_URL`, `BASE_RPC_URL`) |
 

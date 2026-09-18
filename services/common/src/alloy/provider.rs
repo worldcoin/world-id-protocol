@@ -10,7 +10,12 @@ use ::alloy::{
     rpc::{client::RpcClient, json_rpc::RpcError, types::TransactionRequest},
     signers::{
         Signer,
-        aws::{AwsSigner, AwsSignerError, aws_config::BehaviorVersion},
+        aws::{
+            AwsSigner, AwsSignerError,
+            aws_config::{
+                BehaviorVersion, retry::RetryConfig as AwsRetryConfig, timeout::TimeoutConfig,
+            },
+        },
         local::{LocalSignerError, PrivateKeySigner},
     },
     transports::{
@@ -162,24 +167,9 @@ impl SignerArgs {
                 Self::aws_kms_wallet(key_id, rpc_url).await
             }
             (None, None, Some(key_ids)) => {
-                let ordinal = pod_ordinal().ok_or_else(|| ProviderError::OrdinalUnresolvable {
-                    hostname: std::env::var("HOSTNAME").ok(),
-                })?;
-                let keys: Vec<&str> = key_ids.split(',').map(str::trim).collect();
-                let key_id = keys.get(ordinal).copied().ok_or_else(|| {
-                    tracing::error!(
-                        ordinal,
-                        key_count = keys.len(),
-                        "Pod ordinal is out of range for AWS_KMS_KEY_IDS; \
-                         check that the key list has an entry for every replica"
-                    );
-                    ProviderError::OrdinalOutOfRange {
-                        ordinal,
-                        key_count: keys.len(),
-                    }
-                })?;
-                tracing::info!(ordinal, key_id, "Initializing per-replica AWS KMS signer");
-                Self::aws_kms_wallet(key_id, rpc_url).await
+                let key_id = self.per_replica_key(key_ids)?;
+                tracing::info!(key_id, "Initializing per-replica AWS KMS signer");
+                Self::aws_kms_wallet(&key_id, rpc_url).await
             }
             // (None, None, None) — no signer configured at all.
             // Any multi-field combo is prevented at parse time by the clap
@@ -190,6 +180,28 @@ impl SignerArgs {
         }
     }
 
+    /// Picks this pod's key out of a comma-separated `AWS_KMS_KEY_IDS` list.
+    fn per_replica_key(&self, key_ids: &str) -> ProviderResult<String> {
+        let ordinal = pod_ordinal().ok_or_else(|| ProviderError::OrdinalUnresolvable {
+            hostname: std::env::var("HOSTNAME").ok(),
+        })?;
+        let keys: Vec<&str> = key_ids.split(',').map(str::trim).collect();
+        keys.get(ordinal)
+            .map(|key| (*key).to_string())
+            .ok_or_else(|| {
+                tracing::error!(
+                    ordinal,
+                    key_count = keys.len(),
+                    "Pod ordinal is out of range for AWS_KMS_KEY_IDS; \
+                     check that the key list has an entry for every replica"
+                );
+                ProviderError::OrdinalOutOfRange {
+                    ordinal,
+                    key_count: keys.len(),
+                }
+            })
+    }
+
     async fn aws_kms_wallet(key_id: &str, rpc_url: &Url) -> ProviderResult<EthereumWallet> {
         let temp_provider = ProviderBuilder::new().connect_http(rpc_url.clone());
         let chain_id = temp_provider
@@ -197,10 +209,34 @@ impl SignerArgs {
             .await
             .map_err(ProviderError::ChainId)?;
         tracing::info!("Fetched chain_id: {}", chain_id);
+        Self::aws_kms_wallet_for_chain(key_id, Some(chain_id)).await
+    }
 
-        let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+    /// Builds a KMS-backed wallet, optionally pinned to `chain_id`.
+    ///
+    /// `None` leaves it unpinned for callers that sign on several chains with one
+    /// key: alloy rejects a transaction whose chain id differs from a pinned
+    /// signer's (`TransactionChainIdMismatch`).
+    async fn aws_kms_wallet_for_chain(
+        key_id: &str,
+        chain_id: Option<u64>,
+    ) -> ProviderResult<EthereumWallet> {
+        // The SDK sets no operation timeout by default, so a hung Sign would block
+        // the caller indefinitely; every transaction now costs a KMS round trip.
+        let config = aws_config::defaults(BehaviorVersion::latest())
+            .timeout_config(
+                TimeoutConfig::builder()
+                    .connect_timeout(Duration::from_secs(3))
+                    .operation_attempt_timeout(Duration::from_secs(5))
+                    .operation_timeout(Duration::from_secs(15))
+                    .build(),
+            )
+            // Exponential backoff with jitter. Signing is idempotent, so retrying is safe.
+            .retry_config(AwsRetryConfig::standard().with_max_attempts(3))
+            .load()
+            .await;
         let kms_client = aws_sdk_kms::Client::new(&config);
-        let aws_signer = AwsSigner::new(kms_client, key_id.to_string(), Some(chain_id))
+        let aws_signer = AwsSigner::new(kms_client, key_id.to_string(), chain_id)
             .await
             .map_err(|err| ProviderError::AwsKmsSigner(Box::new(err)))?;
         tracing::info!(
@@ -208,6 +244,38 @@ impl SignerArgs {
             aws_signer.address()
         );
         Ok(EthereumWallet::from(aws_signer))
+    }
+
+    /// Builds the configured wallet without pinning it to a chain, for callers
+    /// that sign on several chains with one key. Needs no RPC endpoint, since the
+    /// chain id is exactly what is being skipped.
+    pub async fn chain_agnostic_wallet(&self) -> ProviderResult<EthereumWallet> {
+        self.wallet_for_chain(None).await
+    }
+
+    /// Builds the configured wallet, optionally pinned to `chain_id`.
+    ///
+    /// Needs no RPC endpoint: callers that already know the chain id skip the
+    /// `eth_chainId` round trip `signer` makes. Pinning is what makes a
+    /// per-network key fail loudly if it is wired to the wrong chain.
+    pub async fn wallet_for_chain(&self, chain_id: Option<u64>) -> ProviderResult<EthereumWallet> {
+        match (
+            &self.wallet_private_key,
+            &self.aws_kms_key_id,
+            &self.aws_kms_key_ids,
+        ) {
+            (Some(s), None, None) => Ok(EthereumWallet::from(s.parse::<PrivateKeySigner>()?)),
+            (None, Some(key_id), None) => {
+                tracing::info!(key_id, ?chain_id, "Initializing AWS KMS signer");
+                Self::aws_kms_wallet_for_chain(key_id, chain_id).await
+            }
+            (None, None, Some(key_ids)) => {
+                let key_id = self.per_replica_key(key_ids)?;
+                tracing::info!(key_id, ?chain_id, "Initializing per-replica AWS KMS signer");
+                Self::aws_kms_wallet_for_chain(&key_id, chain_id).await
+            }
+            _ => Err(ProviderError::SignerConfigMissing),
+        }
     }
 
     /// Returns `true` when per-replica key selection is active (`AWS_KMS_KEY_IDS` is set).

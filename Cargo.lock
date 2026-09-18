@@ -13345,6 +13345,7 @@ dependencies = [
  "tracing",
  "world-id-primitives",
  "world-id-relay",
+ "world-id-services-common",
  "world-id-test-utils",
 ]
 
