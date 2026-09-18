@@ -1,9 +1,6 @@
 use base64::Engine as _;
 use bhttp::{Message, Mode};
-use ohttp::{
-    ClientRequest, KeyConfig, SymmetricSuite,
-    hpke::{Aead, Kdf, Kem},
-};
+use ohttp::ClientRequest;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 
@@ -48,39 +45,7 @@ pub struct OhttpClient {
     relay_url: String,
     target_scheme: String,
     target_authority: String,
-    encoded_config: Vec<u8>,
-}
-
-fn select_encoded_config(encoded_config_list: &[u8]) -> Result<Vec<u8>, ohttp::Error> {
-    let configs = KeyConfig::decode_list(encoded_config_list)?;
-
-    for kem in [Kem::XWing, Kem::X25519Sha256] {
-        let kem_id = u16::from(kem).to_be_bytes();
-        for config in configs.iter().rev() {
-            if !config_is_usable(config) {
-                continue;
-            }
-
-            let encoded = config.encode()?;
-            // KeyConfig does not expose its KEM, so inspect the two-byte KEM field
-            // immediately following the one-byte key ID in its RFC 9458 encoding.
-            if encoded.get(1..3) == Some(kem_id.as_slice()) {
-                return Ok(encoded);
-            }
-        }
-    }
-
-    Err(ohttp::Error::Unsupported)
-}
-
-fn config_is_usable(config: &KeyConfig) -> bool {
-    [Kdf::HkdfSha256, Kdf::HkdfSha384, Kdf::HkdfSha512]
-        .into_iter()
-        .any(|kdf| {
-            [Aead::Aes128Gcm, Aead::Aes256Gcm, Aead::ChaCha20Poly1305]
-                .into_iter()
-                .any(|aead| config.select(SymmetricSuite::new(kdf, aead)).is_ok())
-        })
+    encoded_config_list: Vec<u8>,
 }
 
 impl OhttpClient {
@@ -123,7 +88,7 @@ impl OhttpClient {
                 reason: format!("invalid base64: {err}"),
             })?;
 
-        let encoded_config = select_encoded_config(&encoded_config_list).map_err(|err| {
+        ClientRequest::from_encoded_config_list(&encoded_config_list).map_err(|err| {
             AuthenticatorError::InvalidConfig {
                 attribute,
                 reason: format!("invalid application/ohttp-keys payload: {err}"),
@@ -135,7 +100,7 @@ impl OhttpClient {
             relay_url: config.relay_url,
             target_scheme,
             target_authority,
-            encoded_config,
+            encoded_config_list,
         })
     }
 
@@ -182,7 +147,7 @@ impl OhttpClient {
         let mut bhttp_buf = Vec::new();
         msg.write_bhttp(Mode::KnownLength, &mut bhttp_buf)?;
 
-        let ohttp_req = ClientRequest::from_encoded_config(&self.encoded_config)?;
+        let ohttp_req = ClientRequest::from_encoded_config_list(&self.encoded_config_list)?;
         let (enc_request, ohttp_resp_ctx) = ohttp_req.encapsulate(&bhttp_buf)?;
 
         let resp = self
@@ -224,46 +189,6 @@ impl OhttpClient {
 mod tests {
     use super::*;
     use crate::AuthenticatorError;
-
-    fn encoded_config_list(kems: &[(u8, Kem)]) -> Vec<u8> {
-        let configs = kems
-            .iter()
-            .map(|(key_id, kem)| {
-                KeyConfig::new(
-                    *key_id,
-                    *kem,
-                    vec![SymmetricSuite::new(Kdf::HkdfSha256, Aead::Aes128Gcm)],
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
-        KeyConfig::encode_list(&configs).unwrap()
-    }
-
-    #[test]
-    fn prefers_x_wing_when_advertised() {
-        let encoded =
-            encoded_config_list(&[(1, Kem::XWing), (3, Kem::XWing), (2, Kem::X25519Sha256)]);
-
-        let selected = select_encoded_config(&encoded).unwrap();
-
-        assert_eq!(selected[0], 3);
-        assert_eq!(&selected[1..3], &u16::from(Kem::XWing).to_be_bytes());
-    }
-
-    #[test]
-    fn retains_x25519_fallback() {
-        let encoded = encoded_config_list(&[
-            (1, Kem::X25519Sha256),
-            (2, Kem::P256Sha256),
-            (3, Kem::X25519Sha256),
-        ]);
-
-        let selected = select_encoded_config(&encoded).unwrap();
-
-        assert_eq!(selected[0], 3);
-        assert_eq!(&selected[1..3], &u16::from(Kem::X25519Sha256).to_be_bytes());
-    }
 
     #[test]
     fn invalid_base64_key_config_returns_invalid_config() {
