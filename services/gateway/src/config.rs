@@ -106,9 +106,10 @@ pub struct WalletConfig {
     /// Lifetime of a committed record. A rollback backstop, deliberately far
     /// longer than any resolution window.
     pub state_ttl_secs: u64,
-    /// Confirmations required before a wallet is released. Set to the chain's
-    /// practical reorg depth plus one to keep the one-transaction-per-wallet
-    /// guarantee strict.
+    /// Confirmations required before a wallet is released, counting the
+    /// inclusion block itself. `1` therefore means "included"; set it to the
+    /// chain's practical reorg depth plus one to keep the
+    /// one-transaction-per-wallet guarantee strict.
     pub release_confirmations: u64,
     /// How long a transaction may stay undecided before its wallet is parked.
     pub resolution_timeout_secs: u64,
