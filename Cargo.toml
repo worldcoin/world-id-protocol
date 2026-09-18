@@ -170,6 +170,7 @@ world-id-services-common = { path = "services/common", version = "0.1.0" }
 world-id-relay = { path = "services/relay" }
 
 [patch.crates-io]
+# Remove this override once https://github.com/testcontainers/testcontainers-rs/pull/977 is merged and released.
 testcontainers = { git = "https://github.com/Kemperino/testcontainers-rs", rev = "8571d4ea953a515b9dd3fe8aaa5dd904e305fb99" }
 testcontainers-modules = { git = "https://github.com/testcontainers/testcontainers-rs-modules-community", rev = "032bcf88c6564824e81ada9a416d4da9ed3f4dc4" }
 
