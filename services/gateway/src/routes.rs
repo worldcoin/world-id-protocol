@@ -8,6 +8,7 @@ use crate::{
     },
     config::{
         BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig, RegistryVersion,
+        WalletConfig,
     },
     error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
     orphan_sweeper::run_orphan_sweeper,
@@ -28,6 +29,7 @@ use crate::{
         update_authenticator::update_authenticator,
         update_recovery_agent::update_recovery_agent,
     },
+    transaction_submitter::TransactionSubmitter,
     types::RootExpiry,
 };
 use alloy::providers::DynProvider;
@@ -39,7 +41,7 @@ use axum::{
     routing::{get, post},
 };
 use moka::future::Cache;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use utoipa::OpenApi;
 use world_id_primitives::api_types::{
     CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
@@ -49,7 +51,7 @@ use world_id_primitives::api_types::{
     UpdateRecoveryAgentRequest,
 };
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
-use world_id_services_common::V1RecoveryAgentMethodsDeprecationLayer;
+use world_id_services_common::{ProviderWallet, V1RecoveryAgentMethodsDeprecationLayer};
 
 // Health and status routes
 mod health;
@@ -85,6 +87,7 @@ const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
 #[expect(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
+    wallets: Vec<ProviderWallet>,
     registry_version: RegistryVersion,
     batcher_config: BatcherConfig,
     redis_url: String,
@@ -92,16 +95,21 @@ pub(crate) async fn build_app(
     request_timeout_secs: u64,
     orphan_sweeper_config: OrphanSweeperConfig,
     batch_policy_config: BatchPolicyConfig,
+    wallet_config: WalletConfig,
 ) -> GatewayResult<Router> {
     let tracker = RequestTracker::new(
-        redis_url,
+        redis_url.clone(),
         rate_limit,
-        // Timeout for receirpt polling tasks. Same as sweeper timeout for submitted transactions.
-        orphan_sweeper_config.stale_submitted_threshold_secs,
+        // In-flight locks must outlive the submission they protect, otherwise
+        // duplicate detection lapses while a request is still being submitted.
+        Duration::from_secs(wallet_config.inflight_ttl_secs()),
     )
     .await;
+
+    let submitter =
+        TransactionSubmitter::connect(wallets, tracker.clone(), &redis_url, wallet_config).await?;
+
     let base_fee_cache = BaseFeeCache::default();
-    let tx_send_lock = Arc::new(Mutex::new(()));
 
     spawn_base_fee_sampler(
         registry.provider().clone(),
@@ -113,13 +121,12 @@ pub(crate) async fn build_app(
     let batcher = CreateBatcherHandle { tx };
     let runner = CreateBatcherRunner::new(
         registry.clone(),
+        submitter.clone(),
         batcher_config.max_create_batch_size,
         CREATE_BATCHER_CHANNEL_CAPACITY,
         rx,
-        tracker.clone(),
         batch_policy_config.clone(),
         base_fee_cache.clone(),
-        tx_send_lock.clone(),
     );
     tokio::spawn(runner.run());
 
@@ -128,25 +135,26 @@ pub(crate) async fn build_app(
     let ops_batcher = OpsBatcherHandle { tx: otx };
     let ops_runner = OpsBatcherRunner::new(
         registry.clone(),
+        submitter.clone(),
         batcher_config.max_ops_batch_size,
         OPS_BATCHER_CHANNEL_CAPACITY,
         orx,
-        tracker.clone(),
         batch_policy_config,
         base_fee_cache,
-        tx_send_lock,
     );
     tokio::spawn(ops_runner.run());
 
     tracing::info!("Ops batcher initialized");
 
-    let sweeper_tracker = tracker.clone();
-    let sweeper_provider = registry.provider().clone();
-    tokio::spawn(run_orphan_sweeper(
-        sweeper_tracker,
-        sweeper_provider,
-        orphan_sweeper_config,
-    ));
+    // Resolves every outstanding wallet transaction. This owns receipt polling:
+    // the sweeper no longer looks up receipts at all.
+    tokio::spawn(submitter.clone().run_resolver());
+    tracing::info!(
+        wallets = submitter.pool_size(),
+        "Transaction resolver initialized"
+    );
+
+    tokio::spawn(run_orphan_sweeper(tracker.clone(), orphan_sweeper_config));
     tracing::info!("Orphan sweeper initialized");
 
     let root_cache = Cache::builder()

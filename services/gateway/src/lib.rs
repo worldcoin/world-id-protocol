@@ -3,7 +3,7 @@
 pub use crate::{
     config::{
         BatchPolicyConfig, BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig,
-        RegistryVersion, defaults,
+        RegistryVersion, WalletArgs, WalletConfig, defaults,
     },
     orphan_sweeper::sweep_once,
     request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
@@ -14,6 +14,7 @@ use tokio::sync::oneshot;
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 mod batch_policy;
+mod batch_type;
 mod batcher;
 mod config;
 mod error;
@@ -23,6 +24,7 @@ mod request;
 pub mod request_tracker;
 mod routes;
 mod storage;
+mod transaction_submitter;
 mod types;
 
 // Re-export common types
@@ -52,14 +54,14 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     let batcher_config = cfg.batcher();
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
+    let wallet_config = cfg.wallet();
 
-    let provider = Arc::new(cfg.provider.http().await?);
-    let registry = Arc::new(WorldIdRegistryInstance::new(
-        cfg.registry_addr,
-        provider.clone(),
-    ));
+    let wallets = vec![cfg.provider.clone().http_wallet().await?];
+    let provider = Arc::new(wallets[0].provider.clone());
+    let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
     let app = build_app(
         registry,
+        wallets,
         cfg.registry_version,
         batcher_config,
         cfg.redis_url,
@@ -67,6 +69,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
         cfg.request_timeout_secs,
         sweeper_config,
         cfg.batch_policy.clone(),
+        wallet_config,
     )
     .await?;
 
@@ -107,19 +110,20 @@ pub async fn run() -> GatewayResult<()> {
     let batcher_config = cfg.batcher();
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
+    let wallet_config = cfg.wallet();
 
-    let provider = Arc::new(cfg.provider.http().await?);
-    let registry = Arc::new(WorldIdRegistryInstance::new(
-        cfg.registry_addr,
-        provider.clone(),
-    ));
+    let wallets = vec![cfg.provider.clone().http_wallet().await?];
+    let provider = Arc::new(wallets[0].provider.clone());
+    let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
 
     tracing::info!(
         registry_version = ?cfg.registry_version,
+        wallets = wallets.len(),
         "Config is ready. Building app..."
     );
     let app = build_app(
         registry,
+        wallets,
         cfg.registry_version,
         batcher_config,
         cfg.redis_url,
@@ -127,6 +131,7 @@ pub async fn run() -> GatewayResult<()> {
         cfg.request_timeout_secs,
         sweeper_config,
         cfg.batch_policy.clone(),
+        wallet_config,
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)

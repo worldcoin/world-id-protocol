@@ -1,43 +1,46 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+//! Cleanup for requests that no owner is responsible for.
+//!
+//! Requests fall into two classes. Those referenced by a wallet record are owned
+//! by the transaction resolver in [`crate::transaction_submitter`], which knows
+//! their transaction and decides their fate. Everything else has no owner: a
+//! request that never reached a batcher, a batcher that died holding a batch, or
+//! a submission written by a gateway build that predates wallet records.
+//!
+//! This sweeper handles only the second class. It deliberately does not poll
+//! receipts any more; doing so would duplicate the resolver's work and let two
+//! owners race to decide the same request.
 
-use alloy::{
-    primitives::TxHash,
-    providers::{DynProvider, Provider},
-};
+use std::time::Duration;
+
 use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestState};
 
 use crate::{
     config::OrphanSweeperConfig,
     request_tracker::{RequestTracker, now_unix_secs},
+    storage::request_store::StatusGuard,
 };
 
 /// Runs the orphan sweeper loop indefinitely.
 ///
-/// Sleeps for `config.interval` between passes. Each pass calls [`sweep_once`]
-/// to resolve orphaned requests that were left behind by crashed replicas.
-pub async fn run_orphan_sweeper(
-    tracker: RequestTracker,
-    provider: Arc<DynProvider>,
-    config: OrphanSweeperConfig,
-) {
+/// Sleeps for `config.interval_secs` between passes and never returns an error:
+/// a failed pass is logged and the next one retries, because terminating the
+/// task would silently disable cleanup.
+pub async fn run_orphan_sweeper(tracker: RequestTracker, config: OrphanSweeperConfig) {
     loop {
         tokio::time::sleep(Duration::from_secs(config.interval_secs)).await;
-        sweep_once(&tracker, &provider, &config).await;
+        sweep_once(&tracker, &config).await;
     }
 }
 
-/// A single sweep pass – public so that tests can call it directly without
-/// managing background task lifecycle.
-pub async fn sweep_once(
-    tracker: &RequestTracker,
-    provider: &DynProvider,
-    config: &OrphanSweeperConfig,
-) {
+/// A single sweep pass.
+///
+/// Public so tests can call it directly without managing a background task.
+pub async fn sweep_once(tracker: &RequestTracker, config: &OrphanSweeperConfig) {
     let now = now_unix_secs();
     let pending_ids = match tracker.get_pending_requests().await {
         Ok(ids) => ids,
-        Err(e) => {
-            tracing::error!(error = %e, "sweeper: failed to fetch pending set, skipping pass");
+        Err(error) => {
+            tracing::error!(%error, "sweeper: failed to fetch pending set, skipping pass");
             return;
         }
     };
@@ -47,118 +50,84 @@ pub async fn sweep_once(
     }
 
     let records = match tracker.snapshot_batch(&pending_ids).await {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::error!(error = %e, "sweeper: failed to snapshot pending records, skipping pass");
+        Ok(records) => records,
+        Err(error) => {
+            tracing::error!(%error, "sweeper: failed to snapshot pending records, skipping pass");
             return;
         }
     };
 
-    // tx_hash -> [(request_id, updated_at)]
-    let mut submitted_groups: HashMap<String, Vec<(String, u64)>> = HashMap::new();
-
-    // Phase 1: check requests in the pending set
     for (id, maybe_record) in &records {
-        // Pending set contains a request that has no status record in Redis. This likely never happens.
         let Some(record) = maybe_record else {
+            // The pending set contains an id with no record. The record's TTL
+            // expired and nothing will remove it otherwise, so prune it here.
             tracker.remove_from_pending_set(id).await;
             continue;
         };
 
+        let age = now.saturating_sub(record.updated_at);
+
         match &record.status {
-            // Requests that are finalized but were not removed from the pending set. This likely never happens.
+            // Terminal but still in the pending set. This should not happen
+            // because terminal transitions remove the id atomically, but pruning
+            // is cheap and keeps the set bounded.
             GatewayRequestState::Finalized { .. } | GatewayRequestState::Failed { .. } => {
                 tracker.remove_from_pending_set(id).await;
             }
-            GatewayRequestState::Queued | GatewayRequestState::Batching => {
-                let age = now.saturating_sub(record.updated_at);
-                if age > config.stale_queued_threshold_secs {
-                    tracing::warn!(
-                        request_id = %id,
-                        age_secs = age,
-                        "sweeper: failing stale {:?} request",
-                        record.status,
-                    );
-                    tracker
-                        .set_status(
-                            id,
-                            GatewayRequestState::failed(
-                                "request timed out in queued state due to unexpected error",
-                                Some(GatewayErrorCode::InternalServerError),
-                            ),
-                        )
-                        .await;
+            // `Batching` means a batcher took ownership. Requests it holds are
+            // only abandoned if the owning process died, so the longer threshold
+            // applies. The wallet resolver re-checks the state before it
+            // broadcasts, so a request failed here is never executed on chain.
+            GatewayRequestState::Batching => {
+                if age > config.stale_submitted_threshold_secs {
+                    fail_unowned(
+                        tracker,
+                        id,
+                        age,
+                        "request stayed in progress past the threshold",
+                    )
+                    .await;
                 }
             }
-            GatewayRequestState::Submitted { tx_hash } => {
-                submitted_groups
-                    .entry(tx_hash.clone())
-                    .or_default()
-                    .push((id.clone(), record.updated_at));
+            GatewayRequestState::Queued => {
+                if age > config.stale_queued_threshold_secs {
+                    fail_unowned(tracker, id, age, "request timed out in queued state").await;
+                }
+            }
+            // A submission that knows which wallet signed it is owned by the
+            // resolver, which has the transaction hash and the signed bytes and
+            // can decide its fate properly.
+            GatewayRequestState::Submitted { .. } if record.wallet.is_some() => {}
+            // A submission with no wallet was written by a build that predates
+            // wallet records. Nothing can resolve it, so it is failed on the
+            // same threshold the previous sweeper used. This class disappears as
+            // those records expire.
+            GatewayRequestState::Submitted { .. } => {
+                if age > config.stale_submitted_threshold_secs {
+                    fail_unowned(
+                        tracker,
+                        id,
+                        age,
+                        "submission predates wallet leases and cannot be resolved",
+                    )
+                    .await;
+                }
             }
         }
     }
+}
 
-    // Phase 2: deduplicated receipt lookups for submitted requests
-    for (tx_hash, group) in &submitted_groups {
-        let Ok(hash) = tx_hash.parse::<TxHash>() else {
-            // This should never happen unless there is some data corruption bug in Redis
-            tracing::error!(tx_hash = %tx_hash, "sweeper: invalid tx_hash, failing group");
-            // Fail requests since we can not look up the receipt anyways and the sweeper will run into the exact same error again and again until TTL is reached.
-            for (id, _) in group {
-                tracker
-                    .set_status(
-                        id,
-                        GatewayRequestState::failed(
-                            format!("corrupt tx_hash in request record: {tx_hash}"),
-                            Some(GatewayErrorCode::InternalServerError),
-                        ),
-                    )
-                    .await;
-            }
-            continue;
-        };
+/// Fails one unowned request using the guarded write.
+///
+/// The guard means the sweeper can never overwrite a status another owner has
+/// already advanced, which is what keeps it from reporting a request as failed
+/// while its transaction is on chain.
+async fn fail_unowned(tracker: &RequestTracker, id: &str, age: u64, reason: &str) {
+    tracing::warn!(request_id = %id, age_secs = age, "sweeper: failing stale request: {reason}");
 
-        match provider.get_transaction_receipt(hash).await {
-            Ok(Some(receipt)) => {
-                let ids: Vec<String> = group.iter().map(|(id, _)| id.clone()).collect();
-                tracker
-                    .finalize_from_receipt(&ids, receipt.status(), tx_hash)
-                    .await;
-            }
-            Ok(None) => {
-                for (id, updated_at) in group {
-                    let age = now.saturating_sub(*updated_at);
-                    // Request is stale if it has been submitted for longer than the threshold.
-                    // We assume that sequencer has dropped the transaction from mempool if it hasn't been included in a block yet.
-                    if age > config.stale_submitted_threshold_secs {
-                        tracing::warn!(
-                            request_id = %id,
-                            tx_hash = %tx_hash,
-                            age_secs = age,
-                            "sweeper: failing stale submitted request (no receipt)",
-                        );
-                        tracker
-                            .set_status(
-                                id,
-                                GatewayRequestState::failed(
-                                    format!(
-                                        "transaction not confirmed within timeout, likely dropped from mempool (tx: {tx_hash})"
-                                    ),
-                                    Some(GatewayErrorCode::ConfirmationError),
-                                ),
-                            )
-                            .await;
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    tx_hash = %tx_hash,
-                    error = %e,
-                    "sweeper: RPC error fetching receipt, skipping group",
-                );
-            }
-        }
+    let status = GatewayRequestState::failed(reason, Some(GatewayErrorCode::InternalServerError));
+    let allowed = [StatusGuard::Queued, StatusGuard::Batching];
+    if let Err(error) = tracker.set_status_if(id, &allowed, status, None).await {
+        tracing::error!(%error, request_id = %id, "sweeper: failed to fail a stale request");
     }
 }
