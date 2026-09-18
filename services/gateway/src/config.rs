@@ -96,8 +96,7 @@ impl Default for OrphanSweeperConfig {
 /// Configuration for durable wallet leasing and transaction resolution.
 ///
 /// Every field is a bound on an operation that can fail: signing, waiting for a
-/// free wallet, deciding a transaction's fate, and retrying a broadcast. See
-/// `WALLET_POOL_PLAN.md` §5.11.
+/// free wallet, deciding a transaction's fate, and retrying a broadcast.
 #[derive(Clone, Debug)]
 pub struct WalletConfig {
     /// How long a wallet lease is held while its batch is signed. Bounds only

@@ -57,8 +57,12 @@ impl CasOutcome {
 }
 
 /// Lifecycle state of a wallet record.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Rendered `snake_case`, because the compare-and-set scripts compare the state
+/// as text; that must stay in step with the serde representation below.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, strum::Display)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub(crate) enum WalletState {
     /// A lease is held while the batch is signed. Nothing has been broadcast,
     /// so letting this expire is safe.

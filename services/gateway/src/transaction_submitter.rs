@@ -10,7 +10,6 @@
 //! a wallet record owns now happens here; the orphan sweeper keeps only the
 //! requests no wallet record owns.
 //!
-//! See `WALLET_POOL_PLAN.md` §5.
 
 use std::{
     sync::{
