@@ -2,27 +2,14 @@
 
 use std::time::Duration;
 
-use alloy::{
-    primitives::{Address, U256, address},
-    providers::Provider,
-    signers::local::PrivateKeySigner,
-};
+use alloy::primitives::Address;
 use redis::{AsyncCommands, aio::ConnectionManager};
-use reqwest::{Client, StatusCode};
 use testcontainers_modules::{redis::Redis, testcontainers::ContainerAsync};
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, OrphanSweeperConfig, RegistryVersion, RequestRecord,
-    RequestTracker, defaults, now_unix_secs, request_tracker::BacklogScope,
-    spawn_gateway_for_tests, sweep_once,
+    OrphanSweeperConfig, RequestRecord, RequestTracker, now_unix_secs,
+    request_tracker::BacklogScope, sweep_once,
 };
-use world_id_primitives::api_types::{
-    GatewayRequestKind, GatewayRequestState, GatewayStatusResponse,
-};
-use world_id_services_common::{ProviderArgs, SignerArgs};
-use world_id_test_utils::anvil::TestAnvil;
-
-mod common;
-use crate::common::{GW_PRIVATE_KEY, wait_for_finalized, wait_http_ready};
+use world_id_primitives::api_types::{GatewayRequestKind, GatewayRequestState};
 
 async fn setup_redis(redis_url: &str) -> ConnectionManager {
     let client = redis::Client::open(redis_url).expect("Failed to create Redis client");
@@ -53,11 +40,24 @@ async fn inject_request(
     status: GatewayRequestState,
     updated_at: u64,
 ) {
+    inject_request_with_wallet(redis, id, kind, status, updated_at, None).await;
+}
+
+/// Insert a request record that claims a signing wallet.
+async fn inject_request_with_wallet(
+    redis: &mut ConnectionManager,
+    id: &str,
+    kind: GatewayRequestKind,
+    status: GatewayRequestState,
+    updated_at: u64,
+    wallet: Option<Address>,
+) {
     let record = RequestRecord {
         kind,
         status,
         updated_at,
         inflight_keys: Vec::new(),
+        wallet,
     };
     let key = format!("gateway:request:{id}");
     let json = serde_json::to_string(&record).unwrap();
@@ -68,6 +68,12 @@ async fn inject_request(
 /// Insert only a set member (no corresponding request key).
 async fn inject_dangling_set_member(redis: &mut ConnectionManager, id: &str) {
     let _: () = redis.sadd("gateway:pending_requests", id).await.unwrap();
+}
+
+/// Builds a tracker with a fixed in-flight lock lifetime, so individual tests
+/// do not have to care about it.
+async fn tracker(redis_url: &str) -> RequestTracker {
+    RequestTracker::new(redis_url.to_string(), None, Duration::from_secs(300)).await
 }
 
 /// Read request record from Redis.
@@ -95,8 +101,7 @@ async fn is_in_pending_set(redis: &mut ConnectionManager, id: &str) -> bool {
 #[tokio::test]
 async fn pending_set_lifecycle_finalized() {
     let (url, _redis_container, _redis) = setup_isolated_redis_for_test().await;
-    let tracker =
-        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
+    let tracker = tracker(&url).await;
     let id = "test-pending-lifecycle-fin".to_string();
 
     tracker
@@ -130,8 +135,7 @@ async fn pending_set_lifecycle_finalized() {
 #[tokio::test]
 async fn pending_set_lifecycle_failed() {
     let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker =
-        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
+    let tracker = tracker(&url).await;
     let id = "test-pending-lifecycle-fail".to_string();
 
     tracker
@@ -153,8 +157,7 @@ async fn pending_set_lifecycle_failed() {
 #[tokio::test]
 async fn updated_at_written_and_updated() {
     let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker =
-        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
+    let tracker = tracker(&url).await;
     let id = "test-updated-at".to_string();
     let before = now_unix_secs();
 
@@ -187,8 +190,7 @@ async fn updated_at_written_and_updated() {
 #[tokio::test]
 async fn snapshot_batch_returns_records() {
     let (url, _redis_container, _redis) = setup_isolated_redis_for_test().await;
-    let tracker =
-        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
+    let tracker = tracker(&url).await;
 
     tracker
         .new_request_with_id(
@@ -228,8 +230,7 @@ async fn snapshot_batch_returns_records() {
 async fn queued_backlog_stats_from_updated_at() {
     let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
 
-    let tracker =
-        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
+    let tracker = tracker(&url).await;
     let now = now_unix_secs();
 
     inject_request(
@@ -275,8 +276,7 @@ async fn queued_backlog_stats_from_updated_at() {
 async fn queued_backlog_stats_scoped_by_kind() {
     let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
 
-    let tracker =
-        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
+    let tracker = tracker(&url).await;
     let now = now_unix_secs();
 
     // create backlog
@@ -338,8 +338,7 @@ async fn queued_backlog_stats_scoped_by_kind() {
 #[tokio::test]
 async fn sweep_stale_queued_request() {
     let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker =
-        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
+    let tracker = tracker(&url).await;
     let five_min_ago = now_unix_secs() - 300;
 
     inject_request(
@@ -351,13 +350,8 @@ async fn sweep_stale_queued_request() {
     )
     .await;
 
-    let anvil = TestAnvil::spawn().unwrap();
-    let provider =
-        alloy::providers::ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
-    let dyn_provider: alloy::providers::DynProvider = provider.erased();
-
     let config = OrphanSweeperConfig::default();
-    sweep_once(&tracker, &dyn_provider, &config).await;
+    sweep_once(&tracker, &config).await;
 
     let record = read_record(&mut redis, "stale-queued").await.unwrap();
     match &record.status {
@@ -374,8 +368,7 @@ async fn sweep_stale_queued_request() {
 #[tokio::test]
 async fn sweep_fresh_queued_untouched() {
     let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker =
-        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
+    let tracker = tracker(&url).await;
 
     inject_request(
         &mut redis,
@@ -386,26 +379,21 @@ async fn sweep_fresh_queued_untouched() {
     )
     .await;
 
-    let anvil = TestAnvil::spawn().unwrap();
-    let provider =
-        alloy::providers::ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
-    let dyn_provider: alloy::providers::DynProvider = provider.erased();
-
     let config = OrphanSweeperConfig::default();
-    sweep_once(&tracker, &dyn_provider, &config).await;
+    sweep_once(&tracker, &config).await;
 
     let record = read_record(&mut redis, "fresh-queued").await.unwrap();
     assert!(matches!(record.status, GatewayRequestState::Queued));
     assert!(is_in_pending_set(&mut redis, "fresh-queued").await);
 }
 
-/// Verifies that a `Batching` request older than the queued threshold is
-/// marked as `Failed`. Batching and Queued share the same staleness logic.
+/// Verifies that a `Batching` request older than the in-progress threshold is
+/// marked as `Failed`. `Batching` covers work a batcher holds, so it uses the
+/// longer threshold rather than the queued one.
 #[tokio::test]
 async fn sweep_stale_batching_request() {
     let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker =
-        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
+    let tracker = tracker(&url).await;
     let five_min_ago = now_unix_secs() - 300;
 
     inject_request(
@@ -417,13 +405,11 @@ async fn sweep_stale_batching_request() {
     )
     .await;
 
-    let anvil = TestAnvil::spawn().unwrap();
-    let provider =
-        alloy::providers::ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
-    let dyn_provider: alloy::providers::DynProvider = provider.erased();
-
-    let config = OrphanSweeperConfig::default();
-    sweep_once(&tracker, &dyn_provider, &config).await;
+    let config = OrphanSweeperConfig {
+        stale_submitted_threshold_secs: 120,
+        ..Default::default()
+    };
+    sweep_once(&tracker, &config).await;
 
     let record = read_record(&mut redis, "stale-batching").await.unwrap();
     assert!(matches!(record.status, GatewayRequestState::Failed { .. }));
@@ -435,19 +421,13 @@ async fn sweep_stale_batching_request() {
 #[tokio::test]
 async fn sweep_dangling_set_member() {
     let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker =
-        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
+    let tracker = tracker(&url).await;
 
     inject_dangling_set_member(&mut redis, "dangling-id").await;
     assert!(is_in_pending_set(&mut redis, "dangling-id").await);
 
-    let anvil = TestAnvil::spawn().unwrap();
-    let provider =
-        alloy::providers::ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
-    let dyn_provider: alloy::providers::DynProvider = provider.erased();
-
     let config = OrphanSweeperConfig::default();
-    sweep_once(&tracker, &dyn_provider, &config).await;
+    sweep_once(&tracker, &config).await;
 
     assert!(
         !is_in_pending_set(&mut redis, "dangling-id").await,
@@ -460,8 +440,7 @@ async fn sweep_dangling_set_member() {
 #[tokio::test]
 async fn sweep_already_terminal_in_set() {
     let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker =
-        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
+    let tracker = tracker(&url).await;
 
     inject_request(
         &mut redis,
@@ -474,13 +453,8 @@ async fn sweep_already_terminal_in_set() {
     )
     .await;
 
-    let anvil = TestAnvil::spawn().unwrap();
-    let provider =
-        alloy::providers::ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
-    let dyn_provider: alloy::providers::DynProvider = provider.erased();
-
     let config = OrphanSweeperConfig::default();
-    sweep_once(&tracker, &dyn_provider, &config).await;
+    sweep_once(&tracker, &config).await;
 
     assert!(
         !is_in_pending_set(&mut redis, "already-finalized").await,
@@ -493,175 +467,140 @@ async fn sweep_already_terminal_in_set() {
     );
 }
 
-/// Verifies that a `Submitted` request with no on-chain receipt that exceeds
-/// the submitted threshold is marked as `Failed`. Covers dropped transactions.
+/// Verifies that a submission owned by a wallet record is left alone by the
+/// sweeper, however old it is: the transaction resolver owns it and has the
+/// signed bytes needed to decide its fate.
 #[tokio::test]
-async fn sweep_submitted_no_receipt_stale() {
+async fn sweep_leaves_wallet_owned_submission_untouched() {
     let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker =
-        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
-    let five_min_ago = now_unix_secs() - 300;
+    let tracker = tracker(&url).await;
 
-    inject_request(
+    inject_request_with_wallet(
         &mut redis,
-        "stale-submitted",
+        "owned-submitted",
         GatewayRequestKind::CreateAccount,
         GatewayRequestState::Submitted {
-            tx_hash: "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-                .to_string(),
+            tx_hash: "0x11".to_string(),
         },
-        five_min_ago,
+        now_unix_secs() - 3_600,
+        Some(Address::repeat_byte(0x11)),
     )
     .await;
-
-    let anvil = TestAnvil::spawn().unwrap();
-    let provider =
-        alloy::providers::ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
-    let dyn_provider: alloy::providers::DynProvider = provider.erased();
 
     let config = OrphanSweeperConfig {
-        stale_submitted_threshold_secs: 120, // 2-minute submitted threshold
+        stale_submitted_threshold_secs: 60,
         ..Default::default()
     };
-    sweep_once(&tracker, &dyn_provider, &config).await;
+    sweep_once(&tracker, &config).await;
 
-    let record = read_record(&mut redis, "stale-submitted").await.unwrap();
-    match &record.status {
-        GatewayRequestState::Failed { error, .. } => {
-            assert!(error.contains("not confirmed"));
-        }
-        other => panic!("expected Failed, got {other:?}"),
-    }
-    assert!(!is_in_pending_set(&mut redis, "stale-submitted").await);
-}
-
-/// Verifies that a recently-submitted request without a receipt is left
-/// alone. The transaction may still be pending in the sequencer's mempool.
-#[tokio::test]
-async fn sweep_submitted_no_receipt_fresh() {
-    let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker =
-        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
-
-    inject_request(
-        &mut redis,
-        "fresh-submitted",
-        GatewayRequestKind::CreateAccount,
-        GatewayRequestState::Submitted {
-            tx_hash: "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-                .to_string(),
-        },
-        now_unix_secs(),
-    )
-    .await;
-
-    let anvil = TestAnvil::spawn().unwrap();
-    let provider =
-        alloy::providers::ProviderBuilder::new().connect_http(anvil.endpoint().parse().unwrap());
-    let dyn_provider: alloy::providers::DynProvider = provider.erased();
-
-    let config = OrphanSweeperConfig::default();
-    sweep_once(&tracker, &dyn_provider, &config).await;
-
-    let record = read_record(&mut redis, "fresh-submitted").await.unwrap();
+    let record = read_record(&mut redis, "owned-submitted").await.unwrap();
     assert!(
         matches!(record.status, GatewayRequestState::Submitted { .. }),
-        "fresh submitted request should not be touched"
+        "a wallet-owned submission belongs to the resolver, not the sweeper"
     );
-    assert!(is_in_pending_set(&mut redis, "fresh-submitted").await);
+    assert!(is_in_pending_set(&mut redis, "owned-submitted").await);
 }
 
-/// End-to-end: submits a real transaction, then injects an orphaned request
-/// referencing the same tx hash. Verifies the sweeper finalizes it via the
-/// actual on-chain receipt.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn sweep_submitted_with_real_receipt() {
+/// Verifies that a submission with no wallet, written by a gateway build that
+/// predates wallet leases, is still failed once stale. Nothing else can resolve
+/// it, and the class disappears as those records expire.
+#[tokio::test]
+async fn sweep_fails_legacy_submission_without_wallet() {
     let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
+    let tracker = tracker(&url).await;
 
-    let anvil = TestAnvil::spawn().unwrap();
-    let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry_v2(deployer).await.unwrap();
-    let rpc_url = anvil.endpoint();
-
-    let signer = PrivateKeySigner::random();
-    let wallet_addr: Address = signer.address();
-
-    let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
-    let cfg = GatewayConfig {
-        registry_addr,
-        registry_version: RegistryVersion::V2,
-        provider: ProviderArgs {
-            http: vec![rpc_url.parse().unwrap()],
-            signer: signer_args,
-            ..Default::default()
-        },
-        max_create_batch_size: 10,
-        max_ops_batch_size: 10,
-        listen_addr: (std::net::Ipv4Addr::LOCALHOST, 4200).into(),
-        redis_url: url.clone(),
-        request_timeout_secs: 10,
-        rate_limit_window_secs: None,
-        rate_limit_max_requests: None,
-        sweeper_interval_secs: 9999, // don't auto-sweep during this test
-        stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
-        stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
-        batch_policy: BatchPolicyConfig::default(),
-    };
-
-    let gw = spawn_gateway_for_tests(cfg).await.expect("spawn gateway");
-    let client = Client::builder().build().unwrap();
-    wait_http_ready(&client, 4200).await;
-    let base = "http://127.0.0.1:4200";
-
-    let body = world_id_primitives::api_types::CreateAccountRequest {
-        recovery_address: Some(wallet_addr),
-        authenticator_addresses: vec![address!("0x2222222222222222222222222222222222222222")],
-        authenticator_pubkeys: vec![U256::from(100)],
-        offchain_signer_commitment: U256::from(1),
-    };
-
-    let resp = client
-        .post(format!("{base}/create-account"))
-        .json(&body)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-    let accepted: GatewayStatusResponse = resp.json().await.unwrap();
-    let _original_id = accepted.request_id.clone();
-
-    let tx_hash = wait_for_finalized(&client, base, &_original_id).await;
-    assert!(!tx_hash.is_empty());
-
-    // Now inject a NEW request that references the same tx_hash, simulating
-    // a replica that died before updating state.
     inject_request(
         &mut redis,
-        "orphan-with-receipt",
+        "legacy-submitted",
         GatewayRequestKind::CreateAccount,
         GatewayRequestState::Submitted {
-            tx_hash: tx_hash.clone(),
+            tx_hash: "0x22".to_string(),
         },
         now_unix_secs() - 300,
     )
     .await;
 
-    let tracker =
-        RequestTracker::new(url.clone(), None, defaults::STALE_SUBMITTED_THRESHOLD_SECS).await;
-    let provider = alloy::providers::ProviderBuilder::new().connect_http(rpc_url.parse().unwrap());
-    let dyn_provider: alloy::providers::DynProvider = provider.erased();
+    let config = OrphanSweeperConfig {
+        stale_submitted_threshold_secs: 120,
+        ..Default::default()
+    };
+    sweep_once(&tracker, &config).await;
 
-    let config = OrphanSweeperConfig::default();
-    sweep_once(&tracker, &dyn_provider, &config).await;
+    let record = read_record(&mut redis, "legacy-submitted").await.unwrap();
+    assert!(
+        matches!(record.status, GatewayRequestState::Failed { .. }),
+        "a submission nobody can resolve must not stay pending forever"
+    );
+    assert!(!is_in_pending_set(&mut redis, "legacy-submitted").await);
+}
 
-    let record = read_record(&mut redis, "orphan-with-receipt")
+/// A fresh legacy submission is left alone: it may still be in a mempool.
+#[tokio::test]
+async fn sweep_leaves_fresh_legacy_submission_untouched() {
+    let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
+    let tracker = tracker(&url).await;
+
+    inject_request(
+        &mut redis,
+        "fresh-legacy-submitted",
+        GatewayRequestKind::CreateAccount,
+        GatewayRequestState::Submitted {
+            tx_hash: "0x33".to_string(),
+        },
+        now_unix_secs(),
+    )
+    .await;
+
+    sweep_once(&tracker, &OrphanSweeperConfig::default()).await;
+
+    let record = read_record(&mut redis, "fresh-legacy-submitted")
         .await
         .unwrap();
-    assert!(
-        matches!(record.status, GatewayRequestState::Finalized { .. }),
-        "submitted request with on-chain receipt should be finalized by sweeper"
-    );
-    assert!(!is_in_pending_set(&mut redis, "orphan-with-receipt").await);
+    assert!(matches!(
+        record.status,
+        GatewayRequestState::Submitted { .. }
+    ));
+    assert!(is_in_pending_set(&mut redis, "fresh-legacy-submitted").await);
+}
+/// Work a batcher already owns must be reported separately from work still
+/// waiting: the policy retries the former, and the resync must not clear the
+/// local queue while it exists.
+#[tokio::test]
+async fn queued_backlog_stats_separate_in_progress_work() {
+    let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
+    let tracker = tracker(&url).await;
 
-    let _ = gw.shutdown().await;
+    inject_request(
+        &mut redis,
+        "stats-queued",
+        GatewayRequestKind::CreateAccount,
+        GatewayRequestState::Queued,
+        now_unix_secs() - 5,
+    )
+    .await;
+    inject_request(
+        &mut redis,
+        "stats-batching",
+        GatewayRequestKind::CreateAccount,
+        GatewayRequestState::Batching,
+        now_unix_secs(),
+    )
+    .await;
+
+    let stats = tracker
+        .queued_backlog_stats_for_scope(BacklogScope::Create)
+        .await
+        .unwrap();
+    assert_eq!(stats.queued_count, 1);
+    assert_eq!(
+        stats.in_progress_count, 1,
+        "a batch a batcher owns is still unfinished work"
+    );
+
+    let ops = tracker
+        .queued_backlog_stats_for_scope(BacklogScope::Ops)
+        .await
+        .unwrap();
+    assert_eq!(ops.queued_count, 0);
+    assert_eq!(ops.in_progress_count, 0);
 }

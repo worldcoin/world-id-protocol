@@ -3,7 +3,7 @@
 pub use crate::{
     config::{
         BatchPolicyConfig, BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig,
-        RegistryVersion, defaults,
+        RegistryVersion, WalletArgs, WalletConfig, defaults,
     },
     orphan_sweeper::sweep_once,
     request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
@@ -14,6 +14,7 @@ use tokio::sync::oneshot;
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 mod batch_policy;
+mod batch_type;
 mod batcher;
 mod config;
 mod error;
@@ -23,6 +24,7 @@ mod request;
 pub mod request_tracker;
 mod routes;
 mod storage;
+mod transaction_submitter;
 mod types;
 
 // Re-export common types
@@ -47,19 +49,41 @@ impl GatewayHandle {
     }
 }
 
+/// Builds one read-only provider per configured RPC URL.
+///
+/// A resolver pass is pinned to a single endpoint, because the shared provider
+/// layer fans every call out across all of them and a receipt, a block and a
+/// nonce answered by different nodes cannot be reasoned about together.
+async fn resolver_providers(
+    cfg: &GatewayConfig,
+) -> GatewayResult<Vec<alloy::providers::DynProvider>> {
+    let mut providers = Vec::with_capacity(cfg.provider.http.len());
+    for url in cfg.provider.http.clone() {
+        let args = ProviderArgs {
+            http: vec![url],
+            signer: SignerArgs::default(),
+            ..cfg.provider.clone()
+        };
+        providers.push(args.http().await?);
+    }
+    Ok(providers)
+}
+
 /// For tests only: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<GatewayHandle> {
     let batcher_config = cfg.batcher();
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
+    let wallet_config = cfg.wallet()?;
 
-    let provider = Arc::new(cfg.provider.http().await?);
-    let registry = Arc::new(WorldIdRegistryInstance::new(
-        cfg.registry_addr,
-        provider.clone(),
-    ));
+    let wallets = cfg.provider.clone().http_wallets().await?;
+    let providers = resolver_providers(&cfg).await?;
+    let provider = Arc::new(wallets[0].provider.clone());
+    let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
     let app = build_app(
         registry,
+        wallets,
+        providers,
         cfg.registry_version,
         batcher_config,
         cfg.redis_url,
@@ -67,6 +91,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
         cfg.request_timeout_secs,
         sweeper_config,
         cfg.batch_policy.clone(),
+        wallet_config,
     )
     .await?;
 
@@ -107,19 +132,22 @@ pub async fn run() -> GatewayResult<()> {
     let batcher_config = cfg.batcher();
     let rate_limit = cfg.rate_limit();
     let sweeper_config = cfg.sweeper();
+    let wallet_config = cfg.wallet()?;
 
-    let provider = Arc::new(cfg.provider.http().await?);
-    let registry = Arc::new(WorldIdRegistryInstance::new(
-        cfg.registry_addr,
-        provider.clone(),
-    ));
+    let wallets = cfg.provider.clone().http_wallets().await?;
+    let providers = resolver_providers(&cfg).await?;
+    let provider = Arc::new(wallets[0].provider.clone());
+    let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
 
     tracing::info!(
         registry_version = ?cfg.registry_version,
+        wallets = wallets.len(),
         "Config is ready. Building app..."
     );
     let app = build_app(
         registry,
+        wallets,
+        providers,
         cfg.registry_version,
         batcher_config,
         cfg.redis_url,
@@ -127,6 +155,7 @@ pub async fn run() -> GatewayResult<()> {
         cfg.request_timeout_secs,
         sweeper_config,
         cfg.batch_policy.clone(),
+        wallet_config,
     )
     .await?;
     let listener = tokio::net::TcpListener::bind(cfg.listen_addr)
