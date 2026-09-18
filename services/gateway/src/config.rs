@@ -26,6 +26,10 @@ pub mod defaults {
     pub const WALLET_ACQUIRE_TIMEOUT_SECS: u64 = 20;
     pub const WALLET_REBROADCAST_INTERVAL_SECS: u64 = 30;
     pub const WALLET_REBROADCAST_MAX_ATTEMPTS: u32 = 10;
+    /// Slack added to the resolution timeout when deriving the in-flight lock
+    /// lifetime, so a lock never lapses while its request is still being
+    /// submitted.
+    pub const WALLET_INFLIGHT_TTL_MARGIN_SECS: u64 = 60;
 }
 
 /// WorldIDRegistry implementation version to use for gateway request routing.
@@ -128,10 +132,10 @@ pub struct WalletConfig {
 
 impl WalletConfig {
     /// Lifetime of an in-flight lock, derived so it outlives the submission it
-    /// protects instead of being a fixed constant that can lapse early.
+    /// protects rather than being a fixed value that can lapse early.
     #[must_use]
     pub const fn inflight_ttl_secs(&self) -> u64 {
-        self.resolution_timeout_secs + 60
+        self.resolution_timeout_secs + defaults::WALLET_INFLIGHT_TTL_MARGIN_SECS
     }
 }
 
@@ -152,9 +156,6 @@ impl Default for WalletConfig {
 }
 
 /// Durable wallet submission knobs.
-///
-/// Flattened into [`GatewayConfig`] so the wallet fields sit alongside the rest
-/// of the submission configuration rather than inside a second sub-struct.
 #[derive(Clone, Debug, clap::Args)]
 pub struct WalletArgs {
     /// How long a wallet lease is held while its batch is signed, in seconds.
