@@ -83,17 +83,6 @@ pub(crate) enum WalletState {
     Parked,
 }
 
-impl WalletState {
-    /// Serialized form, used as the compare-and-set guard value.
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::Signing => "signing",
-            Self::InFlight => "in_flight",
-            Self::Parked => "parked",
-        }
-    }
-}
-
 /// Transaction fields recorded from the moment a batch is signed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Submission {
@@ -316,7 +305,7 @@ impl WalletStore {
         )
         .key(Self::key(wallet))
         .arg(lease_id.to_string())
-        .arg(expected_state.as_str())
+        .arg(expected_state.to_string())
         .arg(expected_attempt)
         .arg(value)
         .arg(ttl.as_secs())
