@@ -406,8 +406,22 @@ impl TransactionSubmitter {
     /// would turn a Redis or RPC blip into a fleet-wide restart.
     pub(crate) async fn run_resolver(self: Arc<Self>) {
         let interval = Duration::from_secs(self.config.tracker_interval_secs);
+        // Bounded so a Redis or RPC call that accepts a connection and never
+        // answers cannot wedge the pass: supervision only restarts a task that
+        // exits, and a hanging loop never exits.
+        let pass_timeout = interval.max(Duration::from_secs(60));
+
         loop {
-            self.resolve_all().await;
+            if tokio::time::timeout(pass_timeout, self.resolve_all())
+                .await
+                .is_err()
+            {
+                metrics::increment_wallet_tracker_error();
+                tracing::error!(
+                    timeout_secs = pass_timeout.as_secs(),
+                    "resolution pass did not finish in time; abandoning it"
+                );
+            }
             tokio::time::sleep(interval).await;
         }
     }
@@ -1146,6 +1160,10 @@ impl TransactionSubmitter {
             metrics::increment_wallet_acquire_empty();
 
             if tokio::time::Instant::now() >= deadline {
+                // Record the tail as well as the successes: a pool that is
+                // saturated for the whole timeout is exactly the case the wait
+                // histogram exists to show.
+                metrics::record_wallet_acquire_wait(started.elapsed().as_secs_f64() * 1000.0);
                 return Ok(None);
             }
 

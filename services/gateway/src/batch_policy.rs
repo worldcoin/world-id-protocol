@@ -132,7 +132,7 @@ impl BatchPolicyEngine {
         let force_send = has_backlog && stats.oldest_age_secs >= self.cfg.max_wait_secs;
         let max_batch_size = max_batch_size.max(1);
 
-        // Step 2: no queued work means no action.
+        // Step 2: no work at all, queued or already dispatched, means no action.
         if !has_backlog {
             return PolicyDecision {
                 should_send: false,

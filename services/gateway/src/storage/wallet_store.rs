@@ -306,7 +306,7 @@ impl WalletStore {
                 end
             end
 
-            redis.call('SET', KEYS[1], ARGV[3], 'EX', ARGV[4])
+            redis.call('SET', KEYS[1], ARGV[4], 'EX', ARGV[5])
             return 1
             "#,
         )
