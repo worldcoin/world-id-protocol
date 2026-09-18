@@ -403,6 +403,10 @@ jobs:
 
       - name: Setup Android SDK/NDK
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2 https://github.com/android-actions/setup-android/releases/tag/v3.2.2
+        with:
+          # The action's v3 default is 'tools platform-tools'; the obsolete 'tools'
+          # package was dropped from Google's SDK manifest and now fails the install.
+          packages: "platform-tools"
 
       - name: Install SDK packages and resolve NDK
         shell: bash
