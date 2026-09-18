@@ -164,16 +164,6 @@ impl Default for WalletConfig {
 }
 
 /// Durable wallet submission knobs.
-<<<<<<< HEAD
-///
-/// Flattened into [`GatewayConfig`] so the CLI flags and environment variables
-/// are flat, while the fields stay grouped in the Rust type.
-||||||| 74337fc7
-///
-/// Flattened into [`GatewayConfig`] so the wallet fields sit alongside the rest
-/// of the submission configuration rather than inside a second sub-struct.
-=======
->>>>>>> dzejkop/gateway-wallet-lease
 #[derive(Clone, Debug, clap::Args)]
 pub struct WalletArgs {
     /// How long a wallet lease is held while its batch is signed, in seconds.
