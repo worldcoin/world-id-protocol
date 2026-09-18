@@ -78,12 +78,18 @@ pub async fn sweep_once(tracker: &RequestTracker, config: &OrphanSweeperConfig) 
             // only abandoned if the owning process died, so the longer threshold
             // applies. The wallet resolver re-checks the state before it
             // broadcasts, so a request failed here is never executed on chain.
+            //
+            // The guard is `Batching` alone: `Submitted` is deliberately excluded,
+            // because the resolver may have adopted this request between the
+            // snapshot and this write, and failing it then would contradict the
+            // resolver's ownership.
             GatewayRequestState::Batching => {
                 if age > config.stale_submitted_threshold_secs {
                     fail_unowned(
                         tracker,
                         id,
                         age,
+                        &[StatusGuard::Batching],
                         "request stayed in progress past the threshold",
                     )
                     .await;
@@ -91,7 +97,14 @@ pub async fn sweep_once(tracker: &RequestTracker, config: &OrphanSweeperConfig) 
             }
             GatewayRequestState::Queued => {
                 if age > config.stale_queued_threshold_secs {
-                    fail_unowned(tracker, id, age, "request timed out in queued state").await;
+                    fail_unowned(
+                        tracker,
+                        id,
+                        age,
+                        &[StatusGuard::Queued],
+                        "request timed out in queued state",
+                    )
+                    .await;
                 }
             }
             // A submission that knows which wallet signed it is owned by the
@@ -108,6 +121,7 @@ pub async fn sweep_once(tracker: &RequestTracker, config: &OrphanSweeperConfig) 
                         tracker,
                         id,
                         age,
+                        &[StatusGuard::Submitted],
                         "submission predates wallet leases and cannot be resolved",
                     )
                     .await;
@@ -119,15 +133,21 @@ pub async fn sweep_once(tracker: &RequestTracker, config: &OrphanSweeperConfig) 
 
 /// Fails one unowned request using the guarded write.
 ///
-/// The guard means the sweeper can never overwrite a status another owner has
-/// already advanced, which is what keeps it from reporting a request as failed
-/// while its transaction is on chain.
-async fn fail_unowned(tracker: &RequestTracker, id: &str, age: u64, reason: &str) {
+/// `allowed` is the set of states this caller is entitled to move, which is what
+/// keeps the sweeper from overwriting a status another owner has advanced. It
+/// must include the state the caller matched on, or the write is a silent no-op:
+/// a `queued`-only guard can never fail a stale `submitted` record.
+async fn fail_unowned(
+    tracker: &RequestTracker,
+    id: &str,
+    age: u64,
+    allowed: &[StatusGuard],
+    reason: &str,
+) {
     tracing::warn!(request_id = %id, age_secs = age, "sweeper: failing stale request: {reason}");
 
     let status = GatewayRequestState::failed(reason, Some(GatewayErrorCode::InternalServerError));
-    let allowed = [StatusGuard::Queued, StatusGuard::Batching];
-    if let Err(error) = tracker.set_status_if(id, &allowed, status, None).await {
+    if let Err(error) = tracker.set_status_if(id, allowed, status, None).await {
         tracing::error!(%error, request_id = %id, "sweeper: failed to fail a stale request");
     }
 }
