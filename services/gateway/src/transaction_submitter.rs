@@ -740,7 +740,12 @@ impl TransactionSubmitter {
             }
         };
 
-        let confirmations = head.saturating_sub(block_number);
+        // Count the inclusion block itself, so the default of one confirmation
+        // means "included" and an operator raises it purely for reorg margin.
+        // Counting blocks *on top* instead would make a lone transaction on a
+        // quiet chain wait for a block that may never come: nothing else is
+        // transacting, so the wallet would never be released.
+        let confirmations = head.saturating_sub(block_number).saturating_add(1);
         if confirmations < self.config.release_confirmations {
             return Probe::Wait;
         }
