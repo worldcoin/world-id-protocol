@@ -134,6 +134,10 @@ pub struct SignerArgs {
     /// The keys must be distinct from any key still in use through the legacy
     /// variables, so that a rolling changeover never has two builds driving the
     /// same wallet. Mutually exclusive with the other signer variables.
+    ///
+    /// Every key in the pool must hold native gas: each one signs and pays for
+    /// its own transactions, so a wallet that cannot pay stalls the pool once
+    /// the funded ones are busy.
     #[arg(long, env = "AWS_KMS_WALLET_KEYS")]
     aws_kms_wallet_keys: Option<String>,
 
