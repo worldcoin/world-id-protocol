@@ -369,14 +369,19 @@ Throughput is `N_wallets / release_latency`, so the release condition sets the p
 
 | Release on | Typical latency, OP-stack L2 (assumption — §10 Q1) | Wallet throughput | Reorg exposure |
 |---|---|---|---|
-| receipt present (1 conf) | ~2s | `N / 2s` | reorgs shallower than 1 block |
+| receipt present (1 conf = included) | ~2s | `N / 2s` | reorgs shallower than 1 block |
 | `safe` head ≥ receipt block | ~6–7 min | `N / 6min` | negligible |
 | `finalized` head ≥ receipt block | ~12–13 min | `N / 13min` | none |
 
-**Recommendation.** Release when a receipt exists, is canonical, and
-`saturating_sub(head, receipt.block_number) >= WALLET_RELEASE_CONFIRMATIONS`. Default 1 — one
-block on top of inclusion, the minimum the validation permits. Set it to the chain's practical
-reorg depth + 1 to satisfy I1 strictly; §10 Q1 fixes the value. Record
+**Recommendation.** Release when a receipt exists and is canonical, and the inclusion block has
+reached `WALLET_RELEASE_CONFIRMATIONS` confirmations, **counting the inclusion block itself**.
+Default 1 therefore means "included", which is what this replaces. Set it to the chain's practical
+reorg depth + 1 to satisfy I1 strictly; §10 Q1 fixes the value.
+
+Counting the inclusion block is not cosmetic: counting blocks on top instead requires a *second*
+block before a wallet is released, so a lone transaction on a chain that only mines when something
+transacts — `anvil`, or a quiet period in production — would hold its wallet indefinitely and never
+reach a terminal state. `Local Setup Test` caught exactly that. Record
 `wallet.confirmations_at_release` so the choice is evidence-based rather than asserted.
 
 **Residual risk, stated plainly.** Releasing on `k` confirmations means a reorg deeper than `k`
