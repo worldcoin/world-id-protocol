@@ -88,6 +88,7 @@ const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     wallets: Vec<ProviderWallet>,
+    resolver_providers: Vec<DynProvider>,
     registry_version: RegistryVersion,
     batcher_config: BatcherConfig,
     redis_url: String,
@@ -106,8 +107,14 @@ pub(crate) async fn build_app(
     )
     .await;
 
-    let submitter =
-        TransactionSubmitter::connect(wallets, tracker.clone(), &redis_url, wallet_config).await?;
+    let submitter = TransactionSubmitter::connect(
+        wallets,
+        resolver_providers,
+        tracker.clone(),
+        &redis_url,
+        wallet_config,
+    )
+    .await?;
 
     let base_fee_cache = BaseFeeCache::default();
 

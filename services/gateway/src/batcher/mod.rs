@@ -291,6 +291,7 @@ where
                             );
                             BacklogUrgencyStats {
                                 queued_count: queue.len(),
+                                in_progress_count: 0,
                                 oldest_age_secs: fallback_age,
                             }
                         }
@@ -300,7 +301,12 @@ where
                     record_policy_metrics(self.strategy.batch_type().as_str(), &decision);
 
                     if !decision.should_send {
-                        if matches!(decision.reason, DecisionReason::NoBacklog) && !queue.is_empty()
+                        // Only resync when Redis really has nothing for us. A batch
+                        // we already marked `Batching` and pushed back while waiting
+                        // for a wallet is not a stale local queue.
+                        if matches!(decision.reason, DecisionReason::NoBacklog)
+                            && !queue.is_empty()
+                            && stats.in_progress_count == 0
                         {
                             self.handle_no_backlog(&mut queue);
                         }

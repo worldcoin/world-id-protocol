@@ -194,7 +194,7 @@ impl SignerArgs {
                 let ordinal = pod_ordinal().ok_or_else(|| ProviderError::OrdinalUnresolvable {
                     hostname: std::env::var("HOSTNAME").ok(),
                 })?;
-                let keys: Vec<&str> = key_ids.split(',').map(str::trim).collect();
+                let keys: Vec<&str> = split_pool_keys(key_ids);
                 let key_id = keys.get(ordinal).copied().ok_or_else(|| {
                     tracing::error!(
                         ordinal,
@@ -467,7 +467,7 @@ impl ProviderArgs {
     /// Returns an error when a signer cannot be constructed, or when no signer
     /// is configured at all.
     pub async fn http_wallets(self) -> ProviderResult<Vec<ProviderWallet>> {
-        if !self.signer.is_pool_signer() && self.signer.signer_config().is_none() {
+        if self.signer.signer_config().is_none() {
             return Err(ProviderError::SignerConfigMissing);
         }
 
@@ -796,5 +796,102 @@ mod tests {
             endpoint_label(&internal),
             "worldchain-rpc.internal.worldcoin.dev:9545"
         );
+    }
+
+    #[test]
+    fn pool_signers_splits_a_private_key_pool() {
+        let keys: Vec<String> = (0..3)
+            .map(|_| alloy::hex::encode(PrivateKeySigner::random().to_bytes()))
+            .collect();
+        let args = SignerArgs {
+            wallet_private_keys: Some(keys.join(",")),
+            ..Default::default()
+        };
+
+        assert!(args.is_pool_signer());
+        assert!(matches!(
+            args.signer_config(),
+            Some(SignerConfig::PrivateKeyPool(_))
+        ));
+
+        let signers = args.pool_signers().unwrap();
+        assert_eq!(signers.len(), 3);
+        assert!(
+            signers
+                .iter()
+                .all(|signer| !signer.is_pool_signer() && signer.signer_config().is_some()),
+            "each pool entry must become a single-signer configuration"
+        );
+    }
+
+    #[test]
+    fn pool_signers_tolerates_blank_entries() {
+        let args = SignerArgs {
+            aws_kms_wallet_keys: Some("key-a, ,key-b,".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(args.pool_signers().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn pool_signers_rejects_empty_pools() {
+        let args = SignerArgs {
+            aws_kms_wallet_keys: Some(" , ".to_string()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            args.pool_signers(),
+            Err(ProviderError::SignerConfigMissing)
+        ));
+    }
+
+    #[test]
+    fn pool_signers_pass_a_legacy_configuration_through_unchanged() {
+        let args = SignerArgs::from_aws("arn:aws:kms:us-east-1:1:key/abc".to_string());
+        assert!(!args.is_pool_signer());
+        let signers = args.pool_signers().unwrap();
+        assert_eq!(signers.len(), 1);
+        assert!(matches!(
+            signers[0].signer_config(),
+            Some(SignerConfig::AwsKms(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn http_wallets_builds_one_wallet_per_pool_key() {
+        let signers: Vec<PrivateKeySigner> = (0..3).map(|_| PrivateKeySigner::random()).collect();
+        let expected: Vec<Address> = signers.iter().map(PrivateKeySigner::address).collect();
+        let keys = signers
+            .iter()
+            .map(|signer| alloy::hex::encode(signer.to_bytes()))
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let wallets = ProviderArgs::new()
+            .with_http_urls(["http://127.0.0.1:8545"])
+            .with_signer(SignerArgs {
+                wallet_private_keys: Some(keys),
+                ..Default::default()
+            })
+            .http_wallets()
+            .await
+            .unwrap();
+
+        assert_eq!(
+            wallets
+                .into_iter()
+                .map(|wallet| wallet.address)
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
+
+    #[tokio::test]
+    async fn http_wallets_requires_a_signer() {
+        let result = ProviderArgs::new()
+            .with_http_urls(["http://127.0.0.1:8545"])
+            .http_wallets()
+            .await;
+        assert!(matches!(result, Err(ProviderError::SignerConfigMissing)));
     }
 }

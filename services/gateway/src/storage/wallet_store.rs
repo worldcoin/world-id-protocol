@@ -30,9 +30,17 @@ use uuid::Uuid;
 use crate::{batch_type::BatchType, error::GatewayResult};
 
 /// Schema version written into every record.
+///
+/// Forward-compatibility metadata only: reads deliberately do not validate it, so
+/// that a build which predates a new field can still decode a newer record. Any
+/// reader that depends on a field must therefore treat it as optional.
 const SCHEMA_VERSION: u8 = 1;
 
 /// Outcome of a compare-and-set write against a wallet record.
+///
+/// The counterpart of [`crate::storage::request_store::StatusWriteOutcome`], with
+/// the opposite sentinel convention: here `0` means the record is missing and any
+/// other non-`1` value is a guard conflict.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CasOutcome {
     /// The write was applied.

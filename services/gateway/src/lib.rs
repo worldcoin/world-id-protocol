@@ -49,6 +49,26 @@ impl GatewayHandle {
     }
 }
 
+/// Builds one read-only provider per configured RPC URL.
+///
+/// A resolver pass is pinned to a single endpoint, because the shared provider
+/// layer fans every call out across all of them and a receipt, a block and a
+/// nonce answered by different nodes cannot be reasoned about together.
+async fn resolver_providers(
+    cfg: &GatewayConfig,
+) -> GatewayResult<Vec<alloy::providers::DynProvider>> {
+    let mut providers = Vec::with_capacity(cfg.provider.http.len());
+    for url in cfg.provider.http.clone() {
+        let args = ProviderArgs {
+            http: vec![url],
+            signer: SignerArgs::default(),
+            ..cfg.provider.clone()
+        };
+        providers.push(args.http().await?);
+    }
+    Ok(providers)
+}
+
 /// For tests only: spawn the gateway server and return a handle with shutdown.
 pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<GatewayHandle> {
     let batcher_config = cfg.batcher();
@@ -57,11 +77,13 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     let wallet_config = cfg.wallet()?;
 
     let wallets = cfg.provider.clone().http_wallets().await?;
+    let providers = resolver_providers(&cfg).await?;
     let provider = Arc::new(wallets[0].provider.clone());
     let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
     let app = build_app(
         registry,
         wallets,
+        providers,
         cfg.registry_version,
         batcher_config,
         cfg.redis_url,
@@ -113,6 +135,7 @@ pub async fn run() -> GatewayResult<()> {
     let wallet_config = cfg.wallet()?;
 
     let wallets = cfg.provider.clone().http_wallets().await?;
+    let providers = resolver_providers(&cfg).await?;
     let provider = Arc::new(wallets[0].provider.clone());
     let registry = Arc::new(WorldIdRegistryInstance::new(cfg.registry_addr, provider));
 
@@ -124,6 +147,7 @@ pub async fn run() -> GatewayResult<()> {
     let app = build_app(
         registry,
         wallets,
+        providers,
         cfg.registry_version,
         batcher_config,
         cfg.redis_url,

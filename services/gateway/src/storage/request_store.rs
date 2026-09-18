@@ -939,4 +939,224 @@ mod tests {
             RateLimitOutcome::Allowed(2)
         );
     }
+
+    #[tokio::test]
+    async fn guarded_status_write_only_applies_from_an_allowed_state() {
+        let (store, _redis) = store().await;
+        let id = "guarded-status";
+        let wallet = Address::repeat_byte(0x11);
+        store
+            .create_request(id, GatewayRequestKind::CreateAccount, &[], 10)
+            .await
+            .unwrap();
+
+        // Ownership is taken from `Queued`.
+        assert_eq!(
+            store
+                .update_status_if(
+                    id,
+                    &[StatusGuard::Queued],
+                    &GatewayRequestState::Batching,
+                    11,
+                    None
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Applied
+        );
+
+        // The sweeper's guard must not be able to move it any further, because a
+        // batcher already owns it.
+        assert_eq!(
+            store
+                .update_status_if(
+                    id,
+                    &[StatusGuard::Queued, StatusGuard::Batching],
+                    &GatewayRequestState::failed(
+                        "stale",
+                        Some(GatewayErrorCode::InternalServerError)
+                    ),
+                    12,
+                    None,
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Guarded
+        );
+
+        // A submitted write from the owning batcher records the wallet.
+        assert_eq!(
+            store
+                .update_status_if(
+                    id,
+                    &[StatusGuard::Batching],
+                    &GatewayRequestState::Submitted {
+                        tx_hash: "0xabc".to_string(),
+                    },
+                    13,
+                    Some(wallet),
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Applied
+        );
+
+        let record = store.request(id).await.unwrap().unwrap();
+        assert!(matches!(
+            record.status,
+            GatewayRequestState::Submitted { .. }
+        ));
+        assert_eq!(record.wallet, Some(wallet));
+        assert_eq!(record.updated_at, 13);
+    }
+
+    #[tokio::test]
+    async fn guarded_status_write_reports_a_missing_record() {
+        let (store, _redis) = store().await;
+        assert_eq!(
+            store
+                .update_status_if(
+                    "never-created",
+                    &[StatusGuard::Queued],
+                    &GatewayRequestState::Batching,
+                    1,
+                    None,
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Missing
+        );
+    }
+
+    #[tokio::test]
+    async fn batch_guarded_status_write_is_all_or_nothing() {
+        let (store, _redis) = store().await;
+        let first = "batch-guard-1";
+        let second = "batch-guard-2";
+        for id in [first, second] {
+            store
+                .create_request(id, GatewayRequestKind::CreateAccount, &[], 10)
+                .await
+                .unwrap();
+        }
+
+        let ids = vec![first.to_string(), second.to_string()];
+
+        // Only one of the two is still awaiting submission.
+        store
+            .update_status_if(
+                first,
+                &[StatusGuard::Queued],
+                &GatewayRequestState::Batching,
+                11,
+                None,
+            )
+            .await
+            .unwrap();
+        store
+            .update_status_if(
+                first,
+                &[StatusGuard::Batching],
+                &GatewayRequestState::Submitted {
+                    tx_hash: "0xdef".to_string(),
+                },
+                12,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store
+                .update_status_if(
+                    second,
+                    &[StatusGuard::Queued],
+                    &GatewayRequestState::Batching,
+                    12,
+                    None
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Applied
+        );
+
+        // A transaction must not be broadcast for a partly-recorded batch.
+        assert_eq!(
+            store
+                .update_status_batch_if(
+                    &ids,
+                    &[StatusGuard::Batching],
+                    &GatewayRequestState::Submitted {
+                        tx_hash: "0xdead".to_string(),
+                    },
+                    13,
+                    None,
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Guarded
+        );
+
+        let first_record = store.request(first).await.unwrap().unwrap();
+        assert!(
+            matches!(
+                first_record.status,
+                GatewayRequestState::Submitted { ref tx_hash } if tx_hash == "0xdef"
+            ),
+            "the already-submitted request must keep its original transaction"
+        );
+        let second_record = store.request(second).await.unwrap().unwrap();
+        assert!(
+            matches!(second_record.status, GatewayRequestState::Batching),
+            "nothing may be written when the batch guard fails"
+        );
+    }
+
+    #[tokio::test]
+    async fn batch_guarded_status_write_applies_to_every_request() {
+        let (store, _redis) = store().await;
+        let ids: Vec<String> = (0..3).map(|index| format!("batch-apply-{index}")).collect();
+        for id in &ids {
+            store
+                .create_request(id, GatewayRequestKind::CreateAccount, &[], 10)
+                .await
+                .unwrap();
+            store
+                .update_status_if(
+                    id,
+                    &[StatusGuard::Queued],
+                    &GatewayRequestState::Batching,
+                    11,
+                    None,
+                )
+                .await
+                .unwrap();
+        }
+
+        let wallet = Address::repeat_byte(0x22);
+        assert_eq!(
+            store
+                .update_status_batch_if(
+                    &ids,
+                    &[StatusGuard::Batching],
+                    &GatewayRequestState::Submitted {
+                        tx_hash: "0xfeed".to_string(),
+                    },
+                    12,
+                    Some(wallet),
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Applied
+        );
+
+        for id in &ids {
+            let record = store.request(id).await.unwrap().unwrap();
+            assert!(matches!(
+                record.status,
+                GatewayRequestState::Submitted { .. }
+            ));
+            assert_eq!(record.wallet, Some(wallet));
+        }
+    }
 }

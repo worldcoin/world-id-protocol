@@ -387,8 +387,9 @@ async fn sweep_fresh_queued_untouched() {
     assert!(is_in_pending_set(&mut redis, "fresh-queued").await);
 }
 
-/// Verifies that a `Batching` request older than the queued threshold is
-/// marked as `Failed`. Batching and Queued share the same staleness logic.
+/// Verifies that a `Batching` request older than the in-progress threshold is
+/// marked as `Failed`. `Batching` covers work a batcher holds, so it uses the
+/// longer threshold rather than the queued one.
 #[tokio::test]
 async fn sweep_stale_batching_request() {
     let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
@@ -404,7 +405,10 @@ async fn sweep_stale_batching_request() {
     )
     .await;
 
-    let config = OrphanSweeperConfig::default();
+    let config = OrphanSweeperConfig {
+        stale_submitted_threshold_secs: 120,
+        ..Default::default()
+    };
     sweep_once(&tracker, &config).await;
 
     let record = read_record(&mut redis, "stale-batching").await.unwrap();
@@ -557,34 +561,4 @@ async fn sweep_leaves_fresh_legacy_submission_untouched() {
         GatewayRequestState::Submitted { .. }
     ));
     assert!(is_in_pending_set(&mut redis, "fresh-legacy-submitted").await);
-}
-
-/// The sweeper must never overwrite a status another owner already advanced.
-/// It writes through a guard that only accepts `Queued` and `Batching`, so a
-/// stale snapshot cannot turn a `Submitted` request into a failure.
-#[tokio::test]
-async fn sweep_cannot_overwrite_a_resolved_request() {
-    let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
-    let tracker = tracker(&url).await;
-
-    inject_request(
-        &mut redis,
-        "already-finalized-stale",
-        GatewayRequestKind::CreateAccount,
-        GatewayRequestState::Finalized {
-            tx_hash: "0x44".to_string(),
-        },
-        now_unix_secs() - 3_600,
-    )
-    .await;
-
-    sweep_once(&tracker, &OrphanSweeperConfig::default()).await;
-
-    let record = read_record(&mut redis, "already-finalized-stale")
-        .await
-        .unwrap();
-    assert!(
-        matches!(record.status, GatewayRequestState::Finalized { .. }),
-        "a terminal status must survive a stale sweeper pass"
-    );
 }

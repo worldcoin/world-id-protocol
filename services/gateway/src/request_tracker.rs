@@ -231,8 +231,8 @@ impl RequestTracker {
 
     /// Computes queued-backlog urgency statistics from pending requests in a given scope.
     ///
-    /// The stats are based only on requests currently in `Queued` state and whose
-    /// [`GatewayRequestKind`] belongs to `scope`.
+    /// The stats count requests in `Queued` state and, separately, requests a
+    /// batcher has already taken, whose [`GatewayRequestKind`] belongs to `scope`.
     pub async fn queued_backlog_stats_for_scope(
         &self,
         scope: BacklogScope,
@@ -245,6 +245,7 @@ impl RequestTracker {
         let records = self.snapshot_batch(&ids).await?;
         let now = now_unix_secs();
         let mut queued_count = 0usize;
+        let mut in_progress_count = 0usize;
         let mut oldest_age_secs = 0u64;
         for (_, maybe_record) in records {
             let Some(record) = maybe_record else {
@@ -253,19 +254,24 @@ impl RequestTracker {
             if !matches_scope(record.kind, scope) {
                 continue;
             }
-            if matches!(record.status, GatewayRequestState::Queued) {
-                let age = now.saturating_sub(record.updated_at);
-                queued_count += 1;
-                oldest_age_secs = oldest_age_secs.max(age);
+            match record.status {
+                GatewayRequestState::Queued => {
+                    let age = now.saturating_sub(record.updated_at);
+                    queued_count += 1;
+                    oldest_age_secs = oldest_age_secs.max(age);
+                }
+                GatewayRequestState::Batching => in_progress_count += 1,
+                _ => {}
             }
         }
 
-        if queued_count == 0 {
+        if queued_count == 0 && in_progress_count == 0 {
             return Ok(BacklogUrgencyStats::default());
         }
 
         Ok(BacklogUrgencyStats {
             queued_count,
+            in_progress_count,
             oldest_age_secs,
         })
     }

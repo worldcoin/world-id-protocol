@@ -35,11 +35,11 @@ pub const METRICS_WALLET_IN_FLIGHT: &str = "wallet.in_flight";
 pub const METRICS_WALLET_PARKED: &str = "wallet.parked";
 pub const METRICS_WALLET_ACQUIRE_WAIT_MS: &str = "wallet.acquire_wait_ms";
 pub const METRICS_WALLET_ACQUIRE_EMPTY: &str = "wallet.acquire_empty";
-pub const METRICS_WALLET_OUTCOME: &str = "wallet.outcome_total";
+pub const METRICS_WALLET_OUTCOME: &str = "wallet.outcome";
 pub const METRICS_WALLET_TIME_IN_FLIGHT_MS: &str = "wallet.time_in_flight_ms";
 pub const METRICS_WALLET_CONFIRMATIONS_AT_RELEASE: &str = "wallet.confirmations_at_release";
-pub const METRICS_WALLET_REBROADCAST: &str = "wallet.rebroadcast_total";
-pub const METRICS_WALLET_TRACKER_ERRORS: &str = "wallet.tracker_errors";
+pub const METRICS_WALLET_REBROADCAST: &str = "wallet.rebroadcast";
+pub const METRICS_WALLET_TRACKER_ERRORS: &str = "wallet.tracker_error";
 
 pub fn describe_metrics() {
     world_id_services_common::describe_http_request_metrics();

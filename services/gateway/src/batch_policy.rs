@@ -13,7 +13,14 @@ use crate::{config::BatchPolicyConfig, metrics};
 /// Aggregated queued backlog pressure from Redis.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BacklogUrgencyStats {
+    /// Requests still waiting to be taken by a batcher.
     pub queued_count: usize,
+    /// Requests a batcher has taken but not yet put on chain.
+    ///
+    /// Counted separately because the policy's urgency should not be inflated by
+    /// work already dispatched, while the "Redis has forgotten our queue" resync
+    /// must not fire while such work exists.
+    pub in_progress_count: usize,
     pub oldest_age_secs: u64,
 }
 
@@ -344,6 +351,7 @@ mod tests {
     fn defer_when_cost_high_and_urgency_low() {
         let engine = BatchPolicyEngine::new(cfg());
         let stats = BacklogUrgencyStats {
+            in_progress_count: 0,
             queued_count: 4,
             oldest_age_secs: 2,
         };
@@ -356,6 +364,7 @@ mod tests {
     fn defer_when_cost_high_and_urgency_medium() {
         let engine = BatchPolicyEngine::new(cfg());
         let stats = BacklogUrgencyStats {
+            in_progress_count: 0,
             queued_count: 80,
             oldest_age_secs: 21,
         };
@@ -368,6 +377,7 @@ mod tests {
     fn force_send_at_max_wait() {
         let engine = BatchPolicyEngine::new(cfg());
         let stats = BacklogUrgencyStats {
+            in_progress_count: 0,
             queued_count: 10,
             oldest_age_secs: 30,
         };
@@ -384,6 +394,7 @@ mod tests {
 
         let low = engine.evaluate(
             BacklogUrgencyStats {
+                in_progress_count: 0,
                 queued_count: 1,
                 oldest_age_secs: 1,
             },
@@ -394,6 +405,7 @@ mod tests {
 
         let medium = engine.evaluate(
             BacklogUrgencyStats {
+                in_progress_count: 0,
                 queued_count: 100,
                 oldest_age_secs: 15,
             },
@@ -404,6 +416,7 @@ mod tests {
 
         let high = engine.evaluate(
             BacklogUrgencyStats {
+                in_progress_count: 0,
                 queued_count: 500,
                 oldest_age_secs: 20,
             },
@@ -414,6 +427,7 @@ mod tests {
 
         let high_cost_low_urgency = engine.evaluate(
             BacklogUrgencyStats {
+                in_progress_count: 0,
                 queued_count: 2,
                 oldest_age_secs: 1,
             },
@@ -425,6 +439,7 @@ mod tests {
 
         let high_cost_medium_urgency = engine.evaluate(
             BacklogUrgencyStats {
+                in_progress_count: 0,
                 queued_count: 80,
                 oldest_age_secs: 21,
             },
@@ -436,6 +451,7 @@ mod tests {
 
         let high_cost_high_urgency = engine.evaluate(
             BacklogUrgencyStats {
+                in_progress_count: 0,
                 queued_count: 300,
                 oldest_age_secs: 29,
             },

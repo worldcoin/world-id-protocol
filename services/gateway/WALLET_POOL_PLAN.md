@@ -439,11 +439,11 @@ Endpoint pinning is what makes the `latest > nonce` inference sound: if the pinn
 occupant is not ours.
 
 Re-broadcast is rate-limited to one attempt per `WALLET_REBROADCAST_INTERVAL_SECS` (default 30).
-The attempt counter is incremented only when a send is actually attempted and its outcome is
-success or ambiguous — `already known` proves our transaction is in a mempool, so it counts as
-liveness and consumes nothing. At `WALLET_REBROADCAST_MAX_ATTEMPTS` (default 10) the resolver
-stops re-broadcasting and lets the resolution timeout park the wallet, so parking has exactly one
-trigger. Without the backoff and the classification, an underpriced transaction is re-sent every
+The attempt is claimed — under the same compare-and-set that guards the `attempts` counter — before
+the send, so two resolver passes cannot both issue one or lose an increment. `already known` is
+treated as liveness rather than as a failure: it does not stop the wallet from resolving. At
+`WALLET_REBROADCAST_MAX_ATTEMPTS` (default 10) the resolver stops re-broadcasting and lets the
+resolution timeout park the wallet, so parking has exactly one trigger. Without the backoff and the classification, an underpriced transaction is re-sent every
 pass for 900s against the same node (a self-inflicted retry storm).
 
 Provider caveat: `pending` reflects the mempool of the node answering. On an L2 whose sequencer is
@@ -460,8 +460,7 @@ outcome:
   bounded answer; this matches today's 600s sweeper behaviour and preserves the
   `TransactionReverted`/`ConfirmationError` distinction clients already see.
 - Transition the record to `parked`: excluded from `acquire()`, still present, still probed.
-- Emit the `wallet.parked` gauge and an ERROR log with `wallet`, `tx_hash`, `nonce`, `pending`,
-  `latest`.
+- Emit the `wallet.parked` gauge and an ERROR log with `wallet`, `tx_hash`, `nonce` and `attempts`.
 
 **A parked wallet resolves only on a receipt or on `latest > nonce`.** It never resolves because a
 single node's mempool no longer lists the transaction, and it is **not** re-broadcast — its
@@ -552,11 +551,11 @@ batch-level transition is one script over the whole batch so it is all-or-nothin
 - Backpressure lives here, not inside submission: when no wallet is free the batch returns to the
   local queue, the queue fills, the local-capacity limit pauses intake, and the bounded channel
   throttles upstream.
-- The residual latency floor is real: a release notification is process-local, so a batcher
-  waiting on a wallet released by another replica waits up to
-  `min(WALLET_ACQUIRE_TIMEOUT_SECS, NOTIFY_WAIT)` where `NOTIFY_WAIT` is a new derived constant of
-  `WALLET_TRACKER_INTERVAL_SECS`. A cross-replica signal is not worth the complexity at this
-  scale.
+- The residual latency floor is real: a release notification is process-local, so it cannot report
+  a wallet freed by another replica. `acquire` therefore rechecks every
+  `WALLET_TRACKER_INTERVAL_SECS` as well as waiting for a notification, bounding the delay to one
+  tracker interval rather than the whole acquire timeout. A cross-replica signal is not worth the
+  complexity at this scale.
 - `update_status_if` is a new Lua compare-and-set in `RequestStore`: apply the new status only if
   the stored status is in the expected set, and (for `Submitted`) write `tx_hash` and `wallet`.
   This fixes a pre-existing race: `update_status` is today a blind read-modify-write, so the
@@ -615,8 +614,9 @@ revisits two of these deliberately — durable batch records and the safe-head r
 
 New knobs follow the existing `config.rs` pattern: a `defaults` const, a clap/env field, and a
 `validate()` floor. Env names are the SCREAMING_SNAKE form of the field, as
-`STALE_QUEUED_THRESHOLD_SECS` maps to `stale_queued_threshold_secs`. The `wallet_*` fields sit flat
-on `GatewayConfig` (P1).
+`STALE_QUEUED_THRESHOLD_SECS` maps to `stale_queued_threshold_secs`. The fields live in a
+`WalletArgs` sub-struct flattened into `GatewayConfig`, so they are flat on the CLI and in the
+environment while staying grouped in the Rust type.
 
 | Env var | Field | Default | Validation |
 |---|---|---|---|
@@ -625,7 +625,7 @@ on `GatewayConfig` (P1).
 | `WALLET_TRACKER_INTERVAL_SECS` | `wallet_tracker_interval_secs` | 2 | `>= 1` |
 | `WALLET_FIRST_PROBE_DELAY_SECS` | `wallet_first_probe_delay_secs` | 2 | `>= WALLET_TRACKER_INTERVAL_SECS` |
 | `WALLET_SIGN_LEASE_SECS` | `wallet_sign_lease_secs` | 30 | `>= 5` |
-| `WALLET_ACQUIRE_TIMEOUT_SECS` | `wallet_acquire_timeout_secs` | 60 | `>= 1`, `< STALE_QUEUED_THRESHOLD_SECS` |
+| `WALLET_ACQUIRE_TIMEOUT_SECS` | `wallet_acquire_timeout_secs` | 20 | `>= 1`, `< STALE_QUEUED_THRESHOLD_SECS` |
 | `WALLET_REBROADCAST_INTERVAL_SECS` | `wallet_rebroadcast_interval_secs` | 30 | `>= WALLET_TRACKER_INTERVAL_SECS` |
 | `WALLET_REBROADCAST_MAX_ATTEMPTS` | `wallet_rebroadcast_max_attempts` | 10 | `>= 1` |
 | `WALLET_STATE_TTL_SECS` | `wallet_state_ttl_secs` | 86400 | `> WALLET_RESOLUTION_TIMEOUT_SECS` |
@@ -685,13 +685,19 @@ Redis is the system of record for leases, so the production instance must not ev
 Note that `allkeys-lru`, `volatile-lru` and `volatile-ttl` all evict TTL-bearing keys, so the
 requirement is that wallet keys are effectively non-evictable; verify at the infra layer (§10 Q6).
 
-The resolver iterates local configuration, so a wallet that leaves configuration while in flight
-would otherwise never be resolved. P2 therefore adds two additive fields to `RequestRecord`:
+**Status: specified but not implemented in this stack.** The reconciliation below was not built
+alongside the rest of P2, and neither were its metrics. The primary control is therefore the
+non-evictable Redis configuration. Until it exists, a wallet that leaves configuration while in
+flight — or a wallet record that is lost — leaves its requests non-terminal and ownerless, with no
+metric to say so. Implementing it is the first follow-up.
 
-- `wallet: Option<Address>`, written by the guarded `Batching → Submitted` script (§5.7);
-- `tx_hash: Option<String>`, likewise.
+The resolver iterates local configuration, so losing a record is otherwise invisible. P2 adds one
+additive field to `RequestRecord`:
 
-Old records decode with `None` for both. The resolver's reconciliation pass (slow cadence) scans
+- `wallet: Option<Address>`, written by the guarded `Batching → Submitted` script (§5.7). The
+  transaction hash is not duplicated: it already appears in `GatewayRequestState::Submitted`.
+
+Old records decode with `None`. The reconciliation pass (slow cadence) would scan
 `gateway:pending_requests` for `Submitted` records whose `wallet` is set, and:
 
 - if that wallet has a record but is neither configured nor draining, increments
@@ -816,9 +822,8 @@ prefix and none should be introduced. Declare each with `metrics::describe_*`.
 | `wallet.pool_size` | gauge | configured wallets; `0` ⇒ misconfiguration, alert |
 | `wallet.in_flight` | gauge | pool utilisation; equal to pool size ⇒ saturated, scale wallets |
 | `wallet.parked` | gauge | **> 0 ⇒ page**: wallets are out of service and requests were failed |
-| `wallet.unconfigured` | gauge | > 0 ⇒ leases for wallets neither configured nor draining |
-| `wallet.orphaned_submitted` | counter | §6.4 backstop fired; alert |
-| `wallet.lease_lost` | counter | an index address whose record is missing/expired; alert |
+| `wallet.unconfigured` | gauge | **not implemented** — §6.4 backstop deferred (§6.4) |
+| `wallet.orphaned_submitted` | counter | **not implemented** — §6.4 backstop deferred (§6.4) |
 | `wallet.acquire_wait_ms` | histogram | queueing delay caused by the pool |
 | `wallet.acquire_empty` | counter | saturation signal, **not** an error; alert on sustained growth |
 | `wallet.outcome_total{outcome}` | counter | `confirmed` / `reverted` / `replaced` / `parked` — includes park, which is not a release |
