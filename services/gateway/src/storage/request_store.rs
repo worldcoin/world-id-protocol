@@ -965,13 +965,14 @@ mod tests {
             StatusWriteOutcome::Applied
         );
 
-        // The sweeper's guard must not be able to move it any further, because a
-        // batcher already owns it.
+        // A write decided from a stale snapshot must be refused. The sweeper
+        // matches a `Queued` request, and by the time it writes a batcher owns
+        // it, so a guard on the state the sweeper actually observed is rejected.
         assert_eq!(
             store
                 .update_status_if(
                     id,
-                    &[StatusGuard::Queued, StatusGuard::Batching],
+                    &[StatusGuard::Queued],
                     &GatewayRequestState::failed(
                         "stale",
                         Some(GatewayErrorCode::InternalServerError)
@@ -982,6 +983,22 @@ mod tests {
                 .await
                 .unwrap(),
             StatusWriteOutcome::Guarded
+        );
+
+        // A guard that legitimately includes the current state still applies:
+        // that is how the sweeper fails a stale in-progress request.
+        assert_eq!(
+            store
+                .update_status_if(
+                    id,
+                    &[StatusGuard::Batching],
+                    &GatewayRequestState::Batching,
+                    12,
+                    None,
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Applied
         );
 
         // A submitted write from the owning batcher records the wallet.
