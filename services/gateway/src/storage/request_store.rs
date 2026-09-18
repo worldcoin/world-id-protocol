@@ -1040,7 +1040,10 @@ mod tests {
                 .unwrap();
         }
 
-        let ids = vec![first.to_string(), second.to_string()];
+        // The awaiting record is deliberately first: a naive write-as-you-go
+        // implementation would write it before discovering the guard failure on
+        // the second, and this test would then catch it.
+        let ids = vec![second.to_string(), first.to_string()];
 
         // Only one of the two is still awaiting submission.
         store

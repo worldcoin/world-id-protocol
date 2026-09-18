@@ -25,7 +25,7 @@ Related: #937, #949, #920, #935, #936; closed #921/#923/#924/#925/#928.
    answers the reorg question §5.3 leaves open, and its documented `fail()` contract is exactly
    the resolver §5.4 specifies. It is also about half a specification rather than finished code,
    so this is new work, not a resurrected PR (§4.3).
-6. **Redis: additive only.** One new key family — a per-wallet record — and two additive fields on
+6. **Redis: additive only.** One new key family — a per-wallet record — and one additive field on
    `RequestRecord`. No renames, no shape changes to existing keys, no migration script (§6).
 7. **The pool is conditional.** If it does not beat `main`'s pipelined single wallet, keep
    `main` and keep only P1 (§5.3).
@@ -166,8 +166,8 @@ deployable without P3.
 - Deletes the per-batch receipt task and the receipt-polling half of the orphan sweeper.
 - Keeps a shrunk `orphan_sweeper` (§5.6), which requires restoring
   `RequestStore::remove_pending_request` from `main`.
-- Adds `RequestStore::update_status_if` (compare-and-set status write, §5.7) and the two additive
-  `RequestRecord` fields (§6.4).
+- Adds `RequestStore::update_status_if` (compare-and-set status write, §5.7) and the additive
+  `RequestRecord::wallet` field (§6.4).
 - Restores `ProviderArgs::http()`/`http_wallet()` signatures; adds `http_wallets()` alongside. No
   indexer or relay edits.
 
@@ -560,7 +560,7 @@ batch-level transition is one script over the whole batch so it is all-or-nothin
   the stored status is in the expected set, and (for `Submitted`) write `tx_hash` and `wallet`.
   This fixes a pre-existing race: `update_status` is today a blind read-modify-write, so the
   sweeper and the receipt tracker can already clobber each other. It adds no new Redis key and no
-  new field beyond the two additive ones of §6.4.
+  new field beyond the additive one of §6.4.
 - Record acquire wait in a histogram and count `wallet.acquire_empty`. Saturation must be visible
   (F11), and it is not an error, so it must not look like one.
 
@@ -634,8 +634,7 @@ environment while staying grouped in the Rust type.
 | `WALLET_PRIVATE_KEYS` | `SignerArgs` (P3) | unset | as above |
 
 Reused unchanged: `ORPHAN_SWEEPER_INTERVAL_SECS`, `STALE_QUEUED_THRESHOLD_SECS`,
-`STALE_SUBMITTED_THRESHOLD_SECS` (widened, §5.6). Derived, not configurable: `inflight_ttl`,
-`NOTIFY_WAIT`.
+`STALE_SUBMITTED_THRESHOLD_SECS` (widened, §5.6). Derived, not configurable: `inflight_ttl`.
 
 ---
 
@@ -663,7 +662,7 @@ Reused unchanged: `ORPHAN_SWEEPER_INTERVAL_SECS`, `STALE_QUEUED_THRESHOLD_SECS`,
 
 | Key | Status | Notes |
 |---|---|---|
-| `gateway:request:{id}` | unchanged shape, two additive fields | JSON `RequestRecord`, TTL 24h; gains `wallet` and `tx_hash` (§6.4) |
+| `gateway:request:{id}` | unchanged shape, one additive field | JSON `RequestRecord`, TTL 24h; gains `wallet` (§6.4) |
 | `gateway:pending_requests` | unchanged | set, no TTL; pruned by the shrunk sweeper |
 | `gateway:inflight:{create\|leaf}:{value}` | unchanged shape, longer TTL | legacy `'1'` owner tolerated |
 | `gateway:ratelimit:leaf:{index}` | unchanged | zset, TTL = window |
@@ -826,11 +825,11 @@ prefix and none should be introduced. Declare each with `metrics::describe_*`.
 | `wallet.orphaned_submitted` | counter | **not implemented** — §6.4 backstop deferred (§6.4) |
 | `wallet.acquire_wait_ms` | histogram | queueing delay caused by the pool |
 | `wallet.acquire_empty` | counter | saturation signal, **not** an error; alert on sustained growth |
-| `wallet.outcome_total{outcome}` | counter | `confirmed` / `reverted` / `replaced` / `parked` — includes park, which is not a release |
+| `wallet.outcome{outcome}` | counter | `confirmed` / `reverted` / `replaced` / `parked` — includes park, which is not a release |
 | `wallet.time_in_flight_ms` | histogram | per-wallet turnaround |
 | `wallet.confirmations_at_release` | histogram | evidence for `WALLET_RELEASE_CONFIRMATIONS` |
-| `wallet.rebroadcast_total` | counter | ambiguous broadcast, crash, or mempool eviction |
-| `wallet.tracker_errors` | counter | RPC failures in the resolver; sustained ⇒ RPC/Redis problem |
+| `wallet.rebroadcast` | counter | ambiguous broadcast, crash, or mempool eviction |
+| `wallet.tracker_error` | counter | RPC failures in the resolver; sustained ⇒ RPC/Redis problem |
 | `batch.success`, `batch.failure`, `batch.latency_ms` | existing | keep; measure latency from `submitted_at` |
 
 Logging: DEBUG on lease acquire and release (these happen at batch rate); INFO on park, on the
@@ -894,7 +893,7 @@ RPC failure injection and a two-endpoint provider for pinning.
   - receipt `Ok(Some)`, `block_number` ahead of `head` → waits, no underflow;
   - receipt `Ok(Some)`, block no longer canonical → falls through to the probe;
   - receipt `Ok(Some)`, reverted → `Failed`, released;
-  - receipt `Err` → unchanged, `tracker_errors` incremented, **never** resolves;
+  - receipt `Err` → unchanged, `wallet.tracker_error` incremented, **never** resolves;
   - receipt `Ok(None)`, `get_transaction_by_hash` `Some` → waits;
   - receipt `Ok(None)` then `latest > nonce`, but a re-read finds the receipt → resolves as
     success, does **not** report `replaced` (the step-1/step-4 TOCTOU);
@@ -902,7 +901,7 @@ RPC failure injection and a two-endpoint provider for pinning.
   - receipt `Ok(None)`, `pending > nonce` → waits;
   - receipt `Ok(None)`, nonce free → re-broadcasts, honours the interval, retains the lease,
     increments `attempts`;
-  - send error `already known` → waits and consumes no attempt;
+  - send error `already known` → waits; the attempt is already claimed before the send;
   - end-to-end endpoint disagreement: a second URL one block behind must not fail a successful
     transaction.
 - Crash between `in_flight` persist and the guarded transition: the resolver writes the request

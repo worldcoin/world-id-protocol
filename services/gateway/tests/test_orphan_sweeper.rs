@@ -562,3 +562,45 @@ async fn sweep_leaves_fresh_legacy_submission_untouched() {
     ));
     assert!(is_in_pending_set(&mut redis, "fresh-legacy-submitted").await);
 }
+/// Work a batcher already owns must be reported separately from work still
+/// waiting: the policy retries the former, and the resync must not clear the
+/// local queue while it exists.
+#[tokio::test]
+async fn queued_backlog_stats_separate_in_progress_work() {
+    let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
+    let tracker = tracker(&url).await;
+
+    inject_request(
+        &mut redis,
+        "stats-queued",
+        GatewayRequestKind::CreateAccount,
+        GatewayRequestState::Queued,
+        now_unix_secs() - 5,
+    )
+    .await;
+    inject_request(
+        &mut redis,
+        "stats-batching",
+        GatewayRequestKind::CreateAccount,
+        GatewayRequestState::Batching,
+        now_unix_secs(),
+    )
+    .await;
+
+    let stats = tracker
+        .queued_backlog_stats_for_scope(BacklogScope::Create)
+        .await
+        .unwrap();
+    assert_eq!(stats.queued_count, 1);
+    assert_eq!(
+        stats.in_progress_count, 1,
+        "a batch a batcher owns is still unfinished work"
+    );
+
+    let ops = tracker
+        .queued_backlog_stats_for_scope(BacklogScope::Ops)
+        .await
+        .unwrap();
+    assert_eq!(ops.queued_count, 0);
+    assert_eq!(ops.in_progress_count, 0);
+}

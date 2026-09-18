@@ -276,6 +276,18 @@ impl SignerArgs {
         self.aws_kms_wallet_keys.is_some() || self.wallet_private_keys.is_some()
     }
 
+    /// Whether any of the per-replica signer variables is set.
+    ///
+    /// A configuration that sets both a pool and a legacy variable is ambiguous
+    /// about how many wallets this process owns, so it is rejected rather than
+    /// resolved in either direction.
+    #[must_use]
+    pub fn has_legacy_signer(&self) -> bool {
+        self.wallet_private_key.is_some()
+            || self.aws_kms_key_id.is_some()
+            || self.aws_kms_key_ids.is_some()
+    }
+
     /// Splits a pooled configuration into one single-signer configuration per
     /// wallet.
     ///

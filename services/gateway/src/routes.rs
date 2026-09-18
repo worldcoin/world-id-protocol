@@ -84,6 +84,22 @@ const ROOT_CACHE_SIZE: u64 = 1024;
 const CREATE_BATCHER_CHANNEL_CAPACITY: usize = 1024;
 const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
 
+/// Restarts the transaction resolver if it ever exits or panics.
+///
+/// The resolver should run for the lifetime of the process. Restarting rather
+/// than trusting it keeps a transient panic from silently disabling resolution
+/// for the rest of the pod's life.
+async fn supervise_resolver(submitter: Arc<TransactionSubmitter>) {
+    loop {
+        let worker = tokio::spawn(submitter.clone().run_resolver());
+        match worker.await {
+            Ok(()) => tracing::error!("transaction resolver exited unexpectedly; restarting"),
+            Err(error) => tracing::error!(%error, "transaction resolver panicked; restarting"),
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
 #[expect(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
@@ -155,7 +171,12 @@ pub(crate) async fn build_app(
 
     // Resolves every outstanding wallet transaction. This owns receipt polling:
     // the sweeper no longer looks up receipts at all.
-    tokio::spawn(submitter.clone().run_resolver());
+    //
+    // Supervised, because an exit or panic here would silently stop every
+    // resolution: in-flight records would stop being refreshed until their TTL
+    // expired and their wallets became reusable with a transaction still
+    // outstanding.
+    tokio::spawn(supervise_resolver(submitter.clone()));
     tracing::info!(
         wallets = submitter.pool_size(),
         acquirable = submitter.acquirable_size(),

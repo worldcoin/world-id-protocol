@@ -161,8 +161,8 @@ impl Default for WalletConfig {
 
 /// Durable wallet submission knobs.
 ///
-/// Flattened into [`GatewayConfig`] so the wallet fields sit alongside the rest
-/// of the submission configuration rather than inside a second sub-struct.
+/// Flattened into [`GatewayConfig`] so the CLI flags and environment variables
+/// are flat, while the fields stay grouped in the Rust type.
 #[derive(Clone, Debug, clap::Args)]
 pub struct WalletArgs {
     /// How long a wallet lease is held while its batch is signed, in seconds.
@@ -340,6 +340,14 @@ impl GatewayConfig {
     }
 
     pub fn validate(&self) -> GatewayResult<()> {
+        if self.provider.signer.is_pool_signer() && self.provider.signer.has_legacy_signer() {
+            return Err(GatewayError::Config(
+                "a shared wallet pool (WALLET_PRIVATE_KEYS or AWS_KMS_WALLET_KEYS) must not be \
+                 combined with a per-replica signer variable"
+                    .to_string(),
+            ));
+        }
+
         if self.provider.signer.signer_config().is_none() {
             return Err(GatewayError::Config(
                 "exactly one of --wallet-private-key, --aws-kms-key-id, or \

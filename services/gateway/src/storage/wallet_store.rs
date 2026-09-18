@@ -79,6 +79,17 @@ pub(crate) enum WalletState {
     Parked,
 }
 
+impl WalletState {
+    /// Serialized form, used as the compare-and-set guard value.
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Signing => "signing",
+            Self::InFlight => "in_flight",
+            Self::Parked => "parked",
+        }
+    }
+}
+
 /// Transaction fields recorded from the moment a batch is signed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Submission {
@@ -245,12 +256,15 @@ impl WalletStore {
         Ok(CasOutcome::from_lua(outcome))
     }
 
-    /// Replaces a record, guarded by `lease_id` and, when supplied, by
-    /// `expected_last_attempt_at`.
+    /// Replaces a record, guarded by `lease_id`, by `expected_state`, and, when
+    /// supplied, by `expected_last_attempt_at`.
     ///
-    /// The attempt guard is what keeps concurrent resolvers from each
-    /// incrementing `attempts` and from issuing duplicate re-broadcasts: only
-    /// the pass that read the current `last_attempt_at` may write the next one.
+    /// The state guard is what stops a resolver pass acting on a snapshot that
+    /// has since been parked: without it, an in-flight replacement would rewrite
+    /// a parked record and re-broadcast a transaction whose requests were already
+    /// failed. The attempt guard keeps concurrent resolvers from each
+    /// incrementing `attempts` and from issuing duplicate re-broadcasts: only the
+    /// pass that read the current `last_attempt_at` may write the next one.
     ///
     /// # Errors
     ///
@@ -259,6 +273,7 @@ impl WalletStore {
         &self,
         wallet: Address,
         lease_id: Uuid,
+        expected_state: WalletState,
         expected_last_attempt_at: Option<u64>,
         next: &WalletRecord,
         ttl: Duration,
@@ -279,11 +294,11 @@ impl WalletStore {
             end
 
             local decoded = cjson.decode(current)
-            if decoded.lease_id ~= ARGV[1] then
+            if decoded.lease_id ~= ARGV[1] or decoded.state ~= ARGV[2] then
                 return -1
             end
 
-            local expected = tonumber(ARGV[2])
+            local expected = tonumber(ARGV[3])
             if expected >= 0 then
                 local attempt = decoded.submission and tonumber(decoded.submission.last_attempt_at)
                 if attempt == nil or attempt ~= expected then
@@ -297,6 +312,7 @@ impl WalletStore {
         )
         .key(Self::key(wallet))
         .arg(lease_id.to_string())
+        .arg(expected_state.as_str())
         .arg(expected_attempt)
         .arg(value)
         .arg(ttl.as_secs())
@@ -580,6 +596,7 @@ mod tests {
                 .replace(
                     wallet,
                     lease_id,
+                    WalletState::InFlight,
                     Some(9),
                     &WalletRecord::in_flight(lease_id, next.clone()),
                     STATE_TTL
@@ -594,6 +611,7 @@ mod tests {
                 .replace(
                     wallet,
                     lease_id,
+                    WalletState::InFlight,
                     Some(10),
                     &WalletRecord::in_flight(lease_id, next),
                     STATE_TTL
@@ -652,6 +670,7 @@ mod tests {
                 .replace(
                     wallet,
                     lease_id,
+                    WalletState::InFlight,
                     Some(30),
                     &WalletRecord::parked(lease_id, submission.clone()),
                     STATE_TTL
@@ -687,6 +706,7 @@ mod tests {
             .replace(
                 wallet,
                 lease_id,
+                WalletState::InFlight,
                 Some(40),
                 &WalletRecord::in_flight(lease_id, submission(0, 41)),
                 Duration::from_secs(5),

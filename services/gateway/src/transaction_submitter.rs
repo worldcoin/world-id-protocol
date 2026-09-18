@@ -518,7 +518,11 @@ impl TransactionSubmitter {
                 confirmations,
             } => {
                 self.settle(entry, record, submission, success, confirmations)
-                    .await
+                    .await;
+                // Resolved: the record is released or retried on its own terms.
+                // Falling through to the timeout check below would park a wallet
+                // whose transaction is already accounted for.
+                return;
             }
             Probe::Replaced => {
                 tracing::error!(
@@ -528,6 +532,7 @@ impl TransactionSubmitter {
                     "wallet transaction was replaced; its requests cannot be confirmed"
                 );
                 self.fail_replaced(entry, record, submission).await;
+                return;
             }
             Probe::Absent => {
                 if !parked {
@@ -665,14 +670,16 @@ impl TransactionSubmitter {
             return Probe::Wait;
         };
 
-        // A receipt without a block hash cannot be checked against the chain, so
-        // treat it as included rather than as a reorganisation, which would
-        // trigger a pointless re-broadcast.
+        // A receipt without a block hash cannot be checked against the chain.
+        // Waiting is the only answer that neither re-broadcasts on a false
+        // reorganisation nor releases the wallet below the configured
+        // confirmation floor.
         let Some(receipt_block_hash) = receipt.block_hash else {
-            return Probe::Included {
-                success: receipt.status(),
-                confirmations: 0,
-            };
+            tracing::warn!(
+                tx_hash = %submission.tx_hash,
+                "receipt has no block hash; cannot verify inclusion yet"
+            );
+            return Probe::Wait;
         };
 
         match provider.get_block_by_number(block_number.into()).await {
@@ -829,6 +836,7 @@ impl TransactionSubmitter {
             .replace(
                 wallet,
                 record.lease_id,
+                WalletState::InFlight,
                 Some(submission.last_attempt_at),
                 &next,
                 self.state_ttl(),
@@ -942,6 +950,7 @@ impl TransactionSubmitter {
             .replace(
                 wallet,
                 lease_id,
+                WalletState::InFlight,
                 Some(submission.last_attempt_at),
                 &replacement,
                 self.state_ttl(),

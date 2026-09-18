@@ -123,7 +123,12 @@ impl BatchPolicyEngine {
     ) -> PolicyDecision {
         // Step 1: derive urgency from backlog pressure.
         let urgency_score = self.urgency_score(stats);
-        let has_backlog = stats.queued_count > 0;
+        // Requests a batcher already owns still need a transaction, so they are
+        // backlog too. Reporting only `Queued` here would make a batch that is
+        // waiting for a wallet look like an empty queue, and it would never be
+        // retried. Age-based urgency still comes from `Queued` alone, so this
+        // does not let in-progress work force a send it does not warrant.
+        let has_backlog = stats.queued_count > 0 || stats.in_progress_count > 0;
         let force_send = has_backlog && stats.oldest_age_secs >= self.cfg.max_wait_secs;
         let max_batch_size = max_batch_size.max(1);
 
