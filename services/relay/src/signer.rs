@@ -111,3 +111,119 @@ impl RelaySigners {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::{CommandFactory, FromArgMatches, error::ErrorKind};
+
+    const TEST_KEY: &str = "0000000000000000000000000000000000000000000000000000000000000001";
+
+    #[derive(clap::Parser)]
+    struct TestCli {
+        #[command(flatten)]
+        signer: SignerArgs,
+    }
+
+    fn parse(args: &[&str]) -> Result<SignerArgs, clap::Error> {
+        let matches = TestCli::command()
+            .mut_arg("aws_kms_signing", |arg| arg.env(None::<&str>))
+            .mut_arg("wallet_private_key", |arg| arg.env(None::<&str>))
+            .try_get_matches_from(args)?;
+        Ok(TestCli::from_arg_matches(&matches)?.signer)
+    }
+
+    #[test]
+    fn cli_requires_exactly_one_signer() {
+        assert_eq!(
+            parse(&["relay"]).unwrap_err().kind(),
+            ErrorKind::MissingRequiredArgument
+        );
+        assert_eq!(
+            parse(&[
+                "relay",
+                "--aws-kms-signing",
+                "--wallet-private-key",
+                TEST_KEY
+            ])
+            .unwrap_err()
+            .kind(),
+            ErrorKind::ArgumentConflict
+        );
+        assert!(
+            parse(&["relay", "--aws-kms-signing"])
+                .unwrap()
+                .aws_kms_signing
+        );
+        assert_eq!(
+            parse(&["relay", "--wallet-private-key", TEST_KEY])
+                .unwrap()
+                .wallet_private_key
+                .as_deref(),
+            Some(TEST_KEY)
+        );
+    }
+
+    #[tokio::test]
+    async fn init_rejects_missing_conflicting_and_invalid_signers() {
+        for args in [
+            SignerArgs::default(),
+            SignerArgs {
+                aws_kms_signing: true,
+                wallet_private_key: Some(TEST_KEY.into()),
+            },
+            SignerArgs {
+                aws_kms_signing: false,
+                wallet_private_key: Some("invalid".into()),
+            },
+        ] {
+            assert!(RelaySigners::init(&args).await.is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn legacy_signer_keeps_one_address_across_networks() {
+        let signers = RelaySigners::init(&SignerArgs {
+            aws_kms_signing: false,
+            wallet_private_key: Some(TEST_KEY.into()),
+        })
+        .await
+        .unwrap();
+        let source = signers.wallet_for("WORLDCHAIN", 480).await.unwrap();
+        for (network, chain_id) in [("BASE", 8453), ("TEMPO", 4217), ("ARC", 5042)] {
+            let satellite = signers.wallet_for(network, chain_id).await.unwrap();
+            assert_eq!(source.address, satellite.address);
+        }
+    }
+
+    #[test]
+    fn kms_key_names_follow_rpc_names() {
+        for (network, expected) in [
+            ("WORLDCHAIN", "WORLDCHAIN_AWS_KMS_KEY_ID"),
+            ("base", "BASE_AWS_KMS_KEY_ID"),
+            ("TEMPO", "TEMPO_AWS_KMS_KEY_ID"),
+            ("arc_testnet", "ARC_TESTNET_AWS_KMS_KEY_ID"),
+        ] {
+            assert_eq!(kms_key_env_var(network), expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn kms_requires_each_network_key_without_falling_back() {
+        let signers = RelaySigners::init(&SignerArgs {
+            aws_kms_signing: true,
+            wallet_private_key: None,
+        })
+        .await
+        .unwrap();
+        let error = signers
+            .wallet_for("RELAY_TEST_MISSING_NETWORK", 480)
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("RELAY_TEST_MISSING_NETWORK_AWS_KMS_KEY_ID")
+        );
+    }
+}

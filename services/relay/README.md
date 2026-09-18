@@ -116,6 +116,9 @@ Exactly one signing backend must be configured; startup fails if both or neither
 - **Raw private key** (`WALLET_PRIVATE_KEY`) — legacy, one key shared by every network.
   Kept for local development and as a rollback path; logs a warning at startup.
 
+To restore private-key signing, unset `AWS_KMS_SIGNING` and restore `WALLET_PRIVATE_KEY`.
+The old signer must own each permissioned gateway before it can relay again.
+
 Each KMS signer is pinned to its network's chain id, so a key id wired to the wrong
 network fails at signing time instead of submitting a transaction on the wrong chain.
 The private-key backend is not pinned, matching its previous behaviour.
@@ -138,7 +141,6 @@ for the provisioned keys and cutover order.
 | `AWS_KMS_SIGNING` | one of | Set to `true` to sign with per-network AWS KMS keys (**preferred**). Mutually exclusive with `WALLET_PRIVATE_KEY` |
 | `{NETWORK}_AWS_KMS_KEY_ID` | per network | KMS key id/ARN for that network, e.g. `WORLDCHAIN_AWS_KMS_KEY_ID`, `BASE_AWS_KMS_KEY_ID`. Required for every configured network when `AWS_KMS_SIGNING` is set |
 | `WALLET_PRIVATE_KEY` | one of | Hex private key used for every network (legacy). Mutually exclusive with `AWS_KMS_SIGNING` |
-| `AWS_KMS_KEY_IDS` | no | Per-replica key list, inherited from the shared signer args. Not recommended for the relay (see above) |
 | `WORLDCHAIN_RPC_URL` | yes | World Chain RPC endpoint |
 | `{NAME}_RPC_URL` | per satellite | Satellite chain RPC endpoint, where `{NAME}` matches the satellite's `name` field in upper case (e.g. `ETHEREUM_RPC_URL`, `BASE_RPC_URL`) |
 
