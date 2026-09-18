@@ -69,7 +69,7 @@ eyre = "0.6"
 futures = "0.3"
 groth16-material = { package = "taceo-groth16-material", version = "0.3.0", default-features = false }
 hex = { version = "0.4" }
-ohttp = { version = "0.7", default-features = false }
+ohttp = { version = "0.8", default-features = false }
 bhttp = "0.7"
 itertools = "0.15"
 k256 = { version = "0.13" }
@@ -125,7 +125,9 @@ config = "0.15.19"
 dotenvy = "0.15"
 futures-util = "0.3"
 getrandom = "0.3"
-# `rand` 0.8's `OsRng` still uses `getrandom` 0.2, while OHTTP/HPKE uses 0.3.
+# OHTTP 0.8's `rand` 0.10 uses `getrandom` 0.4.
+getrandom-04 = { package = "getrandom", version = "0.4" }
+# `rand` 0.8's `OsRng` still uses `getrandom` 0.2.
 getrandom-02 = { package = "getrandom", version = "0.2" }
 governor = "0.10.4"
 http = "1"
@@ -144,7 +146,7 @@ semaphore-rs-hasher = "0.6.0"
 semaphore-rs-trees = "0.6.0"
 semaphore-rs-storage = "0.6.0"
 serial_test = "3"
-testcontainers = { version = "0.27", features = ["http_wait_plain", "host-port-exposure"] }
+testcontainers = { version = "0.28", features = ["http_wait_plain", "host-port-exposure"] }
 testcontainers-modules = { version = "0.15", features = ["redis"] }
 sqlx = "0.8"
 take_mut = "0.2.2"
@@ -167,6 +169,10 @@ world-id-oprf-node = { version = "1.2.0", path = "services/oprf-node" }
 world-id-test-utils = { path = "crates/test-utils" }
 world-id-services-common = { path = "services/common", version = "0.1.0" }
 world-id-relay = { path = "services/relay" }
+
+[patch.crates-io]
+testcontainers = { git = "https://github.com/Kemperino/testcontainers-rs", rev = "8571d4ea953a515b9dd3fe8aaa5dd904e305fb99" }
+testcontainers-modules = { git = "https://github.com/testcontainers/testcontainers-rs-modules-community", rev = "032bcf88c6564824e81ada9a416d4da9ed3f4dc4" }
 
 # Compile all third-party dependencies with optimizations, even in dev/test builds.
 # This is essential because arkworks-based zkey deserialization (used by
