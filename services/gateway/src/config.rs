@@ -14,6 +14,18 @@ pub mod defaults {
     pub const SWEEPER_INTERVAL_SECS: u64 = 30;
     pub const STALE_QUEUED_THRESHOLD_SECS: u64 = 60;
     pub const STALE_SUBMITTED_THRESHOLD_SECS: u64 = 600;
+    pub const WALLET_SIGN_LEASE_SECS: u64 = 30;
+    pub const WALLET_STATE_TTL_SECS: u64 = 86_400;
+    pub const WALLET_RELEASE_CONFIRMATIONS: u64 = 1;
+    pub const WALLET_RESOLUTION_TIMEOUT_SECS: u64 = 900;
+    pub const WALLET_TRACKER_INTERVAL_SECS: u64 = 2;
+    pub const WALLET_FIRST_PROBE_DELAY_SECS: u64 = 2;
+    /// Bounded wait for a free wallet. Kept well below
+    /// `STALE_QUEUED_THRESHOLD_SECS` so a batch waiting on capacity cannot be
+    /// mistaken for an abandoned request.
+    pub const WALLET_ACQUIRE_TIMEOUT_SECS: u64 = 20;
+    pub const WALLET_REBROADCAST_INTERVAL_SECS: u64 = 30;
+    pub const WALLET_REBROADCAST_MAX_ATTEMPTS: u32 = 10;
 }
 
 /// WorldIDRegistry implementation version to use for gateway request routing.
@@ -77,6 +89,123 @@ impl Default for OrphanSweeperConfig {
             interval_secs: defaults::SWEEPER_INTERVAL_SECS,
             stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
             stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
+        }
+    }
+}
+
+/// Configuration for durable wallet leasing and transaction resolution.
+///
+/// Every field is a bound on an operation that can fail: signing, waiting for a
+/// free wallet, deciding a transaction's fate, and retrying a broadcast. See
+/// `WALLET_POOL_PLAN.md` §5.11.
+#[derive(Clone, Debug)]
+pub struct WalletConfig {
+    /// How long a wallet lease is held while its batch is signed. Bounds only
+    /// the signing phase: nothing has been broadcast, so expiry is safe.
+    pub sign_lease_secs: u64,
+    /// Lifetime of a committed record. A rollback backstop, deliberately far
+    /// longer than any resolution window.
+    pub state_ttl_secs: u64,
+    /// Confirmations required before a wallet is released. Set to the chain's
+    /// practical reorg depth plus one to keep the one-transaction-per-wallet
+    /// guarantee strict.
+    pub release_confirmations: u64,
+    /// How long a transaction may stay undecided before its wallet is parked.
+    pub resolution_timeout_secs: u64,
+    /// Resolver tick interval.
+    pub tracker_interval_secs: u64,
+    /// Delay before the resolver first probes a freshly committed record, so it
+    /// does not race the submitter's own broadcast.
+    pub first_probe_delay_secs: u64,
+    /// Bounded wait for a free wallet before a batch is returned to the queue.
+    pub acquire_timeout_secs: u64,
+    /// Minimum spacing between re-broadcasts of the same transaction.
+    pub rebroadcast_interval_secs: u64,
+    /// Re-broadcast attempts before the resolver stops trying and lets the
+    /// resolution timeout park the wallet.
+    pub rebroadcast_max_attempts: u32,
+}
+
+impl WalletConfig {
+    /// Lifetime of an in-flight lock, derived so it outlives the submission it
+    /// protects instead of being a fixed constant that can lapse early.
+    #[must_use]
+    pub const fn inflight_ttl_secs(&self) -> u64 {
+        self.resolution_timeout_secs + 60
+    }
+}
+
+impl Default for WalletConfig {
+    fn default() -> Self {
+        Self {
+            sign_lease_secs: defaults::WALLET_SIGN_LEASE_SECS,
+            state_ttl_secs: defaults::WALLET_STATE_TTL_SECS,
+            release_confirmations: defaults::WALLET_RELEASE_CONFIRMATIONS,
+            resolution_timeout_secs: defaults::WALLET_RESOLUTION_TIMEOUT_SECS,
+            tracker_interval_secs: defaults::WALLET_TRACKER_INTERVAL_SECS,
+            first_probe_delay_secs: defaults::WALLET_FIRST_PROBE_DELAY_SECS,
+            acquire_timeout_secs: defaults::WALLET_ACQUIRE_TIMEOUT_SECS,
+            rebroadcast_interval_secs: defaults::WALLET_REBROADCAST_INTERVAL_SECS,
+            rebroadcast_max_attempts: defaults::WALLET_REBROADCAST_MAX_ATTEMPTS,
+        }
+    }
+}
+
+/// Durable wallet submission knobs.
+///
+/// Flattened into [`GatewayConfig`] so the wallet fields sit alongside the rest
+/// of the submission configuration rather than inside a second sub-struct.
+#[derive(Clone, Debug, clap::Args)]
+pub struct WalletArgs {
+    /// How long a wallet lease is held while its batch is signed, in seconds.
+    #[arg(long, env = "WALLET_SIGN_LEASE_SECS", default_value_t = defaults::WALLET_SIGN_LEASE_SECS)]
+    pub sign_lease_secs: u64,
+
+    /// Lifetime of a committed wallet record, in seconds.
+    #[arg(long, env = "WALLET_STATE_TTL_SECS", default_value_t = defaults::WALLET_STATE_TTL_SECS)]
+    pub state_ttl_secs: u64,
+
+    /// Confirmations required before a wallet is reused.
+    #[arg(long, env = "WALLET_RELEASE_CONFIRMATIONS", default_value_t = defaults::WALLET_RELEASE_CONFIRMATIONS)]
+    pub release_confirmations: u64,
+
+    /// How long a transaction may stay undecided before its wallet is parked, in seconds.
+    #[arg(long, env = "WALLET_RESOLUTION_TIMEOUT_SECS", default_value_t = defaults::WALLET_RESOLUTION_TIMEOUT_SECS)]
+    pub resolution_timeout_secs: u64,
+
+    /// Resolver tick interval, in seconds.
+    #[arg(long, env = "WALLET_TRACKER_INTERVAL_SECS", default_value_t = defaults::WALLET_TRACKER_INTERVAL_SECS)]
+    pub tracker_interval_secs: u64,
+
+    /// Delay before the resolver first probes a freshly committed transaction, in seconds.
+    #[arg(long, env = "WALLET_FIRST_PROBE_DELAY_SECS", default_value_t = defaults::WALLET_FIRST_PROBE_DELAY_SECS)]
+    pub first_probe_delay_secs: u64,
+
+    /// Bounded wait for a free wallet before returning a batch to the queue, in seconds.
+    #[arg(long, env = "WALLET_ACQUIRE_TIMEOUT_SECS", default_value_t = defaults::WALLET_ACQUIRE_TIMEOUT_SECS)]
+    pub acquire_timeout_secs: u64,
+
+    /// Minimum spacing between re-broadcasts of the same transaction, in seconds.
+    #[arg(long, env = "WALLET_REBROADCAST_INTERVAL_SECS", default_value_t = defaults::WALLET_REBROADCAST_INTERVAL_SECS)]
+    pub rebroadcast_interval_secs: u64,
+
+    /// Re-broadcast attempts before a wallet is left for the resolution timeout to park.
+    #[arg(long, env = "WALLET_REBROADCAST_MAX_ATTEMPTS", default_value_t = defaults::WALLET_REBROADCAST_MAX_ATTEMPTS)]
+    pub rebroadcast_max_attempts: u32,
+}
+
+impl Default for WalletArgs {
+    fn default() -> Self {
+        Self {
+            sign_lease_secs: defaults::WALLET_SIGN_LEASE_SECS,
+            state_ttl_secs: defaults::WALLET_STATE_TTL_SECS,
+            release_confirmations: defaults::WALLET_RELEASE_CONFIRMATIONS,
+            resolution_timeout_secs: defaults::WALLET_RESOLUTION_TIMEOUT_SECS,
+            tracker_interval_secs: defaults::WALLET_TRACKER_INTERVAL_SECS,
+            first_probe_delay_secs: defaults::WALLET_FIRST_PROBE_DELAY_SECS,
+            acquire_timeout_secs: defaults::WALLET_ACQUIRE_TIMEOUT_SECS,
+            rebroadcast_interval_secs: defaults::WALLET_REBROADCAST_INTERVAL_SECS,
+            rebroadcast_max_attempts: defaults::WALLET_REBROADCAST_MAX_ATTEMPTS,
         }
     }
 }
@@ -173,6 +302,9 @@ pub struct GatewayConfig {
     pub sweeper_interval_secs: u64,
 
     #[command(flatten)]
+    pub wallet: WalletArgs,
+
+    #[command(flatten)]
     pub batch_policy: BatchPolicyConfig,
 
     /// Staleness threshold for Queued/Batching requests (seconds).
@@ -256,6 +388,79 @@ impl GatewayConfig {
             ));
         }
 
+        self.validate_wallet()?;
+
+        Ok(())
+    }
+
+    /// Check the durable wallet knobs against their documented bounds.
+    fn validate_wallet(&self) -> GatewayResult<()> {
+        let wallet = self.wallet();
+
+        if wallet.sign_lease_secs < 5 {
+            return Err(GatewayError::Config(
+                "WALLET_SIGN_LEASE_SECS must be at least 5".to_string(),
+            ));
+        }
+
+        if wallet.state_ttl_secs <= wallet.resolution_timeout_secs {
+            return Err(GatewayError::Config(
+                "WALLET_STATE_TTL_SECS must be greater than WALLET_RESOLUTION_TIMEOUT_SECS"
+                    .to_string(),
+            ));
+        }
+
+        if wallet.release_confirmations == 0 {
+            return Err(GatewayError::Config(
+                "WALLET_RELEASE_CONFIRMATIONS must be at least 1".to_string(),
+            ));
+        }
+
+        if wallet.resolution_timeout_secs < 60 {
+            return Err(GatewayError::Config(
+                "WALLET_RESOLUTION_TIMEOUT_SECS must be at least 60".to_string(),
+            ));
+        }
+
+        if wallet.tracker_interval_secs == 0 {
+            return Err(GatewayError::Config(
+                "WALLET_TRACKER_INTERVAL_SECS must be greater than 0".to_string(),
+            ));
+        }
+
+        if wallet.first_probe_delay_secs < wallet.tracker_interval_secs {
+            return Err(GatewayError::Config(
+                "WALLET_FIRST_PROBE_DELAY_SECS must be at least WALLET_TRACKER_INTERVAL_SECS"
+                    .to_string(),
+            ));
+        }
+
+        if wallet.acquire_timeout_secs == 0 {
+            return Err(GatewayError::Config(
+                "WALLET_ACQUIRE_TIMEOUT_SECS must be greater than 0".to_string(),
+            ));
+        }
+
+        if wallet.acquire_timeout_secs >= self.stale_queued_threshold_secs {
+            return Err(GatewayError::Config(
+                "WALLET_ACQUIRE_TIMEOUT_SECS must be less than STALE_QUEUED_THRESHOLD_SECS"
+                    .to_string(),
+            ));
+        }
+
+        if wallet.rebroadcast_interval_secs < wallet.tracker_interval_secs {
+            return Err(GatewayError::Config(
+                "WALLET_REBROADCAST_INTERVAL_SECS must be at least WALLET_TRACKER_INTERVAL_SECS"
+                    .to_string(),
+            ));
+        }
+
+        if wallet.rebroadcast_max_attempts == 0 {
+            return Err(GatewayError::Config(
+                "WALLET_REBROADCAST_MAX_ATTEMPTS must be at least 1".to_string(),
+            ));
+        }
+
         Ok(())
     }
 
@@ -281,6 +486,22 @@ impl GatewayConfig {
             interval_secs: self.sweeper_interval_secs,
             stale_queued_threshold_secs: self.stale_queued_threshold_secs,
             stale_submitted_threshold_secs: self.stale_submitted_threshold_secs,
+        }
+    }
+
+    /// Durable wallet submission configuration.
+    #[must_use]
+    pub fn wallet(&self) -> WalletConfig {
+        WalletConfig {
+            sign_lease_secs: self.wallet.sign_lease_secs,
+            state_ttl_secs: self.wallet.state_ttl_secs,
+            release_confirmations: self.wallet.release_confirmations,
+            resolution_timeout_secs: self.wallet.resolution_timeout_secs,
+            tracker_interval_secs: self.wallet.tracker_interval_secs,
+            first_probe_delay_secs: self.wallet.first_probe_delay_secs,
+            acquire_timeout_secs: self.wallet.acquire_timeout_secs,
+            rebroadcast_interval_secs: self.wallet.rebroadcast_interval_secs,
+            rebroadcast_max_attempts: self.wallet.rebroadcast_max_attempts,
         }
     }
 }

@@ -13070,6 +13070,7 @@ dependencies = [
  "axum",
  "clap",
  "dotenvy",
+ "futures",
  "hex",
  "http 1.4.0",
  "indoc",
