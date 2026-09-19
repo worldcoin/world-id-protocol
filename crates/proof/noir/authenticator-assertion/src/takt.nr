@@ -5,22 +5,22 @@ use poseidon2::bn254::perm;
 
 pub struct TrustAnchorKeyToken {
     /// Expiration as seconds since the Unix epoch (CWT `exp`).
-    exp: Field,
+    pub exp: Field,
     /// Big-endian affine x coordinate of the attested assertion key (`cnf`).
-    pub(crate) assertion_key_x: [u8; 32],
+    pub assertion_key_x: [u8; 32],
     /// Big-endian affine y coordinate of the attested assertion key (`cnf`).
-    pub(crate) assertion_key_y: [u8; 32],
+    pub assertion_key_y: [u8; 32],
     /// Packed security attributes (`sec_flags`, LSB-first): platform
     /// (bits 0-7), sec_level (8-15), build_version (16-47), sec_meta (48-51).
-    sec_flags: Field,
+    pub sec_flags: Field,
     /// EdDSA signature scalar component.
-    sig_s: Field,
+    pub sig_s: Field,
     /// EdDSA signature point component (affine x, y).
-    sig_r: [Field; 2],
+    pub sig_r: [Field; 2],
     /// Affine x coordinate of the Authenticator Provider's `trust_anchor_key`.
-    trust_anchor_key_x: Field,
+    pub trust_anchor_key_x: Field,
     /// Affine y coordinate of the Authenticator Provider's `trust_anchor_key`.
-    trust_anchor_key_y: Field,
+    pub trust_anchor_key_y: Field,
 }
 
 /// Verifies a Trust Anchor Key Token.
