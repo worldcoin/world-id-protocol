@@ -17,7 +17,7 @@ use std::{
 };
 
 #[cfg(target_arch = "wasm32")]
-use getrandom as _;
+use getrandom_02 as _;
 
 /// Contains types related to the Authenticator.
 pub mod authenticator;
