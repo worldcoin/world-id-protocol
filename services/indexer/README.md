@@ -28,8 +28,8 @@ The Merkle tree is a `CascadingMerkleTree` using the Poseidon2 hash function bac
 
 On startup:
 
-- If the mmap file exists, the tree is restored from it. The restored root is validated against the DB: if no matching `RootRecorded` event is found in the DB the cache is considered stale and deleted, and the process exits. If valid, DB events from genesis are replayed on top of the restored tree to bring it up to date.
-- If no mmap file exists, the tree is built from scratch from the accounts table and all DB events are replayed.
+- If the mmap file exists, the tree is restored from it and its root is matched to the latest corresponding `RootRecorded` event. Only subsequent events are replayed, through the latest recorded root in a repeatable-read DB snapshot. Unchanged leaves are skipped, and the final tree root must match that boundary before serving. A restore or validation failure deletes the cache and exits; the next startup rebuilds.
+- If no mmap file exists, the tree and its sync cursor are built from a consistent snapshot of the accounts and events tables.
 
 During normal indexing, the tree is wrapped in a `VersionedTreeState` that records a per-leaf change history bounded by `TREE_MAX_BLOCK_AGE` blocks. This history is used for in-memory rollbacks on reorg.
 
@@ -54,7 +54,7 @@ When either condition is detected, `rollback_to_last_valid_root` is called. It w
 
 After a successful rollback, `process_registry_events` returns a `ReorgDetected` error, which propagates up and terminates the process. **A restart is required.** On restart the indexer follows the normal startup procedure:
 
-1. The tree is re-initialized from the mmap cache (which reflects the rolled-back state, since tree writes flush through to the mmap immediately). DB events are replayed from first event to bring the tree fully up to date with the rolled-back DB.
+1. The tree is re-initialized from the mmap cache and events after its recorded root are replayed. The mmap is updated in place, so interruption during leaf updates can leave an intermediate state; if its root is absent from the rolled-back DB, the cache is rejected and the next startup rebuilds.
 2. The indexer backfills from the last DB block forward, re-fetching the blocks that were removed by the rollback.
 
 This restart-on-reorg pattern — detect, rollback state, exit cleanly, re-initialize on restart — has been used across multiple World ID Protocol services in the past. The alternative of recovering in-process adds significant complexity and is error-prone when in-flight state (buffered events, stream cursors, tree snapshots) is partially corrupted by the reorg. Also reorgs on World Chain are quite rare.

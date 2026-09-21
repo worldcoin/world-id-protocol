@@ -751,6 +751,18 @@ where
         event_id: WorldIdRegistryEventId,
         limit: u64,
     ) -> DBResult<Vec<BlockchainEvent<RegistryEvent>>> {
+        self.get_after_until(event_id, (i64::MAX as u64, i64::MAX as u64).into(), limit)
+            .await
+    }
+
+    /// Get events in `(event_id, through]`, ordered for bounded replay.
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_after_until(
+        self,
+        event_id: WorldIdRegistryEventId,
+        through: WorldIdRegistryEventId,
+        limit: u64,
+    ) -> DBResult<Vec<BlockchainEvent<RegistryEvent>>> {
         let rows = sqlx::query(
             r#"
                 SELECT
@@ -763,16 +775,18 @@ where
                     event_data
                 FROM world_id_registry_events
                 WHERE
-                    (block_number = $1 AND log_index > $2)
-                    OR block_number > $1
+                    (block_number, log_index) > ($1, $2)
+                    AND (block_number, log_index) <= ($3, $4)
                 ORDER BY
                     block_number ASC,
                     log_index ASC
-                LIMIT $3
+                LIMIT $5
             "#,
         )
         .bind(event_id.block_number as i64)
         .bind(event_id.log_index as i64)
+        .bind(through.block_number as i64)
+        .bind(through.log_index as i64)
         .bind(limit as i64)
         .fetch_all(self.executor)
         .await?;
@@ -782,17 +796,21 @@ where
             .collect()
     }
 
-    /// Check if a root exists in the database (searches RootRecorded events)
+    /// Find the latest recorded position of a root, including repeated roots.
     #[instrument(level = "info", skip(self))]
-    pub async fn root_exists(self, root: &alloy::primitives::U256) -> DBResult<bool> {
+    pub async fn get_event_id_by_root(
+        self,
+        root: &U256,
+    ) -> DBResult<Option<WorldIdRegistryEventId>> {
         let root_hex = format!("{:#x}", root);
 
         let result = sqlx::query(
             r#"
-                SELECT 1
+                SELECT block_number, log_index
                 FROM world_id_registry_events
                 WHERE event_type = 'root_recorded'
                   AND event_data->>'root' = $1
+                ORDER BY block_number DESC, log_index DESC
                 LIMIT 1
             "#,
         )
@@ -800,6 +818,29 @@ where
         .fetch_optional(self.executor)
         .await?;
 
-        Ok(result.is_some())
+        Ok(result.map(|row| WorldIdRegistryEventId {
+            block_number: row.get::<i64, _>("block_number") as u64,
+            log_index: row.get::<i64, _>("log_index") as u64,
+        }))
+    }
+
+    /// Get the latest committed root boundary for a replay snapshot.
+    pub async fn get_latest_root_recorded(
+        self,
+    ) -> DBResult<Option<BlockchainEvent<RootRecordedEvent>>> {
+        let row = sqlx::query(
+            r#"
+                SELECT block_number, log_index, block_hash, tx_hash,
+                       event_type, leaf_index, event_data
+                FROM world_id_registry_events
+                WHERE event_type = 'root_recorded'
+                ORDER BY block_number DESC, log_index DESC
+                LIMIT 1
+            "#,
+        )
+        .fetch_optional(self.executor)
+        .await?;
+
+        row.as_ref().map(Self::map_root_recorded_event).transpose()
     }
 }
