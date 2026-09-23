@@ -1,0 +1,31 @@
+# Device matrix for mobile ZK benchmarks (consumed by `cargo-mobench devices resolve`).
+#
+# Profiles are tags: resolving a profile returns every device carrying that tag.
+# `all` runs the full tier spread and is the profile snapshot runs should use.
+#
+# Deviations from mobench's built-in matrix:
+# - Android low-spec is Motorola Moto G71 5G: the built-in Moto G9 Play is no
+#   longer in BrowserStack's inventory.
+# - iOS low-spec is iPhone 14: the built-in iPhone SE 2020 is incompatible with
+#   the generated BrowserStack app bundle.
+devices:
+  - name: Motorola Moto G71 5G
+    os: android
+    os_version: "11.0"
+    tags: [low-spec, all]
+  - name: Google Pixel 7
+    os: android
+    os_version: "13.0"
+    tags: [mid-spec, all, default]
+  - name: Samsung Galaxy S24
+    os: android
+    os_version: "14.0"
+    tags: [high-spec, all]
+  - name: iPhone 14
+    os: ios
+    os_version: "16"
+    tags: [low-spec, mid-spec, all, default]
+  - name: iPhone 16 Pro
+    os: ios
+    os_version: "18"
+    tags: [high-spec, all]

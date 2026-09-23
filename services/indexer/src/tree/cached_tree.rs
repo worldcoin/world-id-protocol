@@ -7,7 +7,7 @@ use tracing::{info, instrument};
 
 use super::{TreeError, TreeResult, TreeState};
 use crate::{
-    db::{DB, IsolationLevel, WorldIdRegistryEventId},
+    db::{DB, IsolationLevel, PostgresDBTransaction, WorldIdRegistryEventId},
     tree::MerkleTree,
 };
 
@@ -18,7 +18,8 @@ use crate::{
 /// Unified tree initialization.
 ///
 /// 1. If mmap file exists → load it, validate root against DB, replay missed events
-/// 2. If mmap missing or validation fails → full rebuild from DB
+/// 2. If mmap is missing → full rebuild from DB
+/// 3. If restoration fails → delete the cache and exit; the next startup rebuilds
 ///
 /// Returns a `TreeState` with the sync cursor set so `sync_from_db()` can pick
 /// up any future events incrementally.
@@ -164,30 +165,36 @@ async fn try_restore(
         "loaded mmap"
     );
 
-    // 2. Validate that the restored root exists in world_id_registry_events
-    let root_exists = db
+    // Resolve both ends of replay in the same snapshot as its event pages.
+    let mut tx = db.transaction(IsolationLevel::RepeatableRead).await?;
+    let replay_cursor = tx
         .world_id_registry_events()
-        .root_exists(&restored_root)
-        .await?;
+        .await?
+        .get_event_id_by_root(&restored_root)
+        .await?
+        .ok_or(TreeError::RootMissing {
+            root: restored_root,
+        })?;
 
-    if !root_exists {
-        return Err(TreeError::StaleCache {
-            root: format!("0x{:x}", restored_root),
+    info!(?replay_cursor, "Root validated successfully in DB");
+
+    let target = tx
+        .world_id_registry_events()
+        .await?
+        .get_latest_root_recorded()
+        .await?
+        .ok_or_else(|| eyre::eyre!("validated cache root has no recorded root boundary"))?;
+    let target_id = (target.block_number, target.log_index).into();
+
+    let (tree, last_event_id) = replay_events(tree, tx, replay_cursor, target_id).await?;
+
+    if tree.root() != target.details.root {
+        return Err(TreeError::RootMismatch {
+            actual: tree.root(),
+            expected: target.details.root,
         }
         .into());
     }
-
-    info!("Root validated successfully in DB");
-
-    // 3. For now, replay all events from genesis since we don't track which event produced which root
-    // TODO: Store root->event_id mapping to optimize replay
-    let replay_cursor = WorldIdRegistryEventId {
-        block_number: 0,
-        log_index: 0,
-    };
-
-    // 4. Replay events after that root's position
-    let (tree, last_event_id) = replay_events(tree, db, replay_cursor).await?;
 
     info!(
         root = %format!("0x{:x}", tree.root()),
@@ -272,11 +279,12 @@ async fn build_from_db_with_cache(
 
 /// Replay events onto an existing tree with deduplication.
 /// Uses event ID-based pagination to efficiently handle large replays.
-#[instrument(level = "info", skip_all, fields(?from_event_id))]
+#[instrument(level = "info", skip_all, fields(?from_event_id, ?through))]
 async fn replay_events(
     mut tree: MerkleTree,
-    db: &DB,
+    mut tx: PostgresDBTransaction<'_>,
     from_event_id: WorldIdRegistryEventId,
+    through: WorldIdRegistryEventId,
 ) -> TreeResult<(MerkleTree, WorldIdRegistryEventId)> {
     const BATCH_SIZE: u64 = 10_000;
 
@@ -291,10 +299,11 @@ async fn replay_events(
         from_event_id
     );
 
-    loop {
-        let events = db
+    while last_event_id < through {
+        let events = tx
             .world_id_registry_events()
-            .get_after(last_event_id, BATCH_SIZE)
+            .await?
+            .get_after_until(last_event_id, through, BATCH_SIZE)
             .await?;
 
         if events.is_empty() {
@@ -330,6 +339,9 @@ async fn replay_events(
         }
     }
 
+    // Release the read snapshot before CPU-bound tree updates.
+    tx.commit().await?;
+
     if total_events == 0 {
         info!("No events to replay, cache is up-to-date");
         return Ok((tree, last_event_id));
@@ -344,7 +356,11 @@ async fn replay_events(
     );
 
     for (leaf_index, value) in &leaf_final_states {
-        set_arbitrary_leaf(&mut tree, *leaf_index as usize, *value);
+        let leaf_index = *leaf_index as usize;
+        if leaf_index < tree.num_leaves() && tree.get_leaf(leaf_index) == *value {
+            continue;
+        }
+        set_arbitrary_leaf(&mut tree, leaf_index, *value);
     }
 
     info!(

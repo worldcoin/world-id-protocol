@@ -29,6 +29,23 @@ fn cleanup(path: &PathBuf) {
     let _ = fs::remove_file(path);
 }
 
+/// Build the expected root for a set of leaf assignments.
+async fn root_for_leaves(leaves: &[(usize, u64)]) -> U256 {
+    let cache_path = temp_cache_path();
+    let tree = unsafe { TreeState::new_empty(6, &cache_path).unwrap() };
+
+    for (leaf_index, value) in leaves {
+        tree.set_leaf_at_index(*leaf_index, U256::from(*value))
+            .await
+            .unwrap();
+    }
+
+    let root = tree.root().await;
+    drop(tree);
+    cleanup(&cache_path);
+    root
+}
+
 // ============================================================================
 // Tree Creation tests
 // ============================================================================
@@ -205,6 +222,11 @@ async fn test_replay_deduplication() {
         .await
         .unwrap();
 
+    let final_root = root_for_leaves(&[(1, 400)]).await;
+    insert_test_world_tree_root(db, 13, 1, final_root, U256::ZERO)
+        .await
+        .unwrap();
+
     // Restore + replay should deduplicate to final value 400
     let tree_state2 = unsafe { init_tree(db, &cache_path, 6).await.unwrap() };
 
@@ -355,6 +377,11 @@ async fn test_replay_matches_fresh_build() {
         .await
         .unwrap();
     insert_test_account(db, 3, Address::ZERO, U256::from(500))
+        .await
+        .unwrap();
+
+    let final_root = root_for_leaves(&[(1, 300), (2, 400), (3, 500)]).await;
+    insert_test_world_tree_root(db, 12, 1, final_root, U256::ZERO)
         .await
         .unwrap();
 
