@@ -5,9 +5,12 @@
 //!
 //! It emits a `Prover.toml` (executed by CI with `nargo execute
 //! --pedantic-solving`) and a `src/test_fixtures.nr` (a flat list of value
-//! globals the Noir tests assemble into witnesses) for both the full circuit
-//! and its no-attestation variant, which shares the witness minus the
-//! AAT/TAKT values. Regenerate all four artifacts with
+//! globals the Noir tests assemble into witnesses) for the full circuit and
+//! its two variants: no-attestation (the witness minus the AAT/TAKT values)
+//! and registry-only (which additionally delegates the Credential validation,
+//! so it drops the Issuer signature and its Verifier token signatures are
+//! taken over a digest carrying the delegation commitment). Regenerate all six
+//! artifacts with
 //! `UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity`.
 
 use std::{env, fs, path::PathBuf};
@@ -34,6 +37,12 @@ use crate::authenticator_attestation::{
 const DS_WIP_111: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/WIP-111/SIGN");
 /// Domain separator of the WIP-110 Verifier token digest (WIP-110 §3.5.2).
 const DS_EVT_V1: DomainSeparator<6> = DomainSeparator::new(b"WORLD_ID_EVT_V1");
+/// The same token digest with the spare slot carrying the registry-only
+/// variant's `delegation_commitment` claim (seven claims, no zero padding).
+const DS_EVT_V1_DELEGATED: DomainSeparator<7> = DomainSeparator::new(b"WORLD_ID_EVT_V1");
+/// Domain separator of the registry-only variant's delegated Credential
+/// commitment (WIP-111 §3.5 constraints 7, 8 and 16, moved to the Verifier).
+const DS_CRED_DELEGATION: DomainSeparator<7> = DomainSeparator::new(b"WORLD-ID/WIP-111/CRED");
 /// Domain separator pinning the live item commitment (WIP-111 §3.4).
 const DS_LIVE: VariableLengthDomainSeparator =
     VariableLengthDomainSeparator::new(b"WORLD-ID/WIP-111/LIVE");
@@ -115,6 +124,53 @@ fn verifier_token_signature(
     verifier_sk.sign(*digest)
 }
 
+/// The registry-only variant's delegated Credential commitment: what the
+/// Verifier vouches for once the Issuer signature moves out of the circuit.
+fn delegation_commitment(
+    sub: FieldElement,
+    cred_pk: &EdDSAPublicKey,
+    expires_at: u64,
+) -> FieldElement {
+    let selector_packed = u64::from(ISSUER_VERSION) + (CLAIM_INDEX as u64) * 0x100;
+    poseidon::hash(
+        DS_CRED_DELEGATION,
+        [
+            sub,
+            FieldElement::from(ISSUER_SCHEMA_ID),
+            FieldElement::from(cred_pk.pk.x),
+            FieldElement::from(cred_pk.pk.y),
+            FieldElement::from(selector_packed),
+            FieldElement::from(GENESIS_ISSUED_AT),
+            FieldElement::from(expires_at),
+        ],
+    )
+}
+
+/// The registry-only variant's token signature: the digest's spare slot
+/// carries the `delegation_commitment` claim.
+fn verifier_token_signature_delegated(
+    verifier_sk: &EdDSAPrivateKey,
+    iat: u64,
+    commitments: [FieldElement; 3],
+    similarity_challenge: u64,
+    delegation_commitment: FieldElement,
+) -> EdDSASignature {
+    let [credential, live, challenge] = commitments;
+    let digest = poseidon::hash(
+        DS_EVT_V1_DELEGATED,
+        [
+            FieldElement::from(iat),
+            credential,
+            live,
+            challenge,
+            FieldElement::from(SIMILARITY_LIVE),
+            FieldElement::from(similarity_challenge),
+            delegation_commitment,
+        ],
+    );
+    verifier_sk.sign(*digest)
+}
+
 /// Signs an AAT over the fixture claims with the deterministic assertion key,
 /// returning the 64-byte `ES256` signature.
 fn aat_signature(
@@ -158,12 +214,24 @@ const ATTESTATION_GLOBALS: [&str; 14] = [
     "AAT_SIGNATURE_TOO_LONG_EXP",
 ];
 
+/// Globals that only exist for the in-circuit Issuer signature; the
+/// registry-only variant, which delegates that check, filters them out.
+const CREDENTIAL_SIGNATURE_GLOBALS: [&str; 5] = [
+    "CRED_ID",
+    "CRED_SIG_S",
+    "CRED_SIG_R",
+    "CRED_SIG_S_EXPIRED",
+    "CRED_SIG_R_EXPIRED",
+];
+
 /// One `(Prover.toml, test_fixtures.nr)` pair per package.
 struct Rendered {
     toml: String,
     noir: String,
     toml_no_attestation: String,
     noir_no_attestation: String,
+    toml_registry_only: String,
+    noir_registry_only: String,
 }
 
 /// Computes the full witness and renders the fixture artifacts.
@@ -273,6 +341,42 @@ fn render() -> Rendered {
         &assertion_sk,
     ));
 
+    // Registry-only variant: the Issuer signature never reaches the circuit,
+    // so the Verifier commits to the Credential it validated and every token
+    // signature is taken over the digest carrying that commitment. The
+    // expired-credential case shifts the commitment too, hence its own token.
+    let sub = Credential::compute_sub(LEAF_INDEX, sub_blinding_factor);
+    let delegation = delegation_commitment(sub, &credential.issuer, EXPIRES_AT);
+    let delegation_expired = delegation_commitment(sub, &credential.issuer, NOW);
+    let cwt_del = verifier_token_signature_delegated(
+        &verifier_sk,
+        IAT,
+        commitments,
+        SIMILARITY_CHALLENGE,
+        delegation,
+    );
+    let cwt_del_two_way = verifier_token_signature_delegated(
+        &verifier_sk,
+        IAT,
+        [credential_commitment, live_commitment, FieldElement::ZERO],
+        0,
+        delegation,
+    );
+    let cwt_del_future_iat = verifier_token_signature_delegated(
+        &verifier_sk,
+        NOW + 10,
+        commitments,
+        SIMILARITY_CHALLENGE,
+        delegation,
+    );
+    let cwt_del_expired = verifier_token_signature_delegated(
+        &verifier_sk,
+        IAT,
+        commitments,
+        SIMILARITY_CHALLENGE,
+        delegation_expired,
+    );
+
     let (auth_s, auth_r, auth_r_toml) = sig(&authorization);
     let (cred_s, cred_r, cred_r_toml) = sig(credential.signature.as_ref().unwrap());
     let (cred_exp_s, cred_exp_r, _) = sig(&expired_signature);
@@ -280,6 +384,10 @@ fn render() -> Rendered {
     let (cwt2_s, cwt2_r, _) = sig(&cwt_two_way);
     let (cwtf_s, cwtf_r, _) = sig(&cwt_future_iat);
     let (takt_s, takt_r, takt_r_toml) = sig(&takt_sig);
+    let (cwt_del_s, cwt_del_r, cwt_del_r_toml) = sig(&cwt_del);
+    let (cwt_del2_s, cwt_del2_r, _) = sig(&cwt_del_two_way);
+    let (cwt_delf_s, cwt_delf_r, _) = sig(&cwt_del_future_iat);
+    let (cwt_dele_s, cwt_dele_r, _) = sig(&cwt_del_expired);
 
     // The Noir globals: `(name, type, value)`, one `pub global` each. Recipe
     // scalars and computed values alike live here so the Noir tests share one
@@ -370,6 +478,30 @@ fn render() -> Rendered {
         .cloned()
         .collect();
     let noir_no_attestation = render_globals(&filtered);
+    // Registry-only: the no-attestation witness minus the Issuer signature,
+    // with every Verifier signature retaken over the digest that carries the
+    // delegation commitment, plus the token for the expired-credential case.
+    let registry_only: Vec<_> = filtered
+        .iter()
+        .filter(|(name, _, _)| !CREDENTIAL_SIGNATURE_GLOBALS.contains(name))
+        .map(|(name, ty, value)| {
+            let value = match *name {
+                "CWT_SIG_S" => cwt_del_s.clone(),
+                "CWT_SIG_R" => cwt_del_r.clone(),
+                "CWT_SIG_S_TWO_WAY" => cwt_del2_s.clone(),
+                "CWT_SIG_R_TWO_WAY" => cwt_del2_r.clone(),
+                "CWT_SIG_S_FUTURE_IAT" => cwt_delf_s.clone(),
+                "CWT_SIG_R_FUTURE_IAT" => cwt_delf_r.clone(),
+                _ => value.clone(),
+            };
+            (*name, *ty, value)
+        })
+        .chain([
+            ("CWT_SIG_S_EXPIRED_CRED", "Field", cwt_dele_s.clone()),
+            ("CWT_SIG_R_EXPIRED_CRED", "[Field; 2]", cwt_dele_r.clone()),
+        ])
+        .collect();
+    let noir_registry_only = render_globals(&registry_only);
 
     // Inactive registry slots hold the BabyJubJub identity (0, 1).
     let user_pk = std::iter::once(toml_point(&authenticator_sk.public()))
@@ -466,11 +598,79 @@ fn render() -> Rendered {
     );
 
     let toml_no_attestation = strip_attestation_toml(&toml);
+
+    // The registry-only `[inputs.credential]` keeps only the three fields the
+    // circuit still reads, so it is rendered rather than filtered out of the
+    // shared TOML.
+    let toml_registry_only = format!(
+        "# Prover.toml for the Embedding Similarity circuit (WIP-111),\n\
+         # registry-only variant.\n\
+         #\n\
+         # GENERATED FILE. Do not edit by hand; regenerate with:\n\
+         #   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity\n\
+         \n\
+         # Public inputs\n\
+         nonce = \"{nonce}\"\n\
+         rp_id = \"{RP_ID}\"\n\
+         now = \"{NOW}\"\n\
+         session_id = \"{session_id}\"\n\
+         genesis_issued_at_min = \"1500000000\"\n\
+         challenge_commitment = \"{challenge_commitment}\"\n\
+         comparison_age_max = \"300\"\n\
+         similarity_min = \"5000\"\n\
+         merkle_root = \"{merkle_root}\"\n\
+         issuer_schema_id = \"{ISSUER_SCHEMA_ID}\"\n\
+         issuer_version = \"{ISSUER_VERSION}\"\n\
+         claim_index = \"{CLAIM_INDEX}\"\n\
+         \n\
+         [verifier_key]\n{verifier_key}\n\
+         \n\
+         [cred_pk]\n{cred_pk}\n\
+         \n\
+         # Private inputs\n\
+         [inputs]\n\
+         session_id_r = \"{session_id_r}\"\n\
+         \n\
+         [inputs.registry]\n\
+         pk_index = \"0\"\n\
+         sig_s = \"{auth_s}\"\n\
+         sig_r = {auth_r_toml}\n\
+         leaf_index = \"{LEAF_INDEX}\"\n\
+         siblings = [{siblings}]\n\
+         {user_pk}\
+         \n\
+         [inputs.credential]\n\
+         genesis_issued_at = \"{GENESIS_ISSUED_AT}\"\n\
+         expires_at = \"{EXPIRES_AT}\"\n\
+         sub_blinding_factor = \"{sub_blinding_factor}\"\n\
+         \n\
+         [inputs.cwt]\n\
+         iat = \"{IAT}\"\n\
+         credential_commitment = \"{credential_commitment}\"\n\
+         live_commitment = \"{live_commitment}\"\n\
+         similarity_live = \"{SIMILARITY_LIVE}\"\n\
+         similarity_challenge = \"{SIMILARITY_CHALLENGE}\"\n\
+         sig_s = \"{cwt_del_s}\"\n\
+         sig_r = {cwt_del_r_toml}\n",
+        nonce = dec(*nonce),
+        session_id = dec(*session_id),
+        challenge_commitment = dec(*challenge_commitment),
+        merkle_root = dec(*merkle_root),
+        verifier_key = toml_point(&verifier_sk.public()),
+        cred_pk = toml_point(&credential.issuer),
+        session_id_r = dec(*session_id_r),
+        sub_blinding_factor = dec(*sub_blinding_factor),
+        credential_commitment = dec(*credential_commitment),
+        live_commitment = dec(*live_commitment),
+    );
+
     Rendered {
         toml,
         noir,
         toml_no_attestation,
         noir_no_attestation,
+        toml_registry_only,
+        noir_registry_only,
     }
 }
 
@@ -512,6 +712,16 @@ fn prover_toml_matches_the_fixture() {
         (
             "embedding-similarity-no-attestation/src/test_fixtures.nr",
             &rendered.noir_no_attestation,
+            false,
+        ),
+        (
+            "embedding-similarity-registry-only/Prover.toml",
+            &rendered.toml_registry_only,
+            true,
+        ),
+        (
+            "embedding-similarity-registry-only/src/test_fixtures.nr",
+            &rendered.noir_registry_only,
             false,
         ),
     ];
@@ -556,6 +766,10 @@ fn domain_separators_match_the_noir_constants() {
     assert_eq!(
         as_int(b"POSEIDON2+EDDSA-BJJ"),
         "1790969822004668215611014194230797064349043274"
+    );
+    assert_eq!(
+        as_int(b"WORLD-ID/WIP-111/CRED"),
+        "127603488023523044162070750169730678246161568122180"
     );
     assert_eq!(as_int(b"H_CS(id, r)"), "87492525752134038588518953");
     assert_eq!(as_int(b"H(id, r)"), "5199521648757207593");
