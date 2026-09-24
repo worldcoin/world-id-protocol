@@ -91,6 +91,11 @@ on:
         required: false
         type: boolean
         default: false
+      bench_attempts:
+        description: "Attempts per benchmark function; BrowserStack occasionally reports a device session as skipped, which fails an otherwise healthy run"
+        required: false
+        type: string
+        default: "3"
       requested_by:
         description: "Who triggered the run"
         required: false
@@ -288,32 +293,69 @@ jobs:
           DEVICE_SPECS: ${{ steps.resolve_device.outputs.device_specs }}
           RELEASE_FLAG: ${{ inputs.build_release && '--release' || '' }}
           CRATE_PATH: ${{ inputs.crate_path }}
+          BENCH_ATTEMPTS: ${{ inputs.bench_attempts }}
         run: |
           set -euo pipefail
           device_args=()
           while IFS= read -r spec; do
             [ -n "${spec}" ] && device_args+=(--devices "${spec}")
           done <<<"${DEVICE_SPECS}"
-          functions_arg="${FUNCTIONS}"
           if [[ "${FUNCTIONS}" == \[* ]]; then
-            functions_arg=$(jq -r 'join(",")' <<<"${FUNCTIONS}")
+            function_list=$(jq -r '.[]' <<<"${FUNCTIONS}")
+          else
+            function_list=$(tr ',' '\n' <<<"${FUNCTIONS}")
           fi
+          functions=()
+          while IFS= read -r fn; do
+            [ -n "${fn}" ] && functions+=("${fn}")
+          done <<<"${function_list}"
+
           echo "Running iOS benchmarks on:"
           echo "${DEVICE_SPECS}"
-          echo "Resolved functions: ${functions_arg}"
+          echo "Resolved functions: ${#functions[@]}"
 
-          cargo-mobench ci run \
-            --target ios \
-            --functions "${functions_arg}" \
-            --iterations "${ITERATIONS}" \
-            --warmup "${WARMUP}" \
-            "${device_args[@]}" \
-            --crate-path "$CRATE_PATH" \
-            $RELEASE_FLAG \
-            --ios-completion-timeout-secs "${IOS_COMPLETION_TIMEOUT_SECS}" \
-            --fetch \
-            --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
-            --output-dir target/mobench/ci/ios
+          # One invocation per function: mobench already rebuilds and re-uploads per
+          # function, so this costs nothing extra and keeps one flaky device session
+          # from discarding the functions that already measured cleanly.
+          failed=()
+          for fn in "${functions[@]}"; do
+            succeeded=0
+            for attempt in $(seq 1 "${BENCH_ATTEMPTS}"); do
+              attempt_log="$(mktemp)"
+              echo "::group::iOS ${fn} (attempt ${attempt}/${BENCH_ATTEMPTS})"
+              if cargo-mobench ci run \
+                --target ios \
+                --functions "${fn}" \
+                --iterations "${ITERATIONS}" \
+                --warmup "${WARMUP}" \
+                "${device_args[@]}" \
+                --crate-path "$CRATE_PATH" \
+                $RELEASE_FLAG \
+                --ios-completion-timeout-secs "${IOS_COMPLETION_TIMEOUT_SECS}" \
+                --fetch \
+                --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
+                --output-dir target/mobench/ci/ios 2>&1 | tee "${attempt_log}"; then
+                succeeded=1
+              fi
+              echo "::endgroup::"
+              if [ "${succeeded}" -eq 1 ]; then break; fi
+              # Only an incomplete session matrix is worth another BrowserStack build;
+              # a real benchmark failure reproduces and retrying just burns runner time.
+              if ! grep -q "result set is incomplete" "${attempt_log}"; then
+                echo "::error::iOS ${fn} failed for a non-transient reason; not retrying."
+                break
+              fi
+              if [ "${attempt}" -lt "${BENCH_ATTEMPTS}" ]; then
+                echo "::warning::iOS ${fn} attempt ${attempt} lost a device session; retrying."
+              fi
+            done
+            if [ "${succeeded}" -ne 1 ]; then failed+=("${fn}"); fi
+          done
+
+          if [ "${#failed[@]}" -ne 0 ]; then
+            echo "::error::iOS benchmarks failed: ${failed[*]}"
+            exit 1
+          fi
 
       - name: Validate iOS benchmark outputs
         if: always()
@@ -534,31 +576,68 @@ jobs:
           DEVICE_SPECS: ${{ steps.resolve_device.outputs.device_specs }}
           RELEASE_FLAG: ${{ inputs.build_release && '--release' || '' }}
           CRATE_PATH: ${{ inputs.crate_path }}
+          BENCH_ATTEMPTS: ${{ inputs.bench_attempts }}
         run: |
           set -euo pipefail
           device_args=()
           while IFS= read -r spec; do
             [ -n "${spec}" ] && device_args+=(--devices "${spec}")
           done <<<"${DEVICE_SPECS}"
-          functions_arg="${FUNCTIONS}"
           if [[ "${FUNCTIONS}" == \[* ]]; then
-            functions_arg=$(jq -r 'join(",")' <<<"${FUNCTIONS}")
+            function_list=$(jq -r '.[]' <<<"${FUNCTIONS}")
+          else
+            function_list=$(tr ',' '\n' <<<"${FUNCTIONS}")
           fi
+          functions=()
+          while IFS= read -r fn; do
+            [ -n "${fn}" ] && functions+=("${fn}")
+          done <<<"${function_list}"
+
           echo "Running Android benchmarks on:"
           echo "${DEVICE_SPECS}"
-          echo "Resolved functions: ${functions_arg}"
+          echo "Resolved functions: ${#functions[@]}"
 
-          cargo-mobench ci run \
-            --target android \
-            --functions "${functions_arg}" \
-            --iterations "${ITERATIONS}" \
-            --warmup "${WARMUP}" \
-            "${device_args[@]}" \
-            --crate-path "$CRATE_PATH" \
-            $RELEASE_FLAG \
-            --fetch \
-            --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
-            --output-dir target/mobench/ci/android
+          # One invocation per function: mobench already rebuilds and re-uploads per
+          # function, so this costs nothing extra and keeps one flaky device session
+          # from discarding the functions that already measured cleanly.
+          failed=()
+          for fn in "${functions[@]}"; do
+            succeeded=0
+            for attempt in $(seq 1 "${BENCH_ATTEMPTS}"); do
+              attempt_log="$(mktemp)"
+              echo "::group::Android ${fn} (attempt ${attempt}/${BENCH_ATTEMPTS})"
+              if cargo-mobench ci run \
+                --target android \
+                --functions "${fn}" \
+                --iterations "${ITERATIONS}" \
+                --warmup "${WARMUP}" \
+                "${device_args[@]}" \
+                --crate-path "$CRATE_PATH" \
+                $RELEASE_FLAG \
+                --fetch \
+                --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
+                --output-dir target/mobench/ci/android 2>&1 | tee "${attempt_log}"; then
+                succeeded=1
+              fi
+              echo "::endgroup::"
+              if [ "${succeeded}" -eq 1 ]; then break; fi
+              # Only an incomplete session matrix is worth another BrowserStack build;
+              # a real benchmark failure reproduces and retrying just burns runner time.
+              if ! grep -q "result set is incomplete" "${attempt_log}"; then
+                echo "::error::Android ${fn} failed for a non-transient reason; not retrying."
+                break
+              fi
+              if [ "${attempt}" -lt "${BENCH_ATTEMPTS}" ]; then
+                echo "::warning::Android ${fn} attempt ${attempt} lost a device session; retrying."
+              fi
+            done
+            if [ "${succeeded}" -ne 1 ]; then failed+=("${fn}"); fi
+          done
+
+          if [ "${#failed[@]}" -ne 0 ]; then
+            echo "::error::Android benchmarks failed: ${failed[*]}"
+            exit 1
+          fi
 
       - name: Validate Android benchmark outputs
         if: always()
