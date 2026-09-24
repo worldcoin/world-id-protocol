@@ -69,10 +69,13 @@ impl Drop for TestDatabase {
 /// Returns a TestDatabase guard that will automatically cleanup on drop
 pub async fn create_unique_test_db() -> TestDatabase {
     let unique_name = format!("test_db_{}", Uuid::new_v4().to_string().replace('-', "_"));
-    let base_url = shared_postgres_testcontainer()
-        .await
-        .expect("failed to start Postgres testcontainer")
-        .to_owned();
+    let base_url = match std::env::var("WORLD_ID_INDEXER_TEST_DATABASE_URL") {
+        Ok(url) => url,
+        Err(_) => shared_postgres_testcontainer()
+            .await
+            .expect("failed to start Postgres testcontainer")
+            .to_owned(),
+    };
 
     // Connect to postgres database to create our test database
     let pool = PgPoolOptions::new()

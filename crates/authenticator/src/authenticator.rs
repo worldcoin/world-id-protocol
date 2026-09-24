@@ -118,6 +118,8 @@ impl Authenticator {
     /// while a create-account or authenticator-management operation is still pending on-chain and
     /// the authenticator address has not been registered yet. Consumers that are coordinating such
     /// operations should poll the gateway request and retry initialization after finalization.
+    /// A recovery-revoked authenticator instead returns [`AuthenticatorError::PublicKeyNotFound`];
+    /// callers must request reauthorization rather than create a replacement World ID.
     ///
     /// Indexer DB catch-up is separate and does not block initialization, since packed account data
     /// is read from the registry (directly or via the indexer's chain-backed packed-account
@@ -130,6 +132,8 @@ impl Authenticator {
     /// - Will return [`AuthenticatorError::AccountDoesNotExist`] if the authenticator address
     ///   derived from `seed` is not currently registered on-chain, whether permanently or because a
     ///   relevant on-chain operation has not finalized yet.
+    /// - Will return [`AuthenticatorError::PublicKeyNotFound`] if account recovery revoked this
+    ///   authenticator.
     pub async fn init(
         seed: &[u8],
         config: Config,
@@ -354,8 +358,8 @@ impl Authenticator {
                 let packed_recovery_counter = (packed_account_data & MASK_RECOVERY_COUNTER) >> 224;
                 let current_recovery_counter =
                     registry.getRecoveryCounter(leaf_index).call().await?;
-                if current_recovery_counter > packed_recovery_counter {
-                    return Err(AuthenticatorError::AccountDoesNotExist);
+                if current_recovery_counter != packed_recovery_counter {
+                    return Err(AuthenticatorError::PublicKeyNotFound);
                 }
             }
 
@@ -380,6 +384,9 @@ impl Authenticator {
                         return match error_resp.code {
                             IndexerErrorCode::AccountDoesNotExist => {
                                 Err(AuthenticatorError::AccountDoesNotExist)
+                            }
+                            IndexerErrorCode::AuthenticatorRevoked => {
+                                Err(AuthenticatorError::PublicKeyNotFound)
                             }
                             _ => Err(AuthenticatorError::IndexerError {
                                 status,
@@ -740,6 +747,44 @@ mod tests {
             Err(AuthenticatorError::AccountDoesNotExist)
         ));
         mock.assert_async().await;
+        drop(server);
+    }
+
+    #[tokio::test]
+    async fn test_revoked_authenticator_is_not_an_unregistered_account() {
+        let mut server = mockito::Server::new_async().await;
+        let indexer_url = server.url();
+        let mut gateway = mockito::Server::new_async().await;
+        let registration = gateway
+            .mock("POST", mockito::Matcher::Any)
+            .expect(0)
+            .create_async()
+            .await;
+        let mock = server
+            .mock("POST", "/packed-account")
+            .with_status(403)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::json!({ "code": "authenticator_revoked", "message": "Authenticator revoked by recovery" }).to_string())
+            .create_async()
+            .await;
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            ServiceEndpoint::direct(indexer_url),
+            ServiceEndpoint::direct(gateway.url()),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+
+        let result =
+            Authenticator::init_or_register(&[42; 32], config, None, dummy_zk_artifact_source())
+                .await;
+
+        assert!(matches!(result, Err(AuthenticatorError::PublicKeyNotFound)));
+        mock.assert_async().await;
+        registration.assert_async().await;
         drop(server);
     }
 

@@ -111,8 +111,5 @@ async fn init_fails_for_authenticator_revoked_by_recovery() {
         .unwrap();
 
     let result = Authenticator::init(&seed, config, dummy_zk_source()).await;
-    assert!(matches!(
-        result,
-        Err(AuthenticatorError::AccountDoesNotExist)
-    ));
+    assert!(matches!(result, Err(AuthenticatorError::PublicKeyNotFound)));
 }
