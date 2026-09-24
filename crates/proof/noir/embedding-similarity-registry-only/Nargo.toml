@@ -1,0 +1,12 @@
+[package]
+name = "embedding_similarity_registry_only"
+type = "bin"
+description = "UNAUDITED. IN ACTIVE DEVELOPMENT, DO NOT USE YET. WIP-111 Proof of Embedding Similarity variant that keeps only the WorldIDRegistry inclusion in-circuit; the WIP-106 attestation and the Credential validation are delegated to the WIP-110 Verifier."
+authors = ["@kilianglas", "@paolodamico"]
+license = "MIT"
+backend = "provekit"
+
+[dependencies]
+# Pinned to the nargo 1.0.0-beta.11 generation, matching the sibling packages and the published provekit crates.
+poseidon2 = { tag = "v0.5.0-beta.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "poseidon2" }
+eddsa_poseidon2 = { tag = "taceo-oprf-v0.12.0", git = "https://github.com/TaceoLabs/oprf-service", directory = "noir/eddsa_poseidon2" }
