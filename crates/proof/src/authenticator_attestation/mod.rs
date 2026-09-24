@@ -126,7 +126,8 @@ pub struct AuthenticatorMeta {
 
 impl AuthenticatorMeta {
     /// Packs the sub-fields into the claim value (LSB-first).
-    fn packed(self) -> u64 {
+    #[must_use]
+    pub fn packed(self) -> u64 {
         u64::from(self.user_presence as u8)
             | (u64::from(self.provider_bits) << AUTHENTICATOR_META_PROVIDER_SHIFT)
     }
@@ -154,7 +155,8 @@ pub struct TrustAnchorKeyClaims {
 impl TrustAnchorKeyClaims {
     /// Packs the security attributes into the `sec_flags` claim value
     /// (LSB-first: platform, sec_level, build_version, sec_meta).
-    fn sec_flags(&self) -> u64 {
+    #[must_use]
+    pub fn sec_flags(&self) -> u64 {
         (self.platform as u64)
             | ((self.sec_level as u64) << SEC_FLAGS_SEC_LEVEL_SHIFT)
             | (u64::from(self.build_version) << SEC_FLAGS_BUILD_VERSION_SHIFT)
