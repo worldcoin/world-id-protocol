@@ -2,6 +2,7 @@ pragma circom 2.2.2;
 
 include "oprf_query.circom";
 include "verify_dlog/verify_dlog.circom";
+include "crl/crl_non_membership_imt.circom";
 
 // In the CheckCredentialSignature template, we need to recompute a hash and verify the signature of this hash. Furthermore, we need to check whether the credential is still valid (i.e., not expired) by proving the current_timestamp is less than expires_at, and we also check that the genesis_issues_at time is valid by comparing it to genesis_issues_at_min.
 template CheckCredentialSignature() {
@@ -66,7 +67,7 @@ template CheckCredentialSignature() {
 
 // Checks outside of the ZK proof: The public key oprf_pk needs to be a valid BabyJubJub point in the correct subgroup.
 
-template OprfNullifier(MAX_DEPTH) {
+template OprfNullifier(MAX_DEPTH, MAX_CRL_DEPTH) {
     // Signature verification of the OPRF nonce (There such that sk corresponding to pk is never used in a proof directly)
     signal input pk[7][2];
     signal input pk_index; // 0..6
@@ -89,6 +90,14 @@ template OprfNullifier(MAX_DEPTH) {
     signal input depth; // Public
     signal input mt_index;
     signal input siblings[MAX_DEPTH];
+    // Credential revocation list (non-membership)
+    signal input crl_root; // Public
+    signal input crl_depth; // Public
+    signal input crl_low_value;
+    signal input crl_low_next_index;
+    signal input crl_low_next_value;
+    signal input crl_low_index;
+    signal input crl_siblings[MAX_CRL_DEPTH];
     // Oprf query
     signal input beta;
     signal input rp_id; // Public
@@ -142,6 +151,19 @@ template OprfNullifier(MAX_DEPTH) {
     cred_sig_checker.user_id_r <== cred_user_id_r;
     cred_sig_checker.cred_id <== cred_id;
 
+    // 3b. Credential is not revoked. `cred_id` is the same signal fed to
+    // CheckCredentialSignature above, so the revocation key is bound to the
+    // signed credential without an extra constraint.
+    component crl_checker = CrlNonMembershipIMT(MAX_CRL_DEPTH, 64);
+    crl_checker.crl_root <== crl_root;
+    crl_checker.crl_depth <== crl_depth;
+    crl_checker.key <== cred_id;
+    crl_checker.low_value <== crl_low_value;
+    crl_checker.low_next_index <== crl_low_next_index;
+    crl_checker.low_next_value <== crl_low_next_value;
+    crl_checker.low_index <== crl_low_index;
+    crl_checker.crl_siblings <== crl_siblings;
+
     // 4. Check the dlog equality proof
     BabyJubJubBaseField() e;
     e.f <== dlog_e;
@@ -189,4 +211,4 @@ template OprfNullifier(MAX_DEPTH) {
     signal nonce_squared <== nonce * nonce;
 }
 
-// component main {public [issuer_schema_id, cred_pk, current_timestamp, cred_genesis_issued_at_min, merkle_root, depth, rp_id, action, oprf_pk, signal_hash, nonce, id_commitment]} = OprfNullifier(30);
+// component main {public [issuer_schema_id, cred_pk, current_timestamp, cred_genesis_issued_at_min, merkle_root, depth, crl_root, crl_depth, rp_id, action, oprf_pk, signal_hash, nonce, id_commitment]} = OprfNullifier(30, 20);
