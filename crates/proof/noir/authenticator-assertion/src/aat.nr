@@ -18,23 +18,24 @@ pub global AAT_SIG_STRUCTURE_LEN: u32 = AAT_SIG_STRUCTURE_OVERHEAD + TAKT_TOKEN_
 pub struct AuthenticatorAssertionToken {
     /// The `rpId` of the requesting RP (CWT `aud`). MUST require a 4-byte
     /// CBOR uint encoding (`2^16 <= aud < 2^32`) so offsets stay constant.
-    aud: Field,
+    pub aud: Field,
     /// Expiration as seconds since the Unix epoch (CWT `exp`). MUST require a
     /// 4-byte CBOR uint encoding (holds for dates between 1971 and 2106).
-    exp: Field,
+    pub exp: Field,
     /// The `ProofRequest` nonce binding the token to a specific request.
-    nonce: Field,
+    pub nonce: Field,
     /// Hash of the signal the proof commits to; zero when no signal is present.
-    signal: Field,
+    /// WIP-106 names this claim `cdh` (client data hash).
+    pub signal: Field,
     /// Structured integrity metadata: user presence (bits 0-2) and
     /// provider-defined bits (3-4); all other bits are reserved (zero).
-    authenticator_meta: Field,
+    pub authenticator_meta: Field,
     /// The parsed TAKT attesting the assertion key. Its serialized form
     /// (embedded under `submods.takt`) is deduced in-circuit via
     /// `serialize_takt`, so the signed payload provably embeds this exact TAKT.
-    takt: TrustAnchorKeyToken,
+    pub takt: TrustAnchorKeyToken,
     /// ES256 signature over the COSE `Sig_structure` (`r || s`, low-S).
-    signature: [u8; 64],
+    pub signature: [u8; 64],
 }
 
 /// Verifies the full WIP-106 attestation chain:
