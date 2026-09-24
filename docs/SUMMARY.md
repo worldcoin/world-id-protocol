@@ -15,3 +15,4 @@
 - [WIP-103: Proof of Ownership](WIPs/wip-103.md)
 - [WIP-104: Proving and Admin Authenticators with Fixed Permission Sets](WIPs/wip-104.md)
 - [WIP-105: Authenticator Message Format](WIPs/wip-105.md)
+- [WIP-109: Authenticator Registration Protocol](WIPs/wip-109.md)
