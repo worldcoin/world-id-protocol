@@ -95,7 +95,8 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: mobench-${{ inputs.pr_number != '' && inputs.pr_number || github.run_id }}
+  # Non-PR runs share one group so two snapshot runs don't compete for BrowserStack parallels.
+  group: mobench-${{ inputs.pr_number != '' && inputs.pr_number || 'main' }}
   cancel-in-progress: false
 
 jobs:
@@ -150,7 +151,8 @@ jobs:
       crate_path: ${{ inputs.crate_path }}
       functions: ${{ inputs.functions != '' && inputs.functions || '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_cached_proof_generation","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only","zk_mobile_bench::bench_ownership_proof_generation"]' }}
       mobench_version: "0.2.0"
-      mobench_ref: ""
+      # Retry flags ship after 0.2.0; pinned until the next release.
+      mobench_ref: "24cf89e1432615d06fb6829f7478ade45d427d94"
       platform: ${{ inputs.platform }}
       device_profile: ${{ inputs.device_profile }}
       ios_device: ${{ inputs.ios_device }}
