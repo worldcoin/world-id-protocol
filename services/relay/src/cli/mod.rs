@@ -6,7 +6,6 @@ use serde::Deserialize;
 use alloy::{
     network::EthereumWallet,
     providers::{DynProvider, Provider, ProviderBuilder},
-    signers::local::PrivateKeySigner,
 };
 use alloy_primitives::{
     Address,
@@ -24,13 +23,14 @@ use crate::{
         EthereumMptSatellite, PermissionedSatellite, TempoSatellite,
         permissioned::tempo::FEE_TOKEN as TEMPO_FEE_TOKEN,
     },
+    signer::SignerArgs,
 };
 
 pub mod chain;
 pub use chain::WorldChain;
 
 /// World ID Bridge Relay Service.
-#[derive(clap::Parser, Debug)]
+#[derive(clap::Parser)]
 #[command(
     name = "world-id-relay",
     version,
@@ -44,6 +44,9 @@ pub struct Cli {
     /// Address the health-check HTTP server binds to.
     #[arg(long, env = "HEALTH_BIND_ADDR", default_value = "0.0.0.0:8081")]
     pub health_bind_addr: std::net::SocketAddr,
+
+    #[command(flatten)]
+    pub signer: SignerArgs,
 }
 
 // ---------------------------------------------------------------------------
@@ -469,15 +472,11 @@ impl Cli {
 
         let config = parse_config(&self.config)?;
 
-        // Build a wallet for relay transactions.
-        let wallet_key = std::env::var("WALLET_PRIVATE_KEY").map_err(|_| {
-            eyre::eyre!("WALLET_PRIVATE_KEY env var is required for signing relay transactions")
-        })?;
-        let signer: PrivateKeySigner = wallet_key
-            .parse()
-            .map_err(|e| eyre::eyre!("failed to parse WALLET_PRIVATE_KEY: {e}"))?;
-        let wallet_address = signer.address();
-        let wallet = EthereumWallet::from(signer.clone());
+        let wallet = self
+            .signer
+            .wallet_for("WORLDCHAIN", config.source.chain_id)
+            .await?;
+        let wallet_address = wallet.default_signer().address();
 
         // Build the World Chain (source) provider from WORLDCHAIN_RPC_URL.
         // NOTE: blocks the health server briefly so `Engine` can own the single
@@ -497,7 +496,7 @@ impl Cli {
 
         spawn_wallet_metrics_task(wc_provider.clone(), wc_config.chain_id, wallet_address);
 
-        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone(), &signer);
+        let world_chain = chain::WorldChain::new(&wc_config, wc_provider.clone(), wallet_address);
 
         let mut engine = Engine::new(world_chain);
 
@@ -516,6 +515,11 @@ impl Cli {
 
         // Spawn permissioned gateway satellites.
         for sat_config in config.permissioned_gateways.iter().flatten() {
+            let wallet = self
+                .signer
+                .wallet_for(&sat_config.name, sat_config.destination_chain_id)
+                .await?;
+            let wallet_address = wallet.default_signer().address();
             match sat_config.chain_type {
                 ChainType::Default => {
                     let provider = Arc::new(satellite_provider(&sat_config.name, &wallet).await?);
@@ -594,6 +598,11 @@ impl Cli {
 
         // Spawn Ethereum MPT gateway satellites.
         for sat_config in config.ethereum_mpt_gateways.iter().flatten() {
+            let wallet = self
+                .signer
+                .wallet_for(&sat_config.name, sat_config.destination_chain_id)
+                .await?;
+            let wallet_address = wallet.default_signer().address();
             let provider = Arc::new(satellite_provider(&sat_config.name, &wallet).await?);
 
             log_wallet_status(

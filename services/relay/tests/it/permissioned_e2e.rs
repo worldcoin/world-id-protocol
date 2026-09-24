@@ -432,7 +432,7 @@ async fn e2e_engine_driven_pipeline() -> Result<()> {
         deployment_block: 0,
     };
 
-    let world_chain = WorldChain::new(&wc_config, shared_provider.clone(), &shared_signer);
+    let world_chain = WorldChain::new(&wc_config, shared_provider.clone(), shared_signer.address());
     let mut engine = Engine::new(world_chain);
     let log = engine.log().clone();
 

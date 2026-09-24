@@ -10,7 +10,12 @@ use ::alloy::{
     rpc::{client::RpcClient, json_rpc::RpcError, types::TransactionRequest},
     signers::{
         Signer,
-        aws::{AwsSigner, AwsSignerError, aws_config::BehaviorVersion},
+        aws::{
+            AwsSigner, AwsSignerError,
+            aws_config::{
+                BehaviorVersion, retry::RetryConfig as AwsRetryConfig, timeout::TimeoutConfig,
+            },
+        },
         local::{LocalSignerError, PrivateKeySigner},
     },
     transports::{
@@ -197,8 +202,27 @@ impl SignerArgs {
             .await
             .map_err(ProviderError::ChainId)?;
         tracing::info!("Fetched chain_id: {}", chain_id);
+        Self::aws_kms_wallet_for_chain(key_id, chain_id).await
+    }
 
-        let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+    /// Builds a KMS-backed wallet pinned to the given chain ID.
+    pub async fn aws_kms_wallet_for_chain(
+        key_id: &str,
+        chain_id: u64,
+    ) -> ProviderResult<EthereumWallet> {
+        // The SDK has no operation timeout by default.
+        let config = aws_config::defaults(BehaviorVersion::latest())
+            .timeout_config(
+                TimeoutConfig::builder()
+                    .connect_timeout(Duration::from_secs(3))
+                    .operation_attempt_timeout(Duration::from_secs(5))
+                    .operation_timeout(Duration::from_secs(15))
+                    .build(),
+            )
+            // Exponential backoff with jitter. Signing is idempotent, so retrying is safe.
+            .retry_config(AwsRetryConfig::standard().with_max_attempts(3))
+            .load()
+            .await;
         let kms_client = aws_sdk_kms::Client::new(&config);
         let aws_signer = AwsSigner::new(kms_client, key_id.to_string(), Some(chain_id))
             .await
