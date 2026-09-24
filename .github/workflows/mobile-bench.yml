@@ -13,7 +13,7 @@ on:
           - ios
           - both
       device_profile:
-        description: "Device profile: low-spec, mid-spec, high-spec, custom"
+        description: "Device profile: low-spec, mid-spec, high-spec, all (full tier spread; use for open_results_pr snapshots), custom"
         required: false
         type: choice
         default: low-spec
@@ -21,6 +21,7 @@ on:
           - low-spec
           - mid-spec
           - high-spec
+          - all
           - custom
       ios_device:
         description: "Custom iOS device name"
@@ -53,10 +54,10 @@ on:
         type: string
         default: "5"
       fetch_timeout_secs:
-        description: "Seconds to wait for each BrowserStack run to complete"
+        description: "Seconds to wait for each BrowserStack run to complete; sized for a multi-device (all) run"
         required: false
         type: string
-        default: "1800"
+        default: "5400"
       pr_number:
         description: "PR number for sticky reporting (used by /mobench and bench-label runs). Leave empty for manual runs."
         required: false
@@ -69,6 +70,16 @@ on:
         default: false
       head_sha:
         description: "Exact commit SHA to benchmark"
+        required: false
+        type: string
+        default: ""
+      crate_path:
+        description: "Path to the benchmark crate"
+        required: false
+        type: string
+        default: "./crates/zk-mobile-bench"
+      functions:
+        description: "JSON array of benchmark functions to run (empty = workflow default)"
         required: false
         type: string
         default: ""
@@ -136,19 +147,18 @@ jobs:
     if: ${{ needs.browserstack-preflight.outputs.available == 'true' }}
     uses: ./.github/workflows/mobile-bench-reusable.yml
     with:
-      crate_path: ./crates/zk-mobile-bench
-      functions: '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_cached_proof_generation","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only","zk_mobile_bench::bench_authenticator_assertion_proof_generation"]'
+      crate_path: ${{ inputs.crate_path }}
+      functions: ${{ inputs.functions != '' && inputs.functions || '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_cached_proof_generation","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only","zk_mobile_bench::bench_ownership_proof_generation","zk_mobile_bench::bench_authenticator_assertion_proof_generation"]' }}
       mobench_version: "0.2.0"
       mobench_ref: ""
       platform: ${{ inputs.platform }}
       device_profile: ${{ inputs.device_profile }}
       ios_device: ${{ inputs.ios_device }}
       ios_os_version: ${{ inputs.ios_os_version }}
-      # mobench's low-spec profile still resolves to Moto G9 Play-10.0, which
-      # the current BrowserStack inventory no longer exposes. Keep manual
-      # overrides intact and use the available low-spec replacement by default.
-      android_device: ${{ inputs.android_device != '' && inputs.android_device || 'Motorola Moto G71 5G' }}
-      android_os_version: ${{ inputs.android_os_version != '' && inputs.android_os_version || '11.0' }}
+      # BrowserStack-inventory workarounds (e.g. the dead Moto G9 Play low-spec
+      # device) live in crates/zk-mobile-bench/device-matrix.yaml, not here.
+      android_device: ${{ inputs.android_device }}
+      android_os_version: ${{ inputs.android_os_version }}
       iterations: ${{ inputs.iterations }}
       warmup: ${{ inputs.warmup }}
       fetch_timeout_secs: ${{ inputs.fetch_timeout_secs }}

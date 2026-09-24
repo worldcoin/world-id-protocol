@@ -3,6 +3,7 @@
 //! This crate provides benchmarks for the main ZK proof generation functions:
 //! - Query Proof (`π1`) - proves knowledge of a valid OPRF query
 //! - Nullifier/Uniqueness Proof (`π2`) - proves uniqueness without revealing identity
+//! - Ownership Proof (WIP-103) - proves control of a World ID account, on Noir/ProveKit
 //! - Authenticator Assertion bench (WIP-106) - verifies an Authenticator Attestation, on Noir/ProveKit
 
 use mobench_sdk::{benchmark, profile_phase};
@@ -30,13 +31,19 @@ use world_id_primitives::{
     AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, authenticator::oprf_query_digest,
 };
 use world_id_proof::{
-    artifacts::embedded::zkeys,
+    NoirCircuitInput as _,
+    artifacts::{
+        ZkArtifactSource as _,
+        embedded::{EmbeddedZkArtifacts, zkeys},
+    },
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
+    ownership_proof::check_ownership_input_validity,
 };
 
 use authenticator_assertion_bench::{check_input_freshness, load_embedded_prover};
 use fixtures::{
     authenticator_assertion_bench_fixture, first_leaf_merkle_path, generate_rp_fixture,
+    ownership_proof_fixture,
 };
 
 // ============================================================================
@@ -414,6 +421,35 @@ pub fn bench_nullifier_proving_only() {
     });
 }
 
+/// Benchmark: Ownership Proof (WIP-103) generation
+#[benchmark]
+pub fn bench_ownership_proof_generation() {
+    let input = ownership_proof_fixture();
+
+    let mut prover = profile_phase("prover_load", || {
+        EmbeddedZkArtifacts
+            .ownership_prover()
+            .expect("embedded ownership prover")
+    });
+
+    check_ownership_input_validity(&input).expect("valid ownership input");
+
+    let witness = profile_phase("witness", || {
+        let input_map = input.into_witness().expect("ownership circuit input maps");
+        prover
+            .generate_witness(input_map)
+            .expect("ownership witness generation")
+    });
+
+    let proof = profile_phase("prove", || {
+        prover
+            .prove_with_witness(witness)
+            .expect("ownership WHIR proving")
+    });
+
+    std::hint::black_box(proof);
+}
+
 /// Benchmark: Authenticator Assertion (WIP-106) proving on Noir/ProveKit, reported via the
 /// `prover_load` / `witness` / `prove` phases (ProveKit consumes the `Prover`, so there is no
 /// separate warm path).
@@ -664,6 +700,34 @@ mod tests {
 
     #[test]
     #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
+    fn test_ownership_proof_benchmark() {
+        bench_ownership_proof_generation();
+    }
+
+    /// The ownership fixture must stay in sync with the one backing the circuit's `Prover.toml`
+    /// in `world-id-proof`; a drifted fixture would otherwise fail only at proving time.
+    #[test]
+    fn test_ownership_fixture_is_self_consistent() {
+        let input = fixtures::ownership_proof_fixture();
+
+        assert!(
+            input
+                .inclusion_proof
+                .is_valid(input.key_set.leaf_hash().into()),
+            "fixture merkle path must prove its own leaf"
+        );
+        assert_eq!(
+            input.expected_commitment,
+            world_id_primitives::Credential::compute_sub(
+                input.inclusion_proof.leaf_index,
+                input.commitment_blinder
+            ),
+            "fixture commitment must match its leaf index and blinder"
+        );
+    }
+
+    #[test]
+    #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
     fn test_authenticator_assertion_proof_benchmark() {
         bench_authenticator_assertion_proof_generation();
     }
@@ -684,6 +748,7 @@ mod tests {
             "zk_mobile_bench::bench_nullifier_proof_generation",
             "zk_mobile_bench::bench_nullifier_witness_generation_only",
             "zk_mobile_bench::bench_nullifier_proving_only",
+            "zk_mobile_bench::bench_ownership_proof_generation",
             "zk_mobile_bench::bench_authenticator_assertion_proof_generation",
         ] {
             assert!(
