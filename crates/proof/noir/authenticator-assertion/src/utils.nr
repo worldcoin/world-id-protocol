@@ -27,5 +27,19 @@ pub(crate) fn assert_cbor_uint32(value: Field) {
 /// `now` MUST be a verifier-supplied public input; a prover-chosen private
 /// timestamp would make the check vacuous.
 pub(crate) fn assert_not_expired(exp: Field, now: Field) {
-    std::field::bn254::assert_lt(now, exp);
+    assert(std::field::bn254::lt(now, exp), "token is expired");
+}
+
+/// Asserts that `exp` is at most `max_lifetime` seconds beyond `now`, i.e. that
+/// the token has no more than `max_lifetime` seconds of validity left.
+///
+/// MUST be called after [`assert_not_expired`] for the same `exp` and `now`.
+/// That `now < exp` is what makes `exp - now` the true integer difference
+/// rather than a value wrapped around the modulus, so neither operand needs a
+/// separate range check and the comparison cannot overflow.
+pub(crate) fn assert_max_lifetime(exp: Field, now: Field, max_lifetime: Field) {
+    assert(
+        std::field::bn254::lt(exp - now, max_lifetime + 1),
+        "token lifetime exceeds the maximum",
+    );
 }
