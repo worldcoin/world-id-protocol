@@ -20,6 +20,30 @@ const REQUESTS_TTL: Duration = Duration::from_secs(86_400);
 const INFLIGHT_TTL: Duration = Duration::from_secs(300);
 const PENDING_SET_KEY: &str = "gateway:pending_requests";
 
+/// Discriminator of a stored [`GatewayRequestState`], used to guard a
+/// compare-and-set status write.
+///
+/// The rendered names are compared against the serialized `status.state` values
+/// inside the Lua script, so `snake_case` must stay in step with
+/// `GatewayRequestState`'s own serde representation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::Display)]
+#[strum(serialize_all = "snake_case")]
+pub(crate) enum StatusGuard {
+    Queued,
+    Batching,
+}
+
+/// Result of a compare-and-set status write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StatusWriteOutcome {
+    /// The write was applied.
+    Applied,
+    /// The stored status was not one of the allowed values, so nothing was written.
+    Guarded,
+    /// The request record does not exist, which for an expired record is terminal.
+    Missing,
+}
+
 /// Result of atomically creating a tracked request and acquiring its locks.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum CreateRequestOutcome {
@@ -93,6 +117,107 @@ impl RequestStore {
             .query_async(&mut manager)
             .await?;
         Ok(())
+    }
+
+    /// Atomically applies a status only while the stored status is one of
+    /// `allowed`, preserving the record's TTL.
+    ///
+    /// This is the guard that keeps two independent owners from clobbering each
+    /// other: an owner that decided from a stale snapshot may only write while
+    /// the request is still in a state it was responsible for.
+    ///
+    /// Terminal statuses additionally remove the request from the pending set
+    /// and delete the in-flight locks it still owns, matching
+    /// [`Self::update_status`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when serialization or the Redis call fails.
+    pub(crate) async fn update_status_if(
+        &self,
+        id: &str,
+        allowed: &[StatusGuard],
+        status: &GatewayRequestState,
+        updated_at: u64,
+    ) -> GatewayResult<StatusWriteOutcome> {
+        let allowed_json = Self::status_guard_json(allowed)?;
+        let status_json = serde_json::to_string(status)?;
+
+        let mut manager = self.manager.clone();
+        let outcome: i64 = redis::Script::new(
+            r#"
+                local request_key = KEYS[1]
+                local pending_set_key = KEYS[2]
+
+                local allowed = cjson.decode(ARGV[1])
+                local status = ARGV[2]
+                local updated_at = tonumber(ARGV[3])
+                local request_id = ARGV[4]
+
+                local record = redis.call('GET', request_key)
+                if not record then
+                    return -1
+                end
+
+                local decoded = cjson.decode(record)
+                local current = decoded.status.state
+                local accepted = false
+                for _, name in ipairs(allowed) do
+                    if current == name then
+                        accepted = true
+                        break
+                    end
+                end
+                if not accepted then
+                    return 0
+                end
+
+                decoded.status = cjson.decode(status)
+                decoded.updated_at = updated_at
+                redis.call('SET', request_key, cjson.encode(decoded), 'KEEPTTL')
+
+                local state = decoded.status.state
+                if state == 'finalized' or state == 'failed' then
+                    redis.call('SREM', pending_set_key, request_id)
+                    local inflight = decoded.inflight_keys
+                    if inflight then
+                        for _, key in ipairs(inflight) do
+                            local owner = redis.call('GET', key)
+                            -- Gateway versions predating lock ownership stored literal 1.
+                            if owner == request_id or owner == '1' then
+                                redis.call('DEL', key)
+                            end
+                        end
+                    end
+                end
+
+                return 1
+                "#,
+        )
+        .key(Self::request_key(id))
+        .key(PENDING_SET_KEY)
+        .arg(allowed_json)
+        .arg(status_json)
+        .arg(updated_at)
+        .arg(id)
+        .invoke_async(&mut manager)
+        .await?;
+        Ok(Self::status_write_outcome(outcome))
+    }
+
+    /// Serializes a guard list into the JSON array the Lua scripts expect.
+    fn status_guard_json(allowed: &[StatusGuard]) -> GatewayResult<String> {
+        let names: Vec<String> = allowed.iter().map(ToString::to_string).collect();
+        Ok(serde_json::to_string(&names)?)
+    }
+
+    /// Maps the integer convention used by the guarded status scripts.
+    const fn status_write_outcome(value: i64) -> StatusWriteOutcome {
+        match value {
+            1 => StatusWriteOutcome::Applied,
+            0 => StatusWriteOutcome::Guarded,
+            _ => StatusWriteOutcome::Missing,
+        }
     }
 
     /// Atomically creates a queued request, pending entry, and in-flight locks.
@@ -656,6 +781,65 @@ mod tests {
                 .await
                 .unwrap(),
             RateLimitOutcome::Allowed(2)
+        );
+    }
+
+    #[tokio::test]
+    async fn guarded_status_write_only_applies_from_an_allowed_state() {
+        let (store, _redis) = store().await;
+        let id = "guarded-status";
+        store
+            .create_request(id, GatewayRequestKind::CreateAccount, &[], 10)
+            .await
+            .unwrap();
+
+        // Ownership is taken from `Queued`.
+        assert_eq!(
+            store
+                .update_status_if(
+                    id,
+                    &[StatusGuard::Queued],
+                    &GatewayRequestState::Batching,
+                    11
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Applied
+        );
+
+        // A writer that decided from a stale snapshot must be refused.
+        assert_eq!(
+            store
+                .update_status_if(
+                    id,
+                    &[StatusGuard::Queued],
+                    &GatewayRequestState::Batching,
+                    12
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Guarded
+        );
+
+        let record = store.request(id).await.unwrap().expect("record exists");
+        assert!(matches!(record.status, GatewayRequestState::Batching));
+        assert_eq!(record.updated_at, 11);
+    }
+
+    #[tokio::test]
+    async fn guarded_status_write_reports_a_missing_record() {
+        let (store, _redis) = store().await;
+        assert_eq!(
+            store
+                .update_status_if(
+                    "guarded-missing",
+                    &[StatusGuard::Queued],
+                    &GatewayRequestState::Batching,
+                    0,
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Missing
         );
     }
 }
