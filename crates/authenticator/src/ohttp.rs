@@ -189,6 +189,48 @@ impl OhttpClient {
 mod tests {
     use super::*;
     use crate::AuthenticatorError;
+    use ohttp::{
+        KeyConfig, Server, SymmetricSuite,
+        hpke::{Aead, Kdf, Kem},
+    };
+
+    #[test]
+    fn xwing_config_roundtrips_ohttp() {
+        let server = Server::new(
+            KeyConfig::new(
+                1,
+                Kem::XWing,
+                vec![SymmetricSuite::new(Kdf::HkdfSha256, Aead::Aes128Gcm)],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let encoded_config_list = KeyConfig::encode_list(&[server.config()]).unwrap();
+        let client = OhttpClient::new(
+            reqwest::Client::new(),
+            "test_scope",
+            "https://example.com",
+            OhttpClientConfig::new(
+                "https://relay.example.com".into(),
+                base64::engine::general_purpose::STANDARD.encode(encoded_config_list),
+            ),
+        )
+        .unwrap();
+
+        let request = b"request";
+        let response = b"response";
+        let ohttp_req =
+            ClientRequest::from_encoded_config_list(&client.encoded_config_list).unwrap();
+        let (enc_request, client_response) = ohttp_req.encapsulate(request).unwrap();
+        let (dec_request, server_response) = server.decapsulate(&enc_request).unwrap();
+        assert_eq!(dec_request, request);
+
+        let enc_response = server_response.encapsulate(response).unwrap();
+        assert_eq!(
+            client_response.decapsulate(&enc_response).unwrap(),
+            response
+        );
+    }
 
     #[test]
     fn invalid_base64_key_config_returns_invalid_config() {
