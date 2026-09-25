@@ -4,13 +4,16 @@ use std::{
 };
 
 use crate::{
-    OwnershipProver, OwnershipVerifier,
+    ClaimsProver, ClaimsVerifier, OwnershipProver, OwnershipVerifier,
     artifacts::{ZkArtifactError, ZkArtifactKind, ZkArtifactSource},
     nullifier_proof::{CircomGroth16Material, load_nullifier_material_from_paths},
     oprf_query::load_query_material_from_paths,
 };
 
-use crate::ownership_proof::{load_ownership_prover_from_path, load_ownership_verifier_from_path};
+use crate::{
+    claims_proof::{load_claims_prover_from_path, load_claims_verifier_from_path},
+    ownership_proof::{load_ownership_prover_from_path, load_ownership_verifier_from_path},
+};
 
 /// ZK artifacts loaded from files on disk.
 #[derive(Debug, Default, Clone)]
@@ -21,6 +24,8 @@ pub struct FileSystemZkArtifacts {
     nullifier_graph_path: Option<PathBuf>,
     ownership_prover_path: Option<PathBuf>,
     ownership_verifier_path: Option<PathBuf>,
+    claims_prover_path: Option<PathBuf>,
+    claims_verifier_path: Option<PathBuf>,
 }
 
 impl FileSystemZkArtifacts {
@@ -68,6 +73,18 @@ impl FileSystemZkArtifacts {
         self
     }
 
+    /// Sets the claims proof prover and verifier paths.
+    #[must_use]
+    pub fn with_claims_paths(
+        mut self,
+        prover_path: impl Into<PathBuf>,
+        verifier_path: impl Into<PathBuf>,
+    ) -> Self {
+        self.claims_prover_path = Some(prover_path.into());
+        self.claims_verifier_path = Some(verifier_path.into());
+        self
+    }
+
     /// Sets the query proof zkey path.
     #[must_use]
     pub fn with_query_zkey_path(mut self, path: impl Into<PathBuf>) -> Self {
@@ -107,6 +124,20 @@ impl FileSystemZkArtifacts {
     #[must_use]
     pub fn with_ownership_verifier_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.ownership_verifier_path = Some(path.into());
+        self
+    }
+
+    /// Sets the claims proof prover path.
+    #[must_use]
+    pub fn with_claims_prover_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.claims_prover_path = Some(path.into());
+        self
+    }
+
+    /// Sets the claims proof verifier path.
+    #[must_use]
+    pub fn with_claims_verifier_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.claims_verifier_path = Some(path.into());
         self
     }
 }
@@ -160,6 +191,26 @@ impl ZkArtifactSource for FileSystemZkArtifacts {
             &self.ownership_verifier_path,
             kind,
             "ownership verifier path not set",
+        )?)
+        .map_err(|e| ZkArtifactError::load(kind, e))
+    }
+
+    fn claims_prover(&self) -> Result<ClaimsProver, ZkArtifactError> {
+        let kind = ZkArtifactKind::ClaimsProver;
+        load_claims_prover_from_path(required_path(
+            &self.claims_prover_path,
+            kind,
+            "claims prover path not set",
+        )?)
+        .map_err(|e| ZkArtifactError::load(kind, e))
+    }
+
+    fn claims_verifier(&self) -> Result<ClaimsVerifier, ZkArtifactError> {
+        let kind = ZkArtifactKind::ClaimsVerifier;
+        load_claims_verifier_from_path(required_path(
+            &self.claims_verifier_path,
+            kind,
+            "claims verifier path not set",
         )?)
         .map_err(|e| ZkArtifactError::load(kind, e))
     }

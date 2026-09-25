@@ -3,6 +3,31 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 use crate::FieldElement;
 
+/// A strict range predicate over one credential claim.
+///
+/// At least one bound must be present. The claim remains private; only the predicate and
+/// whether it was satisfied are disclosed by the claims proof.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClaimStatement {
+    /// Zero-based index of the claim in the credential's fixed claim vector.
+    pub claim_index: u8,
+    /// When present, proves `min_exclusive < claim`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_exclusive: Option<FieldElement>,
+    /// When present, proves `claim < max_exclusive`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_exclusive: Option<FieldElement>,
+}
+
+/// Optional claims predicates requested alongside a nullifier proof.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClaimsProofRequest {
+    /// Predicates to prove. Each claim index may occur at most once.
+    pub statements: Vec<ClaimStatement>,
+}
+
 /// Encoded World ID Proof.
 ///
 /// Internally, the first 4 elements are a compressed Groth16 proof
@@ -108,6 +133,18 @@ pub struct OwnershipProof {
     pub merkle_root: FieldElement,
 }
 
+/// A presentation-specific proof over private issuer-attested credential claims.
+///
+/// The verifier supplies the remaining public inputs from the RP request, nullifier response,
+/// and issuer registry. The statements are repeated here so the response is self-describing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClaimsProof {
+    /// The WHIR R1CS proof from ProveKit.
+    pub proof: provekit_common::WhirR1CSProof,
+    /// Public predicates proven over the private claims.
+    pub statements: Vec<ClaimStatement>,
+}
+
 #[cfg(test)]
 mod tests {
     use ruint::uint;
@@ -194,6 +231,27 @@ mod tests {
         assert!(json.contains("proof"));
         assert!(json.contains("merkle_root"));
         let decoded: OwnershipProof = serde_json::from_str(&json).unwrap();
+        assert_eq!(proof, decoded);
+    }
+
+    #[test]
+    fn test_claims_proof_json_roundtrip() {
+        let proof = ClaimsProof {
+            proof: provekit_common::WhirR1CSProof {
+                narg_string: vec![1, 2, 3],
+                hints: vec![4, 5],
+                #[cfg(debug_assertions)]
+                pattern: vec![],
+            },
+            statements: vec![ClaimStatement {
+                claim_index: 3,
+                min_exclusive: Some(FieldElement::from(18u64)),
+                max_exclusive: Some(FieldElement::from(65u64)),
+            }],
+        };
+
+        let json = serde_json::to_string(&proof).unwrap();
+        let decoded: ClaimsProof = serde_json::from_str(&json).unwrap();
         assert_eq!(proof, decoded);
     }
 

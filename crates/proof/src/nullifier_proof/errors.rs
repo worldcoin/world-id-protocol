@@ -114,6 +114,15 @@ pub enum ProofInputError {
     /// The provided commitment does not match the one derived from the leaf index and blinder.
     #[error("The provided expected commitment does not match the derived commitment")]
     InvalidExpectedCommitment,
+    /// A claims statement addresses a slot outside the credential's claim vector.
+    #[error("Claim index {index} is outside the credential claim vector.")]
+    InvalidClaimIndex { index: u8 },
+    /// More than one claims statement addresses the same credential claim slot.
+    #[error("Claim index {index} occurs more than once in the claims proof request.")]
+    DuplicateClaimIndex { index: u8 },
+    /// A claims statement enables neither a lower nor an upper bound.
+    #[error("Claim index {index} has no predicate to prove.")]
+    EmptyClaimStatement { index: u8 },
 }
 
 /// This method checks the validity of the input parameters by emulating the operations that are proved in ZK and raising Errors that would result in an invalid proof.
