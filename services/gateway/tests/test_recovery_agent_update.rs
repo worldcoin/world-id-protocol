@@ -6,6 +6,8 @@
 //! the new V2-native `update-recovery-agent` / `revert-recovery-agent-update`
 //! URLs.
 
+#![recursion_limit = "256"]
+
 use std::{future::Future, time::Duration};
 
 use alloy::{

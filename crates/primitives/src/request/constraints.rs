@@ -112,7 +112,6 @@ impl ConstraintExpr<'_> {
                             return false;
                         }
                     }
-                    true
                 }
                 ConstraintExpr::Any { any } => {
                     for n in any {
@@ -120,7 +119,6 @@ impl ConstraintExpr<'_> {
                             return false;
                         }
                     }
-                    true
                 }
                 ConstraintExpr::Enumerate { enumerate } => {
                     for n in enumerate {
@@ -128,9 +126,9 @@ impl ConstraintExpr<'_> {
                             return false;
                         }
                     }
-                    true
                 }
             }
+            true
         }
 
         fn count_node(node: &ConstraintNode<'_>, count: &mut usize, max_nodes: usize) -> bool {
