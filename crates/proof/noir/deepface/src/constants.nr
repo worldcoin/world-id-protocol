@@ -15,7 +15,9 @@ pub global MERKLE_DEPTH: u32 = 30;
 /// Credential claim holding the PCP `hashes.json` commitment.
 pub global CLAIM_INDEX: u32 = 0;
 
-/// Bound on the `hashes.json` input. A v3 PCP `hashes.json` is about 4.3 KB.
+/// Accepted `hashes.json` lengths. A v3 PCP `hashes.json` is about 4.3 KB and a v2 one
+/// about 3.9 KB. The SAFE tag table costs about 3 R1CS constraints per accepted length.
+pub global MIN_HASHES_JSON_BYTES: u32 = 3072;
 pub global MAX_HASHES_JSON_BYTES: u32 = 5120;
 
 /// Bytes per sponge chunk: 31 bytes stay below the BN254 modulus.

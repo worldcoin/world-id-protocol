@@ -6,7 +6,7 @@
 //! bytes, so the circuit's sponge is checked against the Issuer's implementation.
 //! Regenerate with `UPDATE_PROVER_TOML=1 cargo test -p world-id-proof deepface`.
 
-use std::{env, fs, path::PathBuf};
+use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
 use ark_ff::PrimeField;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
@@ -28,6 +28,54 @@ const DS_EVT_V1: DomainSeparator<15> = DomainSeparator::new(b"WORLD_ID_EVT_V1");
 /// Chunk slots of the Noir `HashesJsonInputs` (`CHUNK_SLOTS`).
 const CHUNK_SLOTS: usize = 169;
 const CHUNK_BYTES: usize = 31;
+
+/// The `hashes.json` keys of a v3 PCP as written by orb-core, besides `version`.
+const PCP_V3_KEYS: [&str; 44] = [
+    "backend_keys.json",
+    "face_embeddings.json",
+    "iris_code_shares_0.json",
+    "iris_code_shares_1.json",
+    "iris_code_shares_2.json",
+    "iris_codes.json",
+    "left_ir.png",
+    "left_normalized_image.bin",
+    "left_normalized_image_blinding_factors.bin",
+    "left_normalized_image_blinding_factors_resized.bin",
+    "left_normalized_image_commitment.bin",
+    "left_normalized_image_commitment_resized.bin",
+    "left_normalized_image_resized.bin",
+    "left_normalized_mask.bin",
+    "left_normalized_mask_blinding_factors.bin",
+    "left_normalized_mask_blinding_factors_resized.bin",
+    "left_normalized_mask_commitment.bin",
+    "left_normalized_mask_commitment_resized.bin",
+    "left_normalized_mask_resized.bin",
+    "orb_country",
+    "orb_id",
+    "qr_code",
+    "right_ir.png",
+    "right_normalized_image.bin",
+    "right_normalized_image_blinding_factors.bin",
+    "right_normalized_image_blinding_factors_resized.bin",
+    "right_normalized_image_commitment.bin",
+    "right_normalized_image_commitment_resized.bin",
+    "right_normalized_image_resized.bin",
+    "right_normalized_mask.bin",
+    "right_normalized_mask_blinding_factors.bin",
+    "right_normalized_mask_blinding_factors_resized.bin",
+    "right_normalized_mask_commitment.bin",
+    "right_normalized_mask_commitment_resized.bin",
+    "right_normalized_mask_resized.bin",
+    "signup_id",
+    "software_version",
+    "thumbnail.png",
+    "tier_1",
+    "tier_2",
+    "tier_3",
+    "tier_4",
+    "tier_5",
+    "timestamp",
+];
 
 const LEAF_INDEX: u64 = 1;
 const AUD: u64 = 1_928_118;
@@ -122,14 +170,23 @@ fn render() -> Rendered {
     let key_set = AuthenticatorPublicKeySet::new(vec![authenticator_sk.public()]).unwrap();
     let (siblings, merkle_root) = first_leaf_merkle_path(key_set.leaf_hash());
 
-    // The compared entries and a PCP-shaped `hashes.json` (compact, sorted, lowercase hex).
+    // The compared entries and a v3 PCP `hashes.json`: compact, sorted, lowercase hex.
     let thumbnail = b"orb thumbnail png";
     let live = b"live capture";
     let challenge = b"rp challenge frame";
+    let mut entries: BTreeMap<&str, String> = PCP_V3_KEYS
+        .iter()
+        .map(|key| (*key, hex::encode(Sha256::digest(key.as_bytes()))))
+        .collect();
+    entries.insert("thumbnail.png", hex::encode(Sha256::digest(thumbnail)));
+    entries.insert("version", "3.0".into());
     let hashes_json = format!(
-        "{{\"face.png\":\"{}\",\"thumbnail.png\":\"{}\",\"version\":\"3.0\"}}",
-        hex::encode(Sha256::digest(b"orb face png")),
-        hex::encode(Sha256::digest(thumbnail)),
+        "{{{}}}",
+        entries
+            .iter()
+            .map(|(key, value)| format!("\"{key}\":\"{value}\""))
+            .collect::<Vec<_>>()
+            .join(",")
     );
     let thumbnail_offset = hashes_json.find("\"thumbnail.png\"").unwrap();
     let hashes_json = hashes_json.into_bytes();

@@ -4,7 +4,10 @@
 // chunks covering the thumbnail entry are unpacked into bytes. Any other chunk set with
 // the same claim would be a Poseidon2 collision.
 use super::{
-    constants::{CHUNK_BYTES, CHUNK_SLOTS, MAX_HASHES_JSON_BYTES, NUM_CHUNKS, WINDOW_CHUNKS},
+    constants::{
+        CHUNK_BYTES, CHUNK_SLOTS, MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES, NUM_CHUNKS,
+        WINDOW_CHUNKS,
+    },
     types::HashesJsonInputs,
 };
 use poseidon2::bn254::perm;
@@ -18,12 +21,14 @@ global RATE: u32 = 15;
 global NUM_BATCHES: u32 = (NUM_CHUNKS + RATE - 1) / RATE;
 global WINDOW_BYTES: u32 = WINDOW_CHUNKS * CHUNK_BYTES;
 
-/// SAFE tag of the `CLAIMS_HASH_V1` sponge for every input length, computed at compile
-/// time so the circuit never evaluates SHA3.
-global SAFE_TAGS: [Field; MAX_HASHES_JSON_BYTES + 1] = comptime {
-    let mut tags = [0; MAX_HASHES_JSON_BYTES + 1];
-    for len in 1..MAX_HASHES_JSON_BYTES + 1 {
-        tags[len] = safe_tag(len);
+global NUM_LENGTHS: u32 = MAX_HASHES_JSON_BYTES - MIN_HASHES_JSON_BYTES + 1;
+
+/// SAFE tag of the `CLAIMS_HASH_V1` sponge for every accepted length, computed at
+/// compile time so the circuit never evaluates SHA3. Entry `i` is length `MIN + i`.
+global SAFE_TAGS: [Field; NUM_LENGTHS] = comptime {
+    let mut tags = [0; NUM_LENGTHS];
+    for i in 0..NUM_LENGTHS {
+        tags[i] = safe_tag(MIN_HASHES_JSON_BYTES + i);
     }
     tags
 };
@@ -37,7 +42,7 @@ fn num_chunks(len: u32) -> u32 {
 /// domain separator `CLAIMS_HASH_V1`, 15 chunks per permutation, squeezing element 0.
 pub fn claims_hash_v1(json: HashesJsonInputs) -> Field {
     let len = json.len;
-    assert(len > 0, "hashes.json must not be empty");
+    assert(len >= MIN_HASHES_JSON_BYTES, "hashes.json is shorter than its bound");
     assert(len <= MAX_HASHES_JSON_BYTES, "hashes.json exceeds its bound");
     let n = num_chunks(len);
 
@@ -49,7 +54,7 @@ pub fn claims_hash_v1(json: HashesJsonInputs) -> Field {
     }
 
     let mut state: [Field; 16] = [0; 16];
-    state[15] = SAFE_TAGS[len];
+    state[15] = SAFE_TAGS[len - MIN_HASHES_JSON_BYTES];
     for batch in 0..NUM_BATCHES {
         // A batch is permuted exactly when it holds at least one chunk.
         let batch_active = (batch * RATE < n) as Field;

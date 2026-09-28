@@ -252,3 +252,10 @@ fn test_reads_a_thumbnail_in_the_final_short_chunk() {
     );
     assert_eq(digest, 255);
 }
+
+#[test(should_fail_with = "hashes.json is shorter than its bound")]
+fn test_rejects_a_hashes_json_below_the_length_window() {
+    let mut i = inputs();
+    i.hashes_json.len = 3071;
+    prove(public(), i);
+}
