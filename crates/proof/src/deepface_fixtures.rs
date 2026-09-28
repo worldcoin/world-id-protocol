@@ -183,11 +183,21 @@ fn render() -> Rendered {
     );
 
     let token = token_signature(&verifier_sk, IAT, ASSURANCE_LEVEL, request_hash, compared);
-    let token_two_way =
-        token_signature(&verifier_sk, IAT, ASSURANCE_LEVEL, request_hash, compared_two_way);
+    let token_two_way = token_signature(
+        &verifier_sk,
+        IAT,
+        ASSURANCE_LEVEL,
+        request_hash,
+        compared_two_way,
+    );
     let token_low_level = token_signature(&verifier_sk, IAT, 1, request_hash, compared);
-    let token_future_iat =
-        token_signature(&verifier_sk, NOW + 10, ASSURANCE_LEVEL, request_hash, compared);
+    let token_future_iat = token_signature(
+        &verifier_sk,
+        NOW + 10,
+        ASSURANCE_LEVEL,
+        request_hash,
+        compared,
+    );
 
     let (auth_s, auth_r) = sig(&authorization);
     let (cred_s, cred_r) = sig(credential.signature.as_ref().unwrap());

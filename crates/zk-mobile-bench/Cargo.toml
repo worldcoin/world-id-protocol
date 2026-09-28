@@ -30,6 +30,7 @@ ark-ff = { workspace = true }
 ark-ec = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 groth16-material = { workspace = true, features = ["circom"] }
+provekit-common = { workspace = true }
 # `Prove::generate_witness`, for the ownership witness-only benchmark
 provekit-prover = { workspace = true }
 
@@ -41,9 +42,18 @@ serde_json = { workspace = true }
 taceo-oprf = { workspace = true }
 
 # Utilities
+eyre = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 thiserror = { workspace = true }
 
 # UniFFI for mobile bindings
 uniffi = { version = "0.32", features = ["cli"] }
+
+[dev-dependencies]
+provekit-verifier = { workspace = true }
+
+[build-dependencies]
+eyre = { workspace = true }
+provekit-common = { workspace = true }
+provekit-r1cs-compiler = { workspace = true }
