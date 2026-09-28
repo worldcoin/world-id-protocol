@@ -9,8 +9,21 @@
 
 # World ID Improvement Proposals
 
-- [WIP-100: Cryptographic Primitives for World ID Protocol](WIPs/wip-100.md)
-- [WIP-101: RP Request Authorization Method for Smart Contracts](WIPs/wip-101.md)
-- [WIP-102: Simplified Optimistic Recovery Agent Update](WIPs/wip-102.md)
-- [WIP-103: Proof of Ownership](WIPs/wip-103.md)
-- [WIP-104: Proving and Admin Authenticators with Fixed Permission Sets](WIPs/wip-104.md)
+| Spec | Description |
+| --- | --- |
+| [WIP-100: Cryptographic Primitives for World ID Protocol](WIPs/wip-100.md) | Establishes the default cryptographic primitives used throughout the Protocol. |
+| [WIP-101: RP Request Authorization Method for Smart Contracts](WIPs/wip-101.md) | Standard to verify a relying party proof request for a World ID Proof in Smart Contracts |
+| [WIP-102: Simplified Optimistic Recovery Agent Update](WIPs/wip-102.md) | Replace the current Recovery Agent update mechanism with an immediate update and revert window, removing the need for a follow-up execute transaction. |
+| [WIP-103: Proof of Ownership](WIPs/wip-103.md) | Mechanism to privately prove ownership of a registered leaf via a blinded leaf index commitment. |
+| [WIP-104: Proving and Admin Authenticators with Fixed Permission Sets](WIPs/wip-104.md) | Introduce two classes of authenticators where a Proving Authenticator is not allowed to perform any management operations on a World ID. |
+| [WIP-105: Authenticator Message Format](https://github.com/worldcoin/world-id-protocol/pull/965) | Standard format for messages exchanged between World ID authenticators. |
+| [WIP-106: Authenticator Assertions](https://github.com/worldcoin/world-id-protocol/pull/1027) | Mechanism for Authenticator Providers to attest the integrity of the environment in which a World ID Proof is generated. |
+| [WIP-107: Experimental Transactional Fees](https://app.notion.com/p/worldcoin/YABS-3ab8614bdf8c80d9801ae9692f5ab7aa?source=copy_link#3e48614bdf8c80138098f2aa92d2f750) | Prepaid per-World-ID-per-period billing, initially for Deep Face proofs. |
+| [WIP-108: Authenticator State Sync](https://app.notion.com/p/worldcoin/WIP-108-Authenticator-State-Sync-3c28614bdf8c80a6a967cc9fce7ed4e8) | Synchronize credential vaults across authenticators using continuous group key agreement. |
+| [WIP-109: Authenticator Registration Protocol](https://github.com/worldcoin/world-id-protocol/pull/983) | Protocol for securely confirming and authorizing the registration of a new World ID authenticator. |
+| [WIP-110: Message Bridge](WIPs/wip-110.md) **🚧 Planned** | Generic encrypted messaging between protocol participants, with pairing and hybrid post-quantum key exchange. |
+| [WIP-111: Passkey Ownership Proof](https://github.com/worldcoin/world-id-protocol/pull/872) | Prove control of a World ID using a WebAuthn ES256 passkey registered as a proving authenticator, without a PRF-derived BabyJubJub secret. |
+| [WIP-112: Authenticator Registration over iroh](https://github.com/worldcoin/world-id-protocol/pull/985) | Secure bidirectional transport for WIP-109 authenticator registration using iroh. |
+| [WIP-201: Flamingo Verifier](https://github.com/worldcoin/world-id-protocol/pull/979) | A TEE-backed service that verifies Authenticator Assertions, compares embeddings, and signs its results. |
+| [WIP-202: Proof of Embedding Similarity](https://github.com/worldcoin/world-id-protocol/pull/979) | Mechanism to prove similarity between vector embeddings based on a World ID credential. |
+| [WIP-512: AgentKit — Agent Delegated Proofs](https://github.com/worldcoin/world-id-protocol/pull/674) | This informational spec describes the SDK behavior for AgentKit v1.0, where a World ID Proof is used to obtain a TokenSet which can be used to rate limit requests to a server according to certain rules. This spec is an extension on x402. |
