@@ -152,7 +152,7 @@ jobs:
       functions: ${{ inputs.functions != '' && inputs.functions || '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_cached_proof_generation","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only","zk_mobile_bench::bench_ownership_proof_generation"]' }}
       mobench_version: "0.2.0"
       # Retry flags ship after 0.2.0; pinned until the next release.
-      mobench_ref: "24cf89e1432615d06fb6829f7478ade45d427d94"
+      mobench_ref: "a2004cd418d9de954b34c26044b7270b3c1f5c34"
       platform: ${{ inputs.platform }}
       device_profile: ${{ inputs.device_profile }}
       ios_device: ${{ inputs.ios_device }}

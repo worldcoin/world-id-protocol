@@ -96,11 +96,6 @@ on:
         required: false
         type: string
         default: "2"
-      retry_busy_parallels:
-        description: "Scheduling retries, with backoff, while all BrowserStack parallels are in use"
-        required: false
-        type: string
-        default: "10"
       requested_by:
         description: "Who triggered the run"
         required: false
@@ -299,7 +294,6 @@ jobs:
           RELEASE_FLAG: ${{ inputs.build_release && '--release' || '' }}
           CRATE_PATH: ${{ inputs.crate_path }}
           RETRY_SKIPPED_SESSIONS: ${{ inputs.retry_skipped_sessions }}
-          RETRY_BUSY_PARALLELS: ${{ inputs.retry_busy_parallels }}
         run: |
           set -euo pipefail
           device_args=()
@@ -326,7 +320,6 @@ jobs:
             --fetch \
             --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
             --retry-skipped-sessions "${RETRY_SKIPPED_SESSIONS}" \
-            --retry-busy-parallels "${RETRY_BUSY_PARALLELS}" \
             --output-dir target/mobench/ci/ios
 
       - name: Validate iOS benchmark outputs
@@ -549,7 +542,6 @@ jobs:
           RELEASE_FLAG: ${{ inputs.build_release && '--release' || '' }}
           CRATE_PATH: ${{ inputs.crate_path }}
           RETRY_SKIPPED_SESSIONS: ${{ inputs.retry_skipped_sessions }}
-          RETRY_BUSY_PARALLELS: ${{ inputs.retry_busy_parallels }}
         run: |
           set -euo pipefail
           device_args=()
@@ -575,7 +567,6 @@ jobs:
             --fetch \
             --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
             --retry-skipped-sessions "${RETRY_SKIPPED_SESSIONS}" \
-            --retry-busy-parallels "${RETRY_BUSY_PARALLELS}" \
             --output-dir target/mobench/ci/android
 
       - name: Validate Android benchmark outputs
