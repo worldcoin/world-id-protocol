@@ -1,6 +1,6 @@
 use crate::{
     constants::{CHUNK_SLOTS, MAX_CLAIMS, MERKLE_DEPTH, NUM_KEYS},
-    hashes_json::thumbnail_digest,
+    hashes_json::{claims_hash_v1, thumbnail_digest},
     main,
     test_fixtures::{
         AAT_BLIND, AAT_EXP, AAT_SIG_R, AAT_SIG_S, ASSURANCE_LEVEL, ASSURANCE_LEVEL_MIN, AUD,
@@ -255,7 +255,7 @@ fn test_reads_a_thumbnail_in_the_final_short_chunk() {
 
 #[test(should_fail_with = "hashes.json is shorter than its bound")]
 fn test_rejects_a_hashes_json_below_the_length_window() {
-    let mut i = inputs();
-    i.hashes_json.len = 3071;
-    prove(public(), i);
+    let mut json = inputs().hashes_json;
+    json.len = 3071;
+    let _ = claims_hash_v1(json);
 }
