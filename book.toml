@@ -9,7 +9,6 @@ build-dir = "book"
 
 [preprocessor.strip-front-matter]
 command = "python3 docs/strip-front-matter.py"
-before = ["links", "mermaid"]
 
 [preprocessor.mermaid]
 command = "mdbook-mermaid"
