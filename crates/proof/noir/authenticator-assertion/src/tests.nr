@@ -1,5 +1,5 @@
 use super::{
-    AuthenticatorAssertionToken, MAX_AAT_LIFETIME, request_commitment, SecFlags, verify_aat,
+    AuthenticatorAssertionWitness, MAX_AAT_LIFETIME, request_commitment, SecFlags, verify_aat,
 };
 use poseidon2::bn254::perm;
 
@@ -19,8 +19,8 @@ global BLIND: Field = 7;
 global EXPECTED_REQ: Field = 0x2a09ead9ab7c0b2e0f6f7a5b5fc8128261bf10849e151d0b757aa949f0597367;
 global EXPECTED_MESSAGE: Field = 0x14061d185d7be1e081e1b2588cfc5ae777678152a30c3645fde229693b03410b;
 
-fn fixture() -> AuthenticatorAssertionToken {
-    AuthenticatorAssertionToken {
+fn fixture() -> AuthenticatorAssertionWitness {
+    AuthenticatorAssertionWitness {
         exp: EXP,
         // platform 2 (iOS) | sec_level 1 << 8 | sec_meta 3 << 16
         // platform 2 | sec_level 1 << 8 | build_version 2006 << 16 | sec_meta 3 << 48
@@ -33,7 +33,7 @@ fn fixture() -> AuthenticatorAssertionToken {
     }
 }
 
-fn verify(aat: AuthenticatorAssertionToken, now: Field) -> SecFlags {
+fn verify(aat: AuthenticatorAssertionWitness, now: Field) -> SecFlags {
     verify_aat(
         aat,
         TRUST_ANCHOR_KEY,

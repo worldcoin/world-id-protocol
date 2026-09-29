@@ -15,8 +15,9 @@ global DS_REQ: Field = 498451125091886891258088867850510460821032813905; // b"WO
 /// Maximum remaining lifetime `exp - now` of an AAT, in seconds.
 pub global MAX_AAT_LIFETIME: Field = 1800;
 
-/// The values of an AAT, as issued by the Authenticator Provider.
-pub struct AuthenticatorAssertionToken {
+/// The private AAT inputs to `verify_aat`. `req` is not included, as it is recomputed
+/// from the request inputs.
+pub struct AuthenticatorAssertionWitness {
     /// Expiration as seconds since the Unix epoch.
     pub exp: Field,
     /// Packed security attributes (see `SecFlags`).
@@ -41,7 +42,7 @@ pub struct SecFlags {
 /// `cdh` and `blind` private. How `cdh` is bound to the surrounding proof is the
 /// caller's obligation.
 pub fn verify_aat(
-    aat: AuthenticatorAssertionToken,
+    aat: AuthenticatorAssertionWitness,
     trust_anchor_key: [Field; 2],
     now: Field,
     aud: Field,
