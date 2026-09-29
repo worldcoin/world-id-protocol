@@ -4,8 +4,16 @@
 //! `trust_anchor_key` after verifying platform integrity evidence for a single
 //! request. The request is bound through a blinded commitment, see
 //! [`request_commitment`].
+//!
+//! [`SignedAuthenticatorAssertionToken`] is what the Authenticator receives from the
+//! Authenticator Provider, as a CWT. A Rust verifier, e.g. inside a TEE, does not take the
+//! token but [`AuthenticatorAssertionPublicInputs`] and
+//! [`AuthenticatorAssertionPrivateInputs`], the same split as the Noir `verify_aat`. The
+//! Authenticator derives the private inputs from the token with
+//! [`SignedAuthenticatorAssertionToken::into_private_inputs`].
 
-use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSASignature};
+use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
+use serde::{Deserialize, Serialize};
 use world_id_primitives::{
     FieldElement,
     poseidon::{self, ds},
@@ -81,7 +89,8 @@ impl From<SecLevel> for u8 {
 }
 
 /// User presence asserted by the Authenticator; values are identifiers, not an order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(into = "u8", try_from = "u8")]
 #[repr(u8)]
 pub enum UserPresence {
     /// Undetermined.
@@ -94,6 +103,27 @@ pub enum UserPresence {
     PresentWithin7Days = 3,
     /// User was present within the last 30 days.
     PresentWithin30Days = 4,
+}
+
+impl From<UserPresence> for u8 {
+    fn from(presence: UserPresence) -> Self {
+        presence as Self
+    }
+}
+
+impl TryFrom<u8> for UserPresence {
+    type Error = AssertionError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Undetermined),
+            1 => Ok(Self::NotPresent),
+            2 => Ok(Self::PresentVerified),
+            3 => Ok(Self::PresentWithin7Days),
+            4 => Ok(Self::PresentWithin30Days),
+            _ => Err(AssertionError::ReservedPresence(value)),
+        }
+    }
 }
 
 /// Security attributes carried in `sec_flags`.
@@ -151,6 +181,9 @@ pub enum AssertionError {
     /// `sec_flags` has reserved bits set.
     #[error("invalid sec_flags {0:#x}")]
     InvalidSecFlags(u64),
+    /// `presence` is a reserved value.
+    #[error("presence values 5 and above are reserved, got {0}")]
+    ReservedPresence(u8),
     /// The bytes are not the canonical CWT encoding of an AAT.
     #[error("not a canonical AAT encoding: {0}")]
     InvalidEncoding(&'static str),
@@ -193,6 +226,19 @@ pub fn request_commitment(
     )
 }
 
+/// Computes the signed message `H_4(DS_AAT; exp, req, sec_flags)` from raw claims.
+#[must_use]
+pub fn message_hash(exp: u32, req: FieldElement, sec_flags: u64) -> FieldElement {
+    poseidon::hash(
+        ds::AUTHENTICATOR_ASSERTION_TOKEN,
+        [
+            FieldElement::from(u64::from(exp)),
+            req,
+            FieldElement::from(sec_flags),
+        ],
+    )
+}
+
 /// An Authenticator Assertion Token (AAT, WIP-106), before signing.
 #[derive(Debug, Clone, Copy)]
 pub struct AuthenticatorAssertionToken {
@@ -224,14 +270,7 @@ impl AuthenticatorAssertionToken {
     /// Computes the signed message `H_4(DS_AAT; exp, req, sec_flags)`.
     #[must_use]
     pub fn message_hash(&self) -> FieldElement {
-        poseidon::hash(
-            ds::AUTHENTICATOR_ASSERTION_TOKEN,
-            [
-                FieldElement::from(u64::from(self.exp)),
-                self.req,
-                FieldElement::from(self.sec_flags.pack()),
-            ],
-        )
+        message_hash(self.exp, self.req, self.sec_flags.pack())
     }
 
     /// Expiration as seconds since the Unix epoch.
@@ -355,6 +394,137 @@ impl SignedAuthenticatorAssertionToken {
             kid,
         })
     }
+
+    /// Turns the token into the private inputs of a verifier, given the opening of its
+    /// request commitment. The token's `req` is dropped: a verifier recomputes it.
+    #[must_use]
+    pub fn into_private_inputs(
+        self,
+        cdh: FieldElement,
+        blind: FieldElement,
+    ) -> AuthenticatorAssertionPrivateInputs {
+        AuthenticatorAssertionPrivateInputs {
+            exp: self.token.exp,
+            sec_flags: self.token.sec_flags.pack(),
+            sig: self.signature,
+            cdh,
+            blind,
+        }
+    }
+}
+
+/// The public inputs of AAT verification (WIP-106 section 3.7). Set by the RP and the
+/// verifier; a verifier reports them alongside its output.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthenticatorAssertionPublicInputs {
+    /// The Authenticator Provider's `trust_anchor_key`, chosen by the RP.
+    pub trust_anchor_key: EdDSAPublicKey,
+    /// Current time as seconds since the Unix epoch, from the verifier's clock.
+    pub now: u32,
+    /// The `rpId` of the request.
+    pub aud: FieldElement,
+    /// The nonce of the request.
+    pub nonce: FieldElement,
+    /// User presence asserted by the Authenticator.
+    pub presence: UserPresence,
+    /// Minimum `build_version` the RP accepts.
+    pub min_build_version: u32,
+}
+
+/// The private inputs of AAT verification (WIP-106 section 3.7): the token's claims and
+/// signature, and the opening of its request commitment. A verifier MUST keep them
+/// confidential.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthenticatorAssertionPrivateInputs {
+    /// Expiration as seconds since the Unix epoch.
+    pub exp: u32,
+    /// Packed security attributes (see [`SecFlags`]).
+    pub sec_flags: u64,
+    /// The signature by the `trust_anchor_key`.
+    pub sig: EdDSASignature,
+    /// Client data hash binding the AAT to its upstream use; `0` is nil.
+    pub cdh: FieldElement,
+    /// Blinding factor of the request commitment.
+    pub blind: FieldElement,
+}
+
+/// The public output of a verified AAT: the disclosed `sec_flags` sub-fields.
+/// `exp` and `build_version` stay private and are deliberately absent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VerifiedAssertion {
+    /// Platform of the Authenticator (see [`Platform`]).
+    pub platform: u8,
+    /// Class of integrity evidence verified for the request (see [`SecLevel`]).
+    pub sec_level: u8,
+    /// Provider-defined 3-bit bitmask.
+    pub sec_meta: u8,
+}
+
+/// Why an AAT failed verification. One variant per WIP-106 section 3.7 constraint.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum VerificationError {
+    /// The request nonce is `0`.
+    #[error("nonce must not be 0")]
+    ZeroNonce,
+    /// The signature does not verify: forged, or the request inputs do not open `req`.
+    #[error("invalid signature")]
+    InvalidSignature,
+    /// `now >= exp`.
+    #[error("token is expired")]
+    Expired,
+    /// `exp - now > MAX_AAT_LIFETIME_SECS`.
+    #[error("token lifetime exceeds maximum")]
+    LifetimeExceeded,
+    /// `sec_flags` has reserved bits set.
+    #[error("invalid sec_flags {0:#x}")]
+    InvalidSecFlags(u64),
+    /// `build_version < min_build_version`.
+    #[error("build_version below minimum")]
+    BuildVersionBelowMinimum,
+}
+
+/// Verifies an AAT outside a circuit, e.g. inside a TEE, with the checks of WIP-106
+/// section 3.7 in the order of the Noir `verify_aat`.
+///
+/// `presence < 5` is guaranteed by [`UserPresence`]; canonical `sig` scalars and points by
+/// their types' deserialization.
+///
+/// # Errors
+/// [`VerificationError`] for the first failing constraint.
+pub fn verify_aat(
+    public: &AuthenticatorAssertionPublicInputs,
+    private: &AuthenticatorAssertionPrivateInputs,
+) -> Result<VerifiedAssertion, VerificationError> {
+    if public.nonce == FieldElement::ZERO {
+        return Err(VerificationError::ZeroNonce);
+    }
+    let req = request_commitment(
+        public.aud,
+        public.nonce,
+        private.cdh,
+        public.presence,
+        private.blind,
+    );
+    let message = message_hash(private.exp, req, private.sec_flags);
+    if !public.trust_anchor_key.verify(*message, &private.sig) {
+        return Err(VerificationError::InvalidSignature);
+    }
+    if public.now >= private.exp {
+        return Err(VerificationError::Expired);
+    }
+    if private.exp - public.now > MAX_AAT_LIFETIME_SECS {
+        return Err(VerificationError::LifetimeExceeded);
+    }
+    let flags = SecFlags::unpack(private.sec_flags)
+        .map_err(|_| VerificationError::InvalidSecFlags(private.sec_flags))?;
+    if flags.build_version < public.min_build_version {
+        return Err(VerificationError::BuildVersionBelowMinimum);
+    }
+    Ok(VerifiedAssertion {
+        platform: flags.platform,
+        sec_level: flags.sec_level,
+        sec_meta: flags.sec_meta,
+    })
 }
 
 #[cfg(test)]

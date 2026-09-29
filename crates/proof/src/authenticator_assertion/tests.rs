@@ -155,3 +155,172 @@ fn request_commitment_binds_every_input() {
     }
     assert_ne!(commit(base, UserPresence::NotPresent), reference);
 }
+
+/// The Noir `tests.nr` fixture: `now` 925 seconds before `exp`.
+const NOW: u32 = 1_783_446_000;
+
+fn inputs() -> (
+    AuthenticatorAssertionPublicInputs,
+    AuthenticatorAssertionPrivateInputs,
+    EdDSAPrivateKey,
+) {
+    let (aat, key) = fixture();
+    let public = AuthenticatorAssertionPublicInputs {
+        trust_anchor_key: key.public(),
+        now: NOW,
+        aud: FieldElement::from(1_928_118u64),
+        nonce: FieldElement::from(42u64),
+        presence: UserPresence::PresentVerified,
+        min_build_version: 2006,
+    };
+    let private = AuthenticatorAssertionPrivateInputs {
+        exp: aat.exp(),
+        sec_flags: aat.sec_flags().pack(),
+        sig: key.sign(*aat.message_hash()),
+        cdh: FieldElement::ZERO,
+        blind: FieldElement::from(7u64),
+    };
+    (public, private, key)
+}
+
+#[test]
+fn verify_accepts_circuit_fixture() {
+    let (public, private, _) = inputs();
+    assert_eq!(
+        verify_aat(&public, &private),
+        Ok(VerifiedAssertion {
+            platform: 2,
+            sec_level: 1,
+            sec_meta: 3,
+        })
+    );
+}
+
+#[test]
+fn private_inputs_derive_from_decoded_token() {
+    let (aat, key) = fixture();
+    let (public, private, _) = inputs();
+    let decoded = SignedAuthenticatorAssertionToken::decode(&aat.sign(&key).unwrap()).unwrap();
+    assert_eq!(
+        decoded.into_private_inputs(private.cdh, private.blind),
+        private
+    );
+    assert!(verify_aat(&public, &private).is_ok());
+}
+
+#[test]
+fn verify_rejects_each_constraint() {
+    let (public, private, key) = inputs();
+    let check =
+        |p: AuthenticatorAssertionPublicInputs, s: AuthenticatorAssertionPrivateInputs, err| {
+            assert_eq!(verify_aat(&p, &s), Err(err));
+        };
+    let with_public = |f: fn(&mut AuthenticatorAssertionPublicInputs)| {
+        let mut p = public.clone();
+        f(&mut p);
+        p
+    };
+    let with_private = |f: fn(&mut AuthenticatorAssertionPrivateInputs)| {
+        let mut s = private.clone();
+        f(&mut s);
+        s
+    };
+    use VerificationError::*;
+
+    check(
+        with_public(|p| p.nonce = FieldElement::ZERO),
+        private.clone(),
+        ZeroNonce,
+    );
+    // Every request input and claim is bound through the signature.
+    check(
+        with_public(|p| p.aud = FieldElement::from(1u64)),
+        private.clone(),
+        InvalidSignature,
+    );
+    check(
+        with_public(|p| p.nonce = FieldElement::from(43u64)),
+        private.clone(),
+        InvalidSignature,
+    );
+    check(
+        with_public(|p| p.presence = UserPresence::NotPresent),
+        private.clone(),
+        InvalidSignature,
+    );
+    check(
+        public.clone(),
+        with_private(|s| s.cdh = FieldElement::from(1u64)),
+        InvalidSignature,
+    );
+    check(
+        public.clone(),
+        with_private(|s| s.blind = FieldElement::from(8u64)),
+        InvalidSignature,
+    );
+    check(
+        public.clone(),
+        with_private(|s| s.sec_flags ^= 0x4),
+        InvalidSignature,
+    );
+    check(
+        public.clone(),
+        with_private(|s| s.exp += 1),
+        InvalidSignature,
+    );
+    check(
+        with_public(|p| p.trust_anchor_key = EdDSAPrivateKey::from_bytes([8u8; 32]).public()),
+        private.clone(),
+        InvalidSignature,
+    );
+    // Freshness, at both boundaries.
+    check(
+        with_public(|p| p.now = 1_783_446_925),
+        private.clone(),
+        Expired,
+    );
+    assert!(
+        verify_aat(
+            &with_public(|p| p.now = 1_783_446_925 - MAX_AAT_LIFETIME_SECS),
+            &private
+        )
+        .is_ok()
+    );
+    check(
+        with_public(|p| p.now = 1_783_446_925 - MAX_AAT_LIFETIME_SECS - 1),
+        private.clone(),
+        LifetimeExceeded,
+    );
+    check(
+        with_public(|p| p.min_build_version = 2007),
+        private.clone(),
+        BuildVersionBelowMinimum,
+    );
+
+    // Reserved bits can only reach the verifier in a token the provider's key signed.
+    let sec_flags = private.sec_flags | 1 << 51;
+    let req = request_commitment(
+        public.aud,
+        public.nonce,
+        private.cdh,
+        public.presence,
+        private.blind,
+    );
+    let signed = AuthenticatorAssertionPrivateInputs {
+        sec_flags,
+        sig: key.sign(*message_hash(private.exp, req, sec_flags)),
+        ..private.clone()
+    };
+    check(public, signed, InvalidSecFlags(sec_flags));
+}
+
+#[test]
+fn presence_round_trips_through_u8() {
+    for value in 0..5u8 {
+        assert_eq!(u8::from(UserPresence::try_from(value).unwrap()), value);
+    }
+    assert!(matches!(
+        UserPresence::try_from(5),
+        Err(AssertionError::ReservedPresence(5))
+    ));
+}
