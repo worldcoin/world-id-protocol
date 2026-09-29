@@ -109,10 +109,15 @@ fn test_zero_nonce_rejected() {
     let _ = verify_aat(fixture(), TRUST_ANCHOR_KEY, NOW, AUD, 0, CDH, BLIND);
 }
 
-#[test(should_fail_with = "sec_flags bits 20 and above are reserved and must be 0")]
+#[test(should_fail_with = "sec_flags bits 19 and above are reserved and must be 0")]
 fn test_reserved_sec_flags_bits_rejected() {
     // Exercised directly: a signed token with reserved bits would need the provider's key.
     let _ = super::unpack_sec_flags(0x130102);
+}
+
+#[test(should_fail_with = "sec_flags bits 19 and above are reserved and must be 0")]
+fn test_sec_meta_bit_3_rejected() {
+    let _ = super::unpack_sec_flags(0x080102);
 }
 
 #[test(should_fail)]

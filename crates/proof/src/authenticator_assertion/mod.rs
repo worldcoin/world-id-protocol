@@ -14,8 +14,8 @@ use world_id_primitives::{
 /// Maximum remaining lifetime `exp - now` of an AAT, in seconds.
 pub const MAX_AAT_LIFETIME_SECS: u32 = 1800;
 
-/// Maximum value of `sec_meta` (4-bit bitmask).
-pub const MAX_SEC_META: u8 = 0xF;
+/// Maximum value of `sec_meta` (3-bit bitmask).
+pub const MAX_SEC_META: u8 = 0x7;
 
 /// `eat_profile` claim value (RFC 9711 §4.3.2) of an AAT.
 pub const EAT_PROFILE: &str = "https://world.org/eat/aat/v1";
@@ -76,7 +76,7 @@ pub struct SecFlags {
     pub platform: Platform,
     /// Class of integrity evidence verified for the request.
     pub sec_level: SecLevel,
-    /// Provider-defined 4-bit bitmask.
+    /// Provider-defined 3-bit bitmask.
     pub sec_meta: u8,
 }
 
@@ -112,7 +112,7 @@ impl SecFlags {
         })
     }
 
-    /// Packs the sub-fields LSB-first: `platform` (bits 0-7), `sec_level` (8-15), `sec_meta` (16-19).
+    /// Packs the sub-fields LSB-first: `platform` (bits 0-7), `sec_level` (8-15), `sec_meta` (16-18).
     #[must_use]
     pub fn pack(&self) -> u32 {
         u32::from(self.platform as u8)
@@ -124,8 +124,8 @@ impl SecFlags {
 /// Errors that can occur when building an Authenticator Assertion Token.
 #[derive(Debug, thiserror::Error)]
 pub enum AssertionError {
-    /// `sec_meta` exceeds the 4-bit limit.
-    #[error("sec_meta must carry at most 4 bits of data, got {0:#b}")]
+    /// `sec_meta` exceeds the 3-bit limit.
+    #[error("sec_meta must carry at most 3 bits of data, got {0:#b}")]
     SecMetaTooLarge(u8),
     /// `exp` can not use the fixed 4-byte CBOR uint encoding.
     #[error("exp {0} must be in [2^16, 2^32) for its fixed-width encoding")]
@@ -181,7 +181,7 @@ impl AuthenticatorAssertionToken {
     ///
     /// # Errors
     /// - [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
-    /// - [`AssertionError::SecMetaTooLarge`] if `sec_meta` carries more than 4 bits.
+    /// - [`AssertionError::SecMetaTooLarge`] if `sec_meta` carries more than 3 bits.
     pub fn new(exp: u32, req: FieldElement, sec_flags: SecFlags) -> Result<Self, AssertionError> {
         if exp < MIN_EXP {
             return Err(AssertionError::ExpirationOutOfRange(exp));

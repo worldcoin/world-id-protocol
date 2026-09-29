@@ -81,10 +81,10 @@ fn assert_fresh(exp: Field, now: Field) {
     );
 }
 
-/// Unpacks `sec_flags` LSB-first: `platform` (bits 0-7), `sec_level` (8-15), `sec_meta` (16-19).
+/// Unpacks `sec_flags` LSB-first: `platform` (bits 0-7), `sec_level` (8-15), `sec_meta` (16-18).
 fn unpack_sec_flags(sec_flags: Field) -> SecFlags {
     // Constrains `sec_flags < 2^24`.
     let bytes: [u8; 3] = sec_flags.to_be_bytes();
-    assert(bytes[0] < 16, "sec_flags bits 20 and above are reserved and must be 0");
+    assert(bytes[0] < 8, "sec_flags bits 19 and above are reserved and must be 0");
     SecFlags { platform: bytes[2], sec_level: bytes[1], sec_meta: bytes[0] }
 }

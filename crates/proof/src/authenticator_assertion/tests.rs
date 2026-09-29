@@ -142,13 +142,14 @@ fn invalid_claims_rejected() {
             aat.exp(),
             aat.req(),
             SecFlags {
-                sec_meta: 0x10,
+                sec_meta: 0x8,
                 ..flags
             }
         ),
-        Err(AssertionError::SecMetaTooLarge(0x10))
+        Err(AssertionError::SecMetaTooLarge(0x8))
     ));
     assert!(SecFlags::unpack(0x13_0102).is_err());
+    assert!(SecFlags::unpack(0x08_0102).is_err());
     assert!(SecFlags::unpack(0x03_0103).is_err());
     assert_eq!(SecFlags::unpack(flags.pack()).unwrap(), flags);
 }
