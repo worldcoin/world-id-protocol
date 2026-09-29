@@ -12,7 +12,8 @@ This repository contains the **core components of the World ID Protocol**, inclu
 
 - **Learn more about World ID**: To learn more about World ID in general, see the [World ID Website][website].
 - **Integrating World ID**: The best place to start for integrating World ID is the [Developer Docs](https://docs.world.org/world-id/overview).
-- **Protocol Specs**: For an a high level overview of the latest major version of the Protocol (World ID 4.0), see the [World ID 4.0 Product & Technical Specs](docs/README.md).
+- **Protocol Specs**: Browse the [hosted protocol documentation][protocol-docs] for World ID 4.0
+  specifications and World ID Improvement Proposals (WIPs).
 - **In-depth technical documentation**: The primary source of technical documentation for the Protocol is directly in the codebase, particularly the foundational crates. See the [`world-id-primitives`](https://docs.rs/world-id-primitives) and [`world-id-core`](https://docs.rs/world-id-core) documentation for more details.
 - **Contributing**: If you're interested in contributing to the Protocol, see the [Contributing Guide](CONTRIBUTING.md) for more information on how to get involved.
 
@@ -53,10 +54,11 @@ This repo is organized into the following top-level components:
 - **`contracts/`**: Solidity smart contracts (see [contracts/README.md](contracts/README.md))
 - **`crates/`**: Rust libraries providing protocol functionality
 - **`services/`**: Deployable services (gateway, indexer, oprf-node)
-- **`docs/`**: Protocol documentation (see [docs/README.md](docs/README.md))
+- **`docs/`**: Sources for the [hosted protocol documentation][protocol-docs].
 
 
 ## 🛡️Audits
 The Protocol undergoes continuous audits and security reviews to the different components, especially the core infrastructure which includes smart contracts and zero-knowledge circuits. Information about audits can be found in the [audits](./audits) folder.
 
 [website]: https://world.org/world-id
+[protocol-docs]: https://worldcoin.github.io/world-id-protocol/
