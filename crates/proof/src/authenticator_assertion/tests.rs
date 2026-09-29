@@ -27,10 +27,6 @@ fn fixture() -> (AuthenticatorAssertionToken, EdDSAPrivateKey) {
     )
 }
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
 #[test]
 fn known_answer_matches_circuit_fixture() {
     let (aat, key) = fixture();
@@ -52,19 +48,6 @@ fn known_answer_matches_circuit_fixture() {
         key.public().pk.x.to_string(),
         "19037598474602150174935475944965340829216795940473064039209388058233204431288"
     );
-}
-
-#[test]
-fn sig_structure_matches_spec_template() {
-    let (aat, _) = fixture();
-    let expected = format!(
-        "846a5369676e61747572653147a1013a00010000405859a4041a{}0a5820{}190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001116f48{}",
-        hex(&aat.exp().to_be_bytes()),
-        hex(&aat.req().to_be_bytes()),
-        hex(&aat.sec_flags().pack().to_be_bytes()),
-    );
-    assert_eq!(hex(&aat.sig_structure()), expected);
-    assert_eq!(aat.sig_structure().len(), 112);
 }
 
 #[test]

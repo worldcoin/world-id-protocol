@@ -29,11 +29,6 @@ const MIN_EXP: u32 = 1 << 16;
 /// Protected header `{1: -65537}` as a CBOR byte string.
 const PROTECTED: [u8; 8] = [0x47, 0xa1, 0x01, 0x3a, 0x00, 0x01, 0x00, 0x00];
 
-/// `Sig_structure` array header and context string `"Signature1"`.
-const SIG_STRUCTURE_PREFIX: [u8; 12] = [
-    0x84, 0x6a, b'S', b'i', b'g', b'n', b'a', b't', b'u', b'r', b'e', b'1',
-];
-
 /// Length in bytes of the CWT claims set.
 const PAYLOAD_LEN: usize = 89;
 
@@ -280,16 +275,6 @@ impl AuthenticatorAssertionToken {
         cwt.extend_from_slice(&[0x58, 0x40]);
         cwt.extend_from_slice(&signature);
         Ok(cwt)
-    }
-
-    /// The RFC 9052 `Sig_structure` of the token (empty `external_aad`).
-    #[must_use]
-    pub fn sig_structure(&self) -> Vec<u8> {
-        let mut sig_structure = SIG_STRUCTURE_PREFIX.to_vec();
-        sig_structure.extend_from_slice(&PROTECTED);
-        sig_structure.extend_from_slice(&[0x40, 0x58, 0x59]);
-        sig_structure.extend_from_slice(&self.payload());
-        sig_structure
     }
 
     /// The CWT claims set in deterministic CBOR.
