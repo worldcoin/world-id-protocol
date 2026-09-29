@@ -1,92 +1,127 @@
-//! WARNING. This library as well as its defining spec are in active development,
-//! and extremely WIP. Things may change significantly or even disappear altogether.
+//! WARNING. This library as well as its defining spec (WIP-106) are in active development.
+//!
+//! Verifies an Authenticator Assertion Token (AAT): a token signed by an Authenticator
+//! Provider's `trust_anchor_key` over `H_4(DS_AAT; exp, req, sec_flags)`, bound to a
+//! request through `req = H_8(DS_REQ; aud, nonce, cdh, presence, blind)`.
 
-pub mod aat;
-pub(crate) mod constants;
-pub mod takt;
-pub(crate) mod utils;
+use eddsa_poseidon2::{
+    BabyJubJubPoint, BabyJubJubPointInSubgroup, BabyJubJubScalarFieldElement,
+    verify_eddsa_poseidon2,
+};
+use poseidon2::bn254::permutation;
 
-use crate::aat::{AuthenticatorAssertionToken, verify_aat};
-use crate::takt::{TrustAnchorKeyToken, verify_takt};
+mod tests;
 
-/// Verifies a complete Authenticator Attestation:
-/// 1. the TAKT is signed by the Authenticator Provider's `trust_anchor_key`
-///    (`BabyJubJub-EdDSA-Poseidon2`), attesting an `assertion_key`, and
-/// 2. that attested `assertion_key` signed the AAT (`ES256` over the COSE
-///    `Sig_structure`).
-///
-/// Both tokens must be unexpired at `now` and within their WIP-106 maximum
-/// lifetimes of it: `aat::MAX_AAT_LIFETIME_SECS` (30 min) for the AAT,
-/// `takt::MAX_TAKT_LIFETIME_SECS` (7 days) for the TAKT.
-///
-/// The two tokens are bound *solely* by the shared `assertion_key`.
-///
-/// # Public inputs
-/// `trust_anchor_key_x` / `_y` and `now` are verifier-supplied and MUST be
-/// public inputs of the calling circuit. `trust_anchor_key` carries the RP's
-/// trust decision (allowlisted from the provider's Authenticator Metadata), and
-/// a private `now` would let the prover pick a time at which any token is fresh.
-/// Neither can be enforced from inside this library -- see
-/// crates/proof/noir/README.md.
-///
-/// Callers are additionally responsible for binding `aat.aud` to the request's
-/// RP id, `aat.nonce` to the `ProofRequest` nonce, and `aat.cdh` to the
-/// surrounding proof's commitment (zero when nil), and for exposing whichever
-/// of `sec_flags` (via `takt::unpack_sec_flags`) and `aat.authenticator_meta`
-/// their RP needs.
-pub fn verify_attestation(
-    aat: AuthenticatorAssertionToken,
-    takt: TrustAnchorKeyToken,
-    trust_anchor_key_x: Field,
-    trust_anchor_key_y: Field,
-    now: Field,
-) {
-    verify_takt(takt, trust_anchor_key_x, trust_anchor_key_y, now);
-    verify_aat(aat, takt.assertion_key_x, takt.assertion_key_y, now);
+global DS_AAT: Field = 498451125091886891258088867850510460821031698772; // b"WORLD-ID/WIP-106/AAT"
+global DS_REQ: Field = 498451125091886891258088867850510460821032813905; // b"WORLD-ID/WIP-106/REQ"
+
+/// Maximum remaining lifetime `exp - now` of an AAT, in seconds.
+pub global MAX_AAT_LIFETIME: Field = 1800;
+
+/// The public inputs of AAT verification (WIP-106 section 3.7). The caller MUST expose every
+/// field, and the returned `SecFlags`, as public inputs of its circuit.
+pub struct AuthenticatorAssertionPublicInputs {
+    /// The Authenticator Provider's `trust_anchor_key` (affine x, y), chosen by the RP.
+    pub trust_anchor_key: [Field; 2],
+    /// Current time as seconds since the Unix epoch.
+    pub now: Field,
+    /// The `rpId` of the request.
+    pub aud: Field,
+    /// The nonce of the request.
+    pub nonce: Field,
+    /// User presence asserted by the Authenticator.
+    pub presence: u8,
+    /// Minimum `build_version` the RP accepts.
+    pub min_build_version: Field,
 }
 
-#[test]
-fn test_deterministic_attestation() {
-    verify_attestation(
-        aat::test_deterministic_aat(),
-        takt::test_deterministic_takt(),
-        takt::TEST_TRUST_ANCHOR_KEY_X,
-        takt::TEST_TRUST_ANCHOR_KEY_Y,
-        takt::TEST_NOW,
+/// The private inputs of AAT verification (WIP-106 section 3.7): the token and the opening of
+/// its request commitment. `req` is recomputed, not passed. How `cdh` is bound to the
+/// surrounding proof is the caller's obligation.
+pub struct AuthenticatorAssertionPrivateInputs {
+    /// Expiration as seconds since the Unix epoch.
+    pub exp: Field,
+    /// Packed security attributes (see `SecFlags`).
+    pub sec_flags: Field,
+    /// EdDSA signature scalar component.
+    pub sig_s: Field,
+    /// EdDSA signature point component (affine x, y).
+    pub sig_r: [Field; 2],
+    /// Client data hash binding the AAT to its upstream use; `0` is nil.
+    pub cdh: Field,
+    /// Blinding factor of the request commitment.
+    pub blind: Field,
+}
+
+/// The unpacked `sec_flags` sub-fields.
+pub struct SecFlags {
+    pub platform: u8,
+    pub sec_level: u8,
+    pub sec_meta: u8,
+}
+
+/// Verifies an AAT and returns its range-checked security flags.
+pub fn verify_aat(
+    public: AuthenticatorAssertionPublicInputs,
+    private: AuthenticatorAssertionPrivateInputs,
+) -> SecFlags {
+    assert(public.nonce != 0, "nonce must not be 0");
+    assert(public.presence < 5, "presence values 5 to 7 are reserved");
+
+    let req = request_commitment(
+        public.aud,
+        public.nonce,
+        private.cdh,
+        public.presence as Field,
+        private.blind,
+    );
+    let message = permutation::t4([DS_AAT, private.exp, req, private.sec_flags])[1];
+    let is_valid = verify_eddsa_poseidon2(
+        BabyJubJubPointInSubgroup::new(public.trust_anchor_key[0], public.trust_anchor_key[1]),
+        BabyJubJubScalarFieldElement::new(private.sig_s),
+        BabyJubJubPoint::new(private.sig_r[0], private.sig_r[1]),
+        message,
+    );
+    assert(is_valid, "invalid signature");
+
+    assert_fresh(private.exp, public.now);
+    let (flags, build_version) = unpack_sec_flags(private.sec_flags);
+    assert(
+        !std::field::bn254::lt(build_version, public.min_build_version),
+        "build_version below minimum",
+    );
+    flags
+}
+
+fn request_commitment(
+    aud: Field,
+    nonce: Field,
+    cdh: Field,
+    presence: Field,
+    blind: Field,
+) -> Field {
+    permutation::t8([DS_REQ, aud, nonce, cdh, presence, blind, 0, 0])[1]
+}
+
+/// Asserts `now < exp` and `exp - now <= MAX_AAT_LIFETIME`, with both below 2^32.
+fn assert_fresh(exp: Field, now: Field) {
+    exp.assert_max_bit_size::<32>();
+    now.assert_max_bit_size::<32>();
+    assert(std::field::bn254::lt(now, exp), "token is expired");
+    // Both are below 2^32, so `now + MAX_AAT_LIFETIME + 1` can not wrap.
+    assert(
+        std::field::bn254::lt(exp, now + MAX_AAT_LIFETIME + 1),
+        "token lifetime exceeds maximum",
     );
 }
 
-#[test(should_fail_with = "invalid AAT signature")]
-fn test_aat_key_not_attested() {
-    verify_attestation(
-        aat::test_deterministic_aat(),
-        takt::test_deterministic_takt_unrelated_key(),
-        takt::TEST_TRUST_ANCHOR_KEY_X,
-        takt::TEST_TRUST_ANCHOR_KEY_Y,
-        takt::TEST_NOW,
-    );
-}
-
-#[test(should_fail_with = "token lifetime exceeds the maximum")]
-fn test_attestation_aat_lifetime_capped() {
-    // The 30-min cap must be reachable through the only public entrypoint. The
-    // TAKT is still fresh at this `now`: WIP-106 caps the AAT alone.
-    verify_attestation(
-        aat::test_deterministic_aat(),
-        takt::test_deterministic_takt(),
-        takt::TEST_TRUST_ANCHOR_KEY_X,
-        takt::TEST_TRUST_ANCHOR_KEY_Y,
-        takt::TEST_EXP - aat::MAX_AAT_LIFETIME_SECS - 1,
-    );
-}
-
-#[test(should_fail_with = "invalid signature")]
-fn test_untrusted_trust_anchor_key_rejected() {
-    verify_attestation(
-        aat::test_deterministic_aat(),
-        takt::test_deterministic_takt(),
-        5299619240641551281634865583518297030282874472190772894086521144482721001553,
-        16950150798460657717958625567821834550301663161624707787222815936182638968203,
-        takt::TEST_NOW,
-    );
+/// Unpacks `sec_flags` LSB-first: `platform` (bits 0-7), `sec_level` (8-15),
+/// `build_version` (16-47), `sec_meta` (48-50). `build_version` is returned separately
+/// as it must stay private.
+fn unpack_sec_flags(sec_flags: Field) -> (SecFlags, Field) {
+    // Constrains `sec_flags < 2^56`.
+    let bytes: [u8; 7] = sec_flags.to_be_bytes();
+    assert(bytes[0] < 8, "sec_flags bits 51 and above are reserved and must be 0");
+    let build_version = Field::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]);
+    (SecFlags { platform: bytes[6], sec_level: bytes[5], sec_meta: bytes[0] }, build_version)
 }
