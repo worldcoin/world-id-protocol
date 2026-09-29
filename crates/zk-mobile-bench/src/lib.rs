@@ -4,9 +4,11 @@
 //! - Query Proof (`π1`) - proves knowledge of a valid OPRF query
 //! - Nullifier/Uniqueness Proof (`π2`) - proves uniqueness without revealing identity
 //! - Ownership Proof (WIP-103) - proves control of a World ID account, on Noir/ProveKit
+//! - Authenticator Assertion bench (WIP-106) - verifies an Authenticator Attestation, on Noir/ProveKit
 
 use mobench_sdk::{benchmark, profile_phase};
 
+mod authenticator_assertion_bench;
 mod fixtures;
 
 use ark_babyjubjub::Fq;
@@ -38,7 +40,11 @@ use world_id_proof::{
     ownership_proof::check_ownership_input_validity,
 };
 
-use fixtures::{first_leaf_merkle_path, generate_rp_fixture, ownership_proof_fixture};
+use authenticator_assertion_bench::{check_input_freshness, load_embedded_prover};
+use fixtures::{
+    authenticator_assertion_bench_fixture, first_leaf_merkle_path, generate_rp_fixture,
+    ownership_proof_fixture,
+};
 
 // ============================================================================
 // Fixture Generation (deterministic for reproducible benchmarks)
@@ -444,6 +450,34 @@ pub fn bench_ownership_proof_generation() {
     std::hint::black_box(proof);
 }
 
+/// Benchmark: Authenticator Assertion (WIP-106) proving on Noir/ProveKit, reported via the
+/// `prover_load` / `witness` / `prove` phases (ProveKit consumes the `Prover`, so there is no
+/// separate warm path).
+#[benchmark]
+pub fn bench_authenticator_assertion_proof_generation() {
+    let input = authenticator_assertion_bench_fixture();
+
+    let mut prover = profile_phase("prover_load", || {
+        load_embedded_prover().expect("embedded assertion bench prover")
+    });
+
+    check_input_freshness(&input);
+
+    let witness = profile_phase("witness", || {
+        prover
+            .generate_witness(input.into_witness())
+            .expect("assertion witness generation")
+    });
+
+    let proof = profile_phase("prove", || {
+        prover
+            .prove_with_witness(witness)
+            .expect("assertion WHIR proving")
+    });
+
+    std::hint::black_box(proof);
+}
+
 // ============================================================================
 // UniFFI Exports for Mobile
 // ============================================================================
@@ -693,6 +727,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
+    fn test_authenticator_assertion_proof_benchmark() {
+        bench_authenticator_assertion_proof_generation();
+    }
+
+    #[test]
     fn test_benchmark_registry_contains_expected_functions() {
         let benchmarks = mobench_sdk::discover_benchmarks();
         let names = benchmarks
@@ -709,6 +749,7 @@ mod tests {
             "zk_mobile_bench::bench_nullifier_witness_generation_only",
             "zk_mobile_bench::bench_nullifier_proving_only",
             "zk_mobile_bench::bench_ownership_proof_generation",
+            "zk_mobile_bench::bench_authenticator_assertion_proof_generation",
         ] {
             assert!(
                 names.iter().any(|name| name == expected_name),
