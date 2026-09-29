@@ -16,8 +16,8 @@ fn fixture() -> (AuthenticatorAssertionToken, EdDSAPrivateKey) {
         FieldElement::from(7u64),
     );
     let flags = SecFlags {
-        platform: Platform::Ios,
-        sec_level: SecLevel::HardwareKey,
+        platform: Platform::Ios.into(),
+        sec_level: SecLevel::HardwareKey.into(),
         build_version: 2006,
         sec_meta: 3,
     };
@@ -153,8 +153,10 @@ fn invalid_claims_rejected() {
     assert!(SecFlags::unpack(0x0013_0000_07d6_0102).is_err());
     assert!(SecFlags::unpack(0x0008_0000_07d6_0102).is_err());
     assert!(SecFlags::unpack(0x0100_0000_07d6_0102).is_err());
-    assert!(SecFlags::unpack(0x0003_0000_07d6_0103).is_err());
     assert_eq!(SecFlags::unpack(flags.pack()).unwrap(), flags);
+    // Unknown identifiers pass through for the RP to allowlist, as in the circuit.
+    let unknown = SecFlags::unpack(0x0003_0000_07d6_0203).unwrap();
+    assert_eq!((unknown.platform, unknown.sec_level), (3, 2));
 }
 
 #[test]

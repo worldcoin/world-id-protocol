@@ -38,6 +38,9 @@ const SIG_STRUCTURE_PREFIX: [u8; 12] = [
 const PAYLOAD_LEN: usize = 89;
 
 /// Platform of the Authenticator.
+///
+/// The known identifiers; `sec_flags` carries the raw byte so unknown values pass through
+/// to the RP's allowlist, as in the circuit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Platform {
@@ -51,9 +54,16 @@ pub enum Platform {
     Web = 6,
 }
 
+impl From<Platform> for u8 {
+    fn from(platform: Platform) -> Self {
+        platform as Self
+    }
+}
+
 /// Class of integrity evidence the Authenticator Provider verified for a request.
 ///
-/// Values are identifiers, not a trust ranking.
+/// The known identifiers, not a trust ranking; `sec_flags` carries the raw byte so
+/// unknown values pass through to the RP's allowlist, as in the circuit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum SecLevel {
@@ -67,6 +77,12 @@ pub enum SecLevel {
     InternallyVerified = 5,
     /// User-bound credential without environment integrity (e.g. a passkey).
     UserBound = 10,
+}
+
+impl From<SecLevel> for u8 {
+    fn from(sec_level: SecLevel) -> Self {
+        sec_level as Self
+    }
 }
 
 /// User presence asserted by the Authenticator; values are identifiers, not an order.
@@ -88,10 +104,10 @@ pub enum UserPresence {
 /// Security attributes carried in `sec_flags`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SecFlags {
-    /// Platform of the Authenticator.
-    pub platform: Platform,
-    /// Class of integrity evidence verified for the request.
-    pub sec_level: SecLevel,
+    /// Platform of the Authenticator (see [`Platform`]).
+    pub platform: u8,
+    /// Class of integrity evidence verified for the request (see [`SecLevel`]).
+    pub sec_level: u8,
     /// Monotonic version of the Authenticator build that produced the evidence.
     pub build_version: u32,
     /// Provider-defined 3-bit bitmask.
@@ -99,30 +115,16 @@ pub struct SecFlags {
 }
 
 impl SecFlags {
-    /// Unpacks `sec_flags`.
+    /// Unpacks `sec_flags`. Unknown `platform` and `sec_level` values are kept as is, for
+    /// the RP to allowlist.
     ///
     /// # Errors
-    /// [`AssertionError::InvalidSecFlags`] on reserved bits or unknown enum values.
+    /// [`AssertionError::InvalidSecFlags`] on reserved bits.
     pub fn unpack(packed: u64) -> Result<Self, AssertionError> {
         let [reserved, sec_meta, v3, v2, v1, v0, sec_level, platform] = packed.to_be_bytes();
         if reserved != 0 || sec_meta > MAX_SEC_META {
             return Err(AssertionError::InvalidSecFlags(packed));
         }
-        let platform = match platform {
-            0 => Platform::Unspecified,
-            2 => Platform::Ios,
-            4 => Platform::Android,
-            6 => Platform::Web,
-            _ => return Err(AssertionError::InvalidSecFlags(packed)),
-        };
-        let sec_level = match sec_level {
-            0 => SecLevel::Unspecified,
-            1 => SecLevel::HardwareKey,
-            3 => SecLevel::PlatformVerdict,
-            5 => SecLevel::InternallyVerified,
-            10 => SecLevel::UserBound,
-            _ => return Err(AssertionError::InvalidSecFlags(packed)),
-        };
         Ok(Self {
             platform,
             sec_level,
@@ -135,8 +137,8 @@ impl SecFlags {
     /// `build_version` (16-47), `sec_meta` (48-50).
     #[must_use]
     pub fn pack(&self) -> u64 {
-        u64::from(self.platform as u8)
-            | (u64::from(self.sec_level as u8) << 8)
+        u64::from(self.platform)
+            | (u64::from(self.sec_level) << 8)
             | (u64::from(self.build_version) << 16)
             | (u64::from(self.sec_meta) << 48)
     }
@@ -151,7 +153,7 @@ pub enum AssertionError {
     /// `exp` can not use the fixed 4-byte CBOR uint encoding.
     #[error("exp {0} must be in [2^16, 2^32) for its fixed-width encoding")]
     ExpirationOutOfRange(u32),
-    /// `sec_flags` has reserved bits set or unknown enum values.
+    /// `sec_flags` has reserved bits set.
     #[error("invalid sec_flags {0:#x}")]
     InvalidSecFlags(u64),
     /// The bytes are not the canonical CWT encoding of an AAT.
