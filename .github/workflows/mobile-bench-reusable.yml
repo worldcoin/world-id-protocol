@@ -91,11 +91,6 @@ on:
         required: false
         type: boolean
         default: false
-      bench_attempts:
-        description: "Attempts per benchmark function; BrowserStack occasionally reports a device session as skipped, which fails an otherwise healthy run"
-        required: false
-        type: string
-        default: "3"
       requested_by:
         description: "Who triggered the run"
         required: false
@@ -164,7 +159,7 @@ jobs:
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
-          toolchain: v1.0.0-beta.11
+          toolchain: v1.0.0-beta.26
 
       - name: Cache cargo registry/git
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 https://github.com/actions/cache/releases/tag/v6.1.0
@@ -293,69 +288,32 @@ jobs:
           DEVICE_SPECS: ${{ steps.resolve_device.outputs.device_specs }}
           RELEASE_FLAG: ${{ inputs.build_release && '--release' || '' }}
           CRATE_PATH: ${{ inputs.crate_path }}
-          BENCH_ATTEMPTS: ${{ inputs.bench_attempts }}
         run: |
           set -euo pipefail
           device_args=()
           while IFS= read -r spec; do
             [ -n "${spec}" ] && device_args+=(--devices "${spec}")
           done <<<"${DEVICE_SPECS}"
+          functions_arg="${FUNCTIONS}"
           if [[ "${FUNCTIONS}" == \[* ]]; then
-            function_list=$(jq -r '.[]' <<<"${FUNCTIONS}")
-          else
-            function_list=$(tr ',' '\n' <<<"${FUNCTIONS}")
+            functions_arg=$(jq -r 'join(",")' <<<"${FUNCTIONS}")
           fi
-          functions=()
-          while IFS= read -r fn; do
-            [ -n "${fn}" ] && functions+=("${fn}")
-          done <<<"${function_list}"
-
           echo "Running iOS benchmarks on:"
           echo "${DEVICE_SPECS}"
-          echo "Resolved functions: ${#functions[@]}"
+          echo "Resolved functions: ${functions_arg}"
 
-          # One invocation per function: mobench already rebuilds and re-uploads per
-          # function, so this costs nothing extra and keeps one flaky device session
-          # from discarding the functions that already measured cleanly.
-          failed=()
-          for fn in "${functions[@]}"; do
-            succeeded=0
-            for attempt in $(seq 1 "${BENCH_ATTEMPTS}"); do
-              attempt_log="$(mktemp)"
-              echo "::group::iOS ${fn} (attempt ${attempt}/${BENCH_ATTEMPTS})"
-              if cargo-mobench ci run \
-                --target ios \
-                --functions "${fn}" \
-                --iterations "${ITERATIONS}" \
-                --warmup "${WARMUP}" \
-                "${device_args[@]}" \
-                --crate-path "$CRATE_PATH" \
-                $RELEASE_FLAG \
-                --ios-completion-timeout-secs "${IOS_COMPLETION_TIMEOUT_SECS}" \
-                --fetch \
-                --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
-                --output-dir target/mobench/ci/ios 2>&1 | tee "${attempt_log}"; then
-                succeeded=1
-              fi
-              echo "::endgroup::"
-              if [ "${succeeded}" -eq 1 ]; then break; fi
-              # Only an incomplete session matrix is worth another BrowserStack build;
-              # a real benchmark failure reproduces and retrying just burns runner time.
-              if ! grep -q "result set is incomplete" "${attempt_log}"; then
-                echo "::error::iOS ${fn} failed for a non-transient reason; not retrying."
-                break
-              fi
-              if [ "${attempt}" -lt "${BENCH_ATTEMPTS}" ]; then
-                echo "::warning::iOS ${fn} attempt ${attempt} lost a device session; retrying."
-              fi
-            done
-            if [ "${succeeded}" -ne 1 ]; then failed+=("${fn}"); fi
-          done
-
-          if [ "${#failed[@]}" -ne 0 ]; then
-            echo "::error::iOS benchmarks failed: ${failed[*]}"
-            exit 1
-          fi
+          cargo-mobench ci run \
+            --target ios \
+            --functions "${functions_arg}" \
+            --iterations "${ITERATIONS}" \
+            --warmup "${WARMUP}" \
+            "${device_args[@]}" \
+            --crate-path "$CRATE_PATH" \
+            $RELEASE_FLAG \
+            --ios-completion-timeout-secs "${IOS_COMPLETION_TIMEOUT_SECS}" \
+            --fetch \
+            --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
+            --output-dir target/mobench/ci/ios
 
       - name: Validate iOS benchmark outputs
         if: always()
@@ -365,8 +323,8 @@ jobs:
           BENCH_OUTCOME: ${{ steps.run_ios_benchmarks.outcome }}
         run: |
           set -euo pipefail
-          json_count=$(find target/mobench/ci/ios/ios -type f -name summary.json 2>/dev/null | wc -l | tr -d ' ')
-          csv_count=$(find target/mobench/ci/ios/ios -type f -name results.csv 2>/dev/null | wc -l | tr -d ' ')
+          json_count=$(find target/mobench/ci/ios -type f -name summary.json 2>/dev/null | wc -l | tr -d ' ')
+          csv_count=$(find target/mobench/ci/ios -type f -name results.csv 2>/dev/null | wc -l | tr -d ' ')
 
           if [ "$json_count" -eq 0 ] || [ "$csv_count" -eq 0 ]; then
             echo "::error::iOS benchmark artifacts were not produced"
@@ -488,7 +446,7 @@ jobs:
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
-          toolchain: v1.0.0-beta.11
+          toolchain: v1.0.0-beta.26
 
       - name: Install mobench
         shell: bash
@@ -576,68 +534,31 @@ jobs:
           DEVICE_SPECS: ${{ steps.resolve_device.outputs.device_specs }}
           RELEASE_FLAG: ${{ inputs.build_release && '--release' || '' }}
           CRATE_PATH: ${{ inputs.crate_path }}
-          BENCH_ATTEMPTS: ${{ inputs.bench_attempts }}
         run: |
           set -euo pipefail
           device_args=()
           while IFS= read -r spec; do
             [ -n "${spec}" ] && device_args+=(--devices "${spec}")
           done <<<"${DEVICE_SPECS}"
+          functions_arg="${FUNCTIONS}"
           if [[ "${FUNCTIONS}" == \[* ]]; then
-            function_list=$(jq -r '.[]' <<<"${FUNCTIONS}")
-          else
-            function_list=$(tr ',' '\n' <<<"${FUNCTIONS}")
+            functions_arg=$(jq -r 'join(",")' <<<"${FUNCTIONS}")
           fi
-          functions=()
-          while IFS= read -r fn; do
-            [ -n "${fn}" ] && functions+=("${fn}")
-          done <<<"${function_list}"
-
           echo "Running Android benchmarks on:"
           echo "${DEVICE_SPECS}"
-          echo "Resolved functions: ${#functions[@]}"
+          echo "Resolved functions: ${functions_arg}"
 
-          # One invocation per function: mobench already rebuilds and re-uploads per
-          # function, so this costs nothing extra and keeps one flaky device session
-          # from discarding the functions that already measured cleanly.
-          failed=()
-          for fn in "${functions[@]}"; do
-            succeeded=0
-            for attempt in $(seq 1 "${BENCH_ATTEMPTS}"); do
-              attempt_log="$(mktemp)"
-              echo "::group::Android ${fn} (attempt ${attempt}/${BENCH_ATTEMPTS})"
-              if cargo-mobench ci run \
-                --target android \
-                --functions "${fn}" \
-                --iterations "${ITERATIONS}" \
-                --warmup "${WARMUP}" \
-                "${device_args[@]}" \
-                --crate-path "$CRATE_PATH" \
-                $RELEASE_FLAG \
-                --fetch \
-                --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
-                --output-dir target/mobench/ci/android 2>&1 | tee "${attempt_log}"; then
-                succeeded=1
-              fi
-              echo "::endgroup::"
-              if [ "${succeeded}" -eq 1 ]; then break; fi
-              # Only an incomplete session matrix is worth another BrowserStack build;
-              # a real benchmark failure reproduces and retrying just burns runner time.
-              if ! grep -q "result set is incomplete" "${attempt_log}"; then
-                echo "::error::Android ${fn} failed for a non-transient reason; not retrying."
-                break
-              fi
-              if [ "${attempt}" -lt "${BENCH_ATTEMPTS}" ]; then
-                echo "::warning::Android ${fn} attempt ${attempt} lost a device session; retrying."
-              fi
-            done
-            if [ "${succeeded}" -ne 1 ]; then failed+=("${fn}"); fi
-          done
-
-          if [ "${#failed[@]}" -ne 0 ]; then
-            echo "::error::Android benchmarks failed: ${failed[*]}"
-            exit 1
-          fi
+          cargo-mobench ci run \
+            --target android \
+            --functions "${functions_arg}" \
+            --iterations "${ITERATIONS}" \
+            --warmup "${WARMUP}" \
+            "${device_args[@]}" \
+            --crate-path "$CRATE_PATH" \
+            $RELEASE_FLAG \
+            --fetch \
+            --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
+            --output-dir target/mobench/ci/android
 
       - name: Validate Android benchmark outputs
         if: always()
@@ -647,8 +568,8 @@ jobs:
           BENCH_OUTCOME: ${{ steps.run_android_benchmarks.outcome }}
         run: |
           set -euo pipefail
-          json_count=$(find target/mobench/ci/android/android -type f -name summary.json 2>/dev/null | wc -l | tr -d ' ')
-          csv_count=$(find target/mobench/ci/android/android -type f -name results.csv 2>/dev/null | wc -l | tr -d ' ')
+          json_count=$(find target/mobench/ci/android -type f -name summary.json 2>/dev/null | wc -l | tr -d ' ')
+          csv_count=$(find target/mobench/ci/android -type f -name results.csv 2>/dev/null | wc -l | tr -d ' ')
 
           if [ "$json_count" -eq 0 ] || [ "$csv_count" -eq 0 ]; then
             echo "::error::Android benchmark artifacts were not produced"
