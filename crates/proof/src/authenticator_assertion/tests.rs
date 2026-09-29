@@ -4,8 +4,8 @@ use world_id_primitives::FieldElement;
 use super::*;
 
 /// Shared with `crates/proof/noir/authenticator-assertion/src/tests.nr`.
-const EXPECTED_REQ: &str = "0x073b684cfbb5426fa6e7c366e16afe927f32094114ba1315fb0d25303ebd98f4";
-const EXPECTED_MESSAGE: &str = "0x23d4df386e7075e777fb44a52ed4858abf3a34275f8adb81e6d89176480d6e30";
+const EXPECTED_REQ: &str = "0x17785a9691e9ee99df657ce545bfe748eab27cf21f118361d87cf64ff024495d";
+const EXPECTED_MESSAGE: &str = "0x2802d39d3816db33675876f75fbc8b69a05398413effaad48a2e4e29a89feed7";
 
 fn fixture() -> (AuthenticatorAssertionToken, EdDSAPrivateKey) {
     let req = request_commitment(
@@ -40,11 +40,11 @@ fn known_answer_matches_circuit_fixture() {
     let sig = key.sign(*aat.message_hash());
     assert_eq!(
         sig.s.to_string(),
-        "144418557646667652646254429367096501294052844800449307777329231192038056714"
+        "1275909746614355810204958820537534927473230809013673675376403123396475612445"
     );
     assert_eq!(
         sig.r.x.to_string(),
-        "3116733758525930913643034808623136189072613978903991388122497481019837111764"
+        "3771942575780503321335655556004912944902795561420912111099166309730306859686"
     );
     assert_eq!(
         key.public().pk.x.to_string(),

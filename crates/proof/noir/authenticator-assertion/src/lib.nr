@@ -9,8 +9,8 @@ use poseidon2::bn254::perm;
 
 mod tests;
 
-global DS_AAT: Field = 412198274779845851431252; // b"WIP106 AAT"
-global DS_REQ: Field = 1770378109647059536643285678650228; // b"WIP106 Request"
+global DS_AAT: Field = 498451125091886891258088867850510460821031698772; // b"WORLD-ID/WIP-106/AAT"
+global DS_REQ: Field = 498451125091886891258088867850510460821032813905; // b"WORLD-ID/WIP-106/REQ"
 
 /// Maximum remaining lifetime `exp - now` of an AAT, in seconds.
 pub global MAX_AAT_LIFETIME: Field = 1800;

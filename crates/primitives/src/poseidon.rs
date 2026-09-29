@@ -56,10 +56,10 @@ pub mod ds {
     pub const OWNERSHIP_PROOF: DomainSeparator<3> = DomainSeparator::new(b"WIP103");
     /// Separates the request commitment of an authenticator assertion (WIP-106).
     pub const AUTHENTICATOR_ASSERTION_REQUEST: DomainSeparator<4> =
-        DomainSeparator::new(b"WIP106 Request");
+        DomainSeparator::new(b"WORLD-ID/WIP-106/REQ");
     /// Separates the message signed for an authenticator assertion token (WIP-106).
     pub const AUTHENTICATOR_ASSERTION_TOKEN: DomainSeparator<3> =
-        DomainSeparator::new(b"WIP106 AAT");
+        DomainSeparator::new(b"WORLD-ID/WIP-106/AAT");
     /// Separates the hash of a single raw-bytes credential claim.
     pub const CLAIMS_HASH_V1: VariableLengthDomainSeparator =
         VariableLengthDomainSeparator::new(b"CLAIMS_HASH_V1");
