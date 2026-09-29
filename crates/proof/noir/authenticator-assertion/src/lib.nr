@@ -18,9 +18,27 @@ global DS_REQ: Field = 498451125091886891258088867850510460821032813905; // b"WO
 /// Maximum remaining lifetime `exp - now` of an AAT, in seconds.
 pub global MAX_AAT_LIFETIME: Field = 1800;
 
-/// The private AAT inputs to `verify_aat`. `req` is not included, as it is recomputed
-/// from the request inputs.
-pub struct AuthenticatorAssertionWitness {
+/// The public inputs of AAT verification (WIP-106 section 3.7). The caller MUST expose every
+/// field, and the returned `SecFlags`, as public inputs of its circuit.
+pub struct AuthenticatorAssertionPublicInputs {
+    /// The Authenticator Provider's `trust_anchor_key` (affine x, y), chosen by the RP.
+    pub trust_anchor_key: [Field; 2],
+    /// Current time as seconds since the Unix epoch.
+    pub now: Field,
+    /// The `rpId` of the request.
+    pub aud: Field,
+    /// The nonce of the request.
+    pub nonce: Field,
+    /// User presence asserted by the Authenticator.
+    pub presence: u8,
+    /// Minimum `build_version` the RP accepts.
+    pub min_build_version: Field,
+}
+
+/// The private inputs of AAT verification (WIP-106 section 3.7): the token and the opening of
+/// its request commitment. `req` is recomputed, not passed. How `cdh` is bound to the
+/// surrounding proof is the caller's obligation.
+pub struct AuthenticatorAssertionPrivateInputs {
     /// Expiration as seconds since the Unix epoch.
     pub exp: Field,
     /// Packed security attributes (see `SecFlags`).
@@ -29,6 +47,10 @@ pub struct AuthenticatorAssertionWitness {
     pub sig_s: Field,
     /// EdDSA signature point component (affine x, y).
     pub sig_r: [Field; 2],
+    /// Client data hash binding the AAT to its upstream use; `0` is nil.
+    pub cdh: Field,
+    /// Blinding factor of the request commitment.
+    pub blind: Field,
 }
 
 /// The unpacked `sec_flags` sub-fields.
@@ -39,38 +61,35 @@ pub struct SecFlags {
 }
 
 /// Verifies an AAT and returns its range-checked security flags.
-///
-/// The caller MUST expose `trust_anchor_key`, `now`, `aud`, `nonce`, `presence`,
-/// `min_build_version` and the returned flags as public inputs, and MUST keep `aat`,
-/// `cdh` and `blind` private. How `cdh` is bound to the surrounding proof is the
-/// caller's obligation.
 pub fn verify_aat(
-    aat: AuthenticatorAssertionWitness,
-    trust_anchor_key: [Field; 2],
-    now: Field,
-    aud: Field,
-    nonce: Field,
-    cdh: Field,
-    presence: u8,
-    min_build_version: Field,
-    blind: Field,
+    public: AuthenticatorAssertionPublicInputs,
+    private: AuthenticatorAssertionPrivateInputs,
 ) -> SecFlags {
-    assert(nonce != 0, "nonce must not be 0");
-    assert(presence < 5, "presence values 5 to 7 are reserved");
+    assert(public.nonce != 0, "nonce must not be 0");
+    assert(public.presence < 5, "presence values 5 to 7 are reserved");
 
-    let req = request_commitment(aud, nonce, cdh, presence as Field, blind);
-    let message = permutation::t4([DS_AAT, aat.exp, req, aat.sec_flags])[1];
+    let req = request_commitment(
+        public.aud,
+        public.nonce,
+        private.cdh,
+        public.presence as Field,
+        private.blind,
+    );
+    let message = permutation::t4([DS_AAT, private.exp, req, private.sec_flags])[1];
     let is_valid = verify_eddsa_poseidon2(
-        BabyJubJubPointInSubgroup::new(trust_anchor_key[0], trust_anchor_key[1]),
-        BabyJubJubScalarFieldElement::new(aat.sig_s),
-        BabyJubJubPoint::new(aat.sig_r[0], aat.sig_r[1]),
+        BabyJubJubPointInSubgroup::new(public.trust_anchor_key[0], public.trust_anchor_key[1]),
+        BabyJubJubScalarFieldElement::new(private.sig_s),
+        BabyJubJubPoint::new(private.sig_r[0], private.sig_r[1]),
         message,
     );
     assert(is_valid, "invalid signature");
 
-    assert_fresh(aat.exp, now);
-    let (flags, build_version) = unpack_sec_flags(aat.sec_flags);
-    assert(!std::field::bn254::lt(build_version, min_build_version), "build_version below minimum");
+    assert_fresh(private.exp, public.now);
+    let (flags, build_version) = unpack_sec_flags(private.sec_flags);
+    assert(
+        !std::field::bn254::lt(build_version, public.min_build_version),
+        "build_version below minimum",
+    );
     flags
 }
 

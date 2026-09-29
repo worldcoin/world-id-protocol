@@ -1,5 +1,6 @@
 use super::{
-    AuthenticatorAssertionWitness, MAX_AAT_LIFETIME, request_commitment, SecFlags, verify_aat,
+    AuthenticatorAssertionPrivateInputs, AuthenticatorAssertionPublicInputs, MAX_AAT_LIFETIME,
+    request_commitment, SecFlags, verify_aat,
 };
 use poseidon2::bn254::permutation;
 
@@ -19,8 +20,19 @@ global BLIND: Field = 7;
 global EXPECTED_REQ: Field = 0x2a09ead9ab7c0b2e0f6f7a5b5fc8128261bf10849e151d0b757aa949f0597367;
 global EXPECTED_MESSAGE: Field = 0x14061d185d7be1e081e1b2588cfc5ae777678152a30c3645fde229693b03410b;
 
-fn fixture() -> AuthenticatorAssertionWitness {
-    AuthenticatorAssertionWitness {
+fn public() -> AuthenticatorAssertionPublicInputs {
+    AuthenticatorAssertionPublicInputs {
+        trust_anchor_key: TRUST_ANCHOR_KEY,
+        now: NOW,
+        aud: AUD,
+        nonce: NONCE,
+        presence: PRESENCE,
+        min_build_version: MIN_BUILD_VERSION,
+    }
+}
+
+fn private() -> AuthenticatorAssertionPrivateInputs {
+    AuthenticatorAssertionPrivateInputs {
         exp: EXP,
         // platform 2 | sec_level 1 << 8 | build_version 2006 << 16 | sec_meta 3 << 48
         sec_flags: 0x0003000007D60102,
@@ -29,34 +41,22 @@ fn fixture() -> AuthenticatorAssertionWitness {
             5491252812772493336195422546967714206253078795981411161628294788118546094528,
             11102578015838618445061745022957846316966085425472195130650526783700644289571,
         ],
+        cdh: CDH,
+        blind: BLIND,
     }
-}
-
-fn verify(aat: AuthenticatorAssertionWitness, now: Field) -> SecFlags {
-    verify_aat(
-        aat,
-        TRUST_ANCHOR_KEY,
-        now,
-        AUD,
-        NONCE,
-        CDH,
-        PRESENCE,
-        MIN_BUILD_VERSION,
-        BLIND,
-    )
 }
 
 #[test]
 fn test_known_answer_digests() {
     let req = request_commitment(AUD, NONCE, CDH, PRESENCE as Field, BLIND);
     assert_eq(req, EXPECTED_REQ);
-    let aat = fixture();
+    let aat = private();
     assert_eq(permutation::t4([super::DS_AAT, aat.exp, req, aat.sec_flags])[1], EXPECTED_MESSAGE);
 }
 
 #[test]
 fn test_valid_token() {
-    let flags = verify(fixture(), NOW);
+    let flags: SecFlags = verify_aat(public(), private());
     assert_eq(flags.platform, 2);
     assert_eq(flags.sec_level, 1);
     assert_eq(flags.sec_meta, 3);
@@ -64,190 +64,115 @@ fn test_valid_token() {
 
 #[test]
 fn test_max_lifetime_boundary_accepted() {
-    let _ = verify(fixture(), EXP - MAX_AAT_LIFETIME);
+    let mut public = public();
+    public.now = EXP - MAX_AAT_LIFETIME;
+    let _ = verify_aat(public, private());
 }
 
 #[test(should_fail_with = "token lifetime exceeds maximum")]
 fn test_lifetime_above_maximum_rejected() {
-    let _ = verify(fixture(), EXP - MAX_AAT_LIFETIME - 1);
+    let mut public = public();
+    public.now = EXP - MAX_AAT_LIFETIME - 1;
+    let _ = verify_aat(public, private());
 }
 
 #[test(should_fail_with = "token is expired")]
 fn test_expired_token_rejected() {
     // At `exp` the token is already expired.
-    let _ = verify(fixture(), EXP);
+    let mut public = public();
+    public.now = EXP;
+    let _ = verify_aat(public, private());
 }
 
 #[test(should_fail_with = "invalid signature")]
 fn test_tampered_sec_flags_rejected() {
-    let mut aat = fixture();
-    aat.sec_flags = 0x0003000007D60104;
-    let _ = verify(aat, NOW);
+    let mut private = private();
+    private.sec_flags = 0x0003000007D60104;
+    let _ = verify_aat(public(), private);
 }
 
 #[test(should_fail_with = "invalid signature")]
 fn test_wrong_aud_rejected() {
-    let _ = verify_aat(
-        fixture(),
-        TRUST_ANCHOR_KEY,
-        NOW,
-        AUD + 1,
-        NONCE,
-        CDH,
-        PRESENCE,
-        MIN_BUILD_VERSION,
-        BLIND,
-    );
+    let mut public = public();
+    public.aud = AUD + 1;
+    let _ = verify_aat(public, private());
 }
 
 #[test(should_fail_with = "invalid signature")]
 fn test_wrong_nonce_rejected() {
-    let _ = verify_aat(
-        fixture(),
-        TRUST_ANCHOR_KEY,
-        NOW,
-        AUD,
-        NONCE + 1,
-        CDH,
-        PRESENCE,
-        MIN_BUILD_VERSION,
-        BLIND,
-    );
+    let mut public = public();
+    public.nonce = NONCE + 1;
+    let _ = verify_aat(public, private());
 }
 
 #[test(should_fail_with = "invalid signature")]
 fn test_wrong_cdh_rejected() {
-    let _ = verify_aat(
-        fixture(),
-        TRUST_ANCHOR_KEY,
-        NOW,
-        AUD,
-        NONCE,
-        1,
-        PRESENCE,
-        MIN_BUILD_VERSION,
-        BLIND,
-    );
+    let mut private = private();
+    private.cdh = 1;
+    let _ = verify_aat(public(), private);
 }
 
 #[test(should_fail_with = "invalid signature")]
 fn test_wrong_blind_rejected() {
-    let _ = verify_aat(
-        fixture(),
-        TRUST_ANCHOR_KEY,
-        NOW,
-        AUD,
-        NONCE,
-        CDH,
-        PRESENCE,
-        MIN_BUILD_VERSION,
-        BLIND + 1,
-    );
+    let mut private = private();
+    private.blind = BLIND + 1;
+    let _ = verify_aat(public(), private);
 }
 
 #[test(should_fail_with = "invalid signature")]
 fn test_wrong_trust_anchor_key_rejected() {
     // The BabyJubJub subgroup generator: a valid key that did not sign the token, so the
     // failure comes from the signature check rather than the key validation.
-    let other_key = [
+    let mut public = public();
+    public.trust_anchor_key = [
         5299619240641551281634865583518297030282874472190772894086521144482721001553,
         16950150798460657717958625567821834550301663161624707787222815936182638968203,
     ];
-    let _ = verify_aat(
-        fixture(),
-        other_key,
-        NOW,
-        AUD,
-        NONCE,
-        CDH,
-        PRESENCE,
-        MIN_BUILD_VERSION,
-        BLIND,
-    );
+    let _ = verify_aat(public, private());
 }
 
 #[test(should_fail_with = "invalid signature")]
 fn test_wrong_presence_rejected() {
-    let _ = verify_aat(
-        fixture(),
-        TRUST_ANCHOR_KEY,
-        NOW,
-        AUD,
-        NONCE,
-        CDH,
-        1,
-        MIN_BUILD_VERSION,
-        BLIND,
-    );
+    let mut public = public();
+    public.presence = 1;
+    let _ = verify_aat(public, private());
 }
 
 #[test(should_fail_with = "presence values 5 to 7 are reserved")]
 fn test_reserved_presence_rejected() {
-    let _ = verify_aat(
-        fixture(),
-        TRUST_ANCHOR_KEY,
-        NOW,
-        AUD,
-        NONCE,
-        CDH,
-        5,
-        MIN_BUILD_VERSION,
-        BLIND,
-    );
+    let mut public = public();
+    public.presence = 5;
+    let _ = verify_aat(public, private());
 }
 
 #[test]
 fn test_build_version_at_minimum_accepted() {
-    let _ = verify_aat(
-        fixture(),
-        TRUST_ANCHOR_KEY,
-        NOW,
-        AUD,
-        NONCE,
-        CDH,
-        PRESENCE,
-        2006,
-        BLIND,
-    );
+    let mut public = public();
+    public.min_build_version = 2006;
+    let _ = verify_aat(public, private());
 }
 
 #[test(should_fail_with = "build_version below minimum")]
 fn test_build_version_below_minimum_rejected() {
-    let _ = verify_aat(
-        fixture(),
-        TRUST_ANCHOR_KEY,
-        NOW,
-        AUD,
-        NONCE,
-        CDH,
-        PRESENCE,
-        2007,
-        BLIND,
-    );
+    let mut public = public();
+    public.min_build_version = 2007;
+    let _ = verify_aat(public, private());
 }
 
 #[test(should_fail)]
 fn test_non_canonical_sig_s_rejected() {
     // `s + r` satisfies the verification equation but is not a reduced scalar.
-    let mut aat = fixture();
-    aat.sig_s =
-        aat.sig_s + 2736030358979909402780800718157159386076813972158567259200215660948447373041;
-    let _ = verify(aat, NOW);
+    let mut private = private();
+    private.sig_s = private.sig_s
+        + 2736030358979909402780800718157159386076813972158567259200215660948447373041;
+    let _ = verify_aat(public(), private);
 }
 
 #[test(should_fail_with = "nonce must not be 0")]
 fn test_zero_nonce_rejected() {
-    let _ = verify_aat(
-        fixture(),
-        TRUST_ANCHOR_KEY,
-        NOW,
-        AUD,
-        0,
-        CDH,
-        PRESENCE,
-        MIN_BUILD_VERSION,
-        BLIND,
-    );
+    let mut public = public();
+    public.nonce = 0;
+    let _ = verify_aat(public, private());
 }
 
 #[test(should_fail_with = "sec_flags bits 51 and above are reserved and must be 0")]
