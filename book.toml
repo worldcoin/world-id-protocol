@@ -14,7 +14,16 @@ command = "python3 docs/strip-front-matter.py"
 command = "mdbook-mermaid"
 
 [output.html]
-additional-js = ["docs/mermaid.min.js", "docs/mermaid-init.js"]
+# KaTeX renders math client-side (like mermaid) so the book has no external
+# runtime dependency; the stylesheet and fonts are self-hosted below.
+additional-css = ["katex.min.css"]
+additional-js = [
+    "docs/mermaid.min.js",
+    "docs/mermaid-init.js",
+    "docs/katex.min.js",
+    "docs/katex-auto-render.min.js",
+    "docs/katex-init.js",
+]
 git-repository-url = "https://github.com/worldcoin/world-id-protocol"
 edit-url-template = "https://github.com/worldcoin/world-id-protocol/edit/main/{path}"
 site-url = "/world-id-protocol/"
