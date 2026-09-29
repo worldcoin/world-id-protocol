@@ -6,6 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {WorldIDSource} from "../../src/crosschain/WorldIDSource.sol";
+import {WorldIDSourceV2} from "../../src/crosschain/WorldIDSourceV2.sol";
 import {WorldIDSatellite} from "../../src/crosschain/WorldIDSatellite.sol";
 import {IStateBridge} from "../../src/crosschain/interfaces/IStateBridge.sol";
 import {PermissionedGatewayAdapter} from "../../src/crosschain/adapters/PermissionedGatewayAdapter.sol";
@@ -163,7 +164,7 @@ contract Deploy is Script {
 
         bytes32 implSalt = vm.parseJsonBytes32(_config, ".salts.worldIDSource");
         bytes memory implInitCode =
-            abi.encodePacked(type(WorldIDSource).creationCode, abi.encode(registry, issuerRegistry, oprfRegistry));
+            abi.encodePacked(type(WorldIDSourceV2).creationCode, abi.encode(registry, issuerRegistry, oprfRegistry));
         bridgeImpl = _deployer.deploy(implSalt, implInitCode);
         console2.log("  Implementation:", bridgeImpl);
 
