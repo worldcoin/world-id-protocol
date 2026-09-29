@@ -56,8 +56,8 @@ pub async fn root_sanity_check_loop(
                 "Local Merkle root is not valid on-chain"
             );
             return Err(crate::tree::TreeError::RootMismatch {
-                actual: format!("0x{local_root:x}"),
-                expected: format!("0x{current_onchain_root:x}"),
+                actual: local_root,
+                expected: current_onchain_root,
             }
             .into());
         }

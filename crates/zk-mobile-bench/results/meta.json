@@ -1,0 +1,5 @@
+{
+  "schema_version": "mobench-results-v1",
+  "status": "placeholder",
+  "note": "No BrowserStack results committed yet. Run Actions → Mobile Benchmarks on main with open_results_pr=true (leave pr_number empty) to populate ios/summary.json, android/summary.json, and LATEST.md."
+}

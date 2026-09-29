@@ -429,6 +429,35 @@ async fn test_reset_authenticator() {
     assert_eq!(account.authenticator_addresses[0], Some(new_address));
     assert_eq!(account.authenticator_pubkeys[0], Some(new_pubkey));
     assert_eq!(account.offchain_signer_commitment, new_commitment);
+
+    // Recovery bumps the counter so /packed-account can spot authenticators revoked by it.
+    assert_eq!(account.recovery_counter, 1);
+    assert_eq!(
+        db.accounts()
+            .get_recovery_counter(leaf_index)
+            .await
+            .unwrap(),
+        Some(1)
+    );
+
+    db.accounts()
+        .reset_authenticator(
+            leaf_index,
+            &new_address,
+            &new_pubkey,
+            &new_commitment,
+            101,
+            0,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        db.accounts()
+            .get_recovery_counter(leaf_index)
+            .await
+            .unwrap(),
+        Some(2)
+    );
 }
 
 /// Test inserting world tree event
