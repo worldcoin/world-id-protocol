@@ -35,7 +35,7 @@ const SIG_STRUCTURE_PREFIX: [u8; 12] = [
 ];
 
 /// Length in bytes of the CWT claims set.
-const PAYLOAD_LEN: usize = 85;
+const PAYLOAD_LEN: usize = 89;
 
 /// Platform of the Authenticator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +92,8 @@ pub struct SecFlags {
     pub platform: Platform,
     /// Class of integrity evidence verified for the request.
     pub sec_level: SecLevel,
+    /// Monotonic version of the Authenticator build that produced the evidence.
+    pub build_version: u32,
     /// Provider-defined 3-bit bitmask.
     pub sec_meta: u8,
 }
@@ -101,8 +103,8 @@ impl SecFlags {
     ///
     /// # Errors
     /// [`AssertionError::InvalidSecFlags`] on reserved bits or unknown enum values.
-    pub fn unpack(packed: u32) -> Result<Self, AssertionError> {
-        let [reserved, sec_meta, sec_level, platform] = packed.to_be_bytes();
+    pub fn unpack(packed: u64) -> Result<Self, AssertionError> {
+        let [reserved, sec_meta, v3, v2, v1, v0, sec_level, platform] = packed.to_be_bytes();
         if reserved != 0 || sec_meta > MAX_SEC_META {
             return Err(AssertionError::InvalidSecFlags(packed));
         }
@@ -124,16 +126,19 @@ impl SecFlags {
         Ok(Self {
             platform,
             sec_level,
+            build_version: u32::from_be_bytes([v3, v2, v1, v0]),
             sec_meta,
         })
     }
 
-    /// Packs the sub-fields LSB-first: `platform` (bits 0-7), `sec_level` (8-15), `sec_meta` (16-18).
+    /// Packs the sub-fields LSB-first: `platform` (bits 0-7), `sec_level` (8-15),
+    /// `build_version` (16-47), `sec_meta` (48-50).
     #[must_use]
-    pub fn pack(&self) -> u32 {
-        u32::from(self.platform as u8)
-            | (u32::from(self.sec_level as u8) << 8)
-            | (u32::from(self.sec_meta) << 16)
+    pub fn pack(&self) -> u64 {
+        u64::from(self.platform as u8)
+            | (u64::from(self.sec_level as u8) << 8)
+            | (u64::from(self.build_version) << 16)
+            | (u64::from(self.sec_meta) << 48)
     }
 }
 
@@ -148,7 +153,7 @@ pub enum AssertionError {
     ExpirationOutOfRange(u32),
     /// `sec_flags` has reserved bits set or unknown enum values.
     #[error("invalid sec_flags {0:#x}")]
-    InvalidSecFlags(u32),
+    InvalidSecFlags(u64),
     /// The bytes are not the canonical CWT encoding of an AAT.
     #[error("not a canonical AAT encoding: {0}")]
     InvalidEncoding(&'static str),
@@ -227,7 +232,7 @@ impl AuthenticatorAssertionToken {
             [
                 FieldElement::from(u64::from(self.exp)),
                 self.req,
-                FieldElement::from(u64::from(self.sec_flags.pack())),
+                FieldElement::from(self.sec_flags.pack()),
             ],
         )
     }
@@ -268,7 +273,7 @@ impl AuthenticatorAssertionToken {
         cwt.extend_from_slice(&PROTECTED);
         cwt.extend_from_slice(&[0xa1, 0x04, 0x58, 0x20]);
         cwt.extend_from_slice(&kid);
-        cwt.extend_from_slice(&[0x58, 0x55]);
+        cwt.extend_from_slice(&[0x58, 0x59]);
         cwt.extend_from_slice(&self.payload());
         cwt.extend_from_slice(&[0x58, 0x40]);
         cwt.extend_from_slice(&signature);
@@ -280,7 +285,7 @@ impl AuthenticatorAssertionToken {
     pub fn sig_structure(&self) -> Vec<u8> {
         let mut sig_structure = SIG_STRUCTURE_PREFIX.to_vec();
         sig_structure.extend_from_slice(&PROTECTED);
-        sig_structure.extend_from_slice(&[0x40, 0x58, 0x55]);
+        sig_structure.extend_from_slice(&[0x40, 0x58, 0x59]);
         sig_structure.extend_from_slice(&self.payload());
         sig_structure
     }
@@ -298,7 +303,7 @@ impl AuthenticatorAssertionToken {
         parts.push(&req);
         parts.push(&[0x19, 0x01, 0x09, 0x78, 0x1c]);
         parts.push(EAT_PROFILE.as_bytes());
-        parts.push(&[0x3a, 0x00, 0x01, 0x11, 0x6f, 0x44]);
+        parts.push(&[0x3a, 0x00, 0x01, 0x11, 0x6f, 0x48]);
         parts.push(&sec_flags);
         let mut offset = 0;
         for part in parts {
@@ -335,7 +340,7 @@ impl SignedAuthenticatorAssertionToken {
             (Some(<[u8; 32]>::try_from(kid).expect("split at 32")), r)
         };
         let rest = rest
-            .strip_prefix(&[0x58, 0x55])
+            .strip_prefix(&[0x58, 0x59])
             .ok_or(AssertionError::InvalidEncoding("payload"))?;
         let (payload, rest) = rest
             .split_at_checked(PAYLOAD_LEN)
@@ -348,8 +353,8 @@ impl SignedAuthenticatorAssertionToken {
         let exp = u32::from_be_bytes(payload[3..7].try_into().expect("4 bytes"));
         let req = FieldElement::from_be_bytes(payload[10..42].try_into().expect("32 bytes"))
             .map_err(|_| AssertionError::InvalidEncoding("non-canonical nonce"))?;
-        let sec_flags = SecFlags::unpack(u32::from_be_bytes(
-            payload[81..85].try_into().expect("4 bytes"),
+        let sec_flags = SecFlags::unpack(u64::from_be_bytes(
+            payload[81..89].try_into().expect("8 bytes"),
         ))?;
         let token = AuthenticatorAssertionToken::new(exp, req, sec_flags)?;
         if token.payload() != payload {

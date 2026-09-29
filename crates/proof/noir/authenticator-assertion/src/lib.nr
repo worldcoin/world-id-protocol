@@ -36,8 +36,8 @@ pub struct SecFlags {
 
 /// Verifies an AAT and returns its range-checked security flags.
 ///
-/// The caller MUST expose `trust_anchor_key`, `now`, `aud`, `nonce`, `presence` and the
-/// returned flags as public inputs, and MUST keep `aat`, `cdh` and `blind` private. How
+/// The caller MUST expose `trust_anchor_key`, `now`, `aud`, `nonce`, `presence`,
+/// `min_build_version` and the returned flags as public inputs, and MUST keep `aat`, `cdh` and `blind` private. How
 /// `cdh` is bound to the surrounding proof is the caller's obligation.
 pub fn verify_aat(
     aat: AuthenticatorAssertionToken,
@@ -47,6 +47,7 @@ pub fn verify_aat(
     nonce: Field,
     cdh: Field,
     presence: u8,
+    min_build_version: Field,
     blind: Field,
 ) -> SecFlags {
     assert(nonce != 0, "nonce must not be 0");
@@ -64,7 +65,9 @@ pub fn verify_aat(
     assert(is_valid, "invalid signature");
 
     assert_fresh(aat.exp, now);
-    unpack_sec_flags(aat.sec_flags)
+    let (flags, build_version) = unpack_sec_flags(aat.sec_flags);
+    assert(!std::field::bn254::lt(build_version, min_build_version), "build_version below minimum");
+    flags
 }
 
 fn request_commitment(
@@ -89,10 +92,13 @@ fn assert_fresh(exp: Field, now: Field) {
     );
 }
 
-/// Unpacks `sec_flags` LSB-first: `platform` (bits 0-7), `sec_level` (8-15), `sec_meta` (16-18).
-fn unpack_sec_flags(sec_flags: Field) -> SecFlags {
-    // Constrains `sec_flags < 2^24`.
-    let bytes: [u8; 3] = sec_flags.to_be_bytes();
-    assert(bytes[0] < 8, "sec_flags bits 19 and above are reserved and must be 0");
-    SecFlags { platform: bytes[2], sec_level: bytes[1], sec_meta: bytes[0] }
+/// Unpacks `sec_flags` LSB-first: `platform` (bits 0-7), `sec_level` (8-15),
+/// `build_version` (16-47), `sec_meta` (48-50). `build_version` is returned separately
+/// as it must stay private.
+fn unpack_sec_flags(sec_flags: Field) -> (SecFlags, Field) {
+    // Constrains `sec_flags < 2^56`.
+    let bytes: [u8; 7] = sec_flags.to_be_bytes();
+    assert(bytes[0] < 8, "sec_flags bits 51 and above are reserved and must be 0");
+    let build_version = Field::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]);
+    (SecFlags { platform: bytes[6], sec_level: bytes[5], sec_meta: bytes[0] }, build_version)
 }

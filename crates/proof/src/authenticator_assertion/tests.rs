@@ -5,7 +5,7 @@ use super::*;
 
 /// Shared with `crates/proof/noir/authenticator-assertion/src/tests.nr`.
 const EXPECTED_REQ: &str = "0x2a09ead9ab7c0b2e0f6f7a5b5fc8128261bf10849e151d0b757aa949f0597367";
-const EXPECTED_MESSAGE: &str = "0x250193b370e6d704c20ed37317246ff40d04226b77a970107778e475a80c9531";
+const EXPECTED_MESSAGE: &str = "0x14061d185d7be1e081e1b2588cfc5ae777678152a30c3645fde229693b03410b";
 
 fn fixture() -> (AuthenticatorAssertionToken, EdDSAPrivateKey) {
     let req = request_commitment(
@@ -18,6 +18,7 @@ fn fixture() -> (AuthenticatorAssertionToken, EdDSAPrivateKey) {
     let flags = SecFlags {
         platform: Platform::Ios,
         sec_level: SecLevel::HardwareKey,
+        build_version: 2006,
         sec_meta: 3,
     };
     (
@@ -35,17 +36,17 @@ fn known_answer_matches_circuit_fixture() {
     let (aat, key) = fixture();
     assert_eq!(aat.req().to_string(), EXPECTED_REQ);
     assert_eq!(aat.message_hash().to_string(), EXPECTED_MESSAGE);
-    assert_eq!(aat.sec_flags().pack(), 0x03_0102);
+    assert_eq!(aat.sec_flags().pack(), 0x0003_0000_07d6_0102);
 
     // The Noir fixture's signature and key; EdDSA signing is deterministic.
     let sig = key.sign(*aat.message_hash());
     assert_eq!(
         sig.s.to_string(),
-        "1462272513541365883280968055772542535687228844730885273921268486514987470338"
+        "271845036030182571381747490006589728256782209672029547562777608049196334531"
     );
     assert_eq!(
         sig.r.x.to_string(),
-        "21613790725172622325362156722653543041337718166900891470499267681863821127153"
+        "5491252812772493336195422546967714206253078795981411161628294788118546094528"
     );
     assert_eq!(
         key.public().pk.x.to_string(),
@@ -57,13 +58,13 @@ fn known_answer_matches_circuit_fixture() {
 fn sig_structure_matches_spec_template() {
     let (aat, _) = fixture();
     let expected = format!(
-        "846a5369676e61747572653147a1013a00010000405855a4041a{}0a5820{}190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001116f44{}",
+        "846a5369676e61747572653147a1013a00010000405859a4041a{}0a5820{}190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001116f48{}",
         hex(&aat.exp().to_be_bytes()),
         hex(&aat.req().to_be_bytes()),
         hex(&aat.sec_flags().pack().to_be_bytes()),
     );
     assert_eq!(hex(&aat.sig_structure()), expected);
-    assert_eq!(aat.sig_structure().len(), 108);
+    assert_eq!(aat.sig_structure().len(), 112);
 }
 
 #[test]
@@ -149,9 +150,10 @@ fn invalid_claims_rejected() {
         ),
         Err(AssertionError::SecMetaTooLarge(0x8))
     ));
-    assert!(SecFlags::unpack(0x13_0102).is_err());
-    assert!(SecFlags::unpack(0x08_0102).is_err());
-    assert!(SecFlags::unpack(0x03_0103).is_err());
+    assert!(SecFlags::unpack(0x0013_0000_07d6_0102).is_err());
+    assert!(SecFlags::unpack(0x0008_0000_07d6_0102).is_err());
+    assert!(SecFlags::unpack(0x0100_0000_07d6_0102).is_err());
+    assert!(SecFlags::unpack(0x0003_0000_07d6_0103).is_err());
     assert_eq!(SecFlags::unpack(flags.pack()).unwrap(), flags);
 }
 
