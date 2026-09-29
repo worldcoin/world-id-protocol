@@ -4,14 +4,15 @@ use world_id_primitives::FieldElement;
 use super::*;
 
 /// Shared with `crates/proof/noir/authenticator-assertion/src/tests.nr`.
-const EXPECTED_REQ: &str = "0x17785a9691e9ee99df657ce545bfe748eab27cf21f118361d87cf64ff024495d";
-const EXPECTED_MESSAGE: &str = "0x2802d39d3816db33675876f75fbc8b69a05398413effaad48a2e4e29a89feed7";
+const EXPECTED_REQ: &str = "0x2a09ead9ab7c0b2e0f6f7a5b5fc8128261bf10849e151d0b757aa949f0597367";
+const EXPECTED_MESSAGE: &str = "0x250193b370e6d704c20ed37317246ff40d04226b77a970107778e475a80c9531";
 
 fn fixture() -> (AuthenticatorAssertionToken, EdDSAPrivateKey) {
     let req = request_commitment(
         FieldElement::from(1_928_118u64),
         FieldElement::from(42u64),
         FieldElement::ZERO,
+        UserPresence::PresentVerified,
         FieldElement::from(7u64),
     );
     let flags = SecFlags {
@@ -40,11 +41,11 @@ fn known_answer_matches_circuit_fixture() {
     let sig = key.sign(*aat.message_hash());
     assert_eq!(
         sig.s.to_string(),
-        "1275909746614355810204958820537534927473230809013673675376403123396475612445"
+        "1462272513541365883280968055772542535687228844730885273921268486514987470338"
     );
     assert_eq!(
         sig.r.x.to_string(),
-        "3771942575780503321335655556004912944902795561420912111099166309730306859686"
+        "21613790725172622325362156722653543041337718166900891470499267681863821127153"
     );
     assert_eq!(
         key.public().pk.x.to_string(),
@@ -157,10 +158,13 @@ fn invalid_claims_rejected() {
 #[test]
 fn request_commitment_binds_every_input() {
     let base = [1u64, 2, 3, 4].map(FieldElement::from);
-    let commit = |v: [FieldElement; 4]| request_commitment(v[0], v[1], v[2], v[3]);
+    let commit =
+        |v: [FieldElement; 4], presence| request_commitment(v[0], v[1], v[2], presence, v[3]);
+    let reference = commit(base, UserPresence::PresentVerified);
     for i in 0..4 {
         let mut changed = base;
         changed[i] = FieldElement::from(99u64);
-        assert_ne!(commit(changed), commit(base));
+        assert_ne!(commit(changed, UserPresence::PresentVerified), reference);
     }
+    assert_ne!(commit(base, UserPresence::NotPresent), reference);
 }

@@ -2,7 +2,7 @@
 //!
 //! Verifies an Authenticator Assertion Token (AAT): a token signed by an Authenticator
 //! Provider's `trust_anchor_key` over `H_4(DS_AAT; exp, req, sec_flags)`, bound to a
-//! request through `req = H_8(DS_REQ; aud, nonce, cdh, blind)`.
+//! request through `req = H_8(DS_REQ; aud, nonce, cdh, presence, blind)`.
 
 use eddsa_poseidon2::verify_eddsa_poseidon2;
 use poseidon2::bn254::perm;
@@ -36,9 +36,9 @@ pub struct SecFlags {
 
 /// Verifies an AAT and returns its range-checked security flags.
 ///
-/// The caller MUST expose `trust_anchor_key`, `now`, `aud`, `nonce` and the returned
-/// flags as public inputs, and MUST keep `aat`, `cdh` and `blind` private. How `cdh`
-/// is bound to the surrounding proof is the caller's obligation.
+/// The caller MUST expose `trust_anchor_key`, `now`, `aud`, `nonce`, `presence` and the
+/// returned flags as public inputs, and MUST keep `aat`, `cdh` and `blind` private. How
+/// `cdh` is bound to the surrounding proof is the caller's obligation.
 pub fn verify_aat(
     aat: AuthenticatorAssertionToken,
     trust_anchor_key: [Field; 2],
@@ -46,11 +46,13 @@ pub fn verify_aat(
     aud: Field,
     nonce: Field,
     cdh: Field,
+    presence: u8,
     blind: Field,
 ) -> SecFlags {
     assert(nonce != 0, "nonce must not be 0");
+    assert(presence < 5, "presence values 5 to 7 are reserved");
 
-    let req = request_commitment(aud, nonce, cdh, blind);
+    let req = request_commitment(aud, nonce, cdh, presence as Field, blind);
     let message = perm::x5_4([DS_AAT, aat.exp, req, aat.sec_flags])[1];
     let is_valid = verify_eddsa_poseidon2(
         trust_anchor_key[0],
@@ -65,8 +67,14 @@ pub fn verify_aat(
     unpack_sec_flags(aat.sec_flags)
 }
 
-fn request_commitment(aud: Field, nonce: Field, cdh: Field, blind: Field) -> Field {
-    perm::x5_8([DS_REQ, aud, nonce, cdh, blind, 0, 0, 0])[1]
+fn request_commitment(
+    aud: Field,
+    nonce: Field,
+    cdh: Field,
+    presence: Field,
+    blind: Field,
+) -> Field {
+    perm::x5_8([DS_REQ, aud, nonce, cdh, presence, blind, 0, 0])[1]
 }
 
 /// Asserts `now < exp` and `exp - now <= MAX_AAT_LIFETIME`, with both below 2^32.

@@ -13,30 +13,31 @@ global NOW: Field = 1783446000;
 global AUD: Field = 1928118;
 global NONCE: Field = 42;
 global CDH: Field = 0;
+global PRESENCE: u8 = 2;
 global BLIND: Field = 7;
-global EXPECTED_REQ: Field = 0x17785a9691e9ee99df657ce545bfe748eab27cf21f118361d87cf64ff024495d;
-global EXPECTED_MESSAGE: Field = 0x2802d39d3816db33675876f75fbc8b69a05398413effaad48a2e4e29a89feed7;
+global EXPECTED_REQ: Field = 0x2a09ead9ab7c0b2e0f6f7a5b5fc8128261bf10849e151d0b757aa949f0597367;
+global EXPECTED_MESSAGE: Field = 0x250193b370e6d704c20ed37317246ff40d04226b77a970107778e475a80c9531;
 
 fn fixture() -> AuthenticatorAssertionToken {
     AuthenticatorAssertionToken {
         exp: EXP,
         // platform 2 (iOS) | sec_level 1 << 8 | sec_meta 3 << 16
         sec_flags: 0x030102,
-        sig_s: 1275909746614355810204958820537534927473230809013673675376403123396475612445,
+        sig_s: 1462272513541365883280968055772542535687228844730885273921268486514987470338,
         sig_r: [
-            3771942575780503321335655556004912944902795561420912111099166309730306859686,
-            854701090116027471329727851857282811953758388575375328615455330476871996831,
+            21613790725172622325362156722653543041337718166900891470499267681863821127153,
+            9483405006072346718418037267607200727700887000659830653610819289716621548185,
         ],
     }
 }
 
 fn verify(aat: AuthenticatorAssertionToken, now: Field) -> SecFlags {
-    verify_aat(aat, TRUST_ANCHOR_KEY, now, AUD, NONCE, CDH, BLIND)
+    verify_aat(aat, TRUST_ANCHOR_KEY, now, AUD, NONCE, CDH, PRESENCE, BLIND)
 }
 
 #[test]
 fn test_known_answer_digests() {
-    let req = request_commitment(AUD, NONCE, CDH, BLIND);
+    let req = request_commitment(AUD, NONCE, CDH, PRESENCE as Field, BLIND);
     assert_eq(req, EXPECTED_REQ);
     let aat = fixture();
     assert_eq(perm::x5_4([super::DS_AAT, aat.exp, req, aat.sec_flags])[1], EXPECTED_MESSAGE);
@@ -75,22 +76,58 @@ fn test_tampered_sec_flags_rejected() {
 
 #[test(should_fail_with = "invalid signature")]
 fn test_wrong_aud_rejected() {
-    let _ = verify_aat(fixture(), TRUST_ANCHOR_KEY, NOW, AUD + 1, NONCE, CDH, BLIND);
+    let _ = verify_aat(
+        fixture(),
+        TRUST_ANCHOR_KEY,
+        NOW,
+        AUD + 1,
+        NONCE,
+        CDH,
+        PRESENCE,
+        BLIND,
+    );
 }
 
 #[test(should_fail_with = "invalid signature")]
 fn test_wrong_nonce_rejected() {
-    let _ = verify_aat(fixture(), TRUST_ANCHOR_KEY, NOW, AUD, NONCE + 1, CDH, BLIND);
+    let _ = verify_aat(
+        fixture(),
+        TRUST_ANCHOR_KEY,
+        NOW,
+        AUD,
+        NONCE + 1,
+        CDH,
+        PRESENCE,
+        BLIND,
+    );
 }
 
 #[test(should_fail_with = "invalid signature")]
 fn test_wrong_cdh_rejected() {
-    let _ = verify_aat(fixture(), TRUST_ANCHOR_KEY, NOW, AUD, NONCE, 1, BLIND);
+    let _ = verify_aat(
+        fixture(),
+        TRUST_ANCHOR_KEY,
+        NOW,
+        AUD,
+        NONCE,
+        1,
+        PRESENCE,
+        BLIND,
+    );
 }
 
 #[test(should_fail_with = "invalid signature")]
 fn test_wrong_blind_rejected() {
-    let _ = verify_aat(fixture(), TRUST_ANCHOR_KEY, NOW, AUD, NONCE, CDH, BLIND + 1);
+    let _ = verify_aat(
+        fixture(),
+        TRUST_ANCHOR_KEY,
+        NOW,
+        AUD,
+        NONCE,
+        CDH,
+        PRESENCE,
+        BLIND + 1,
+    );
 }
 
 #[test(should_fail_with = "invalid signature")]
@@ -101,12 +138,31 @@ fn test_wrong_trust_anchor_key_rejected() {
         5299619240641551281634865583518297030282874472190772894086521144482721001553,
         16950150798460657717958625567821834550301663161624707787222815936182638968203,
     ];
-    let _ = verify_aat(fixture(), other_key, NOW, AUD, NONCE, CDH, BLIND);
+    let _ = verify_aat(fixture(), other_key, NOW, AUD, NONCE, CDH, PRESENCE, BLIND);
+}
+
+#[test(should_fail_with = "invalid signature")]
+fn test_wrong_presence_rejected() {
+    let _ = verify_aat(fixture(), TRUST_ANCHOR_KEY, NOW, AUD, NONCE, CDH, 1, BLIND);
+}
+
+#[test(should_fail_with = "presence values 5 to 7 are reserved")]
+fn test_reserved_presence_rejected() {
+    let _ = verify_aat(fixture(), TRUST_ANCHOR_KEY, NOW, AUD, NONCE, CDH, 5, BLIND);
 }
 
 #[test(should_fail_with = "nonce must not be 0")]
 fn test_zero_nonce_rejected() {
-    let _ = verify_aat(fixture(), TRUST_ANCHOR_KEY, NOW, AUD, 0, CDH, BLIND);
+    let _ = verify_aat(
+        fixture(),
+        TRUST_ANCHOR_KEY,
+        NOW,
+        AUD,
+        0,
+        CDH,
+        PRESENCE,
+        BLIND,
+    );
 }
 
 #[test(should_fail_with = "sec_flags bits 19 and above are reserved and must be 0")]

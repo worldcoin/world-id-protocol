@@ -69,6 +69,22 @@ pub enum SecLevel {
     UserBound = 10,
 }
 
+/// User presence asserted by the Authenticator; values are identifiers, not an order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum UserPresence {
+    /// Undetermined.
+    Undetermined = 0,
+    /// User is not present.
+    NotPresent = 1,
+    /// User is present, verified by a liveness or biometric check during this request.
+    PresentVerified = 2,
+    /// User was present within the last 7 days.
+    PresentWithin7Days = 3,
+    /// User was present within the last 30 days.
+    PresentWithin30Days = 4,
+}
+
 /// Security attributes carried in `sec_flags`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SecFlags {
@@ -152,7 +168,7 @@ pub struct SignedAuthenticatorAssertionToken {
     pub kid: Option<[u8; 32]>,
 }
 
-/// Computes the request commitment `req = H_8(DS_REQ; aud, nonce, cdh, blind)`.
+/// Computes the request commitment `req = H_8(DS_REQ; aud, nonce, cdh, presence, blind)`.
 ///
 /// Only `req` is sent to the Authenticator Provider; `blind` MUST be fresh and uniformly random.
 #[must_use]
@@ -160,11 +176,18 @@ pub fn request_commitment(
     aud: FieldElement,
     nonce: FieldElement,
     cdh: FieldElement,
+    presence: UserPresence,
     blind: FieldElement,
 ) -> FieldElement {
     poseidon::hash(
         ds::AUTHENTICATOR_ASSERTION_REQUEST,
-        [aud, nonce, cdh, blind],
+        [
+            aud,
+            nonce,
+            cdh,
+            FieldElement::from(u64::from(presence as u8)),
+            blind,
+        ],
     )
 }
 

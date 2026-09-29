@@ -55,7 +55,7 @@ pub mod ds {
     /// Separates the message an authenticator signs for an ownership proof (WIP-103).
     pub const OWNERSHIP_PROOF: DomainSeparator<3> = DomainSeparator::new(b"WIP103");
     /// Separates the request commitment of an authenticator assertion (WIP-106).
-    pub const AUTHENTICATOR_ASSERTION_REQUEST: DomainSeparator<4> =
+    pub const AUTHENTICATOR_ASSERTION_REQUEST: DomainSeparator<5> =
         DomainSeparator::new(b"WORLD-ID/WIP-106/REQ");
     /// Separates the message signed for an authenticator assertion token (WIP-106).
     pub const AUTHENTICATOR_ASSERTION_TOKEN: DomainSeparator<3> =
