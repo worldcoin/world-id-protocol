@@ -227,6 +227,15 @@ fn test_build_version_below_minimum_rejected() {
     );
 }
 
+#[test(should_fail)]
+fn test_non_canonical_sig_s_rejected() {
+    // `s + r` satisfies the verification equation but is not a reduced scalar.
+    let mut aat = fixture();
+    aat.sig_s =
+        aat.sig_s + 2736030358979909402780800718157159386076813972158567259200215660948447373041;
+    let _ = verify(aat, NOW);
+}
+
 #[test(should_fail_with = "nonce must not be 0")]
 fn test_zero_nonce_rejected() {
     let _ = verify_aat(

@@ -37,8 +37,9 @@ pub struct SecFlags {
 /// Verifies an AAT and returns its range-checked security flags.
 ///
 /// The caller MUST expose `trust_anchor_key`, `now`, `aud`, `nonce`, `presence`,
-/// `min_build_version` and the returned flags as public inputs, and MUST keep `aat`, `cdh` and `blind` private. How
-/// `cdh` is bound to the surrounding proof is the caller's obligation.
+/// `min_build_version` and the returned flags as public inputs, and MUST keep `aat`,
+/// `cdh` and `blind` private. How `cdh` is bound to the surrounding proof is the
+/// caller's obligation.
 pub fn verify_aat(
     aat: AuthenticatorAssertionToken,
     trust_anchor_key: [Field; 2],
