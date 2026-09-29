@@ -4,8 +4,11 @@
 //! Provider's `trust_anchor_key` over `H_4(DS_AAT; exp, req, sec_flags)`, bound to a
 //! request through `req = H_8(DS_REQ; aud, nonce, cdh, presence, blind)`.
 
-use eddsa_poseidon2::verify_eddsa_poseidon2;
-use poseidon2::bn254::perm;
+use eddsa_poseidon2::{
+    BabyJubJubPoint, BabyJubJubPointInSubgroup, BabyJubJubScalarFieldElement,
+    verify_eddsa_poseidon2,
+};
+use poseidon2::bn254::permutation;
 
 mod tests;
 
@@ -56,12 +59,11 @@ pub fn verify_aat(
     assert(presence < 5, "presence values 5 to 7 are reserved");
 
     let req = request_commitment(aud, nonce, cdh, presence as Field, blind);
-    let message = perm::x5_4([DS_AAT, aat.exp, req, aat.sec_flags])[1];
+    let message = permutation::t4([DS_AAT, aat.exp, req, aat.sec_flags])[1];
     let is_valid = verify_eddsa_poseidon2(
-        trust_anchor_key[0],
-        trust_anchor_key[1],
-        aat.sig_s,
-        aat.sig_r,
+        BabyJubJubPointInSubgroup::new(trust_anchor_key[0], trust_anchor_key[1]),
+        BabyJubJubScalarFieldElement::new(aat.sig_s),
+        BabyJubJubPoint::new(aat.sig_r[0], aat.sig_r[1]),
         message,
     );
     assert(is_valid, "invalid signature");
@@ -79,7 +81,7 @@ fn request_commitment(
     presence: Field,
     blind: Field,
 ) -> Field {
-    perm::x5_8([DS_REQ, aud, nonce, cdh, presence, blind, 0, 0])[1]
+    permutation::t8([DS_REQ, aud, nonce, cdh, presence, blind, 0, 0])[1]
 }
 
 /// Asserts `now < exp` and `exp - now <= MAX_AAT_LIFETIME`, with both below 2^32.

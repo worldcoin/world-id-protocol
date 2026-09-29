@@ -1,7 +1,7 @@
 use super::{
     AuthenticatorAssertionWitness, MAX_AAT_LIFETIME, request_commitment, SecFlags, verify_aat,
 };
-use poseidon2::bn254::perm;
+use poseidon2::bn254::permutation;
 
 // Known-answer fixture shared with `crates/proof/src/authenticator_assertion/tests.rs`.
 global TRUST_ANCHOR_KEY: [Field; 2] = [
@@ -22,7 +22,6 @@ global EXPECTED_MESSAGE: Field = 0x14061d185d7be1e081e1b2588cfc5ae777678152a30c3
 fn fixture() -> AuthenticatorAssertionWitness {
     AuthenticatorAssertionWitness {
         exp: EXP,
-        // platform 2 (iOS) | sec_level 1 << 8 | sec_meta 3 << 16
         // platform 2 | sec_level 1 << 8 | build_version 2006 << 16 | sec_meta 3 << 48
         sec_flags: 0x0003000007D60102,
         sig_s: 271845036030182571381747490006589728256782209672029547562777608049196334531,
@@ -52,7 +51,7 @@ fn test_known_answer_digests() {
     let req = request_commitment(AUD, NONCE, CDH, PRESENCE as Field, BLIND);
     assert_eq(req, EXPECTED_REQ);
     let aat = fixture();
-    assert_eq(perm::x5_4([super::DS_AAT, aat.exp, req, aat.sec_flags])[1], EXPECTED_MESSAGE);
+    assert_eq(permutation::t4([super::DS_AAT, aat.exp, req, aat.sec_flags])[1], EXPECTED_MESSAGE);
 }
 
 #[test]
