@@ -34,7 +34,6 @@ coset = { workspace = true }
 p256 = { workspace = true, features = ["arithmetic", "ecdsa"] }
 ark-bn254 = { workspace = true }
 ark-ff = { workspace = true }
-ark-ff-v06 = { workspace = true }
 ark-ec = { workspace = true }
 ark-groth16 = { workspace = true }
 ark-serialize = { workspace = true, optional = true }
@@ -52,7 +51,7 @@ provekit-common = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 groth16-material = { workspace = true, features = ["circom"] }
-ruint = { workspace = true, features = ["ark-ff-05"] }
+ruint = { workspace = true, features = ["ark-ff-06"] }
 taceo-groth16-sol = { workspace = true }
 taceo-oprf = { workspace = true, features = ["client", "core"] }
 eyre = { workspace = true }
