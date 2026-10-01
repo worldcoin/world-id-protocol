@@ -14,11 +14,10 @@ global NOW: Field = 1783446000;
 global AUD: Field = 1928118;
 global NONCE: Field = 42;
 global CDH: Field = 0;
-global PRESENCE: u8 = 2;
 global MIN_BUILD_VERSION: Field = 2006;
 global BLIND: Field = 7;
-global EXPECTED_REQ: Field = 0x2a09ead9ab7c0b2e0f6f7a5b5fc8128261bf10849e151d0b757aa949f0597367;
-global EXPECTED_MESSAGE: Field = 0x14061d185d7be1e081e1b2588cfc5ae777678152a30c3645fde229693b03410b;
+global EXPECTED_REQ: Field = 0x17785a9691e9ee99df657ce545bfe748eab27cf21f118361d87cf64ff024495d;
+global EXPECTED_MESSAGE: Field = 0x28f0b633f40ea69da7c2399aa958f48f4a4c582889eb563d8efd37e330c70332;
 
 fn public() -> AuthenticatorAssertionPublicInputs {
     AuthenticatorAssertionPublicInputs {
@@ -26,7 +25,6 @@ fn public() -> AuthenticatorAssertionPublicInputs {
         now: NOW,
         aud: AUD,
         nonce: NONCE,
-        presence: PRESENCE,
         min_build_version: MIN_BUILD_VERSION,
     }
 }
@@ -35,11 +33,12 @@ fn private() -> AuthenticatorAssertionPrivateInputs {
     AuthenticatorAssertionPrivateInputs {
         exp: EXP,
         // platform 2 | sec_level 1 << 8 | build_version 2006 << 16 | sec_meta 3 << 48
-        sec_flags: 0x0003000007D60102,
-        sig_s: 271845036030182571381747490006589728256782209672029547562777608049196334531,
+        // | user_presence 2 << 51
+        sec_flags: 0x0013000007D60102,
+        sig_s: 700590321940410723084584768113203723815849273971186961535723633376375605110,
         sig_r: [
-            5491252812772493336195422546967714206253078795981411161628294788118546094528,
-            11102578015838618445061745022957846316966085425472195130650526783700644289571,
+            9464927411176877143242073132305067532985742345968954357966273354098472816787,
+            18207207085206278655459517276373479902429501683178223921050583289961974448215,
         ],
         cdh: CDH,
         blind: BLIND,
@@ -48,7 +47,7 @@ fn private() -> AuthenticatorAssertionPrivateInputs {
 
 #[test]
 fn test_known_answer_digests() {
-    let req = request_commitment(AUD, NONCE, CDH, PRESENCE as Field, BLIND);
+    let req = request_commitment(AUD, NONCE, CDH, BLIND);
     assert_eq(req, EXPECTED_REQ);
     let aat = private();
     assert_eq(permutation::t4([super::DS_AAT, aat.exp, req, aat.sec_flags])[1], EXPECTED_MESSAGE);
@@ -60,6 +59,7 @@ fn test_valid_token() {
     assert_eq(flags.platform, 2);
     assert_eq(flags.sec_level, 1);
     assert_eq(flags.sec_meta, 3);
+    assert_eq(flags.user_presence, 2);
 }
 
 #[test]
@@ -87,7 +87,7 @@ fn test_expired_token_rejected() {
 #[test(should_fail_with = "invalid signature")]
 fn test_tampered_sec_flags_rejected() {
     let mut private = private();
-    private.sec_flags = 0x0003000007D60104;
+    private.sec_flags = 0x0013000007D60104;
     let _ = verify_aat(public(), private);
 }
 
@@ -131,20 +131,6 @@ fn test_wrong_trust_anchor_key_rejected() {
     let _ = verify_aat(public, private());
 }
 
-#[test(should_fail_with = "invalid signature")]
-fn test_wrong_presence_rejected() {
-    let mut public = public();
-    public.presence = 1;
-    let _ = verify_aat(public, private());
-}
-
-#[test(should_fail_with = "presence values 5 to 7 are reserved")]
-fn test_reserved_presence_rejected() {
-    let mut public = public();
-    public.presence = 5;
-    let _ = verify_aat(public, private());
-}
-
 #[test]
 fn test_build_version_at_minimum_accepted() {
     let mut public = public();
@@ -175,15 +161,23 @@ fn test_zero_nonce_rejected() {
     let _ = verify_aat(public, private());
 }
 
-#[test(should_fail_with = "sec_flags bits 51 and above are reserved and must be 0")]
+#[test(should_fail_with = "sec_flags bits 54 and above are reserved and must be 0")]
 fn test_reserved_sec_flags_bits_rejected() {
     // Exercised directly: a signed token with reserved bits would need the provider's key.
-    let _ = super::unpack_sec_flags(0x0013000007D60102);
+    let _ = super::unpack_sec_flags(0x0053000007D60102);
 }
 
-#[test(should_fail_with = "sec_flags bits 51 and above are reserved and must be 0")]
-fn test_sec_meta_bit_3_rejected() {
-    let _ = super::unpack_sec_flags(0x0008000007D60102);
+#[test(should_fail_with = "user_presence values 5 to 7 are reserved")]
+fn test_reserved_user_presence_rejected() {
+    let _ = super::unpack_sec_flags(0x002B000007D60102);
+}
+
+#[test]
+fn test_user_presence_unpacks_from_bits_51_to_53() {
+    let (flags, build_version) = super::unpack_sec_flags(0x0023000007D60102);
+    assert_eq(flags.sec_meta, 3);
+    assert_eq(flags.user_presence, 4);
+    assert_eq(build_version, 2006);
 }
 
 #[test(should_fail)]

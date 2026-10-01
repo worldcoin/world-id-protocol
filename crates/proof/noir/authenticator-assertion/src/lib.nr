@@ -2,7 +2,7 @@
 //!
 //! Verifies an Authenticator Assertion Token (AAT): a token signed by an Authenticator
 //! Provider's `trust_anchor_key` over `H_4(DS_AAT; exp, req, sec_flags)`, bound to a
-//! request through `req = H_8(DS_REQ; aud, nonce, cdh, presence, blind)`.
+//! request through `req = H_8(DS_REQ; aud, nonce, cdh, blind)`.
 
 use eddsa_poseidon2::{
     BabyJubJubPoint, BabyJubJubPointInSubgroup, BabyJubJubScalarFieldElement,
@@ -29,8 +29,6 @@ pub struct AuthenticatorAssertionPublicInputs {
     pub aud: Field,
     /// The nonce of the request.
     pub nonce: Field,
-    /// User presence asserted by the Authenticator.
-    pub presence: u8,
     /// Minimum `build_version` the RP accepts.
     pub min_build_version: Field,
 }
@@ -58,6 +56,7 @@ pub struct SecFlags {
     pub platform: u8,
     pub sec_level: u8,
     pub sec_meta: u8,
+    pub user_presence: u8,
 }
 
 /// Verifies an AAT and returns its range-checked security flags.
@@ -66,15 +65,8 @@ pub fn verify_aat(
     private: AuthenticatorAssertionPrivateInputs,
 ) -> SecFlags {
     assert(public.nonce != 0, "nonce must not be 0");
-    assert(public.presence < 5, "presence values 5 to 7 are reserved");
 
-    let req = request_commitment(
-        public.aud,
-        public.nonce,
-        private.cdh,
-        public.presence as Field,
-        private.blind,
-    );
+    let req = request_commitment(public.aud, public.nonce, private.cdh, private.blind);
     let message = permutation::t4([DS_AAT, private.exp, req, private.sec_flags])[1];
     let is_valid = verify_eddsa_poseidon2(
         BabyJubJubPointInSubgroup::new(public.trust_anchor_key[0], public.trust_anchor_key[1]),
@@ -93,14 +85,8 @@ pub fn verify_aat(
     flags
 }
 
-fn request_commitment(
-    aud: Field,
-    nonce: Field,
-    cdh: Field,
-    presence: Field,
-    blind: Field,
-) -> Field {
-    permutation::t8([DS_REQ, aud, nonce, cdh, presence, blind, 0, 0])[1]
+fn request_commitment(aud: Field, nonce: Field, cdh: Field, blind: Field) -> Field {
+    permutation::t8([DS_REQ, aud, nonce, cdh, blind, 0, 0, 0])[1]
 }
 
 /// Asserts `now < exp` and `exp - now <= MAX_AAT_LIFETIME`, with both below 2^32.
@@ -116,12 +102,17 @@ fn assert_fresh(exp: Field, now: Field) {
 }
 
 /// Unpacks `sec_flags` LSB-first: `platform` (bits 0-7), `sec_level` (8-15),
-/// `build_version` (16-47), `sec_meta` (48-50). `build_version` is returned separately
-/// as it must stay private.
+/// `build_version` (16-47), `sec_meta` (48-50), `user_presence` (51-53). `build_version` is
+/// returned separately as it must stay private.
 fn unpack_sec_flags(sec_flags: Field) -> (SecFlags, Field) {
-    // Constrains `sec_flags < 2^56`.
+    // Constrains `sec_flags < 2^56`; `bytes[0]` holds bits 48-55.
     let bytes: [u8; 7] = sec_flags.to_be_bytes();
-    assert(bytes[0] < 8, "sec_flags bits 51 and above are reserved and must be 0");
+    assert(bytes[0] < 64, "sec_flags bits 54 and above are reserved and must be 0");
+    let user_presence = bytes[0] >> 3;
+    assert(user_presence < 5, "user_presence values 5 to 7 are reserved");
     let build_version = Field::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]);
-    (SecFlags { platform: bytes[6], sec_level: bytes[5], sec_meta: bytes[0] }, build_version)
+    (
+        SecFlags { platform: bytes[6], sec_level: bytes[5], sec_meta: bytes[0] & 7, user_presence },
+        build_version,
+    )
 }

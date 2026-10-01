@@ -88,7 +88,8 @@ impl From<SecLevel> for u8 {
     }
 }
 
-/// User presence asserted by the Authenticator; values are identifiers, not an order.
+/// User presence the Authenticator reported and the Authenticator Provider signed in
+/// `sec_flags`; values are identifiers, not an order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(into = "u8", try_from = "u8")]
 #[repr(u8)]
@@ -137,6 +138,8 @@ pub struct SecFlags {
     pub build_version: u32,
     /// Provider-defined 3-bit bitmask.
     pub sec_meta: u8,
+    /// User presence (see [`UserPresence`]).
+    pub user_presence: UserPresence,
 }
 
 impl SecFlags {
@@ -144,28 +147,33 @@ impl SecFlags {
     /// the RP to allowlist.
     ///
     /// # Errors
-    /// [`AssertionError::InvalidSecFlags`] on reserved bits.
+    /// [`AssertionError::InvalidSecFlags`] on reserved bits or a reserved `user_presence`.
     pub fn unpack(packed: u64) -> Result<Self, AssertionError> {
-        let [reserved, sec_meta, v3, v2, v1, v0, sec_level, platform] = packed.to_be_bytes();
-        if reserved != 0 || sec_meta > MAX_SEC_META {
+        let [reserved, top, v3, v2, v1, v0, sec_level, platform] = packed.to_be_bytes();
+        // `top` holds bits 48-55: `sec_meta` (48-50), `user_presence` (51-53), reserved (54-55).
+        if reserved != 0 || top >> 6 != 0 {
             return Err(AssertionError::InvalidSecFlags(packed));
         }
+        let user_presence = UserPresence::try_from(top >> 3)
+            .map_err(|_| AssertionError::InvalidSecFlags(packed))?;
         Ok(Self {
             platform,
             sec_level,
             build_version: u32::from_be_bytes([v3, v2, v1, v0]),
-            sec_meta,
+            sec_meta: top & MAX_SEC_META,
+            user_presence,
         })
     }
 
     /// Packs the sub-fields LSB-first: `platform` (bits 0-7), `sec_level` (8-15),
-    /// `build_version` (16-47), `sec_meta` (48-50).
+    /// `build_version` (16-47), `sec_meta` (48-50), `user_presence` (51-53).
     #[must_use]
     pub fn pack(&self) -> u64 {
         u64::from(self.platform)
             | (u64::from(self.sec_level) << 8)
             | (u64::from(self.build_version) << 16)
             | (u64::from(self.sec_meta) << 48)
+            | (u64::from(u8::from(self.user_presence)) << 51)
     }
 }
 
@@ -203,7 +211,7 @@ pub struct SignedAuthenticatorAssertionToken {
     pub kid: Option<[u8; 32]>,
 }
 
-/// Computes the request commitment `req = H_8(DS_REQ; aud, nonce, cdh, presence, blind)`.
+/// Computes the request commitment `req = H_8(DS_REQ; aud, nonce, cdh, blind)`.
 ///
 /// Only `req` is sent to the Authenticator Provider; `blind` MUST be fresh and uniformly random.
 #[must_use]
@@ -211,18 +219,11 @@ pub fn request_commitment(
     aud: FieldElement,
     nonce: FieldElement,
     cdh: FieldElement,
-    presence: UserPresence,
     blind: FieldElement,
 ) -> FieldElement {
     poseidon::hash(
         ds::AUTHENTICATOR_ASSERTION_REQUEST,
-        [
-            aud,
-            nonce,
-            cdh,
-            FieldElement::from(u64::from(presence as u8)),
-            blind,
-        ],
+        [aud, nonce, cdh, blind],
     )
 }
 
@@ -425,8 +426,6 @@ pub struct AuthenticatorAssertionPublicInputs {
     pub aud: FieldElement,
     /// The nonce of the request.
     pub nonce: FieldElement,
-    /// User presence asserted by the Authenticator.
-    pub presence: UserPresence,
     /// Minimum `build_version` the RP accepts.
     pub min_build_version: u32,
 }
@@ -458,6 +457,8 @@ pub struct VerifiedAssertion {
     pub sec_level: u8,
     /// Provider-defined 3-bit bitmask.
     pub sec_meta: u8,
+    /// User presence signed by the Authenticator Provider.
+    pub user_presence: UserPresence,
 }
 
 /// Why an AAT failed verification. One variant per WIP-106 section 3.7 constraint.
@@ -475,7 +476,7 @@ pub enum VerificationError {
     /// `exp - now > MAX_AAT_LIFETIME_SECS`.
     #[error("token lifetime exceeds maximum")]
     LifetimeExceeded,
-    /// `sec_flags` has reserved bits set.
+    /// `sec_flags` has reserved bits set or a reserved `user_presence`.
     #[error("invalid sec_flags {0:#x}")]
     InvalidSecFlags(u64),
     /// `build_version < min_build_version`.
@@ -486,8 +487,7 @@ pub enum VerificationError {
 /// Verifies an AAT outside a circuit, e.g. inside a TEE, with the checks of WIP-106
 /// section 3.7 in the order of the Noir `verify_aat`.
 ///
-/// `presence < 5` is guaranteed by [`UserPresence`]; canonical `sig` scalars and points by
-/// their types' deserialization.
+/// Canonical `sig` scalars and points are guaranteed by their types' deserialization.
 ///
 /// # Errors
 /// [`VerificationError`] for the first failing constraint.
@@ -498,13 +498,7 @@ pub fn verify_aat(
     if public.nonce == FieldElement::ZERO {
         return Err(VerificationError::ZeroNonce);
     }
-    let req = request_commitment(
-        public.aud,
-        public.nonce,
-        private.cdh,
-        public.presence,
-        private.blind,
-    );
+    let req = request_commitment(public.aud, public.nonce, private.cdh, private.blind);
     let message = message_hash(private.exp, req, private.sec_flags);
     if !public.trust_anchor_key.verify(*message, &private.sig) {
         return Err(VerificationError::InvalidSignature);
@@ -524,6 +518,7 @@ pub fn verify_aat(
         platform: flags.platform,
         sec_level: flags.sec_level,
         sec_meta: flags.sec_meta,
+        user_presence: flags.user_presence,
     })
 }
 

@@ -4,15 +4,14 @@ use world_id_primitives::FieldElement;
 use super::*;
 
 /// Shared with `crates/proof/noir/authenticator-assertion/src/tests.nr`.
-const EXPECTED_REQ: &str = "0x2a09ead9ab7c0b2e0f6f7a5b5fc8128261bf10849e151d0b757aa949f0597367";
-const EXPECTED_MESSAGE: &str = "0x14061d185d7be1e081e1b2588cfc5ae777678152a30c3645fde229693b03410b";
+const EXPECTED_REQ: &str = "0x17785a9691e9ee99df657ce545bfe748eab27cf21f118361d87cf64ff024495d";
+const EXPECTED_MESSAGE: &str = "0x28f0b633f40ea69da7c2399aa958f48f4a4c582889eb563d8efd37e330c70332";
 
 fn fixture() -> (AuthenticatorAssertionToken, EdDSAPrivateKey) {
     let req = request_commitment(
         FieldElement::from(1_928_118u64),
         FieldElement::from(42u64),
         FieldElement::ZERO,
-        UserPresence::PresentVerified,
         FieldElement::from(7u64),
     );
     let flags = SecFlags {
@@ -20,6 +19,7 @@ fn fixture() -> (AuthenticatorAssertionToken, EdDSAPrivateKey) {
         sec_level: SecLevel::HardwareKey.into(),
         build_version: 2006,
         sec_meta: 3,
+        user_presence: UserPresence::PresentVerified,
     };
     (
         AuthenticatorAssertionToken::new(1_783_446_925, req, flags).unwrap(),
@@ -32,17 +32,17 @@ fn known_answer_matches_circuit_fixture() {
     let (aat, key) = fixture();
     assert_eq!(aat.req().to_string(), EXPECTED_REQ);
     assert_eq!(aat.message_hash().to_string(), EXPECTED_MESSAGE);
-    assert_eq!(aat.sec_flags().pack(), 0x0003_0000_07d6_0102);
+    assert_eq!(aat.sec_flags().pack(), 0x0013_0000_07d6_0102);
 
     // The Noir fixture's signature and key; EdDSA signing is deterministic.
     let sig = key.sign(*aat.message_hash());
     assert_eq!(
         sig.s.to_string(),
-        "271845036030182571381747490006589728256782209672029547562777608049196334531"
+        "700590321940410723084584768113203723815849273971186961535723633376375605110"
     );
     assert_eq!(
         sig.r.x.to_string(),
-        "5491252812772493336195422546967714206253078795981411161628294788118546094528"
+        "9464927411176877143242073132305067532985742345968954357966273354098472816787"
     );
     assert_eq!(
         key.public().pk.x.to_string(),
@@ -133,8 +133,9 @@ fn invalid_claims_rejected() {
         ),
         Err(AssertionError::SecMetaTooLarge(0x8))
     ));
-    assert!(SecFlags::unpack(0x0013_0000_07d6_0102).is_err());
-    assert!(SecFlags::unpack(0x0008_0000_07d6_0102).is_err());
+    // Bit 54, a reserved `user_presence` of 5, and bits 56 and above.
+    assert!(SecFlags::unpack(0x0043_0000_07d6_0102).is_err());
+    assert!(SecFlags::unpack(0x002b_0000_07d6_0102).is_err());
     assert!(SecFlags::unpack(0x0100_0000_07d6_0102).is_err());
     assert_eq!(SecFlags::unpack(flags.pack()).unwrap(), flags);
     // Unknown identifiers pass through for the RP to allowlist, as in the circuit.
@@ -145,15 +146,13 @@ fn invalid_claims_rejected() {
 #[test]
 fn request_commitment_binds_every_input() {
     let base = [1u64, 2, 3, 4].map(FieldElement::from);
-    let commit =
-        |v: [FieldElement; 4], presence| request_commitment(v[0], v[1], v[2], presence, v[3]);
-    let reference = commit(base, UserPresence::PresentVerified);
+    let commit = |v: [FieldElement; 4]| request_commitment(v[0], v[1], v[2], v[3]);
+    let reference = commit(base);
     for i in 0..4 {
         let mut changed = base;
         changed[i] = FieldElement::from(99u64);
-        assert_ne!(commit(changed, UserPresence::PresentVerified), reference);
+        assert_ne!(commit(changed), reference);
     }
-    assert_ne!(commit(base, UserPresence::NotPresent), reference);
 }
 
 /// The Noir `tests.nr` fixture: `now` 925 seconds before `exp`.
@@ -170,7 +169,6 @@ fn inputs() -> (
         now: NOW,
         aud: FieldElement::from(1_928_118u64),
         nonce: FieldElement::from(42u64),
-        presence: UserPresence::PresentVerified,
         min_build_version: 2006,
     };
     let private = AuthenticatorAssertionPrivateInputs {
@@ -192,6 +190,7 @@ fn verify_accepts_circuit_fixture() {
             platform: 2,
             sec_level: 1,
             sec_meta: 3,
+            user_presence: UserPresence::PresentVerified,
         })
     );
 }
@@ -244,11 +243,6 @@ fn verify_rejects_each_constraint() {
         InvalidSignature,
     );
     check(
-        with_public(|p| p.presence = UserPresence::NotPresent),
-        private.clone(),
-        InvalidSignature,
-    );
-    check(
         public.clone(),
         with_private(|s| s.cdh = FieldElement::from(1u64)),
         InvalidSignature,
@@ -297,21 +291,25 @@ fn verify_rejects_each_constraint() {
         BuildVersionBelowMinimum,
     );
 
-    // Reserved bits can only reach the verifier in a token the provider's key signed.
-    let sec_flags = private.sec_flags | 1 << 51;
-    let req = request_commitment(
-        public.aud,
-        public.nonce,
-        private.cdh,
-        public.presence,
-        private.blind,
-    );
-    let signed = AuthenticatorAssertionPrivateInputs {
+    // Reserved values can only reach the verifier in a token the provider's key signed.
+    let req = request_commitment(public.aud, public.nonce, private.cdh, private.blind);
+    let signed = |sec_flags: u64| AuthenticatorAssertionPrivateInputs {
         sec_flags,
         sig: key.sign(*message_hash(private.exp, req, sec_flags)),
         ..private.clone()
     };
-    check(public, signed, InvalidSecFlags(sec_flags));
+    let reserved_bit = private.sec_flags | 1 << 54;
+    check(
+        public.clone(),
+        signed(reserved_bit),
+        InvalidSecFlags(reserved_bit),
+    );
+    let reserved_presence = (private.sec_flags & !(0x7 << 51)) | 5 << 51;
+    check(
+        public,
+        signed(reserved_presence),
+        InvalidSecFlags(reserved_presence),
+    );
 }
 
 #[test]
