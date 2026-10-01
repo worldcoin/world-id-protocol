@@ -28,6 +28,6 @@ jobs:
           toolchain: stable
 
       - name: Run release-plz
-        uses: release-plz/action@2eb1d8bcb770b4c48ccfaad919734b38b51958c9 # v0.5.128 (https://github.com/release-plz/action/releases/tag/v0.5.128)
+        uses: release-plz/action@b8d6b54b02889ff2ae2bb82e8b57c3a8fc1683a5 # v0.5.128 (https://github.com/release-plz/action/releases/tag/v0.5.128)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
