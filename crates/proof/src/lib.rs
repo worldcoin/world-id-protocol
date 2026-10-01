@@ -19,6 +19,10 @@ pub mod circuit_inputs;
 #[cfg(test)]
 mod fixtures;
 
+/// Fixture generator for the WIP-111 DeepFace circuit.
+#[cfg(test)]
+mod deepface_fixtures;
+
 pub mod compress;
 pub use compress::ProofCompression;
 pub(crate) mod oprf_query;
