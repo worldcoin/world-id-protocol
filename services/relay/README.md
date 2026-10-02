@@ -100,12 +100,23 @@ Relay failures are logged but non-fatal -- the satellite retries on the next cha
 
 ## Configuration
 
-The relay is configured via a single JSON string passed through the `RELAY_CONFIG` environment variable (or `--config` CLI flag). RPC endpoints and the wallet key are passed as separate environment variables.
+The relay is configured via a single JSON string passed through the `RELAY_CONFIG` environment variable (or `--config` CLI flag). RPC endpoints and the signing credentials are passed as separate environment variables.
+
+### Signing
+
+Set `AWS_KMS_SIGNING=true` and a `{NETWORK}_AWS_KMS_KEY_ID` for every configured network.
+Use `WORLDCHAIN` for the source and each satellite's upper-case `name` for its key.
+Keys must be `ECC_SECG_P256K1` / `SIGN_VERIFY`; AWS credentials use the default provider chain.
+KMS signing uses each network's configured chain ID, including Tempo.
+For legacy signing, leave `AWS_KMS_SIGNING` unset or `false` and set `WALLET_PRIVATE_KEY`.
+Fund the new addresses before deployment; transfer gateway ownership during the deployment cutover.
 
 | Variable | Required | Description |
 |---|---|---|
 | `RELAY_CONFIG` | yes | JSON configuration string (see schema below) |
-| `WALLET_PRIVATE_KEY` | yes | Private key for signing relay transactions |
+| `AWS_KMS_SIGNING` | no | Set to `true` for per-network AWS KMS signing; cannot be combined with `WALLET_PRIVATE_KEY` |
+| `{NETWORK}_AWS_KMS_KEY_ID` | with KMS | KMS key ID or ARN for each configured network |
+| `WALLET_PRIVATE_KEY` | without KMS | Hex private key shared by every network |
 | `WORLDCHAIN_RPC_URL` | yes | World Chain RPC endpoint |
 | `{NAME}_RPC_URL` | per satellite | Satellite chain RPC endpoint, where `{NAME}` matches the satellite's `name` field in upper case (e.g. `ETHEREUM_RPC_URL`, `BASE_RPC_URL`) |
 
