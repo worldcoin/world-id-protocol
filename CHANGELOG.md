@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.14.1...world-id-primitives-v0.15.0) - 2026-10-02
+
+### Added
+
+- bump provekit to 1.0.1 and noir to beta.26 ([#978](https://github.com/worldcoin/world-id-protocol/pull/978))
+- WIP-100 Cryptographic Primitives for the Protocol ([#888](https://github.com/worldcoin/world-id-protocol/pull/888))
+- decouple the TAKT from the AAT and gate verification behind one entrypoint ([#884](https://github.com/worldcoin/world-id-protocol/pull/884))
+
+### Other
+
+- *(deps)* [**breaking**] update taceo crates to newer versions, update arkworks to 0.6 everywhere ([#1038](https://github.com/worldcoin/world-id-protocol/pull/1038))
+- update Cargo.toml dependencies
+
 ## [0.14.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.14.0...world-id-primitives-v0.14.1) - 2026-09-08
 
 ### Fixed
