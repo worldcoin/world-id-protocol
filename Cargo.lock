@@ -166,7 +166,7 @@ dependencies = [
  "either",
  "k256 0.13.4",
  "once_cell",
- "rand 0.8.6",
+ "rand 0.8.8",
  "secp256k1",
  "serde",
  "serde_json",
@@ -445,7 +445,7 @@ dependencies = [
  "alloy-signer-local",
  "k256 0.13.4",
  "libc",
- "rand 0.8.6",
+ "rand 0.8.8",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
@@ -667,7 +667,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde 2.0.1",
  "derive_more",
- "rand 0.8.6",
+ "rand 0.8.8",
  "serde",
  "strum 0.27.2",
 ]
@@ -787,7 +787,7 @@ dependencies = [
  "alloy-signer",
  "async-trait",
  "k256 0.13.4",
- "rand 0.8.6",
+ "rand 0.8.8",
  "thiserror 2.0.18",
 ]
 
@@ -1526,7 +1526,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1df2c09229cbc5a028b1d70e00fdb2acee28b1055dfb5ca73eea49c5a25c4e7c"
 dependencies = [
  "num-traits",
- "rand 0.8.6",
+ "rand 0.8.8",
 ]
 
 [[package]]
@@ -1536,7 +1536,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94893f1e0c6eeab764ade8dc4c0db24caf4fe7cbbaafc0eba0a9030f447b5185"
 dependencies = [
  "num-traits",
- "rand 0.8.6",
+ "rand 0.8.8",
 ]
 
 [[package]]
@@ -1546,7 +1546,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "246a225cc6131e9ee4f24619af0f19d67761fff15d7ccc22e42b80846e69449a"
 dependencies = [
  "num-traits",
- "rand 0.8.6",
+ "rand 0.8.8",
 ]
 
 [[package]]
@@ -1556,7 +1556,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "367c9c827ed431bff6868b7aa926e05b16eb46603cc8b6e768e4a5553fa1d155"
 dependencies = [
  "num-traits",
- "rand 0.8.6",
+ "rand 0.8.8",
  "rayon",
 ]
 
@@ -2983,7 +2983,7 @@ dependencies = [
  "num-bigint 0.4.6",
  "num-traits",
  "postcard",
- "rand 0.8.6",
+ "rand 0.8.8",
  "ruint",
  "serde",
  "serde_json",
@@ -4103,7 +4103,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "835c052cb0c08c1acf6ffd71c022172e18723949c8282f2b9f27efbc51e64534"
 dependencies = [
  "byteorder",
- "rand 0.8.6",
+ "rand 0.8.8",
  "rustc-hex",
  "static_assertions",
 ]
@@ -4302,7 +4302,7 @@ dependencies = [
  "eyre",
  "futures-util",
  "hex",
- "rand 0.8.6",
+ "rand 0.10.2",
  "rustls",
  "taceo-ark-babyjubjub",
  "taceo-oprf",
@@ -5987,7 +5987,7 @@ checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
 dependencies = [
  "num-integer",
  "num-traits",
- "rand 0.8.6",
+ "rand 0.8.8",
 ]
 
 [[package]]
@@ -6011,7 +6011,7 @@ dependencies = [
  "num-integer",
  "num-iter",
  "num-traits",
- "rand 0.8.6",
+ "rand 0.8.8",
  "smallvec",
  "zeroize",
 ]
@@ -6257,7 +6257,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f4779c6901a562440c3786d08192c6fbda7c1c2060edd10006b05ee35d10f2d"
 dependencies = [
  "num-traits",
- "rand 0.8.6",
+ "rand 0.8.8",
  "serde",
 ]
 
@@ -7075,7 +7075,7 @@ dependencies = [
  "digest 0.10.7",
  "keccak 0.1.6",
  "p3-koala-bear",
- "rand 0.8.6",
+ "rand 0.8.8",
  "sha2 0.10.9",
  "sha3",
  "zeroize",
@@ -7091,7 +7091,7 @@ dependencies = [
  "bytemuck",
  "keccak 0.1.6",
  "provekit-spongefish",
- "rand 0.8.6",
+ "rand 0.8.8",
  "rayon",
 ]
 
@@ -7607,9 +7607,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.8.6"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
+checksum = "e058c7de0b26af77780c769414d6257830bb240f3c38477dbc2c16e5f54d6d4c"
 dependencies = [
  "libc",
  "rand_chacha 0.3.1",
@@ -8289,7 +8289,7 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types",
  "proptest",
- "rand 0.8.6",
+ "rand 0.8.8",
  "rand 0.9.3",
  "rlp",
  "ruint-macro",
@@ -8702,7 +8702,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b50c5943d326858130af85e049f2661ba3c78b26589b8ab98e65e80ae44a1252"
 dependencies = [
  "bitcoin_hashes",
- "rand 0.8.6",
+ "rand 0.8.8",
  "secp256k1-sys",
  "serde",
 ]
@@ -9433,7 +9433,7 @@ dependencies = [
  "memchr",
  "once_cell",
  "percent-encoding",
- "rand 0.8.6",
+ "rand 0.8.8",
  "rsa",
  "serde",
  "sha1",
@@ -9471,7 +9471,7 @@ dependencies = [
  "md-5",
  "memchr",
  "once_cell",
- "rand 0.8.6",
+ "rand 0.8.8",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -9764,7 +9764,7 @@ dependencies = [
  "blake3",
  "eyre",
  "num-bigint 0.4.6",
- "rand 0.8.6",
+ "rand 0.8.8",
  "serde",
  "taceo-ark-babyjubjub",
  "taceo-ark-serde-compat",
@@ -9802,7 +9802,7 @@ dependencies = [
  "eyre",
  "hex",
  "postcard",
- "rand 0.8.6",
+ "rand 0.8.8",
  "ruint",
  "sha2 0.11.0",
  "taceo-circom-types",
@@ -9907,7 +9907,7 @@ dependencies = [
  "blake3",
  "itertools 0.15.0",
  "num-bigint 0.4.6",
- "rand 0.8.6",
+ "rand 0.8.8",
  "serde",
  "subtle",
  "taceo-ark-babyjubjub",
@@ -9928,7 +9928,7 @@ dependencies = [
  "clap",
  "eyre",
  "humantime",
- "rand 0.8.6",
+ "rand 0.8.8",
  "rand_chacha 0.3.1",
  "reqwest 0.13.2",
  "rustls",
@@ -9963,7 +9963,7 @@ dependencies = [
  "metrics",
  "moka",
  "parking_lot",
- "rand 0.8.6",
+ "rand 0.8.8",
  "secrecy",
  "semver 1.0.27",
  "serde",
@@ -11997,7 +11997,7 @@ dependencies = [
  "hex",
  "mockito",
  "ohttp",
- "rand 0.8.6",
+ "rand 0.10.2",
  "reqwest 0.13.2",
  "ruint",
  "rustls",
@@ -12027,7 +12027,7 @@ dependencies = [
  "chrono",
  "eyre",
  "hex",
- "rand 0.8.6",
+ "rand 0.10.2",
  "reqwest 0.13.2",
  "rustls",
  "serde_json",
@@ -12083,7 +12083,7 @@ dependencies = [
  "metrics",
  "moka",
  "once_cell",
- "rand 0.8.6",
+ "rand 0.10.2",
  "redis",
  "reqwest 0.13.2",
  "rustls",
@@ -12123,7 +12123,7 @@ dependencies = [
  "hex",
  "http 1.4.0",
  "metrics",
- "rand 0.8.6",
+ "rand 0.10.2",
  "regex",
  "reqwest 0.13.2",
  "ruint",
@@ -12179,7 +12179,7 @@ dependencies = [
  "clap",
  "eyre",
  "humantime",
- "rand 0.8.6",
+ "rand 0.10.2",
  "rand_chacha 0.3.1",
  "reqwest 0.13.2",
  "rustls",
@@ -12216,7 +12216,7 @@ dependencies = [
  "humantime-serde",
  "metrics",
  "moka",
- "rand 0.8.6",
+ "rand 0.10.2",
  "rustls",
  "secrecy",
  "serde",
@@ -12257,7 +12257,7 @@ dependencies = [
  "hex",
  "k256 0.13.4",
  "provekit-common",
- "rand 0.8.6",
+ "rand 0.10.2",
  "ruint",
  "secrecy",
  "serde",
@@ -12294,7 +12294,7 @@ dependencies = [
  "provekit-prover",
  "provekit-r1cs-compiler",
  "provekit-verifier",
- "rand 0.8.6",
+ "rand 0.10.2",
  "rayon",
  "reqwest 0.13.2",
  "ruint",
@@ -12344,7 +12344,7 @@ dependencies = [
  "hex",
  "metrics",
  "parking_lot",
- "rand 0.8.6",
+ "rand 0.10.2",
  "serde",
  "serde_json",
  "telemetry-batteries",
@@ -12396,7 +12396,7 @@ dependencies = [
  "eyre",
  "hex",
  "k256 0.13.4",
- "rand 0.8.6",
+ "rand 0.10.2",
  "reqwest 0.13.2",
  "secrecy",
  "semver 1.0.27",
@@ -12633,7 +12633,7 @@ dependencies = [
  "inventory",
  "mobench-sdk",
  "provekit-prover",
- "rand 0.8.6",
+ "rand 0.10.2",
  "rand_chacha 0.3.1",
  "serde",
  "serde_json",
