@@ -108,7 +108,7 @@ jobs:
           components: clippy
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
         with:
           # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
           # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
@@ -161,7 +161,7 @@ jobs:
           toolchain: v1.0.0-beta.26
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
         with:
           # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
           # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
@@ -202,7 +202,7 @@ jobs:
           toolchain: stable
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
         with:
           # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
           # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
@@ -261,7 +261,7 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
         with:
           # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
           # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
@@ -331,7 +331,7 @@ jobs:
           toolchain: stable
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
         with:
           # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
           # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
