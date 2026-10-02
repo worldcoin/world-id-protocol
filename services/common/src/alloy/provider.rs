@@ -49,7 +49,7 @@ impl ConfiguredProvider {
     fn try_into_wallet(self) -> ProviderResult<ProviderWallet> {
         let wallet = self.wallet.ok_or(ProviderError::SignerConfigMissing)?;
         let address = <EthereumWallet as NetworkWallet<Ethereum>>::default_signer_address(&wallet);
-        Ok(ProviderWallet::new(address, self.provider, wallet))
+        Ok(ProviderWallet::new(address, self.provider))
     }
 }
 
@@ -275,41 +275,20 @@ pub enum SignerConfig {
 pub struct ProviderWallet {
     pub address: Address,
     pub provider: DynProvider,
-    wallet: EthereumWallet,
 }
 
 impl ProviderWallet {
-    /// Creates a provider wallet from its provider and signer.
-    pub fn new(address: Address, provider: DynProvider, wallet: EthereumWallet) -> Self {
-        Self {
-            address,
-            provider,
-            wallet,
-        }
+    /// Creates a provider wallet from its signer address and provider.
+    pub fn new(address: Address, provider: DynProvider) -> Self {
+        Self { address, provider }
     }
 
     /// Fills and signs a transaction without broadcasting it.
-    ///
-    /// This reconstructs the filler stack as a workaround until
-    /// <https://github.com/alloy-rs/alloy/issues/4150> is resolved.
     pub async fn sign_transaction(
         &self,
         transaction: TransactionRequest,
     ) -> Result<::alloy::consensus::TxEnvelope, TransportError> {
-        ProviderBuilder::default()
-            .with_gas_estimation()
-            .filler(GasEstimateWithFallbackFiller)
-            .with_blob_gas_estimation()
-            .with_nonce_management(SimpleNonceManager::default())
-            .fetch_chain_id()
-            .wallet(self.wallet.clone())
-            .connect_provider(self.provider.clone())
-            .fill(transaction)
-            .await?
-            .try_into_envelope()
-            .map_err(|_| {
-                RpcError::local_usage_str("wallet provider did not produce a signed transaction")
-            })
+        self.provider.fill_and_sign_transaction(transaction).await
     }
 }
 
@@ -654,6 +633,49 @@ mod tests {
             .unwrap();
 
         assert_eq!(wallet.address, signer.address());
+    }
+
+    #[tokio::test]
+    async fn http_wallet_signs_without_broadcasting() {
+        use ::alloy::{
+            consensus::Transaction as _, network::TransactionBuilder as _, node_bindings::Anvil,
+        };
+
+        let anvil = Anvil::new().spawn();
+        let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+
+        let wallet = ProviderArgs::new()
+            .with_http_urls([anvil.endpoint()])
+            .with_signer(SignerArgs::from_wallet(format!(
+                "0x{}",
+                ::alloy::primitives::hex::encode(anvil.keys()[0].to_bytes())
+            )))
+            .http_wallet()
+            .await
+            .unwrap();
+
+        assert_eq!(wallet.address, signer.address());
+
+        let transaction = TransactionRequest::default()
+            .with_to(Address::with_last_byte(9))
+            .with_value(::alloy::primitives::U256::from(1));
+
+        let envelope = wallet.sign_transaction(transaction).await.unwrap();
+
+        // The configured fillers populated the transaction before the wallet signed it.
+        assert_eq!(envelope.chain_id(), Some(31337));
+        assert_eq!(envelope.nonce(), 0);
+        assert!(envelope.gas_limit() > 0);
+
+        // Signing must not broadcast: the sender's on-chain nonce is still zero.
+        assert_eq!(
+            wallet
+                .provider
+                .get_transaction_count(wallet.address)
+                .await
+                .unwrap(),
+            0
+        );
     }
 
     #[tokio::test]
