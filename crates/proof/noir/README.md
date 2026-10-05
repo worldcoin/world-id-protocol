@@ -2,7 +2,7 @@
 
 ## Packages
 
-- `ownership-proof/` — World ID ownership proof. Compiled by `crates/proof/build.rs` with the repo-standard nargo (`1.0.0-beta.26`), proven with the `provekit-*` crates from crates.io.
+- `ownership-proof/` — Proof of Ownership (WIP-103).
 - `authenticator-assertion/` — WIP-106 Authenticator Attestation library (Trust Anchor Key Token + Authenticator Assertion Token verification). **🚧 Warning. This is extremely WIP and in active development, things may change significantly or even disappear altogether.**
 
 ## Consuming `authenticator-assertion`
