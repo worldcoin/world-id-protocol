@@ -12,8 +12,8 @@ permissions:
 
 jobs:
   dispatch:
-    uses: worldcoin/mobile-bench-rs/.github/workflows/reusable-pr-command.yml@cf4416db0cd356a4434a524512de7e3716bd0799 # main branch https://github.com/worldcoin/mobile-bench-rs/commit/cf4416db0cd356a4434a524512de7e3716bd0799
+    uses: worldcoin/mobile-bench-rs/.github/workflows/reusable-pr-command.yml@a05a80c68be8384e8d4c3d4406348e78b113de6a # main https://github.com/worldcoin/mobile-bench-rs/commit/a05a80c68be8384e8d4c3d4406348e78b113de6a
     with:
       benchmark_workflow: .github/workflows/mobile-bench.yml
       crate_path: ./crates/zk-mobile-bench
-      functions: '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_cached_proof_generation","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only"]'
+      functions: '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_cached_proof_generation","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only","zk_mobile_bench::bench_ownership_proof_generation"]'

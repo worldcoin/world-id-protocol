@@ -50,6 +50,18 @@ jobs:
         with:
           version: 1.7.1
 
+      - name: Install contract dependencies
+        if: steps.cache-contracts.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git_auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$git_auth"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $git_auth" \
+          forge install --root contracts
+
       - name: Build contracts and extract ABIs
         if: steps.cache-contracts.outputs.cache-hit != 'true'
         run: make sol-build
@@ -96,7 +108,11 @@ jobs:
           components: clippy
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
+        with:
+          # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
+          # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Download contract ABIs
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
@@ -115,7 +131,7 @@ jobs:
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
-          toolchain: v1.0.0-beta.11
+          toolchain: v1.0.0-beta.26
 
       - name: Run clippy
         env:
@@ -142,10 +158,14 @@ jobs:
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
-          toolchain: v1.0.0-beta.11
+          toolchain: v1.0.0-beta.26
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
+        with:
+          # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
+          # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Download contract ABIs
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
@@ -182,7 +202,11 @@ jobs:
           toolchain: stable
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
+        with:
+          # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
+          # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Download contract ABIs
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
@@ -192,7 +216,7 @@ jobs:
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
-          toolchain: v1.0.0-beta.11
+          toolchain: v1.0.0-beta.26
 
       - name: Install cargo-hack
         uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6 # v2.69.1 https://github.com/taiki-e/install-action/releases/tag/v2.69.1
@@ -237,7 +261,11 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
+        with:
+          # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
+          # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
@@ -248,7 +276,7 @@ jobs:
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
-          toolchain: v1.0.0-beta.11
+          toolchain: v1.0.0-beta.26
 
       - name: Download contract ABIs
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
@@ -303,7 +331,11 @@ jobs:
           toolchain: stable
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
+        with:
+          # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
+          # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
@@ -313,7 +345,18 @@ jobs:
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
-          toolchain: v1.0.0-beta.11
+          toolchain: v1.0.0-beta.26
+
+      - name: Install contract dependencies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git_auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$git_auth"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $git_auth" \
+          forge install --root contracts
 
       - name: Build contracts
         run: |

@@ -348,6 +348,7 @@ async fn test_rollback_with_mixed_event_types() {
         account.authenticator_addresses[1],
         Some(Address::from([2u8; 20]))
     );
+    assert_eq!(account.recovery_counter, 0); // replays AccountCreated, so the recovery counter must reset
 }
 
 /// Test that rollback to current state has no effect

@@ -19,7 +19,7 @@ mobench-sdk = "0.2.0"
 inventory = "0.3"
 
 # World ID
-world-id-core = { workspace = true, default-features = false, features = ["authenticator", "embed-zkeys", "issuer"] }
+world-id-core = { workspace = true, default-features = false, features = ["authenticator", "embed-zkeys", "embed-ownership-prover", "issuer"] }
 world-id-primitives = { workspace = true }
 world-id-proof = { workspace = true }
 
@@ -30,6 +30,8 @@ ark-ff = { workspace = true }
 ark-ec = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 groth16-material = { workspace = true, features = ["circom"] }
+# `Prove::generate_witness`, for the ownership witness-only benchmark
+provekit-prover = { workspace = true }
 
 # Serialization
 serde = { workspace = true }

@@ -47,7 +47,7 @@ one(s) into the binary. The prover is multi-MB; verifying-only consumers should 
 the verifier. Requires `nargo` on PATH at the pinned version — use `nix develop` or:
 
 ```sh
-noirup --version v1.0.0-beta.11
+noirup --version v1.0.0-beta.26
 ```
 
 ##### Umbrellas

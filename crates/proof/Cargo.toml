@@ -51,7 +51,7 @@ provekit-common = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 groth16-material = { workspace = true, features = ["circom"] }
-ruint = { workspace = true, features = ["ark-ff-05"] }
+ruint = { workspace = true, features = ["ark-ff-06"] }
 taceo-groth16-sol = { workspace = true }
 taceo-oprf = { workspace = true, features = ["client", "core"] }
 eyre = { workspace = true }
