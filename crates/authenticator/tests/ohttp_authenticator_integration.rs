@@ -11,7 +11,7 @@ use ruint::aliases::U256;
 use serde_json::json;
 use testcontainers::{
     GenericImage, ImageExt,
-    core::{IntoContainerPort, WaitFor, wait::HttpWaitStrategy},
+    core::{Host, IntoContainerPort, WaitFor, wait::HttpWaitStrategy},
     runners::AsyncRunner,
 };
 use tokio::{net::TcpListener, sync::Mutex};
@@ -145,7 +145,7 @@ impl OhttpFixture {
             .with_wait_for(WaitFor::Http(Box::new(
                 HttpWaitStrategy::new("/health").with_expected_status_code(200_u16),
             )))
-            .with_exposed_host_ports([gw_port, idx_port])
+            .with_host("host.testcontainers.internal", Host::HostGateway)
             .with_env_var(
                 "SEED_SECRET_KEY",
                 "0000000000000000000000000000000000000000000000000000000000000001",
