@@ -1,8 +1,10 @@
+#!/usr/bin/env python3
 """Strip leading YAML front matter from mdBook chapters."""
 
 import json
 import re
 import sys
+
 
 FRONT_MATTER_RE = re.compile(r"^\s*---\s*\n.*?\n---\s*\n", re.DOTALL)
 
