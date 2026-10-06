@@ -9,12 +9,14 @@ use crate::{
 use std::sync::Arc;
 
 use crate::{
+    account::{AccountAuthenticators, AuthenticatorClass},
     api_types::{
         AccountInclusionProof, GatewayRequestState, IndexerAuthenticatorPubkeysResponse,
-        IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
-        IndexerQueryRequest, IndexerSignatureNonceResponse, ServiceApiError,
+        IndexerAuthenticatorsResponse, IndexerErrorCode, IndexerPackedAccountRequest,
+        IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
+        ServiceApiError,
     },
-    service_client::{ServiceClient, ServiceKind},
+    service_client::{ServiceClient, ServiceKind, default_http_client},
 };
 use world_id_primitives::{Credential, FieldElement, ProofResponse, Signer};
 
@@ -136,19 +138,9 @@ impl Authenticator {
         zk_artifact_source: Arc<dyn ZkArtifactSource>,
     ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
+        let registry = Self::registry_for(&config);
 
-        let registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>> =
-            config.rpc_url().map(|rpc_url| {
-                let provider = alloy::providers::ProviderBuilder::new()
-                    .with_chain_id(config.chain_id())
-                    .connect_http(rpc_url.clone());
-                Arc::new(world_id_registries::world_id::WorldIdRegistry::new(
-                    *config.registry_address(),
-                    alloy::providers::Provider::erased(provider),
-                ))
-            });
-
-        let http_client = reqwest::Client::new();
+        let http_client = default_http_client();
 
         let indexer_client =
             ServiceClient::new(http_client.clone(), ServiceKind::Indexer, config.indexer())?;
@@ -164,6 +156,99 @@ impl Authenticator {
         )
         .await?;
 
+        Ok(Self::from_parts(
+            config,
+            packed_account_data,
+            signer,
+            registry,
+            indexer_client,
+            gateway_client,
+            zk_artifact_source,
+        ))
+    }
+
+    /// Initializes an Authenticator for the account at `leaf_index` from a seed, without looking
+    /// the account up by on-chain address.
+    ///
+    /// This is how a Proving Authenticator (WIP-104) is initialized: it has no management key
+    /// registered on-chain, so [`Authenticator::init`] cannot find its account. It also works
+    /// for an Admin Authenticator whose `leaf_index` is known, e.g. after a WIP-109 registration.
+    ///
+    /// The off-chain public key derived from `seed` must be registered on the account according
+    /// to the indexer. Its slot becomes [`Authenticator::pubkey_id`] and the account's recovery
+    /// counter becomes [`Authenticator::recovery_counter`].
+    ///
+    /// A Proving Authenticator can generate proofs, but it cannot perform account operations
+    /// such as [`Authenticator::insert_authenticator`]: the registry rejects its signatures.
+    ///
+    /// # Errors
+    /// - [`AuthenticatorError::AccountDoesNotExist`] if the indexer does not know the account.
+    /// - [`AuthenticatorError::PublicKeyNotFound`] if the public key is not registered on the
+    ///   account. Right after a registration finalizes this can be transient, until the indexer
+    ///   catches up.
+    /// - Other errors if the seed or configuration is invalid or a network call fails.
+    pub async fn init_with_leaf_index(
+        seed: &[u8],
+        leaf_index: u64,
+        config: Config,
+        zk_artifact_source: Arc<dyn ZkArtifactSource>,
+    ) -> Result<Self, AuthenticatorError> {
+        let signer = Signer::from_seed_bytes(seed)?;
+        let registry = Self::registry_for(&config);
+        let http_client = default_http_client();
+        let indexer_client =
+            ServiceClient::new(http_client.clone(), ServiceKind::Indexer, config.indexer())?;
+        let gateway_client =
+            ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())?;
+
+        let authenticators =
+            match Self::fetch_authenticators_for(leaf_index, &config, &indexer_client).await {
+                Err(AuthenticatorError::IndexerError { status, .. })
+                    if status == reqwest::StatusCode::NOT_FOUND =>
+                {
+                    return Err(AuthenticatorError::AccountDoesNotExist);
+                }
+                result => result?,
+            };
+        let (pubkey_id, _) = authenticators
+            .find(&signer.offchain_signer_pubkey())
+            .ok_or(AuthenticatorError::PublicKeyNotFound)?;
+        let packed_account_data = (U256::from(authenticators.recovery_counter) << 224)
+            | (U256::from(pubkey_id) << 192)
+            | U256::from(leaf_index);
+
+        Ok(Self::from_parts(
+            config,
+            packed_account_data,
+            signer,
+            registry,
+            indexer_client,
+            gateway_client,
+            zk_artifact_source,
+        ))
+    }
+
+    fn registry_for(config: &Config) -> Option<Arc<WorldIdRegistryInstance<DynProvider>>> {
+        config.rpc_url().map(|rpc_url| {
+            let provider = alloy::providers::ProviderBuilder::new()
+                .with_chain_id(config.chain_id())
+                .connect_http(rpc_url.clone());
+            Arc::new(world_id_registries::world_id::WorldIdRegistry::new(
+                *config.registry_address(),
+                alloy::providers::Provider::erased(provider),
+            ))
+        })
+    }
+
+    fn from_parts(
+        config: Config,
+        packed_account_data: U256,
+        signer: Signer,
+        registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
+        indexer_client: ServiceClient,
+        gateway_client: ServiceClient,
+        zk_artifact_source: Arc<dyn ZkArtifactSource>,
+    ) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         let ws_connector = {
             let mut root_store = rustls::RootCertStore::empty();
@@ -177,7 +262,7 @@ impl Authenticator {
         #[cfg(target_arch = "wasm32")]
         let ws_connector = Connector;
 
-        Ok(Self {
+        Self {
             packed_account_data,
             signer,
             config,
@@ -186,7 +271,7 @@ impl Authenticator {
             gateway_client,
             ws_connector,
             zk_artifact_source,
-        })
+        }
     }
 
     /// Registers a new World ID in the `WorldIDRegistry`.
@@ -202,7 +287,7 @@ impl Authenticator {
         recovery_address: Option<Address>,
     ) -> Result<InitializingAuthenticator, AuthenticatorError> {
         let gateway_client = ServiceClient::new(
-            reqwest::Client::new(),
+            default_http_client(),
             ServiceKind::Gateway,
             config.gateway(),
         )?;
@@ -231,7 +316,7 @@ impl Authenticator {
             Ok(authenticator) => Ok(authenticator),
             Err(AuthenticatorError::AccountDoesNotExist) => {
                 let gateway_client = ServiceClient::new(
-                    reqwest::Client::new(),
+                    default_http_client(),
                     ServiceKind::Gateway,
                     config.gateway(),
                 )?;
@@ -511,6 +596,47 @@ impl Authenticator {
         Self::decode_indexer_pubkeys(response.authenticator_pubkeys)
     }
 
+    /// Fetches the registered authenticators of the account at `leaf_index` from the indexer's
+    /// `/authenticators` endpoint.
+    pub(crate) async fn fetch_authenticators_for(
+        leaf_index: u64,
+        config: &Config,
+        indexer_client: &ServiceClient,
+    ) -> Result<AccountAuthenticators, AuthenticatorError> {
+        let req = IndexerQueryRequest { leaf_index };
+        let response: IndexerAuthenticatorsResponse = indexer_client
+            .post_json(config.indexer_url(), "/authenticators", &req)
+            .await?;
+        if response.authenticator_addresses.len() != response.authenticator_pubkeys.len() {
+            return Err(PrimitiveError::Deserialization(
+                "indexer returned different numbers of authenticator addresses and pubkeys"
+                    .to_string(),
+            )
+            .into());
+        }
+        let classes = response
+            .authenticator_addresses
+            .iter()
+            .zip(&response.authenticator_pubkeys)
+            .map(|(address, pubkey)| match (address, pubkey) {
+                (Some(address), Some(_)) => {
+                    Ok(Some(AuthenticatorClass::from_onchain_address(*address)))
+                }
+                (None, None) => Ok(None),
+                _ => Err(PrimitiveError::Deserialization(
+                    "indexer returned an authenticator slot with only an address or a pubkey"
+                        .to_string(),
+                )),
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(AccountAuthenticators {
+            key_set: Self::decode_indexer_pubkeys(response.authenticator_pubkeys)?,
+            classes,
+            offchain_signer_commitment: response.offchain_signer_commitment,
+            recovery_counter: response.recovery_counter,
+        })
+    }
+
     /// Returns the signing nonce for the holder's World ID.
     ///
     /// # Errors
@@ -644,6 +770,211 @@ mod tests {
                 max_supported_slot
             } if slot_index == MAX_AUTHENTICATOR_KEYS && max_supported_slot == MAX_AUTHENTICATOR_KEYS - 1
         ));
+    }
+
+    fn config_with_indexer(indexer_url: String) -> Config {
+        Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            ServiceEndpoint::direct(indexer_url),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
+            Vec::new(),
+            2,
+        )
+        .unwrap()
+    }
+
+    async fn mock_authenticators(
+        server: &mut mockito::ServerGuard,
+        status: usize,
+        body: serde_json::Value,
+    ) -> mockito::Mock {
+        server
+            .mock("POST", "/authenticators")
+            .match_body(mockito::Matcher::JsonString(
+                serde_json::json!({ "leaf_index": "0x2a" }).to_string(),
+            ))
+            .with_status(status)
+            .with_header("content-type", "application/json")
+            .with_body(body.to_string())
+            .create_async()
+            .await
+    }
+
+    #[tokio::test]
+    async fn test_init_with_leaf_index_finds_the_key_slot() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let mut server = mockito::Server::new_async().await;
+        let seed = [7u8; 32];
+        let own_pubkey = Signer::from_seed_bytes(&seed)
+            .unwrap()
+            .offchain_signer_pubkey()
+            .to_ethereum_representation()
+            .unwrap();
+        let mock = mock_authenticators(
+            &mut server,
+            200,
+            serde_json::json!({
+                "authenticator_pubkeys": [format!("{:#x}", encoded_test_pubkey(1)), null, format!("{own_pubkey:#x}")],
+                "authenticator_addresses": ["0x0000000000000000000000000000000000000011", null, "0x0000000000000000000000000000000000000000"],
+                "offchain_signer_commitment": "0x1",
+                "recovery_counter": "0x3",
+            }),
+        )
+        .await;
+
+        let authenticator = Authenticator::init_with_leaf_index(
+            &seed,
+            42,
+            config_with_indexer(server.url()),
+            dummy_zk_artifact_source(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(authenticator.leaf_index(), 42);
+        assert_eq!(authenticator.pubkey_id(), U256::from(2));
+        assert_eq!(authenticator.recovery_counter(), U256::from(3));
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_init_with_leaf_index_requires_a_registered_key() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = mock_authenticators(
+            &mut server,
+            200,
+            serde_json::json!({
+                "authenticator_pubkeys": [format!("{:#x}", encoded_test_pubkey(1))],
+                "authenticator_addresses": ["0x0000000000000000000000000000000000000011"],
+                "offchain_signer_commitment": "0x1",
+                "recovery_counter": "0x0",
+            }),
+        )
+        .await;
+
+        let result = Authenticator::init_with_leaf_index(
+            &[7u8; 32],
+            42,
+            config_with_indexer(server.url()),
+            dummy_zk_artifact_source(),
+        )
+        .await;
+        assert!(matches!(result, Err(AuthenticatorError::PublicKeyNotFound)));
+    }
+
+    #[tokio::test]
+    async fn test_init_with_leaf_index_maps_unknown_account() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = mock_authenticators(
+            &mut server,
+            404,
+            serde_json::json!({ "code": "not_found", "message": "not found" }),
+        )
+        .await;
+
+        let result = Authenticator::init_with_leaf_index(
+            &[7u8; 32],
+            42,
+            config_with_indexer(server.url()),
+            dummy_zk_artifact_source(),
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::AccountDoesNotExist)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_authenticators_maps_classes_and_rejects_inconsistent_slots() {
+        let mut server = mockito::Server::new_async().await;
+        let config = config_with_indexer(server.url());
+        let indexer_client = ServiceClient::new(
+            reqwest::Client::new(),
+            ServiceKind::Indexer,
+            config.indexer(),
+        )
+        .unwrap();
+        let admin = address!("0x0000000000000000000000000000000000000011");
+
+        let mock = mock_authenticators(
+            &mut server,
+            200,
+            serde_json::json!({
+                "authenticator_pubkeys": [format!("{:#x}", encoded_test_pubkey(1)), format!("{:#x}", encoded_test_pubkey(2))],
+                "authenticator_addresses": [admin, "0x0000000000000000000000000000000000000000"],
+                "offchain_signer_commitment": "0x5",
+                "recovery_counter": "0x0",
+            }),
+        )
+        .await;
+        let authenticators = Authenticator::fetch_authenticators_for(42, &config, &indexer_client)
+            .await
+            .unwrap();
+        assert_eq!(
+            authenticators.classes,
+            vec![
+                Some(AuthenticatorClass::Admin { address: admin }),
+                Some(AuthenticatorClass::Proving)
+            ]
+        );
+        assert_eq!(authenticators.offchain_signer_commitment, U256::from(5));
+        assert_eq!(
+            authenticators.find(&test_pubkey(2)),
+            Some((1, AuthenticatorClass::Proving))
+        );
+        assert_eq!(authenticators.find(&test_pubkey(3)), None);
+        mock.remove_async().await;
+
+        let _mock = mock_authenticators(
+            &mut server,
+            200,
+            serde_json::json!({
+                "authenticator_pubkeys": [format!("{:#x}", encoded_test_pubkey(1))],
+                "authenticator_addresses": [null],
+                "offchain_signer_commitment": "0x5",
+                "recovery_counter": "0x0",
+            }),
+        )
+        .await;
+        assert!(
+            Authenticator::fetch_authenticators_for(42, &config, &indexer_client)
+                .await
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_lowest_free_pubkey_id() {
+        let authenticators = |keys: Vec<Option<EdDSAPublicKey>>| {
+            let mut key_set = AuthenticatorPublicKeySet::default();
+            for key in &keys {
+                key_set.push(key.clone());
+            }
+            AccountAuthenticators {
+                key_set,
+                classes: keys
+                    .iter()
+                    .map(|key| key.as_ref().map(|_| AuthenticatorClass::Proving))
+                    .collect(),
+                offchain_signer_commitment: U256::ZERO,
+                recovery_counter: 0,
+            }
+        };
+        assert_eq!(authenticators(vec![]).lowest_free_pubkey_id(), Some(0));
+        assert_eq!(
+            authenticators(vec![Some(test_pubkey(1)), None, Some(test_pubkey(2))])
+                .lowest_free_pubkey_id(),
+            Some(1)
+        );
+        assert_eq!(
+            authenticators(vec![Some(test_pubkey(1))]).lowest_free_pubkey_id(),
+            Some(1)
+        );
+        let full = (1..=7).map(|seed| Some(test_pubkey(seed))).collect();
+        assert_eq!(authenticators(full).lowest_free_pubkey_id(), None);
     }
 
     #[tokio::test]

@@ -22,6 +22,10 @@ pub enum AuthenticatorError {
     #[error("Network error: {0}")]
     NetworkError(#[from] reqwest::Error),
 
+    /// The account has no free authenticator slot.
+    #[error("The account has no free authenticator slot.")]
+    MaxAuthenticatorsReached,
+
     /// Public key not found in the Authenticator public key set. Usually indicates the local state is out of sync with the registry.
     #[error("Public key not found.")]
     PublicKeyNotFound,

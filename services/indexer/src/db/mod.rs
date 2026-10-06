@@ -4,7 +4,7 @@ use thiserror::Error;
 mod accounts;
 mod world_id_registry_events;
 
-pub use accounts::Accounts;
+pub use accounts::{AccountAuthenticators, Accounts};
 pub use world_id_registry_events::{
     BlockWithConflictingHashes, WorldIdRegistryEvent, WorldIdRegistryEventId,
     WorldIdRegistryEventType, WorldIdRegistryEvents,

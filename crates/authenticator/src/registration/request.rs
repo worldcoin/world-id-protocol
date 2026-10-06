@@ -15,7 +15,7 @@ use world_id_primitives::{
 };
 
 use super::session::{RESPONSE_PUBLIC_KEY_LEN, RequestId, ResponsePublicKey};
-use crate::traits::OnchainKeyRepresentable as _;
+use crate::{account::AuthenticatorClass, traits::OnchainKeyRepresentable as _};
 
 /// The method of the registration request.
 pub const REGISTER_METHOD: MethodName = MethodName::from_static("worldid_auth_v1_register");
@@ -27,30 +27,6 @@ const DIGEST_LABEL: &[u8] = b"WORLD-ID/WIP-109/REGISTER";
 
 /// The maximum length in bytes of an [`AuthenticatorName`].
 pub const MAX_NAME_LEN: usize = 64;
-
-/// The kind of authenticator a Requesting Authenticator asks to become, as defined in WIP-104.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AuthenticatorClass {
-    /// An Admin Authenticator, which can manage the account with its management key.
-    Admin {
-        /// The non-zero address of the authenticator's management key.
-        address: Address,
-    },
-    /// A Proving Authenticator, which can generate proofs but cannot manage the account.
-    Proving,
-}
-
-impl AuthenticatorClass {
-    /// Returns the address registered on-chain for this class: the management key of an Admin
-    /// Authenticator, or the zero address for a Proving Authenticator.
-    #[must_use]
-    pub const fn onchain_address(&self) -> Address {
-        match self {
-            Self::Admin { address } => *address,
-            Self::Proving => Address::ZERO,
-        }
-    }
-}
 
 /// A self-reported, advisory label for an authenticator, at most [`MAX_NAME_LEN`] bytes of UTF-8.
 ///
