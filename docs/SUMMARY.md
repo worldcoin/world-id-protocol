@@ -16,3 +16,4 @@
 - [WIP-104: Proving and Admin Authenticators with Fixed Permission Sets](WIPs/wip-104.md)
 - [WIP-106: Authenticator Assertions](WIPs/wip-106.md)
 - [WIP-110: Message Bridge](WIPs/wip-110.md)
+- [WIP-113: World ID Circuit Components](WIPs/wip-113.md)
