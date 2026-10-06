@@ -2,7 +2,8 @@
 //!
 //! Convention used by helpers in this module:
 //! - serialization always emits `0x`-prefixed hex strings;
-//! - deserialization accepts either decimal (no prefix) or hex (`0x`/`0X` prefix).
+//! - deserialization accepts either decimal (no prefix) or hex (`0x`/`0X` prefix), except in the
+//!   `strict_*` and [`hex_array`] helpers, which only accept `0x`-prefixed hex.
 
 #![allow(clippy::missing_errors_doc)]
 
@@ -316,6 +317,123 @@ pub mod hex_bytes_opt {
     }
 }
 
+/// Strips the `0x` prefix from `input` and checks that the rest is between one and `max_digits`
+/// hex digits.
+fn strict_hex_digits(input: &str, max_digits: usize) -> Result<&str, String> {
+    let digits = input
+        .strip_prefix("0x")
+        .ok_or_else(|| "expected a 0x-prefixed hex string".to_string())?;
+    if digits.is_empty() || digits.len() > max_digits {
+        return Err(format!("expected 1 to {max_digits} hex digits"));
+    }
+    if !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("invalid hex digit".to_string());
+    }
+    Ok(digits)
+}
+
+/// Serialize as `0x`-prefixed hex and deserialize only from `0x`-prefixed hex of at most 64 digits.
+pub mod strict_hex_u256 {
+    use super::*;
+
+    /// Serialize a `U256` as a `0x`-prefixed hex string.
+    pub fn serialize<S>(value: &U256, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        hex_u256::serialize(value, serializer)
+    }
+
+    /// Deserialize a `U256` from a `0x`-prefixed hex string. Leading zeros are accepted.
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<U256, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let digits = strict_hex_digits(&s, 64).map_err(D::Error::custom)?;
+        U256::from_str_radix(digits, 16)
+            .map_err(|e| D::Error::custom(format!("invalid hex U256: {e}")))
+    }
+}
+
+/// Serialize as `0x`-prefixed hex and deserialize only from `0x`-prefixed hex of at most 16 digits.
+pub mod strict_hex_u64 {
+    use super::*;
+
+    /// Serialize a `u64` as a `0x`-prefixed hex string.
+    pub fn serialize<S>(value: &u64, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        hex_u64::serialize(value, serializer)
+    }
+
+    /// Deserialize a `u64` from a `0x`-prefixed hex string. Leading zeros are accepted.
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<u64, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let digits = strict_hex_digits(&s, 16).map_err(D::Error::custom)?;
+        u64::from_str_radix(digits, 16)
+            .map_err(|e| D::Error::custom(format!("invalid hex u64: {e}")))
+    }
+}
+
+/// Serialize as `0x`-prefixed hex and deserialize only from `0x`-prefixed hex of at most 8 digits.
+pub mod strict_hex_u32 {
+    use super::*;
+
+    /// Serialize a `u32` as a `0x`-prefixed hex string.
+    pub fn serialize<S>(value: &u32, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        hex_u32::serialize(value, serializer)
+    }
+
+    /// Deserialize a `u32` from a `0x`-prefixed hex string. Leading zeros are accepted.
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<u32, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let digits = strict_hex_digits(&s, 8).map_err(D::Error::custom)?;
+        u32::from_str_radix(digits, 16)
+            .map_err(|e| D::Error::custom(format!("invalid hex u32: {e}")))
+    }
+}
+
+/// Serialize a fixed-size byte array as `0x`-prefixed lowercase hex, and deserialize it only from
+/// `0x`-prefixed hex of exactly twice its length in digits.
+pub mod hex_array {
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
+
+    /// Serialize a byte array as a `0x`-prefixed lowercase hex string.
+    pub fn serialize<S, T>(bytes: &T, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: AsRef<[u8]>,
+    {
+        serializer.serialize_str(&format!("0x{}", hex::encode(bytes.as_ref())))
+    }
+
+    /// Deserialize a byte array from a `0x`-prefixed hex string with exactly `2 * N` digits.
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: TryFrom<Vec<u8>>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let digits = s
+            .strip_prefix("0x")
+            .ok_or_else(|| D::Error::custom("expected a 0x-prefixed hex string"))?;
+        let bytes = hex::decode(digits).map_err(D::Error::custom)?;
+        let len = bytes.len();
+        T::try_from(bytes).map_err(|_| D::Error::custom(format!("unexpected byte length {len}")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,5 +529,84 @@ mod tests {
 
         let parsed: S = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, s);
+    }
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct Strict {
+        #[serde(with = "strict_hex_u256")]
+        u256_val: U256,
+        #[serde(with = "strict_hex_u64")]
+        u64_val: u64,
+        #[serde(with = "strict_hex_u32")]
+        u32_val: u32,
+        #[serde(with = "hex_array")]
+        bytes: [u8; 2],
+    }
+
+    fn parse_strict(u256: &str, u64: &str, u32: &str, bytes: &str) -> Result<Strict, String> {
+        serde_json::from_value(serde_json::json!({
+            "u256_val": u256,
+            "u64_val": u64,
+            "u32_val": u32,
+            "bytes": bytes,
+        }))
+        .map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn test_strict_hex_roundtrip() {
+        let original = Strict {
+            u256_val: U256::from(0x2a),
+            u64_val: 0x2a,
+            u32_val: 0,
+            bytes: [0xab, 0x01],
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        assert_eq!(
+            json,
+            r#"{"u256_val":"0x2a","u64_val":"0x2a","u32_val":"0x0","bytes":"0xab01"}"#
+        );
+        assert_eq!(serde_json::from_str::<Strict>(&json).unwrap(), original);
+    }
+
+    #[test]
+    fn test_strict_hex_accepts_leading_zeros_and_uppercase_digits() {
+        let parsed = parse_strict(
+            &format!("0x{}", "0".repeat(64)),
+            "0x002A",
+            "0xFFFFFFFF",
+            "0xAB01",
+        )
+        .unwrap();
+        assert_eq!(parsed.u256_val, U256::ZERO);
+        assert_eq!(parsed.u64_val, 42);
+        assert_eq!(parsed.u32_val, u32::MAX);
+        assert_eq!(parsed.bytes, [0xab, 0x01]);
+    }
+
+    #[test]
+    fn test_strict_hex_rejects_lenient_encodings() {
+        for (u256, u64, u32) in [
+            ("42", "0x1", "0x1"),
+            ("0X2a", "0x1", "0x1"),
+            ("0x", "0x1", "0x1"),
+            (" 0x2a", "0x1", "0x1"),
+            ("0x+2a", "0x1", "0x1"),
+            ("0x1", "0x1", "0x100000000"),
+            ("0x1", "0x00000000000000001", "0x1"),
+        ] {
+            assert!(
+                parse_strict(u256, u64, u32, "0xab01").is_err(),
+                "{u256} {u64} {u32}"
+            );
+        }
+        assert!(parse_strict(&format!("0x1{}", "0".repeat(64)), "0x1", "0x1", "0xab01").is_err());
+    }
+
+    #[test]
+    fn test_hex_array_requires_exact_length() {
+        for bytes in ["0xab", "0xab0102", "ab01", "0xab0", "0xzz01"] {
+            assert!(parse_strict("0x1", "0x1", "0x1", bytes).is_err(), "{bytes}");
+        }
     }
 }

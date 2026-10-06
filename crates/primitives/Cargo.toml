@@ -35,6 +35,7 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true, features = ["serde"] }
+percent-encoding = { workspace = true }
 poseidon2 = { workspace = true }
 provekit-common = { workspace = true }
 sha3 = { workspace = true, default-features = false }

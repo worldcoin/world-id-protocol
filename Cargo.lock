@@ -12362,6 +12362,7 @@ dependencies = [
  "getrandom 0.4.1",
  "hex",
  "k256 0.13.4",
+ "percent-encoding",
  "provekit-common",
  "rand 0.8.6",
  "ruint",

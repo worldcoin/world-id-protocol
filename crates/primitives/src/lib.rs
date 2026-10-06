@@ -24,6 +24,8 @@ use getrandom_04 as _;
 /// Contains types related to the Authenticator.
 pub mod authenticator;
 
+pub mod authenticator_message;
+
 mod key_set;
 pub use key_set::{
     AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS, SparseAuthenticatorPubkeysError,
