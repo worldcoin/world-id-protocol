@@ -58,6 +58,10 @@ pub mod ds {
     /// most 7 field-element claims and is zero-padded to that width.
     pub const TRUST_ANCHOR_KEY_TOKEN: DomainSeparator<7> =
         DomainSeparator::new(b"WORLD_ID_TAKT_V1");
+    /// Separates the message a new authenticator signs to prove it holds the key it asks to
+    /// register: the lowered registration digest (WIP-109).
+    pub const AUTHENTICATOR_REGISTRATION: DomainSeparator<2> =
+        DomainSeparator::new(b"WORLD-ID/WIP-109/REGSIG");
     /// Separates the hash of a single raw-bytes credential claim.
     pub const CLAIMS_HASH_V1: VariableLengthDomainSeparator =
         VariableLengthDomainSeparator::new(b"CLAIMS_HASH_V1");
@@ -236,7 +240,7 @@ mod tests {
 
     /// The raw tag of every constant in [`ds`], across both separator types, to keep
     /// the collision and length checks exhaustive.
-    const ALL_TAGS: [&[u8]; 10] = [
+    const ALL_TAGS: [&[u8]; 11] = [
         ds::CREDENTIAL_V1.as_bytes(),
         ds::CREDENTIAL_SUB.as_bytes(),
         ds::SESSION_COMMITMENT.as_bytes(),
@@ -245,6 +249,7 @@ mod tests {
         ds::OPRF_PROOF.as_bytes(),
         ds::OWNERSHIP_PROOF.as_bytes(),
         ds::TRUST_ANCHOR_KEY_TOKEN.as_bytes(),
+        ds::AUTHENTICATOR_REGISTRATION.as_bytes(),
         ds::CLAIMS_HASH_V1.as_bytes(),
         ds::ASSOCIATED_DATA_V1.as_bytes(),
     ];

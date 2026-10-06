@@ -58,6 +58,13 @@ ruint = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
+# WIP-109 authenticator registration
+aes-gcm = { workspace = true }
+hkdf = { workspace = true }
+quantum-box = { workspace = true }
+sha2 = { workspace = true }
+zeroize = { workspace = true }
+
 # OHTTP
 ohttp = { workspace = true, features = ["client", "rust-hpke"] }
 bhttp = { workspace = true }
@@ -82,6 +89,7 @@ world-id-proof = { workspace = true }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
 getrandom-02 = { workspace = true, features = ["js"] }
+quantum-box = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
 axum = { workspace = true }

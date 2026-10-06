@@ -69,6 +69,8 @@ eyre = "0.6"
 futures = "0.3"
 groth16-material = { package = "taceo-groth16-material", version = "0.4.2", default-features = false }
 hex = { version = "0.4" }
+hkdf = "0.13"
+aes-gcm = "0.10"
 ohttp = { version = "0.7", default-features = false }
 bhttp = "0.7"
 itertools = "0.15"
@@ -81,6 +83,7 @@ tikv-jemallocator = "0.6"
 ruint = { version = "1.20", features = ["ark-ff-06"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.3.0" }
 percent-encoding = "2.3"
+quantum-box = "0.2"
 rand = "0.8.6"
 rand_chacha = "0.3"
 rustls = { version = "0.23", features = ["ring"] }
