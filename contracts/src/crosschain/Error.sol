@@ -78,6 +78,10 @@ error StorageValueTooLarge();
 /// @dev Thrown when the proven chain head does not match the expected keccak chain head.
 error InvalidChainHead();
 
+/// @dev Thrown when a native cross-domain message is not relayed by the configured messenger,
+///   or its L1 cross-domain sender is not the trusted L1 gateway.
+error InvalidCrossDomainSender();
+
 error InvalidContractName();
 
 error InvalidContractVersion();

@@ -129,6 +129,15 @@ sol! {
         function DISPUTE_GAME_FACTORY() external view returns (address);
         function requireFinalized() external view returns (bool);
         function setRequireFinalized(bool required) external;
+
+        function forwardToL2(
+            address messenger,
+            address l2Adapter,
+            bytes calldata recipient,
+            bytes calldata payload,
+            bytes[] calldata attributes,
+            uint32 minGasLimit
+        ) external;
     }
 }
 

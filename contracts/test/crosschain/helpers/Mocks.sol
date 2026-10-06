@@ -88,6 +88,38 @@ contract MockDisputeGameFactory {
     }
 }
 
+// ─── Mock OP Stack CrossDomainMessenger ──────────────────────────────────────
+
+/// @notice Minimal `CrossDomainMessenger` mock that relays a message in-process, simulating the
+///   OP Stack L1->L2 deposit path within a single EVM. `sendMessage` immediately invokes the
+///   target with `xDomainMessageSender` set to the caller (the L1 sender), mirroring how the
+///   real `L2CrossDomainMessenger.relayMessage` exposes the L1 origin.
+contract MockCrossDomainMessenger {
+    address public xDomainMessageSender;
+
+    /// @dev Relays `message` to `target` with `xDomainMessageSender` set to the original caller.
+    function sendMessage(address target, bytes calldata message, uint32) external {
+        _relay(target, msg.sender, message);
+    }
+
+    /// @dev Test-only: relays a message as an arbitrary L1 sender (to exercise auth failures).
+    function relayFrom(address target, address l1Sender, bytes calldata message) external {
+        _relay(target, l1Sender, message);
+    }
+
+    function _relay(address target, address l1Sender, bytes calldata message) internal {
+        address prev = xDomainMessageSender;
+        xDomainMessageSender = l1Sender;
+        (bool ok, bytes memory ret) = target.call(message);
+        xDomainMessageSender = prev;
+        if (!ok) {
+            assembly ("memory-safe") {
+                revert(add(ret, 0x20), mload(ret))
+            }
+        }
+    }
+}
+
 // ─── EthereumMPTGatewayAdapter test harness that bypasses MPT ────────────────
 
 contract TestableEthereumMPTAdapter is EthereumMPTGatewayAdapter {
