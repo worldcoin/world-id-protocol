@@ -100,6 +100,7 @@ tower-http = { version = "0.6", features = ["cors", "trace", "timeout"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = { version = "2", features = ["serde"] }
+web-time = "1"
 utoipa = "5"
 reqwest = { version = "0.13", default-features = false, features = [
   "json",
