@@ -62,7 +62,9 @@ serde_json = { workspace = true }
 aes-gcm = { workspace = true }
 hkdf = { workspace = true }
 quantum-box = { workspace = true }
+futures-util = { workspace = true }
 sha2 = { workspace = true }
+tracing = { workspace = true }
 web-time = { workspace = true }
 zeroize = { workspace = true }
 

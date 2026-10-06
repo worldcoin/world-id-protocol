@@ -128,8 +128,9 @@ fn decode_32_bytes(value: &str) -> Result<[u8; 32], PairingUriError> {
 
 /// The domain of a bridge deployment, e.g. `bridge.example.org`.
 ///
-/// It is a DNS name only: no scheme, port, path, user info, query or fragment. Letters are
-/// normalized to lowercase. The bridge is always reached over `https`.
+/// It is a DNS name with at least two labels and a non-numeric top-level label: no IP address,
+/// scheme, port, path, user info, query or fragment. Letters are normalized to lowercase. The
+/// bridge is always reached over `https`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BridgeDomain(String);
 
@@ -153,7 +154,10 @@ impl FromStr for BridgeDomain {
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b == b'-')
         };
-        if domain.len() > 253 || !domain.split('.').all(is_valid_label) {
+        let has_named_tld = domain
+            .rsplit_once('.')
+            .is_some_and(|(_, tld)| !tld.bytes().all(|b| b.is_ascii_digit()));
+        if domain.len() > 253 || !has_named_tld || !domain.split('.').all(is_valid_label) {
             return Err(PairingUriError::InvalidBridge);
         }
         Ok(Self(domain.to_ascii_lowercase()))
@@ -187,7 +191,7 @@ pub enum PairingUriError {
     /// `s` or `d` is not 32 bytes of canonical unpadded base64url.
     #[error("pairing secret and digest must be 32 bytes of unpadded base64url")]
     InvalidEncoding,
-    /// `b` is not a bare DNS domain.
+    /// `b` is not a bare DNS domain with a named top-level label.
     #[error("bridge must be a bare domain name")]
     InvalidBridge,
 }

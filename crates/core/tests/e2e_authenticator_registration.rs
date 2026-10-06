@@ -2,7 +2,7 @@
 
 //! End-to-end WIP-109 registrations through the gateway, a V2 registry and a bridge stub.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use alloy::primitives::{Address, U256};
 use reqwest::Url;
@@ -184,9 +184,8 @@ async fn e2e_authenticator_registration() {
                 }],
             },
         )
-        .await
-        .unwrap();
-    assert_eq!(outcome.delivery, DeliveryOutcome::Delivered);
+        .await;
+    assert_eq!(outcome.delivery.unwrap(), DeliveryOutcome::Delivered);
     assert_eq!(outcome.result.as_ref().unwrap().pubkey_id, 1);
     account.authenticators.push((proving_seed, Address::ZERO));
     account.sync(&indexer);
@@ -227,6 +226,7 @@ async fn e2e_authenticator_registration() {
     checked
         .approve(&primary, Approval::default())
         .await
+        .delivery
         .unwrap();
     let RequesterStatus::Completed(Ok(result)) = completed(&retry).await else {
         panic!("retry failed");
@@ -299,6 +299,7 @@ async fn e2e_authenticator_registration() {
     checked
         .approve(&primary, Approval::default())
         .await
+        .delivery
         .unwrap();
     let admin_address = Signer::from_seed_bytes(&admin_seed)
         .unwrap()
@@ -318,6 +319,25 @@ async fn e2e_authenticator_registration() {
         .unwrap();
     assert_eq!(admin.leaf_index(), account.leaf_index);
     assert_eq!(admin.pubkey_id(), U256::from(2));
+
+    // Approving too close to the deadline submits nothing.
+    let nonce = primary.signing_nonce().await.unwrap();
+    let session = requester(&[46u8; 32], RequestedClass::Proving, &bridge);
+    session.publish().await.unwrap();
+    let checked = IncomingRegistration::receive(&session.pairing_uri(), bridge_client(&bridge))
+        .await
+        .unwrap()
+        .with_response_deadline(Duration::from_secs(30))
+        .check(&primary)
+        .await
+        .unwrap();
+    let outcome = checked.approve(&primary, Approval::default()).await;
+    assert_eq!(outcome.result, Err(RegistrationErrorReason::InternalError));
+    assert_eq!(primary.signing_nonce().await.unwrap(), nonce);
+    let RequesterStatus::Completed(Err(error)) = completed(&session).await else {
+        panic!("expected an internal error");
+    };
+    assert_eq!(error.reason, RegistrationErrorReason::InternalError);
 
     // A request that does not match the digest in the link is dropped without a response.
     let session = requester(&[45u8; 32], RequestedClass::Proving, &bridge);

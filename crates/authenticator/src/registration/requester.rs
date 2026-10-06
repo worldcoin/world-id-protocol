@@ -200,16 +200,17 @@ impl RegistrationRequester {
     /// authenticator, ready to generate proofs.
     ///
     /// The registry, through the indexer, must show this session's key at `result.pubkey_id` on
-    /// `result.leaf_index`. Until this succeeds the authenticator must not consider itself
-    /// registered. The indexer may lag behind the registry, so this waits up to a minute for the
-    /// key to appear.
+    /// `result.leaf_index`, with the requested class. Until this succeeds the authenticator must
+    /// not consider itself registered. The indexer may lag behind the registry, so this retries
+    /// with backoff for about a minute of waiting, plus the time the requests take.
     ///
     /// Importing the vault is up to the caller, which must validate the imported credentials
     /// against the account.
     ///
     /// # Errors
     ///
-    /// - [`RequesterError::RegistrationMismatch`] if the key is registered at another slot.
+    /// - [`RequesterError::RegistrationMismatch`] if the key is registered at another slot or
+    ///   with another class.
     /// - [`RequesterError::Authenticator`] if the key does not show up in time or a network
     ///   call fails.
     pub async fn verify(
@@ -252,7 +253,14 @@ impl RegistrationRequester {
                 )
             })
             .await?;
-        if authenticator.pubkey_id() != ruint::aliases::U256::from(result.pubkey_id) {
+        let registered = Authenticator::fetch_authenticators_for(
+            result.leaf_index,
+            &config,
+            &authenticator.indexer_client,
+        )
+        .await?
+        .find(&self.request.new_authenticator_pubkey);
+        if registered != Some((result.pubkey_id, self.request.class)) {
             return Err(RequesterError::RegistrationMismatch);
         }
         Ok(authenticator)

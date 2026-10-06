@@ -138,7 +138,9 @@ impl BridgeClient {
     /// Stores the encrypted request under `request_id` (`POST /request`).
     ///
     /// Retried on server errors and transport failures. A retry of a request that the bridge
-    /// stored before the reply was lost yields [`PublishOutcome::AlreadyPublished`].
+    /// stored before the reply was lost yields [`PublishOutcome::AlreadyPublished`]. In the rare
+    /// case that the Approving Authenticator took the request in between, the retry stores it
+    /// again and resets the session status to `initialized`, as WIP-109 accepts.
     ///
     /// # Errors
     ///
