@@ -15,6 +15,7 @@ repository.workspace = true
 openapi = ["dep:utoipa"]
 
 [dependencies]
+ciborium = { workspace = true }
 alloy = { workspace = true, features = ["sol-types", "signer-local"] }
 alloy-primitives = { workspace = true, default-features = false, features = [
     "serde",
@@ -55,6 +56,5 @@ getrandom-04 = { workspace = true, features = ["wasm_js"] }
 [dev-dependencies]
 ark-ec = { workspace = true }
 ark-serialize = { workspace = true }
-ciborium = { workspace = true }
 k256 = { workspace = true, features = ["ecdsa"] }
 taceo-oprf = { workspace = true, features = ["core", "types"] }

@@ -1,17 +1,18 @@
 //! The message and deeplink formats that World ID authenticators use to talk to each other, as
 //! defined in [WIP-105](https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-105.md).
 //!
-//! Messages are [JSON-RPC 2.0](https://www.jsonrpc.org/specification) objects whose `method` is a
-//! [`MethodName`], and deeplinks are `worldid://` URIs represented by [`Deeplink`]. The concrete
-//! methods and deeplinks, together with their parameters, are defined by the WIPs that use them.
-//!
-//! Parsing is strict: unknown envelope members, a `jsonrpc` version other than `"2.0"`, and
-//! responses carrying both or neither of `result` and `error` are rejected.
+//! Messages use deterministic CBOR. Use [`encode`] and [`decode`] at transport boundaries to
+//! enforce the encoding rules and envelope semantics before processing a method payload.
+//! Deeplinks are `worldid://` URIs represented by [`Deeplink`].
 
 use std::{borrow::Cow, fmt, str::FromStr};
 
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
+
+mod cbor;
+pub use cbor::{MessageError, decode, encode};
+pub use ciborium::Value;
 
 /// The URI scheme of World ID deeplinks.
 pub const DEEPLINK_SCHEME: &str = "worldid";
@@ -135,24 +136,32 @@ fn is_camel_case_segment(segment: &str) -> bool {
     chars.next().is_some_and(|c| c.is_ascii_lowercase()) && chars.all(|c| c.is_ascii_alphanumeric())
 }
 
-/// The `jsonrpc` member of every message. It only (de)serializes the literal `"2.0"`.
+/// The envelope version defined by WIP-105.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-enum JsonRpcVersion {
+enum Version {
     #[default]
-    #[serde(rename = "2.0")]
-    V2,
+    #[serde(rename = "1.0")]
+    V1,
 }
 
-/// The `id` of a JSON-RPC request, echoed back in its response.
-///
-/// Requests without an `id` (notifications) and `null` ids are not supported.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// A request ID. Integer and text IDs are distinct; null is never a request ID.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(untagged)]
 pub enum Id {
-    /// A numeric id.
-    Number(i64),
-    /// A string id.
+    /// A CBOR integer, in the range -2^64 through 2^64 - 1.
+    Number(i128),
+    /// A text ID.
     String(String),
+}
+
+impl<'de> Deserialize<'de> for Id {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match Value::deserialize(deserializer)? {
+            Value::Integer(number) => Ok(Self::Number(number.into())),
+            Value::Text(text) => Ok(Self::String(text)),
+            _ => Err(D::Error::custom("request ID must be text or integer")),
+        }
+    }
 }
 
 impl From<String> for Id {
@@ -163,101 +172,129 @@ impl From<String> for Id {
 
 impl From<i64> for Id {
     fn from(id: i64) -> Self {
-        Self::Number(id)
+        Self::Number(id.into())
     }
 }
 
-/// A JSON-RPC 2.0 request carrying `params` of type `P`.
+/// A request requiring a response with the same ID.
 ///
-/// # Examples
-///
-/// ```
-/// use serde::{Deserialize, Serialize};
-/// use world_id_primitives::authenticator_message::{MethodName, Request};
-///
-/// #[derive(Serialize, Deserialize)]
-/// struct Ping {
-///     nonce: String,
-/// }
-///
-/// let request = Request::new(
-///     "1".to_string().into(),
-///     MethodName::from_static("worldid_ping_v1_ping"),
-///     Ping { nonce: "abc".into() },
-/// );
-/// let json = serde_json::to_string(&request).unwrap();
-/// assert_eq!(
-///     json,
-///     r#"{"jsonrpc":"2.0","id":"1","method":"worldid_ping_v1_ping","params":{"nonce":"abc"}}"#
-/// );
-/// ```
+/// Use [`encode`] and [`decode`] to check envelope semantics, including the requirement that
+/// supplied parameters are a CBOR map or array. Session owners must prevent concurrent ID reuse.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(bound(deserialize = "P: Deserialize<'de>"))]
 pub struct Request<P> {
-    jsonrpc: JsonRpcVersion,
-    /// The request id, echoed back in the response.
+    version: Version,
+    /// The request ID, echoed back in the response.
     pub id: Id,
     /// The method being invoked.
     pub method: MethodName,
-    /// The method parameters.
-    pub params: P,
+    /// Arguments, or `None` when no arguments were supplied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<P>,
 }
 
 impl<P> Request<P> {
     /// Creates a request invoking `method` with `params`.
     pub const fn new(id: Id, method: MethodName, params: P) -> Self {
         Self {
-            jsonrpc: JsonRpcVersion::V2,
+            version: Version::V1,
             id,
             method,
-            params,
+            params: Some(params),
+        }
+    }
+
+    /// Creates a request without an arguments field.
+    pub const fn without_params(id: Id, method: MethodName) -> Self {
+        Self {
+            version: Version::V1,
+            id,
+            method,
+            params: None,
         }
     }
 }
 
-/// A JSON-RPC 2.0 error object whose optional `data` member is of type `D`.
+/// A method invocation without an ID. Receivers must never reply to a valid notification,
+/// including when the method is unknown or execution fails.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, bound(deserialize = "D: Deserialize<'de>"))]
-pub struct ErrorObject<D = serde_json::Value> {
-    /// The error code.
-    pub code: i64,
-    /// A short, informational description of the error.
-    pub message: String,
-    /// Additional information about the error.
+#[serde(bound(deserialize = "P: Deserialize<'de>"))]
+pub struct Notification<P> {
+    version: Version,
+    #[serde(
+        default,
+        rename = "id",
+        skip_serializing,
+        deserialize_with = "reject_notification_id"
+    )]
+    no_id: (),
+    /// The method being invoked.
+    pub method: MethodName,
+    /// Arguments, or `None` when no arguments were supplied.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<P>,
+}
+
+impl<P> Notification<P> {
+    /// Creates a notification with arguments.
+    pub const fn new(method: MethodName, params: P) -> Self {
+        Self {
+            version: Version::V1,
+            no_id: (),
+            method,
+            params: Some(params),
+        }
+    }
+
+    /// Creates a notification without arguments.
+    pub const fn without_params(method: MethodName) -> Self {
+        Self {
+            version: Version::V1,
+            no_id: (),
+            method,
+            params: None,
+        }
+    }
+}
+
+fn reject_notification_id<'de, D: Deserializer<'de>>(_: D) -> Result<(), D::Error> {
+    Err(D::Error::custom("notification must not contain an ID"))
+}
+
+/// A method failure. Callers identify errors by their case-sensitive code, not message text.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "D: Deserialize<'de>"))]
+pub struct ErrorObject<D = Value> {
+    /// A shared WIP-105 or method-specific failure code.
+    pub code: String,
+    /// A short human-readable explanation.
+    pub message: String,
+    /// Optional method-specific details; a present null value is preserved.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
     pub data: Option<D>,
 }
 
-/// A JSON-RPC 2.0 response with either a result of type `R` or an [`ErrorObject`] with `data` of
-/// type `D`.
+/// A response containing exactly one result or error.
 ///
-/// On the wire a response carries exactly one of `result` and `error`. Deserialization rejects
-/// responses with both or neither.
-///
-/// # Examples
-///
-/// ```
-/// use world_id_primitives::authenticator_message::{ErrorObject, Response};
-///
-/// let json = r#"{"jsonrpc":"2.0","id":"1","error":{"code":1000,"message":"rejected"}}"#;
-/// let response: Response<String> = serde_json::from_str(json).unwrap();
-/// assert_eq!(response.outcome.unwrap_err().code, 1000);
-///
-/// let both = r#"{"jsonrpc":"2.0","id":"1","result":"ok","error":{"code":1,"message":"x"}}"#;
-/// assert!(serde_json::from_str::<Response<String>>(both).is_err());
-/// ```
+/// A null ID (`None`) is reserved for uncorrelated errors and must never match a pending request.
+/// Callers must match other responses by ID and report invalid or unmatched responses locally,
+/// without replying. Use [`encode`] and [`decode`] at the transport boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Response<R, D = serde_json::Value> {
-    /// The id of the request this response answers.
-    pub id: Id,
+pub struct Response<R, D = Value> {
+    /// The request ID, or `None` for an uncorrelated error.
+    pub id: Option<Id>,
     /// The method result, or the error that prevented it.
     pub outcome: Result<R, ErrorObject<D>>,
 }
 
 #[derive(Serialize)]
 struct WireResponseRef<'a, R, D> {
-    jsonrpc: JsonRpcVersion,
-    id: &'a Id,
+    version: Version,
+    id: &'a Option<Id>,
     #[serde(skip_serializing_if = "Option::is_none")]
     result: Option<&'a R>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -265,21 +302,18 @@ struct WireResponseRef<'a, R, D> {
 }
 
 #[derive(Deserialize)]
-#[serde(
-    deny_unknown_fields,
-    bound(deserialize = "R: Deserialize<'de>, D: Deserialize<'de>")
-)]
+#[serde(bound(deserialize = "R: Deserialize<'de>, D: Deserialize<'de>"))]
 struct WireResponse<R, D> {
-    #[serde(rename = "jsonrpc")]
-    _jsonrpc: JsonRpcVersion,
-    id: Id,
+    #[serde(rename = "version")]
+    _version: Version,
+    #[serde(deserialize_with = "Deserialize::deserialize")]
+    id: Option<Id>,
     #[serde(default, deserialize_with = "deserialize_present")]
     result: Option<R>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_present")]
     error: Option<ErrorObject<D>>,
 }
 
-/// Deserializes a member that is present on the wire, even if its value is `null`, as `Some`.
 fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
@@ -290,8 +324,13 @@ where
 
 impl<R: Serialize, D: Serialize> Serialize for Response<R, D> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if self.id.is_none() && self.outcome.is_ok() {
+            return Err(serde::ser::Error::custom(
+                "successful response requires a non-null ID",
+            ));
+        }
         WireResponseRef {
-            jsonrpc: JsonRpcVersion::V2,
+            version: Version::V1,
             id: &self.id,
             result: self.outcome.as_ref().ok(),
             error: self.outcome.as_ref().err(),
@@ -304,16 +343,11 @@ impl<'de, R: Deserialize<'de>, D: Deserialize<'de>> Deserialize<'de> for Respons
     fn deserialize<De: Deserializer<'de>>(deserializer: De) -> Result<Self, De::Error> {
         let wire = WireResponse::<R, D>::deserialize(deserializer)?;
         let outcome = match (wire.result, wire.error) {
-            (Some(result), None) => Ok(result),
+            (Some(result), None) if wire.id.is_some() => Ok(result),
             (None, Some(error)) => Err(error),
-            (Some(_), Some(_)) => {
+            _ => {
                 return Err(De::Error::custom(
-                    "response must not contain both `result` and `error`",
-                ));
-            }
-            (None, None) => {
-                return Err(De::Error::custom(
-                    "response must contain either `result` or `error`",
+                    "response requires exactly one outcome and successes require a non-null ID",
                 ));
             }
         };
@@ -592,95 +626,6 @@ mod tests {
     fn method_name_deserialization_validates() {
         assert!(serde_json::from_value::<MethodName>(json!("worldid_auth_v1_register")).is_ok());
         assert!(serde_json::from_value::<MethodName>(json!("worldid_Auth")).is_err());
-    }
-
-    #[test]
-    fn request_round_trips() {
-        let json = json!({
-            "jsonrpc": "2.0",
-            "id": "abc",
-            "method": "worldid_auth_v1_register",
-            "params": {"name": "phone"},
-        });
-        let request: Request<serde_json::Value> = serde_json::from_value(json.clone()).unwrap();
-        assert_eq!(request.id, Id::String("abc".into()));
-        assert_eq!(request.method.as_str(), "worldid_auth_v1_register");
-        assert_eq!(serde_json::to_value(&request).unwrap(), json);
-    }
-
-    #[test]
-    fn request_parsing_is_strict() {
-        let base = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "worldid_auth_v1_register",
-            "params": {},
-        });
-        assert!(serde_json::from_value::<Request<serde_json::Value>>(base.clone()).is_ok());
-
-        let mutations: [(&str, serde_json::Value); 4] = [
-            ("jsonrpc", json!("1.0")),
-            ("method", json!("auth_register")),
-            ("id", json!(null)),
-            ("extra", json!(true)),
-        ];
-        for (key, value) in mutations {
-            let mut request = base.clone();
-            request[key] = value;
-            assert!(
-                serde_json::from_value::<Request<serde_json::Value>>(request).is_err(),
-                "{key}"
-            );
-        }
-
-        let mut missing_version = base;
-        missing_version.as_object_mut().unwrap().remove("jsonrpc");
-        assert!(serde_json::from_value::<Request<serde_json::Value>>(missing_version).is_err());
-    }
-
-    #[test]
-    fn response_round_trips_result_and_error() {
-        let success = json!({"jsonrpc": "2.0", "id": "x", "result": {"ok": true}});
-        let response: Response<serde_json::Value> =
-            serde_json::from_value(success.clone()).unwrap();
-        assert_eq!(response.outcome, Ok(json!({"ok": true})));
-        assert_eq!(serde_json::to_value(&response).unwrap(), success);
-
-        let failure = json!({
-            "jsonrpc": "2.0",
-            "id": "x",
-            "error": {"code": -32602, "message": "bad", "data": {"reason": "invalid_params"}},
-        });
-        let response: Response<serde_json::Value> =
-            serde_json::from_value(failure.clone()).unwrap();
-        let error = response.outcome.as_ref().unwrap_err();
-        assert_eq!(error.code, -32602);
-        assert_eq!(error.data, Some(json!({"reason": "invalid_params"})));
-        assert_eq!(serde_json::to_value(&response).unwrap(), failure);
-    }
-
-    #[test]
-    fn response_with_null_result_is_a_success() {
-        let response: Response<()> =
-            serde_json::from_value(json!({"jsonrpc": "2.0", "id": 1, "result": null})).unwrap();
-        assert_eq!(response.outcome, Ok(()));
-    }
-
-    #[test]
-    fn response_requires_exactly_one_outcome() {
-        let neither = json!({"jsonrpc": "2.0", "id": 1});
-        assert!(serde_json::from_value::<Response<serde_json::Value>>(neither).is_err());
-
-        let both = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": 1,
-            "error": {"code": 1, "message": "x"},
-        });
-        assert!(serde_json::from_value::<Response<serde_json::Value>>(both).is_err());
-
-        let unknown = json!({"jsonrpc": "2.0", "id": 1, "result": 1, "extra": 1});
-        assert!(serde_json::from_value::<Response<serde_json::Value>>(unknown).is_err());
     }
 
     #[test]
