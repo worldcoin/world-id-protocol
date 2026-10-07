@@ -580,7 +580,7 @@ mod tests {
             .await;
         assert!(matches!(
             client(&server).take_request(&request_id()).await,
-            Err(BridgeError::Transport(_))
+            Err(BridgeError::Json(_))
         ));
         malformed.assert_async().await;
     }
