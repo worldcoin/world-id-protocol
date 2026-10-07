@@ -14,7 +14,7 @@ global NOW: Field = 1783446000;
 global AUD: Field = 1928118;
 global NONCE: Field = 42;
 global CDH: Field = 0;
-global MIN_BUILD_VERSION: Field = 2006;
+global MIN_BUILD_VERSION: u32 = 2006;
 global BLIND: Field = 7;
 global EXPECTED_AAT_COMMITMENT: Field =
     0x17785a9691e9ee99df657ce545bfe748eab27cf21f118361d87cf64ff024495d;

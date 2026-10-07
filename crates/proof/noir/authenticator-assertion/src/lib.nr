@@ -39,7 +39,7 @@ pub struct AuthenticatorAssertionPublicInputs {
     /// User presence signed by the Authenticator Provider.
     pub user_presence: u8,
     /// Minimum `build_version` the RP accepts.
-    pub min_build_version: Field,
+    pub min_build_version: u32,
 }
 
 /// The private inputs of AAT verification (WIP-106 section 3.7): the signing key, the token
@@ -93,10 +93,7 @@ pub fn verify_aat(
         public.sec_meta,
         public.user_presence,
     );
-    assert(
-        !std::field::bn254::lt(build_version, public.min_build_version),
-        "build_version below minimum",
-    );
+    assert(build_version >= public.min_build_version, "build_version below minimum");
 }
 
 fn request_commitment(aud: Field, nonce: Field, cdh: Field, blind: Field) -> Field {
@@ -124,7 +121,7 @@ fn assert_sec_flags(
     sec_level: u8,
     sec_meta: u8,
     user_presence: u8,
-) -> Field {
+) -> u32 {
     // Constrains `sec_flags < 2^56`; `bytes[0]` holds bits 48-55.
     let bytes: [u8; 7] = sec_flags.to_be_bytes();
     assert(bytes[0] < 64, "sec_flags bits 54 and above are reserved and must be 0");
@@ -136,5 +133,5 @@ fn assert_sec_flags(
             & ((bytes[0] >> 3) == user_presence),
         "sec_flags do not match the public security flags",
     );
-    Field::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]])
+    Field::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]) as u32
 }
