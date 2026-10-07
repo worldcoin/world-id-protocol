@@ -71,7 +71,7 @@ impl Authenticator {
         Ok(insertion.request_id)
     }
 
-    /// Fetches one consistent view of the account to sign an account operation from.
+    /// Fetches the account state needed to sign an account operation.
     ///
     /// The authenticator slots, the off-chain signer commitment and the recovery counter come
     /// from the same indexed account state (the indexer's `/authenticators` endpoint). The
@@ -103,6 +103,8 @@ impl Authenticator {
     /// the request finalizes.
     ///
     /// # Errors
+    /// - [`AuthenticatorError::InvalidAccountSnapshot`] if the snapshot belongs to another account
+    ///   or its commitment does not match its public keys.
     /// - [`AuthenticatorError::MaxAuthenticatorsReached`] if the snapshot has no free slot.
     /// - [`AuthenticatorError::GatewayError`] if the gateway rejects the operation, e.g. because
     ///   the snapshot is stale or the address is already registered.
@@ -114,8 +116,14 @@ impl Authenticator {
         class: AuthenticatorClass,
     ) -> Result<PendingInsertion, AuthenticatorError> {
         if snapshot.leaf_index != self.leaf_index() {
-            return Err(AuthenticatorError::Generic(
-                "account snapshot belongs to a different account".to_string(),
+            return Err(AuthenticatorError::InvalidAccountSnapshot(
+                "snapshot belongs to a different account",
+            ));
+        }
+        let commitment: U256 = snapshot.authenticators.key_set.leaf_hash().into();
+        if snapshot.authenticators.offchain_signer_commitment != commitment {
+            return Err(AuthenticatorError::InvalidAccountSnapshot(
+                "off-chain signer commitment does not match the public key set",
             ));
         }
         self.submit_insert_authenticator(
