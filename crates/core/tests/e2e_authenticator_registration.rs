@@ -258,7 +258,7 @@ async fn e2e_authenticator_registration() {
     .unwrap();
     let status = completed(&mut session).await;
     let RequesterStatus::Completed(Ok(result)) = status else {
-        panic!("admin registration failed: {status:?}");
+        panic!("admin registration failed");
     };
     session
         .verify(&admin_seed, &result, config.clone(), dummy_zk_source())
