@@ -21,8 +21,6 @@ mod request;
 mod requester;
 mod response;
 mod session;
-#[cfg(test)]
-mod vectors;
 
 pub use crate::account::AuthenticatorClass;
 pub use approver::{
@@ -78,3 +76,6 @@ fn contains_tag(value: &ciborium::Value) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod vectors;
