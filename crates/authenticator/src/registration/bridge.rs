@@ -32,6 +32,182 @@ pub struct BridgeClient {
     base_url: Url,
 }
 
+impl BridgeClient {
+    /// Creates a client for the bridge at `base_url`, e.g. `https://bridge.example.org`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidUrl`] if `base_url` cannot be a base for the bridge routes.
+    pub fn new(base_url: Url) -> Result<Self, BridgeError> {
+        if base_url.cannot_be_a_base() {
+            return Err(BridgeError::InvalidUrl(base_url.to_string()));
+        }
+        Ok(Self {
+            http: default_http_client(),
+            base_url,
+        })
+    }
+
+    /// Creates a client for the bridge at `https://{domain}`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidUrl`] if the domain does not form a valid URL.
+    pub fn for_domain(domain: &BridgeDomain) -> Result<Self, BridgeError> {
+        let url = Url::parse(&format!("https://{domain}"))
+            .map_err(|e| BridgeError::InvalidUrl(e.to_string()))?;
+        Self::new(url)
+    }
+
+    /// Stores the encrypted request under `request_id` (`POST /request`).
+    ///
+    /// Retried on server errors and transport failures. A retry of a request that the bridge
+    /// stored before the reply was lost yields [`PublishOutcome::AlreadyPublished`]. In the rare
+    /// case that the Approving Authenticator took the request in between, the retry stores it
+    /// again and resets the session status to `initialized`, as WIP-109 accepts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error on other statuses, or once retries are exhausted.
+    pub async fn publish_request(
+        &self,
+        request_id: &RequestId,
+        request: &EncryptedPayload,
+    ) -> Result<PublishOutcome, BridgeError> {
+        let url = self.url(&["request"])?;
+        let body = PublishRequestBody {
+            request_id: request_id.to_string(),
+            iv: &request.iv,
+            payload: &request.payload,
+        };
+        let send = || async {
+            let response = self.http.post(url.clone()).json(&body).send().await?;
+            match response.status() {
+                StatusCode::OK | StatusCode::CREATED => Ok(PublishOutcome::Published),
+                StatusCode::CONFLICT => Ok(PublishOutcome::AlreadyPublished),
+                _ => Err(BridgeError::from_response(&response)),
+            }
+        };
+        bounded(
+            send.retry(backoff())
+                .when(BridgeError::is_retryable)
+                .adjust(BridgeError::retry_delay),
+        )
+        .await
+    }
+
+    /// Takes the encrypted request stored under `request_id` (`GET /request/:id`).
+    ///
+    /// Returns `None` if the request expired or was already taken, including when an earlier
+    /// attempt consumed it but its reply was lost. Retries transient failures with bounded backoff.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error on malformed data, unexpected statuses, or exhausted retries/deadline.
+    pub async fn take_request(
+        &self,
+        request_id: &RequestId,
+    ) -> Result<Option<EncryptedPayload>, BridgeError> {
+        self.read(self.url(&["request", &request_id.to_string()])?)
+            .await
+    }
+
+    /// Reads the response state, consuming the response if it has arrived.
+    ///
+    /// Retries transient failures, honoring `Retry-After`. A retry after a consumed response was
+    /// lost can return [`ResponseState::NotFound`]; the caller must start a new pairing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error on malformed data, unexpected statuses, or exhausted retries/deadline.
+    pub async fn fetch_response(
+        &self,
+        request_id: &RequestId,
+    ) -> Result<ResponseState, BridgeError> {
+        let body: Option<ResponseBody> = self
+            .read(self.url(&["response", &request_id.to_string()])?)
+            .await?;
+        match body {
+            None => Ok(ResponseState::NotFound),
+            Some(ResponseBody {
+                status: WireStatus::Completed,
+                response: Some(payload),
+            }) => Ok(ResponseState::Completed(payload)),
+            Some(ResponseBody {
+                status: WireStatus::Initialized,
+                response: None,
+            }) => Ok(ResponseState::Initialized),
+            Some(ResponseBody {
+                status: WireStatus::Retrieved,
+                response: None,
+            }) => Ok(ResponseState::Retrieved),
+            Some(_) => Err(BridgeError::InvalidResponse(
+                "payload does not match response status",
+            )),
+        }
+    }
+
+    /// Stores the encrypted response to `request_id` (`PUT /response/:id`).
+    ///
+    /// Retried on server errors and transport failures.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error on other unexpected statuses, or once retries are exhausted.
+    pub async fn put_response(
+        &self,
+        request_id: &RequestId,
+        response: &EncryptedPayload,
+    ) -> Result<DeliveryOutcome, BridgeError> {
+        let url = self.url(&["response", &request_id.to_string()])?;
+        let attempts = std::sync::atomic::AtomicUsize::new(0);
+        let send = || async {
+            let is_retry = attempts.fetch_add(1, std::sync::atomic::Ordering::Relaxed) > 0;
+            let reply = self.http.put(url.clone()).json(response).send().await?;
+            match reply.status() {
+                StatusCode::CREATED | StatusCode::OK => Ok(DeliveryOutcome::Delivered),
+                StatusCode::BAD_REQUEST | StatusCode::CONFLICT if is_retry => {
+                    Ok(DeliveryOutcome::PossiblyDelivered)
+                }
+                StatusCode::BAD_REQUEST | StatusCode::CONFLICT => Ok(DeliveryOutcome::Rejected),
+                _ => Err(BridgeError::from_response(&reply)),
+            }
+        };
+        bounded(
+            send.retry(backoff())
+                .when(BridgeError::is_retryable)
+                .adjust(BridgeError::retry_delay),
+        )
+        .await
+    }
+
+    async fn read<T: DeserializeOwned>(&self, url: Url) -> Result<Option<T>, BridgeError> {
+        let send = || async {
+            let response = self.http.get(url.clone()).send().await?;
+            match response.status() {
+                StatusCode::OK => Ok(Some(read_json(response).await?)),
+                StatusCode::NOT_FOUND => Ok(None),
+                _ => Err(BridgeError::from_response(&response)),
+            }
+        };
+        bounded(
+            send.retry(backoff())
+                .when(BridgeError::read_is_retryable)
+                .adjust(BridgeError::retry_delay),
+        )
+        .await
+    }
+
+    fn url(&self, segments: &[&str]) -> Result<Url, BridgeError> {
+        let mut url = self.base_url.clone();
+        url.path_segments_mut()
+            .map_err(|()| BridgeError::InvalidUrl(self.base_url.to_string()))?
+            .pop_if_empty()
+            .extend(segments);
+        Ok(url)
+    }
+}
+
 /// The outcome of [`BridgeClient::publish_request`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PublishOutcome {
@@ -185,182 +361,6 @@ enum WireStatus {
     Initialized,
     Retrieved,
     Completed,
-}
-
-impl BridgeClient {
-    /// Creates a client for the bridge at `base_url`, e.g. `https://bridge.example.org`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`BridgeError::InvalidUrl`] if `base_url` cannot be a base for the bridge routes.
-    pub fn new(base_url: Url) -> Result<Self, BridgeError> {
-        if base_url.cannot_be_a_base() {
-            return Err(BridgeError::InvalidUrl(base_url.to_string()));
-        }
-        Ok(Self {
-            http: default_http_client(),
-            base_url,
-        })
-    }
-
-    /// Creates a client for the bridge at `https://{domain}`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`BridgeError::InvalidUrl`] if the domain does not form a valid URL.
-    pub fn for_domain(domain: &BridgeDomain) -> Result<Self, BridgeError> {
-        let url = Url::parse(&format!("https://{domain}"))
-            .map_err(|e| BridgeError::InvalidUrl(e.to_string()))?;
-        Self::new(url)
-    }
-
-    /// Stores the encrypted request under `request_id` (`POST /request`).
-    ///
-    /// Retried on server errors and transport failures. A retry of a request that the bridge
-    /// stored before the reply was lost yields [`PublishOutcome::AlreadyPublished`]. In the rare
-    /// case that the Approving Authenticator took the request in between, the retry stores it
-    /// again and resets the session status to `initialized`, as WIP-109 accepts.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error on other statuses, or once retries are exhausted.
-    pub async fn publish_request(
-        &self,
-        request_id: &RequestId,
-        request: &EncryptedPayload,
-    ) -> Result<PublishOutcome, BridgeError> {
-        let url = self.url(&["request"])?;
-        let body = PublishRequestBody {
-            request_id: request_id.to_string(),
-            iv: &request.iv,
-            payload: &request.payload,
-        };
-        let send = || async {
-            let response = self.http.post(url.clone()).json(&body).send().await?;
-            match response.status() {
-                StatusCode::OK | StatusCode::CREATED => Ok(PublishOutcome::Published),
-                StatusCode::CONFLICT => Ok(PublishOutcome::AlreadyPublished),
-                _ => Err(BridgeError::from_response(&response)),
-            }
-        };
-        bounded(
-            send.retry(backoff())
-                .when(BridgeError::is_retryable)
-                .adjust(BridgeError::retry_delay),
-        )
-        .await
-    }
-
-    /// Takes the encrypted request stored under `request_id` (`GET /request/:id`).
-    ///
-    /// Returns `None` if the request expired or was already taken, including when an earlier
-    /// attempt consumed it but its reply was lost. Retries transient failures with bounded backoff.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error on malformed data, unexpected statuses, or exhausted retries/deadline.
-    pub async fn take_request(
-        &self,
-        request_id: &RequestId,
-    ) -> Result<Option<EncryptedPayload>, BridgeError> {
-        self.read(self.url(&["request", &request_id.to_string()])?)
-            .await
-    }
-
-    /// Reads the response state, consuming the response if it has arrived.
-    ///
-    /// Retries transient failures, honoring `Retry-After`. A retry after a consumed response was
-    /// lost can return [`ResponseState::NotFound`]; the caller must start a new pairing.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error on malformed data, unexpected statuses, or exhausted retries/deadline.
-    pub async fn fetch_response(
-        &self,
-        request_id: &RequestId,
-    ) -> Result<ResponseState, BridgeError> {
-        let body: Option<ResponseBody> = self
-            .read(self.url(&["response", &request_id.to_string()])?)
-            .await?;
-        match body {
-            None => Ok(ResponseState::NotFound),
-            Some(ResponseBody {
-                status: WireStatus::Completed,
-                response: Some(payload),
-            }) => Ok(ResponseState::Completed(payload)),
-            Some(ResponseBody {
-                status: WireStatus::Initialized,
-                response: None,
-            }) => Ok(ResponseState::Initialized),
-            Some(ResponseBody {
-                status: WireStatus::Retrieved,
-                response: None,
-            }) => Ok(ResponseState::Retrieved),
-            Some(_) => Err(BridgeError::InvalidResponse(
-                "payload does not match response status",
-            )),
-        }
-    }
-
-    async fn read<T: DeserializeOwned>(&self, url: Url) -> Result<Option<T>, BridgeError> {
-        let send = || async {
-            let response = self.http.get(url.clone()).send().await?;
-            match response.status() {
-                StatusCode::OK => Ok(Some(read_json(response).await?)),
-                StatusCode::NOT_FOUND => Ok(None),
-                _ => Err(BridgeError::from_response(&response)),
-            }
-        };
-        bounded(
-            send.retry(backoff())
-                .when(BridgeError::read_is_retryable)
-                .adjust(BridgeError::retry_delay),
-        )
-        .await
-    }
-
-    /// Stores the encrypted response to `request_id` (`PUT /response/:id`).
-    ///
-    /// Retried on server errors and transport failures.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error on other unexpected statuses, or once retries are exhausted.
-    pub async fn put_response(
-        &self,
-        request_id: &RequestId,
-        response: &EncryptedPayload,
-    ) -> Result<DeliveryOutcome, BridgeError> {
-        let url = self.url(&["response", &request_id.to_string()])?;
-        let attempts = std::sync::atomic::AtomicUsize::new(0);
-        let send = || async {
-            let is_retry = attempts.fetch_add(1, std::sync::atomic::Ordering::Relaxed) > 0;
-            let reply = self.http.put(url.clone()).json(response).send().await?;
-            match reply.status() {
-                StatusCode::CREATED | StatusCode::OK => Ok(DeliveryOutcome::Delivered),
-                StatusCode::BAD_REQUEST | StatusCode::CONFLICT if is_retry => {
-                    Ok(DeliveryOutcome::PossiblyDelivered)
-                }
-                StatusCode::BAD_REQUEST | StatusCode::CONFLICT => Ok(DeliveryOutcome::Rejected),
-                _ => Err(BridgeError::from_response(&reply)),
-            }
-        };
-        bounded(
-            send.retry(backoff())
-                .when(BridgeError::is_retryable)
-                .adjust(BridgeError::retry_delay),
-        )
-        .await
-    }
-
-    fn url(&self, segments: &[&str]) -> Result<Url, BridgeError> {
-        let mut url = self.base_url.clone();
-        url.path_segments_mut()
-            .map_err(|()| BridgeError::InvalidUrl(self.base_url.to_string()))?
-            .pop_if_empty()
-            .extend(segments);
-        Ok(url)
-    }
 }
 
 async fn read_json<T: DeserializeOwned>(response: reqwest::Response) -> Result<T, BridgeError> {

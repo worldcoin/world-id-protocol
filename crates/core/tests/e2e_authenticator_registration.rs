@@ -30,99 +30,6 @@ use world_id_test_utils::{
 
 const PRIMARY_SEED: [u8; 32] = [42; 32];
 
-fn dummy_zk_source() -> Arc<dyn ZkArtifactSource> {
-    Arc::new(DummyZkArtifactSource)
-}
-
-/// The indexed account state the test keeps in sync with the registry: `(seed, address)` by
-/// `pubkey_id`.
-struct Account {
-    leaf_index: u64,
-    authenticators: Vec<([u8; 32], Address)>,
-}
-
-impl Account {
-    fn sync(&self, indexer: &AccountIndexerStub) {
-        indexer.set_account(
-            self.leaf_index,
-            StubAccount {
-                pubkeys: self
-                    .authenticators
-                    .iter()
-                    .map(|(seed, _)| {
-                        Some(
-                            Signer::from_seed_bytes(seed)
-                                .unwrap()
-                                .offchain_signer_pubkey(),
-                        )
-                    })
-                    .collect(),
-                addresses: self
-                    .authenticators
-                    .iter()
-                    .map(|(_, address)| Some(*address))
-                    .collect(),
-                recovery_counter: 0,
-            },
-        );
-    }
-}
-
-fn bridge_client(bridge: &BridgeStub) -> BridgeClient {
-    BridgeClient::new(Url::parse(&bridge.url).unwrap()).unwrap()
-}
-
-fn requester(seed: &[u8; 32], class: RequestedClass, bridge: &BridgeStub) -> RegistrationRequester {
-    let name = AuthenticatorName::try_from("Chrome on MacBook".to_string()).unwrap();
-    RegistrationRequester::new(seed, class, Some(name), bridge_client(bridge), None).unwrap()
-}
-
-async fn completed(requester: &mut RegistrationRequester) -> RequesterStatus {
-    let status = requester.poll().await.unwrap();
-    assert!(
-        matches!(status, RequesterStatus::Completed(_)),
-        "unexpected status {status:?}"
-    );
-    status
-}
-
-async fn receive(
-    session: &mut RegistrationRequester,
-    bridge: &BridgeStub,
-) -> Result<IncomingRegistration, ApproverError> {
-    assert!(session.pairing_code().is_none());
-    let mut pending =
-        PendingRegistration::receive(&session.pairing_uri().unwrap(), bridge_client(bridge))
-            .await?;
-    assert_eq!(session.poll().await.unwrap(), RequesterStatus::Retrieved);
-    assert!(session.pairing_uri().is_none());
-    pending.authenticate(session.pairing_code().unwrap()).await
-}
-
-async fn approve_and_sync(
-    checked: CheckedRegistration,
-    primary: &Authenticator,
-    account: &mut Account,
-    inserted: ([u8; 32], Address),
-    indexer: &AccountIndexerStub,
-    approval: Approval,
-) -> ApprovalOutcome {
-    let nonce = primary.signing_nonce().await.unwrap();
-    let update_indexer = async {
-        tokio::time::timeout(Duration::from_secs(60), async {
-            while primary.signing_nonce().await.unwrap() == nonce {
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
-        })
-        .await
-        .expect("insertion did not reach the registry");
-        account.authenticators.push(inserted);
-        account.sync(indexer);
-    };
-    let (outcome, ()) = tokio::join!(checked.approve(primary, approval), update_indexer);
-    outcome
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn e2e_authenticator_registration() {
     rustls::crypto::aws_lc_rs::default_provider()
@@ -394,4 +301,97 @@ async fn e2e_authenticator_registration() {
     let dropped = pending.authenticate(session.pairing_code().unwrap()).await;
     assert!(matches!(dropped, Err(ApproverError::DigestMismatch)));
     assert_eq!(session.poll().await.unwrap(), RequesterStatus::Retrieved);
+}
+
+fn dummy_zk_source() -> Arc<dyn ZkArtifactSource> {
+    Arc::new(DummyZkArtifactSource)
+}
+
+/// The indexed account state the test keeps in sync with the registry: `(seed, address)` by
+/// `pubkey_id`.
+struct Account {
+    leaf_index: u64,
+    authenticators: Vec<([u8; 32], Address)>,
+}
+
+impl Account {
+    fn sync(&self, indexer: &AccountIndexerStub) {
+        indexer.set_account(
+            self.leaf_index,
+            StubAccount {
+                pubkeys: self
+                    .authenticators
+                    .iter()
+                    .map(|(seed, _)| {
+                        Some(
+                            Signer::from_seed_bytes(seed)
+                                .unwrap()
+                                .offchain_signer_pubkey(),
+                        )
+                    })
+                    .collect(),
+                addresses: self
+                    .authenticators
+                    .iter()
+                    .map(|(_, address)| Some(*address))
+                    .collect(),
+                recovery_counter: 0,
+            },
+        );
+    }
+}
+
+fn bridge_client(bridge: &BridgeStub) -> BridgeClient {
+    BridgeClient::new(Url::parse(&bridge.url).unwrap()).unwrap()
+}
+
+fn requester(seed: &[u8; 32], class: RequestedClass, bridge: &BridgeStub) -> RegistrationRequester {
+    let name = AuthenticatorName::try_from("Chrome on MacBook".to_string()).unwrap();
+    RegistrationRequester::new(seed, class, Some(name), bridge_client(bridge), None).unwrap()
+}
+
+async fn completed(requester: &mut RegistrationRequester) -> RequesterStatus {
+    let status = requester.poll().await.unwrap();
+    assert!(
+        matches!(status, RequesterStatus::Completed(_)),
+        "unexpected status {status:?}"
+    );
+    status
+}
+
+async fn receive(
+    session: &mut RegistrationRequester,
+    bridge: &BridgeStub,
+) -> Result<IncomingRegistration, ApproverError> {
+    assert!(session.pairing_code().is_none());
+    let mut pending =
+        PendingRegistration::receive(&session.pairing_uri().unwrap(), bridge_client(bridge))
+            .await?;
+    assert_eq!(session.poll().await.unwrap(), RequesterStatus::Retrieved);
+    assert!(session.pairing_uri().is_none());
+    pending.authenticate(session.pairing_code().unwrap()).await
+}
+
+async fn approve_and_sync(
+    checked: CheckedRegistration,
+    primary: &Authenticator,
+    account: &mut Account,
+    inserted: ([u8; 32], Address),
+    indexer: &AccountIndexerStub,
+    approval: Approval,
+) -> ApprovalOutcome {
+    let nonce = primary.signing_nonce().await.unwrap();
+    let update_indexer = async {
+        tokio::time::timeout(Duration::from_secs(60), async {
+            while primary.signing_nonce().await.unwrap() == nonce {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("insertion did not reach the registry");
+        account.authenticators.push(inserted);
+        account.sync(indexer);
+    };
+    let (outcome, ()) = tokio::join!(checked.approve(primary, approval), update_indexer);
+    outcome
 }

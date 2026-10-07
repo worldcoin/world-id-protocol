@@ -11,74 +11,20 @@ use world_id_primitives::{
 };
 use world_id_proof::artifacts::ZkArtifactSource;
 
-use super::approver::before;
-
-const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
-const SESSION_TTL: Duration = Duration::from_secs(15 * 60);
-
 use super::{
     AuthenticatorName, BridgeDomain, PairingCode, PairingSecret, PairingUri, REGISTER_METHOD,
     RegisterRequestMessage, RegisterResponseMessage, RegistrationDigest, RegistrationErrorData,
     RegistrationRequest, RegistrationResult, ResponseSecretKey, TransportError, TransportKey,
+    approver::before,
     bridge::{BridgeClient, BridgeError, ResponseState},
 };
 use crate::{Authenticator, AuthenticatorClass, AuthenticatorError};
 
+const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
+const SESSION_TTL: Duration = Duration::from_secs(15 * 60);
+
 /// How long [`RegistrationRequester::verify`] waits for the indexer to show a new registration.
 const VERIFY_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// The class a Requesting Authenticator asks for. An Admin Authenticator registers the management
-/// key derived from its seed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RequestedClass {
-    /// Ask to become an Admin Authenticator.
-    Admin,
-    /// Ask to become a Proving Authenticator.
-    Proving,
-}
-
-/// What [`RegistrationRequester::poll`] found on the bridge.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RequesterStatus {
-    /// The Approving Authenticator has not opened the Pairing URI yet.
-    Waiting,
-    /// The Approving Authenticator fetched the request. The user should continue on that device.
-    Retrieved,
-    /// The Approving Authenticator answered. A successful result still has to be checked with
-    /// [`RegistrationRequester::verify`].
-    Completed(Result<RegistrationResult, ErrorObject<RegistrationErrorData>>),
-    /// The session expired or its response was lost. Start a new session with the same seed.
-    Expired,
-}
-
-/// Errors on the Requesting Authenticator's side of a registration.
-#[derive(Debug, thiserror::Error)]
-pub enum RequesterError {
-    /// The bridge could not be reached or rejected an operation.
-    #[error(transparent)]
-    Bridge(#[from] BridgeError),
-    /// Encrypting the request or opening the response failed.
-    #[error(transparent)]
-    Transport(#[from] TransportError),
-    /// The seed or a key could not be used, or verifying the registration failed.
-    #[error(transparent)]
-    Authenticator(#[from] AuthenticatorError),
-    /// The response is not a valid registration response for this session.
-    #[error("malformed registration response: {0}")]
-    MalformedResponse(String),
-    /// The registry does not show the new authenticator where the response says it is.
-    #[error("the registration result does not match the registry")]
-    RegistrationMismatch,
-    /// This attempt has completed, expired, or been cancelled.
-    #[error("registration session has ended")]
-    SessionEnded,
-    /// The account could not be verified before the deadline.
-    #[error("registration verification timed out")]
-    VerificationTimeout,
-    /// The request was already published. Start a fresh attempt instead.
-    #[error("registration request was already published")]
-    AlreadyPublished,
-}
 
 /// One registration attempt of a new authenticator.
 ///
@@ -96,14 +42,6 @@ pub struct RegistrationRequester {
     digest: RegistrationDigest,
     advertised_bridge: Option<BridgeDomain>,
     bridge: BridgeClient,
-}
-
-struct SessionSecrets {
-    secret: PairingSecret,
-    response_key: ResponseSecretKey,
-    code: PairingCode,
-    transport_key: TransportKey,
-    code_revealed: bool,
 }
 
 impl RegistrationRequester {
@@ -299,7 +237,7 @@ impl RegistrationRequester {
     /// The registry, through the indexer, must show this session's key at `result.pubkey_id` on
     /// `result.leaf_index`, with the requested class. Until this succeeds the authenticator must
     /// not consider itself registered. The indexer may lag behind the registry, so this retries
-    /// with backoff for about a minute of waiting, plus the time the requests take.
+    /// with backoff within a one-minute deadline, including time spent on requests.
     ///
     /// Importing the vault is up to the caller, which must validate the imported credentials
     /// against the account.
@@ -308,8 +246,8 @@ impl RegistrationRequester {
     ///
     /// - [`RequesterError::RegistrationMismatch`] if the key is registered at another slot or
     ///   with another class.
-    /// - [`RequesterError::Authenticator`] if the key does not show up in time or a network
-    ///   call fails.
+    /// - [`RequesterError::VerificationTimeout`] if verification exceeds its deadline.
+    /// - [`RequesterError::Authenticator`] if initialization or an account lookup fails.
     pub async fn verify(
         &self,
         seed: &[u8],
@@ -375,6 +313,67 @@ impl std::fmt::Debug for RegistrationRequester {
             .field("active", &self.secrets.is_some())
             .finish_non_exhaustive()
     }
+}
+
+/// The class a Requesting Authenticator asks for. An Admin Authenticator registers the management
+/// key derived from its seed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RequestedClass {
+    /// Ask to become an Admin Authenticator.
+    Admin,
+    /// Ask to become a Proving Authenticator.
+    Proving,
+}
+
+/// What [`RegistrationRequester::poll`] found on the bridge.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RequesterStatus {
+    /// The Approving Authenticator has not opened the Pairing URI yet.
+    Waiting,
+    /// The Approving Authenticator fetched the request. The user should continue on that device.
+    Retrieved,
+    /// The Approving Authenticator answered. A successful result still has to be checked with
+    /// [`RegistrationRequester::verify`].
+    Completed(Result<RegistrationResult, ErrorObject<RegistrationErrorData>>),
+    /// The session expired or its response was lost. Start a new session with the same seed.
+    Expired,
+}
+
+/// Errors on the Requesting Authenticator's side of a registration.
+#[derive(Debug, thiserror::Error)]
+pub enum RequesterError {
+    /// The bridge could not be reached or rejected an operation.
+    #[error(transparent)]
+    Bridge(#[from] BridgeError),
+    /// Encrypting the request or opening the response failed.
+    #[error(transparent)]
+    Transport(#[from] TransportError),
+    /// The seed or a key could not be used, or verifying the registration failed.
+    #[error(transparent)]
+    Authenticator(#[from] AuthenticatorError),
+    /// The response is not a valid registration response for this session.
+    #[error("malformed registration response: {0}")]
+    MalformedResponse(String),
+    /// The registry does not show the new authenticator where the response says it is.
+    #[error("the registration result does not match the registry")]
+    RegistrationMismatch,
+    /// This attempt has completed, expired, or been cancelled.
+    #[error("registration session has ended")]
+    SessionEnded,
+    /// The account could not be verified before the deadline.
+    #[error("registration verification timed out")]
+    VerificationTimeout,
+    /// The request was already published. Start a fresh attempt instead.
+    #[error("registration request was already published")]
+    AlreadyPublished,
+}
+
+struct SessionSecrets {
+    secret: PairingSecret,
+    response_key: ResponseSecretKey,
+    code: PairingCode,
+    transport_key: TransportKey,
+    code_revealed: bool,
 }
 
 #[cfg(test)]

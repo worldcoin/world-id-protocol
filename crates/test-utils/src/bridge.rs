@@ -18,34 +18,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::{net::TcpListener, task::JoinHandle};
 
-#[derive(Clone, Serialize, Deserialize)]
-struct Payload {
-    iv: String,
-    payload: String,
-}
-
-#[derive(Deserialize)]
-struct PublishBody {
-    request_id: String,
-    iv: String,
-    payload: String,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Status {
-    Initialized,
-    Retrieved,
-}
-
-#[derive(Default)]
-struct Sessions {
-    requests: HashMap<String, Payload>,
-    statuses: HashMap<String, Status>,
-    responses: HashMap<String, Payload>,
-}
-
-type Shared = Arc<Mutex<Sessions>>;
-
 /// A running bridge stub. Dropping it does not stop the server; call [`BridgeStub::abort`].
 pub struct BridgeStub {
     /// The base URL of the stub, e.g. `http://127.0.0.1:1234`.
@@ -86,6 +58,34 @@ impl BridgeStub {
         self.handle.abort();
     }
 }
+
+#[derive(Clone, Serialize, Deserialize)]
+struct Payload {
+    iv: String,
+    payload: String,
+}
+
+#[derive(Deserialize)]
+struct PublishBody {
+    request_id: String,
+    iv: String,
+    payload: String,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Status {
+    Initialized,
+    Retrieved,
+}
+
+#[derive(Default)]
+struct Sessions {
+    requests: HashMap<String, Payload>,
+    statuses: HashMap<String, Status>,
+    responses: HashMap<String, Payload>,
+}
+
+type Shared = Arc<Mutex<Sessions>>;
 
 async fn publish_request(
     State(state): State<Shared>,

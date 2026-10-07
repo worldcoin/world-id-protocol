@@ -44,107 +44,6 @@ pub const DEFAULT_RESPONSE_DEADLINE: Duration =
 /// still submit an insertion. With less, the outcome would most likely be `outcome_unknown`.
 pub const MIN_TRACKING_TIME: Duration = Duration::from_secs(2 * 60);
 
-/// Errors on the Approving Authenticator's side of a registration.
-#[derive(Debug, thiserror::Error)]
-pub enum ApproverError {
-    /// The request expired or was already taken. The user should create a new QR code or link
-    /// on the new device.
-    #[error("the registration request expired or was already used")]
-    Expired,
-    /// Authentication failed. The ciphertext is retained for the remaining local attempts.
-    #[error("pairing code did not authenticate the request ({attempts_remaining} attempts remain)")]
-    IncorrectCode {
-        /// Number of remaining code attempts; zero means a new pairing is required.
-        attempts_remaining: u8,
-    },
-    /// The request does not match the digest in the Pairing URI. No response was sent.
-    #[error("the registration request does not match the pairing link")]
-    DigestMismatch,
-    /// The request is malformed. `responded` tells whether an `invalid_params` error was sent.
-    #[error("invalid registration request: {reason}")]
-    InvalidRequest {
-        /// What is wrong with the request.
-        reason: String,
-        /// Whether an error response was sent to the Requesting Authenticator.
-        responded: bool,
-    },
-    /// The registration was refused. The reason was sent to the Requesting Authenticator unless
-    /// `undelivered` holds the error that prevented it.
-    #[error("registration refused: {reason:?}")]
-    Refused {
-        /// The reason for the refusal.
-        reason: RegistrationErrorReason,
-        /// The underlying error, if the refusal was caused by one.
-        #[source]
-        source: Option<AuthenticatorError>,
-        /// The error that prevented sending the reason, if any.
-        undelivered: Option<Box<ApproverError>>,
-    },
-    /// The bridge session expired before the response could be delivered.
-    #[error("the bridge session expired before the response was delivered")]
-    SessionExpired,
-    /// The bridge could not be reached or rejected an operation.
-    #[error(transparent)]
-    Bridge(#[from] BridgeError),
-    /// Decrypting the request or sealing the response failed.
-    #[error(transparent)]
-    Transport(#[from] TransportError),
-    /// The response could not be encoded.
-    #[error("failed to encode the response: {0}")]
-    Encoding(#[from] authenticator_message::MessageError),
-}
-
-/// Runs `future` until `deadline`, returning `None` if the deadline passes first.
-pub(super) async fn before<F: Future>(deadline: Instant, future: F) -> Option<F::Output> {
-    let now = Instant::now();
-    if now >= deadline {
-        return None;
-    }
-    let remaining = deadline.saturating_duration_since(now);
-    let timeout = backon::DefaultSleeper::default().sleep(remaining);
-    match select(std::pin::pin!(future), std::pin::pin!(timeout)).await {
-        Either::Left((output, _)) => Some(output),
-        Either::Right(_) => None,
-    }
-}
-
-/// Where and how to send the response of one registration session.
-#[derive(Debug)]
-struct ResponseChannel {
-    request_id: RequestId,
-    response_pubkey: ResponsePublicKey,
-    transport_key: TransportKey,
-    bridge: BridgeClient,
-    expires_at: Instant,
-}
-
-impl ResponseChannel {
-    async fn send(
-        &self,
-        outcome: Result<RegistrationResult, ErrorObject<RegistrationErrorData>>,
-    ) -> Result<DeliveryOutcome, ApproverError> {
-        let response = RegisterResponseMessage {
-            id: Some(Id::String(self.request_id.to_string())),
-            outcome,
-        };
-        let sealed = self.transport_key.encrypt_response(
-            &self.response_pubkey,
-            &authenticator_message::encode(&response)?,
-        )?;
-        let delivery = before(
-            self.expires_at,
-            self.bridge.put_response(&self.request_id, &sealed),
-        )
-        .await
-        .ok_or(ApproverError::SessionExpired)
-        .and_then(|delivery| delivery.map_err(ApproverError::from));
-        if let Err(error) = &delivery {
-            tracing::warn!(request_id = %self.request_id, %error, "failed to deliver registration response");
-        }
-        delivery
-    }
-}
-
 /// An encrypted request fetched once, waiting for code entry on the approving device.
 ///
 /// Fetch this before prompting for a code. Code entry does not authorize registration;
@@ -153,14 +52,6 @@ impl ResponseChannel {
 pub struct PendingRegistration {
     attempt: Option<PendingAttempt>,
     attempts_remaining: u8,
-}
-
-#[derive(Debug)]
-struct PendingAttempt {
-    uri: PairingUri,
-    encrypted: EncryptedPayload,
-    bridge: BridgeClient,
-    taken_at: Instant,
 }
 
 impl PendingRegistration {
@@ -243,6 +134,75 @@ pub struct IncomingRegistration {
 }
 
 impl IncomingRegistration {
+    /// Sets how long from now the response is due, instead of [`DEFAULT_RESPONSE_DEADLINE`]
+    /// after the request was taken. This cannot extend the bridge session expiry.
+    #[must_use]
+    pub fn with_response_deadline(mut self, deadline: Duration) -> Self {
+        self.respond_by =
+            (Instant::now() + deadline).min(self.channel.expires_at - RESPONSE_MARGIN);
+        self
+    }
+
+    /// Returns the validated request. Its `name` is untrusted and must be displayed as such.
+    #[must_use]
+    pub const fn request(&self) -> &RegistrationRequest {
+        &self.request
+    }
+
+    /// Returns when the response is due. The host can use it to show how long the user has to
+    /// decide.
+    #[must_use]
+    pub const fn respond_by(&self) -> Instant {
+        self.respond_by
+    }
+
+    /// Reads the account state of `approver` and plans the registration (WIP-109 §3.7.2).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ApproverError::Refused`] after sending the reason when `approver` is not an
+    /// Admin Authenticator of its account (`not_authorized`), the key or address is registered
+    /// differently (`authenticator_conflict`), there is no free slot
+    /// (`max_authenticators_reached`), or the account state cannot be read (`internal_error`).
+    pub async fn check(
+        self,
+        approver: &Authenticator,
+    ) -> Result<CheckedRegistration, ApproverError> {
+        let snapshot = match before(self.respond_by, approver.fetch_account_snapshot()).await {
+            None => {
+                return Err(self
+                    .refuse(RegistrationErrorReason::InternalError, None)
+                    .await);
+            }
+            Some(Ok(snapshot)) => snapshot,
+            Some(Err(error)) => {
+                return Err(self
+                    .refuse(RegistrationErrorReason::InternalError, Some(error))
+                    .await);
+            }
+        };
+        match plan_registration(&snapshot, approver, &self.request) {
+            Ok(plan) => Ok(CheckedRegistration {
+                incoming: self,
+                snapshot,
+                plan,
+            }),
+            Err(reason) => Err(self.refuse(reason, None).await),
+        }
+    }
+
+    /// Refuses the request, e.g. with `invalid_name` for a name the host does not accept.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the response cannot be sealed or delivered.
+    pub async fn reject(
+        self,
+        reason: RegistrationErrorReason,
+    ) -> Result<DeliveryOutcome, ApproverError> {
+        self.channel.send(Err(reason.into_error(None))).await
+    }
+
     async fn from_authenticated(
         attempt: PendingAttempt,
         transport_key: TransportKey,
@@ -304,77 +264,6 @@ impl IncomingRegistration {
         Ok(incoming)
     }
 
-    /// Sets how long from now the response is due, instead of [`DEFAULT_RESPONSE_DEADLINE`]
-    /// after the request was taken. This cannot extend the bridge session expiry.
-    #[must_use]
-    pub fn with_response_deadline(mut self, deadline: Duration) -> Self {
-        self.respond_by =
-            (Instant::now() + deadline).min(self.channel.expires_at - RESPONSE_MARGIN);
-        self
-    }
-
-    /// Returns the validated request. Its `name` is untrusted and must be displayed as such.
-    #[must_use]
-    pub const fn request(&self) -> &RegistrationRequest {
-        &self.request
-    }
-
-    /// Returns when the response is due. The host can use it to show how long the user has to
-    /// decide.
-    #[must_use]
-    pub const fn respond_by(&self) -> Instant {
-        self.respond_by
-    }
-
-    /// Reads the account state of `approver` and plans the registration (WIP-109 §3.7.2).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ApproverError::Refused`] after sending the reason when `approver` is not an
-    /// Admin Authenticator of its account (`not_authorized`), the key or address is registered
-    /// differently (`authenticator_conflict`), there is no free slot
-    /// (`max_authenticators_reached`), or the account state cannot be read (`internal_error`).
-    pub async fn check(
-        self,
-        approver: &Authenticator,
-    ) -> Result<CheckedRegistration, ApproverError> {
-        let snapshot = match before(self.respond_by, approver.fetch_account_snapshot()).await {
-            None => {
-                return Err(self
-                    .refuse(RegistrationErrorReason::InternalError, None)
-                    .await);
-            }
-            Some(result) => match result {
-                Ok(snapshot) => snapshot,
-                Err(e) => {
-                    return Err(self
-                        .refuse(RegistrationErrorReason::InternalError, Some(e))
-                        .await);
-                }
-            },
-        };
-        match plan_registration(&snapshot, approver, &self.request) {
-            Ok(plan) => Ok(CheckedRegistration {
-                incoming: self,
-                snapshot,
-                plan,
-            }),
-            Err(reason) => Err(self.refuse(reason, None).await),
-        }
-    }
-
-    /// Refuses the request, e.g. with `invalid_name` for a name the host does not accept.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the response cannot be sealed or delivered.
-    pub async fn reject(
-        self,
-        reason: RegistrationErrorReason,
-    ) -> Result<DeliveryOutcome, ApproverError> {
-        self.channel.send(Err(reason.into_error(None))).await
-    }
-
     async fn refuse(
         &self,
         reason: RegistrationErrorReason,
@@ -398,77 +287,6 @@ impl IncomingRegistration {
             undelivered,
         }
     }
-}
-
-/// How a checked registration will be carried out.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RegistrationPlan {
-    /// Insert the authenticator at `pubkey_id`.
-    Insert {
-        /// The slot the authenticator will be inserted at.
-        pubkey_id: u32,
-    },
-    /// The authenticator is already registered as requested, e.g. by an earlier attempt whose
-    /// response was lost. Approval only sends the result.
-    AlreadyRegistered {
-        /// The slot the authenticator is registered at.
-        pubkey_id: u32,
-    },
-}
-
-fn plan_registration(
-    snapshot: &AccountSnapshot,
-    approver: &Authenticator,
-    request: &RegistrationRequest,
-) -> Result<RegistrationPlan, RegistrationErrorReason> {
-    let authenticators = &snapshot.authenticators;
-    let approver_class = AuthenticatorClass::Admin {
-        address: approver.onchain_address(),
-    };
-    if authenticators
-        .find(&approver.offchain_pubkey())
-        .map(|(_, class)| class)
-        != Some(approver_class)
-    {
-        return Err(RegistrationErrorReason::NotAuthorized);
-    }
-
-    if let Some((pubkey_id, class)) = authenticators.find(&request.new_authenticator_pubkey) {
-        if class != request.class {
-            return Err(RegistrationErrorReason::AuthenticatorConflict);
-        }
-        return Ok(RegistrationPlan::AlreadyRegistered { pubkey_id });
-    }
-
-    if matches!(request.class, AuthenticatorClass::Admin { .. })
-        && authenticators.classes.contains(&Some(request.class))
-    {
-        return Err(RegistrationErrorReason::AuthenticatorConflict);
-    }
-
-    authenticators
-        .lowest_free_pubkey_id()
-        .map(|pubkey_id| RegistrationPlan::Insert { pubkey_id })
-        .ok_or(RegistrationErrorReason::MaxAuthenticatorsReached)
-}
-
-/// What the Approving Authenticator shares with an approved authenticator.
-#[derive(Clone, Debug, Default)]
-pub struct Approval {
-    /// The credential vault. The user or policy may exclude it.
-    pub vault: Option<Vault>,
-    /// Names of the account's other authenticators.
-    pub authenticators: Vec<KnownAuthenticator>,
-}
-
-/// The result of [`CheckedRegistration::approve`].
-#[derive(Debug)]
-pub struct ApprovalOutcome {
-    /// The registration result, or the reason it failed. A successful result means the
-    /// authenticator is registered on-chain, even if the response was not delivered.
-    pub result: Result<RegistrationResult, RegistrationErrorReason>,
-    /// Whether the response reached the bridge.
-    pub delivery: Result<DeliveryOutcome, ApproverError>,
 }
 
 /// A registration request whose account state was checked, waiting for the user's decision.
@@ -617,6 +435,7 @@ impl CheckedRegistration {
         );
         Err((RegistrationErrorReason::OutcomeUnknown, None))
     }
+
     async fn confirm_registration(
         &self,
         approver: &Authenticator,
@@ -657,6 +476,186 @@ impl CheckedRegistration {
         tracing::warn!(request_id = %self.incoming.channel.request_id, "finalized registration not visible before response deadline");
         Err((RegistrationErrorReason::OutcomeUnknown, None))
     }
+}
+
+/// How a checked registration will be carried out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegistrationPlan {
+    /// Insert the authenticator at `pubkey_id`.
+    Insert {
+        /// The slot the authenticator will be inserted at.
+        pubkey_id: u32,
+    },
+    /// The authenticator is already registered as requested, e.g. by an earlier attempt whose
+    /// response was lost. Approval only sends the result.
+    AlreadyRegistered {
+        /// The slot the authenticator is registered at.
+        pubkey_id: u32,
+    },
+}
+
+/// What the Approving Authenticator shares with an approved authenticator.
+#[derive(Clone, Debug, Default)]
+pub struct Approval {
+    /// The credential vault. The user or policy may exclude it.
+    pub vault: Option<Vault>,
+    /// Names of the account's other authenticators.
+    pub authenticators: Vec<KnownAuthenticator>,
+}
+
+/// The result of [`CheckedRegistration::approve`].
+#[derive(Debug)]
+pub struct ApprovalOutcome {
+    /// The registration result, or the reason it failed. A successful result means the
+    /// authenticator is registered on-chain, even if the response was not delivered.
+    pub result: Result<RegistrationResult, RegistrationErrorReason>,
+    /// Whether the response reached the bridge.
+    pub delivery: Result<DeliveryOutcome, ApproverError>,
+}
+
+/// Errors on the Approving Authenticator's side of a registration.
+#[derive(Debug, thiserror::Error)]
+pub enum ApproverError {
+    /// The request expired or was already taken. The user should create a new QR code or link
+    /// on the new device.
+    #[error("the registration request expired or was already used")]
+    Expired,
+    /// Authentication failed. The ciphertext is retained for the remaining local attempts.
+    #[error("pairing code did not authenticate the request ({attempts_remaining} attempts remain)")]
+    IncorrectCode {
+        /// Number of remaining code attempts; zero means a new pairing is required.
+        attempts_remaining: u8,
+    },
+    /// The request does not match the digest in the Pairing URI. No response was sent.
+    #[error("the registration request does not match the pairing link")]
+    DigestMismatch,
+    /// The request is malformed. `responded` tells whether an `invalid_params` error was sent.
+    #[error("invalid registration request: {reason}")]
+    InvalidRequest {
+        /// What is wrong with the request.
+        reason: String,
+        /// Whether an error response was sent to the Requesting Authenticator.
+        responded: bool,
+    },
+    /// The registration was refused. The reason was sent to the Requesting Authenticator unless
+    /// `undelivered` holds the error that prevented it.
+    #[error("registration refused: {reason:?}")]
+    Refused {
+        /// The reason for the refusal.
+        reason: RegistrationErrorReason,
+        /// The underlying error, if the refusal was caused by one.
+        #[source]
+        source: Option<AuthenticatorError>,
+        /// The error that prevented sending the reason, if any.
+        undelivered: Option<Box<ApproverError>>,
+    },
+    /// The bridge session expired before the response could be delivered.
+    #[error("the bridge session expired before the response was delivered")]
+    SessionExpired,
+    /// The bridge could not be reached or rejected an operation.
+    #[error(transparent)]
+    Bridge(#[from] BridgeError),
+    /// Decrypting the request or sealing the response failed.
+    #[error(transparent)]
+    Transport(#[from] TransportError),
+    /// The response could not be encoded.
+    #[error("failed to encode the response: {0}")]
+    Encoding(#[from] authenticator_message::MessageError),
+}
+
+#[derive(Debug)]
+struct PendingAttempt {
+    uri: PairingUri,
+    encrypted: EncryptedPayload,
+    bridge: BridgeClient,
+    taken_at: Instant,
+}
+
+/// Where and how to send the response of one registration session.
+#[derive(Debug)]
+struct ResponseChannel {
+    request_id: RequestId,
+    response_pubkey: ResponsePublicKey,
+    transport_key: TransportKey,
+    bridge: BridgeClient,
+    expires_at: Instant,
+}
+
+impl ResponseChannel {
+    async fn send(
+        &self,
+        outcome: Result<RegistrationResult, ErrorObject<RegistrationErrorData>>,
+    ) -> Result<DeliveryOutcome, ApproverError> {
+        let response = RegisterResponseMessage {
+            id: Some(Id::String(self.request_id.to_string())),
+            outcome,
+        };
+        let sealed = self.transport_key.encrypt_response(
+            &self.response_pubkey,
+            &authenticator_message::encode(&response)?,
+        )?;
+        let delivery = before(
+            self.expires_at,
+            self.bridge.put_response(&self.request_id, &sealed),
+        )
+        .await
+        .ok_or(ApproverError::SessionExpired)
+        .and_then(|delivery| delivery.map_err(ApproverError::from));
+        if let Err(error) = &delivery {
+            tracing::warn!(request_id = %self.request_id, %error, "failed to deliver registration response");
+        }
+        delivery
+    }
+}
+
+/// Runs `future` until `deadline`, returning `None` if the deadline passes first.
+pub(super) async fn before<F: Future>(deadline: Instant, future: F) -> Option<F::Output> {
+    let now = Instant::now();
+    if now >= deadline {
+        return None;
+    }
+    let remaining = deadline.saturating_duration_since(now);
+    let timeout = backon::DefaultSleeper::default().sleep(remaining);
+    match select(std::pin::pin!(future), std::pin::pin!(timeout)).await {
+        Either::Left((output, _)) => Some(output),
+        Either::Right(_) => None,
+    }
+}
+
+fn plan_registration(
+    snapshot: &AccountSnapshot,
+    approver: &Authenticator,
+    request: &RegistrationRequest,
+) -> Result<RegistrationPlan, RegistrationErrorReason> {
+    let authenticators = &snapshot.authenticators;
+    let approver_class = AuthenticatorClass::Admin {
+        address: approver.onchain_address(),
+    };
+    if authenticators
+        .find(&approver.offchain_pubkey())
+        .map(|(_, class)| class)
+        != Some(approver_class)
+    {
+        return Err(RegistrationErrorReason::NotAuthorized);
+    }
+
+    if let Some((pubkey_id, class)) = authenticators.find(&request.new_authenticator_pubkey) {
+        if class != request.class {
+            return Err(RegistrationErrorReason::AuthenticatorConflict);
+        }
+        return Ok(RegistrationPlan::AlreadyRegistered { pubkey_id });
+    }
+
+    if matches!(request.class, AuthenticatorClass::Admin { .. })
+        && authenticators.classes.contains(&Some(request.class))
+    {
+        return Err(RegistrationErrorReason::AuthenticatorConflict);
+    }
+
+    authenticators
+        .lowest_free_pubkey_id()
+        .map(|pubkey_id| RegistrationPlan::Insert { pubkey_id })
+        .ok_or(RegistrationErrorReason::MaxAuthenticatorsReached)
 }
 
 /// Classifies a failure to submit `InsertAuthenticator`.
