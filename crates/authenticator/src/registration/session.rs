@@ -23,64 +23,6 @@ const NONCE_LEN: usize = 12;
 /// The length in bytes of an X-Wing encapsulation key.
 pub const RESPONSE_PUBLIC_KEY_LEN: usize = 1216;
 
-/// A uniformly generated six-letter code transferred manually between authenticators.
-#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
-pub struct PairingCode([u8; 6]);
-
-impl PairingCode {
-    /// Generates an independent code using rejection sampling from the OS CSPRNG.
-    ///
-    /// Returns [`TransportError::Rng`] if randomness is unavailable.
-    pub fn generate() -> Result<Self, TransportError> {
-        let mut code = Zeroizing::new([0; 6]);
-        for letter in code.iter_mut() {
-            loop {
-                let mut byte = [0];
-                RandOsRng
-                    .try_fill_bytes(&mut byte)
-                    .map_err(|_| TransportError::Rng)?;
-                if byte[0] < 234 {
-                    *letter = b'A' + byte[0] % 26;
-                    break;
-                }
-            }
-        }
-        Ok(Self(*code))
-    }
-
-    /// Exposes the secret code for display after the bridge reports `retrieved`.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        std::str::from_utf8(&self.0).expect("pairing code contains only ASCII letters")
-    }
-}
-
-impl std::str::FromStr for PairingCode {
-    type Err = TransportError;
-
-    fn from_str(input: &str) -> Result<Self, Self::Err> {
-        let mut code = Zeroizing::new([0; 6]);
-        let mut len = 0;
-        for byte in input.bytes().filter(|b| !matches!(b, b' ' | b'-')) {
-            if !byte.is_ascii_alphabetic() || len == code.len() {
-                return Err(TransportError::InvalidPairingCode);
-            }
-            code[len] = byte.to_ascii_uppercase();
-            len += 1;
-        }
-        if len != code.len() {
-            return Err(TransportError::InvalidPairingCode);
-        }
-        Ok(Self(*code))
-    }
-}
-
-impl fmt::Debug for PairingCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("PairingCode(REDACTED)")
-    }
-}
-
 /// The 32-byte secret a Requesting Authenticator generates for each registration attempt.
 ///
 /// It determines the bridge [`RequestId`] and combines with the [`PairingCode`] to derive the
@@ -157,41 +99,65 @@ impl fmt::Debug for PairingSecret {
     }
 }
 
-/// The bridge id of a registration session, derived from its [`PairingSecret`].
+/// A six-letter code transferred manually between authenticators.
 ///
-/// It is displayed as 64 lowercase hex characters, which is also the message `id` of the
-/// registration request and its response.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RequestId([u8; 32]);
+/// Generation samples uniformly from uppercase ASCII letters. Parsing accepts either case and
+/// ignores spaces and hyphens; every other character is rejected.
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+pub struct PairingCode([u8; 6]);
 
-impl RequestId {
-    /// Returns the raw HKDF output, as committed to in the
-    /// [`RegistrationDigest`](super::RegistrationDigest).
+impl PairingCode {
+    /// Generates an independent code using rejection sampling from the OS CSPRNG.
+    ///
+    /// Returns [`TransportError::Rng`] if randomness is unavailable.
+    pub fn generate() -> Result<Self, TransportError> {
+        let mut code = Zeroizing::new([0; 6]);
+        for letter in code.iter_mut() {
+            loop {
+                let mut byte = [0];
+                RandOsRng
+                    .try_fill_bytes(&mut byte)
+                    .map_err(|_| TransportError::Rng)?;
+                if byte[0] < 234 {
+                    *letter = b'A' + byte[0] % 26;
+                    break;
+                }
+            }
+        }
+        Ok(Self(*code))
+    }
+
+    /// Exposes the secret code for display after the bridge reports `retrieved`.
     #[must_use]
-    pub const fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.0).expect("pairing code contains only ASCII letters")
     }
 }
 
-impl fmt::Display for RequestId {
+impl std::str::FromStr for PairingCode {
+    type Err = TransportError;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        let mut code = Zeroizing::new([0; 6]);
+        let mut len = 0;
+        for byte in input.bytes().filter(|b| !matches!(b, b' ' | b'-')) {
+            if !byte.is_ascii_alphabetic() || len == code.len() {
+                return Err(TransportError::InvalidPairingCode);
+            }
+            code[len] = byte.to_ascii_uppercase();
+            len += 1;
+        }
+        if len != code.len() {
+            return Err(TransportError::InvalidPairingCode);
+        }
+        Ok(Self(*code))
+    }
+}
+
+impl fmt::Debug for PairingCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&hex::encode(self.0))
+        f.write_str("PairingCode(REDACTED)")
     }
-}
-
-impl fmt::Debug for RequestId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "RequestId({self})")
-    }
-}
-
-/// An encrypted message as carried by the bridge: a base64 `iv` and a base64 `payload`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EncryptedPayload {
-    /// The standard padded base64 nonce, for either direction.
-    pub iv: String,
-    /// The standard padded base64 ciphertext.
-    pub payload: String,
 }
 
 /// The code-bound AES-256-GCM key authenticating both directions of a pairing session.
@@ -303,6 +269,43 @@ impl fmt::Debug for TransportKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("TransportKey(REDACTED)")
     }
+}
+
+/// The bridge id of a registration session, derived from its [`PairingSecret`].
+///
+/// It is displayed as 64 lowercase hex characters, which is also the message `id` of the
+/// registration request and its response.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RequestId([u8; 32]);
+
+impl RequestId {
+    /// Returns the raw HKDF output, as committed to in the
+    /// [`RegistrationDigest`](super::RegistrationDigest).
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl fmt::Display for RequestId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&hex::encode(self.0))
+    }
+}
+
+impl fmt::Debug for RequestId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RequestId({self})")
+    }
+}
+
+/// An encrypted message as carried by the bridge: a base64 `iv` and a base64 `payload`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EncryptedPayload {
+    /// The standard padded base64 nonce, for either direction.
+    pub iv: String,
+    /// The standard padded base64 ciphertext.
+    pub payload: String,
 }
 
 /// The ephemeral X-Wing key pair a Requesting Authenticator generates to receive the response.

@@ -19,6 +19,149 @@ pub const DEEPLINK_SCHEME: &str = "worldid";
 
 const METHOD_PREFIX: &str = "worldid";
 
+/// A request requiring a response with the same ID.
+///
+/// Use [`encode`] and [`decode`] to check envelope semantics, including the requirement that
+/// supplied parameters are a CBOR map or array. Session owners must prevent concurrent ID reuse.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "P: Deserialize<'de>"))]
+pub struct Request<P> {
+    version: Version,
+    /// The request ID, echoed back in the response.
+    pub id: Id,
+    /// The method being invoked.
+    pub method: MethodName,
+    /// Arguments, or `None` when no arguments were supplied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<P>,
+}
+
+impl<P> Request<P> {
+    /// Creates a request invoking `method` with `params`.
+    pub const fn new(id: Id, method: MethodName, params: P) -> Self {
+        Self {
+            version: Version::V1,
+            id,
+            method,
+            params: Some(params),
+        }
+    }
+
+    /// Creates a request without an arguments field.
+    pub const fn without_params(id: Id, method: MethodName) -> Self {
+        Self {
+            version: Version::V1,
+            id,
+            method,
+            params: None,
+        }
+    }
+}
+
+/// A response containing exactly one result or error.
+///
+/// A null ID (`None`) is reserved for uncorrelated errors and must never match a pending request.
+/// Callers must match other responses by ID and report invalid or unmatched responses locally,
+/// without replying. Use [`encode`] and [`decode`] at the transport boundary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Response<R, D = Value> {
+    /// The request ID, or `None` for an uncorrelated error.
+    pub id: Option<Id>,
+    /// The method result, or the error that prevented it.
+    pub outcome: Result<R, ErrorObject<D>>,
+}
+
+/// A method invocation without an ID. Receivers must never reply to a valid notification,
+/// including when the method is unknown or execution fails.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "P: Deserialize<'de>"))]
+pub struct Notification<P> {
+    version: Version,
+    #[serde(
+        default,
+        rename = "id",
+        skip_serializing,
+        deserialize_with = "reject_notification_id"
+    )]
+    no_id: (),
+    /// The method being invoked.
+    pub method: MethodName,
+    /// Arguments, or `None` when no arguments were supplied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<P>,
+}
+
+impl<P> Notification<P> {
+    /// Creates a notification with arguments.
+    pub const fn new(method: MethodName, params: P) -> Self {
+        Self {
+            version: Version::V1,
+            no_id: (),
+            method,
+            params: Some(params),
+        }
+    }
+
+    /// Creates a notification without arguments.
+    pub const fn without_params(method: MethodName) -> Self {
+        Self {
+            version: Version::V1,
+            no_id: (),
+            method,
+            params: None,
+        }
+    }
+}
+
+/// A method failure. Callers identify errors by their case-sensitive code, not message text.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "D: Deserialize<'de>"))]
+pub struct ErrorObject<D = Value> {
+    /// A shared WIP-105 or method-specific failure code.
+    pub code: String,
+    /// A short human-readable explanation.
+    pub message: String,
+    /// Optional method-specific details; a present null value is preserved.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    pub data: Option<D>,
+}
+
+/// A request ID. Integer and text IDs are distinct; null is never a request ID.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(untagged)]
+pub enum Id {
+    /// A CBOR integer, in the range -2^64 through 2^64 - 1.
+    Number(i128),
+    /// A text ID.
+    String(String),
+}
+
+impl<'de> Deserialize<'de> for Id {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match Value::deserialize(deserializer)? {
+            Value::Integer(number) => Ok(Self::Number(number.into())),
+            Value::Text(text) => Ok(Self::String(text)),
+            _ => Err(D::Error::custom("request ID must be text or integer")),
+        }
+    }
+}
+
+impl From<String> for Id {
+    fn from(id: String) -> Self {
+        Self::String(id)
+    }
+}
+
+impl From<i64> for Id {
+    fn from(id: i64) -> Self {
+        Self::Number(id.into())
+    }
+}
+
 /// The name of a WIP-105 method, e.g. `worldid_auth_v1_register`.
 ///
 /// A method name consists of `camelCase` segments joined by underscores, and the first segment is
@@ -96,275 +239,6 @@ impl<'de> Deserialize<'de> for MethodName {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("method name must be camelCase segments joined by `_`, starting with `worldid`")]
 pub struct InvalidMethodName;
-
-const fn is_valid_method_name(name: &str) -> bool {
-    let bytes = name.as_bytes();
-    let prefix = METHOD_PREFIX.as_bytes();
-    if bytes.len() < prefix.len() {
-        return false;
-    }
-    let mut i = 0;
-    while i < prefix.len() {
-        if bytes[i] != prefix[i] {
-            return false;
-        }
-        i += 1;
-    }
-    while i < bytes.len() {
-        if bytes[i] != b'_' {
-            return false;
-        }
-        i += 1;
-        if i >= bytes.len() || !bytes[i].is_ascii_lowercase() {
-            return false;
-        }
-        i += 1;
-        while i < bytes.len() && bytes[i] != b'_' {
-            if !bytes[i].is_ascii_alphanumeric() {
-                return false;
-            }
-            i += 1;
-        }
-    }
-    true
-}
-
-/// Returns whether `segment` is a `camelCase` identifier: a lowercase ASCII letter followed by
-/// ASCII letters and digits.
-fn is_camel_case_segment(segment: &str) -> bool {
-    let mut chars = segment.chars();
-    chars.next().is_some_and(|c| c.is_ascii_lowercase()) && chars.all(|c| c.is_ascii_alphanumeric())
-}
-
-/// The envelope version defined by WIP-105.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-enum Version {
-    #[default]
-    #[serde(rename = "1.0")]
-    V1,
-}
-
-/// A request ID. Integer and text IDs are distinct; null is never a request ID.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-#[serde(untagged)]
-pub enum Id {
-    /// A CBOR integer, in the range -2^64 through 2^64 - 1.
-    Number(i128),
-    /// A text ID.
-    String(String),
-}
-
-impl<'de> Deserialize<'de> for Id {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        match Value::deserialize(deserializer)? {
-            Value::Integer(number) => Ok(Self::Number(number.into())),
-            Value::Text(text) => Ok(Self::String(text)),
-            _ => Err(D::Error::custom("request ID must be text or integer")),
-        }
-    }
-}
-
-impl From<String> for Id {
-    fn from(id: String) -> Self {
-        Self::String(id)
-    }
-}
-
-impl From<i64> for Id {
-    fn from(id: i64) -> Self {
-        Self::Number(id.into())
-    }
-}
-
-/// A request requiring a response with the same ID.
-///
-/// Use [`encode`] and [`decode`] to check envelope semantics, including the requirement that
-/// supplied parameters are a CBOR map or array. Session owners must prevent concurrent ID reuse.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(deserialize = "P: Deserialize<'de>"))]
-pub struct Request<P> {
-    version: Version,
-    /// The request ID, echoed back in the response.
-    pub id: Id,
-    /// The method being invoked.
-    pub method: MethodName,
-    /// Arguments, or `None` when no arguments were supplied.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub params: Option<P>,
-}
-
-impl<P> Request<P> {
-    /// Creates a request invoking `method` with `params`.
-    pub const fn new(id: Id, method: MethodName, params: P) -> Self {
-        Self {
-            version: Version::V1,
-            id,
-            method,
-            params: Some(params),
-        }
-    }
-
-    /// Creates a request without an arguments field.
-    pub const fn without_params(id: Id, method: MethodName) -> Self {
-        Self {
-            version: Version::V1,
-            id,
-            method,
-            params: None,
-        }
-    }
-}
-
-/// A method invocation without an ID. Receivers must never reply to a valid notification,
-/// including when the method is unknown or execution fails.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(deserialize = "P: Deserialize<'de>"))]
-pub struct Notification<P> {
-    version: Version,
-    #[serde(
-        default,
-        rename = "id",
-        skip_serializing,
-        deserialize_with = "reject_notification_id"
-    )]
-    no_id: (),
-    /// The method being invoked.
-    pub method: MethodName,
-    /// Arguments, or `None` when no arguments were supplied.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub params: Option<P>,
-}
-
-impl<P> Notification<P> {
-    /// Creates a notification with arguments.
-    pub const fn new(method: MethodName, params: P) -> Self {
-        Self {
-            version: Version::V1,
-            no_id: (),
-            method,
-            params: Some(params),
-        }
-    }
-
-    /// Creates a notification without arguments.
-    pub const fn without_params(method: MethodName) -> Self {
-        Self {
-            version: Version::V1,
-            no_id: (),
-            method,
-            params: None,
-        }
-    }
-}
-
-fn reject_notification_id<'de, D: Deserializer<'de>>(_: D) -> Result<(), D::Error> {
-    Err(D::Error::custom("notification must not contain an ID"))
-}
-
-/// A method failure. Callers identify errors by their case-sensitive code, not message text.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(deserialize = "D: Deserialize<'de>"))]
-pub struct ErrorObject<D = Value> {
-    /// A shared WIP-105 or method-specific failure code.
-    pub code: String,
-    /// A short human-readable explanation.
-    pub message: String,
-    /// Optional method-specific details; a present null value is preserved.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_present"
-    )]
-    pub data: Option<D>,
-}
-
-/// A response containing exactly one result or error.
-///
-/// A null ID (`None`) is reserved for uncorrelated errors and must never match a pending request.
-/// Callers must match other responses by ID and report invalid or unmatched responses locally,
-/// without replying. Use [`encode`] and [`decode`] at the transport boundary.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Response<R, D = Value> {
-    /// The request ID, or `None` for an uncorrelated error.
-    pub id: Option<Id>,
-    /// The method result, or the error that prevented it.
-    pub outcome: Result<R, ErrorObject<D>>,
-}
-
-#[derive(Serialize)]
-struct WireResponseRef<'a, R, D> {
-    version: Version,
-    id: &'a Option<Id>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<&'a R>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<&'a ErrorObject<D>>,
-}
-
-#[derive(Deserialize)]
-#[serde(bound(deserialize = "R: Deserialize<'de>, D: Deserialize<'de>"))]
-struct WireResponse<R, D> {
-    #[serde(rename = "version")]
-    _version: Version,
-    #[serde(deserialize_with = "Deserialize::deserialize")]
-    id: Option<Id>,
-    #[serde(default, deserialize_with = "deserialize_present")]
-    result: Option<R>,
-    #[serde(default, deserialize_with = "deserialize_present")]
-    error: Option<ErrorObject<D>>,
-}
-
-fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    T::deserialize(deserializer).map(Some)
-}
-
-impl<R: Serialize, D: Serialize> Serialize for Response<R, D> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        if self.id.is_none() && self.outcome.is_ok() {
-            return Err(serde::ser::Error::custom(
-                "successful response requires a non-null ID",
-            ));
-        }
-        WireResponseRef {
-            version: Version::V1,
-            id: &self.id,
-            result: self.outcome.as_ref().ok(),
-            error: self.outcome.as_ref().err(),
-        }
-        .serialize(serializer)
-    }
-}
-
-impl<'de, R: Deserialize<'de>, D: Deserialize<'de>> Deserialize<'de> for Response<R, D> {
-    fn deserialize<De: Deserializer<'de>>(deserializer: De) -> Result<Self, De::Error> {
-        let wire = WireResponse::<R, D>::deserialize(deserializer)?;
-        let outcome = match (wire.result, wire.error) {
-            (Some(result), None) if wire.id.is_some() => Ok(result),
-            (None, Some(error)) => Err(error),
-            _ => {
-                return Err(De::Error::custom(
-                    "response requires exactly one outcome and successes require a non-null ID",
-                ));
-            }
-        };
-        Ok(Self {
-            id: wire.id,
-            outcome,
-        })
-    }
-}
-
-/// Characters that are percent-encoded in deeplink query values: everything except the RFC 3986
-/// unreserved characters.
-const QUERY_VALUE_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
-    .remove(b'-')
-    .remove(b'.')
-    .remove(b'_')
-    .remove(b'~');
 
 /// A WIP-105 deeplink of the form `worldid://{namespace}/v{version}/{action}?{parameters}`.
 ///
@@ -516,6 +390,158 @@ impl FromStr for Deeplink {
     }
 }
 
+/// The error returned when a string is not a valid [`Deeplink`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum DeeplinkError {
+    /// The URI does not use the `worldid` scheme.
+    #[error("deeplink must use the `worldid` scheme")]
+    InvalidScheme,
+    /// The namespace is not a `camelCase` identifier, or the URI has user info or a port.
+    #[error("deeplink namespace must be a camelCase identifier")]
+    InvalidNamespace,
+    /// The version segment is not `v` followed by a positive integer.
+    #[error("deeplink version must be `v` followed by a positive integer")]
+    InvalidVersion,
+    /// The action is missing or is not a `camelCase` identifier.
+    #[error("deeplink action must be a camelCase identifier")]
+    InvalidAction,
+    /// The path has more than the namespace, version and action segments.
+    #[error("deeplink path must be `/{{version}}/{{action}}`")]
+    UnexpectedPathSegments,
+    /// The URI has a fragment.
+    #[error("deeplink must not have a fragment")]
+    UnexpectedFragment,
+    /// A parameter is not `key=value`, has an empty key, or is not valid percent-encoded UTF-8.
+    #[error("deeplink parameters must be percent-encoded `key=value` pairs")]
+    MalformedParameter,
+}
+
+/// The envelope version defined by WIP-105.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+enum Version {
+    #[default]
+    #[serde(rename = "1.0")]
+    V1,
+}
+
+#[derive(Serialize)]
+struct WireResponseRef<'a, R, D> {
+    version: Version,
+    id: &'a Option<Id>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<&'a R>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<&'a ErrorObject<D>>,
+}
+
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "R: Deserialize<'de>, D: Deserialize<'de>"))]
+struct WireResponse<R, D> {
+    #[serde(rename = "version")]
+    _version: Version,
+    #[serde(deserialize_with = "Deserialize::deserialize")]
+    id: Option<Id>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    result: Option<R>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    error: Option<ErrorObject<D>>,
+}
+
+impl<R: Serialize, D: Serialize> Serialize for Response<R, D> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if self.id.is_none() && self.outcome.is_ok() {
+            return Err(serde::ser::Error::custom(
+                "successful response requires a non-null ID",
+            ));
+        }
+        WireResponseRef {
+            version: Version::V1,
+            id: &self.id,
+            result: self.outcome.as_ref().ok(),
+            error: self.outcome.as_ref().err(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de, R: Deserialize<'de>, D: Deserialize<'de>> Deserialize<'de> for Response<R, D> {
+    fn deserialize<De: Deserializer<'de>>(deserializer: De) -> Result<Self, De::Error> {
+        let wire = WireResponse::<R, D>::deserialize(deserializer)?;
+        let outcome = match (wire.result, wire.error) {
+            (Some(result), None) if wire.id.is_some() => Ok(result),
+            (None, Some(error)) => Err(error),
+            _ => {
+                return Err(De::Error::custom(
+                    "response requires exactly one outcome and successes require a non-null ID",
+                ));
+            }
+        };
+        Ok(Self {
+            id: wire.id,
+            outcome,
+        })
+    }
+}
+
+fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
+fn reject_notification_id<'de, D: Deserializer<'de>>(_: D) -> Result<(), D::Error> {
+    Err(D::Error::custom("notification must not contain an ID"))
+}
+
+const fn is_valid_method_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    let prefix = METHOD_PREFIX.as_bytes();
+    if bytes.len() < prefix.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < prefix.len() {
+        if bytes[i] != prefix[i] {
+            return false;
+        }
+        i += 1;
+    }
+    while i < bytes.len() {
+        if bytes[i] != b'_' {
+            return false;
+        }
+        i += 1;
+        if i >= bytes.len() || !bytes[i].is_ascii_lowercase() {
+            return false;
+        }
+        i += 1;
+        while i < bytes.len() && bytes[i] != b'_' {
+            if !bytes[i].is_ascii_alphanumeric() {
+                return false;
+            }
+            i += 1;
+        }
+    }
+    true
+}
+
+/// Returns whether `segment` is a `camelCase` identifier: a lowercase ASCII letter followed by
+/// ASCII letters and digits.
+fn is_camel_case_segment(segment: &str) -> bool {
+    let mut chars = segment.chars();
+    chars.next().is_some_and(|c| c.is_ascii_lowercase()) && chars.all(|c| c.is_ascii_alphanumeric())
+}
+
+/// Characters that are percent-encoded in deeplink query values: everything except the RFC 3986
+/// unreserved characters.
+const QUERY_VALUE_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~');
+
 /// Parses a version segment of the form `v{n}`, where `n` is a positive integer without leading
 /// zeros.
 fn parse_version(segment: &str) -> Result<u32, DeeplinkError> {
@@ -563,32 +589,6 @@ fn is_well_formed_percent_encoding(component: &str) -> bool {
         }
     }
     true
-}
-
-/// The error returned when a string is not a valid [`Deeplink`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum DeeplinkError {
-    /// The URI does not use the `worldid` scheme.
-    #[error("deeplink must use the `worldid` scheme")]
-    InvalidScheme,
-    /// The namespace is not a `camelCase` identifier, or the URI has user info or a port.
-    #[error("deeplink namespace must be a camelCase identifier")]
-    InvalidNamespace,
-    /// The version segment is not `v` followed by a positive integer.
-    #[error("deeplink version must be `v` followed by a positive integer")]
-    InvalidVersion,
-    /// The action is missing or is not a `camelCase` identifier.
-    #[error("deeplink action must be a camelCase identifier")]
-    InvalidAction,
-    /// The path has more than the namespace, version and action segments.
-    #[error("deeplink path must be `/{{version}}/{{action}}`")]
-    UnexpectedPathSegments,
-    /// The URI has a fragment.
-    #[error("deeplink must not have a fragment")]
-    UnexpectedFragment,
-    /// A parameter is not `key=value`, has an empty key, or is not valid percent-encoded UTF-8.
-    #[error("deeplink parameters must be percent-encoded `key=value` pairs")]
-    MalformedParameter,
 }
 
 #[cfg(test)]

@@ -22,8 +22,9 @@ const ENCODED_32_BYTES_LEN: usize = 43;
 /// The `worldid://auth/v1/register` deeplink, shown as a QR code by the Requesting Authenticator.
 ///
 /// It carries the [`PairingSecret`], the [`RegistrationDigest`] and optionally the bridge the
-/// Requesting Authenticator uses. Anyone who holds it can read and consume the registration
-/// request, so it must not be logged or sent to analytics. Its `Debug` output is redacted.
+/// Requesting Authenticator uses. Anyone who holds it can retrieve and consume the encrypted
+/// registration request; reading its plaintext also requires the independently transferred
+/// pairing code. The URI must not be logged or sent to analytics. Its `Debug` output is redacted.
 ///
 /// Parsing is strict: it rejects any other deeplink, unknown, missing or duplicated parameters,
 /// and values that are not canonical unpadded base64url of 32 bytes.
@@ -46,7 +47,7 @@ const ENCODED_32_BYTES_LEN: usize = 43;
 /// ```
 #[derive(Clone, PartialEq, Eq)]
 pub struct PairingUri {
-    /// The secret every session value is derived from.
+    /// The session secret used to derive the request ID and code-bound transport key.
     pub secret: PairingSecret,
     /// The commitment to the registration parameters.
     pub digest: RegistrationDigest,
@@ -106,24 +107,6 @@ impl FromStr for PairingUri {
             bridge,
         })
     }
-}
-
-fn set_once<T>(slot: &mut Option<T>, value: T) -> Result<(), PairingUriError> {
-    if slot.replace(value).is_some() {
-        return Err(PairingUriError::DuplicateParameter);
-    }
-    Ok(())
-}
-
-fn decode_32_bytes(value: &str) -> Result<[u8; 32], PairingUriError> {
-    if value.len() != ENCODED_32_BYTES_LEN {
-        return Err(PairingUriError::InvalidEncoding);
-    }
-    URL_SAFE_NO_PAD
-        .decode(value)
-        .ok()
-        .and_then(|bytes| bytes.try_into().ok())
-        .ok_or(PairingUriError::InvalidEncoding)
 }
 
 /// The domain of a bridge deployment, e.g. `bridge.example.org`.
@@ -190,6 +173,24 @@ pub enum PairingUriError {
     /// `b` is not a bare DNS domain.
     #[error("bridge must be a bare domain name")]
     InvalidBridge,
+}
+
+fn set_once<T>(slot: &mut Option<T>, value: T) -> Result<(), PairingUriError> {
+    if slot.replace(value).is_some() {
+        return Err(PairingUriError::DuplicateParameter);
+    }
+    Ok(())
+}
+
+fn decode_32_bytes(value: &str) -> Result<[u8; 32], PairingUriError> {
+    if value.len() != ENCODED_32_BYTES_LEN {
+        return Err(PairingUriError::InvalidEncoding);
+    }
+    URL_SAFE_NO_PAD
+        .decode(value)
+        .map_err(|_| PairingUriError::InvalidEncoding)?
+        .try_into()
+        .map_err(|_| PairingUriError::InvalidEncoding)
 }
 
 #[cfg(test)]

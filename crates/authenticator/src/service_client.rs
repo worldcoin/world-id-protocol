@@ -6,7 +6,6 @@ use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use world_id_primitives::ServiceEndpoint;
 
-/// The maximum time to establish a connection to a gateway or indexer.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ServiceKind {
     Gateway,
@@ -190,6 +189,7 @@ impl ServiceClient {
     }
 }
 
+/// The maximum time to establish a connection to a gateway or indexer.
 #[cfg(not(target_arch = "wasm32"))]
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// The maximum time for a whole gateway or indexer request, including reading the response.
