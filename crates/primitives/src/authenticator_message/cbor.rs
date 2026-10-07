@@ -6,23 +6,6 @@ use super::{MethodName, Value};
 
 const MAX_DEPTH: usize = 32;
 
-/// A message failed its transport size bound, CBOR encoding rules, envelope, or payload schema.
-#[derive(Debug, thiserror::Error)]
-pub enum MessageError {
-    /// The transport's encoded message limit was exceeded.
-    #[error("authenticator message exceeds transport size limit")]
-    TooLarge,
-    /// The message violates the CBOR encoding rules.
-    #[error("invalid authenticator CBOR: {0}")]
-    Encoding(&'static str),
-    /// The CBOR is valid, but the WIP-105 envelope is not.
-    #[error("invalid authenticator envelope: {0}")]
-    Envelope(&'static str),
-    /// Serialization or the method-specific payload schema failed.
-    #[error("authenticator payload serialization failed: {0}")]
-    Payload(#[from] ciborium::value::Error),
-}
-
 /// Encodes an envelope using RFC 8949 core deterministic encoding.
 ///
 /// Map keys are sorted by their encoded bytes, recursively. Duplicate keys, invalid envelopes,
@@ -58,40 +41,21 @@ pub fn decode<T: DeserializeOwned>(bytes: &[u8], max_size: usize) -> Result<T, M
     Ok(value.deserialized()?)
 }
 
-fn serialize_value(value: &Value) -> Result<Vec<u8>, MessageError> {
-    let mut bytes = Vec::new();
-    ciborium::into_writer(value, &mut bytes)
-        .map_err(|_| MessageError::Encoding("value cannot be encoded"))?;
-    Ok(bytes)
-}
-
-fn sort_maps(value: &mut Value, depth: usize) -> Result<(), MessageError> {
-    if depth > MAX_DEPTH {
-        return Err(MessageError::Encoding("nesting depth exceeded"));
-    }
-    match value {
-        Value::Array(items) => {
-            for item in items {
-                sort_maps(item, depth + 1)?;
-            }
-        }
-        Value::Map(entries) => {
-            let mut sorted = Vec::with_capacity(entries.len());
-            for (mut key, mut value) in std::mem::take(entries) {
-                sort_maps(&mut key, depth + 1)?;
-                sort_maps(&mut value, depth + 1)?;
-                sorted.push((serialize_value(&key)?, key, value));
-            }
-            sorted.sort_by(|a, b| a.0.cmp(&b.0));
-            *entries = sorted
-                .into_iter()
-                .map(|(_, key, value)| (key, value))
-                .collect();
-        }
-        Value::Tag(_, value) => sort_maps(value, depth + 1)?,
-        _ => {}
-    }
-    Ok(())
+/// A message failed its transport size bound, CBOR encoding rules, envelope, or payload schema.
+#[derive(Debug, thiserror::Error)]
+pub enum MessageError {
+    /// The transport's encoded message limit was exceeded.
+    #[error("authenticator message exceeds transport size limit")]
+    TooLarge,
+    /// The message violates the CBOR encoding rules.
+    #[error("invalid authenticator CBOR: {0}")]
+    Encoding(&'static str),
+    /// The CBOR is valid, but the WIP-105 envelope is not.
+    #[error("invalid authenticator envelope: {0}")]
+    Envelope(&'static str),
+    /// Serialization or the method-specific payload schema failed.
+    #[error("authenticator payload serialization failed: {0}")]
+    Payload(#[from] ciborium::value::Error),
 }
 
 fn validate_envelope(value: &Value) -> Result<(), MessageError> {
@@ -156,6 +120,42 @@ fn validate_envelope(value: &Value) -> Result<(), MessageError> {
     }
 }
 
+fn sort_maps(value: &mut Value, depth: usize) -> Result<(), MessageError> {
+    if depth > MAX_DEPTH {
+        return Err(MessageError::Encoding("nesting depth exceeded"));
+    }
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                sort_maps(item, depth + 1)?;
+            }
+        }
+        Value::Map(entries) => {
+            let mut sorted = Vec::with_capacity(entries.len());
+            for (mut key, mut value) in std::mem::take(entries) {
+                sort_maps(&mut key, depth + 1)?;
+                sort_maps(&mut value, depth + 1)?;
+                sorted.push((serialize_value(&key)?, key, value));
+            }
+            sorted.sort_by(|a, b| a.0.cmp(&b.0));
+            *entries = sorted
+                .into_iter()
+                .map(|(_, key, value)| (key, value))
+                .collect();
+        }
+        Value::Tag(_, value) => sort_maps(value, depth + 1)?,
+        _ => {}
+    }
+    Ok(())
+}
+
+fn serialize_value(value: &Value) -> Result<Vec<u8>, MessageError> {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes)
+        .map_err(|_| MessageError::Encoding("value cannot be encoded"))?;
+    Ok(bytes)
+}
+
 fn validate_encoding(bytes: &[u8]) -> Result<(), MessageError> {
     let mut remaining = bytes;
     scan(&mut remaining, 0)?;
@@ -163,15 +163,6 @@ fn validate_encoding(bytes: &[u8]) -> Result<(), MessageError> {
         return Err(MessageError::Encoding("trailing bytes"));
     }
     Ok(())
-}
-
-const fn take<'a>(bytes: &mut &'a [u8], len: usize) -> Result<&'a [u8], MessageError> {
-    if len > bytes.len() {
-        return Err(MessageError::Encoding("truncated item or invalid length"));
-    }
-    let (item, remaining) = bytes.split_at(len);
-    *bytes = remaining;
-    Ok(item)
 }
 
 // The fingerprint frames each item by type and length. Floating-point signed zeros and NaN signs
@@ -303,6 +294,15 @@ fn scan(bytes: &mut &[u8], depth: usize) -> Result<Vec<u8>, MessageError> {
     fingerprint.extend_from_slice(&(payload.len() as u64).to_be_bytes());
     fingerprint.extend(payload);
     Ok(fingerprint)
+}
+
+const fn take<'a>(bytes: &mut &'a [u8], len: usize) -> Result<&'a [u8], MessageError> {
+    if len > bytes.len() {
+        return Err(MessageError::Encoding("truncated item or invalid length"));
+    }
+    let (item, remaining) = bytes.split_at(len);
+    *bytes = remaining;
+    Ok(item)
 }
 
 #[cfg(test)]
