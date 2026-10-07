@@ -1,7 +1,7 @@
 //! Authenticator Assertions (WIP-106).
 //!
 //! An Authenticator Assertion Token (AAT) is signed by an Authenticator Provider's
-//! `trust_anchor_key` after verifying platform integrity evidence for a single
+//! `authenticator_provider_key` after verifying platform integrity evidence for a single
 //! request. The request is bound through a blinded commitment, see
 //! [`request_commitment`].
 //!
@@ -10,7 +10,8 @@
 //! token but [`AuthenticatorAssertionPublicInputs`] and
 //! [`AuthenticatorAssertionPrivateInputs`], the same split as the Noir `verify_aat`. The
 //! Authenticator derives the private inputs from the token with
-//! [`SignedAuthenticatorAssertionToken::into_private_inputs`].
+//! [`SignedAuthenticatorAssertionToken::into_private_inputs`]; the verifier derives the public
+//! inputs it reports with [`AuthenticatorAssertionPrivateInputs::public_inputs`].
 
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use serde::{Deserialize, Serialize};
@@ -205,15 +206,15 @@ pub enum AssertionError {
 pub struct SignedAuthenticatorAssertionToken {
     /// The signed token values.
     pub token: AuthenticatorAssertionToken,
-    /// The signature by the `trust_anchor_key`.
+    /// The signature by the `authenticator_provider_key`.
     pub signature: EdDSASignature,
     /// The `kid` hint from the unprotected header, if present. Untrusted.
     pub kid: Option<[u8; 32]>,
 }
 
-/// Computes the request commitment `req = H_8(DS_REQ; aud, nonce, cdh, blind)`.
+/// Computes the request commitment `aat_commitment = H_8(DS_REQ; aud, nonce, cdh, blind)`.
 ///
-/// Only `req` is sent to the Authenticator Provider; `blind` MUST be fresh and uniformly random.
+/// Only `aat_commitment` is sent to the Authenticator Provider; `blind` MUST be fresh and uniformly random.
 #[must_use]
 pub fn request_commitment(
     aud: FieldElement,
@@ -227,14 +228,14 @@ pub fn request_commitment(
     )
 }
 
-/// Computes the signed message `H_4(DS_AAT; exp, req, sec_flags)` from raw claims.
+/// Computes the signed message `H_4(DS_AAT; exp, aat_commitment, sec_flags)` from raw claims.
 #[must_use]
-pub fn message_hash(exp: u32, req: FieldElement, sec_flags: u64) -> FieldElement {
+pub fn message_hash(exp: u32, aat_commitment: FieldElement, sec_flags: u64) -> FieldElement {
     poseidon::hash(
         ds::AUTHENTICATOR_ASSERTION_TOKEN,
         [
             FieldElement::from(u64::from(exp)),
-            req,
+            aat_commitment,
             FieldElement::from(sec_flags),
         ],
     )
@@ -244,7 +245,7 @@ pub fn message_hash(exp: u32, req: FieldElement, sec_flags: u64) -> FieldElement
 #[derive(Debug, Clone, Copy)]
 pub struct AuthenticatorAssertionToken {
     exp: u32,
-    req: FieldElement,
+    aat_commitment: FieldElement,
     sec_flags: SecFlags,
 }
 
@@ -254,7 +255,11 @@ impl AuthenticatorAssertionToken {
     /// # Errors
     /// - [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
     /// - [`AssertionError::SecMetaTooLarge`] if `sec_meta` carries more than 3 bits.
-    pub fn new(exp: u32, req: FieldElement, sec_flags: SecFlags) -> Result<Self, AssertionError> {
+    pub fn new(
+        exp: u32,
+        aat_commitment: FieldElement,
+        sec_flags: SecFlags,
+    ) -> Result<Self, AssertionError> {
         if exp < MIN_EXP {
             return Err(AssertionError::ExpirationOutOfRange(exp));
         }
@@ -263,15 +268,15 @@ impl AuthenticatorAssertionToken {
         }
         Ok(Self {
             exp,
-            req,
+            aat_commitment,
             sec_flags,
         })
     }
 
-    /// Computes the signed message `H_4(DS_AAT; exp, req, sec_flags)`.
+    /// Computes the signed message `H_4(DS_AAT; exp, aat_commitment, sec_flags)`.
     #[must_use]
     pub fn message_hash(&self) -> FieldElement {
-        message_hash(self.exp, self.req, self.sec_flags.pack())
+        message_hash(self.exp, self.aat_commitment, self.sec_flags.pack())
     }
 
     /// Expiration as seconds since the Unix epoch.
@@ -282,8 +287,8 @@ impl AuthenticatorAssertionToken {
 
     /// The request commitment.
     #[must_use]
-    pub const fn req(&self) -> FieldElement {
-        self.req
+    pub const fn aat_commitment(&self) -> FieldElement {
+        self.aat_commitment
     }
 
     /// The security flags.
@@ -292,16 +297,19 @@ impl AuthenticatorAssertionToken {
         self.sec_flags
     }
 
-    /// Signs the token with the `trust_anchor_key` and returns its CWT encoding, with the `kid` hint.
+    /// Signs the token with the `authenticator_provider_key` and returns its CWT encoding, with the `kid` hint.
     ///
     /// # Errors
     /// [`AssertionError::KeyEncoding`] if the signature or key can not be compressed.
-    pub fn sign(&self, trust_anchor_key: &EdDSAPrivateKey) -> Result<Vec<u8>, AssertionError> {
-        let signature = trust_anchor_key
+    pub fn sign(
+        &self,
+        authenticator_provider_key: &EdDSAPrivateKey,
+    ) -> Result<Vec<u8>, AssertionError> {
+        let signature = authenticator_provider_key
             .sign(*self.message_hash())
             .to_compressed_bytes()
             .map_err(|e| AssertionError::KeyEncoding(e.to_string()))?;
-        let kid = trust_anchor_key
+        let kid = authenticator_provider_key
             .public()
             .to_compressed_bytes()
             .map_err(|e| AssertionError::KeyEncoding(e.to_string()))?;
@@ -322,12 +330,12 @@ impl AuthenticatorAssertionToken {
         let mut payload = [0u8; PAYLOAD_LEN];
         let mut parts: Vec<&[u8]> = Vec::with_capacity(8);
         let exp = self.exp.to_be_bytes();
-        let req = self.req.to_be_bytes();
+        let aat_commitment = self.aat_commitment.to_be_bytes();
         let sec_flags = self.sec_flags.pack().to_be_bytes();
         parts.push(&[0xa4, 0x04, 0x1a]);
         parts.push(&exp);
         parts.push(&[0x0a, 0x58, 0x20]);
-        parts.push(&req);
+        parts.push(&aat_commitment);
         parts.push(&[0x19, 0x01, 0x09, 0x78, 0x1c]);
         parts.push(EAT_PROFILE.as_bytes());
         parts.push(&[0x3a, 0x00, 0x01, 0x11, 0x6f, 0x48]);
@@ -378,12 +386,13 @@ impl SignedAuthenticatorAssertionToken {
             .ok_or(AssertionError::InvalidEncoding("signature"))?;
 
         let exp = u32::from_be_bytes(payload[3..7].try_into().expect("4 bytes"));
-        let req = FieldElement::from_be_bytes(payload[10..42].try_into().expect("32 bytes"))
-            .map_err(|_| AssertionError::InvalidEncoding("non-canonical nonce"))?;
+        let aat_commitment =
+            FieldElement::from_be_bytes(payload[10..42].try_into().expect("32 bytes"))
+                .map_err(|_| AssertionError::InvalidEncoding("non-canonical nonce"))?;
         let sec_flags = SecFlags::unpack(u64::from_be_bytes(
             payload[81..89].try_into().expect("8 bytes"),
         ))?;
-        let token = AuthenticatorAssertionToken::new(exp, req, sec_flags)?;
+        let token = AuthenticatorAssertionToken::new(exp, aat_commitment, sec_flags)?;
         if token.payload() != payload {
             return Err(AssertionError::InvalidEncoding("claims"));
         }
@@ -396,15 +405,18 @@ impl SignedAuthenticatorAssertionToken {
         })
     }
 
-    /// Turns the token into the private inputs of a verifier, given the opening of its
-    /// request commitment. The token's `req` is dropped: a verifier recomputes it.
+    /// Turns the token into the private inputs of a verifier, given the signing key and the
+    /// opening of its request commitment. The token's `aat_commitment` is dropped: a verifier
+    /// recomputes it.
     #[must_use]
     pub fn into_private_inputs(
         self,
+        authenticator_provider_key: EdDSAPublicKey,
         cdh: FieldElement,
         blind: FieldElement,
     ) -> AuthenticatorAssertionPrivateInputs {
         AuthenticatorAssertionPrivateInputs {
+            authenticator_provider_key,
             exp: self.token.exp,
             sec_flags: self.token.sec_flags.pack(),
             sig: self.signature,
@@ -414,43 +426,28 @@ impl SignedAuthenticatorAssertionToken {
     }
 }
 
-/// The public inputs of AAT verification (WIP-106 section 3.7). Set by the RP and the
-/// verifier; a verifier reports them alongside its output.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Computes `authenticator_provider_key_hash = H_3(DS_KEY; x, y)`, the value circuits and RPs
+/// identify an `authenticator_provider_key` by.
+#[must_use]
+pub fn authenticator_provider_key_hash(key: &EdDSAPublicKey) -> FieldElement {
+    poseidon::hash(
+        ds::AUTHENTICATOR_PROVIDER_KEY,
+        [FieldElement::from(key.pk.x), FieldElement::from(key.pk.y)],
+    )
+}
+
+/// The public inputs of AAT verification (WIP-106 section 3.7). A verifier outside a circuit
+/// reports them as its output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthenticatorAssertionPublicInputs {
-    /// The Authenticator Provider's `trust_anchor_key`, chosen by the RP.
-    pub trust_anchor_key: EdDSAPublicKey,
+    /// Hash of the Authenticator Provider's key, see [`authenticator_provider_key_hash`].
+    pub authenticator_provider_key_hash: FieldElement,
     /// Current time as seconds since the Unix epoch, from the verifier's clock.
     pub now: u32,
     /// The `rpId` of the request.
     pub aud: FieldElement,
     /// The nonce of the request.
     pub nonce: FieldElement,
-    /// Minimum `build_version` the RP accepts.
-    pub min_build_version: u32,
-}
-
-/// The private inputs of AAT verification (WIP-106 section 3.7): the token's claims and
-/// signature, and the opening of its request commitment. A verifier MUST keep them
-/// confidential.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthenticatorAssertionPrivateInputs {
-    /// Expiration as seconds since the Unix epoch.
-    pub exp: u32,
-    /// Packed security attributes (see [`SecFlags`]).
-    pub sec_flags: u64,
-    /// The signature by the `trust_anchor_key`.
-    pub sig: EdDSASignature,
-    /// Client data hash binding the AAT to its upstream use; `0` is nil.
-    pub cdh: FieldElement,
-    /// Blinding factor of the request commitment.
-    pub blind: FieldElement,
-}
-
-/// The public output of a verified AAT: the disclosed `sec_flags` sub-fields.
-/// `exp` and `build_version` stay private and are deliberately absent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VerifiedAssertion {
     /// Platform of the Authenticator (see [`Platform`]).
     pub platform: u8,
     /// Class of integrity evidence verified for the request (see [`SecLevel`]).
@@ -459,6 +456,58 @@ pub struct VerifiedAssertion {
     pub sec_meta: u8,
     /// User presence signed by the Authenticator Provider.
     pub user_presence: UserPresence,
+    /// Minimum `build_version` the RP accepts.
+    pub min_build_version: u32,
+}
+
+/// The private inputs of AAT verification (WIP-106 section 3.7): the signing key, the token's
+/// claims and signature, and the opening of its request commitment. A verifier MUST keep them
+/// confidential.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthenticatorAssertionPrivateInputs {
+    /// The key that signed the AAT.
+    pub authenticator_provider_key: EdDSAPublicKey,
+    /// Expiration as seconds since the Unix epoch.
+    pub exp: u32,
+    /// Packed security attributes (see [`SecFlags`]).
+    pub sec_flags: u64,
+    /// The signature by the `authenticator_provider_key`.
+    pub sig: EdDSASignature,
+    /// Client data hash binding the AAT to its upstream use; `0` is nil.
+    pub cdh: FieldElement,
+    /// Blinding factor of the request commitment.
+    pub blind: FieldElement,
+}
+
+impl AuthenticatorAssertionPrivateInputs {
+    /// Derives the public inputs a verifier outside a circuit reports, from the request values
+    /// it was given and the key and `sec_flags` it holds. Run [`verify_aat`] on the result.
+    ///
+    /// # Errors
+    /// [`VerificationError::InvalidSecFlags`] on reserved bits or a reserved `user_presence`.
+    pub fn public_inputs(
+        &self,
+        now: u32,
+        aud: FieldElement,
+        nonce: FieldElement,
+        min_build_version: u32,
+    ) -> Result<AuthenticatorAssertionPublicInputs, VerificationError> {
+        let flags = SecFlags::unpack(self.sec_flags)
+            .map_err(|_| VerificationError::InvalidSecFlags(self.sec_flags))?;
+        Ok(AuthenticatorAssertionPublicInputs {
+            authenticator_provider_key_hash: authenticator_provider_key_hash(
+                &self.authenticator_provider_key,
+            ),
+            now,
+            aud,
+            nonce,
+            platform: flags.platform,
+            sec_level: flags.sec_level,
+            sec_meta: flags.sec_meta,
+            user_presence: flags.user_presence,
+            min_build_version,
+        })
+    }
 }
 
 /// Why an AAT failed verification. One variant per WIP-106 section 3.7 constraint.
@@ -467,7 +516,10 @@ pub enum VerificationError {
     /// The request nonce is `0`.
     #[error("nonce must not be 0")]
     ZeroNonce,
-    /// The signature does not verify: forged, or the request inputs do not open `req`.
+    /// The key does not hash to `authenticator_provider_key_hash`.
+    #[error("authenticator_provider_key does not match its hash")]
+    KeyHashMismatch,
+    /// The signature does not verify: forged, or the request inputs do not open `aat_commitment`.
     #[error("invalid signature")]
     InvalidSignature,
     /// `now >= exp`.
@@ -479,6 +531,9 @@ pub enum VerificationError {
     /// `sec_flags` has reserved bits set or a reserved `user_presence`.
     #[error("invalid sec_flags {0:#x}")]
     InvalidSecFlags(u64),
+    /// `sec_flags` does not pack the public `platform`, `sec_level`, `sec_meta` and `user_presence`.
+    #[error("sec_flags do not match the public security flags")]
+    SecFlagsMismatch,
     /// `build_version < min_build_version`.
     #[error("build_version below minimum")]
     BuildVersionBelowMinimum,
@@ -494,13 +549,21 @@ pub enum VerificationError {
 pub fn verify_aat(
     public: &AuthenticatorAssertionPublicInputs,
     private: &AuthenticatorAssertionPrivateInputs,
-) -> Result<VerifiedAssertion, VerificationError> {
+) -> Result<(), VerificationError> {
     if public.nonce == FieldElement::ZERO {
         return Err(VerificationError::ZeroNonce);
     }
-    let req = request_commitment(public.aud, public.nonce, private.cdh, private.blind);
-    let message = message_hash(private.exp, req, private.sec_flags);
-    if !public.trust_anchor_key.verify(*message, &private.sig) {
+    if authenticator_provider_key_hash(&private.authenticator_provider_key)
+        != public.authenticator_provider_key_hash
+    {
+        return Err(VerificationError::KeyHashMismatch);
+    }
+    let aat_commitment = request_commitment(public.aud, public.nonce, private.cdh, private.blind);
+    let message = message_hash(private.exp, aat_commitment, private.sec_flags);
+    if !private
+        .authenticator_provider_key
+        .verify(*message, &private.sig)
+    {
         return Err(VerificationError::InvalidSignature);
     }
     if public.now >= private.exp {
@@ -511,15 +574,23 @@ pub fn verify_aat(
     }
     let flags = SecFlags::unpack(private.sec_flags)
         .map_err(|_| VerificationError::InvalidSecFlags(private.sec_flags))?;
+    if (
+        flags.platform,
+        flags.sec_level,
+        flags.sec_meta,
+        flags.user_presence,
+    ) != (
+        public.platform,
+        public.sec_level,
+        public.sec_meta,
+        public.user_presence,
+    ) {
+        return Err(VerificationError::SecFlagsMismatch);
+    }
     if flags.build_version < public.min_build_version {
         return Err(VerificationError::BuildVersionBelowMinimum);
     }
-    Ok(VerifiedAssertion {
-        platform: flags.platform,
-        sec_level: flags.sec_level,
-        sec_meta: flags.sec_meta,
-        user_presence: flags.user_presence,
-    })
+    Ok(())
 }
 
 #[cfg(test)]

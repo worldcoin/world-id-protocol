@@ -4,11 +4,16 @@ use world_id_primitives::FieldElement;
 use super::*;
 
 /// Shared with `crates/proof/noir/authenticator-assertion/src/tests.nr`.
-const EXPECTED_REQ: &str = "0x17785a9691e9ee99df657ce545bfe748eab27cf21f118361d87cf64ff024495d";
+const EXPECTED_AAT_COMMITMENT: &str =
+    "0x17785a9691e9ee99df657ce545bfe748eab27cf21f118361d87cf64ff024495d";
 const EXPECTED_MESSAGE: &str = "0x28f0b633f40ea69da7c2399aa958f48f4a4c582889eb563d8efd37e330c70332";
+const EXPECTED_KEY_HASH: &str =
+    "0x14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
+/// WIP-106 Appendix A1.
+const EXPECTED_CWT: &str = "8447a1013a00010000a10458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d9875859a4041a6a4d3d8d0a582017785a9691e9ee99df657ce545bfe748eab27cf21f118361d87cf64ff024495d190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001116f480013000007d60102584057c0b136c9c752669a3ad304ee30d45901678a0313d96debd06da712fde9402876071885070c0919ff6e425eb50b152540acd660240b73092d43025023858c01";
 
 fn fixture() -> (AuthenticatorAssertionToken, EdDSAPrivateKey) {
-    let req = request_commitment(
+    let aat_commitment = request_commitment(
         FieldElement::from(1_928_118u64),
         FieldElement::from(42u64),
         FieldElement::ZERO,
@@ -22,7 +27,7 @@ fn fixture() -> (AuthenticatorAssertionToken, EdDSAPrivateKey) {
         user_presence: UserPresence::PresentVerified,
     };
     (
-        AuthenticatorAssertionToken::new(1_783_446_925, req, flags).unwrap(),
+        AuthenticatorAssertionToken::new(1_783_446_925, aat_commitment, flags).unwrap(),
         EdDSAPrivateKey::from_bytes([7u8; 32]),
     )
 }
@@ -30,7 +35,7 @@ fn fixture() -> (AuthenticatorAssertionToken, EdDSAPrivateKey) {
 #[test]
 fn known_answer_matches_circuit_fixture() {
     let (aat, key) = fixture();
-    assert_eq!(aat.req().to_string(), EXPECTED_REQ);
+    assert_eq!(aat.aat_commitment().to_string(), EXPECTED_AAT_COMMITMENT);
     assert_eq!(aat.message_hash().to_string(), EXPECTED_MESSAGE);
     assert_eq!(aat.sec_flags().pack(), 0x0013_0000_07d6_0102);
 
@@ -48,6 +53,21 @@ fn known_answer_matches_circuit_fixture() {
         key.public().pk.x.to_string(),
         "19037598474602150174935475944965340829216795940473064039209388058233204431288"
     );
+    assert_eq!(
+        authenticator_provider_key_hash(&key.public()).to_string(),
+        EXPECTED_KEY_HASH
+    );
+}
+
+#[test]
+fn cwt_matches_spec_test_vector() {
+    let (aat, key) = fixture();
+    let cwt = aat.sign(&key).unwrap();
+    assert_eq!(hex::encode(&cwt), EXPECTED_CWT);
+    assert_eq!(
+        hex::encode(key.public().to_compressed_bytes().unwrap()),
+        &EXPECTED_CWT[26..90]
+    );
 }
 
 #[test]
@@ -57,7 +77,7 @@ fn cwt_round_trips_and_verifies() {
     let decoded = SignedAuthenticatorAssertionToken::decode(&cwt).unwrap();
 
     assert_eq!(decoded.token.exp(), aat.exp());
-    assert_eq!(decoded.token.req(), aat.req());
+    assert_eq!(decoded.token.aat_commitment(), aat.aat_commitment());
     assert_eq!(decoded.token.sec_flags(), aat.sec_flags());
     assert_eq!(
         decoded.kid,
@@ -80,7 +100,7 @@ fn cwt_without_kid_decodes() {
 
     let decoded = SignedAuthenticatorAssertionToken::decode(&without_kid).unwrap();
     assert_eq!(decoded.kid, None);
-    assert_eq!(decoded.token.req(), aat.req());
+    assert_eq!(decoded.token.aat_commitment(), aat.aat_commitment());
 }
 
 #[test]
@@ -119,13 +139,13 @@ fn invalid_claims_rejected() {
     let (aat, _) = fixture();
     let flags = aat.sec_flags();
     assert!(matches!(
-        AuthenticatorAssertionToken::new(0xffff, aat.req(), flags),
+        AuthenticatorAssertionToken::new(0xffff, aat.aat_commitment(), flags),
         Err(AssertionError::ExpirationOutOfRange(0xffff))
     ));
     assert!(matches!(
         AuthenticatorAssertionToken::new(
             aat.exp(),
-            aat.req(),
+            aat.aat_commitment(),
             SecFlags {
                 sec_meta: 0x8,
                 ..flags
@@ -165,13 +185,18 @@ fn inputs() -> (
 ) {
     let (aat, key) = fixture();
     let public = AuthenticatorAssertionPublicInputs {
-        trust_anchor_key: key.public(),
+        authenticator_provider_key_hash: authenticator_provider_key_hash(&key.public()),
         now: NOW,
         aud: FieldElement::from(1_928_118u64),
         nonce: FieldElement::from(42u64),
+        platform: 2,
+        sec_level: 1,
+        sec_meta: 3,
+        user_presence: UserPresence::PresentVerified,
         min_build_version: 2006,
     };
     let private = AuthenticatorAssertionPrivateInputs {
+        authenticator_provider_key: key.public(),
         exp: aat.exp(),
         sec_flags: aat.sec_flags().pack(),
         sig: key.sign(*aat.message_hash()),
@@ -184,15 +209,7 @@ fn inputs() -> (
 #[test]
 fn verify_accepts_circuit_fixture() {
     let (public, private, _) = inputs();
-    assert_eq!(
-        verify_aat(&public, &private),
-        Ok(VerifiedAssertion {
-            platform: 2,
-            sec_level: 1,
-            sec_meta: 3,
-            user_presence: UserPresence::PresentVerified,
-        })
-    );
+    assert_eq!(verify_aat(&public, &private), Ok(()));
 }
 
 #[test]
@@ -201,10 +218,18 @@ fn private_inputs_derive_from_decoded_token() {
     let (public, private, _) = inputs();
     let decoded = SignedAuthenticatorAssertionToken::decode(&aat.sign(&key).unwrap()).unwrap();
     assert_eq!(
-        decoded.into_private_inputs(private.cdh, private.blind),
+        decoded.into_private_inputs(key.public(), private.cdh, private.blind),
         private
     );
-    assert!(verify_aat(&public, &private).is_ok());
+    assert_eq!(
+        private.public_inputs(
+            public.now,
+            public.aud,
+            public.nonce,
+            public.min_build_version
+        ),
+        Ok(public)
+    );
 }
 
 #[test]
@@ -215,7 +240,7 @@ fn verify_rejects_each_constraint() {
             assert_eq!(verify_aat(&p, &s), Err(err));
         };
     let with_public = |f: fn(&mut AuthenticatorAssertionPublicInputs)| {
-        let mut p = public.clone();
+        let mut p = public;
         f(&mut p);
         p
     };
@@ -243,29 +268,62 @@ fn verify_rejects_each_constraint() {
         InvalidSignature,
     );
     check(
-        public.clone(),
+        public,
         with_private(|s| s.cdh = FieldElement::from(1u64)),
         InvalidSignature,
     );
     check(
-        public.clone(),
+        public,
         with_private(|s| s.blind = FieldElement::from(8u64)),
         InvalidSignature,
     );
     check(
-        public.clone(),
+        public,
         with_private(|s| s.sec_flags ^= 0x4),
         InvalidSignature,
     );
+    check(public, with_private(|s| s.exp += 1), InvalidSignature);
+    // A key that did not sign the token, with its hash supplied as the public input.
+    let other_key = EdDSAPrivateKey::from_bytes([8u8; 32]).public();
     check(
-        public.clone(),
-        with_private(|s| s.exp += 1),
+        AuthenticatorAssertionPublicInputs {
+            authenticator_provider_key_hash: authenticator_provider_key_hash(&other_key),
+            ..public
+        },
+        AuthenticatorAssertionPrivateInputs {
+            authenticator_provider_key: other_key.clone(),
+            ..private.clone()
+        },
         InvalidSignature,
     );
     check(
-        with_public(|p| p.trust_anchor_key = EdDSAPrivateKey::from_bytes([8u8; 32]).public()),
+        public,
+        AuthenticatorAssertionPrivateInputs {
+            authenticator_provider_key: other_key,
+            ..private.clone()
+        },
+        KeyHashMismatch,
+    );
+    // Public flags must equal the signed ones.
+    check(
+        with_public(|p| p.platform = 4),
         private.clone(),
-        InvalidSignature,
+        SecFlagsMismatch,
+    );
+    check(
+        with_public(|p| p.sec_level = 3),
+        private.clone(),
+        SecFlagsMismatch,
+    );
+    check(
+        with_public(|p| p.sec_meta = 1),
+        private.clone(),
+        SecFlagsMismatch,
+    );
+    check(
+        with_public(|p| p.user_presence = UserPresence::Undetermined),
+        private.clone(),
+        SecFlagsMismatch,
     );
     // Freshness, at both boundaries.
     check(
@@ -292,18 +350,14 @@ fn verify_rejects_each_constraint() {
     );
 
     // Reserved values can only reach the verifier in a token the provider's key signed.
-    let req = request_commitment(public.aud, public.nonce, private.cdh, private.blind);
+    let aat_commitment = request_commitment(public.aud, public.nonce, private.cdh, private.blind);
     let signed = |sec_flags: u64| AuthenticatorAssertionPrivateInputs {
         sec_flags,
-        sig: key.sign(*message_hash(private.exp, req, sec_flags)),
+        sig: key.sign(*message_hash(private.exp, aat_commitment, sec_flags)),
         ..private.clone()
     };
     let reserved_bit = private.sec_flags | 1 << 54;
-    check(
-        public.clone(),
-        signed(reserved_bit),
-        InvalidSecFlags(reserved_bit),
-    );
+    check(public, signed(reserved_bit), InvalidSecFlags(reserved_bit));
     let reserved_presence = (private.sec_flags & !(0x7 << 51)) | 5 << 51;
     check(
         public,

@@ -60,6 +60,9 @@ pub mod ds {
     /// Separates the message signed for an authenticator assertion token (WIP-106).
     pub const AUTHENTICATOR_ASSERTION_TOKEN: DomainSeparator<3> =
         DomainSeparator::new(b"WORLD-ID/WIP-106/AAT");
+    /// Separates the hash of an Authenticator Provider key (WIP-106).
+    pub const AUTHENTICATOR_PROVIDER_KEY: DomainSeparator<2> =
+        DomainSeparator::new(b"WORLD-ID/WIP-106/KEY");
     /// Separates the hash of a single raw-bytes credential claim.
     pub const CLAIMS_HASH_V1: VariableLengthDomainSeparator =
         VariableLengthDomainSeparator::new(b"CLAIMS_HASH_V1");
@@ -237,7 +240,7 @@ mod tests {
 
     /// The raw tag of every constant in [`ds`], across both separator types, to keep
     /// the collision and length checks exhaustive.
-    const ALL_TAGS: [&[u8]; 11] = [
+    const ALL_TAGS: [&[u8]; 12] = [
         ds::CREDENTIAL_V1.as_bytes(),
         ds::CREDENTIAL_SUB.as_bytes(),
         ds::SESSION_COMMITMENT.as_bytes(),
@@ -247,6 +250,7 @@ mod tests {
         ds::OWNERSHIP_PROOF.as_bytes(),
         ds::AUTHENTICATOR_ASSERTION_REQUEST.as_bytes(),
         ds::AUTHENTICATOR_ASSERTION_TOKEN.as_bytes(),
+        ds::AUTHENTICATOR_PROVIDER_KEY.as_bytes(),
         ds::CLAIMS_HASH_V1.as_bytes(),
         ds::ASSOCIATED_DATA_V1.as_bytes(),
     ];
