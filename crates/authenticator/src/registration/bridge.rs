@@ -7,7 +7,10 @@
 use std::{future::Future, time::Duration};
 
 use backon::{ExponentialBuilder, Retryable as _, Sleeper as _};
-use futures_util::future::{Either, select};
+use futures_util::{
+    StreamExt as _,
+    future::{Either, select},
+};
 use reqwest::{StatusCode, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -16,6 +19,7 @@ use crate::service_client::default_http_client;
 
 /// Maximum retries after a transient failure.
 const MAX_RETRIES: usize = 3;
+const MAX_BODY_SIZE: usize = 24 * 1024 * 1024;
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A client for one bridge deployment.
@@ -79,6 +83,12 @@ pub enum BridgeError {
     /// The bridge returned a response that contradicts its status.
     #[error("invalid bridge response: {0}")]
     InvalidResponse(&'static str),
+    /// The bridge returned malformed JSON.
+    #[error("invalid bridge JSON: {0}")]
+    Json(#[from] serde_json::Error),
+    /// The bridge response exceeded the transport body limit.
+    #[error("bridge response exceeds the 24 MiB body limit")]
+    TooLarge,
     /// The operation exhausted its overall time budget.
     #[error("bridge operation timed out")]
     Timeout,
@@ -92,7 +102,11 @@ impl BridgeError {
         match self {
             Self::Transport(error) => !error.is_decode(),
             Self::UnexpectedStatus { status, .. } => status.is_server_error(),
-            Self::InvalidUrl(_) | Self::InvalidResponse(_) | Self::Timeout => false,
+            Self::InvalidUrl(_)
+            | Self::InvalidResponse(_)
+            | Self::Timeout
+            | Self::Json(_)
+            | Self::TooLarge => false,
         }
     }
 
@@ -292,7 +306,7 @@ impl BridgeClient {
         let send = || async {
             let response = self.http.get(url.clone()).send().await?;
             match response.status() {
-                StatusCode::OK => Ok(Some(response.json().await?)),
+                StatusCode::OK => Ok(Some(read_json(response).await?)),
                 StatusCode::NOT_FOUND => Ok(None),
                 _ => Err(BridgeError::from_response(&response)),
             }
@@ -349,6 +363,26 @@ impl BridgeClient {
     }
 }
 
+async fn read_json<T: DeserializeOwned>(response: reqwest::Response) -> Result<T, BridgeError> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_BODY_SIZE as u64)
+    {
+        return Err(BridgeError::TooLarge);
+    }
+    let stream = response.bytes_stream();
+    let mut stream = std::pin::pin!(stream);
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        if chunk.len() > MAX_BODY_SIZE - bytes.len() {
+            return Err(BridgeError::TooLarge);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
 fn backoff() -> ExponentialBuilder {
     ExponentialBuilder::default()
         .with_min_delay(Duration::from_millis(500))
@@ -375,6 +409,30 @@ mod tests {
 
     fn client(server: &mockito::ServerGuard) -> BridgeClient {
         BridgeClient::new(Url::parse(&server.url()).unwrap()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn rejects_oversized_chunked_bodies_without_retry() {
+        let mut server = mockito::Server::new_async().await;
+        let path = format!("/request/{}", request_id());
+        let mock = server
+            .mock("GET", path.as_str())
+            .with_status(200)
+            .with_chunked_body(|writer| {
+                let chunk = [b' '; 64 * 1024];
+                for _ in 0..=MAX_BODY_SIZE / chunk.len() {
+                    writer.write_all(&chunk)?;
+                }
+                Ok(())
+            })
+            .expect(1)
+            .create_async()
+            .await;
+        assert!(matches!(
+            client(&server).take_request(&request_id()).await,
+            Err(BridgeError::TooLarge)
+        ));
+        mock.assert_async().await;
     }
 
     #[tokio::test]

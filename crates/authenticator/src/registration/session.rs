@@ -425,8 +425,14 @@ mod tests {
             .transport_key(&code)
             .unwrap();
         let request = key.encrypt_request(b"request").unwrap();
-        let wrong_id = TransportKey { key: key.key.clone(), request_id: other_session.request_id };
-        assert_eq!(wrong_id.decrypt_request(&request), Err(TransportError::Decrypt));
+        let wrong_id = TransportKey {
+            key: key.key.clone(),
+            request_id: other_session.request_id,
+        };
+        assert_eq!(
+            wrong_id.decrypt_request(&request),
+            Err(TransportError::Decrypt)
+        );
         let mut tampered = request.clone();
         let mut ciphertext = STANDARD.decode(&tampered.payload).unwrap();
         ciphertext[0] ^= 1;

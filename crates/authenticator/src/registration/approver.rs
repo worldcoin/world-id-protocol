@@ -724,6 +724,15 @@ fn classify_failure(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn expired_deadline_never_polls_operation() {
+        let result = before(Instant::now() - Duration::from_secs(1), async {
+            panic!("expired operation was polled");
+        })
+        .await;
+        assert_eq!(result, None::<()>);
+    }
+
     #[test]
     fn reverts_are_definitive_failures() {
         for submitted in [false, true] {
