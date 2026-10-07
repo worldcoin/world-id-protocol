@@ -215,4 +215,3 @@ pub(crate) fn default_http_client() -> reqwest::Client {
     let client = reqwest::Client::new();
     client
 }
-
