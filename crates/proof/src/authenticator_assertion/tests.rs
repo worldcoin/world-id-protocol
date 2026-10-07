@@ -122,7 +122,9 @@ fn non_canonical_encodings_rejected() {
     tampered[payload + 10..payload + 42].fill(0xff);
     assert!(matches!(
         SignedAuthenticatorAssertionToken::decode(&tampered),
-        Err(AssertionError::InvalidEncoding("non-canonical nonce"))
+        Err(AssertionError::InvalidEncoding(
+            "non-canonical aat_commitment"
+        ))
     ));
 
     // Trailing bytes.

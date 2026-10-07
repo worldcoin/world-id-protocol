@@ -388,7 +388,7 @@ impl SignedAuthenticatorAssertionToken {
         let exp = u32::from_be_bytes(payload[3..7].try_into().expect("4 bytes"));
         let aat_commitment =
             FieldElement::from_be_bytes(payload[10..42].try_into().expect("32 bytes"))
-                .map_err(|_| AssertionError::InvalidEncoding("non-canonical nonce"))?;
+                .map_err(|_| AssertionError::InvalidEncoding("non-canonical aat_commitment"))?;
         let sec_flags = SecFlags::unpack(u64::from_be_bytes(
             payload[81..89].try_into().expect("8 bytes"),
         ))?;
