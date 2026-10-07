@@ -1,52 +1,69 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+#[cfg(feature = "prover")]
 use eddsa_babyjubjub::EdDSAPrivateKey;
+#[cfg(feature = "prover")]
 use groth16_material::Groth16Error;
 
+#[cfg(feature = "prover")]
 use world_id_primitives::{
     AuthenticatorPublicKeySet, PrimitiveError, TREE_DEPTH, merkle::MerkleInclusionProof,
     oprf::WorldIdRequestAuthError,
 };
+#[cfg(feature = "prover")]
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// ZK artifact source abstractions.
+#[cfg(feature = "prover")]
 pub mod artifacts;
 
 /// Circuit input types for Circom/Groth16 circuits (query, nullifier, ownership proofs).
+#[cfg(feature = "prover")]
 pub mod circuit_inputs;
 
 /// Static circuit input fixtures shared by the tests and the generated circuit examples.
-#[cfg(test)]
+#[cfg(all(test, feature = "prover"))]
 mod fixtures;
 
+#[cfg(feature = "prover")]
 pub mod compress;
+#[cfg(feature = "prover")]
 pub use compress::ProofCompression;
+#[cfg(feature = "prover")]
 pub(crate) mod oprf_query;
+#[cfg(feature = "prover")]
 pub use oprf_query::{
     FullOprfOutput, OprfEntrypoint, QUERY_GRAPH_FINGERPRINT, QUERY_ZKEY_FINGERPRINT,
     load_query_material_from_paths, load_query_material_from_reader,
 };
 
+#[cfg(feature = "prover")]
 pub mod nullifier_proof;
+#[cfg(feature = "prover")]
 pub use nullifier_proof::*;
 
 /// Authenticator Assertions (WIP-106): token generation.
 pub mod authenticator_assertion;
 
+#[cfg(feature = "prover")]
 use ark_ff::BigInteger as _;
+#[cfg(feature = "prover")]
 use provekit_common::{InputMap, InputValue, NoirElement};
 
+#[cfg(feature = "prover")]
 use world_id_primitives::FieldElement;
 
 // TODO: Currently ownership proofs are not supported for WASM targets
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "prover", not(target_arch = "wasm32")))]
 pub mod ownership_proof;
 
+#[cfg(feature = "prover")]
 pub use provekit_common::{
     NoirProof, Prover as OwnershipProver, Verifier as OwnershipVerifier, WhirR1CSProof,
 };
 
 /// Error type for OPRF operations and proof generation.
+#[cfg(feature = "prover")]
 #[derive(Debug, thiserror::Error)]
 pub enum ProofError {
     /// Authentication error returned by the OPRF nodes (e.g. unknown RP, invalid proof).
@@ -78,10 +95,12 @@ pub enum ProofError {
     InternalError(#[from] eyre::Report),
 }
 
+#[cfg(feature = "prover")]
 pub trait NoirCircuitInput {
     fn into_witness(self) -> Result<InputMap, ProofError>;
 }
 
+#[cfg(feature = "prover")]
 pub trait NoirRepresentable {
     fn into_noir_value(self) -> InputValue;
 }
@@ -90,18 +109,21 @@ pub trait NoirRepresentable {
 ///
 /// Reduction is a no-op for any field whose modulus does not exceed BN254's scalar field, which
 /// holds for every caller here (including Baby Jubjub scalars).
+#[cfg(feature = "prover")]
 pub(crate) fn to_noir_element<F: ark_ff::PrimeField>(value: F) -> NoirElement {
     NoirElement::from_repr(ark_ff::PrimeField::from_be_bytes_mod_order(
         &value.into_bigint().to_bytes_be(),
     ))
 }
 
+#[cfg(feature = "prover")]
 impl NoirRepresentable for FieldElement {
     fn into_noir_value(self) -> InputValue {
         InputValue::Field(to_noir_element(*self))
     }
 }
 
+#[cfg(feature = "prover")]
 impl From<taceo_oprf::client::Error> for ProofError {
     fn from(err: taceo_oprf::client::Error) -> Self {
         if let taceo_oprf::client::Error::ThresholdServiceError(ref svc) = err
@@ -114,6 +136,7 @@ impl From<taceo_oprf::client::Error> for ProofError {
 }
 
 /// Inputs from the Authenticator to generate a nullifier or blinding factor.
+#[cfg(feature = "prover")]
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct AuthenticatorProofInput {
     /// The set of all public keys for all the user's authenticators.
@@ -128,6 +151,7 @@ pub struct AuthenticatorProofInput {
     pub key_index: u64,
 }
 
+#[cfg(feature = "prover")]
 impl AuthenticatorProofInput {
     /// Creates a new authenticator proof input.
     #[must_use]
