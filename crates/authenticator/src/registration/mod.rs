@@ -8,12 +8,14 @@
 //! request, asks the user for consent, inserts the new authenticator on-chain and answers with a
 //! sealed [`RegistrationResult`], which carries the credential vault.
 //!
-//! [`RegistrationRequester`] drives the Requesting Authenticator's side and
-//! [`IncomingRegistration`] the Approving Authenticator's side, over a [`BridgeClient`]. The
-//! remaining types are the protocol values and their encodings.
+//! [`RegistrationRequester`] drives the requesting side; [`PendingRegistration`] fetches
+//! the encrypted request before code entry on the approving side. Authentication with the
+//! independently transferred [`PairingCode`] yields an [`IncomingRegistration`] that still
+//! requires account checks and explicit consent.
 
 mod approver;
 mod bridge;
+mod bytes;
 mod pairing_uri;
 mod request;
 mod requester;
@@ -39,6 +41,6 @@ pub use response::{
     RegistrationResult, Vault, VaultFormat,
 };
 pub use session::{
-    EncryptedPayload, PairingSecret, RESPONSE_PUBLIC_KEY_LEN, RequestId, ResponsePublicKey,
-    ResponseSecretKey, TransportError, TransportKey,
+    EncryptedPayload, PairingCode, PairingSecret, RESPONSE_PUBLIC_KEY_LEN, RequestId,
+    ResponsePublicKey, ResponseSecretKey, TransportError, TransportKey,
 };
