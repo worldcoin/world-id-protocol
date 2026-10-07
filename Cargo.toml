@@ -118,6 +118,8 @@ metrics-util = "0.20"
 secrecy = "0.10"
 mockito = "1"
 ciborium = "0.2"
+httpdate = "1"
+argon2 = { version = "0.5", features = ["zeroize"] }
 arrayvec = "0.7"
 async-stream = "0.3"
 async-trait = "0.1"

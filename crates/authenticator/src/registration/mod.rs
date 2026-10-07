@@ -9,8 +9,10 @@
 //! sealed [`RegistrationResult`], which carries the credential vault.
 //!
 //! This module holds the protocol values and their encodings. Every value derived from the
-//! pairing secret is deterministic, so either side can resume a session from the secret alone.
+//! pairing secret is deterministic. Transport encryption additionally requires the independently
+//! transferred [`PairingCode`].
 
+mod bytes;
 mod pairing_uri;
 mod request;
 mod response;
@@ -28,6 +30,6 @@ pub use response::{
     RegistrationResult, Vault, VaultFormat,
 };
 pub use session::{
-    EncryptedPayload, PairingSecret, RESPONSE_PUBLIC_KEY_LEN, RequestId, ResponsePublicKey,
-    ResponseSecretKey, TransportError, TransportKey,
+    EncryptedPayload, PairingCode, PairingSecret, RESPONSE_PUBLIC_KEY_LEN, RequestId,
+    ResponsePublicKey, ResponseSecretKey, TransportError, TransportKey,
 };

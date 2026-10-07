@@ -1,4 +1,4 @@
-//! The normative test vectors of WIP-109 Appendix A.
+//! Registration commitments from WIP-109 Appendix A and an independent pairing-key vector.
 //!
 //! Inputs: the pairing secret is the bytes `00..1f`, the EdDSA signing key is 32 bytes of `0x42`,
 //! the X-Wing response key is derived from the seed of 32 bytes of `0x24`, and the Admin
@@ -19,7 +19,7 @@ struct ClassVector {
 }
 
 const REQUEST_ID: &str = "1e52a797a94d90f9de7addf1f9e61dc20033150e725dcc4f0a7947d5df13f7c4";
-const TRANSPORT_SECRET: &str = "0da9f35aa50d243d41afaca8c8fbc583b43c762976c21947e7c42329dfcff01c";
+
 const NEW_AUTHENTICATOR_PUBKEY: &str =
     "0xe7022bc5049a4df69f8681454fe75af14157890a0f15a9bd8b8252d387c62e4";
 const RESPONSE_PUBKEY_SHA256: &str =
@@ -62,9 +62,16 @@ fn pairing_secret() -> PairingSecret {
 fn session_derivations_match_vectors() {
     let secret = pairing_secret();
     assert_eq!(secret.request_id().to_string(), REQUEST_ID);
+    // Independently computed with libargon2 and Python cryptography HKDF-SHA256.
     assert_eq!(
-        hex::encode(secret.transport_key().0.as_ref()),
-        TRANSPORT_SECRET
+        hex::encode(
+            secret
+                .transport_key(&"QJTWPK".parse().unwrap())
+                .unwrap()
+                .key
+                .as_ref()
+        ),
+        "5f34760cf20842194596bc3765283c62ad11fe9d0d0e2fadd37dd2cfb48fb1a4"
     );
 
     let response_pubkey = ResponseSecretKey::from_seed(&[0x24; 32]).public_key();
@@ -91,8 +98,18 @@ fn registration_request_matches_vectors() {
         )
         .unwrap();
 
-        let params = serde_json::to_value(&request).unwrap();
-        assert_eq!(params["new_authenticator_pubkey"], NEW_AUTHENTICATOR_PUBKEY);
+        assert_eq!(
+            format!(
+                "{:#x}",
+                ruint::aliases::U256::from_le_bytes(
+                    request
+                        .new_authenticator_pubkey
+                        .to_compressed_bytes()
+                        .unwrap()
+                )
+            ),
+            NEW_AUTHENTICATOR_PUBKEY
+        );
         assert_eq!(hex::encode(digest.as_bytes()), vector.digest);
         assert_eq!(digest.signing_message().to_string(), vector.signing_message);
         assert_eq!(

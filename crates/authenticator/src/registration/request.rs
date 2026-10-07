@@ -1,21 +1,21 @@
 //! The `worldid_auth_v1_register` request (WIP-109 §3.3.1, §3.3.2 and §3.6.1).
 
-use std::{fmt, str::FromStr};
+use std::fmt;
 
 use alloy::primitives::Address;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
-use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use sha2::{Digest as _, Sha256};
 use world_id_primitives::{
     FieldElement, PrimitiveError,
     authenticator_message::{MethodName, Request},
     poseidon::{self, ds},
-    serde_utils::{hex_array, strict_hex_u256},
 };
 
-use super::session::{RESPONSE_PUBLIC_KEY_LEN, RequestId, ResponsePublicKey};
-use crate::traits::OnchainKeyRepresentable as _;
+use super::{
+    bytes,
+    session::{RESPONSE_PUBLIC_KEY_LEN, RequestId, ResponsePublicKey},
+};
 
 /// The method of the registration request.
 pub const REGISTER_METHOD: MethodName = MethodName::from_static("worldid_auth_v1_register");
@@ -238,22 +238,24 @@ impl RegistrationRequest {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireRegistrationRequest {
-    #[serde(with = "strict_hex_u256")]
-    new_authenticator_pubkey: U256,
+    #[serde(with = "bytes")]
+    new_authenticator_pubkey: [u8; 32],
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    new_authenticator_address: Option<String>,
-    #[serde(with = "hex_array")]
+    new_authenticator_address: Option<bytes::AddressBytes>,
+    #[serde(with = "bytes")]
     response_pubkey: [u8; RESPONSE_PUBLIC_KEY_LEN],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     name: Option<AuthenticatorName>,
-    #[serde(with = "hex_array")]
+    #[serde(with = "bytes")]
     registration_sig: [u8; 64],
 }
 
 impl Serialize for RegistrationRequest {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let address = match self.class {
-            AuthenticatorClass::Admin { address } => Some(address.to_checksum(None)),
+            AuthenticatorClass::Admin { address } => {
+                Some(bytes::AddressBytes(address.into_array()))
+            }
             AuthenticatorClass::Proving => None,
         };
         let response_pubkey =
@@ -263,7 +265,7 @@ impl Serialize for RegistrationRequest {
         WireRegistrationRequest {
             new_authenticator_pubkey: self
                 .new_authenticator_pubkey
-                .to_ethereum_representation()
+                .to_compressed_bytes()
                 .map_err(serde::ser::Error::custom)?,
             new_authenticator_address: address,
             response_pubkey,
@@ -281,11 +283,17 @@ impl<'de> Deserialize<'de> for RegistrationRequest {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let wire = WireRegistrationRequest::deserialize(deserializer)?;
         let new_authenticator_pubkey =
-            EdDSAPublicKey::from_compressed_bytes(wire.new_authenticator_pubkey.to_le_bytes())
+            EdDSAPublicKey::from_compressed_bytes(wire.new_authenticator_pubkey)
                 .map_err(|_| D::Error::custom("invalid new_authenticator_pubkey"))?;
         let class = match wire.new_authenticator_address {
             Some(address) => AuthenticatorClass::Admin {
-                address: parse_management_address(&address).map_err(D::Error::custom)?,
+                address: {
+                    let address = Address::from(address.0);
+                    if address.is_zero() {
+                        return Err(D::Error::custom("management address must not be zero"));
+                    }
+                    address
+                },
             },
             None => AuthenticatorClass::Proving,
         };
@@ -303,30 +311,8 @@ impl<'de> Deserialize<'de> for RegistrationRequest {
     }
 }
 
-/// Parses a `0x`-prefixed, 20-byte management key address. A mixed-case address must carry a
-/// valid ERC-55 checksum, and the zero address is rejected.
-fn parse_management_address(address: &str) -> Result<Address, &'static str> {
-    let digits = address
-        .strip_prefix("0x")
-        .filter(|digits| digits.len() == 40 && digits.bytes().all(|b| b.is_ascii_hexdigit()))
-        .ok_or("new_authenticator_address must be 0x-prefixed 20-byte hex")?;
-    let is_mixed_case = digits.bytes().any(|b| b.is_ascii_uppercase())
-        && digits.bytes().any(|b| b.is_ascii_lowercase());
-    let parsed = if is_mixed_case {
-        Address::parse_checksummed(address, None)
-            .map_err(|_| "new_authenticator_address has an invalid ERC-55 checksum")?
-    } else {
-        Address::from_str(address).map_err(|_| "invalid new_authenticator_address")?
-    };
-    if parsed.is_zero() {
-        return Err("new_authenticator_address must not be the zero address");
-    }
-    Ok(parsed)
-}
-
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
     use world_id_primitives::authenticator_message::Id;
 
     use super::*;
@@ -394,7 +380,7 @@ mod tests {
     }
 
     #[test]
-    fn request_round_trips_through_json() {
+    fn request_round_trips_through_cbor() {
         for class in [admin(), AuthenticatorClass::Proving] {
             let (request, _, request_id) = signed_request(class);
             let message = RegisterRequestMessage::new(
@@ -402,82 +388,53 @@ mod tests {
                 REGISTER_METHOD,
                 request,
             );
-            let json = serde_json::to_value(&message).unwrap();
-            assert_eq!(
-                json["params"].get("new_authenticator_address").is_some(),
-                matches!(class, AuthenticatorClass::Admin { .. })
-            );
-            let parsed: RegisterRequestMessage = serde_json::from_value(json).unwrap();
+            let encoded = world_id_primitives::authenticator_message::encode(&message).unwrap();
+            let parsed: RegisterRequestMessage =
+                world_id_primitives::authenticator_message::decode(&encoded, 10000).unwrap();
             assert_eq!(parsed, message);
         }
     }
 
-    fn params_json() -> serde_json::Value {
-        let (request, _, _) = signed_request(admin());
-        serde_json::to_value(request).unwrap()
-    }
-
     #[test]
-    fn deserialization_rejects_invalid_params() {
-        let mutations: Vec<(&str, serde_json::Value)> = vec![
-            ("new_authenticator_pubkey", json!("0x0")),
-            ("new_authenticator_pubkey", json!("12345")),
+    fn wire_rejects_wrong_byte_lengths_types_and_zero_address() {
+        let (request, _, _) = signed_request(admin());
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&request, &mut encoded).unwrap();
+        let original: ciborium::Value = ciborium::from_reader(encoded.as_slice()).unwrap();
+        for (field, invalid) in [
             (
-                "new_authenticator_address",
-                json!("0x0000000000000000000000000000000000000000"),
+                "new_authenticator_pubkey",
+                ciborium::Value::Bytes(vec![0; 31]),
+            ),
+            (
+                "new_authenticator_pubkey",
+                ciborium::Value::Text("0x12".into()),
             ),
             (
                 "new_authenticator_address",
-                json!("0x11111111111111111111111111111111111111"),
+                ciborium::Value::Bytes(vec![0; 20]),
             ),
             (
                 "new_authenticator_address",
-                json!("0xaAaAaAaAaAaAaAaAaAaAAaAaAaAaAaAaAaAaAaAa"),
+                ciborium::Value::Bytes(vec![1; 19]),
             ),
-            ("response_pubkey", json!("0x00")),
-            (
-                "response_pubkey",
-                json!(format!("0x{}", "00".repeat(RESPONSE_PUBLIC_KEY_LEN - 1))),
-            ),
-            ("registration_sig", json!("0x00")),
-            ("name", json!("x".repeat(MAX_NAME_LEN + 1))),
-            ("unexpected", json!(1)),
-        ];
-        for (key, value) in mutations {
-            let mut params = params_json();
-            params[key] = value;
+            ("response_pubkey", ciborium::Value::Bytes(vec![1; 1215])),
+            ("registration_sig", ciborium::Value::Bytes(vec![1; 63])),
+            ("name", ciborium::Value::Text("x".repeat(65))),
+        ] {
+            let mut value = original.clone();
+            let ciborium::Value::Map(ref mut entries) = value else {
+                panic!()
+            };
+            entries
+                .iter_mut()
+                .find(|(key, _)| key.as_text() == Some(field))
+                .unwrap()
+                .1 = invalid;
             assert!(
-                serde_json::from_value::<RegistrationRequest>(params).is_err(),
-                "{key}"
+                value.deserialized::<RegistrationRequest>().is_err(),
+                "{field}"
             );
         }
-    }
-
-    #[test]
-    fn deserialization_validates_address_checksums() {
-        let checksummed = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed";
-        let mut params = params_json();
-        params["new_authenticator_address"] = json!(checksummed);
-        let parsed: RegistrationRequest = serde_json::from_value(params.clone()).unwrap();
-        assert_eq!(
-            parsed.class,
-            AuthenticatorClass::Admin {
-                address: Address::from_str(checksummed).unwrap()
-            }
-        );
-
-        params["new_authenticator_address"] = json!(checksummed.to_lowercase());
-        assert!(serde_json::from_value::<RegistrationRequest>(params).is_ok());
-    }
-
-    #[test]
-    fn missing_address_means_proving() {
-        let mut params = params_json();
-        params
-            .as_object_mut()
-            .unwrap()
-            .remove("new_authenticator_address");
-        let parsed: RegistrationRequest = serde_json::from_value(params).unwrap();
-        assert_eq!(parsed.class, AuthenticatorClass::Proving);
     }
 }
