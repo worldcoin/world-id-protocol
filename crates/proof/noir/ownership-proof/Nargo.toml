@@ -1,8 +1,8 @@
 [package]
 name = "ownership_proof"
 type = "bin"
-descrption = "UNAUDITED. ALPHA. Noir Circuit Implementation of WIP-103 (Proof of Ownership) for the World ID Protocol."
-authors = ["@dkales"]
+descrption = "Noir Circuit Implementation of WIP-103 (Proof of Ownership) for the World ID Protocol."
+authors = ["@dkales", "@paolodamico"]
 license = "MIT"
 backend = "provekit"
 
