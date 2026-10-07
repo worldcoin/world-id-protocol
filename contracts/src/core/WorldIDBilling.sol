@@ -140,7 +140,6 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         external
         virtual
         onlyProxy
-        onlyInitialized
         nonReentrant
     {
         // Reverts for unknown or inactive RPs so payment cannot buy unusable capacity.
@@ -167,7 +166,128 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         uint64 expiresAtMin,
         uint256 billingNullifier,
         uint256[5] calldata proof
-    ) external virtual onlyProxy onlyInitialized nonReentrant returns (bool success) {
+    ) external virtual onlyProxy nonReentrant returns (bool success) {
+        return _register(scope, authorization, issuerSchemaId, expiresAtMin, billingNullifier, proof);
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function registerMany(BillingContext calldata scope, Registration[] calldata registrations)
+        external
+        virtual
+        onlyProxy
+        nonReentrant
+        returns (bool[] memory successes)
+    {
+        successes = new bool[](registrations.length);
+        for (uint256 i = 0; i < registrations.length; ++i) {
+            Registration calldata registration = registrations[i];
+            successes[i] = _register(
+                scope,
+                registration.authorization,
+                registration.issuerSchemaId,
+                registration.expiresAtMin,
+                registration.billingNullifier,
+                registration.proof
+            );
+        }
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                    VIEW FUNCTIONS                      //
+    ////////////////////////////////////////////////////////////
+
+    /// @inheritdoc IWorldIDBilling
+    function quotePurchase(BillingContext calldata scope, uint256 capacityAmount)
+        public
+        view
+        virtual
+        onlyProxy
+        returns (uint256 wldAmount)
+    {
+        _validateScope(scope);
+        if (capacityAmount == 0) revert ZeroCapacityAmount();
+
+        uint256 currentStart = _monthStart(block.timestamp);
+        uint64 secondNext = _addMonths(currentStart, 2);
+        if (scope.periodStart < currentStart || scope.periodStart > secondNext) revert PeriodOutsidePurchaseWindow();
+
+        uint256 usdPerWld = _verifiedUsdPerWld();
+        uint256 usdTotal = capacityAmount * pricePerWorldID;
+        return Math.mulDiv(usdTotal, TOKEN_UNIT, usdPerWld, Math.Rounding.Ceil);
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function getBillingPeriod(uint64 timestamp) external pure virtual returns (uint64 periodStart, uint64 periodEnd) {
+        periodStart = _monthStart(timestamp);
+        periodEnd = _addMonths(periodStart, 1);
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function getBillingAction(BillingContext calldata scope) public pure virtual returns (uint256) {
+        // The shift reduces the hash into the field with a 0x00 uniqueness prefix.
+        return uint256(
+            keccak256(
+            abi.encode(BILLING_ACTION_DOMAIN, scope.chainId, scope.billingContract, scope.rpId, scope.periodStart)
+        )
+        ) >> 8;
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function setFeeToken(address newFeeToken)
+        external
+        virtual
+        override(WorldIDBase, IWorldIDBilling)
+        onlyOwner
+        onlyProxy
+    {
+        if (newFeeToken == address(0)) revert ZeroAddress();
+        if (IERC20Metadata(newFeeToken).decimals() != TOKEN_DECIMALS) revert InvalidTokenDecimals();
+        address oldToken = address(_feeToken);
+        _feeToken = IERC20(newFeeToken);
+        emit FeeTokenUpdated(oldToken, newFeeToken);
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function setPricePerWorldID(uint256 newPricePerWorldID) external virtual onlyOwner onlyProxy {
+        if (newPricePerWorldID == 0) revert InvalidPricePerWorldID();
+        emit PricePerWorldIDUpdated(pricePerWorldID, newPricePerWorldID);
+        pricePerWorldID = newPricePerWorldID;
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function setMaxPriceAge(uint64 newMaxPriceAge) external virtual onlyOwner onlyProxy {
+        if (newMaxPriceAge == 0) revert InvalidMaxPriceAge();
+        emit MaxPriceAgeUpdated(maxPriceAge, newMaxPriceAge);
+        maxPriceAge = newMaxPriceAge;
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function setPriceSource(address newPriceSource) external virtual onlyOwner onlyProxy {
+        if (newPriceSource == address(0)) revert ZeroAddress();
+        emit PriceSourceUpdated(address(_priceSource), newPriceSource);
+        _priceSource = IChainlinkAggregator(newPriceSource);
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function setPaused(bool isPaused) external virtual onlyOwner onlyProxy {
+        if (isPaused) _pause();
+        else _unpause();
+    }
+
+    ////////////////////////////////////////////////////////////
+    //                   INTERNAL FUNCTIONS                   //
+    ////////////////////////////////////////////////////////////
+
+    /// @dev Reads the feed and normalizes it to USD per WLD scaled by 1e18. `updatedAt` is the report's
+    ///  observation time, not the submission time.
+    function _register(
+        BillingContext calldata scope,
+        RegistrationAuthorization calldata authorization,
+        uint64 issuerSchemaId,
+        uint64 expiresAtMin,
+        uint256 billingNullifier,
+        uint256[5] calldata proof
+    ) internal returns (bool) {
         _validateScope(scope);
         // Registration is limited to the current period; purchases may run ahead.
         if (scope.periodStart != _monthStart(block.timestamp)) revert PeriodNotCurrent();
@@ -210,96 +330,6 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         return true;
     }
 
-    ////////////////////////////////////////////////////////////
-    //                    VIEW FUNCTIONS                      //
-    ////////////////////////////////////////////////////////////
-
-    /// @inheritdoc IWorldIDBilling
-    function quotePurchase(BillingContext calldata scope, uint256 capacityAmount)
-        public
-        view
-        virtual
-        onlyProxy
-        onlyInitialized
-        returns (uint256 wldAmount)
-    {
-        _validateScope(scope);
-        if (capacityAmount == 0) revert ZeroCapacityAmount();
-
-        uint256 currentStart = _monthStart(block.timestamp);
-        uint64 secondNext = _addMonths(currentStart, 2);
-        if (scope.periodStart < currentStart || scope.periodStart > secondNext) revert PeriodOutsidePurchaseWindow();
-
-        uint256 usdPerWld = _verifiedUsdPerWld();
-        uint256 usdTotal = capacityAmount * pricePerWorldID;
-        return Math.mulDiv(usdTotal, TOKEN_UNIT, usdPerWld, Math.Rounding.Ceil);
-    }
-
-    /// @inheritdoc IWorldIDBilling
-    function getBillingPeriod(uint64 timestamp) external pure virtual returns (uint64 periodStart, uint64 periodEnd) {
-        periodStart = _monthStart(timestamp);
-        periodEnd = _addMonths(periodStart, 1);
-    }
-
-    /// @inheritdoc IWorldIDBilling
-    function getBillingAction(BillingContext calldata scope) public pure virtual returns (uint256) {
-        // The shift reduces the hash into the field with a 0x00 uniqueness prefix.
-        return uint256(
-            keccak256(
-            abi.encode(BILLING_ACTION_DOMAIN, scope.chainId, scope.billingContract, scope.rpId, scope.periodStart)
-        )
-        ) >> 8;
-    }
-
-    /// @inheritdoc IWorldIDBilling
-    function setFeeToken(address newFeeToken)
-        external
-        virtual
-        override(WorldIDBase, IWorldIDBilling)
-        onlyOwner
-        onlyProxy
-        onlyInitialized
-    {
-        if (newFeeToken == address(0)) revert ZeroAddress();
-        if (IERC20Metadata(newFeeToken).decimals() != TOKEN_DECIMALS) revert InvalidTokenDecimals();
-        address oldToken = address(_feeToken);
-        _feeToken = IERC20(newFeeToken);
-        emit FeeTokenUpdated(oldToken, newFeeToken);
-    }
-
-    /// @inheritdoc IWorldIDBilling
-    function setPricePerWorldID(uint256 newPricePerWorldID) external virtual onlyOwner onlyProxy onlyInitialized {
-        if (newPricePerWorldID == 0) revert InvalidPricePerWorldID();
-        emit PricePerWorldIDUpdated(pricePerWorldID, newPricePerWorldID);
-        pricePerWorldID = newPricePerWorldID;
-    }
-
-    /// @inheritdoc IWorldIDBilling
-    function setMaxPriceAge(uint64 newMaxPriceAge) external virtual onlyOwner onlyProxy onlyInitialized {
-        if (newMaxPriceAge == 0) revert InvalidMaxPriceAge();
-        emit MaxPriceAgeUpdated(maxPriceAge, newMaxPriceAge);
-        maxPriceAge = newMaxPriceAge;
-    }
-
-    /// @inheritdoc IWorldIDBilling
-    function setPriceSource(address newPriceSource) external virtual onlyOwner onlyProxy onlyInitialized {
-        if (newPriceSource == address(0)) revert ZeroAddress();
-        emit PriceSourceUpdated(address(_priceSource), newPriceSource);
-        _priceSource = IChainlinkAggregator(newPriceSource);
-    }
-
-    /// @inheritdoc IWorldIDBilling
-    function setPaused(bool isPaused) external virtual onlyOwner onlyProxy onlyInitialized {
-        if (isPaused) _pause();
-        else _unpause();
-    }
-
-    ////////////////////////////////////////////////////////////
-    //                   INTERNAL FUNCTIONS                   //
-    ////////////////////////////////////////////////////////////
-
-    /// @dev Reads the feed and normalizes it to USD per WLD scaled by 1e18. `updatedAt` is the report's
-    ///  observation time, not the submission time.
     function _verifiedUsdPerWld() internal view returns (uint256) {
         int256 answer;
         uint256 observedAt;
