@@ -300,10 +300,21 @@ impl Deeplink {
     }
 
     /// Appends a parameter. Its key and value are percent-encoded when the link is formatted.
-    #[must_use]
-    pub fn with_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.params.push((key.into(), value.into()));
-        self
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `key` is empty. Empty values and repeated keys are allowed.
+    pub fn with_param(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Result<Self, DeeplinkError> {
+        let key = key.into();
+        if key.is_empty() {
+            return Err(DeeplinkError::MalformedParameter);
+        }
+        self.params.push((key, value.into()));
+        Ok(self)
     }
 
     /// The protocol area of the deeplink, e.g. `auth`.
@@ -633,13 +644,26 @@ mod tests {
         let link = Deeplink::new("auth", 1, "register")
             .unwrap()
             .with_param("s", "a b&c=d")
-            .with_param("b", "bridge.example.org");
+            .unwrap()
+            .with_param("b", "bridge.example.org")
+            .unwrap();
         let uri = link.to_string();
         assert_eq!(
             uri,
             "worldid://auth/v1/register?s=a%20b%26c%3Dd&b=bridge.example.org"
         );
         assert_eq!(uri.parse::<Deeplink>().unwrap(), link);
+    }
+
+    #[test]
+    fn deeplink_builder_requires_nonempty_keys_but_allows_empty_values() {
+        let link = Deeplink::new("auth", 1, "register").unwrap();
+        assert_eq!(
+            link.clone().with_param("", "value"),
+            Err(DeeplinkError::MalformedParameter)
+        );
+        let link = link.with_param("a&b", "").unwrap();
+        assert_eq!(link.to_string().parse::<Deeplink>().unwrap(), link);
     }
 
     #[test]

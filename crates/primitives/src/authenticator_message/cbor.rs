@@ -241,8 +241,19 @@ fn scan(bytes: &mut &[u8], depth: usize) -> Result<Vec<u8>, MessageError> {
             }
         }
         6 => {
+            let content = scan(bytes, depth + 1)?;
+            if matches!(argument, 2 | 3) {
+                if content[0] != 2 {
+                    return Err(MessageError::Encoding("bignum content must be bytes"));
+                }
+                // Byte-string fingerprints have a type byte and an eight-byte length prefix.
+                let magnitude = &content[9..];
+                if magnitude.len() <= 8 || magnitude[0] == 0 {
+                    return Err(MessageError::Encoding("non-preferred bignum"));
+                }
+            }
             payload.extend_from_slice(&argument.to_be_bytes());
-            payload.extend(scan(bytes, depth + 1)?);
+            payload.extend(content);
         }
         7 if additional <= 24 => {
             if !(20..=22).contains(&argument) {
@@ -534,6 +545,39 @@ mod tests {
             (Value::Float(1.0), Value::Null),
         ]));
         assert!(decode::<Value>(&encode(&distinct).unwrap(), 1024).is_ok());
+    }
+
+    #[test]
+    fn rejects_nonpreferred_and_invalid_bignums_before_payload_decode() {
+        for tag in [2, 3] {
+            for content in [
+                Value::Bytes(vec![]),
+                Value::Bytes(vec![1]),
+                Value::Bytes(vec![255; 8]),
+                Value::Bytes(vec![0; 9]),
+                Value::Bytes([vec![0], vec![1; 9]].concat()),
+                Value::Text("1".into()),
+            ] {
+                let encoded = raw(&response(Value::Tag(tag, Box::new(content))));
+                assert!(matches!(
+                    decode::<Response<Value>>(&encoded, 1024),
+                    Err(MessageError::Encoding(_))
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn preferred_bignums_round_trip_without_changing_map_keys() {
+        for tag in [2, 3] {
+            for length in [9, 16, 17] {
+                let key = Value::Tag(tag, Box::new(Value::Bytes(vec![1; length])));
+                let message = response(Value::Map(vec![(key, Value::Null)]));
+                let encoded = encode(&message).unwrap();
+                let decoded: Response<Value> = decode(&encoded, 1024).unwrap();
+                assert_eq!(encode(&decoded).unwrap(), encoded);
+            }
+        }
     }
 
     #[test]
