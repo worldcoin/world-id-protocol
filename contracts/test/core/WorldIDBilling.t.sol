@@ -594,6 +594,75 @@ contract WorldIDBillingTest is Test {
         _register(auth, NULLIFIER);
     }
 
+    function _entry(IWorldIDBilling.BillingContext memory scope, uint256 nullifier)
+        internal
+        returns (IWorldIDBilling.Registration memory)
+    {
+        return IWorldIDBilling.Registration(_authorize(scope), ISSUER_SCHEMA_ID, NOW, nullifier, _proof());
+    }
+
+    function test_RegisterMany_NewAndDuplicate() public {
+        _buy(OCT_2026, 2);
+        IWorldIDBilling.BillingContext memory scope = _scope(OCT_2026);
+        IWorldIDBilling.Registration[] memory entries = new IWorldIDBilling.Registration[](3);
+        entries[0] = _entry(scope, NULLIFIER);
+        entries[1] = _entry(scope, NULLIFIER + 1);
+        entries[2] = _entry(scope, NULLIFIER);
+
+        vm.expectEmit(address(billing));
+        emit IWorldIDBilling.Registered(RP_ID, OCT_2026, NULLIFIER);
+        vm.expectEmit(address(billing));
+        emit IWorldIDBilling.Registered(RP_ID, OCT_2026, NULLIFIER + 1);
+        vm.prank(user);
+        bool[] memory successes = billing.registerMany(scope, entries);
+
+        assertEq(successes.length, 3);
+        assertTrue(successes[0]);
+        assertTrue(successes[1]);
+        assertFalse(successes[2]);
+        (, uint256 count) = billing.periods(RP_ID, OCT_2026);
+        assertEq(count, 2);
+        for (uint256 i = 0; i < 3; ++i) {
+            assertTrue(billing.usedNonces(RP_ID, OCT_2026, entries[i].authorization.nonce));
+        }
+    }
+
+    function test_RegisterMany_RevertsAtomically() public {
+        _buy(OCT_2026, 1);
+        IWorldIDBilling.BillingContext memory scope = _scope(OCT_2026);
+        IWorldIDBilling.Registration[] memory entries = new IWorldIDBilling.Registration[](2);
+        entries[0] = _entry(scope, NULLIFIER);
+        entries[1] = _entry(scope, NULLIFIER + 1);
+
+        vm.prank(user);
+        vm.expectRevert(IWorldIDBilling.CapacityExhausted.selector);
+        billing.registerMany(scope, entries);
+
+        assertFalse(billing.isRegistered(RP_ID, OCT_2026, NULLIFIER));
+        assertFalse(billing.usedNonces(RP_ID, OCT_2026, entries[0].authorization.nonce));
+        (, uint256 count) = billing.periods(RP_ID, OCT_2026);
+        assertEq(count, 0);
+    }
+
+    function test_RegisterMany_RejectsReusedNonceInBatch() public {
+        _buy(OCT_2026, 2);
+        IWorldIDBilling.BillingContext memory scope = _scope(OCT_2026);
+        IWorldIDBilling.Registration[] memory entries = new IWorldIDBilling.Registration[](2);
+        entries[0] = _entry(scope, NULLIFIER);
+        entries[1] = entries[0];
+        entries[1].billingNullifier = NULLIFIER + 1;
+
+        vm.prank(user);
+        vm.expectRevert(IWorldIDBilling.NonceAlreadyUsed.selector);
+        billing.registerMany(scope, entries);
+    }
+
+    function test_RegisterMany_Empty() public {
+        vm.prank(user);
+        bool[] memory successes = billing.registerMany(_scope(OCT_2026), new IWorldIDBilling.Registration[](0));
+        assertEq(successes.length, 0);
+    }
+
     function test_Register_VerifiesThroughWorldIDVerifier() public {
         _buy(OCT_2026, 1);
         IWorldIDBilling.BillingContext memory scope = _scope(OCT_2026);

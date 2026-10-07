@@ -30,6 +30,15 @@ interface IWorldIDBilling {
         bytes wip101Data;
     }
 
+    /// @notice One entry of `registerMany`; fields match the `register` arguments.
+    struct Registration {
+        RegistrationAuthorization authorization;
+        uint64 issuerSchemaId;
+        uint64 expiresAtMin;
+        uint256 billingNullifier;
+        uint256[5] proof;
+    }
+
     /// @notice Purchased capacity and registrations for one RP and period.
     struct Period {
         uint256 capacity;
@@ -102,6 +111,11 @@ interface IWorldIDBilling {
         uint256 billingNullifier,
         uint256[5] calldata proof
     ) external returns (bool success);
+
+    /// @notice Registers each entry for `scope` as `register` would; reverts entirely if any entry fails.
+    function registerMany(BillingContext calldata scope, Registration[] calldata registrations)
+        external
+        returns (bool[] memory successes);
 
     ////////////////////////////////////////////////////////////
     //                    VIEW FUNCTIONS                      //
