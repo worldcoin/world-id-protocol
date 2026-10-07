@@ -127,7 +127,8 @@ impl PairingSecret {
             argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
         let mut input = Zeroizing::new([0u8; 64]);
         input[..32].copy_from_slice(&self.0);
-        let mut memory = Zeroizing::new(vec![argon2::Block::default(); 65536]);
+        let mut memory =
+            Zeroizing::new(vec![argon2::Block::default(); argon.params().block_count()]);
         argon
             .hash_password_into_with_memory(&code.0, &self.0, &mut input[32..], &mut *memory)
             .map_err(|_| TransportError::KeyDerivation)?;
@@ -425,8 +426,14 @@ mod tests {
             .transport_key(&code)
             .unwrap();
         let request = key.encrypt_request(b"request").unwrap();
-        let wrong_id = TransportKey { key: key.key.clone(), request_id: other_session.request_id };
-        assert_eq!(wrong_id.decrypt_request(&request), Err(TransportError::Decrypt));
+        let wrong_id = TransportKey {
+            key: key.key.clone(),
+            request_id: other_session.request_id,
+        };
+        assert_eq!(
+            wrong_id.decrypt_request(&request),
+            Err(TransportError::Decrypt)
+        );
         let mut tampered = request.clone();
         let mut ciphertext = STANDARD.decode(&tampered.payload).unwrap();
         ciphertext[0] ^= 1;
