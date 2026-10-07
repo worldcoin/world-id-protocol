@@ -1110,7 +1110,6 @@ dependencies = [
  "base64ct",
  "blake2 0.10.6",
  "cpufeatures 0.2.17",
- "password-hash",
  "zeroize",
 ]
 
@@ -6734,17 +6733,6 @@ dependencies = [
  "regex-syntax",
  "structmeta",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "password-hash"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "346f04948ba92c43e8469c1ee6736c7563d71012b17d40745260fe106aac2166"
-dependencies = [
- "base64ct",
- "rand_core 0.6.4",
- "subtle",
 ]
 
 [[package]]

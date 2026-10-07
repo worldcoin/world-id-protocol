@@ -217,11 +217,19 @@ impl RegistrationRequest {
 struct WireRegistrationRequest {
     #[serde(with = "bytes")]
     new_authenticator_pubkey: [u8; 32],
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::deserialize_present"
+    )]
     new_authenticator_address: Option<bytes::AddressBytes>,
     #[serde(with = "bytes")]
     response_pubkey: [u8; RESPONSE_PUBLIC_KEY_LEN],
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::deserialize_present"
+    )]
     name: Option<AuthenticatorName>,
     #[serde(with = "bytes")]
     registration_sig: [u8; 64],
@@ -258,7 +266,7 @@ impl Serialize for RegistrationRequest {
 
 impl<'de> Deserialize<'de> for RegistrationRequest {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let wire = WireRegistrationRequest::deserialize(deserializer)?;
+        let wire: WireRegistrationRequest = super::deserialize_payload(deserializer)?;
         let new_authenticator_pubkey =
             EdDSAPublicKey::from_compressed_bytes(wire.new_authenticator_pubkey)
                 .map_err(|_| D::Error::custom("invalid new_authenticator_pubkey"))?;
@@ -378,7 +386,16 @@ mod tests {
         let mut encoded = Vec::new();
         ciborium::into_writer(&request, &mut encoded).unwrap();
         let original: ciborium::Value = ciborium::from_reader(encoded.as_slice()).unwrap();
+        assert!(
+            ciborium::Value::Tag(0, Box::new(original.clone()))
+                .deserialized::<RegistrationRequest>()
+                .is_err()
+        );
         for (field, invalid) in [
+            (
+                "name",
+                ciborium::Value::Tag(0, Box::new(ciborium::Value::Text("phone".into()))),
+            ),
             (
                 "new_authenticator_pubkey",
                 ciborium::Value::Bytes(vec![0; 31]),

@@ -10,20 +10,65 @@ pub type RegisterResponseMessage = Response<RegistrationResult, RegistrationErro
 
 /// The result of a successful registration: where the new authenticator was inserted, and the
 /// credentials it needs to generate proofs.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RegistrationResult {
     /// The index of the account the authenticator was registered on.
+    #[serde(deserialize_with = "deserialize_unsigned")]
     pub leaf_index: u64,
     /// The slot the authenticator was inserted at.
+    #[serde(deserialize_with = "deserialize_unsigned")]
     pub pubkey_id: u32,
     /// Names of the account's other authenticators known to the Approving Authenticator.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub authenticators: Vec<KnownAuthenticator>,
     /// The account's credential vault, unless the user or Approving Authenticator policy
     /// excluded it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::deserialize_present"
+    )]
     pub vault: Option<Vault>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireRegistrationResult {
+    #[serde(deserialize_with = "deserialize_unsigned")]
+    leaf_index: u64,
+    #[serde(deserialize_with = "deserialize_unsigned")]
+    pubkey_id: u32,
+    #[serde(default)]
+    authenticators: Vec<KnownAuthenticator>,
+    #[serde(default, deserialize_with = "super::deserialize_present")]
+    vault: Option<Vault>,
+}
+
+impl<'de> Deserialize<'de> for RegistrationResult {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire: WireRegistrationResult = super::deserialize_payload(deserializer)?;
+        Ok(Self {
+            leaf_index: wire.leaf_index,
+            pubkey_id: wire.pubkey_id,
+            authenticators: wire.authenticators,
+            vault: wire.vault,
+        })
+    }
+}
+
+fn deserialize_unsigned<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: TryFrom<u64>,
+{
+    use serde::de::Error as _;
+    let ciborium::Value::Integer(integer) = ciborium::Value::deserialize(deserializer)? else {
+        return Err(D::Error::custom("expected CBOR unsigned integer"));
+    };
+    let value =
+        u64::try_from(integer).map_err(|_| D::Error::custom("expected unsigned integer"))?;
+    T::try_from(value).map_err(|_| D::Error::custom("unsigned integer exceeds field width"))
 }
 
 /// The name of one of the account's other authenticators.
@@ -31,6 +76,7 @@ pub struct RegistrationResult {
 #[serde(deny_unknown_fields)]
 pub struct KnownAuthenticator {
     /// The slot of the authenticator.
+    #[serde(deserialize_with = "deserialize_unsigned")]
     pub pubkey_id: u32,
     /// The name the Approving Authenticator knows it by.
     pub name: AuthenticatorName,
@@ -158,7 +204,11 @@ impl RegistrationErrorReason {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistrationErrorData {
     /// Optional implementation-specific detail, e.g. a gateway error code.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::deserialize_present"
+    )]
     pub detail: Option<String>,
 }
 
@@ -244,6 +294,50 @@ mod tests {
             Some(RegistrationErrorReason::UserRejected)
         );
         assert_eq!(RegistrationErrorReason::from_code("future_error"), None);
+    }
+
+    #[test]
+    fn result_rejects_tagged_maps_and_nested_text() {
+        use ciborium::Value;
+        let result = Value::Map(vec![
+            ("leaf_index".into(), 42.into()),
+            ("pubkey_id".into(), 1.into()),
+        ]);
+        assert!(
+            Value::Tag(0, Box::new(result))
+                .deserialized::<RegistrationResult>()
+                .is_err()
+        );
+        let result = Value::Map(vec![
+            ("leaf_index".into(), 42.into()),
+            ("pubkey_id".into(), 1.into()),
+            (
+                "authenticators".into(),
+                Value::Array(vec![Value::Map(vec![
+                    ("pubkey_id".into(), 0.into()),
+                    ("name".into(), Value::Tag(0, Box::new("phone".into()))),
+                ])]),
+            ),
+        ]);
+        assert!(result.deserialized::<RegistrationResult>().is_err());
+    }
+
+    #[test]
+    fn indexes_reject_tags_floats_and_overflow() {
+        use ciborium::Value;
+        for invalid in [
+            Value::Tag(2, Box::new(Value::Bytes(vec![42]))),
+            Value::Tag(0, Box::new(Value::Integer(42.into()))),
+            Value::Float(42.0),
+            Value::Integer((-1).into()),
+            Value::Integer((u64::from(u32::MAX) + 1).into()),
+        ] {
+            let result = Value::Map(vec![
+                ("leaf_index".into(), 42.into()),
+                ("pubkey_id".into(), invalid),
+            ]);
+            assert!(result.deserialized::<RegistrationResult>().is_err());
+        }
     }
 
     #[test]

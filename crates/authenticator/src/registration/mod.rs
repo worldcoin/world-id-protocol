@@ -44,3 +44,37 @@ pub use session::{
     EncryptedPayload, PairingCode, PairingSecret, RESPONSE_PUBLIC_KEY_LEN, RequestId,
     ResponsePublicKey, ResponseSecretKey, TransportError, TransportKey,
 };
+
+fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
+fn deserialize_payload<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    use serde::{Deserialize as _, de::Error as _};
+    let value = ciborium::Value::deserialize(deserializer)?;
+    if !value.is_map() || contains_tag(&value) {
+        return Err(D::Error::custom(
+            "registration payload must be an untagged CBOR map",
+        ));
+    }
+    value.deserialized().map_err(D::Error::custom)
+}
+
+fn contains_tag(value: &ciborium::Value) -> bool {
+    match value {
+        ciborium::Value::Tag(..) => true,
+        ciborium::Value::Array(values) => values.iter().any(contains_tag),
+        ciborium::Value::Map(entries) => entries
+            .iter()
+            .any(|(key, value)| contains_tag(key) || contains_tag(value)),
+        _ => false,
+    }
+}
