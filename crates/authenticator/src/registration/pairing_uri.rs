@@ -112,7 +112,8 @@ impl FromStr for PairingUri {
 /// The domain of a bridge deployment, e.g. `bridge.example.org`.
 ///
 /// It is a DNS name only: no scheme, port, path, user info, query or fragment. Letters are
-/// normalized to lowercase. The bridge is always reached over `https`.
+/// normalized to lowercase, and the final label must start with an ASCII letter so URL parsers
+/// cannot interpret it as an IP address. The bridge is always reached over `https`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BridgeDomain(String);
 
@@ -137,6 +138,13 @@ impl FromStr for BridgeDomain {
                     .all(|b| b.is_ascii_alphanumeric() || b == b'-')
         };
         if domain.len() > 253 || !domain.split('.').all(is_valid_label) {
+            return Err(PairingUriError::InvalidBridge);
+        }
+        let final_label = domain
+            .rsplit('.')
+            .next()
+            .ok_or(PairingUriError::InvalidBridge)?;
+        if !final_label.starts_with(|c: char| c.is_ascii_alphabetic()) {
             return Err(PairingUriError::InvalidBridge);
         }
         Ok(Self(domain.to_ascii_lowercase()))
@@ -318,6 +326,35 @@ mod tests {
         ];
         for (link, expected) in cases {
             assert_eq!(link.parse::<PairingUri>(), Err(expected), "{link}");
+        }
+    }
+
+    #[test]
+    fn rejects_bridge_hosts_that_url_parsers_treat_as_ip_addresses() {
+        for domain in [
+            "127.0.0.1",
+            "127.1",
+            "2130706433",
+            "0177.0.0.1",
+            "127.0x1",
+            "10.0xa",
+            "127.0X1",
+            "127.0x",
+            "0x7f000001",
+            "[::1]",
+        ] {
+            assert_eq!(
+                domain.parse::<BridgeDomain>(),
+                Err(PairingUriError::InvalidBridge)
+            );
+            let link = format!("{}&b={domain}", uri(None));
+            assert_eq!(
+                link.parse::<PairingUri>(),
+                Err(PairingUriError::InvalidBridge)
+            );
+        }
+        for domain in ["bridge.example.org", "127.example.org", "bridge.xn--p1ai"] {
+            assert_eq!(domain.parse::<BridgeDomain>().unwrap().as_str(), domain);
         }
     }
 
