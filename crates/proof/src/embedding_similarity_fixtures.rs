@@ -242,15 +242,12 @@ fn render() -> Rendered {
     let (siblings, merkle_root) = first_leaf_merkle_path(key_set.leaf_hash());
 
     let compared = compared();
-    let mut compared_fourth = compared;
-    compared_fourth[3] = sha256_field(b"fourth image");
     let (hashes_json, thumbnail_offset) = hashes_json();
 
     let digest = token_digest(true, compared);
     let digest_no_aat = token_digest(false, compared);
     let token = verifier_sk.sign(*digest);
     let token_no_aat = verifier_sk.sign(*digest_no_aat);
-    let token_fourth = verifier_sk.sign(*token_digest(true, compared_fourth));
     let auth = authenticator_sk.sign(*authorization_message(digest, &verifier_key));
     let auth_no_aat = authenticator_sk.sign(*authorization_message(digest_no_aat, &verifier_key));
 
@@ -325,8 +322,6 @@ fn render() -> Rendered {
         // Signed variants for the tests
         ("TOKEN_SIG_NO_AAT", "Signature", noir_sig(&token_no_aat)),
         ("AUTH_SIG_NO_AAT", "Signature", noir_sig(&auth_no_aat)),
-        ("FOURTH_ENTRY_HASH", "Field", dec(*compared_fourth[3])),
-        ("TOKEN_SIG_FOURTH", "Signature", noir_sig(&token_fourth)),
     ];
 
     let noir = format!(

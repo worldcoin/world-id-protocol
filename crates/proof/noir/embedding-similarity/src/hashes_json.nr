@@ -72,7 +72,7 @@ pub fn claims_hash_v1(json: HashesJsonInputs) -> Field {
     state[0]
 }
 
-/// Returns `R(d)` for the thumbnail digest `d` in `hashes.json` (WIP-202 section 4.5).
+/// Returns `R(d)` for the thumbnail digest `d` in `hashes.json` (WIP-202 constraint 3.2).
 ///
 /// The entry must start a JSON key: the byte before it is `{` or `,`. `hashes.json` is
 /// compact JSON with lowercase hex values and file-name keys, so `"thumbnail.png":"`

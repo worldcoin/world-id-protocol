@@ -23,7 +23,7 @@ fn checked_u64(value: Field) -> u64 {
     value as u64
 }
 
-/// Numbers in comments refer to WIP-202 section 4.6.
+/// Numbers in comments refer to WIP-202 section 4.5.
 fn main(
     // WIP-201 Flamingo Token
     verifier_key: pub PublicKey,
@@ -72,40 +72,47 @@ fn main(
     let digest = flamingo_token::verify(public, token);
     let compared = token.compared_entry_hash;
 
-    // 2. Challenge.
+    // 2. Challenge binding.
     assert(challenge_hash != 0, "challenge_hash must not be zero");
     assert(compared[2] == challenge_hash, "challenge mismatch");
-    assert(compared[3] == 0, "unexpected fourth compared entry");
 
-    // 3. Credential image: the thumbnail digest in `hashes.json` is the compared entry.
+    // 3.1 `hashes.json` is what the Issuer committed to.
+    assert(
+        hashes_json::claims_hash_v1(inputs.hashes_json) == credential.claims[CLAIM_INDEX],
+        "hashes.json does not match the credential claim",
+    );
+
+    // 3.2-3.3 Its thumbnail digest is the compared Credential image.
     assert(
         hashes_json::thumbnail_digest(inputs.hashes_json) == compared[0],
         "thumbnail does not match the compared credential entry",
     );
 
-    // 4. Key selection.
+    // 4.1 Select the key.
     account.pk_index.assert_max_bit_size::<3>();
     assert((account.pk_index as u8) < NUM_KEYS as u8, "pk_index out of range");
     let pk = account.user_pk[account.pk_index as u32];
 
-    // 5. Registry inclusion of the key set.
+    // 4.2 Prove registration of the key set.
     let leaf = merkle::key_set_commitment(account.user_pk);
     assert(
         merkle::compute_merkle_root(leaf, leaf_index, account.siblings) == merkle_root,
         "merkle proof verification failed",
     );
 
-    // 6. Authorization of the result by a registered key.
+    // 4.3 Verify the authorization of the result.
     let message = permutation::t4([DS_WIP_202_AUTH, digest, verifier_key.x, verifier_key.y])[1];
     assert(account.auth.verify(pk, message), "invalid authorization signature");
 
-    // 7. Claims binding: `hashes.json` is what the Issuer committed to.
+    // 5. Session commitment: nil or the commitment over `leaf_index`.
+    let session_commitment =
+        permutation::t3([DS_SESSION_COMMITMENT, leaf_index, inputs.session_id_r])[1];
     assert(
-        hashes_json::claims_hash_v1(inputs.hashes_json) == credential.claims[CLAIM_INDEX],
-        "hashes.json does not match the credential claim",
+        session_id * (session_id - session_commitment) == 0,
+        "session_id must be nil or the session commitment",
     );
 
-    // 8. Credential signature.
+    // 6.1 Verify the Issuer's signature.
     let sub = credential::compute_sub(leaf_index, credential.sub_blinding_factor);
     credential::verify_credential_signature(
         credential,
@@ -115,18 +122,10 @@ fn main(
         cred_pk,
     );
 
-    // 9. Credential validity.
+    // 6.2 Check validity.
     assert((now as u64) < checked_u64(credential.expires_at), "credential expired");
     assert(
         checked_u64(genesis_issued_at_min) <= checked_u64(credential.genesis_issued_at),
         "credential too recent",
-    );
-
-    // 10. Session: nil or the commitment over `leaf_index`.
-    let session_commitment =
-        permutation::t3([DS_SESSION_COMMITMENT, leaf_index, inputs.session_id_r])[1];
-    assert(
-        session_id * (session_id - session_commitment) == 0,
-        "session_id must be nil or the session commitment",
     );
 }

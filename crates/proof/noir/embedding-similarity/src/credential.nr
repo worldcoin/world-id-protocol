@@ -1,4 +1,4 @@
-// PoH Credential signature (WIP-202 constraint 8).
+// PoH Credential signature (WIP-202 constraint 6.1).
 use super::{
     constants::{DS_CREDENTIAL_SUB, DS_CREDENTIAL_V1, MAX_CLAIMS},
     types::{CredentialInputs, PublicKey},

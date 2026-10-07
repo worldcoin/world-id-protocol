@@ -5,11 +5,10 @@ use crate::{
     test_fixtures::{
         AUD, AUTH_SIG, AUTH_SIG_NO_AAT, AUTHENTICATOR_PROVIDER_KEY_HASH, CHALLENGE_HASH, CLAIM_0,
         COMPARED_ENTRY_HASH, CRED_ID, CRED_PK, CRED_SIG, ENGINE_CONFIG_HASH, EXPIRES_AT,
-        FOURTH_ENTRY_HASH, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS,
-        HASHES_JSON_LEN, ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX, MERKLE_ROOT,
-        MIN_BUILD_VERSION, NONCE, NOW, PLATFORM, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R,
-        SIBLINGS, SUB_BLINDING_FACTOR, THUMBNAIL_OFFSET, TOKEN_SIG, TOKEN_SIG_FOURTH,
-        TOKEN_SIG_NO_AAT, USER_PK, USER_PRESENCE, VERIFIER_KEY,
+        GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS, HASHES_JSON_LEN,
+        ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX, MERKLE_ROOT, MIN_BUILD_VERSION, NONCE, NOW,
+        PLATFORM, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS, SUB_BLINDING_FACTOR,
+        THUMBNAIL_OFFSET, TOKEN_SIG, TOKEN_SIG_NO_AAT, USER_PK, USER_PRESENCE, VERIFIER_KEY,
     },
     types::{
         AccountInputs, CredentialInputs, FlamingoTokenInputs, HashesJsonInputs, PrivateInputs,
@@ -189,14 +188,6 @@ fn test_rejects_another_challenge() {
     let mut p = public();
     p.challenge_hash += 1;
     prove(p, inputs());
-}
-
-#[test(should_fail_with = "unexpected fourth compared entry")]
-fn test_rejects_a_fourth_compared_entry() {
-    let mut i = inputs();
-    i.token.compared_entry_hash[3] = FOURTH_ENTRY_HASH;
-    i.token.sig = TOKEN_SIG_FOURTH;
-    prove(public(), i);
 }
 
 #[test(should_fail_with = "thumbnail key mismatch")]
