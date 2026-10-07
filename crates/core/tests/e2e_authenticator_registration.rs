@@ -10,10 +10,10 @@ use world_id_core::{
     Authenticator, Signer,
     artifacts::{ZkArtifactSource, dummy::DummyZkArtifactSource},
     registration::{
-        Approval, ApproverError, AuthenticatorName, BridgeClient, DeliveryOutcome,
-        IncomingRegistration, KnownAuthenticator, RegistrationDigest, RegistrationErrorReason,
-        RegistrationPlan, RegistrationRequester, RequestedClass, RequesterStatus, Vault,
-        VaultFormat,
+        Approval, ApprovalOutcome, ApproverError, AuthenticatorName, BridgeClient,
+        CheckedRegistration, DeliveryOutcome, IncomingRegistration, KnownAuthenticator,
+        PendingRegistration, RegistrationDigest, RegistrationErrorReason, RegistrationPlan,
+        RegistrationRequester, RequestedClass, RequesterStatus, Vault, VaultFormat,
     },
 };
 use world_id_gateway::{
@@ -77,13 +77,50 @@ fn requester(seed: &[u8; 32], class: RequestedClass, bridge: &BridgeStub) -> Reg
     RegistrationRequester::new(seed, class, Some(name), bridge_client(bridge), None).unwrap()
 }
 
-async fn completed(requester: &RegistrationRequester) -> RequesterStatus {
+async fn completed(requester: &mut RegistrationRequester) -> RequesterStatus {
     let status = requester.poll().await.unwrap();
     assert!(
         matches!(status, RequesterStatus::Completed(_)),
         "unexpected status {status:?}"
     );
     status
+}
+
+async fn receive(
+    session: &mut RegistrationRequester,
+    bridge: &BridgeStub,
+) -> Result<IncomingRegistration, ApproverError> {
+    assert!(session.pairing_code().is_none());
+    let mut pending =
+        PendingRegistration::receive(&session.pairing_uri().unwrap(), bridge_client(bridge))
+            .await?;
+    assert_eq!(session.poll().await.unwrap(), RequesterStatus::Retrieved);
+    assert!(session.pairing_uri().is_none());
+    pending.authenticate(session.pairing_code().unwrap()).await
+}
+
+async fn approve_and_sync(
+    checked: CheckedRegistration,
+    primary: &Authenticator,
+    account: &mut Account,
+    inserted: ([u8; 32], Address),
+    indexer: &AccountIndexerStub,
+    approval: Approval,
+) -> ApprovalOutcome {
+    let nonce = primary.signing_nonce().await.unwrap();
+    let update_indexer = async {
+        tokio::time::timeout(Duration::from_secs(60), async {
+            while primary.signing_nonce().await.unwrap() == nonce {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("insertion did not reach the registry");
+        account.authenticators.push(inserted);
+        account.sync(indexer);
+    };
+    let (outcome, ()) = tokio::join!(checked.approve(primary, approval), update_indexer);
+    outcome
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -154,13 +191,12 @@ async fn e2e_authenticator_registration() {
 
     // A Proving Authenticator is registered and receives the vault.
     let proving_seed = [43u8; 32];
-    let session = requester(&proving_seed, RequestedClass::Proving, &bridge);
+    let mut session = requester(&proving_seed, RequestedClass::Proving, &bridge);
     session.publish().await.unwrap();
     assert_eq!(session.poll().await.unwrap(), RequesterStatus::Waiting);
 
-    let incoming = IncomingRegistration::receive(&session.pairing_uri(), bridge_client(&bridge))
-        .await
-        .unwrap();
+    let original_uri = session.pairing_uri().unwrap();
+    let incoming = receive(&mut session, &bridge).await.unwrap();
     assert_eq!(
         incoming.request().name.as_ref().unwrap().as_str(),
         "Chrome on MacBook"
@@ -173,24 +209,25 @@ async fn e2e_authenticator_registration() {
         format: VaultFormat::WalletkitPlaintextV1,
         data: b"SQLite format 3".to_vec(),
     };
-    let outcome = checked
-        .approve(
-            &primary,
-            Approval {
-                vault: Some(vault.clone()),
-                authenticators: vec![KnownAuthenticator {
-                    pubkey_id: 0,
-                    name: AuthenticatorName::try_from("iPhone".to_string()).unwrap(),
-                }],
-            },
-        )
-        .await;
+    let outcome = approve_and_sync(
+        checked,
+        &primary,
+        &mut account,
+        (proving_seed, Address::ZERO),
+        &indexer,
+        Approval {
+            vault: Some(vault.clone()),
+            authenticators: vec![KnownAuthenticator {
+                pubkey_id: 0,
+                name: AuthenticatorName::try_from("iPhone".to_string()).unwrap(),
+            }],
+        },
+    )
+    .await;
     assert_eq!(outcome.delivery.unwrap(), DeliveryOutcome::Delivered);
     assert_eq!(outcome.result.as_ref().unwrap().pubkey_id, 1);
-    account.authenticators.push((proving_seed, Address::ZERO));
-    account.sync(&indexer);
 
-    let RequesterStatus::Completed(Ok(result)) = completed(&session).await else {
+    let RequesterStatus::Completed(Ok(result)) = completed(&mut session).await else {
         panic!("registration failed");
     };
     assert_eq!(result.leaf_index, account.leaf_index);
@@ -205,15 +242,14 @@ async fn e2e_authenticator_registration() {
     assert_eq!(session.poll().await.unwrap(), RequesterStatus::Expired);
 
     // The same pairing link cannot be used twice.
-    let reused =
-        IncomingRegistration::receive(&session.pairing_uri(), bridge_client(&bridge)).await;
+    let reused = PendingRegistration::receive(&original_uri, bridge_client(&bridge)).await;
     assert!(matches!(reused, Err(ApproverError::Expired)));
 
     // A retry with the same keys finds the existing registration and inserts nothing.
     let nonce = primary.signing_nonce().await.unwrap();
-    let retry = requester(&proving_seed, RequestedClass::Proving, &bridge);
+    let mut retry = requester(&proving_seed, RequestedClass::Proving, &bridge);
     retry.publish().await.unwrap();
-    let checked = IncomingRegistration::receive(&retry.pairing_uri(), bridge_client(&bridge))
+    let checked = receive(&mut retry, &bridge)
         .await
         .unwrap()
         .check(&primary)
@@ -228,16 +264,16 @@ async fn e2e_authenticator_registration() {
         .await
         .delivery
         .unwrap();
-    let RequesterStatus::Completed(Ok(result)) = completed(&retry).await else {
+    let RequesterStatus::Completed(Ok(result)) = completed(&mut retry).await else {
         panic!("retry failed");
     };
     assert_eq!((result.pubkey_id, result.vault), (1, None));
     assert_eq!(primary.signing_nonce().await.unwrap(), nonce);
 
     // Asking for another class with a registered key is a conflict.
-    let conflicting = requester(&proving_seed, RequestedClass::Admin, &bridge);
+    let mut conflicting = requester(&proving_seed, RequestedClass::Admin, &bridge);
     conflicting.publish().await.unwrap();
-    let refused = IncomingRegistration::receive(&conflicting.pairing_uri(), bridge_client(&bridge))
+    let refused = receive(&mut conflicting, &bridge)
         .await
         .unwrap()
         .check(&primary)
@@ -249,16 +285,19 @@ async fn e2e_authenticator_registration() {
             ..
         })
     ));
-    let RequesterStatus::Completed(Err(error)) = completed(&conflicting).await else {
+    let RequesterStatus::Completed(Err(error)) = completed(&mut conflicting).await else {
         panic!("expected a conflict");
     };
-    assert_eq!(error.reason, RegistrationErrorReason::AuthenticatorConflict);
+    assert_eq!(
+        error.code,
+        RegistrationErrorReason::AuthenticatorConflict.code()
+    );
 
     // A Proving Authenticator cannot approve registrations.
     let admin_seed = [44u8; 32];
-    let session = requester(&admin_seed, RequestedClass::Admin, &bridge);
+    let mut session = requester(&admin_seed, RequestedClass::Admin, &bridge);
     session.publish().await.unwrap();
-    let refused = IncomingRegistration::receive(&session.pairing_uri(), bridge_client(&bridge))
+    let refused = receive(&mut session, &bridge)
         .await
         .unwrap()
         .check(&proving)
@@ -272,41 +311,45 @@ async fn e2e_authenticator_registration() {
     ));
 
     // The user declines.
-    let session = requester(&admin_seed, RequestedClass::Admin, &bridge);
+    let mut session = requester(&admin_seed, RequestedClass::Admin, &bridge);
     session.publish().await.unwrap();
-    let checked = IncomingRegistration::receive(&session.pairing_uri(), bridge_client(&bridge))
+    let checked = receive(&mut session, &bridge)
         .await
         .unwrap()
         .check(&primary)
         .await
         .unwrap();
     assert_eq!(checked.reject().await.unwrap(), DeliveryOutcome::Delivered);
-    let RequesterStatus::Completed(Err(error)) = completed(&session).await else {
+    let RequesterStatus::Completed(Err(error)) = completed(&mut session).await else {
         panic!("expected a rejection");
     };
-    assert_eq!(error.reason, RegistrationErrorReason::UserRejected);
+    assert_eq!(error.code, RegistrationErrorReason::UserRejected.code());
 
     // An Admin Authenticator is registered and can find its account by address.
-    let session = requester(&admin_seed, RequestedClass::Admin, &bridge);
+    let mut session = requester(&admin_seed, RequestedClass::Admin, &bridge);
     session.publish().await.unwrap();
-    let checked = IncomingRegistration::receive(&session.pairing_uri(), bridge_client(&bridge))
+    let checked = receive(&mut session, &bridge)
         .await
         .unwrap()
         .check(&primary)
         .await
         .unwrap();
     assert_eq!(checked.plan(), RegistrationPlan::Insert { pubkey_id: 2 });
-    checked
-        .approve(&primary, Approval::default())
-        .await
-        .delivery
-        .unwrap();
     let admin_address = Signer::from_seed_bytes(&admin_seed)
         .unwrap()
         .onchain_signer_address();
-    account.authenticators.push((admin_seed, admin_address));
-    account.sync(&indexer);
-    let status = completed(&session).await;
+    approve_and_sync(
+        checked,
+        &primary,
+        &mut account,
+        (admin_seed, admin_address),
+        &indexer,
+        Approval::default(),
+    )
+    .await
+    .delivery
+    .unwrap();
+    let status = completed(&mut session).await;
     let RequesterStatus::Completed(Ok(result)) = status else {
         panic!("admin registration failed: {status:?}");
     };
@@ -322,9 +365,9 @@ async fn e2e_authenticator_registration() {
 
     // Approving too close to the deadline submits nothing.
     let nonce = primary.signing_nonce().await.unwrap();
-    let session = requester(&[46u8; 32], RequestedClass::Proving, &bridge);
+    let mut session = requester(&[46u8; 32], RequestedClass::Proving, &bridge);
     session.publish().await.unwrap();
-    let checked = IncomingRegistration::receive(&session.pairing_uri(), bridge_client(&bridge))
+    let checked = receive(&mut session, &bridge)
         .await
         .unwrap()
         .with_response_deadline(Duration::from_secs(30))
@@ -334,17 +377,21 @@ async fn e2e_authenticator_registration() {
     let outcome = checked.approve(&primary, Approval::default()).await;
     assert_eq!(outcome.result, Err(RegistrationErrorReason::InternalError));
     assert_eq!(primary.signing_nonce().await.unwrap(), nonce);
-    let RequesterStatus::Completed(Err(error)) = completed(&session).await else {
+    let RequesterStatus::Completed(Err(error)) = completed(&mut session).await else {
         panic!("expected an internal error");
     };
-    assert_eq!(error.reason, RegistrationErrorReason::InternalError);
+    assert_eq!(error.code, RegistrationErrorReason::InternalError.code());
 
     // A request that does not match the digest in the link is dropped without a response.
-    let session = requester(&[45u8; 32], RequestedClass::Proving, &bridge);
+    let mut session = requester(&[45u8; 32], RequestedClass::Proving, &bridge);
     session.publish().await.unwrap();
-    let mut tampered = session.pairing_uri();
+    let mut tampered = session.pairing_uri().unwrap();
     tampered.digest = RegistrationDigest::from_bytes([0; 32]);
-    let dropped = IncomingRegistration::receive(&tampered, bridge_client(&bridge)).await;
+    let mut pending = PendingRegistration::receive(&tampered, bridge_client(&bridge))
+        .await
+        .unwrap();
+    assert_eq!(session.poll().await.unwrap(), RequesterStatus::Retrieved);
+    let dropped = pending.authenticate(session.pairing_code().unwrap()).await;
     assert!(matches!(dropped, Err(ApproverError::DigestMismatch)));
     assert_eq!(session.poll().await.unwrap(), RequesterStatus::Retrieved);
 }

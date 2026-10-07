@@ -25,7 +25,7 @@ mod vectors;
 pub use crate::account::AuthenticatorClass;
 pub use approver::{
     Approval, ApprovalOutcome, ApproverError, CheckedRegistration, DEFAULT_RESPONSE_DEADLINE,
-    IncomingRegistration, MIN_TRACKING_TIME, RegistrationPlan,
+    IncomingRegistration, MIN_TRACKING_TIME, PendingRegistration, RegistrationPlan,
 };
 pub use bridge::{BridgeClient, BridgeError, DeliveryOutcome, PublishOutcome, ResponseState};
 pub use pairing_uri::{BridgeDomain, PairingUri, PairingUriError};

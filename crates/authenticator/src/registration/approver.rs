@@ -2,9 +2,10 @@
 //!
 //! The flow is split into steps so that the host can ask for the user's consent in between:
 //!
-//! 1. [`IncomingRegistration::receive`] takes and validates the request named by a Pairing URI.
-//! 2. [`IncomingRegistration::check`] reads the account state and plans the registration.
-//! 3. The host shows the consent screen, then calls [`CheckedRegistration::approve`] or
+//! 1. [`PendingRegistration::receive`] fetches the ciphertext before code entry.
+//! 2. [`PendingRegistration::authenticate`] validates it after code entry.
+//! 3. [`IncomingRegistration::check`] reads the account state and plans the registration.
+//! 4. The host shows the consent screen, then calls [`CheckedRegistration::approve`] or
 //!    [`CheckedRegistration::reject`].
 //!
 //! Every step that fails for a reason the Requesting Authenticator should learn about sends it an
@@ -17,13 +18,14 @@ use futures_util::future::{Either, select};
 use web_time::Instant;
 use world_id_primitives::{
     api_types::{GatewayErrorCode, GatewayRequestState, ServiceApiError},
-    authenticator_message::{ErrorObject, Id},
+    authenticator_message::{self, ErrorObject, Id},
 };
 
 use super::{
-    KnownAuthenticator, PairingUri, REGISTER_METHOD, RegisterRequestMessage,
-    RegisterResponseMessage, RegistrationErrorData, RegistrationErrorReason, RegistrationRequest,
-    RegistrationResult, RequestId, ResponsePublicKey, TransportError, Vault,
+    EncryptedPayload, KnownAuthenticator, PairingCode, PairingUri, REGISTER_METHOD,
+    RegisterRequestMessage, RegisterResponseMessage, RegistrationErrorData,
+    RegistrationErrorReason, RegistrationRequest, RegistrationResult, RequestId, ResponsePublicKey,
+    TransportError, TransportKey, Vault,
     bridge::{BridgeClient, BridgeError, DeliveryOutcome},
 };
 use crate::{AccountSnapshot, Authenticator, AuthenticatorClass, AuthenticatorError};
@@ -49,6 +51,12 @@ pub enum ApproverError {
     /// on the new device.
     #[error("the registration request expired or was already used")]
     Expired,
+    /// Authentication failed. The ciphertext is retained for the remaining local attempts.
+    #[error("pairing code did not authenticate the request ({attempts_remaining} attempts remain)")]
+    IncorrectCode {
+        /// Number of remaining code attempts; zero means a new pairing is required.
+        attempts_remaining: u8,
+    },
     /// The request does not match the digest in the Pairing URI. No response was sent.
     #[error("the registration request does not match the pairing link")]
     DigestMismatch,
@@ -83,12 +91,16 @@ pub enum ApproverError {
     Transport(#[from] TransportError),
     /// The response could not be encoded.
     #[error("failed to encode the response: {0}")]
-    Encoding(#[from] serde_json::Error),
+    Encoding(#[from] authenticator_message::MessageError),
 }
 
 /// Runs `future` until `deadline`, returning `None` if the deadline passes first.
-async fn before<F: Future>(deadline: Instant, future: F) -> Option<F::Output> {
-    let remaining = deadline.saturating_duration_since(Instant::now());
+pub(super) async fn before<F: Future>(deadline: Instant, future: F) -> Option<F::Output> {
+    let now = Instant::now();
+    if now >= deadline {
+        return None;
+    }
+    let remaining = deadline.saturating_duration_since(now);
     let timeout = backon::DefaultSleeper::default().sleep(remaining);
     match select(std::pin::pin!(future), std::pin::pin!(timeout)).await {
         Either::Left((output, _)) => Some(output),
@@ -101,6 +113,7 @@ async fn before<F: Future>(deadline: Instant, future: F) -> Option<F::Output> {
 struct ResponseChannel {
     request_id: RequestId,
     response_pubkey: ResponsePublicKey,
+    transport_key: TransportKey,
     bridge: BridgeClient,
     expires_at: Instant,
 }
@@ -111,10 +124,13 @@ impl ResponseChannel {
         outcome: Result<RegistrationResult, ErrorObject<RegistrationErrorData>>,
     ) -> Result<DeliveryOutcome, ApproverError> {
         let response = RegisterResponseMessage {
-            id: Id::String(self.request_id.to_string()),
+            id: Some(Id::String(self.request_id.to_string())),
             outcome,
         };
-        let sealed = self.response_pubkey.seal(&serde_json::to_vec(&response)?)?;
+        let sealed = self.transport_key.encrypt_response(
+            &self.response_pubkey,
+            &authenticator_message::encode(&response)?,
+        )?;
         let delivery = before(
             self.expires_at,
             self.bridge.put_response(&self.request_id, &sealed),
@@ -129,13 +145,93 @@ impl ResponseChannel {
     }
 }
 
-/// Reads `params.response_pubkey` from a request that otherwise failed to parse, so that it can
-/// still be answered with `invalid_params`.
-fn salvage_response_pubkey(plaintext: &[u8]) -> Option<ResponsePublicKey> {
-    let message: serde_json::Value = serde_json::from_slice(plaintext).ok()?;
-    let encoded = message.get("params")?.get("response_pubkey")?.as_str()?;
-    let bytes = hex::decode(encoded.strip_prefix("0x")?).ok()?;
-    ResponsePublicKey::from_bytes(&bytes).ok()
+/// An encrypted request fetched once, waiting for code entry on the approving device.
+///
+/// Fetch this before prompting for a code. Code entry does not authorize registration;
+/// authentication returns an [`IncomingRegistration`] which still needs checks and consent.
+#[derive(Debug)]
+pub struct PendingRegistration {
+    attempt: Option<PendingAttempt>,
+    attempts_remaining: u8,
+}
+
+#[derive(Debug)]
+struct PendingAttempt {
+    uri: PairingUri,
+    encrypted: EncryptedPayload,
+    bridge: BridgeClient,
+    taken_at: Instant,
+}
+
+impl PendingRegistration {
+    /// Fetches and retains the encrypted request. Never refetch it after a mistyped code.
+    /// The host must use an allowlisted bridge or obtain confirmation before contacting it.
+    ///
+    /// # Errors
+    /// Returns [`ApproverError::Expired`] for a used or expired URI, or a bridge error.
+    pub async fn receive(uri: &PairingUri, bridge: BridgeClient) -> Result<Self, ApproverError> {
+        let encrypted = bridge
+            .take_request(&uri.secret.request_id())
+            .await?
+            .ok_or(ApproverError::Expired)?;
+        Ok(Self {
+            attempt: Some(PendingAttempt {
+                uri: uri.clone(),
+                encrypted,
+                bridge,
+                taken_at: Instant::now(),
+            }),
+            attempts_remaining: 3,
+        })
+    }
+
+    /// Ends this attempt and discards the pairing secret and retained ciphertext.
+    pub fn cancel(&mut self) {
+        self.attempt = None;
+    }
+
+    /// Authenticates the retained ciphertext, then validates the CBOR request and signature.
+    /// At most three code attempts are allowed before expiry. No response is sent before
+    /// authentication, or when CBOR decoding, envelope validation, or digest matching fails.
+    ///
+    /// # Errors
+    /// An incorrect code leaves the ciphertext available for the reported remaining attempts.
+    /// All other errors end this attempt and require a fresh pairing.
+    pub async fn authenticate(
+        &mut self,
+        code: &PairingCode,
+    ) -> Result<IncomingRegistration, ApproverError> {
+        let attempt = self.attempt.as_ref().ok_or(ApproverError::Expired)?;
+        if Instant::now() >= attempt.taken_at + BRIDGE_SESSION_TTL {
+            self.cancel();
+            return Err(ApproverError::Expired);
+        }
+        self.attempts_remaining -= 1;
+        let key = match attempt.uri.secret.transport_key(code) {
+            Ok(key) => key,
+            Err(error) => {
+                self.cancel();
+                return Err(error.into());
+            }
+        };
+        let plaintext = match key.decrypt_request(&attempt.encrypted) {
+            Ok(plaintext) => plaintext,
+            Err(TransportError::Decrypt) => {
+                if self.attempts_remaining == 0 {
+                    self.cancel();
+                }
+                return Err(ApproverError::IncorrectCode {
+                    attempts_remaining: self.attempts_remaining,
+                });
+            }
+            Err(error) => {
+                self.cancel();
+                return Err(error.into());
+            }
+        };
+        let attempt = self.attempt.take().ok_or(ApproverError::Expired)?;
+        IncomingRegistration::from_authenticated(attempt, key, &plaintext).await
+    }
 }
 
 /// A validated registration request, taken from the bridge.
@@ -147,75 +243,36 @@ pub struct IncomingRegistration {
 }
 
 impl IncomingRegistration {
-    /// Takes the request named by `uri` from `bridge` and validates it.
-    ///
-    /// The host picks `bridge` from `uri.bridge`. It should only use allowlisted bridge
-    /// deployments, and fall back to its default bridge when the URI names none. Opening the URI
-    /// must not imply approval.
-    ///
-    /// The request can be taken only once. The response is due within
-    /// [`DEFAULT_RESPONSE_DEADLINE`].
-    ///
-    /// # Errors
-    ///
-    /// - [`ApproverError::Expired`] if the request expired or was already taken.
-    /// - [`ApproverError::DigestMismatch`] if the request is not the one the URI commits to. No
-    ///   response is sent.
-    /// - [`ApproverError::InvalidRequest`] if the request is malformed or its signature is
-    ///   invalid. An `invalid_params` response is sent whenever a response key can be read from
-    ///   the request.
-    /// - [`ApproverError::Bridge`] or [`ApproverError::Transport`] if the request cannot be
-    ///   fetched or decrypted.
-    pub async fn receive(uri: &PairingUri, bridge: BridgeClient) -> Result<Self, ApproverError> {
-        let request_id = uri.secret.request_id();
-        let encrypted = bridge
-            .take_request(&request_id)
-            .await?
-            .ok_or(ApproverError::Expired)?;
-        let taken_at = Instant::now();
-        let expires_at = taken_at + BRIDGE_SESSION_TTL;
-        let plaintext = uri.secret.transport_key().decrypt(&encrypted)?;
-
-        let message = serde_json::from_slice::<RegisterRequestMessage>(&plaintext)
-            .map_err(|e| format!("cannot parse the request: {e}"))
-            .and_then(|message| {
-                if message.method != REGISTER_METHOD {
-                    return Err("unexpected method".to_string());
-                }
-                if message.id != Id::String(request_id.to_string()) {
-                    return Err("request id does not match the pairing link".to_string());
-                }
-                Ok(message)
+    async fn from_authenticated(
+        attempt: PendingAttempt,
+        transport_key: TransportKey,
+        plaintext: &[u8],
+    ) -> Result<Self, ApproverError> {
+        let request_id = attempt.uri.secret.request_id();
+        let message: RegisterRequestMessage = authenticator_message::decode(plaintext, 16 * 1024)
+            .map_err(|error| ApproverError::InvalidRequest {
+            reason: error.to_string(),
+            responded: false,
+        })?;
+        if message.method != REGISTER_METHOD || message.id != Id::String(request_id.to_string()) {
+            return Err(ApproverError::InvalidRequest {
+                reason: "unexpected registration method or request id".into(),
+                responded: false,
             });
-        let message = match message {
-            Ok(message) => message,
-            Err(reason) => {
-                let responded = match salvage_response_pubkey(&plaintext) {
-                    Some(response_pubkey) => ResponseChannel {
-                        request_id,
-                        response_pubkey,
-                        bridge,
-                        expires_at,
-                    }
-                    .send(Err(RegistrationErrorReason::InvalidParams.into_error(None)))
-                    .await
-                    .is_ok(),
-                    None => false,
-                };
-                tracing::warn!(%request_id, %reason, responded, "invalid registration request");
-                return Err(ApproverError::InvalidRequest { reason, responded });
-            }
-        };
-
-        let digest =
-            message
-                .params
-                .digest(&request_id)
-                .map_err(|e| ApproverError::InvalidRequest {
-                    reason: e.to_string(),
-                    responded: false,
-                })?;
-        if digest != uri.digest {
+        }
+        let request = message
+            .params
+            .ok_or_else(|| ApproverError::InvalidRequest {
+                reason: "missing registration params".into(),
+                responded: false,
+            })?;
+        let digest = request
+            .digest(&request_id)
+            .map_err(|e| ApproverError::InvalidRequest {
+                reason: e.to_string(),
+                responded: false,
+            })?;
+        if digest != attempt.uri.digest {
             tracing::warn!(%request_id, "registration request does not match the pairing link");
             return Err(ApproverError::DigestMismatch);
         }
@@ -223,12 +280,13 @@ impl IncomingRegistration {
         let incoming = Self {
             channel: ResponseChannel {
                 request_id,
-                response_pubkey: message.params.response_pubkey.clone(),
-                bridge,
-                expires_at,
+                response_pubkey: request.response_pubkey.clone(),
+                transport_key,
+                bridge: attempt.bridge,
+                expires_at: attempt.taken_at + BRIDGE_SESSION_TTL,
             },
-            request: message.params,
-            respond_by: taken_at + DEFAULT_RESPONSE_DEADLINE,
+            request,
+            respond_by: attempt.taken_at + DEFAULT_RESPONSE_DEADLINE,
         };
         if !incoming.request.verify_signature(&digest) {
             let responded = incoming
@@ -247,11 +305,11 @@ impl IncomingRegistration {
     }
 
     /// Sets how long from now the response is due, instead of [`DEFAULT_RESPONSE_DEADLINE`]
-    /// after the request was taken. The bridge session is assumed to expire a minute later.
+    /// after the request was taken. This cannot extend the bridge session expiry.
     #[must_use]
     pub fn with_response_deadline(mut self, deadline: Duration) -> Self {
-        self.respond_by = Instant::now() + deadline;
-        self.channel.expires_at = self.respond_by + RESPONSE_MARGIN;
+        self.respond_by =
+            (Instant::now() + deadline).min(self.channel.expires_at - RESPONSE_MARGIN);
         self
     }
 
@@ -280,13 +338,20 @@ impl IncomingRegistration {
         self,
         approver: &Authenticator,
     ) -> Result<CheckedRegistration, ApproverError> {
-        let snapshot = match approver.fetch_account_snapshot().await {
-            Ok(snapshot) => snapshot,
-            Err(e) => {
+        let snapshot = match before(self.respond_by, approver.fetch_account_snapshot()).await {
+            None => {
                 return Err(self
-                    .refuse(RegistrationErrorReason::InternalError, Some(e))
+                    .refuse(RegistrationErrorReason::InternalError, None)
                     .await);
             }
+            Some(result) => match result {
+                Ok(snapshot) => snapshot,
+                Err(e) => {
+                    return Err(self
+                        .refuse(RegistrationErrorReason::InternalError, Some(e))
+                        .await);
+                }
+            },
         };
         match plan_registration(&snapshot, approver, &self.request) {
             Ok(plan) => Ok(CheckedRegistration {
@@ -522,7 +587,9 @@ impl CheckedRegistration {
                 break;
             };
             match status {
-                Ok(GatewayRequestState::Finalized { .. }) => return Ok(insertion.pubkey_id),
+                Ok(GatewayRequestState::Finalized { .. }) => {
+                    return self.confirm_registration(approver).await;
+                }
                 Ok(GatewayRequestState::Failed { error_code, .. }) => {
                     return Err(classify_failure(error_code, submitted));
                 }
@@ -548,6 +615,46 @@ impl CheckedRegistration {
             failed_polls,
             "insertion outcome unknown at the response deadline"
         );
+        Err((RegistrationErrorReason::OutcomeUnknown, None))
+    }
+    async fn confirm_registration(
+        &self,
+        approver: &Authenticator,
+    ) -> Result<u32, (RegistrationErrorReason, Option<String>)> {
+        let deadline = self.incoming.respond_by;
+        let mut delays = ExponentialBuilder::default()
+            .with_min_delay(Duration::from_secs(1))
+            .with_max_delay(Duration::from_secs(8))
+            .without_max_times()
+            .with_jitter()
+            .build();
+        while let Some(state) = before(deadline, approver.fetch_account_snapshot()).await {
+            match state {
+                Ok(snapshot) => {
+                    if let Some((slot, class)) = snapshot
+                        .authenticators
+                        .find(&self.incoming.request.new_authenticator_pubkey)
+                    {
+                        if class != self.incoming.request.class {
+                            return Err((RegistrationErrorReason::AuthenticatorConflict, None));
+                        }
+                        return Ok(slot);
+                    }
+                }
+                Err(error) => tracing::debug!(%error, "failed to refresh finalized registration"),
+            }
+            if before(
+                deadline,
+                backon::DefaultSleeper::default()
+                    .sleep(delays.next().unwrap_or(Duration::from_secs(8))),
+            )
+            .await
+            .is_none()
+            {
+                break;
+            }
+        }
+        tracing::warn!(request_id = %self.incoming.channel.request_id, "finalized registration not visible before response deadline");
         Err((RegistrationErrorReason::OutcomeUnknown, None))
     }
 }
