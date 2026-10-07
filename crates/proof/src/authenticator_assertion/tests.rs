@@ -19,13 +19,14 @@ fn fixture() -> (AuthenticatorAssertionToken, EdDSAPrivateKey) {
         FieldElement::ZERO,
         FieldElement::from(7u64),
     );
-    let flags = SecFlags {
-        platform: Platform::Ios.into(),
-        sec_level: SecLevel::HardwareKey.into(),
-        build_version: 2006,
-        sec_meta: 3,
-        user_presence: UserPresence::PresentVerified,
-    };
+    let flags = SecFlags::new(
+        Platform::Ios.into(),
+        SecLevel::HardwareKey.into(),
+        2006,
+        3,
+        UserPresence::PresentVerified,
+    )
+    .unwrap();
     (
         AuthenticatorAssertionToken::new(1_783_446_925, aat_commitment, flags).unwrap(),
         EdDSAPrivateKey::from_bytes([7u8; 32]),
@@ -144,15 +145,9 @@ fn invalid_claims_rejected() {
         AuthenticatorAssertionToken::new(0xffff, aat.aat_commitment(), flags),
         Err(AssertionError::ExpirationOutOfRange(0xffff))
     ));
+    // A 4-bit `sec_meta` would overflow into `user_presence`.
     assert!(matches!(
-        AuthenticatorAssertionToken::new(
-            aat.exp(),
-            aat.aat_commitment(),
-            SecFlags {
-                sec_meta: 0x8,
-                ..flags
-            }
-        ),
+        SecFlags::new(2, 1, 2006, 0x8, UserPresence::PresentVerified),
         Err(AssertionError::SecMetaTooLarge(0x8))
     ));
     // Bit 54, a reserved `user_presence` of 5, and bits 56 and above.
@@ -162,7 +157,7 @@ fn invalid_claims_rejected() {
     assert_eq!(SecFlags::unpack(flags.pack()).unwrap(), flags);
     // Unknown identifiers pass through for the RP to allowlist, as in the circuit.
     let unknown = SecFlags::unpack(0x0003_0000_07d6_0203).unwrap();
-    assert_eq!((unknown.platform, unknown.sec_level), (3, 2));
+    assert_eq!((unknown.platform(), unknown.sec_level()), (3, 2));
 }
 
 #[test]

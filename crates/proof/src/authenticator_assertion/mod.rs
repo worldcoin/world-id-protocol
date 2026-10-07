@@ -128,22 +128,72 @@ impl TryFrom<u8> for UserPresence {
     }
 }
 
-/// Security attributes carried in `sec_flags`.
+/// Security attributes carried in `sec_flags`. Fields are private so every value packs into
+/// its own bit range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SecFlags {
-    /// Platform of the Authenticator (see [`Platform`]).
-    pub platform: u8,
-    /// Class of integrity evidence verified for the request (see [`SecLevel`]).
-    pub sec_level: u8,
-    /// Monotonic version of the Authenticator build that produced the evidence.
-    pub build_version: u32,
-    /// Provider-defined 3-bit bitmask.
-    pub sec_meta: u8,
-    /// User presence (see [`UserPresence`]).
-    pub user_presence: UserPresence,
+    platform: u8,
+    sec_level: u8,
+    build_version: u32,
+    sec_meta: u8,
+    user_presence: UserPresence,
 }
 
 impl SecFlags {
+    /// Creates security flags. `platform`, `sec_level` and `build_version` fill their bit
+    /// ranges by type; unknown identifiers are kept for the RP to allowlist.
+    ///
+    /// # Errors
+    /// [`AssertionError::SecMetaTooLarge`] if `sec_meta` carries more than 3 bits.
+    pub const fn new(
+        platform: u8,
+        sec_level: u8,
+        build_version: u32,
+        sec_meta: u8,
+        user_presence: UserPresence,
+    ) -> Result<Self, AssertionError> {
+        if sec_meta > MAX_SEC_META {
+            return Err(AssertionError::SecMetaTooLarge(sec_meta));
+        }
+        Ok(Self {
+            platform,
+            sec_level,
+            build_version,
+            sec_meta,
+            user_presence,
+        })
+    }
+
+    /// Platform of the Authenticator (see [`Platform`]).
+    #[must_use]
+    pub const fn platform(&self) -> u8 {
+        self.platform
+    }
+
+    /// Class of integrity evidence verified for the request (see [`SecLevel`]).
+    #[must_use]
+    pub const fn sec_level(&self) -> u8 {
+        self.sec_level
+    }
+
+    /// Monotonic version of the Authenticator build that produced the evidence.
+    #[must_use]
+    pub const fn build_version(&self) -> u32 {
+        self.build_version
+    }
+
+    /// Provider-defined 3-bit bitmask.
+    #[must_use]
+    pub const fn sec_meta(&self) -> u8 {
+        self.sec_meta
+    }
+
+    /// User presence (see [`UserPresence`]).
+    #[must_use]
+    pub const fn user_presence(&self) -> UserPresence {
+        self.user_presence
+    }
+
     /// Unpacks `sec_flags`. Unknown `platform` and `sec_level` values are kept as is, for
     /// the RP to allowlist.
     ///
@@ -253,8 +303,7 @@ impl AuthenticatorAssertionToken {
     /// Creates an Authenticator Assertion Token from validated claims.
     ///
     /// # Errors
-    /// - [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
-    /// - [`AssertionError::SecMetaTooLarge`] if `sec_meta` carries more than 3 bits.
+    /// [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
     pub fn new(
         exp: u32,
         aat_commitment: FieldElement,
@@ -262,9 +311,6 @@ impl AuthenticatorAssertionToken {
     ) -> Result<Self, AssertionError> {
         if exp < MIN_EXP {
             return Err(AssertionError::ExpirationOutOfRange(exp));
-        }
-        if sec_flags.sec_meta > MAX_SEC_META {
-            return Err(AssertionError::SecMetaTooLarge(sec_flags.sec_meta));
         }
         Ok(Self {
             exp,
