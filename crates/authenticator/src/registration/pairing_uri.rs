@@ -70,9 +70,13 @@ impl fmt::Display for PairingUri {
         let mut link = Deeplink::new(NAMESPACE, VERSION, ACTION)
             .expect("the registration deeplink is valid")
             .with_param(SECRET_PARAM, URL_SAFE_NO_PAD.encode(self.secret.as_bytes()))
-            .with_param(DIGEST_PARAM, URL_SAFE_NO_PAD.encode(self.digest.as_bytes()));
+            .expect("the secret parameter key is nonempty")
+            .with_param(DIGEST_PARAM, URL_SAFE_NO_PAD.encode(self.digest.as_bytes()))
+            .expect("the digest parameter key is nonempty");
         if let Some(bridge) = &self.bridge {
-            link = link.with_param(BRIDGE_PARAM, bridge.as_str());
+            link = link
+                .with_param(BRIDGE_PARAM, bridge.as_str())
+                .expect("the bridge parameter key is nonempty");
         }
         write!(f, "{link}")
     }
