@@ -280,6 +280,20 @@ mod tests {
             ds::AUTHENTICATOR_KEY_SET.as_field_element(),
             FieldElement::from(105_702_839_725_298_824_521_994_315_u128),
         );
+        // Above `u128::MAX`, so parsed from the decimal literals in `authenticator-assertion/src/lib.nr`.
+        let decimal = |s: &str| FieldElement::from(<Fq as std::str::FromStr>::from_str(s).unwrap());
+        assert_eq!(
+            ds::AUTHENTICATOR_ASSERTION_TOKEN.as_field_element(),
+            decimal("498451125091886891258088867850510460821031698772"),
+        );
+        assert_eq!(
+            ds::AUTHENTICATOR_ASSERTION_REQUEST.as_field_element(),
+            decimal("498451125091886891258088867850510460821032813905"),
+        );
+        assert_eq!(
+            ds::AUTHENTICATOR_PROVIDER_KEY.as_field_element(),
+            decimal("498451125091886891258088867850510460821032355161"),
+        );
     }
 
     #[test]
