@@ -23,7 +23,14 @@ zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
 
 embed-ownership-prover = ["dep:provekit-r1cs-compiler"]
 embed-ownership-verifier = ["dep:provekit-r1cs-compiler"]
-embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
+embed-claims-prover = ["dep:provekit-r1cs-compiler"]
+embed-claims-verifier = ["dep:provekit-r1cs-compiler"]
+embed-noir-artifacts = [
+    "embed-ownership-prover",
+    "embed-ownership-verifier",
+    "embed-claims-prover",
+    "embed-claims-verifier",
+]
 
 # Embed everything
 embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]

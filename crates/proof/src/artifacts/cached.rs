@@ -3,7 +3,7 @@ use std::sync::Arc;
 use once_cell::sync::OnceCell;
 
 use crate::{
-    OwnershipProver, OwnershipVerifier,
+    ClaimsProver, ClaimsVerifier, OwnershipProver, OwnershipVerifier,
     artifacts::{ZkArtifactError, ZkArtifactSource},
     nullifier_proof::CircomGroth16Material,
 };
@@ -15,6 +15,8 @@ pub struct CachedZkArtifactSource {
     nullifier: OnceCell<Arc<CircomGroth16Material>>,
     ownership_prover: OnceCell<OwnershipProver>,
     ownership_verifier: OnceCell<OwnershipVerifier>,
+    claims_prover: OnceCell<ClaimsProver>,
+    claims_verifier: OnceCell<ClaimsVerifier>,
 }
 
 impl CachedZkArtifactSource {
@@ -33,6 +35,8 @@ impl CachedZkArtifactSource {
             nullifier: OnceCell::new(),
             ownership_prover: OnceCell::new(),
             ownership_verifier: OnceCell::new(),
+            claims_prover: OnceCell::new(),
+            claims_verifier: OnceCell::new(),
         }
     }
 }
@@ -59,6 +63,18 @@ impl ZkArtifactSource for CachedZkArtifactSource {
     fn ownership_verifier(&self) -> Result<OwnershipVerifier, ZkArtifactError> {
         self.ownership_verifier
             .get_or_try_init(|| self.inner.ownership_verifier())
+            .cloned()
+    }
+
+    fn claims_prover(&self) -> Result<ClaimsProver, ZkArtifactError> {
+        self.claims_prover
+            .get_or_try_init(|| self.inner.claims_prover())
+            .cloned()
+    }
+
+    fn claims_verifier(&self) -> Result<ClaimsVerifier, ZkArtifactError> {
+        self.claims_verifier
+            .get_or_try_init(|| self.inner.claims_verifier())
             .cloned()
     }
 }
