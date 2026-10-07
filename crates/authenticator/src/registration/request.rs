@@ -28,6 +28,81 @@ const DIGEST_LABEL: &[u8] = b"WORLD-ID/WIP-109/REGISTER";
 /// The maximum length in bytes of an [`AuthenticatorName`].
 pub const MAX_NAME_LEN: usize = 64;
 
+/// The `params` of a `worldid_auth_v1_register` request.
+///
+/// Deserialization only checks encodings and bounds. The Approving Authenticator still has to
+/// compare [`RegistrationRequest::digest`] with the digest from the Pairing URI and verify the
+/// signature with [`RegistrationRequest::verify_signature`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RegistrationRequest {
+    /// The signing key the Requesting Authenticator asks to register.
+    pub new_authenticator_pubkey: EdDSAPublicKey,
+    /// The class the Requesting Authenticator asks for, with its management key if it is an
+    /// Admin Authenticator.
+    pub class: AuthenticatorClass,
+    /// The key the response must be sealed to.
+    pub response_pubkey: ResponsePublicKey,
+    /// An optional, unauthenticated label for the new authenticator.
+    pub name: Option<AuthenticatorName>,
+    /// The signature over the [`RegistrationDigest`] by `new_authenticator_pubkey`.
+    pub registration_sig: EdDSASignature,
+}
+
+impl RegistrationRequest {
+    /// Builds a request for `signing_key` and signs its digest, returning the request together
+    /// with the digest to put in the Pairing URI.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the public key fails to serialize.
+    pub fn new_signed(
+        signing_key: &EdDSAPrivateKey,
+        class: AuthenticatorClass,
+        response_pubkey: ResponsePublicKey,
+        name: Option<AuthenticatorName>,
+        request_id: &RequestId,
+    ) -> Result<(Self, RegistrationDigest), PrimitiveError> {
+        let new_authenticator_pubkey = signing_key.public();
+        let digest = RegistrationDigest::compute(
+            request_id,
+            &new_authenticator_pubkey,
+            &class,
+            &response_pubkey,
+        )?;
+        let registration_sig = signing_key.sign(*digest.signing_message());
+        let request = Self {
+            new_authenticator_pubkey,
+            class,
+            response_pubkey,
+            name,
+            registration_sig,
+        };
+        Ok((request, digest))
+    }
+
+    /// Recomputes the digest of this request for the session identified by `request_id`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the public key fails to serialize.
+    pub fn digest(&self, request_id: &RequestId) -> Result<RegistrationDigest, PrimitiveError> {
+        RegistrationDigest::compute(
+            request_id,
+            &self.new_authenticator_pubkey,
+            &self.class,
+            &self.response_pubkey,
+        )
+    }
+
+    /// Returns whether `registration_sig` is a valid signature of `digest` by the new
+    /// authenticator's key.
+    #[must_use]
+    pub fn verify_signature(&self, digest: &RegistrationDigest) -> bool {
+        self.new_authenticator_pubkey
+            .verify(*digest.signing_message(), &self.registration_sig)
+    }
+}
+
 /// The kind of authenticator a Requesting Authenticator asks to become, as defined in WIP-104.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuthenticatorClass {
@@ -160,81 +235,6 @@ impl fmt::Debug for RegistrationDigest {
     }
 }
 
-/// The `params` of a `worldid_auth_v1_register` request.
-///
-/// Deserialization only checks encodings and bounds. The Approving Authenticator still has to
-/// compare [`RegistrationRequest::digest`] with the digest from the Pairing URI and verify the
-/// signature with [`RegistrationRequest::verify_signature`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RegistrationRequest {
-    /// The signing key the Requesting Authenticator asks to register.
-    pub new_authenticator_pubkey: EdDSAPublicKey,
-    /// The class the Requesting Authenticator asks for, with its management key if it is an
-    /// Admin Authenticator.
-    pub class: AuthenticatorClass,
-    /// The key the response must be sealed to.
-    pub response_pubkey: ResponsePublicKey,
-    /// An optional, unauthenticated label for the new authenticator.
-    pub name: Option<AuthenticatorName>,
-    /// The signature over the [`RegistrationDigest`] by `new_authenticator_pubkey`.
-    pub registration_sig: EdDSASignature,
-}
-
-impl RegistrationRequest {
-    /// Builds a request for `signing_key` and signs its digest, returning the request together
-    /// with the digest to put in the Pairing URI.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the public key fails to serialize.
-    pub fn new_signed(
-        signing_key: &EdDSAPrivateKey,
-        class: AuthenticatorClass,
-        response_pubkey: ResponsePublicKey,
-        name: Option<AuthenticatorName>,
-        request_id: &RequestId,
-    ) -> Result<(Self, RegistrationDigest), PrimitiveError> {
-        let new_authenticator_pubkey = signing_key.public();
-        let digest = RegistrationDigest::compute(
-            request_id,
-            &new_authenticator_pubkey,
-            &class,
-            &response_pubkey,
-        )?;
-        let registration_sig = signing_key.sign(*digest.signing_message());
-        let request = Self {
-            new_authenticator_pubkey,
-            class,
-            response_pubkey,
-            name,
-            registration_sig,
-        };
-        Ok((request, digest))
-    }
-
-    /// Recomputes the digest of this request for the session identified by `request_id`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the public key fails to serialize.
-    pub fn digest(&self, request_id: &RequestId) -> Result<RegistrationDigest, PrimitiveError> {
-        RegistrationDigest::compute(
-            request_id,
-            &self.new_authenticator_pubkey,
-            &self.class,
-            &self.response_pubkey,
-        )
-    }
-
-    /// Returns whether `registration_sig` is a valid signature of `digest` by the new
-    /// authenticator's key.
-    #[must_use]
-    pub fn verify_signature(&self, digest: &RegistrationDigest) -> bool {
-        self.new_authenticator_pubkey
-            .verify(*digest.signing_message(), &self.registration_sig)
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireRegistrationRequest {
@@ -294,15 +294,13 @@ impl<'de> Deserialize<'de> for RegistrationRequest {
             EdDSAPublicKey::from_compressed_bytes(wire.new_authenticator_pubkey)
                 .map_err(|_| D::Error::custom("invalid new_authenticator_pubkey"))?;
         let class = match wire.new_authenticator_address {
-            Some(address) => AuthenticatorClass::Admin {
-                address: {
-                    let address = Address::from(address.0);
-                    if address.is_zero() {
-                        return Err(D::Error::custom("management address must not be zero"));
-                    }
-                    address
-                },
-            },
+            Some(address) => {
+                let address = Address::from(address.0);
+                if address.is_zero() {
+                    return Err(D::Error::custom("management address must not be zero"));
+                }
+                AuthenticatorClass::Admin { address }
+            }
             None => AuthenticatorClass::Proving,
         };
         let response_pubkey = ResponsePublicKey::from_bytes(&wire.response_pubkey)

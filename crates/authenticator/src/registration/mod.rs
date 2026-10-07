@@ -17,8 +17,6 @@ mod pairing_uri;
 mod request;
 mod response;
 mod session;
-#[cfg(test)]
-mod vectors;
 
 pub use pairing_uri::{BridgeDomain, PairingUri, PairingUriError};
 pub use request::{
@@ -67,3 +65,6 @@ fn contains_tag(value: &ciborium::Value) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod vectors;

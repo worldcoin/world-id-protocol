@@ -14,61 +14,16 @@ pub type RegisterResponseMessage = Response<RegistrationResult, RegistrationErro
 #[serde(deny_unknown_fields)]
 pub struct RegistrationResult {
     /// The index of the account the authenticator was registered on.
-    #[serde(deserialize_with = "deserialize_unsigned")]
     pub leaf_index: u64,
     /// The slot the authenticator was inserted at.
-    #[serde(deserialize_with = "deserialize_unsigned")]
     pub pubkey_id: u32,
     /// Names of the account's other authenticators known to the Approving Authenticator.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub authenticators: Vec<KnownAuthenticator>,
     /// The account's credential vault, unless the user or Approving Authenticator policy
     /// excluded it.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "super::deserialize_present"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub vault: Option<Vault>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct WireRegistrationResult {
-    #[serde(deserialize_with = "deserialize_unsigned")]
-    leaf_index: u64,
-    #[serde(deserialize_with = "deserialize_unsigned")]
-    pubkey_id: u32,
-    #[serde(default)]
-    authenticators: Vec<KnownAuthenticator>,
-    #[serde(default, deserialize_with = "super::deserialize_present")]
-    vault: Option<Vault>,
-}
-
-impl<'de> Deserialize<'de> for RegistrationResult {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let wire: WireRegistrationResult = super::deserialize_payload(deserializer)?;
-        Ok(Self {
-            leaf_index: wire.leaf_index,
-            pubkey_id: wire.pubkey_id,
-            authenticators: wire.authenticators,
-            vault: wire.vault,
-        })
-    }
-}
-
-fn deserialize_unsigned<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: TryFrom<u64>,
-{
-    use serde::de::Error as _;
-    let ciborium::Value::Integer(integer) = ciborium::Value::deserialize(deserializer)? else {
-        return Err(D::Error::custom("expected CBOR unsigned integer"));
-    };
-    let value =
-        u64::try_from(integer).map_err(|_| D::Error::custom("expected unsigned integer"))?;
-    T::try_from(value).map_err(|_| D::Error::custom("unsigned integer exceeds field width"))
 }
 
 /// The name of one of the account's other authenticators.
@@ -172,6 +127,19 @@ impl RegistrationErrorReason {
         }
     }
 
+    /// Builds the message error object for this reason, with an optional implementation-specific
+    /// `detail`.
+    #[must_use]
+    pub fn into_error(self, detail: Option<String>) -> ErrorObject<RegistrationErrorData> {
+        ErrorObject {
+            code: self.code().into(),
+            message: self.message().to_string(),
+            data: detail.map(|detail| RegistrationErrorData {
+                detail: Some(detail),
+            }),
+        }
+    }
+
     const fn message(self) -> &'static str {
         match self {
             Self::InvalidParams => "Invalid params",
@@ -183,19 +151,6 @@ impl RegistrationErrorReason {
             Self::MaxAuthenticatorsReached => "No free authenticator slot",
             Self::OperationFailed => "InsertAuthenticator operation failed",
             Self::OutcomeUnknown => "InsertAuthenticator outcome unknown",
-        }
-    }
-
-    /// Builds the message error object for this reason, with an optional implementation-specific
-    /// `detail`.
-    #[must_use]
-    pub fn into_error(self, detail: Option<String>) -> ErrorObject<RegistrationErrorData> {
-        ErrorObject {
-            code: self.code().into(),
-            message: self.message().to_string(),
-            data: detail.map(|detail| RegistrationErrorData {
-                detail: Some(detail),
-            }),
         }
     }
 }
@@ -210,6 +165,45 @@ pub struct RegistrationErrorData {
         deserialize_with = "super::deserialize_present"
     )]
     pub detail: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireRegistrationResult {
+    #[serde(deserialize_with = "deserialize_unsigned")]
+    leaf_index: u64,
+    #[serde(deserialize_with = "deserialize_unsigned")]
+    pubkey_id: u32,
+    #[serde(default)]
+    authenticators: Vec<KnownAuthenticator>,
+    #[serde(default, deserialize_with = "super::deserialize_present")]
+    vault: Option<Vault>,
+}
+
+impl<'de> Deserialize<'de> for RegistrationResult {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire: WireRegistrationResult = super::deserialize_payload(deserializer)?;
+        Ok(Self {
+            leaf_index: wire.leaf_index,
+            pubkey_id: wire.pubkey_id,
+            authenticators: wire.authenticators,
+            vault: wire.vault,
+        })
+    }
+}
+
+fn deserialize_unsigned<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: TryFrom<u64>,
+{
+    use serde::de::Error as _;
+    let ciborium::Value::Integer(integer) = ciborium::Value::deserialize(deserializer)? else {
+        return Err(D::Error::custom("expected CBOR unsigned integer"));
+    };
+    let value =
+        u64::try_from(integer).map_err(|_| D::Error::custom("expected unsigned integer"))?;
+    T::try_from(value).map_err(|_| D::Error::custom("unsigned integer exceeds field width"))
 }
 
 #[cfg(test)]
