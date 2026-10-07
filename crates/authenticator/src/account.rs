@@ -20,85 +20,6 @@ use world_id_registries::world_id::{
     domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
 
-/// The kind of an authenticator, as defined in WIP-104.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AuthenticatorClass {
-    /// An Admin Authenticator, which can manage the account with its management key.
-    Admin {
-        /// The non-zero address of the authenticator's management key.
-        address: Address,
-    },
-    /// A Proving Authenticator, which can generate proofs but cannot manage the account.
-    Proving,
-}
-
-impl AuthenticatorClass {
-    /// Returns the class of an authenticator registered with `address`: Proving for the zero
-    /// address, Admin otherwise.
-    #[must_use]
-    pub fn from_onchain_address(address: Address) -> Self {
-        if address.is_zero() {
-            Self::Proving
-        } else {
-            Self::Admin { address }
-        }
-    }
-
-    /// Returns the address registered on-chain for this class: the management key of an Admin
-    /// Authenticator, or the zero address for a Proving Authenticator.
-    #[must_use]
-    pub const fn onchain_address(&self) -> Address {
-        match self {
-            Self::Admin { address } => *address,
-            Self::Proving => Address::ZERO,
-        }
-    }
-}
-
-/// The registered authenticators of an account, read from one indexed account state.
-#[derive(Clone, Debug)]
-pub struct AccountAuthenticators {
-    /// The public keys, by `pubkey_id`.
-    pub key_set: AuthenticatorPublicKeySet,
-    /// The classes, by `pubkey_id`. A removed slot is `None`, as in `key_set`.
-    pub classes: Vec<Option<AuthenticatorClass>>,
-    /// The commitment to `key_set` stored in the `WorldIDRegistry`.
-    pub offchain_signer_commitment: U256,
-    /// The number of recoveries of the account.
-    pub recovery_counter: u64,
-}
-
-impl AccountAuthenticators {
-    /// Returns the slot and class of `pubkey`, if it is registered.
-    #[must_use]
-    pub fn find(&self, pubkey: &EdDSAPublicKey) -> Option<(u32, AuthenticatorClass)> {
-        let slot = self
-            .key_set
-            .iter()
-            .position(|key| key.as_ref().is_some_and(|key| key.pk == pubkey.pk))?;
-        let class = self.classes.get(slot).copied().flatten()?;
-        Some((
-            u32::try_from(slot).expect("a slot below MAX_AUTHENTICATOR_KEYS fits in u32"),
-            class,
-        ))
-    }
-
-    /// Returns the lowest slot a new authenticator would be inserted at, or `None` if all
-    /// [`MAX_AUTHENTICATOR_KEYS`] slots are taken.
-    ///
-    /// The registry may be configured with a lower limit, in which case it rejects the slot.
-    #[must_use]
-    pub fn lowest_free_pubkey_id(&self) -> Option<u32> {
-        let slot = self
-            .key_set
-            .iter()
-            .position(Option::is_none)
-            .unwrap_or(self.key_set.len());
-        (slot < MAX_AUTHENTICATOR_KEYS)
-            .then(|| u32::try_from(slot).expect("a slot below MAX_AUTHENTICATOR_KEYS fits in u32"))
-    }
-}
-
 /// A view of an account to sign an account operation from. See
 /// [`Authenticator::fetch_account_snapshot`].
 #[derive(Clone, Debug)]
@@ -205,60 +126,6 @@ impl Authenticator {
             class.onchain_address(),
         )
         .await
-    }
-
-    async fn submit_insert_authenticator(
-        &self,
-        nonce: U256,
-        old_offchain_signer_commitment: U256,
-        mut key_set: AuthenticatorPublicKeySet,
-        new_authenticator_pubkey: EdDSAPublicKey,
-        new_authenticator_address: Address,
-    ) -> Result<PendingInsertion, AuthenticatorError> {
-        let leaf_index = self.leaf_index();
-        let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
-        let pubkey_id = key_set
-            .insert_or_reuse(new_authenticator_pubkey)
-            .map_err(|_| AuthenticatorError::MaxAuthenticatorsReached)?;
-        let pubkey_id =
-            u32::try_from(pubkey_id).expect("a slot below MAX_AUTHENTICATOR_KEYS fits in u32");
-        let new_offchain_signer_commitment = key_set.leaf_hash();
-
-        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
-
-        let signature = sign_insert_authenticator(
-            &self.signer.onchain_signer(),
-            leaf_index,
-            new_authenticator_address,
-            pubkey_id,
-            encoded_offchain_pubkey,
-            new_offchain_signer_commitment.into(),
-            nonce,
-            &eip712_domain,
-        )
-        .map_err(|e| {
-            AuthenticatorError::Generic(format!("Failed to sign insert authenticator: {e}"))
-        })?;
-
-        let req = InsertAuthenticatorRequest {
-            leaf_index,
-            new_authenticator_address,
-            pubkey_id,
-            new_authenticator_pubkey: encoded_offchain_pubkey,
-            old_offchain_signer_commitment,
-            new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
-            signature,
-            nonce,
-        };
-
-        let body: GatewayStatusResponse = self
-            .gateway_client
-            .post_json(self.config.gateway_url(), "/insert-authenticator", &req)
-            .await?;
-        Ok(PendingInsertion {
-            request_id: body.request_id,
-            pubkey_id,
-        })
     }
 
     /// Updates an existing authenticator slot with a new authenticator.
@@ -401,5 +268,138 @@ impl Authenticator {
             .get_json(self.config.gateway_url(), &path)
             .await?;
         Ok(body.status)
+    }
+
+    async fn submit_insert_authenticator(
+        &self,
+        nonce: U256,
+        old_offchain_signer_commitment: U256,
+        mut key_set: AuthenticatorPublicKeySet,
+        new_authenticator_pubkey: EdDSAPublicKey,
+        new_authenticator_address: Address,
+    ) -> Result<PendingInsertion, AuthenticatorError> {
+        let leaf_index = self.leaf_index();
+        let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
+        let pubkey_id = key_set
+            .insert_or_reuse(new_authenticator_pubkey)
+            .map_err(|_| AuthenticatorError::MaxAuthenticatorsReached)?;
+        let pubkey_id =
+            u32::try_from(pubkey_id).expect("a slot below MAX_AUTHENTICATOR_KEYS fits in u32");
+        let new_offchain_signer_commitment = key_set.leaf_hash();
+
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
+
+        let signature = sign_insert_authenticator(
+            &self.signer.onchain_signer(),
+            leaf_index,
+            new_authenticator_address,
+            pubkey_id,
+            encoded_offchain_pubkey,
+            new_offchain_signer_commitment.into(),
+            nonce,
+            &eip712_domain,
+        )
+        .map_err(|e| {
+            AuthenticatorError::Generic(format!("Failed to sign insert authenticator: {e}"))
+        })?;
+
+        let req = InsertAuthenticatorRequest {
+            leaf_index,
+            new_authenticator_address,
+            pubkey_id,
+            new_authenticator_pubkey: encoded_offchain_pubkey,
+            old_offchain_signer_commitment,
+            new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
+            signature,
+            nonce,
+        };
+
+        let body: GatewayStatusResponse = self
+            .gateway_client
+            .post_json(self.config.gateway_url(), "/insert-authenticator", &req)
+            .await?;
+        Ok(PendingInsertion {
+            request_id: body.request_id,
+            pubkey_id,
+        })
+    }
+}
+
+/// The registered authenticators of an account, read from one indexed account state.
+#[derive(Clone, Debug)]
+pub struct AccountAuthenticators {
+    /// The public keys, by `pubkey_id`.
+    pub key_set: AuthenticatorPublicKeySet,
+    /// The classes, by `pubkey_id`. A removed slot is `None`, as in `key_set`.
+    pub classes: Vec<Option<AuthenticatorClass>>,
+    /// The commitment to `key_set` stored in the `WorldIDRegistry`.
+    pub offchain_signer_commitment: U256,
+    /// The number of recoveries of the account.
+    pub recovery_counter: u64,
+}
+
+impl AccountAuthenticators {
+    /// Returns the slot and class of `pubkey`, if it is registered.
+    #[must_use]
+    pub fn find(&self, pubkey: &EdDSAPublicKey) -> Option<(u32, AuthenticatorClass)> {
+        let slot = self
+            .key_set
+            .iter()
+            .position(|key| key.as_ref().is_some_and(|key| key.pk == pubkey.pk))?;
+        let class = self.classes.get(slot).copied().flatten()?;
+        Some((
+            u32::try_from(slot).expect("a slot below MAX_AUTHENTICATOR_KEYS fits in u32"),
+            class,
+        ))
+    }
+
+    /// Returns the lowest slot a new authenticator would be inserted at, or `None` if all
+    /// [`MAX_AUTHENTICATOR_KEYS`] slots are taken.
+    ///
+    /// The registry may be configured with a lower limit, in which case it rejects the slot.
+    #[must_use]
+    pub fn lowest_free_pubkey_id(&self) -> Option<u32> {
+        let slot = self
+            .key_set
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(self.key_set.len());
+        (slot < MAX_AUTHENTICATOR_KEYS)
+            .then(|| u32::try_from(slot).expect("a slot below MAX_AUTHENTICATOR_KEYS fits in u32"))
+    }
+}
+
+/// The kind of an authenticator, as defined in WIP-104.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthenticatorClass {
+    /// An Admin Authenticator, which can manage the account with its management key.
+    Admin {
+        /// The non-zero address of the authenticator's management key.
+        address: Address,
+    },
+    /// A Proving Authenticator, which can generate proofs but cannot manage the account.
+    Proving,
+}
+
+impl AuthenticatorClass {
+    /// Returns the class of an authenticator registered with `address`: Proving for the zero
+    /// address, Admin otherwise.
+    #[must_use]
+    pub fn from_onchain_address(address: Address) -> Self {
+        if address.is_zero() {
+            Self::Proving
+        } else {
+            Self::Admin { address }
+        }
+    }
+
+    /// Returns the address registered on-chain for this class: the management key of an Admin
+    /// Authenticator, or the zero address for a Proving Authenticator.
+    #[must_use]
+    pub const fn onchain_address(&self) -> Address {
+        match self {
+            Self::Admin { address } => *address,
+            Self::Proving => Address::ZERO,
+        }
     }
 }

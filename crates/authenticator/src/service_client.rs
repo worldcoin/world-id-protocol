@@ -6,33 +6,6 @@ use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use world_id_primitives::ServiceEndpoint;
 
-/// The maximum time to establish a connection to a gateway or indexer.
-#[cfg(not(target_arch = "wasm32"))]
-const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-/// The maximum time for a whole gateway or indexer request, including reading the response.
-#[cfg(not(target_arch = "wasm32"))]
-const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// Builds the HTTP client for gateway, indexer and bridge requests.
-///
-/// Native clients bound every request with [`CONNECT_TIMEOUT`] and [`REQUEST_TIMEOUT`]. In the
-/// browser, requests are bounded by the platform's `fetch` timeouts.
-///
-/// # Panics
-///
-/// Panics if the TLS backend cannot be initialized, as [`reqwest::Client::new`] does.
-pub(crate) fn default_http_client() -> reqwest::Client {
-    #[cfg(not(target_arch = "wasm32"))]
-    let client = reqwest::Client::builder()
-        .connect_timeout(CONNECT_TIMEOUT)
-        .timeout(REQUEST_TIMEOUT)
-        .build()
-        .expect("the TLS backend initializes");
-    #[cfg(target_arch = "wasm32")]
-    let client = reqwest::Client::new();
-    client
-}
-
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ServiceKind {
     Gateway,
@@ -215,3 +188,31 @@ impl ServiceClient {
         })
     }
 }
+
+/// The maximum time to establish a connection to a gateway or indexer.
+#[cfg(not(target_arch = "wasm32"))]
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// The maximum time for a whole gateway or indexer request, including reading the response.
+#[cfg(not(target_arch = "wasm32"))]
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Builds the HTTP client for gateway, indexer and bridge requests.
+///
+/// Native clients bound every request with [`CONNECT_TIMEOUT`] and [`REQUEST_TIMEOUT`]. In the
+/// browser, requests are bounded by the platform's `fetch` timeouts.
+///
+/// # Panics
+///
+/// Panics if the TLS backend cannot be initialized, as [`reqwest::Client::new`] does.
+pub(crate) fn default_http_client() -> reqwest::Client {
+    #[cfg(not(target_arch = "wasm32"))]
+    let client = reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .expect("the TLS backend initializes");
+    #[cfg(target_arch = "wasm32")]
+    let client = reqwest::Client::new();
+    client
+}
+

@@ -228,52 +228,6 @@ impl Authenticator {
         ))
     }
 
-    fn registry_for(config: &Config) -> Option<Arc<WorldIdRegistryInstance<DynProvider>>> {
-        config.rpc_url().map(|rpc_url| {
-            let provider = alloy::providers::ProviderBuilder::new()
-                .with_chain_id(config.chain_id())
-                .connect_http(rpc_url.clone());
-            Arc::new(world_id_registries::world_id::WorldIdRegistry::new(
-                *config.registry_address(),
-                alloy::providers::Provider::erased(provider),
-            ))
-        })
-    }
-
-    fn from_parts(
-        config: Config,
-        packed_account_data: U256,
-        signer: Signer,
-        registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
-        indexer_client: ServiceClient,
-        gateway_client: ServiceClient,
-        zk_artifact_source: Arc<dyn ZkArtifactSource>,
-    ) -> Self {
-        #[cfg(not(target_arch = "wasm32"))]
-        let ws_connector = {
-            let mut root_store = rustls::RootCertStore::empty();
-            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-            let rustls_config = rustls::ClientConfig::builder()
-                .with_root_certificates(root_store)
-                .with_no_client_auth();
-            Connector::Rustls(Arc::new(rustls_config))
-        };
-
-        #[cfg(target_arch = "wasm32")]
-        let ws_connector = Connector;
-
-        Self {
-            packed_account_data,
-            signer,
-            config,
-            registry,
-            indexer_client,
-            gateway_client,
-            ws_connector,
-            zk_artifact_source,
-        }
-    }
-
     /// Registers a new World ID in the `WorldIDRegistry`.
     ///
     /// Given the registration process is asynchronous, this method will return a `InitializingAuthenticator`
@@ -694,6 +648,52 @@ impl Authenticator {
                 .into()
             }
         })
+    }
+
+    fn registry_for(config: &Config) -> Option<Arc<WorldIdRegistryInstance<DynProvider>>> {
+        config.rpc_url().map(|rpc_url| {
+            let provider = alloy::providers::ProviderBuilder::new()
+                .with_chain_id(config.chain_id())
+                .connect_http(rpc_url.clone());
+            Arc::new(world_id_registries::world_id::WorldIdRegistry::new(
+                *config.registry_address(),
+                alloy::providers::Provider::erased(provider),
+            ))
+        })
+    }
+
+    fn from_parts(
+        config: Config,
+        packed_account_data: U256,
+        signer: Signer,
+        registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
+        indexer_client: ServiceClient,
+        gateway_client: ServiceClient,
+        zk_artifact_source: Arc<dyn ZkArtifactSource>,
+    ) -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
+        let ws_connector = {
+            let mut root_store = rustls::RootCertStore::empty();
+            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            let rustls_config = rustls::ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth();
+            Connector::Rustls(Arc::new(rustls_config))
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        let ws_connector = Connector;
+
+        Self {
+            packed_account_data,
+            signer,
+            config,
+            registry,
+            indexer_client,
+            gateway_client,
+            ws_connector,
+            zk_artifact_source,
+        }
     }
 }
 
