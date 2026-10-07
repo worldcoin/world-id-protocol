@@ -946,6 +946,100 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_snapshot_insertion_checks_commitment_before_submission() {
+        let mut server = mockito::Server::new_async().await;
+        let config = Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            ServiceEndpoint::direct(server.url()),
+            ServiceEndpoint::direct(server.url()),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+        let http_client = reqwest::Client::new();
+        let authenticator = Authenticator {
+            config: config.clone(),
+            packed_account_data: U256::from(42),
+            signer: Signer::from_seed_bytes(&[1; 32]).unwrap(),
+            registry: None,
+            indexer_client: ServiceClient::new(
+                http_client.clone(),
+                ServiceKind::Indexer,
+                config.indexer(),
+            )
+            .unwrap(),
+            gateway_client: ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())
+                .unwrap(),
+            ws_connector: Connector::Plain,
+            zk_artifact_source: dummy_zk_artifact_source(),
+        };
+        let key_set = AuthenticatorPublicKeySet::new(vec![test_pubkey(1)]).unwrap();
+        let commitment: U256 = key_set.leaf_hash().into();
+        let mut snapshot = crate::AccountSnapshot {
+            leaf_index: 42,
+            signature_nonce: U256::from(7),
+            authenticators: AccountAuthenticators {
+                key_set,
+                classes: vec![Some(AuthenticatorClass::Admin {
+                    address: authenticator.signer.onchain_signer_address(),
+                })],
+                offchain_signer_commitment: commitment ^ U256::from(1),
+                recovery_counter: 0,
+            },
+        };
+        let no_submission = server
+            .mock("POST", "/insert-authenticator")
+            .expect(0)
+            .create_async()
+            .await;
+        assert!(matches!(
+            authenticator
+                .insert_authenticator_from_snapshot(
+                    &snapshot,
+                    test_pubkey(2),
+                    AuthenticatorClass::Proving
+                )
+                .await,
+            Err(AuthenticatorError::InvalidAccountSnapshot(_))
+        ));
+        no_submission.assert_async().await;
+        no_submission.remove_async().await;
+
+        snapshot.authenticators.offchain_signer_commitment = commitment;
+        let submission = server
+            .mock("POST", "/insert-authenticator")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "old_offchain_signer_commitment": format!("{commitment:#x}"),
+                "nonce": "0x7",
+            })))
+            .with_status(202)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "request_id": "insert-snapshot",
+                    "kind": "insert_authenticator",
+                    "status": { "state": "queued" },
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+        let insertion = authenticator
+            .insert_authenticator_from_snapshot(
+                &snapshot,
+                test_pubkey(2),
+                AuthenticatorClass::Proving,
+            )
+            .await
+            .unwrap();
+        assert_eq!(insertion.pubkey_id, 1);
+        assert_eq!(insertion.request_id.as_str(), "insert-snapshot");
+        submission.assert_async().await;
+    }
+
     #[test]
     fn test_lowest_free_pubkey_id() {
         let authenticators = |keys: Vec<Option<EdDSAPublicKey>>| {

@@ -70,9 +70,13 @@ impl fmt::Display for PairingUri {
         let mut link = Deeplink::new(NAMESPACE, VERSION, ACTION)
             .expect("the registration deeplink is valid")
             .with_param(SECRET_PARAM, URL_SAFE_NO_PAD.encode(self.secret.as_bytes()))
-            .with_param(DIGEST_PARAM, URL_SAFE_NO_PAD.encode(self.digest.as_bytes()));
+            .expect("the secret parameter key is nonempty")
+            .with_param(DIGEST_PARAM, URL_SAFE_NO_PAD.encode(self.digest.as_bytes()))
+            .expect("the digest parameter key is nonempty");
         if let Some(bridge) = &self.bridge {
-            link = link.with_param(BRIDGE_PARAM, bridge.as_str());
+            link = link
+                .with_param(BRIDGE_PARAM, bridge.as_str())
+                .expect("the bridge parameter key is nonempty");
         }
         write!(f, "{link}")
     }
@@ -111,9 +115,9 @@ impl FromStr for PairingUri {
 
 /// The domain of a bridge deployment, e.g. `bridge.example.org`.
 ///
-/// It is a DNS name with at least two labels and a non-numeric top-level label: no IP address,
-/// scheme, port, path, user info, query or fragment. Letters are normalized to lowercase. The
-/// bridge is always reached over `https`.
+/// It is a DNS name with at least two labels and a final label starting with an ASCII letter,
+/// so URL parsers cannot interpret it as an IP address. No scheme, port, path, user info, query
+/// or fragment is allowed. Letters are normalized to lowercase; the bridge is reached over `https`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BridgeDomain(String);
 
@@ -139,7 +143,7 @@ impl FromStr for BridgeDomain {
         };
         let has_named_tld = domain
             .rsplit_once('.')
-            .is_some_and(|(_, tld)| !tld.bytes().all(|b| b.is_ascii_digit()));
+            .is_some_and(|(_, tld)| tld.starts_with(|c: char| c.is_ascii_alphabetic()));
         if domain.len() > 253 || !has_named_tld || !domain.split('.').all(is_valid_label) {
             return Err(PairingUriError::InvalidBridge);
         }
@@ -322,6 +326,35 @@ mod tests {
         ];
         for (link, expected) in cases {
             assert_eq!(link.parse::<PairingUri>(), Err(expected), "{link}");
+        }
+    }
+
+    #[test]
+    fn rejects_bridge_hosts_that_url_parsers_treat_as_ip_addresses() {
+        for domain in [
+            "127.0.0.1",
+            "127.1",
+            "2130706433",
+            "0177.0.0.1",
+            "127.0x1",
+            "10.0xa",
+            "127.0X1",
+            "127.0x",
+            "0x7f000001",
+            "[::1]",
+        ] {
+            assert_eq!(
+                domain.parse::<BridgeDomain>(),
+                Err(PairingUriError::InvalidBridge)
+            );
+            let link = format!("{}&b={domain}", uri(None));
+            assert_eq!(
+                link.parse::<PairingUri>(),
+                Err(PairingUriError::InvalidBridge)
+            );
+        }
+        for domain in ["bridge.example.org", "127.example.org", "bridge.xn--p1ai"] {
+            assert_eq!(domain.parse::<BridgeDomain>().unwrap().as_str(), domain);
         }
     }
 
