@@ -1,4 +1,4 @@
-// Credential Verification (WIP-113 section 3.3).
+// Credential Verification (WIP-202 constraint 6).
 use super::{
     constants::{DS_CREDENTIAL_SUB, DS_CREDENTIAL_V1, MAX_CLAIMS},
     types::{CredentialInputs, PublicKey},

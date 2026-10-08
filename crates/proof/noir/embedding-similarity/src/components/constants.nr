@@ -1,4 +1,4 @@
-// Constants shared by World ID circuits (WIP-113).
+// Constants shared by World ID circuits.
 //
 // Domain separators are the ASCII bytes of the quoted tag read as a big-endian
 // integer (all tags are shorter than 31 bytes, so no reduction occurs).

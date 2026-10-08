@@ -1,4 +1,4 @@
-// World ID Authentication (WIP-113 section 3.2).
+// World ID Authentication (WIP-202 constraint 4).
 use super::{constants::NUM_KEYS, merkle, types::AccountInputs};
 
 /// Proves that a registered Authenticator key of the World ID at `account.leaf_index`

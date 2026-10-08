@@ -1,4 +1,4 @@
-// Session Commitment (WIP-113 section 3.4).
+// Session Commitment (WIP-202 constraint 5).
 use super::constants::DS_SESSION_COMMITMENT;
 use poseidon2::bn254::permutation;
 
