@@ -59,8 +59,9 @@ fn main(
         min_build_version,
         engine_config_hash,
     };
-    let digest = flamingo_token::verify(public, token);
     let compared = token.compared_entry_hash;
+    assert(compared[3] == 0, "compared entry 3 must be unused");
+    let digest = flamingo_token::verify(public, token);
 
     // 2. Challenge binding.
     assert(challenge_hash != 0, "challenge_hash must not be zero");

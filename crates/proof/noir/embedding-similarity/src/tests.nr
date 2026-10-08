@@ -190,6 +190,13 @@ fn test_rejects_another_now_with_an_aat() {
     prove(p, inputs());
 }
 
+#[test(should_fail_with = "compared entry 3 must be unused")]
+fn test_rejects_a_fourth_compared_entry() {
+    let mut i = inputs();
+    i.token.compared_entry_hash[3] = 1;
+    prove(public(), i);
+}
+
 #[test(should_fail_with = "sec_meta exceeds 3 bits")]
 fn test_rejects_a_wide_sec_meta() {
     let mut p = public();
