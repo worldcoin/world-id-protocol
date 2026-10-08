@@ -152,7 +152,7 @@ impl RegistrationRequester {
         let secrets = self.secrets.as_ref().ok_or(RequesterError::SessionEnded)?;
         let request_id = secrets.secret.request_id();
         let message = RegisterRequestMessage::new(
-            Id::String(request_id.to_string()),
+            Some(Id::String(request_id.to_string())),
             REGISTER_METHOD,
             self.request.clone(),
         );
@@ -378,6 +378,8 @@ struct SessionSecrets {
 
 #[cfg(test)]
 mod tests {
+    use world_id_primitives::authenticator_message::Version;
+
     use super::*;
     use crate::registration::{ApproverError, PendingRegistration};
 
@@ -395,11 +397,12 @@ mod tests {
     async fn pending(
         session: &RegistrationRequester,
         server: &mut mockito::ServerGuard,
+        message_id: Option<Id>,
     ) -> PendingRegistration {
         let secrets = session.secrets.as_ref().unwrap();
         let id = secrets.secret.request_id();
         let plaintext = authenticator_message::encode(&RegisterRequestMessage::new(
-            Id::String(id.to_string()),
+            message_id,
             REGISTER_METHOD,
             session.request.clone(),
         ))
@@ -452,7 +455,9 @@ mod tests {
     async fn code_typo_reuses_ciphertext_and_three_failures_end_attempt() {
         let mut server = mockito::Server::new_async().await;
         let session = requester(&server);
-        let code = &session.secrets.as_ref().unwrap().code;
+        let secrets = session.secrets.as_ref().unwrap();
+        let code = &secrets.code;
+        let message_id = Some(Id::String(secrets.secret.request_id().to_string()));
         let wrong: PairingCode = if code.as_str() == "AAAAAA" {
             "BBBBBB"
         } else {
@@ -460,7 +465,7 @@ mod tests {
         }
         .parse()
         .unwrap();
-        let mut attempt = pending(&session, &mut server).await;
+        let mut attempt = pending(&session, &mut server, message_id.clone()).await;
         assert!(matches!(
             attempt.authenticate(&wrong).await,
             Err(ApproverError::IncorrectCode {
@@ -475,7 +480,7 @@ mod tests {
             attempt.authenticate(code).await,
             Err(ApproverError::Expired)
         ));
-        let mut attempt = pending(&session, &mut server).await;
+        let mut attempt = pending(&session, &mut server, message_id).await;
         for remaining in [2, 1, 0] {
             assert!(
                 matches!(attempt.authenticate(&wrong).await, Err(ApproverError::IncorrectCode { attempts_remaining }) if attempts_remaining == remaining)
@@ -488,6 +493,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn registration_notification_is_rejected_without_a_response() {
+        let mut server = mockito::Server::new_async().await;
+        let session = requester(&server);
+        let secrets = session.secrets.as_ref().unwrap();
+        let id = secrets.secret.request_id();
+        let response = server
+            .mock("PUT", format!("/response/{id}").as_str())
+            .expect(0)
+            .create_async()
+            .await;
+        let mut attempt = pending(&session, &mut server, None).await;
+
+        assert!(matches!(
+            attempt.authenticate(&secrets.code).await,
+            Err(ApproverError::InvalidRequest {
+                responded: false,
+                ..
+            })
+        ));
+        assert!(matches!(
+            attempt.authenticate(&secrets.code).await,
+            Err(ApproverError::Expired)
+        ));
+        response.assert_async().await;
+    }
+
+    #[tokio::test]
     async fn authenticated_errors_preserve_unknown_codes_and_clear_secrets() {
         let mut server = mockito::Server::new_async().await;
         let mut session = requester(&server);
@@ -495,6 +527,7 @@ mod tests {
         let secrets = session.secrets.as_ref().unwrap();
         let id = secrets.secret.request_id();
         let response = RegisterResponseMessage {
+            version: Version::V1,
             id: Some(Id::String(id.to_string())),
             outcome: Err(ErrorObject {
                 code: "future_error".into(),
@@ -530,6 +563,7 @@ mod tests {
         let secrets = session.secrets.as_ref().unwrap();
         let id = secrets.secret.request_id();
         let response = RegisterResponseMessage {
+            version: Version::V1,
             id: None,
             outcome: Err(ErrorObject {
                 code: "invalid_request".into(),

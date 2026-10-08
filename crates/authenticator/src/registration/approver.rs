@@ -18,7 +18,7 @@ use futures_util::future::{Either, select};
 use web_time::Instant;
 use world_id_primitives::{
     api_types::{GatewayErrorCode, GatewayRequestState, ServiceApiError},
-    authenticator_message::{self, ErrorObject, Id},
+    authenticator_message::{self, ErrorObject, Id, Version},
 };
 
 use super::{
@@ -214,7 +214,9 @@ impl IncomingRegistration {
             reason: error.to_string(),
             responded: false,
         })?;
-        if message.method != REGISTER_METHOD || message.id != Id::String(request_id.to_string()) {
+        if message.method != REGISTER_METHOD
+            || message.id != Some(Id::String(request_id.to_string()))
+        {
             return Err(ApproverError::InvalidRequest {
                 reason: "unexpected registration method or request id".into(),
                 responded: false,
@@ -587,6 +589,7 @@ impl ResponseChannel {
         outcome: Result<RegistrationResult, ErrorObject<RegistrationErrorData>>,
     ) -> Result<DeliveryOutcome, ApproverError> {
         let response = RegisterResponseMessage {
+            version: Version::V1,
             id: Some(Id::String(self.request_id.to_string())),
             outcome,
         };
