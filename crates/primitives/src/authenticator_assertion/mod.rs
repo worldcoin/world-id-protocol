@@ -374,18 +374,19 @@ impl AuthenticatorAssertionToken {
     /// The CWT claims set in deterministic CBOR.
     fn payload(&self) -> [u8; PAYLOAD_LEN] {
         let mut payload = [0u8; PAYLOAD_LEN];
-        let mut parts: Vec<&[u8]> = Vec::with_capacity(8);
         let exp = self.exp.to_be_bytes();
         let aat_commitment = self.aat_commitment.to_be_bytes();
         let sec_flags = self.sec_flags.pack().to_be_bytes();
-        parts.push(&[0xa4, 0x04, 0x1a]);
-        parts.push(&exp);
-        parts.push(&[0x0a, 0x58, 0x20]);
-        parts.push(&aat_commitment);
-        parts.push(&[0x19, 0x01, 0x09, 0x78, 0x1c]);
-        parts.push(EAT_PROFILE.as_bytes());
-        parts.push(&[0x3a, 0x00, 0x01, 0x11, 0x6f, 0x48]);
-        parts.push(&sec_flags);
+        let parts: [&[u8]; 8] = [
+            &[0xa4, 0x04, 0x1a],
+            &exp,
+            &[0x0a, 0x58, 0x20],
+            &aat_commitment,
+            &[0x19, 0x01, 0x09, 0x78, 0x1c],
+            EAT_PROFILE.as_bytes(),
+            &[0x3a, 0x00, 0x01, 0x11, 0x6f, 0x48],
+            &sec_flags,
+        ];
         let mut offset = 0;
         for part in parts {
             payload[offset..offset + part.len()].copy_from_slice(part);
@@ -486,7 +487,8 @@ pub fn authenticator_provider_key_hash(key: &EdDSAPublicKey) -> FieldElement {
 /// reports them as its output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthenticatorAssertionPublicInputs {
-    /// Hash of the Authenticator Provider's key, see [`authenticator_provider_key_hash`].
+    /// Hash of the Authenticator Provider's key, see [`authenticator_provider_key_hash`]; the RP
+    /// checks it against its allowlist.
     pub authenticator_provider_key_hash: FieldElement,
     /// Current time as seconds since the Unix epoch, from the verifier's clock.
     pub now: u32,
