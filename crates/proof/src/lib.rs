@@ -34,8 +34,8 @@ pub use oprf_query::{
 pub mod nullifier_proof;
 pub use nullifier_proof::*;
 
-/// Authenticator Attestations (WIP-106): Root of Trust Token generation.
-pub mod authenticator_attestation;
+/// Moved to [`world_id_primitives::authenticator_assertion`]; re-exported for existing imports.
+pub use world_id_primitives::authenticator_assertion;
 
 use ark_ff::BigInteger as _;
 use provekit_common::{InputMap, InputValue, NoirElement};
