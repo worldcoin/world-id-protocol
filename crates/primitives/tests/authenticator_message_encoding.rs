@@ -71,3 +71,45 @@ fn response_wire_example(outcome: Result<Value, ErrorObject>, id: Option<Id>, di
         response
     );
 }
+
+#[test]
+fn decodes_request_with_indefinite_containers() {
+    let bytes = cbor_diag::parse_diag(
+        r#"{_ "version": "1.0", "id": 1, "method": "worldid_ping",
+             "params": {_ "nonce": (_ h'00', h'ff'), "items": [_ 1, 2]}}"#,
+    )
+    .unwrap()
+    .to_bytes();
+    let expected = Request::new(
+        Some(Id::Number(1)),
+        MethodName::from_static("worldid_ping"),
+        Value::Map(vec![
+            (Value::Text("nonce".into()), Value::Bytes(vec![0, 255])),
+            (
+                Value::Text("items".into()),
+                Value::Array(vec![1.into(), 2.into()]),
+            ),
+        ]),
+    );
+    assert_eq!(
+        cbor::decode::<Request<Value>>(&bytes, bytes.len()).unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn decodes_response_with_indefinite_text() {
+    let bytes =
+        cbor_diag::parse_diag(r#"{_ "version": "1.0", "id": 1, "result": (_ "hel", "lo")}"#)
+            .unwrap()
+            .to_bytes();
+    let expected: Response<Value> = Response {
+        version: Version::V1,
+        id: Some(Id::Number(1)),
+        outcome: Ok(Value::Text("hello".into())),
+    };
+    assert_eq!(
+        cbor::decode::<Response<Value>>(&bytes, bytes.len()).unwrap(),
+        expected
+    );
+}

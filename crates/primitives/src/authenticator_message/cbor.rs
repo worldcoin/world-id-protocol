@@ -1,4 +1,4 @@
-//! CBOR serialization and bounded decoding of definite-length CBOR values.
+//! CBOR serialization and bounded decoding.
 
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -8,9 +8,8 @@ const MAX_DEPTH: usize = 32;
 
 /// Serializes a value as CBOR using Ciborium.
 ///
-/// Map entries retain the order supplied by `Serialize`. Callers must supply known container
-/// lengths because Ciborium emits indefinite-length items for unknown lengths, which this
-/// protocol's decoder rejects. Binary payloads must serialize as bytes, not integer arrays.
+/// Map entries retain the order supplied by `Serialize`. Containers with unknown lengths use
+/// indefinite-length encoding. Binary payloads must serialize as bytes, not integer arrays.
 /// Transports enforce their own encoded size limits; this function does not validate the schema,
 /// reject duplicate keys, or limit nesting.
 pub fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, MessageError> {
@@ -22,8 +21,9 @@ pub fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, MessageError> {
 /// Decodes exactly one value, rejecting duplicate keys and enforcing size and nesting bounds.
 ///
 /// Map ordering and non-minimal integer, length and floating-point encodings are accepted.
-/// Indefinite-length items are rejected. Lengths are checked against the remaining input before
-/// allocating containers; nesting is limited to 32 levels. The schema is determined by `T`.
+/// Definite and indefinite lengths are supported. Lengths are checked against the remaining
+/// input before allocating containers; nesting is limited to 32 levels. The schema is determined
+/// by `T`.
 ///
 /// The Serde value model supports integers, floats, bytes, text, arrays, maps, tags, booleans and
 /// null. CBOR `undefined` and unassigned simple values are rejected rather than converted to null.
@@ -118,7 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_sequence_lengths_require_a_protocol_compatible_serializer() {
+    fn unknown_sequence_lengths_round_trip() {
         use serde::ser::SerializeSeq as _;
 
         struct UnknownLength;
@@ -131,7 +131,7 @@ mod tests {
         }
         let encoded = encode(&UnknownLength).unwrap();
         assert_eq!(encoded, [0x9f, 1, 0xff]);
-        assert!(decode::<Vec<u8>>(&encoded, 1024).is_err());
+        assert_eq!(decode::<Vec<u8>>(&encoded, 1024).unwrap(), vec![1]);
     }
 
     #[test]
@@ -269,12 +269,10 @@ mod tests {
         assert!(decode::<Response<Value>>(&raw(&invalid), 1024).is_err());
     }
 
-    #[test_case(vec![0xbf, 0xff]; "indefinite_map")]
     #[test_case(vec![0xa0, 0x00]; "trailing_data")]
     #[test_case(vec![0xa1, 0x61, 0xff, 0]; "invalid_utf8")]
-    #[test_case(vec![0xa1, 0x61, b'x', 0x9f, 0xff]; "indefinite_array")]
     #[test_case(vec![0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]; "excessive_length")]
-    fn rejects_malformed_and_indefinite_encoding_before_payload_decode(invalid: Vec<u8>) {
+    fn rejects_malformed_encoding_before_payload_decode(invalid: Vec<u8>) {
         assert!(
             matches!(
                 decode::<Value>(&invalid, 1024),

@@ -7,7 +7,7 @@ use ciborium_ll::{Decoder, Header};
 use super::{MAX_DEPTH, MessageError};
 use crate::authenticator_message::Value;
 
-/// Decodes one complete document, rejecting trailing bytes, indefinite items, and duplicate keys.
+/// Decodes one complete document, rejecting trailing bytes and duplicate keys.
 pub(super) fn decode(bytes: &[u8]) -> Result<Value, MessageError> {
     read_document(bytes).map(|(value, _)| value)
 }
@@ -52,33 +52,38 @@ fn read_value(bytes: &mut &[u8], depth: usize) -> Result<(Value, Vec<u8>), Messa
                 ),
             )
         }
-        Header::Bytes(Some(length)) | Header::Text(Some(length)) => {
-            let data = take(bytes, length)?;
-            payload.extend_from_slice(data);
-            if matches!(header, Header::Bytes(_)) {
-                (2, Value::Bytes(data.to_vec()))
+        Header::Bytes(length) | Header::Text(length) => {
+            let is_text = matches!(header, Header::Text(_));
+            let data = read_string(bytes, length, is_text)?;
+            payload.extend_from_slice(&data);
+            if is_text {
+                let text =
+                    String::from_utf8(data).map_err(|_| MessageError::Encoding("invalid UTF-8"))?;
+                (3, Value::Text(text))
             } else {
-                let text = std::str::from_utf8(data)
-                    .map_err(|_| MessageError::Encoding("invalid UTF-8"))?;
-                (3, Value::Text(text.into()))
+                (2, Value::Bytes(data))
             }
         }
-        Header::Array(Some(length)) => {
-            check_length(length, bytes.len())?;
+        Header::Array(mut length) => {
+            if let Some(length) = length {
+                check_length(length, bytes.len())?;
+            }
             let mut items = Vec::new();
-            for _ in 0..length {
+            while has_next(bytes, &mut length)? {
                 let (item, fingerprint) = read_value(bytes, depth + 1)?;
                 items.push(item);
                 payload.extend(fingerprint);
             }
             (4, Value::Array(items))
         }
-        Header::Map(Some(length)) => {
-            check_length(length, bytes.len() / 2)?;
+        Header::Map(mut length) => {
+            if let Some(length) = length {
+                check_length(length, bytes.len() / 2)?;
+            }
             let mut entries = Vec::new();
             let mut keys = BTreeSet::new();
             let mut pairs = Vec::new();
-            for _ in 0..length {
+            while has_next(bytes, &mut length)? {
                 let (key, key_fingerprint) = read_value(bytes, depth + 1)?;
                 if !keys.insert(key_fingerprint.clone()) {
                     return Err(MessageError::Encoding("duplicate equivalent map key"));
@@ -165,15 +170,67 @@ fn read_value(bytes: &mut &[u8], depth: usize) -> Result<(Value, Vec<u8>), Messa
             }
             (8, Value::Float(number))
         }
-        Header::Bytes(None) | Header::Text(None) | Header::Array(None) | Header::Map(None) => {
-            return Err(MessageError::Encoding("indefinite lengths are unsupported"));
-        }
         Header::Break => return Err(MessageError::Encoding("unexpected break")),
     };
     if let Header::Simple(simple) = header {
         payload.push(simple);
     }
     Ok((value, frame(kind, &payload)))
+}
+
+/// Reads definite chunks directly; indefinite strings may contain only definite chunks of the
+/// same string type. Text chunks must each contain complete UTF-8 code points.
+fn read_string(
+    bytes: &mut &[u8],
+    length: Option<usize>,
+    is_text: bool,
+) -> Result<Vec<u8>, MessageError> {
+    if let Some(length) = length {
+        return Ok(read_string_chunk(bytes, length, is_text)?.to_vec());
+    }
+    let mut data = Vec::new();
+    while has_next(bytes, &mut None)? {
+        let header = Decoder::from(&mut *bytes)
+            .pull()
+            .map_err(|_| MessageError::Encoding("truncated or invalid string chunk header"))?;
+        let length = match (is_text, header) {
+            (false, Header::Bytes(Some(length))) | (true, Header::Text(Some(length))) => length,
+            _ => return Err(MessageError::Encoding("invalid indefinite string chunk")),
+        };
+        data.extend_from_slice(read_string_chunk(bytes, length, is_text)?);
+    }
+    Ok(data)
+}
+
+fn read_string_chunk<'a>(
+    bytes: &mut &'a [u8],
+    length: usize,
+    is_text: bool,
+) -> Result<&'a [u8], MessageError> {
+    let chunk = take(bytes, length)?;
+    if is_text && std::str::from_utf8(chunk).is_err() {
+        return Err(MessageError::Encoding("invalid UTF-8"));
+    }
+    Ok(chunk)
+}
+
+/// Consumes a definite entry count or the terminating break of an indefinite container.
+fn has_next(bytes: &mut &[u8], remaining: &mut Option<usize>) -> Result<bool, MessageError> {
+    if let Some(remaining) = remaining {
+        if *remaining == 0 {
+            return Ok(false);
+        }
+        *remaining -= 1;
+        return Ok(true);
+    }
+    match bytes.first() {
+        Some(0xff) => {
+            *bytes = &bytes[1..];
+            Ok(false)
+        }
+        Some(_) => Ok(true),
+        None => Err(MessageError::Encoding("unterminated indefinite container")),
+    }
 }
 
 fn frame(kind: u8, payload: &[u8]) -> Vec<u8> {
@@ -253,11 +310,69 @@ mod tests {
         );
     }
 
+    #[test_case(&[0x5f, 0x42, 1, 2, 0x41, 3, 0xff], Value::Bytes(vec![1, 2, 3]); "byte chunks")]
+    #[test_case(&[0x5f, 0xff], Value::Bytes(vec![]); "empty bytes")]
+    #[test_case(&[0x7f, 0x61, b'a', 0x62, 0xc3, 0xa9, 0xff], Value::Text("aé".into()); "text chunks")]
+    #[test_case(&[0x7f, 0xff], Value::Text(String::new()); "empty text")]
+    #[test_case(&[0x9f, 1, 2, 0xff], Value::Array(vec![1.into(), 2.into()]); "array")]
+    #[test_case(&[0x9f, 0xff], Value::Array(vec![]); "empty array")]
+    #[test_case(&[0xbf, 1, 2, 0xff], Value::Map(vec![(1.into(), 2.into())]); "map")]
+    #[test_case(&[0xbf, 0xff], Value::Map(vec![]); "empty map")]
+    fn accepts_indefinite_items(bytes: &[u8], expected: Value) {
+        assert_eq!(decode(bytes).unwrap(), expected);
+    }
+
+    #[test_case(&[0x41, 1], &[0x5f, 0x41, 1, 0xff]; "bytes")]
+    #[test_case(&[0x61, b'a'], &[0x7f, 0x61, b'a', 0xff]; "text")]
+    #[test_case(&[0x81, 1], &[0x9f, 1, 0xff]; "array")]
+    #[test_case(&[0xa1, 1, 2], &[0xbf, 1, 2, 0xff]; "map")]
+    fn rejects_equivalent_definite_and_indefinite_keys(definite: &[u8], indefinite: &[u8]) {
+        let mut bytes = vec![0xbf];
+        bytes.extend_from_slice(definite);
+        bytes.push(0xf6);
+        bytes.extend_from_slice(indefinite);
+        bytes.extend([0xf6, 0xff]);
+        assert!(matches!(
+            decode(&bytes),
+            Err(MessageError::Encoding("duplicate equivalent map key"))
+        ));
+    }
+
+    #[test_case(&[0xff]; "top level break")]
+    #[test_case(&[0x81, 0xff]; "break in definite array")]
+    #[test_case(&[0xbf, 1, 0xff]; "odd map")]
+    #[test_case(&[0x9f, 1]; "unterminated array")]
+    #[test_case(&[0xbf, 1, 2]; "unterminated map")]
+    #[test_case(&[0x5f, 0x41, 1]; "unterminated bytes")]
+    #[test_case(&[0x7f, 0x61, b'a']; "unterminated text")]
+    #[test_case(&[0x5f, 0x5f, 0xff, 0xff]; "nested indefinite chunk")]
+    #[test_case(&[0x5f, 0x61, b'a', 0xff]; "text inside bytes")]
+    #[test_case(&[0x7f, 0x41, b'a', 0xff]; "bytes inside text")]
+    #[test_case(&[0x7f, 0x61, 0xc3, 0x61, 0xa9, 0xff]; "split utf8 codepoint")]
+    #[test_case(&[0x5f, 0x42, 1]; "truncated chunk")]
+    #[test_case(&[0x9f, 0xff, 0xff]; "trailing break")]
+    fn rejects_malformed_indefinite_items(bytes: &[u8]) {
+        assert!(decode(bytes).is_err());
+    }
+
+    #[test]
+    fn indefinite_containers_obey_nesting_bound() {
+        let mut bytes = vec![0x9f; MAX_DEPTH];
+        bytes.push(0xf6);
+        bytes.extend(vec![0xff; MAX_DEPTH]);
+        assert!(decode(&bytes).is_ok());
+        bytes.insert(0, 0x9f);
+        bytes.push(0xff);
+        assert!(matches!(
+            decode(&bytes),
+            Err(MessageError::Encoding("nesting depth exceeded"))
+        ));
+    }
+
     #[test_case(&[0xf8, 0x16]; "invalid simple value width")]
     #[test_case(&[0xf7]; "undefined")]
     #[test_case(&[0xc2, 0x01]; "invalid bignum content")]
     #[test_case(&[0xf6, 0xf6]; "trailing bytes")]
-    #[test_case(&[0x9f, 0xff]; "indefinite array")]
     #[test_case(&[0x5b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]; "oversized byte string")]
     fn rejects_malformed_or_unsupported_data(bytes: &[u8]) {
         assert!(decode(bytes).is_err());
