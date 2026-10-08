@@ -7,10 +7,13 @@ use ciborium_ll::{Decoder, Header};
 use super::{MAX_DEPTH, MessageError};
 use crate::authenticator_message::Value;
 
+/// Decodes one complete document, rejecting trailing bytes, indefinite items, and duplicate keys.
 pub(super) fn decode(bytes: &[u8]) -> Result<Value, MessageError> {
     read_document(bytes).map(|(value, _)| value)
 }
 
+/// Produces an encoding-independent identity for a map key using CBOR numeric and container
+/// equivalence. The serializer uses this to reject aliases even when their encoded bytes differ.
 pub(super) fn key_fingerprint(bytes: &[u8]) -> Result<Vec<u8>, MessageError> {
     read_document(bytes).map(|(_, fingerprint)| fingerprint)
 }
@@ -24,6 +27,8 @@ fn read_document(bytes: &[u8]) -> Result<(Value, Vec<u8>), MessageError> {
     Ok(value)
 }
 
+/// Consumes one bounded value and builds its identity alongside it. Computing both together
+/// preserves wire distinctions, such as NaN payload bits, that native value conversion can erase.
 fn read_value(bytes: &mut &[u8], depth: usize) -> Result<(Value, Vec<u8>), MessageError> {
     if depth > MAX_DEPTH {
         return Err(MessageError::Encoding("nesting depth exceeded"));
@@ -205,6 +210,7 @@ const fn take<'a>(bytes: &mut &'a [u8], length: usize) -> Result<&'a [u8], Messa
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     #[test]
     fn accepts_nonpreferred_widths_and_unsorted_maps() {
@@ -216,21 +222,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn rejects_equivalent_keys_including_bignum_aliases() {
-        for bytes in [
-            vec![0xa2, 0x01, 0xf6, 0x18, 0x01, 0xf6],
-            vec![0xa2, 0x01, 0xf6, 0xc2, 0x42, 0x00, 0x01, 0xf6],
-            vec![0xa2, 0xf9, 0x00, 0x00, 0xf6, 0xf9, 0x80, 0x00, 0xf6],
-            vec![
-                0xa2, 0xf9, 0x7e, 0x00, 0xf6, 0xfa, 0xff, 0xc0, 0x00, 0x00, 0xf6,
-            ],
-        ] {
-            assert!(matches!(
-                decode(&bytes),
-                Err(MessageError::Encoding("duplicate equivalent map key"))
-            ));
-        }
+    #[test_case(&[0xa2, 0x01, 0xf6, 0x18, 0x01, 0xf6]; "integer widths")]
+    #[test_case(&[0xa2, 0x01, 0xf6, 0xc2, 0x42, 0x00, 0x01, 0xf6]; "bignum alias")]
+    #[test_case(&[0xa2, 0xf9, 0x00, 0x00, 0xf6, 0xf9, 0x80, 0x00, 0xf6]; "signed zero")]
+    #[test_case(&[0xa2, 0xf9, 0x7e, 0x00, 0xf6, 0xfa, 0xff, 0xc0, 0x00, 0x00, 0xf6]; "nan width and sign")]
+    fn rejects_equivalent_keys_including_bignum_aliases(bytes: &[u8]) {
+        assert!(matches!(
+            decode(bytes),
+            Err(MessageError::Encoding("duplicate equivalent map key"))
+        ));
     }
 
     #[test]
@@ -255,17 +255,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn rejects_malformed_or_unsupported_data() {
-        for bytes in [
-            vec![0xf8, 0x16],
-            vec![0xf7],
-            vec![0xc2, 0x01],
-            vec![0xf6, 0xf6],
-            vec![0x9f, 0xff],
-            vec![0x5b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-        ] {
-            assert!(decode(&bytes).is_err());
-        }
+    #[test_case(&[0xf8, 0x16]; "invalid simple value width")]
+    #[test_case(&[0xf7]; "undefined")]
+    #[test_case(&[0xc2, 0x01]; "invalid bignum content")]
+    #[test_case(&[0xf6, 0xf6]; "trailing bytes")]
+    #[test_case(&[0x9f, 0xff]; "indefinite array")]
+    #[test_case(&[0x5b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]; "oversized byte string")]
+    fn rejects_malformed_or_unsupported_data(bytes: &[u8]) {
+        assert!(decode(bytes).is_err());
     }
 }

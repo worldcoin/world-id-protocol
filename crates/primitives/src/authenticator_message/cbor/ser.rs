@@ -8,6 +8,11 @@ pub(super) fn encode<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, Messag
     encode_at(value, 0)
 }
 
+/// Encodes one Serde value directly to deterministic CBOR, without an intermediate value tree.
+///
+/// Ciborium encodes primitive values; this serializer supplies definite container lengths and
+/// recursively sorted map keys. Containers buffer encoded children until their header and order
+/// are known. `depth` tracks CBOR nesting, including enum wrappers and tags.
 struct Serializer {
     depth: usize,
 }
@@ -204,6 +209,8 @@ impl ser::Serializer for Serializer {
     }
 }
 
+/// Buffers encoded elements so even a Serde sequence with an unknown length gets a definite header.
+/// `prefix` contains the enclosing enum variant map when this sequence represents a tuple variant.
 struct Sequence {
     depth: usize,
     expected_len: Option<usize>,
@@ -276,6 +283,7 @@ impl ser::SerializeTupleStruct for Sequence {
     }
 }
 
+/// Separates ordinary tuple variants from Ciborium's special `(tag number, content)` representation.
 enum TupleVariant {
     Array(Sequence),
     Tag { depth: usize, fields: Vec<Vec<u8>> },
@@ -329,6 +337,8 @@ impl ser::SerializeTupleVariant for TupleVariant {
     }
 }
 
+/// Buffers encoded entries for bytewise key ordering and semantic duplicate-key rejection.
+/// Struct fields use the same ordering and equivalence rules as ordinary map entries.
 struct Map {
     depth: usize,
     expected_len: Option<usize>,
@@ -527,39 +537,42 @@ mod tests {
     use super::*;
     use ciborium::Value;
     use serde::ser::{SerializeMap as _, SerializeSeq as _};
+    use test_case::test_case;
 
-    #[test]
-    fn scalars_use_ciborium_encoding() {
-        for value in [i128::MIN, -1, 0, i128::MAX] {
-            assert_eq!(encode(&value).unwrap(), primitive(&value).unwrap());
-        }
-        assert_eq!(encode(&u128::MAX).unwrap(), primitive(&u128::MAX).unwrap());
-        for value in [0.0, -0.0, 1.5, f64::INFINITY, f64::NAN] {
-            assert_eq!(encode(&value).unwrap(), primitive(&value).unwrap());
-        }
+    #[test_case(i128::MIN; "minimum")]
+    #[test_case(-1; "negative")]
+    #[test_case(0; "zero")]
+    #[test_case(i128::MAX; "maximum")]
+    fn signed_integers_use_ciborium_encoding(value: i128) {
+        assert_eq!(encode(&value).unwrap(), primitive(&value).unwrap());
     }
 
     #[test]
-    fn nan_encoding_preserves_signaling_bits_at_the_smallest_width() {
-        for (bits, expected) in [
-            (0x7ff0_0400_0000_0000, vec![0xf9, 0x7c, 1]),
-            (0xfff8_0400_0000_0000, vec![0xf9, 0xfe, 1]),
-            (0x7ff0_0000_2000_0000, vec![0xfa, 0x7f, 0x80, 0, 1]),
-            (
-                0x7ff0_0000_0000_0001,
-                vec![0xfb, 0x7f, 0xf0, 0, 0, 0, 0, 0, 1],
-            ),
-        ] {
-            assert_eq!(encode(&f64::from_bits(bits)).unwrap(), expected);
-        }
-        assert_eq!(
-            encode(&f32::from_bits(0x7f80_2000)).unwrap(),
-            [0xf9, 0x7c, 1]
-        );
-        assert_eq!(
-            encode(&f32::from_bits(0xff80_0001)).unwrap(),
-            [0xfa, 0xff, 0x80, 0, 1]
-        );
+    fn unsigned_bignums_use_ciborium_encoding() {
+        assert_eq!(encode(&u128::MAX).unwrap(), primitive(&u128::MAX).unwrap());
+    }
+
+    #[test_case(0.0; "positive zero")]
+    #[test_case(-0.0; "negative zero")]
+    #[test_case(1.5; "fraction")]
+    #[test_case(f64::INFINITY; "infinity")]
+    #[test_case(f64::NAN; "quiet nan")]
+    fn ordinary_floats_use_ciborium_encoding(value: f64) {
+        assert_eq!(encode(&value).unwrap(), primitive(&value).unwrap());
+    }
+
+    #[test_case(0x7ff0_0400_0000_0000, &[0xf9, 0x7c, 1]; "half signaling")]
+    #[test_case(0xfff8_0400_0000_0000, &[0xf9, 0xfe, 1]; "negative half quiet")]
+    #[test_case(0x7ff0_0000_2000_0000, &[0xfa, 0x7f, 0x80, 0, 1]; "single signaling")]
+    #[test_case(0x7ff0_0000_0000_0001, &[0xfb, 0x7f, 0xf0, 0, 0, 0, 0, 0, 1]; "double signaling")]
+    fn double_nan_encoding_preserves_bits_at_the_smallest_width(bits: u64, expected: &[u8]) {
+        assert_eq!(encode(&f64::from_bits(bits)).unwrap(), expected);
+    }
+
+    #[test_case(0x7f80_2000, &[0xf9, 0x7c, 1]; "half signaling")]
+    #[test_case(0xff80_0001, &[0xfa, 0xff, 0x80, 0, 1]; "negative single signaling")]
+    fn single_nan_encoding_preserves_bits_at_the_smallest_width(bits: u32, expected: &[u8]) {
+        assert_eq!(encode(&f32::from_bits(bits)).unwrap(), expected);
     }
 
     #[test]
@@ -612,7 +625,7 @@ mod tests {
     }
 
     #[test]
-    fn tags_preserve_nested_map_ordering_and_reject_invalid_bignums() {
+    fn tags_preserve_nested_map_ordering() {
         let value = Value::Tag(
             100,
             Box::new(Value::Map(vec![
@@ -624,30 +637,41 @@ mod tests {
             encode(&value).unwrap(),
             [0xd8, 100, 0xa2, 0x18, 24, 0xf6, 0x20, 0xf6]
         );
-        for tag in [2, 3] {
-            for bytes in [vec![], vec![1], vec![0; 9]] {
-                assert!(encode(&Value::Tag(tag, Box::new(Value::Bytes(bytes)))).is_err());
-            }
-            assert!(encode(&Value::Tag(tag, Box::new(Value::Bytes(vec![1; 9])))).is_ok());
-        }
+    }
+
+    #[test_case(2, vec![]; "positive empty")]
+    #[test_case(2, vec![1]; "positive basic integer")]
+    #[test_case(2, vec![0; 9]; "positive leading zero")]
+    #[test_case(3, vec![]; "negative empty")]
+    #[test_case(3, vec![1]; "negative basic integer")]
+    #[test_case(3, vec![0; 9]; "negative leading zero")]
+    fn rejects_invalid_bignums(tag: u64, bytes: Vec<u8>) {
+        assert!(encode(&Value::Tag(tag, Box::new(Value::Bytes(bytes)))).is_err());
+    }
+
+    #[test_case(2; "positive")]
+    #[test_case(3; "negative")]
+    fn accepts_preferred_bignums(tag: u64) {
+        assert!(encode(&Value::Tag(tag, Box::new(Value::Bytes(vec![1; 9])))).is_ok());
+    }
+
+    #[derive(Serialize)]
+    enum Example {
+        Unit,
+        Newtype(Option<u32>),
+        Tuple(u32, bool),
+        Struct { z: bool, a: u32 },
+    }
+
+    #[test_case(Example::Unit; "unit")]
+    #[test_case(Example::Newtype(Some(1)); "newtype")]
+    #[test_case(Example::Tuple(1, true); "tuple")]
+    fn enum_variants_use_cbor_representation(value: Example) {
+        assert_eq!(encode(&value).unwrap(), primitive(&value).unwrap());
     }
 
     #[test]
-    fn enum_variants_and_struct_fields_use_cbor_representation() {
-        #[derive(Serialize)]
-        enum Example {
-            Unit,
-            Newtype(Option<u32>),
-            Tuple(u32, bool),
-            Struct { z: bool, a: u32 },
-        }
-        for value in [
-            Example::Unit,
-            Example::Newtype(Some(1)),
-            Example::Tuple(1, true),
-        ] {
-            assert_eq!(encode(&value).unwrap(), primitive(&value).unwrap());
-        }
+    fn struct_variants_sort_their_fields() {
         let bytes = encode(&Example::Struct { z: true, a: 1 }).unwrap();
         assert_eq!(&bytes[8..], [0xa2, 0x61, b'a', 1, 0x61, b'z', 0xf5]);
     }

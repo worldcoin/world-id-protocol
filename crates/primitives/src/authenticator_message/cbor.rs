@@ -51,6 +51,7 @@ mod tests {
     use crate::authenticator_message::{
         ErrorObject, Id, MethodName, Request, Response, Value, Version,
     };
+    use test_case::test_case;
 
     fn map(fields: &[(&str, Value)]) -> Value {
         Value::Map(
@@ -75,33 +76,28 @@ mod tests {
         bytes
     }
 
-    #[test]
-    fn round_trips_native_binary_and_integer_ids() {
-        for id in [
-            Id::Number(i128::from(u64::MAX)),
-            Id::Number(-1 - i128::from(u64::MAX)),
-            Id::String("1".into()),
-        ] {
-            let request = Request::new(
-                Some(id),
-                MethodName::from_static("worldid_auth_v1_register"),
-                map(&[("key", Value::Bytes(vec![0, 255]))]),
-            );
-            let bytes = encode(&request).unwrap();
-            let decoded: Request<Value> = decode(&bytes, bytes.len()).unwrap();
-            assert_eq!(decoded, request);
-        }
+    #[test_case(Id::Number(i128::from(u64::MAX)); "maximum_positive")]
+    #[test_case(Id::Number(-1 - i128::from(u64::MAX)); "minimum_negative")]
+    #[test_case(Id::String("1".into()); "string")]
+    fn round_trips_native_binary_and_integer_ids(id: Id) {
+        let request = Request::new(
+            Some(id),
+            MethodName::from_static("worldid_auth_v1_register"),
+            map(&[("key", Value::Bytes(vec![0, 255]))]),
+        );
+        let bytes = encode(&request).unwrap();
+        let decoded: Request<Value> = decode(&bytes, bytes.len()).unwrap();
+        assert_eq!(decoded, request);
     }
 
-    #[test]
-    fn typed_ids_reject_integers_outside_the_basic_cbor_range() {
-        for number in [i128::from(u64::MAX) + 1, -2 - i128::from(u64::MAX)] {
-            let request = Request::<Value>::without_params(
-                Some(Id::Number(number)),
-                MethodName::from_static("worldid_ping"),
-            );
-            assert!(encode(&request).is_err());
-        }
+    #[test_case(i128::from(u64::MAX) + 1; "above_maximum")]
+    #[test_case(-2 - i128::from(u64::MAX); "below_minimum")]
+    fn typed_ids_reject_integers_outside_the_basic_cbor_range(number: i128) {
+        let request = Request::<Value>::without_params(
+            Some(Id::Number(number)),
+            MethodName::from_static("worldid_ping"),
+        );
+        assert!(encode(&request).is_err());
     }
 
     #[test]
@@ -192,19 +188,19 @@ mod tests {
         assert_eq!(decoded.outcome.unwrap_err().code, "parse_error");
     }
 
+    #[test_case(Value::Null; "null")]
+    #[test_case(Value::Bool(true); "boolean")]
+    #[test_case(Value::Bytes(vec![1, 2]); "bytes")]
+    #[test_case(map(&[("x", 1.into())]); "map_payload")]
+    fn generic_codec_accepts_arbitrary_payloads(value: Value) {
+        assert_eq!(
+            decode::<Value>(&encode(&value).unwrap(), 1024).unwrap(),
+            value
+        );
+    }
+
     #[test]
-    fn generic_codec_accepts_arbitrary_payloads() {
-        for value in [
-            Value::Null,
-            Value::Bool(true),
-            Value::Bytes(vec![1, 2]),
-            map(&[("x", 1.into())]),
-        ] {
-            assert_eq!(
-                decode::<Value>(&encode(&value).unwrap(), 1024).unwrap(),
-                value
-            );
-        }
+    fn requests_accept_boolean_params() {
         let request = Request::new(None, MethodName::from_static("worldid_ping"), true);
         assert_eq!(
             decode::<Request<bool>>(&encode(&request).unwrap(), 1024).unwrap(),
@@ -212,96 +208,86 @@ mod tests {
         );
     }
 
-    #[test]
-    fn typed_envelopes_reject_invalid_fields() {
-        let request = map(&[
+    #[test_case("id", Value::Null; "null_id")]
+    #[test_case("id", Value::Float(1.0); "float_id")]
+    #[test_case("method", "other_ping".into(); "invalid_method")]
+    #[test_case("version", "2.0".into(); "unsupported_version")]
+    fn typed_envelopes_reject_invalid_fields(field: &str, value: Value) {
+        let mut modified = map(&[
             ("version", "1.0".into()),
             ("id", 1.into()),
             ("method", "worldid_ping".into()),
         ]);
-        for (field, value) in [
-            ("id", Value::Null),
-            ("id", Value::Float(1.0)),
-            ("method", "other_ping".into()),
-            ("version", "2.0".into()),
-        ] {
-            let mut modified = request.clone();
-            let fields = modified.as_map_mut().unwrap();
-            fields.retain(|(key, _)| key.as_text() != Some(field));
-            fields.push((field.into(), value));
-            assert!(
-                matches!(
-                    decode::<Request<Value>>(&raw(&modified), 1024),
-                    Err(MessageError::Payload(_))
-                ),
-                "{field}"
-            );
-        }
-        let error = map(&[("code", "failed".into()), ("message", "failed".into())]);
-        for invalid in [
-            map(&[("id", 1.into()), ("result", Value::Null)]),
-            map(&[
-                ("version", "2.0".into()),
-                ("id", 1.into()),
-                ("result", Value::Null),
-            ]),
-            map(&[("version", "1.0".into()), ("id", 1.into())]),
-            map(&[("version", "1.0".into()), ("result", Value::Null)]),
-            map(&[
-                ("version", "1.0".into()),
-                ("id", Value::Null),
-                ("result", Value::Null),
-            ]),
-            map(&[
-                ("version", "1.0".into()),
-                ("id", 1.into()),
-                ("result", Value::Null),
-                ("error", error),
-            ]),
-        ] {
-            assert!(decode::<Response<Value>>(&raw(&invalid), 1024).is_err());
-        }
+        let fields = modified.as_map_mut().unwrap();
+        fields.retain(|(key, _)| key.as_text() != Some(field));
+        fields.push((field.into(), value));
+        assert!(
+            matches!(
+                decode::<Request<Value>>(&raw(&modified), 1024),
+                Err(MessageError::Payload(_))
+            ),
+            "{field}"
+        );
     }
 
-    #[test]
-    fn rejects_malformed_and_indefinite_encoding_before_payload_decode() {
-        for invalid in [
-            vec![0xbf, 0xff],
-            vec![0xa0, 0x00],
-            vec![0xa1, 0x61, 0xff, 0],
-            vec![0xa1, 0x61, b'x', 0x9f, 0xff],
-            vec![0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-        ] {
-            assert!(
-                matches!(
-                    decode::<Value>(&invalid, 1024),
-                    Err(MessageError::Encoding(_))
-                ),
-                "{invalid:x?}"
-            );
-        }
+    #[test_case(map(&[("id", 1.into()), ("result", Value::Null)]); "missing_version")]
+    #[test_case(map(&[
+        ("version", "2.0".into()),
+        ("id", 1.into()),
+        ("result", Value::Null),
+    ]); "unsupported_version")]
+    #[test_case(map(&[("version", "1.0".into()), ("id", 1.into())]); "missing_outcome")]
+    #[test_case(map(&[("version", "1.0".into()), ("result", Value::Null)]); "missing_id")]
+    #[test_case(map(&[
+        ("version", "1.0".into()),
+        ("id", Value::Null),
+        ("result", Value::Null),
+    ]); "null_success_id")]
+    #[test_case(map(&[
+        ("version", "1.0".into()),
+        ("id", 1.into()),
+        ("result", Value::Null),
+        ("error", map(&[("code", "failed".into()), ("message", "failed".into())])),
+    ]); "both_outcomes")]
+    fn typed_responses_reject_invalid_fields(invalid: Value) {
+        assert!(decode::<Response<Value>>(&raw(&invalid), 1024).is_err());
     }
 
-    #[test]
-    fn rejects_duplicate_nested_keys_including_equivalent_signed_zeros() {
-        for keys in [
-            vec![Value::Text("x".into()), Value::Text("x".into())],
-            vec![Value::Float(0.0), Value::Float(-0.0)],
-            vec![
-                Value::Array(vec![Value::Float(0.0)]),
-                Value::Array(vec![Value::Float(-0.0)]),
-            ],
-            vec![
-                Value::Tag(100, Box::new(Value::Float(0.0))),
-                Value::Tag(100, Box::new(Value::Float(-0.0))),
-            ],
-        ] {
-            let result = Value::Map(keys.into_iter().map(|key| (key, Value::Null)).collect());
-            assert!(matches!(
-                decode::<Value>(&raw(&response(result)), 1024),
+    #[test_case(vec![0xbf, 0xff]; "indefinite_map")]
+    #[test_case(vec![0xa0, 0x00]; "trailing_data")]
+    #[test_case(vec![0xa1, 0x61, 0xff, 0]; "invalid_utf8")]
+    #[test_case(vec![0xa1, 0x61, b'x', 0x9f, 0xff]; "indefinite_array")]
+    #[test_case(vec![0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]; "excessive_length")]
+    fn rejects_malformed_and_indefinite_encoding_before_payload_decode(invalid: Vec<u8>) {
+        assert!(
+            matches!(
+                decode::<Value>(&invalid, 1024),
                 Err(MessageError::Encoding(_))
-            ));
-        }
+            ),
+            "{invalid:x?}"
+        );
+    }
+
+    #[test_case(vec![Value::Text("x".into()), Value::Text("x".into())]; "text")]
+    #[test_case(vec![Value::Float(0.0), Value::Float(-0.0)]; "signed_zero")]
+    #[test_case(vec![
+        Value::Array(vec![Value::Float(0.0)]),
+        Value::Array(vec![Value::Float(-0.0)]),
+    ]; "array_signed_zero")]
+    #[test_case(vec![
+        Value::Tag(100, Box::new(Value::Float(0.0))),
+        Value::Tag(100, Box::new(Value::Float(-0.0))),
+    ]; "tag_signed_zero")]
+    fn rejects_duplicate_nested_keys_including_equivalent_signed_zeros(keys: Vec<Value>) {
+        let result = Value::Map(keys.into_iter().map(|key| (key, Value::Null)).collect());
+        assert!(matches!(
+            decode::<Value>(&raw(&response(result)), 1024),
+            Err(MessageError::Encoding(_))
+        ));
+    }
+
+    #[test]
+    fn integer_and_float_keys_are_distinct() {
         let distinct = response(Value::Map(vec![
             (1.into(), Value::Null),
             (Value::Float(1.0), Value::Null),
@@ -309,32 +295,29 @@ mod tests {
         assert!(decode::<Value>(&encode(&distinct).unwrap(), 1024).is_ok());
     }
 
-    #[test]
-    fn accepts_non_deterministic_input_but_emits_deterministic_output() {
-        for (input, expected) in [
-            (vec![0xb8, 0], vec![0xa0]),
-            (vec![0x1b, 0, 0, 0, 0, 0, 0, 0, 1], vec![1]),
-            (
-                vec![0xa2, 0x61, b'b', 0, 0x61, b'a', 0],
-                vec![0xa2, 0x61, b'a', 0, 0x61, b'b', 0],
-            ),
-            (vec![0xfa, 0x3f, 0x80, 0, 0], vec![0xf9, 0x3c, 0]),
-        ] {
-            let decoded: Value = decode(&input, 1024).unwrap();
-            assert_eq!(encode(&decoded).unwrap(), expected);
-        }
+    #[test_case(vec![0xb8, 0], vec![0xa0]; "wide_map_length")]
+    #[test_case(vec![0x1b, 0, 0, 0, 0, 0, 0, 0, 1], vec![1]; "wide_integer")]
+    #[test_case(vec![0xa2, 0x61, b'b', 0, 0x61, b'a', 0],
+                vec![0xa2, 0x61, b'a', 0, 0x61, b'b', 0]; "unsorted_map")]
+    #[test_case(vec![0xfa, 0x3f, 0x80, 0, 0], vec![0xf9, 0x3c, 0]; "wide_float")]
+    fn accepts_non_deterministic_input_but_emits_deterministic_output(
+        input: Vec<u8>,
+        expected: Vec<u8>,
+    ) {
+        let decoded: Value = decode(&input, 1024).unwrap();
+        assert_eq!(encode(&decoded).unwrap(), expected);
+    }
+
+    #[test_case(vec![0xa2, 1, 0, 0x18, 1, 0]; "integer_width")]
+    #[test_case(vec![0xa2, 1, 0, 0xc2, 0x42, 0, 1, 0]; "positive_bignum")]
+    #[test_case(vec![0xa2, 0x20, 0, 0xc3, 0x40, 0]; "negative_bignum")]
+    #[test_case(vec![0xa2, 0xf9, 0, 0, 0, 0xfa, 0x80, 0, 0, 0, 0]; "float_width")]
+    fn rejects_equivalent_keys_with_different_encodings(input: Vec<u8>) {
+        assert!(decode::<Value>(&input, 1024).is_err(), "{input:x?}");
     }
 
     #[test]
-    fn rejects_equivalent_keys_with_different_encodings() {
-        for input in [
-            vec![0xa2, 1, 0, 0x18, 1, 0],
-            vec![0xa2, 1, 0, 0xc2, 0x42, 0, 1, 0],
-            vec![0xa2, 0x20, 0, 0xc3, 0x40, 0],
-            vec![0xa2, 0xf9, 0, 0, 0, 0xfa, 0x80, 0, 0, 0, 0],
-        ] {
-            assert!(decode::<Value>(&input, 1024).is_err(), "{input:x?}");
-        }
+    fn rejects_equivalent_map_keys_in_different_orders() {
         let first = map(&[("a", 1.into()), ("b", 2.into())]);
         let second = map(&[("b", 2.into()), ("a", 1.into())]);
         let duplicate = Value::Map(vec![(first, Value::Null), (second, Value::Null)]);
@@ -342,35 +325,40 @@ mod tests {
         assert!(encode(&duplicate).is_err());
     }
 
-    #[test]
-    fn accepts_nonpreferred_bignums_but_rejects_invalid_contents() {
-        for tag in [2, 3] {
-            for magnitude in [
-                vec![],
-                vec![1],
-                vec![255; 8],
-                vec![0; 9],
-                [vec![0], vec![1; 9]].concat(),
-            ] {
-                let encoded = raw(&Value::Tag(tag, Box::new(Value::Bytes(magnitude))));
-                assert!(decode::<Value>(&encoded, 1024).is_ok());
-            }
-            let invalid = raw(&Value::Tag(tag, Box::new(Value::Text("1".into()))));
-            assert!(decode::<Value>(&invalid, 1024).is_err());
-        }
+    #[test_case(2, vec![]; "positive_empty")]
+    #[test_case(2, vec![1]; "positive_small")]
+    #[test_case(2, vec![255; 8]; "positive_eight_bytes")]
+    #[test_case(2, vec![0; 9]; "positive_zero")]
+    #[test_case(2, [vec![0], vec![1; 9]].concat(); "positive_leading_zero")]
+    #[test_case(3, vec![]; "negative_empty")]
+    #[test_case(3, vec![1]; "negative_small")]
+    #[test_case(3, vec![255; 8]; "negative_eight_bytes")]
+    #[test_case(3, vec![0; 9]; "negative_zero")]
+    #[test_case(3, [vec![0], vec![1; 9]].concat(); "negative_leading_zero")]
+    fn accepts_nonpreferred_bignums(tag: u64, magnitude: Vec<u8>) {
+        let encoded = raw(&Value::Tag(tag, Box::new(Value::Bytes(magnitude))));
+        assert!(decode::<Value>(&encoded, 1024).is_ok());
     }
 
-    #[test]
-    fn preferred_bignums_round_trip_without_changing_map_keys() {
-        for tag in [2, 3] {
-            for length in [9, 16, 17] {
-                let key = Value::Tag(tag, Box::new(Value::Bytes(vec![1; length])));
-                let message = response(Value::Map(vec![(key, Value::Null)]));
-                let encoded = encode(&message).unwrap();
-                let decoded: Response<Value> = decode(&encoded, 1024).unwrap();
-                assert_eq!(encode(&decoded).unwrap(), encoded);
-            }
-        }
+    #[test_case(2; "positive")]
+    #[test_case(3; "negative")]
+    fn rejects_invalid_bignum_contents(tag: u64) {
+        let invalid = raw(&Value::Tag(tag, Box::new(Value::Text("1".into()))));
+        assert!(decode::<Value>(&invalid, 1024).is_err());
+    }
+
+    #[test_case(2, 9; "positive_9_bytes")]
+    #[test_case(2, 16; "positive_16_bytes")]
+    #[test_case(2, 17; "positive_17_bytes")]
+    #[test_case(3, 9; "negative_9_bytes")]
+    #[test_case(3, 16; "negative_16_bytes")]
+    #[test_case(3, 17; "negative_17_bytes")]
+    fn preferred_bignums_round_trip_without_changing_map_keys(tag: u64, length: usize) {
+        let key = Value::Tag(tag, Box::new(Value::Bytes(vec![1; length])));
+        let message = response(Value::Map(vec![(key, Value::Null)]));
+        let encoded = encode(&message).unwrap();
+        let decoded: Response<Value> = decode(&encoded, 1024).unwrap();
+        assert_eq!(encode(&decoded).unwrap(), encoded);
     }
 
     #[test]

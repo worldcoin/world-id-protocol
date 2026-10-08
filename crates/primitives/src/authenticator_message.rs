@@ -474,6 +474,10 @@ impl<'de, R: Deserialize<'de>, D: Deserialize<'de>> Deserialize<'de> for Respons
     }
 }
 
+/// Preserves the distinction between an absent field and a present value, including null.
+/// With `serde(default)`, absence becomes `None`; a present value is parsed as `T` and wrapped in
+/// `Some`. This preserves nullable results and error data, while rejecting a null request ID
+/// because `Id` itself does not accept null. Deserializing `Option<T>` would treat both as absent.
 fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
@@ -582,31 +586,28 @@ fn is_well_formed_percent_encoding(component: &str) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+    use test_case::test_case;
 
-    #[test]
-    fn method_names_follow_wip_105() {
-        for valid in [
-            "worldid",
-            "worldid_auth_v1_register",
-            "worldid_auth",
-            "worldid_someMethod_v2",
-        ] {
-            assert!(valid.parse::<MethodName>().is_ok(), "{valid}");
-        }
-        for invalid in [
-            "",
-            "worldidx_auth",
-            "worldId_auth",
-            "worldid_",
-            "worldid__auth",
-            "worldid_auth_",
-            "worldid_Auth",
-            "worldid_1auth",
-            "worldid_au-th",
-            "auth_worldid",
-        ] {
-            assert!(invalid.parse::<MethodName>().is_err(), "{invalid}");
-        }
+    #[test_case("worldid"; "prefix")]
+    #[test_case("worldid_auth_v1_register"; "registration")]
+    #[test_case("worldid_auth"; "namespace")]
+    #[test_case("worldid_someMethod_v2"; "camel_case")]
+    fn accepts_valid_method_names(valid: &str) {
+        assert!(valid.parse::<MethodName>().is_ok(), "{valid}");
+    }
+
+    #[test_case(""; "empty")]
+    #[test_case("worldidx_auth"; "wrong_prefix")]
+    #[test_case("worldId_auth"; "uppercase_prefix")]
+    #[test_case("worldid_"; "empty_suffix")]
+    #[test_case("worldid__auth"; "empty_segment")]
+    #[test_case("worldid_auth_"; "trailing_separator")]
+    #[test_case("worldid_Auth"; "uppercase_segment")]
+    #[test_case("worldid_1auth"; "numeric_segment")]
+    #[test_case("worldid_au-th"; "hyphen")]
+    #[test_case("auth_worldid"; "reversed_prefix")]
+    fn rejects_invalid_method_names(invalid: &str) {
+        assert!(invalid.parse::<MethodName>().is_err(), "{invalid}");
     }
 
     #[test]
@@ -662,78 +663,45 @@ mod tests {
         );
     }
 
-    #[test]
-    fn deeplink_parsing_rejects_malformed_uris() {
-        let cases = [
-            ("https://auth/v1/register", DeeplinkError::InvalidScheme),
-            ("worldid:auth/v1/register", DeeplinkError::InvalidScheme),
-            (
-                "worldid://user@auth/v1/register",
-                DeeplinkError::InvalidNamespace,
-            ),
-            (
-                "worldid://auth:443/v1/register",
-                DeeplinkError::InvalidNamespace,
-            ),
-            ("worldid:///v1/register", DeeplinkError::InvalidNamespace),
-            (
-                "worldid://Auth/v1/register",
-                DeeplinkError::InvalidNamespace,
-            ),
-            ("worldid://auth", DeeplinkError::InvalidVersion),
-            ("worldid://auth/1/register", DeeplinkError::InvalidVersion),
-            ("worldid://auth/v0/register", DeeplinkError::InvalidVersion),
-            ("worldid://auth/v01/register", DeeplinkError::InvalidVersion),
-            (
-                "worldid://auth/v99999999999/register",
-                DeeplinkError::InvalidVersion,
-            ),
-            ("worldid://auth/v1", DeeplinkError::InvalidAction),
-            ("worldid://auth/v1/", DeeplinkError::InvalidAction),
-            (
-                "worldid://auth/v1/register/",
-                DeeplinkError::UnexpectedPathSegments,
-            ),
-            (
-                "worldid://auth/v1/register/x",
-                DeeplinkError::UnexpectedPathSegments,
-            ),
-            (
-                "worldid://auth/v1/register#x",
-                DeeplinkError::UnexpectedFragment,
-            ),
-            (
-                "worldid://auth/v1/register?",
-                DeeplinkError::MalformedParameter,
-            ),
-            (
-                "worldid://auth/v1/register?a",
-                DeeplinkError::MalformedParameter,
-            ),
-            (
-                "worldid://auth/v1/register?=a",
-                DeeplinkError::MalformedParameter,
-            ),
-            (
-                "worldid://auth/v1/register?a=1&&b=2",
-                DeeplinkError::MalformedParameter,
-            ),
-            (
-                "worldid://auth/v1/register?a=%zz",
-                DeeplinkError::MalformedParameter,
-            ),
-            (
-                "worldid://auth/v1/register?a=%4",
-                DeeplinkError::MalformedParameter,
-            ),
-            (
-                "worldid://auth/v1/register?a=%ff",
-                DeeplinkError::MalformedParameter,
-            ),
-        ];
-        for (uri, expected) in cases {
-            assert_eq!(uri.parse::<Deeplink>(), Err(expected), "{uri}");
-        }
+    #[test_case("https://auth/v1/register", DeeplinkError::InvalidScheme; "https")]
+    #[test_case("worldid:auth/v1/register", DeeplinkError::InvalidScheme; "missing_slashes")]
+    #[test_case("worldid://user@auth/v1/register",
+                DeeplinkError::InvalidNamespace; "user_info")]
+    #[test_case("worldid://auth:443/v1/register",
+                DeeplinkError::InvalidNamespace; "port")]
+    #[test_case("worldid:///v1/register", DeeplinkError::InvalidNamespace; "empty_namespace")]
+    #[test_case("worldid://Auth/v1/register",
+                DeeplinkError::InvalidNamespace; "uppercase_namespace")]
+    #[test_case("worldid://auth", DeeplinkError::InvalidVersion; "missing_version")]
+    #[test_case("worldid://auth/1/register", DeeplinkError::InvalidVersion; "missing_version_prefix")]
+    #[test_case("worldid://auth/v0/register", DeeplinkError::InvalidVersion; "zero_version")]
+    #[test_case("worldid://auth/v01/register", DeeplinkError::InvalidVersion; "leading_zero_version")]
+    #[test_case("worldid://auth/v99999999999/register",
+                DeeplinkError::InvalidVersion; "version_overflow")]
+    #[test_case("worldid://auth/v1", DeeplinkError::InvalidAction; "missing_action")]
+    #[test_case("worldid://auth/v1/", DeeplinkError::InvalidAction; "empty_action")]
+    #[test_case("worldid://auth/v1/register/",
+                DeeplinkError::UnexpectedPathSegments; "trailing_slash")]
+    #[test_case("worldid://auth/v1/register/x",
+                DeeplinkError::UnexpectedPathSegments; "extra_path")]
+    #[test_case("worldid://auth/v1/register#x",
+                DeeplinkError::UnexpectedFragment; "fragment")]
+    #[test_case("worldid://auth/v1/register?",
+                DeeplinkError::MalformedParameter; "empty_query")]
+    #[test_case("worldid://auth/v1/register?a",
+                DeeplinkError::MalformedParameter; "missing_equals")]
+    #[test_case("worldid://auth/v1/register?=a",
+                DeeplinkError::MalformedParameter; "empty_key")]
+    #[test_case("worldid://auth/v1/register?a=1&&b=2",
+                DeeplinkError::MalformedParameter; "empty_parameter")]
+    #[test_case("worldid://auth/v1/register?a=%zz",
+                DeeplinkError::MalformedParameter; "invalid_hex_escape")]
+    #[test_case("worldid://auth/v1/register?a=%4",
+                DeeplinkError::MalformedParameter; "short_escape")]
+    #[test_case("worldid://auth/v1/register?a=%ff",
+                DeeplinkError::MalformedParameter; "invalid_utf8")]
+    fn deeplink_parsing_rejects_malformed_uris(uri: &str, expected: DeeplinkError) {
+        assert_eq!(uri.parse::<Deeplink>(), Err(expected), "{uri}");
     }
 
     #[test]

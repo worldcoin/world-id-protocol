@@ -55,6 +55,8 @@ getrandom = { workspace = true, features = ["wasm_js"] }
 getrandom-04 = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
+cbor-diag = { workspace = true }
+test-case = { workspace = true }
 ark-ec = { workspace = true }
 ark-serialize = { workspace = true }
 k256 = { workspace = true, features = ["ecdsa"] }
