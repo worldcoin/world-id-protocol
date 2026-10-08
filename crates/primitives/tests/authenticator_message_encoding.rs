@@ -1,5 +1,5 @@
-//! Wire examples in CBOR diagnostic notation. Map entries are written in their
-//! expected deterministic order so these fixtures also check exact output bytes.
+//! Wire examples in CBOR diagnostic notation. Fixtures follow the structs' field order;
+//! receivers accept other map orders as well.
 
 use test_case::test_case;
 use world_id_primitives::authenticator_message::{
@@ -8,17 +8,17 @@ use world_id_primitives::authenticator_message::{
 
 #[test_case(
     Some(Id::Number(1)), Some(Value::Map(vec![(Value::Text("nonce".into()), Value::Bytes(vec![0, 255]))])),
-    r#"{"id": 1, "method": "worldid_ping", "params": {"nonce": h'00ff'}, "version": "1.0"}"#;
+    r#"{"version": "1.0", "id": 1, "method": "worldid_ping", "params": {"nonce": h'00ff'}}"#;
     "request with binary payload"
 )]
 #[test_case(
     Some(Id::String("ping-1".into())), None,
-    r#"{"id": "ping-1", "method": "worldid_ping", "version": "1.0"}"#;
+    r#"{"version": "1.0", "id": "ping-1", "method": "worldid_ping"}"#;
     "request without params"
 )]
 #[test_case(
     None, Some(Value::Array(vec![])),
-    r#"{"method": "worldid_ping", "params": [], "version": "1.0"}"#;
+    r#"{"version": "1.0", "method": "worldid_ping", "params": []}"#;
     "notification"
 )]
 fn request_wire_example(id: Option<Id>, params: Option<Value>, diagnostic: &str) {
@@ -38,24 +38,24 @@ fn request_wire_example(id: Option<Id>, params: Option<Value>, diagnostic: &str)
 
 #[test_case(
     Ok(Value::Bytes(vec![0, 255])), Some(Id::Number(1)),
-    r#"{"id": 1, "result": h'00ff', "version": "1.0"}"#;
+    r#"{"version": "1.0", "id": 1, "result": h'00ff'}"#;
     "binary result"
 )]
 #[test_case(
     Ok(Value::Null), Some(Id::String("ping-1".into())),
-    r#"{"id": "ping-1", "result": null, "version": "1.0"}"#;
+    r#"{"version": "1.0", "id": "ping-1", "result": null}"#;
     "present null result"
 )]
 #[test_case(
     Err(ErrorObject { code: "invalid_params".into(), message: "Invalid params".into(), data: None }),
     Some(Id::Number(1)),
-    r#"{"id": 1, "error": {"code": "invalid_params", "message": "Invalid params"}, "version": "1.0"}"#;
+    r#"{"version": "1.0", "id": 1, "error": {"code": "invalid_params", "message": "Invalid params"}}"#;
     "correlated error without data"
 )]
 #[test_case(
     Err(ErrorObject { code: "parse_error".into(), message: "Invalid message".into(), data: Some(Value::Null) }),
     None,
-    r#"{"id": null, "error": {"code": "parse_error", "data": null, "message": "Invalid message"}, "version": "1.0"}"#;
+    r#"{"version": "1.0", "id": null, "error": {"code": "parse_error", "message": "Invalid message", "data": null}}"#;
     "uncorrelated error with present null data"
 )]
 fn response_wire_example(outcome: Result<Value, ErrorObject>, id: Option<Id>, diagnostic: &str) {

@@ -12,12 +12,6 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Value, MessageError> {
     read_document(bytes).map(|(value, _)| value)
 }
 
-/// Produces an encoding-independent identity for a map key using CBOR numeric and container
-/// equivalence. The serializer uses this to reject aliases even when their encoded bytes differ.
-pub(super) fn key_fingerprint(bytes: &[u8]) -> Result<Vec<u8>, MessageError> {
-    read_document(bytes).map(|(_, fingerprint)| fingerprint)
-}
-
 fn read_document(bytes: &[u8]) -> Result<(Value, Vec<u8>), MessageError> {
     let mut remaining = bytes;
     let value = read_value(&mut remaining, 0)?;
@@ -211,6 +205,10 @@ const fn take<'a>(bytes: &mut &'a [u8], length: usize) -> Result<&'a [u8], Messa
 mod tests {
     use super::*;
     use test_case::test_case;
+
+    fn key_fingerprint(bytes: &[u8]) -> Result<Vec<u8>, MessageError> {
+        read_document(bytes).map(|(_, fingerprint)| fingerprint)
+    }
 
     #[test]
     fn accepts_nonpreferred_widths_and_unsorted_maps() {

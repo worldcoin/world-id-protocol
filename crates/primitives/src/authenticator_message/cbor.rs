@@ -1,19 +1,22 @@
-//! Deterministic CBOR output and bounded decoding of definite-length CBOR values.
+//! CBOR serialization and bounded decoding of definite-length CBOR values.
 
 use serde::{Serialize, de::DeserializeOwned};
 
 mod de;
-mod ser;
 
 const MAX_DEPTH: usize = 32;
 
-/// Encodes a value using RFC 8949 core deterministic encoding.
+/// Serializes a value as CBOR using Ciborium.
 ///
-/// Maps are buffered and sorted by their encoded keys, recursively. Duplicate keys and values
-/// nested more than 32 levels are rejected. Transports must enforce their own encoded size limit.
-/// Binary payload types must serialize as bytes, not integer arrays.
+/// Map entries retain the order supplied by `Serialize`. Callers must supply known container
+/// lengths because Ciborium emits indefinite-length items for unknown lengths, which this
+/// protocol's decoder rejects. Binary payloads must serialize as bytes, not integer arrays.
+/// Transports enforce their own encoded size limits; this function does not validate the schema,
+/// reject duplicate keys, or limit nesting.
 pub fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, MessageError> {
-    ser::encode(value)
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes)?;
+    Ok(bytes)
 }
 
 /// Decodes exactly one value, rejecting duplicate keys and enforcing size and nesting bounds.
@@ -40,7 +43,10 @@ pub enum MessageError {
     /// The message violates the CBOR encoding rules.
     #[error("invalid CBOR: {0}")]
     Encoding(&'static str),
-    /// Serialization or the method-specific payload schema failed.
+    /// The value could not be serialized as CBOR.
+    #[error("CBOR serialization failed: {0}")]
+    Serialize(#[from] ciborium::ser::Error<std::io::Error>),
+    /// The method-specific payload schema failed.
     #[error("CBOR payload serialization failed: {0}")]
     Payload(#[from] ciborium::value::Error),
 }
@@ -101,21 +107,31 @@ mod tests {
     }
 
     #[test]
-    fn emits_core_deterministic_order_not_length_first_order() {
-        let value = response(Value::Map(vec![
+    fn preserves_map_entry_order() {
+        let value = Value::Map(vec![
             (Value::Integer((-1).into()), Value::Null),
             (Value::Integer(24.into()), Value::Null),
-        ]));
+        ]);
         let encoded = encode(&value).unwrap();
-        assert!(
-            encoded
-                .windows(6)
-                .any(|bytes| bytes == [0xa2, 0x18, 0x18, 0xf6, 0x20, 0xf6])
-        );
-        assert_eq!(
-            encode(&decode::<Value>(&encoded, 1024).unwrap()).unwrap(),
-            encoded
-        );
+        assert_eq!(encoded, [0xa2, 0x20, 0xf6, 0x18, 0x18, 0xf6]);
+        assert_eq!(decode::<Value>(&encoded, 1024).unwrap(), value);
+    }
+
+    #[test]
+    fn unknown_sequence_lengths_require_a_protocol_compatible_serializer() {
+        use serde::ser::SerializeSeq as _;
+
+        struct UnknownLength;
+        impl Serialize for UnknownLength {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                let mut sequence = serializer.serialize_seq(None)?;
+                sequence.serialize_element(&1)?;
+                sequence.end()
+            }
+        }
+        let encoded = encode(&UnknownLength).unwrap();
+        assert_eq!(encoded, [0x9f, 1, 0xff]);
+        assert!(decode::<Vec<u8>>(&encoded, 1024).is_err());
     }
 
     #[test]
@@ -295,17 +311,13 @@ mod tests {
         assert!(decode::<Value>(&encode(&distinct).unwrap(), 1024).is_ok());
     }
 
-    #[test_case(vec![0xb8, 0], vec![0xa0]; "wide_map_length")]
-    #[test_case(vec![0x1b, 0, 0, 0, 0, 0, 0, 0, 1], vec![1]; "wide_integer")]
+    #[test_case(vec![0xb8, 0], Value::Map(vec![]); "wide_map_length")]
+    #[test_case(vec![0x1b, 0, 0, 0, 0, 0, 0, 0, 1], Value::Integer(1.into()); "wide_integer")]
     #[test_case(vec![0xa2, 0x61, b'b', 0, 0x61, b'a', 0],
-                vec![0xa2, 0x61, b'a', 0, 0x61, b'b', 0]; "unsorted_map")]
-    #[test_case(vec![0xfa, 0x3f, 0x80, 0, 0], vec![0xf9, 0x3c, 0]; "wide_float")]
-    fn accepts_non_deterministic_input_but_emits_deterministic_output(
-        input: Vec<u8>,
-        expected: Vec<u8>,
-    ) {
-        let decoded: Value = decode(&input, 1024).unwrap();
-        assert_eq!(encode(&decoded).unwrap(), expected);
+                map(&[("b", 0.into()), ("a", 0.into())]); "unsorted_map")]
+    #[test_case(vec![0xfa, 0x3f, 0x80, 0, 0], Value::Float(1.0); "wide_float")]
+    fn accepts_map_order_and_nonpreferred_widths(input: Vec<u8>, expected: Value) {
+        assert_eq!(decode::<Value>(&input, 1024).unwrap(), expected);
     }
 
     #[test_case(vec![0xa2, 1, 0, 0x18, 1, 0]; "integer_width")]
@@ -322,7 +334,6 @@ mod tests {
         let second = map(&[("b", 2.into()), ("a", 1.into())]);
         let duplicate = Value::Map(vec![(first, Value::Null), (second, Value::Null)]);
         assert!(decode::<Value>(&raw(&duplicate), 1024).is_err());
-        assert!(encode(&duplicate).is_err());
     }
 
     #[test_case(2, vec![]; "positive_empty")]
@@ -374,7 +385,6 @@ mod tests {
             keys[1].0.as_float().unwrap().to_bits(),
             0x7ff8_0400_0000_0000
         );
-        assert_eq!(encode(&decoded).unwrap(), encoded);
     }
 
     #[test]

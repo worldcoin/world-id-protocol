@@ -1,8 +1,8 @@
 //! The message and deeplink formats that World ID authenticators use to talk to each other, as
 //! defined in [WIP-105](https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-105.md).
 //!
-//! Messages use deterministic CBOR. Use [`encode`] and [`decode`] at transport boundaries to
-//! enforce the encoding rules. Typed requests and responses validate their own fields.
+//! Use [`encode`] and [`decode`] for CBOR at transport boundaries. Decoding checks encoding
+//! rules and resource limits; typed requests and responses validate their own fields.
 //! Deeplinks are `worldid://` URIs represented by [`Deeplink`].
 
 use std::{borrow::Cow, fmt, str::FromStr};
