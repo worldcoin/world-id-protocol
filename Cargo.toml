@@ -120,7 +120,6 @@ secrecy = "0.10"
 mockito = "1"
 cbor-diag = "0.1.12"
 ciborium = "0.2"
-ciborium-ll = "0.2"
 httpdate = "1"
 argon2 = { version = "0.5", default-features = false, features = ["zeroize"] }
 arrayvec = "0.7"
