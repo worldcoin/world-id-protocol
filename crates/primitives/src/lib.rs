@@ -24,6 +24,9 @@ use getrandom_04 as _;
 /// Contains types related to the Authenticator.
 pub mod authenticator;
 
+/// Authenticator Assertion Tokens (WIP-106): issuance, encoding and verification outside circuits.
+pub mod authenticator_assertion;
+
 mod key_set;
 pub use key_set::{
     AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS, SparseAuthenticatorPubkeysError,
