@@ -23,7 +23,7 @@ fn checked_u64(value: Field) -> u64 {
     value as u64
 }
 
-/// Numbers in comments refer to WIP-202 section 4.5.
+/// Numbers in comments refer to WIP-202 section 4.6.
 fn main(
     // WIP-201 Flamingo Token
     verifier_key: pub PublicKey,

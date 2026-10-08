@@ -22,7 +22,7 @@ pub struct FlamingoTokenPublic {
 /// `build_version`. `sec_meta` and `user_presence` are 3-bit; the types bound the rest.
 pub fn aat_flags(public: FlamingoTokenPublic) -> Field {
     assert(public.sec_meta < 8, "sec_meta exceeds 3 bits");
-    assert(public.user_presence < 8, "user_presence exceeds 3 bits");
+    assert(public.user_presence < 5, "user_presence values 5 to 7 are reserved");
     public.platform as Field
         + 0x100 * public.sec_level as Field
         + 0x10000 * public.min_build_version as Field
@@ -57,6 +57,18 @@ pub fn digest(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field 
 
 /// Verifies the Verifier's signature and returns the signed digest.
 pub fn verify(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field {
+    // As in WIP-106, the AAT values are zero when no AAT was verified.
+    if !public.has_aat {
+        assert(
+            (public.authenticator_provider_key_hash == 0)
+                & (public.platform == 0)
+                & (public.sec_level == 0)
+                & (public.sec_meta == 0)
+                & (public.user_presence == 0)
+                & (public.min_build_version == 0),
+            "AAT values must be zero without an AAT",
+        );
+    }
     let digest = digest(public, token);
     assert(token.sig.verify(public.verifier_key, digest), "invalid flamingo token signature");
     digest

@@ -221,7 +221,8 @@ fn hashes_json() -> (Vec<u8>, usize) {
             .collect::<Vec<_>>()
             .join(",")
     );
-    let offset = json.find("\"thumbnail.png\"").unwrap();
+    // The digest starts after the 17-byte key `"thumbnail.png":"`.
+    let offset = json.find("\"thumbnail.png\":\"").unwrap() + 17;
     (json.into_bytes(), offset)
 }
 
@@ -242,7 +243,7 @@ fn render() -> Rendered {
     let (siblings, merkle_root) = first_leaf_merkle_path(key_set.leaf_hash());
 
     let compared = compared();
-    let (hashes_json, thumbnail_offset) = hashes_json();
+    let (hashes_json, digest_offset) = hashes_json();
 
     let digest = token_digest(true, compared);
     let digest_no_aat = token_digest(false, compared);
@@ -317,7 +318,7 @@ fn render() -> Rendered {
         // hashes.json witness
         ("HASHES_JSON_CHUNKS", "[Field; 169]", chunk_list.clone()),
         ("HASHES_JSON_LEN", "u32", hashes_json.len().to_string()),
-        ("THUMBNAIL_OFFSET", "u32", thumbnail_offset.to_string()),
+        ("DIGEST_OFFSET", "u32", digest_offset.to_string()),
         ("SESSION_ID_R", "Field", dec(*session_id_r)),
         // Signed variants for the tests
         ("TOKEN_SIG_NO_AAT", "Signature", noir_sig(&token_no_aat)),
@@ -402,7 +403,7 @@ fn render() -> Rendered {
          [inputs.hashes_json]\n\
          chunks = {chunks}\n\
          len = \"{len}\"\n\
-         thumbnail_offset = \"{thumbnail_offset}\"\n",
+         digest_offset = \"{digest_offset}\"\n",
         challenge_hash = dec(*compared[2]),
         merkle_root = dec(*merkle_root),
         session_id = dec(*session_id),

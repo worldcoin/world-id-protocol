@@ -4,11 +4,11 @@ use crate::{
     main,
     test_fixtures::{
         AUD, AUTH_SIG, AUTH_SIG_NO_AAT, AUTHENTICATOR_PROVIDER_KEY_HASH, CHALLENGE_HASH, CLAIM_0,
-        COMPARED_ENTRY_HASH, CRED_ID, CRED_PK, CRED_SIG, ENGINE_CONFIG_HASH, EXPIRES_AT,
-        GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS, HASHES_JSON_LEN,
+        COMPARED_ENTRY_HASH, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH,
+        EXPIRES_AT, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS, HASHES_JSON_LEN,
         ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX, MERKLE_ROOT, MIN_BUILD_VERSION, NONCE, NOW,
         PLATFORM, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS, SUB_BLINDING_FACTOR,
-        THUMBNAIL_OFFSET, TOKEN_SIG, TOKEN_SIG_NO_AAT, USER_PK, USER_PRESENCE, VERIFIER_KEY,
+        TOKEN_SIG, TOKEN_SIG_NO_AAT, USER_PK, USER_PRESENCE, VERIFIER_KEY,
     },
     types::{
         AccountInputs, CredentialInputs, FlamingoTokenInputs, HashesJsonInputs, PrivateInputs,
@@ -74,7 +74,7 @@ fn inputs() -> PrivateInputs {
         hashes_json: HashesJsonInputs {
             chunks: HASHES_JSON_CHUNKS,
             len: HASHES_JSON_LEN,
-            thumbnail_offset: THUMBNAIL_OFFSET,
+            digest_offset: DIGEST_OFFSET,
         },
         session_id_r: SESSION_ID_R,
     }
@@ -105,11 +105,31 @@ fn prove(p: Public, inputs: PrivateInputs) {
     );
 }
 
-/// Public values of a Flamingo Token without an AAT; the AAT values are ignored.
+/// Public values of a Flamingo Token without an AAT; the AAT values are zero.
 fn public_without_aat() -> Public {
     let mut p = public();
     p.has_aat = false;
+    p.authenticator_provider_key_hash = 0;
+    p.platform = 0;
+    p.sec_level = 0;
+    p.sec_meta = 0;
+    p.user_presence = 0;
+    p.min_build_version = 0;
     p
+}
+
+#[test(should_fail_with = "AAT values must be zero without an AAT")]
+fn test_rejects_aat_values_without_an_aat() {
+    let mut p = public_without_aat();
+    p.sec_level = 1;
+    prove(p, inputs_without_aat());
+}
+
+#[test(should_fail_with = "user_presence values 5 to 7 are reserved")]
+fn test_rejects_a_reserved_user_presence() {
+    let mut p = public();
+    p.user_presence = 5;
+    prove(p, inputs());
 }
 
 fn inputs_without_aat() -> PrivateInputs {
@@ -193,15 +213,15 @@ fn test_rejects_another_challenge() {
 #[test(should_fail_with = "thumbnail key mismatch")]
 fn test_rejects_an_entry_other_than_the_thumbnail() {
     let mut i = inputs();
-    // Point at the first entry, which also starts a key.
-    i.hashes_json.thumbnail_offset = 1;
+    // Point at the digest of the first entry, which also starts a key.
+    i.hashes_json.digest_offset = 18;
     prove(public(), i);
 }
 
 #[test(should_fail_with = "thumbnail entry must start a key")]
-fn test_rejects_a_shifted_thumbnail_offset() {
+fn test_rejects_a_shifted_digest_offset() {
     let mut i = inputs();
-    i.hashes_json.thumbnail_offset -= 1;
+    i.hashes_json.digest_offset -= 1;
     prove(public(), i);
 }
 
@@ -292,7 +312,7 @@ fn test_reads_a_thumbnail_in_the_final_short_chunk() {
     let json = "{\"a\":\"1234\",\"thumbnail.png\":\"00000000000000000000000000000000000000000000000000000000000000ff\"}"
         .as_bytes();
     let digest = thumbnail_digest(
-        HashesJsonInputs { chunks: chunks_of(json), len: json.len(), thumbnail_offset: 12 },
+        HashesJsonInputs { chunks: chunks_of(json), len: json.len(), digest_offset: 29 },
     );
     assert_eq(digest, 255);
 }

@@ -68,7 +68,7 @@ pub struct HashesJsonInputs {
     /// Length in bytes.
     pub len: u32,
     /// Byte offset of the `"thumbnail.png":"<hex>"` entry.
-    pub thumbnail_offset: u32,
+    pub digest_offset: u32,
 }
 
 /// All private inputs of the Proof of Embedding Similarity.

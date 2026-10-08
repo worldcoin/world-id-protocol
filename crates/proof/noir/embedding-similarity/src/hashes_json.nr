@@ -74,18 +74,19 @@ pub fn claims_hash_v1(json: HashesJsonInputs) -> Field {
 
 /// Returns `R(d)` for the thumbnail digest `d` in `hashes.json` (WIP-202 constraint 3.2).
 ///
-/// The entry must start a JSON key: the byte before it is `{` or `,`. `hashes.json` is
-/// compact JSON with lowercase hex values and file-name keys, so `"thumbnail.png":"`
-/// cannot occur inside a key or value.
+/// `digest_offset` is where the 64 hex digits start. The 17 bytes before them are the key
+/// `"thumbnail.png":"`, preceded by `{` or `,`. `hashes.json` is compact JSON with
+/// lowercase hex values and file-name keys, so that pattern cannot occur inside a key or value.
 pub fn thumbnail_digest(json: HashesJsonInputs) -> Field {
     let len = json.len;
-    let offset = json.thumbnail_offset;
-    let end = offset + 17 + DIGEST_HEX_LEN;
-    assert(offset > 0, "thumbnail entry must follow a delimiter");
-    assert(end < len, "thumbnail entry exceeds hashes.json");
+    let offset = json.digest_offset;
+    assert(offset >= 18, "thumbnail entry must follow a delimiter");
+    assert(offset + DIGEST_HEX_LEN < len, "thumbnail entry exceeds hashes.json");
 
-    let window = window_bytes(json, (offset - 1) / CHUNK_BYTES);
-    let start = (offset - 1) % CHUNK_BYTES;
+    // The checked bytes run from the delimiter, 18 bytes before the digest, to its closing quote.
+    let base = offset - 18;
+    let window = window_bytes(json, base / CHUNK_BYTES);
+    let start = base % CHUNK_BYTES;
 
     let before = window[start];
     assert((before == 123) | (before == 44), "thumbnail entry must start a key");
