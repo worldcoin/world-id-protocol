@@ -14,7 +14,14 @@ command = "python3 docs/strip-front-matter.py"
 command = "mdbook-mermaid"
 
 [output.html]
-additional-js = ["docs/mermaid.min.js", "docs/mermaid-init.js"]
+# MathJax renders math client-side (like mermaid) from a self-hosted bundle, so
+# the book has no external runtime dependency.
+additional-js = [
+    "docs/mermaid.min.js",
+    "docs/mermaid-init.js",
+    "docs/mathjax/config.js",
+    "docs/mathjax/tex-svg.js",
+]
 git-repository-url = "https://github.com/worldcoin/world-id-protocol"
 edit-url-template = "https://github.com/worldcoin/world-id-protocol/edit/main/{path}"
 site-url = "/world-id-protocol/"
