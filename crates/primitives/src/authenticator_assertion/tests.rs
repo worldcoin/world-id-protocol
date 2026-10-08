@@ -1,5 +1,5 @@
+use crate::FieldElement;
 use eddsa_babyjubjub::EdDSAPrivateKey;
-use world_id_primitives::FieldElement;
 
 use super::*;
 
