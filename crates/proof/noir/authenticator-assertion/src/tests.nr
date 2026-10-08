@@ -195,8 +195,7 @@ fn test_build_version_below_minimum_rejected() {
 
 #[test(should_fail)]
 fn test_non_canonical_sig_s_rejected() {
-    // `s + l`, with `l` the subgroup order, satisfies the verification equation but is not a
-    // reduced scalar. The scalar range check has no message, so `should_fail_with` can not pin it.
+    // Rejects a signature whose `s` is shifted by the subgroup order, so AATs can't be malleated.
     let mut private = private();
     private.sig_s = private.sig_s
         + 2736030358979909402780800718157159386076813972158567259200215660948447373041;
