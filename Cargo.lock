@@ -12593,7 +12593,6 @@ dependencies = [
  "arrayvec",
  "cbor-diag",
  "ciborium",
- "ciborium-ll",
  "embed-doc-image",
  "eyre",
  "getrandom 0.3.4",
