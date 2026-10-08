@@ -304,7 +304,7 @@ impl AuthenticatorAssertionToken {
     ///
     /// # Errors
     /// [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
-    pub fn new(
+    pub const fn new(
         exp: u32,
         aat_commitment: FieldElement,
         sec_flags: SecFlags,
