@@ -540,9 +540,10 @@ pub struct AuthenticatorAssertionPublicInputs {
     pub min_build_version: u32,
 }
 
-/// The private inputs of AAT verification (WIP-106 section 3.7): the signing key, the token's
-/// claims and signature, and the opening of its request commitment. A verifier MUST keep them
-/// confidential; `Debug` prints only the key.
+/// The private inputs of AAT verification (WIP-106 section 3.7).
+///
+/// The signing key, the token's claims and signature, and the opening of its request commitment.
+/// A verifier MUST keep them confidential; `Debug` prints only the key.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthenticatorAssertionPrivateInputs {
     /// The key that signed the AAT.
