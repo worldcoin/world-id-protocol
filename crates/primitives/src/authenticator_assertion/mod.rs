@@ -237,6 +237,14 @@ pub enum AssertionError {
     /// `exp` can not use the fixed 4-byte CBOR uint encoding.
     #[error("exp {0} must be in [2^16, 2^32) for its fixed-width encoding")]
     ExpirationOutOfRange(u32),
+    /// `exp` is not in `(now, now + MAX_AAT_LIFETIME_SECS]` at issuance.
+    #[error("exp {exp} must be in (now, now + {MAX_AAT_LIFETIME_SECS}] at issuance, now is {now}")]
+    LifetimeOutOfRange {
+        /// Issuance time as seconds since the Unix epoch.
+        now: u32,
+        /// The requested expiration.
+        exp: u32,
+    },
     /// `sec_flags` has reserved bits set.
     #[error("invalid sec_flags {0:#x}")]
     InvalidSecFlags(u64),
@@ -251,8 +259,9 @@ pub enum AssertionError {
     KeyEncoding(String),
 }
 
-/// A signed AAT, as decoded from its CWT encoding.
-#[derive(Debug, Clone)]
+/// A signed AAT, as decoded from its CWT encoding. `Debug` prints only the `kid`, as a
+/// verifier MUST keep `aat_commitment`, `exp` and `sig` confidential.
+#[derive(Clone)]
 pub struct SignedAuthenticatorAssertionToken {
     /// The signed token values.
     pub token: AuthenticatorAssertionToken,
@@ -300,11 +309,25 @@ pub struct AuthenticatorAssertionToken {
 }
 
 impl AuthenticatorAssertionToken {
-    /// Creates an Authenticator Assertion Token from validated claims.
+    /// Creates an Authenticator Assertion Token for issuance at `now` (WIP-106 section 3.6).
     ///
     /// # Errors
-    /// [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
+    /// [`AssertionError::LifetimeOutOfRange`] unless `now < exp <= now + MAX_AAT_LIFETIME_SECS`,
+    /// and [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
     pub const fn new(
+        now: u32,
+        exp: u32,
+        aat_commitment: FieldElement,
+        sec_flags: SecFlags,
+    ) -> Result<Self, AssertionError> {
+        if exp <= now || exp - now > MAX_AAT_LIFETIME_SECS {
+            return Err(AssertionError::LifetimeOutOfRange { now, exp });
+        }
+        Self::from_claims(exp, aat_commitment, sec_flags)
+    }
+
+    /// Creates a token from decoded claims, without a lifetime check: the decoder has no `now`.
+    const fn from_claims(
         exp: u32,
         aat_commitment: FieldElement,
         sec_flags: SecFlags,
@@ -397,14 +420,23 @@ impl AuthenticatorAssertionToken {
     }
 }
 
+impl std::fmt::Debug for SignedAuthenticatorAssertionToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignedAuthenticatorAssertionToken")
+            .field("kid", &self.kid)
+            .finish_non_exhaustive()
+    }
+}
+
 impl SignedAuthenticatorAssertionToken {
     /// Decodes an AAT from its CWT encoding, rejecting anything but the canonical encoding.
     ///
     /// Does not verify the signature.
     ///
     /// # Errors
-    /// [`AssertionError::InvalidEncoding`] on a non-canonical encoding, or the claim validation
-    /// errors of [`AuthenticatorAssertionToken::new`] and [`SecFlags::unpack`].
+    /// [`AssertionError::InvalidEncoding`] on a non-canonical encoding or signature,
+    /// [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`, and the errors of
+    /// [`SecFlags::unpack`].
     pub fn decode(cwt: &[u8]) -> Result<Self, AssertionError> {
         let rest = cwt
             .strip_prefix(&[0x84])
@@ -439,12 +471,12 @@ impl SignedAuthenticatorAssertionToken {
         let sec_flags = SecFlags::unpack(u64::from_be_bytes(
             payload[81..89].try_into().expect("8 bytes"),
         ))?;
-        let token = AuthenticatorAssertionToken::new(exp, aat_commitment, sec_flags)?;
+        let token = AuthenticatorAssertionToken::from_claims(exp, aat_commitment, sec_flags)?;
         if token.payload() != payload {
             return Err(AssertionError::InvalidEncoding("claims"));
         }
         let signature = EdDSASignature::from_compressed_bytes(signature)
-            .map_err(|e| AssertionError::KeyEncoding(e.to_string()))?;
+            .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
         Ok(Self {
             token,
             signature,
@@ -510,8 +542,8 @@ pub struct AuthenticatorAssertionPublicInputs {
 
 /// The private inputs of AAT verification (WIP-106 section 3.7): the signing key, the token's
 /// claims and signature, and the opening of its request commitment. A verifier MUST keep them
-/// confidential.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// confidential; `Debug` prints only the key.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthenticatorAssertionPrivateInputs {
     /// The key that signed the AAT.
     pub authenticator_provider_key: EdDSAPublicKey,
@@ -527,6 +559,17 @@ pub struct AuthenticatorAssertionPrivateInputs {
     pub blind: FieldElement,
 }
 
+impl std::fmt::Debug for AuthenticatorAssertionPrivateInputs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthenticatorAssertionPrivateInputs")
+            .field(
+                "authenticator_provider_key",
+                &self.authenticator_provider_key,
+            )
+            .finish_non_exhaustive()
+    }
+}
+
 impl AuthenticatorAssertionPrivateInputs {
     /// Derives the public inputs a verifier outside a circuit reports, from the request values
     /// it was given and the key and `sec_flags` it holds. Run [`verify_aat`] on the result.
@@ -540,8 +583,8 @@ impl AuthenticatorAssertionPrivateInputs {
         nonce: FieldElement,
         min_build_version: u32,
     ) -> Result<AuthenticatorAssertionPublicInputs, VerificationError> {
-        let flags = SecFlags::unpack(self.sec_flags)
-            .map_err(|_| VerificationError::InvalidSecFlags(self.sec_flags))?;
+        let flags =
+            SecFlags::unpack(self.sec_flags).map_err(|_| VerificationError::InvalidSecFlags)?;
         Ok(AuthenticatorAssertionPublicInputs {
             authenticator_provider_key_hash: authenticator_provider_key_hash(
                 &self.authenticator_provider_key,
@@ -576,9 +619,10 @@ pub enum VerificationError {
     /// `exp - now > MAX_AAT_LIFETIME_SECS`.
     #[error("token lifetime exceeds maximum")]
     LifetimeExceeded,
-    /// `sec_flags` has reserved bits set or a reserved `user_presence`.
-    #[error("invalid sec_flags {0:#x}")]
-    InvalidSecFlags(u64),
+    /// `sec_flags` has reserved bits set or a reserved `user_presence`. Carries no value, as
+    /// `sec_flags` holds the private `build_version`.
+    #[error("invalid sec_flags")]
+    InvalidSecFlags,
     /// `sec_flags` does not pack the public `platform`, `sec_level`, `sec_meta` and `user_presence`.
     #[error("sec_flags do not match the public security flags")]
     SecFlagsMismatch,
@@ -620,8 +664,8 @@ pub fn verify_aat(
     if private.exp - public.now > MAX_AAT_LIFETIME_SECS {
         return Err(VerificationError::LifetimeExceeded);
     }
-    let flags = SecFlags::unpack(private.sec_flags)
-        .map_err(|_| VerificationError::InvalidSecFlags(private.sec_flags))?;
+    let flags =
+        SecFlags::unpack(private.sec_flags).map_err(|_| VerificationError::InvalidSecFlags)?;
     if (
         flags.platform,
         flags.sec_level,
