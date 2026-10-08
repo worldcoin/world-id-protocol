@@ -4,6 +4,11 @@
 //! for Authenticators to handle such requests.
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
+mod embedding_similarity;
+pub use embedding_similarity::{
+    AatOutputs, AatRequirements, EmbeddingSimilarityRequest, EmbeddingSimilarityResponse,
+    EngineConfig,
+};
 
 use crate::{
     FieldElement, Nullifier, OprfPrefix, OprfPrefixedFieldElement as _, PrimitiveError, SessionId,
@@ -51,9 +56,9 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
 /// Reserved for a possible future one-byte protocol encoding. Currently, JSON uses
 /// snake_case variant names and these discriminants are not serialized.
 ///
-/// The discriminants mirror the OPRF domains used by each proof flow.
+/// The discriminants of OPRF-based flows mirror their OPRF domains.
 /// [`OprfPrefix::SessionOprfSeed`] (`0x01`) has no variant here because the session
-/// `oprf_seed` is not a proof flow of its own.
+/// `oprf_seed` is not a proof flow of its own. Flows without a nullifier use `0x10` and up.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -68,6 +73,10 @@ pub enum ProofType {
     /// Prove an RP-scoped session — either minting a fresh one
     /// (`session_id: "create"`) or an existing one (`session_id: "session_<hex>"`).
     Session = OprfPrefix::SessionAction as u8,
+    /// A WIP-202 Proof of Embedding Similarity (WIP-203). It has no nullifier.
+    ///
+    /// May carry an existing `session_id` to require the same World ID as an earlier proof.
+    EmbeddingSimilarity = 0x10,
 }
 
 impl ProofType {
@@ -81,6 +90,12 @@ impl ProofType {
     #[must_use]
     pub const fn is_session(&self) -> bool {
         matches!(self, Self::Session)
+    }
+
+    /// Returns true for the WIP-203 embedding similarity flow.
+    #[must_use]
+    pub const fn is_embedding_similarity(&self) -> bool {
+        matches!(self, Self::EmbeddingSimilarity)
     }
 }
 
@@ -100,7 +115,7 @@ pub struct ProofRequest {
     /// Requested high-level proof flow.
     ///
     /// If omitted, the request is strictly treated as a [`ProofType::Uniqueness`] request.
-    /// Session creation and session proving must opt in explicitly.
+    /// Session creation, session proving and embedding similarity must opt in explicitly.
     #[serde(default)]
     pub proof_type: ProofType,
     /// Unix timestamp (seconds) when the request was created.
@@ -116,12 +131,15 @@ pub struct ProofRequest {
     /// Three states: absent/`null` (no session), `"create"` (mint a fresh session),
     /// or an existing `"session_"`-prefixed id. [`ProofType::Uniqueness`] accepts
     /// absent or `"create"` (see [`Self::binds_session`]); [`ProofType::Session`]
-    /// requires `"create"` or an existing id.
+    /// requires `"create"` or an existing id; [`ProofType::EmbeddingSimilarity`]
+    /// accepts absent or an existing id.
     /// The proof will only be valid if the session ID is meant for this context and
     /// this particular World ID holder.
     #[serde(default)]
     pub session_id: SessionRef,
     /// An RP-defined context that scopes what the user is proving uniqueness on.
+    ///
+    /// Required for [`ProofType::Uniqueness`], omitted otherwise.
     ///
     /// This parameter expects a field element. When dealing with strings or bytes,
     /// hash with a byte-friendly hash function like keccak256 or SHA256 and reduce to the field.
@@ -132,11 +150,18 @@ pub struct ProofRequest {
     /// Unique nonce for this request provided by the RP.
     pub nonce: FieldElement,
     /// Specific credential requests. This defines which credentials to ask for.
+    ///
+    /// Exactly one item, the PoH Credential, for [`ProofType::EmbeddingSimilarity`].
     #[serde(rename = "proof_requests")]
     pub requests: Vec<RequestItem>,
     /// Constraint expression (all/any/enumerate) optional.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub constraints: Option<ConstraintExpr<'static>>,
+    /// Parameters of a [`ProofType::EmbeddingSimilarity`] request (WIP-203).
+    ///
+    /// Present exactly when `proof_type` is [`ProofType::EmbeddingSimilarity`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_similarity: Option<EmbeddingSimilarityRequest>,
 }
 
 /// Per-credential request payload.
@@ -263,8 +288,11 @@ pub struct ProofResponse {
     /// When present, the responses array will be empty.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// Per-credential results (empty if error is present)
+    /// Per-credential results (empty if error is present, and for embedding similarity)
     pub responses: Vec<ResponseItem>,
+    /// Answer to a [`ProofType::EmbeddingSimilarity`] request (WIP-203).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_similarity: Option<EmbeddingSimilarityResponse>,
 }
 
 /// Per-credential response item returned by the Authenticator.
@@ -511,8 +539,34 @@ impl ProofRequest {
                     reason: "must be omitted for session proofs".to_string(),
                 })
             }
+            (ProofType::EmbeddingSimilarity, _, Some(_)) => Err(PrimitiveError::InvalidInput {
+                attribute: "action".to_string(),
+                reason: "must be omitted for embedding similarity proofs".to_string(),
+            }),
+            (ProofType::EmbeddingSimilarity, SessionRef::Create, _) => {
+                Err(PrimitiveError::InvalidInput {
+                    attribute: "session_id".to_string(),
+                    reason:
+                        "must be omitted or an existing session id for embedding similarity proofs"
+                            .to_string(),
+                })
+            }
             _ => Ok(()),
         }?;
+
+        let embedding_similarity = self.proof_type.is_embedding_similarity();
+        if embedding_similarity != self.embedding_similarity.is_some() {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "embedding_similarity".to_string(),
+                reason: "must be present exactly for embedding similarity proofs".to_string(),
+            });
+        }
+        if embedding_similarity && self.requests.len() != 1 {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "proof_requests".to_string(),
+                reason: "must have exactly one item for embedding similarity proofs".to_string(),
+            });
+        }
 
         // Only uniqueness flows can reach this point with an action; session flows
         // carrying one were rejected above.
@@ -625,6 +679,39 @@ impl ProofRequest {
                     "session proof without session_id".to_string(),
                 ));
             }
+            (ProofType::EmbeddingSimilarity, SessionRef::None) => {
+                if response.session_id.is_some() {
+                    return Err(ValidationError::UnexpectedSessionId);
+                }
+            }
+            (ProofType::EmbeddingSimilarity, SessionRef::Existing(session_id)) => {
+                if response.session_id != Some(session_id) {
+                    return Err(ValidationError::SessionIdMismatch);
+                }
+            }
+            // Rejected by validate_proof_type() above; kept explicit to stay exhaustive.
+            (ProofType::EmbeddingSimilarity, SessionRef::Create) => {
+                return Err(ValidationError::InvalidProofRequest(
+                    "embedding similarity proof with session_id \"create\"".to_string(),
+                ));
+            }
+        }
+
+        // validate_proof_type() guarantees the object and exactly one item.
+        if let (Some(request), [item]) = (&self.embedding_similarity, self.requests.as_slice()) {
+            if let Some(unexpected) = response.responses.first() {
+                return Err(ValidationError::UnexpectedCredential(
+                    unexpected.identifier.clone(),
+                ));
+            }
+            let answer = response
+                .embedding_similarity
+                .as_ref()
+                .ok_or_else(|| ValidationError::MissingCredential(item.identifier.clone()))?;
+            return request.validate_response(item, answer);
+        }
+        if response.embedding_similarity.is_some() {
+            return Err(ValidationError::UnexpectedEmbeddingSimilarity);
         }
 
         // Validate response items correspond to request items and are unique.
@@ -807,6 +894,15 @@ pub enum ValidationError {
     /// Nullifier missing for credential in uniqueness proof
     #[error("Nullifier missing for credential: {0}")]
     MissingNullifier(String),
+    /// The response answers an embedding similarity request that was not made.
+    #[error("Embedding similarity answer for another proof type")]
+    UnexpectedEmbeddingSimilarity,
+    /// The proof ran a Flamingo configuration the request did not offer.
+    #[error("Engine configuration not offered in the request")]
+    EngineConfigNotOffered,
+    /// The proof's AAT values, or its lack of an AAT, do not meet the request.
+    #[error("AAT does not meet the request's requirements")]
+    AatNotAccepted,
 }
 
 // Helper selection functions for constraint evaluation
@@ -939,6 +1035,7 @@ mod tests {
                     1_735_689_600,
                 ),
             ],
+            embedding_similarity: None,
         };
 
         // all: [test_req_1, any: [test_req_2, test_req_4]]
@@ -990,6 +1087,7 @@ mod tests {
                     1_735_689_600,
                 ),
             ],
+            embedding_similarity: None,
         };
 
         // enumerate: [passport, national_id] should pass due to passport
@@ -1033,6 +1131,7 @@ mod tests {
                 expires_at_min: None,
             }],
             constraints: None,
+            embedding_similarity: None,
         };
 
         let digest1 = request.digest_hash().unwrap();
@@ -1074,6 +1173,7 @@ mod tests {
                 expires_at_min: None,
             }],
             constraints: None,
+            embedding_similarity: None,
         };
 
         let json = request.to_json().unwrap();
@@ -1125,6 +1225,7 @@ mod tests {
                 },
             ],
             constraints: None,
+            embedding_similarity: None,
         };
 
         let ok = ProofResponse {
@@ -1148,6 +1249,7 @@ mod tests {
                     1_735_689_600,
                 ),
             ],
+            embedding_similarity: None,
         };
         assert!(request.validate_response(&ok).is_ok());
 
@@ -1163,6 +1265,7 @@ mod tests {
                 Nullifier::from(test_field_element(1001)),
                 1_735_689_600,
             )],
+            embedding_similarity: None,
         };
         let err = request.validate_response(&missing).unwrap_err();
         assert!(matches!(err, ValidationError::MissingCredential(_)));
@@ -1195,6 +1298,7 @@ mod tests {
                     1_735_689_600,
                 ),
             ],
+            embedding_similarity: None,
         };
         let err = request.validate_response(&unexpected).unwrap_err();
         assert!(matches!(
@@ -1223,6 +1327,7 @@ mod tests {
                     1_735_689_600,
                 ),
             ],
+            embedding_similarity: None,
         };
         let err = request.validate_response(&duplicate).unwrap_err();
         assert!(matches!(
@@ -1262,6 +1367,7 @@ mod tests {
                 expires_at_min: None,
             }],
             constraints: Some(deep),
+            embedding_similarity: None,
         };
 
         let response = ProofResponse {
@@ -1276,6 +1382,7 @@ mod tests {
                 Nullifier::from(test_field_element(1001)),
                 1_735_689_600,
             )],
+            embedding_similarity: None,
         };
 
         let err = request.validate_response(&response).unwrap_err();
@@ -1388,6 +1495,7 @@ mod tests {
                 },
             ],
             constraints: Some(expr),
+            embedding_similarity: None,
         };
 
         // Provide just enough to satisfy both any-groups and the single type
@@ -1419,6 +1527,7 @@ mod tests {
                     1_735_689_600,
                 ),
             ],
+            embedding_similarity: None,
         };
 
         // Should not exceed size and should validate OK
@@ -1538,6 +1647,7 @@ mod tests {
                 },
             ],
             constraints: Some(expr),
+            embedding_similarity: None,
         };
 
         // Response content is irrelevant; validation should fail before evaluation due to size
@@ -1553,6 +1663,7 @@ mod tests {
                 Nullifier::from(test_field_element(1020)),
                 1_735_689_600,
             )],
+            embedding_similarity: None,
         };
 
         let err = request.validate_response(&response).unwrap_err();
@@ -1581,6 +1692,7 @@ mod tests {
                 expires_at_min: None,
             }],
             constraints: None,
+            embedding_similarity: None,
         };
 
         assert_eq!(req.id, "req_18c0f7f03e7d");
@@ -1599,6 +1711,7 @@ mod tests {
                 SessionNullifier::new(test_field_element(1001), test_action(1)).unwrap(),
                 1_725_381_192,
             )],
+            embedding_similarity: None,
         };
         assert!(req.validate_response(&resp).is_ok());
     }
@@ -1639,6 +1752,7 @@ mod tests {
                     ConstraintNode::Type("test_req_2".into()),
                 ],
             }),
+            embedding_similarity: None,
         };
 
         // Build response that fails constraints (test_req_1 is missing)
@@ -1654,6 +1768,7 @@ mod tests {
                 Nullifier::from(test_field_element(1001)),
                 1_725_381_192,
             )],
+            embedding_similarity: None,
         };
 
         let err = req.validate_response(&resp).unwrap_err();
@@ -1708,6 +1823,7 @@ mod tests {
                     }),
                 ],
             }),
+            embedding_similarity: None,
         };
 
         // Satisfy nested any with 0x1 + 0x3
@@ -1732,6 +1848,7 @@ mod tests {
                     1_725_381_192,
                 ),
             ],
+            embedding_similarity: None,
         };
 
         assert!(req.validate_response(&resp).is_ok());
@@ -1773,6 +1890,7 @@ mod tests {
                     ConstraintNode::Type("national_id".into()),
                 ],
             }),
+            embedding_similarity: None,
         };
 
         // Satisfies enumerate with passport
@@ -1788,6 +1906,7 @@ mod tests {
                 Nullifier::from(test_field_element(2002)),
                 1_725_381_192,
             )],
+            embedding_similarity: None,
         };
         assert!(req.validate_response(&ok_resp).is_ok());
 
@@ -1798,6 +1917,7 @@ mod tests {
             session_id: None,
             error: None,
             responses: vec![],
+            embedding_similarity: None,
         };
         let err = req.validate_response(&fail_resp).unwrap_err();
         assert!(matches!(err, ValidationError::ConstraintNotSatisfied));
@@ -1999,6 +2119,7 @@ mod tests {
                 },
             ],
             constraints: None,
+            embedding_similarity: None,
         };
 
         // Serialize then deserialize to trigger the duplicate check in from_json
@@ -2033,6 +2154,7 @@ mod tests {
                 expires_at_min: None,
             }],
             constraints: None,
+            embedding_similarity: None,
         };
 
         // Response with error should have empty responses array
@@ -2041,7 +2163,8 @@ mod tests {
             version: RequestVersion::V1,
             session_id: None,
             error: Some("credential_not_available".into()),
-            responses: vec![], // Empty when error is present
+            responses: vec![], // Empty when error is present,
+            embedding_similarity: None,
         };
 
         // Validation should fail with ProofGenerationFailed
@@ -2108,6 +2231,7 @@ mod tests {
                 },
             ],
             constraints: None,
+            embedding_similarity: None,
         };
 
         let available_ok: HashSet<u64> = [100, 101].into_iter().collect();
@@ -2173,6 +2297,7 @@ mod tests {
                     }),
                 ],
             }),
+            embedding_similarity: None,
         };
 
         // Available has orb + passport → should pick [orb, passport]
@@ -2241,6 +2366,7 @@ mod tests {
                     ConstraintNode::Type("national_id".into()),
                 ],
             }),
+            embedding_similarity: None,
         };
 
         // One of enumerate candidates available -> one selected
@@ -2313,6 +2439,7 @@ mod tests {
                     }),
                 ],
             }),
+            embedding_similarity: None,
         };
 
         // orb + passport -> select both
@@ -2405,6 +2532,7 @@ mod tests {
                 },
             ],
             constraints: None,
+            embedding_similarity: None,
         };
 
         // Valid response with matching expires_at_min values
@@ -2429,6 +2557,7 @@ mod tests {
                     custom_expires_at, // Matches explicit value
                 ),
             ],
+            embedding_similarity: None,
         };
         assert!(request.validate_response(&valid_response).is_ok());
 
@@ -2454,6 +2583,7 @@ mod tests {
                     custom_expires_at,
                 ),
             ],
+            embedding_similarity: None,
         };
         let err1 = request.validate_response(&invalid_response_1).unwrap_err();
         assert!(matches!(
@@ -2488,6 +2618,7 @@ mod tests {
                     request_created_at, // Wrong! Should be custom_expires_at
                 ),
             ],
+            embedding_similarity: None,
         };
         let err2 = request.validate_response(&invalid_response_2).unwrap_err();
         assert!(matches!(
@@ -2523,6 +2654,7 @@ mod tests {
                 expires_at_min: None,
             }],
             constraints: None,
+            embedding_similarity: None,
         };
 
         // uniqueness + "create" mints and binds a session
@@ -2636,6 +2768,7 @@ mod tests {
                 expires_at_min: None,
             }],
             constraints: None,
+            embedding_similarity: None,
         };
 
         // `proof_type` is #[serde(default)]: session_id without proof_type binds
@@ -2669,6 +2802,7 @@ mod tests {
                 expires_at_min: None,
             }],
             constraints: None,
+            embedding_similarity: None,
         };
 
         // None serializes as null (unchanged wire shape) ...
@@ -2706,6 +2840,7 @@ mod tests {
                 expires_at_min: None,
             }],
             constraints: None,
+            embedding_similarity: None,
         };
 
         let response = ProofResponse {
@@ -2720,6 +2855,7 @@ mod tests {
                 Nullifier::from(test_field_element(1001)),
                 1_735_689_600,
             )],
+            embedding_similarity: None,
         };
         // uniqueness proofs can only mint a session, never bind an existing one
         assert!(matches!(
@@ -2788,6 +2924,7 @@ mod tests {
                 expires_at_min: None,
             }],
             constraints: None,
+            embedding_similarity: None,
         };
 
         let missing_session = ProofResponse {
@@ -2802,6 +2939,7 @@ mod tests {
                 SessionNullifier::new(test_field_element(1001), test_action(42)).unwrap(),
                 1_735_689_600,
             )],
+            embedding_similarity: None,
         };
         assert!(matches!(
             request.validate_response(&missing_session),
@@ -2837,6 +2975,7 @@ mod tests {
                 expires_at_min: None,
             }],
             constraints: None,
+            embedding_similarity: None,
         };
 
         let missing_session = ProofResponse {
@@ -2851,6 +2990,7 @@ mod tests {
                 Nullifier::new(test_field_element(1001)),
                 1_735_689_600,
             )],
+            embedding_similarity: None,
         };
         assert!(matches!(
             request.validate_response(&missing_session),
@@ -2887,6 +3027,7 @@ mod tests {
                 expires_at_min: None,
             }],
             constraints: None,
+            embedding_similarity: None,
         };
 
         // Response without session_id should fail validation
@@ -2902,6 +3043,7 @@ mod tests {
                 SessionNullifier::new(test_field_element(1001), test_action(42)).unwrap(),
                 1_735_689_600,
             )],
+            embedding_similarity: None,
         };
 
         let err = request
@@ -2933,6 +3075,7 @@ mod tests {
                 expires_at_min: None,
             }],
             constraints: None,
+            embedding_similarity: None,
         };
 
         // Response with uniqueness nullifier instead of session nullifier should fail
@@ -2948,6 +3091,7 @@ mod tests {
                 Nullifier::from(test_field_element(1001)), // Using uniqueness nullifier instead of session!
                 1_735_689_600,
             )],
+            embedding_similarity: None,
         };
 
         let err = request
@@ -2982,6 +3126,7 @@ mod tests {
                 expires_at_min: None,
             }],
             constraints: None,
+            embedding_similarity: None,
         };
 
         // Response with session nullifier instead of uniqueness nullifier should fail
@@ -2997,6 +3142,7 @@ mod tests {
                 SessionNullifier::new(test_field_element(1001), test_action(42)).unwrap(), // Using session nullifier instead of uniqueness!
                 1_735_689_600,
             )],
+            embedding_similarity: None,
         };
 
         let err = request

@@ -317,6 +317,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
             expires_at_min: None,
         }],
         constraints: None,
+        embedding_similarity: None,
     };
     let nullifier = authenticator
         .generate_nullifier(&proof_request, rp_fixture.current_timestamp, None)

@@ -299,6 +299,14 @@ impl Authenticator {
         session_id_r_seed: Option<FieldElement>,
     ) -> Result<ProofResult, AuthenticatorError> {
         proof_request.validate_proof_type()?;
+        if proof_request.proof_type.is_embedding_similarity() {
+            return Err(AuthenticatorError::PrimitiveError(
+                world_id_primitives::PrimitiveError::InvalidInput {
+                    attribute: "proof_type".to_string(),
+                    reason: "embedding similarity proofs are not supported yet".to_string(),
+                },
+            ));
+        }
 
         // 1. Determine request items to prove
         let available: std::collections::HashSet<u64> = credentials
@@ -369,6 +377,7 @@ impl Authenticator {
             session_id: resolved_session_id,
             responses,
             error: None,
+            embedding_similarity: None,
         };
 
         // 5. Validate and return response
@@ -605,6 +614,7 @@ mod tests {
             nonce: FieldElement::from(1u64),
             requests: Vec::new(),
             constraints: None,
+            embedding_similarity: None,
         }
     }
 

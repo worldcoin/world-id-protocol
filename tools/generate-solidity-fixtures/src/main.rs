@@ -282,6 +282,7 @@ async fn main() -> Result<()> {
             expires_at_min: None,
         }],
         constraints: None,
+        embedding_similarity: None,
     };
     let request_item = uniqueness_request
         .find_request_by_issuer_schema_id(issuer_schema_id)

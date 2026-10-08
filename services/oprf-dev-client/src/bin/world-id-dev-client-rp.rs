@@ -342,6 +342,7 @@ fn create_proof_request<R: Rng + CryptoRng>(
             expires_at_min: None,
         }],
         constraints: None,
+        embedding_similarity: None,
     })
 }
 

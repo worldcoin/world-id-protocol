@@ -207,6 +207,11 @@ impl<'a> OprfEntrypoint<'a> {
         proof_request
             .validate_proof_type()
             .map_err(|err| ProofError::GenerationError(err.to_string()))?;
+        if proof_request.proof_type.is_embedding_similarity() {
+            return Err(ProofError::GenerationError(
+                "embedding similarity proofs have no nullifier".to_string(),
+            ));
+        }
 
         let (action, module) = if proof_request.is_session_proof() {
             // For session proofs a random action is used internally. This is opaque to RPs who receive
