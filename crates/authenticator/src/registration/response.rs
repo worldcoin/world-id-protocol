@@ -209,11 +209,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use world_id_primitives::authenticator_message::{Id, decode, encode};
+    use world_id_primitives::authenticator_message::{Id, Version, decode, encode};
 
     #[test]
     fn success_uses_unsigned_indexes_and_raw_vault_bytes() {
         let response = RegisterResponseMessage {
+            version: Version::V1,
             id: Some(Id::String("request".into())),
             outcome: Ok(RegistrationResult {
                 leaf_index: 42,
