@@ -17,3 +17,4 @@
 - [WIP-105: Authenticator Message Format](WIPs/wip-105.md)
 - [WIP-106: Authenticator Assertions](WIPs/wip-106.md)
 - [WIP-109: Authenticator Registration](WIPs/wip-109.md)
+- [WIP-110: Message Bridge](WIPs/wip-110.md)
