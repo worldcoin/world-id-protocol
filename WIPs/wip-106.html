@@ -1,0 +1,603 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>WIP-106: Authenticator Assertions - World ID Protocol</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-5242dba1.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-e57141f0.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">World ID Protocol</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol/edit/main/docs/WIPs/wip-106.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h2 id="1-abstract"><a class="header" href="#1-abstract">1. Abstract</a></h2>
+<p>This spec introduces the <strong>Authenticator Assertion Token (AAT)</strong>: a short-lived statement, signed by an Authenticator Provider, about the integrity of the environment in which a single World ID Proof is generated. The Authenticator Provider checks platform integrity evidence (e.g. Apple App Attest) for every request and signs the result with a <code>BabyJubJub-EdDSA-Poseidon2</code> key. The AAT is verified confidentially, typically inside a ZK circuit, bound to the Relying Party’s request through a blinded commitment, so the Authenticator Provider doesn’t need to learn which Relying Party the proof is for.</p>
+<h2 id="2-motivation"><a class="header" href="#2-motivation">2. Motivation</a></h2>
+<p>Some use cases need information beyond the World ID Proof about where it was generated, typically when the Authenticator provides inputs the proof cannot verify itself (e.g. a live selfie compared in a ZK circuit). Relying Parties then need to know that a genuine Authenticator on a genuine device produced the proof.</p>
+<h2 id="3-specification"><a class="header" href="#3-specification">3. Specification</a></h2>
+<p>The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in <a href="https://www.ietf.org/rfc/rfc2119.txt">RFC 2119</a>.</p>
+<ol>
+<li>
+<p>The definition of an Authenticator Provider is explicitly introduced into the Protocol. An <strong>Authenticator Provider</strong> is the publishing entity (e.g. a software company) of an <a href="https://github.com/worldcoin/world-id-protocol/tree/main/docs/world-id-4-specs#definitions">Authenticator</a> client.</p>
+</li>
+<li>
+<p>An Authenticator Provider MAY opt in to issuing AATs. An AAT is a statement <strong>only</strong> from the Authenticator Provider. Each Relying Party (RP) decides which Authenticator Providers and which security properties it accepts.</p>
+</li>
+<li>
+<p>The Field ($F$), the Curve (<code>BabyJubJub</code>), the hash function ($H_t$), the signature scheme (<code>BabyJubJub-EdDSA-Poseidon2</code>) and the <code>PublicKey</code> representation MUST follow <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100</a>.</p>
+</li>
+<li>
+<p>An AAT MUST only be verified as a private input to a ZK circuit, or by a verifier outside a circuit that:</p>
+<ul>
+<li>the RP trusts to report the verification results,</li>
+<li>the Authenticator has authenticated through remote attestation (e.g. of a TEE) before sending the AAT, and</li>
+<li>keeps <code>aat_commitment</code>, <code>exp</code> and <code>sig</code> confidential.</li>
+</ul>
+<p>Authenticator Providers and Authenticators MUST NOT share AATs raw with any other party.</p>
+</li>
+</ol>
+<h3 id="31-constants"><a class="header" href="#31-constants">3.1 Constants</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Constant</th><th>Value</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>DS_AAT</code></td><td><code>498451125091886891258088867850510460821031698772</code> (<code>b"WORLD-ID/WIP-106/AAT"</code>)</td><td>Domain separator for the AAT digest, allocated to $H_4$ with $k = 3$.</td></tr>
+<tr><td><code>DS_REQ</code></td><td><code>498451125091886891258088867850510460821032813905</code> (<code>b"WORLD-ID/WIP-106/REQ"</code>)</td><td>Domain separator for the request commitment, allocated to $H_8$ with $k = 4$.</td></tr>
+<tr><td><code>DS_KEY</code></td><td><code>498451125091886891258088867850510460821032355161</code> (<code>b"WORLD-ID/WIP-106/KEY"</code>)</td><td>Domain separator for the key hash, allocated to $H_3$ with $k = 2$.</td></tr>
+<tr><td><code>MAX_AAT_LIFETIME</code></td><td><code>1800</code></td><td>Maximum remaining lifetime <code>exp - now</code> of an AAT, in seconds.</td></tr>
+<tr><td><code>EAT_PROFILE</code></td><td><code>https://world.org/eat/aat/v1</code></td><td>The <code>eat_profile</code> claim (<a href="https://datatracker.ietf.org/doc/html/rfc9711#section-4.3.2">RFC 9711 §4.3.2</a>) of an AAT.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="32-authenticator-provider-key"><a class="header" href="#32-authenticator-provider-key">3.2 Authenticator Provider Key</a></h3>
+<ol>
+<li>An Authenticator Provider that issues AATs MUST have an <code>authenticator_provider_key</code>, the key that signs its AATs. The <code>authenticator_provider_key</code> MUST be a <code>BabyJubJub-EdDSA-Poseidon2</code> key pair generated randomly.</li>
+<li>The <code>authenticator_provider_key</code> is identified by its <code>kid</code>, which MUST be the compressed wire encoding of its public key as specified in <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100 §4</a>.</li>
+<li>Circuits identify it by <code>authenticator_provider_key_hash = H_3(DS_KEY; x, y)</code>, over the affine coordinates of its public key.</li>
+<li>An <code>authenticator_provider_key</code> MUST be published in the <a href="#38-authenticator-metadata">Authenticator Metadata</a>, with <code>not_before</code> and <code>not_after</code>, at least 24 hours before it signs its first AAT, so RPs with cached metadata recognize it.</li>
+<li>An <code>authenticator_provider_key</code> MUST NOT sign AATs for more than 180 days (<code>not_after - not_before &lt;= 15552000</code>). Authenticator Providers SHOULD rotate keys every 90 days.</li>
+<li>To rotate, an Authenticator Provider MUST publish the next key per item 4 before the current key’s <code>not_after</code>, and MUST keep the outgoing key published for at least <code>MAX_AAT_LIFETIME</code> after its last AAT.</li>
+<li>The <code>authenticator_provider_key</code> private key SHOULD be generated and used only inside hardware-protected key storage (e.g. an HSM or a TEE), and SHOULD NOT be exportable.</li>
+<li>On suspected compromise, the Authenticator Provider MUST mark the key <code>revoked</code> immediately.</li>
+</ol>
+<h3 id="33-request-commitment"><a class="header" href="#33-request-commitment">3.3 Request Commitment</a></h3>
+<p>The Authenticator binds an AAT to a single request through the request commitment <code>aat_commitment</code>:</p>
+<p><code>aat_commitment = H_8(DS_REQ; aud, nonce, cdh, blind)</code></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Value</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>aud</code></td><td>The <code>rpId</code> of the <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/request/struct.ProofRequest.html">ProofRequest</a>.</td></tr>
+<tr><td><code>nonce</code></td><td>The <code>nonce</code> of the ProofRequest.</td></tr>
+<tr><td><code>cdh</code></td><td>Client data hash. A commitment set by the Authenticator to bind the AAT to its upstream use (e.g. a user’s <code>leaf_index</code>). <code>0</code> is the nil value.</td></tr>
+<tr><td><code>blind</code></td><td>A blinding factor, generated by the Authenticator. MUST be a random element of $F$, fresh for every request.</td></tr>
+</tbody>
+</table>
+</div>
+<p>The Authenticator MUST send only <code>aat_commitment</code> to the Authenticator Provider, never <code>aud</code>, <code>nonce</code>, <code>cdh</code> or <code>blind</code>.</p>
+<p>Every specification that consumes an AAT MUST define what <code>cdh</code> commits to, or explicitly allow the nil value <code>0</code>. The Authenticator MUST compute <code>cdh</code> exactly as that specification defines.</p>
+<h3 id="34-authenticator-assertion-token"><a class="header" href="#34-authenticator-assertion-token">3.4 Authenticator Assertion Token</a></h3>
+<p>An AAT consists of the following values and a signature over them.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Value</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>exp</code></td><td>uint32</td><td>Expiration time, in seconds since the Unix epoch.</td></tr>
+<tr><td><code>aat_commitment</code></td><td>Field element</td><td>The request commitment (see <a href="#33-request-commitment">Request Commitment</a>).</td></tr>
+<tr><td><code>sec_flags</code></td><td>uint64</td><td>Packed security attributes (see <a href="#35-security-flags">Security Flags</a>).</td></tr>
+<tr><td><code>sig</code></td><td>Signature</td><td><code>BabyJubJub-EdDSA-Poseidon2</code> signature by the <code>authenticator_provider_key</code> over <code>message</code>.</td></tr>
+</tbody>
+</table>
+</div>
+<p>The signed message is:</p>
+<p><code>message = H_4(DS_AAT; exp, aat_commitment, sec_flags)</code></p>
+<p><code>sig</code> MUST follow <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100 §3.5</a>, including its encoding.</p>
+<h4 id="341-encoding"><a class="header" href="#341-encoding">3.4.1 Encoding</a></h4>
+<p>An AAT is transported as a CBOR Web Token (<a href="https://datatracker.ietf.org/doc/html/rfc8392">RFC 8392</a>): an untagged <code>COSE_Sign1</code> (<a href="https://datatracker.ietf.org/doc/rfc9052/">RFC 9052</a>) in deterministic CBOR (<a href="https://datatracker.ietf.org/doc/html/rfc8949#section-4.2.1">RFC 8949 §4.2.1</a>).</p>
+<ol>
+<li>The protected header MUST contain only <code>alg</code> (label <code>1</code>) with the value <code>-65537</code>. The unprotected header MUST be empty or contain only the <code>kid</code> (label <code>4</code>) of the <code>authenticator_provider_key</code>, as an untrusted hint.</li>
+<li>The payload MUST contain exactly the following claims, in this order. <code>nonce</code> and <code>eat_profile</code> are the Entity Attestation Token claims of <a href="https://datatracker.ietf.org/doc/rfc9711/">RFC 9711</a>.</li>
+</ol>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Claim</th><th>Key</th><th>Value type</th><th>Value length (bytes)</th></tr>
+</thead>
+<tbody>
+<tr><td><code>exp</code></td><td>4</td><td>uint, in $[2^{16}, 2^{32})$</td><td>4</td></tr>
+<tr><td><code>nonce</code></td><td>10</td><td>bstr: <code>aat_commitment</code> as a canonical big-endian field element</td><td>32</td></tr>
+<tr><td><code>eat_profile</code></td><td>265</td><td>tstr: <code>EAT_PROFILE</code></td><td>28</td></tr>
+<tr><td><code>sec_flags</code></td><td>-70000</td><td>bstr, big-endian</td><td>8</td></tr>
+</tbody>
+</table>
+</div>
+<p>With CBOR headers the payload is always 89 bytes. <code>sig</code> is 64 bytes and the <code>kid</code>, if present, 32 bytes.</p>
+<ol start="3">
+<li>The signature field MUST carry <code>sig</code>.</li>
+<li>The algorithm <code>-65537</code> (Private Use) is allocated to <code>BabyJubJub-EdDSA-Poseidon2</code> over an AAT. It does not sign the <code>Sig_structure</code> bytes (<a href="https://datatracker.ietf.org/doc/html/rfc9052#section-4.4">RFC 9052 §4.4</a>). Instead it decodes <code>exp</code>, <code>aat_commitment</code> and <code>sec_flags</code> from the claims and signs <code>message</code>. The CWT bytes MUST be exactly the encoding above, and verifiers MUST reject any other encoding.</li>
+<li>An AAT is a syntactically valid CWT, but its signature is not over the CBOR bytes. Generic COSE/CWT libraries can decode an AAT but cannot verify it; only verifiers implementing algorithm <code>-65537</code> as defined here can.</li>
+</ol>
+<h3 id="35-security-flags"><a class="header" href="#35-security-flags">3.5 Security Flags</a></h3>
+<p><code>sec_flags</code> packs the following sub-fields (LSB-first). Bits 54 and above MUST be <code>0</code>.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Bits</th><th>Sub-field</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>0-7</td><td><code>platform</code></td><td>Platform of the Authenticator.</td></tr>
+<tr><td>8-15</td><td><code>sec_level</code></td><td>Class of integrity evidence the Authenticator Provider verified for this request.</td></tr>
+<tr><td>16-47</td><td><code>build_version</code></td><td>Monotonic version of the Authenticator build that produced the evidence.</td></tr>
+<tr><td>48-50</td><td><code>sec_meta</code></td><td>3-bit bitmask, provider-defined. <code>000</code> is the nil value. The meaning of each bit MUST be published in the <a href="#38-authenticator-metadata">Authenticator Metadata</a>.</td></tr>
+<tr><td>51-53</td><td><code>user_presence</code></td><td>See <a href="#351-user-presence">User Presence</a>.</td></tr>
+</tbody>
+</table>
+</div>
+<p>The <code>platform</code> enum:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Value</th><th>Definition</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>Unspecified</td></tr>
+<tr><td>2</td><td>iOS</td></tr>
+<tr><td>4</td><td>Android</td></tr>
+<tr><td>6</td><td>Web browser</td></tr>
+</tbody>
+</table>
+</div>
+<p>The <code>sec_level</code> enum. Values are identifiers, not a trust ranking; RPs SHOULD allowlist the exact values they accept.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Value</th><th>Definition</th><th>Example evidence</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>Unspecified</td><td>None</td></tr>
+<tr><td>1</td><td>Hardware-bound key, attested by the platform manufacturer to belong to a genuine app on a genuine device</td><td>Apple App Attest; Android Key Attestation (TEE or StrongBox)</td></tr>
+<tr><td>3</td><td>Platform integrity verdict, without a hardware-bound key</td><td>Google Play Integrity</td></tr>
+<tr><td>5</td><td>Internally verified. The Authenticator Provider MUST guarantee only authorized parties (e.g. internal developers) obtain this level</td><td>Provider-internal</td></tr>
+<tr><td>10</td><td>User-bound credential, no environment integrity</td><td>WebAuthn passkey; browser-held key</td></tr>
+</tbody>
+</table>
+</div>
+<h4 id="351-user-presence"><a class="header" href="#351-user-presence">3.5.1 User Presence</a></h4>
+<p><code>user_presence</code> is an assertion by the Authenticator Provider about the user during the proof generation, based on what the Authenticator reports. It SHOULD be covered by the platform integrity evidence.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Value</th><th>Definition</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>Undetermined</td></tr>
+<tr><td>1</td><td>User is not present</td></tr>
+<tr><td>2</td><td>User is present, verified by a liveness or biometric check during this request</td></tr>
+<tr><td>3</td><td>User was present within the last 7 days</td></tr>
+<tr><td>4</td><td>User was present within the last 30 days</td></tr>
+</tbody>
+</table>
+</div>
+<ol>
+<li>Values <code>5</code> to <code>7</code> are reserved and MUST be rejected.</li>
+<li>The Authenticator MUST report <code>user_presence</code> only from checks it performed itself. The Authenticator Provider MUST NOT sign a value the Authenticator did not report, or one its evidence contradicts.</li>
+<li>Values are identifiers, not an order, they MUST be lowered into the field following <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100</a>.</li>
+<li>RPs MUST allowlist the exact values they accept.</li>
+</ol>
+<h3 id="36-issuance"><a class="header" href="#36-issuance">3.6 Issuance</a></h3>
+<p>For every AAT, the Authenticator Provider:</p>
+<ol>
+<li>MUST verify platform integrity evidence whose challenge commits to <code>aat_commitment</code> before signing (e.g. an App Attest assertion with <code>clientDataHash = SHA-256(aat_commitment)</code>).</li>
+<li>MUST set <code>sec_flags</code> according to the evidence verified for this request, and MUST NOT set a <code>sec_level</code> the evidence does not support.</li>
+<li>MUST set <code>exp</code> such that <code>exp - now &lt;= MAX_AAT_LIFETIME</code> at issuance.</li>
+<li>MUST set <code>build_version</code> from the evidence where the platform attests it (e.g. Play Integrity <code>versionCode</code>), and otherwise from the Authenticator’s report.</li>
+<li>MUST NOT retain a link between a device identifier and an issuance time beyond what abuse prevention requires.</li>
+</ol>
+<h3 id="37-verification"><a class="header" href="#37-verification">3.7 Verification</a></h3>
+<p>AAT verification is specified below as a component embedded in other circuits (e.g. the Nullifier Proof). A verifier outside a circuit MUST perform the same checks, treat the <strong>Public</strong> values as its reported output and keep the <strong>Private</strong> values confidential. The component MUST introduce the following inputs.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Input</th><th>Visibility</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>authenticator_provider_key_hash</code></td><td><strong>Public</strong></td><td>Field element</td><td>Hash of the Authenticator Provider’s key, supplied by the RP.</td></tr>
+<tr><td><code>now</code></td><td><strong>Public</strong></td><td>uint32</td><td>Current time, in seconds since the Unix epoch.</td></tr>
+<tr><td><code>aud</code></td><td><strong>Public</strong></td><td>Field element</td><td>The <code>rpId</code> of the request.</td></tr>
+<tr><td><code>nonce</code></td><td><strong>Public</strong></td><td>Field element</td><td>The nonce of the request.</td></tr>
+<tr><td><code>platform</code></td><td><strong>Public</strong></td><td>uint8</td><td>See <a href="#35-security-flags">Security Flags</a>.</td></tr>
+<tr><td><code>sec_level</code></td><td><strong>Public</strong></td><td>uint8</td><td>See <a href="#35-security-flags">Security Flags</a>.</td></tr>
+<tr><td><code>sec_meta</code></td><td><strong>Public</strong></td><td>uint8</td><td>See <a href="#35-security-flags">Security Flags</a>.</td></tr>
+<tr><td><code>user_presence</code></td><td><strong>Public</strong></td><td>uint8</td><td>See <a href="#351-user-presence">User Presence</a>.</td></tr>
+<tr><td><code>min_build_version</code></td><td><strong>Public</strong></td><td>uint32</td><td>Minimum <code>build_version</code> the RP accepts.</td></tr>
+<tr><td><code>authenticator_provider_key</code></td><td>Private</td><td><code>PublicKey</code></td><td>The key that signed the AAT.</td></tr>
+<tr><td><code>exp</code></td><td>Private</td><td>uint32</td><td>From the AAT.</td></tr>
+<tr><td><code>sec_flags</code></td><td>Private</td><td>uint64</td><td>From the AAT.</td></tr>
+<tr><td><code>sig</code></td><td>Private</td><td>Signature</td><td>From the AAT.</td></tr>
+<tr><td><code>cdh</code></td><td>Private</td><td>Field element</td><td>See <a href="#33-request-commitment">Request Commitment</a>.</td></tr>
+<tr><td><code>blind</code></td><td>Private</td><td>Field element</td><td>See <a href="#33-request-commitment">Request Commitment</a>.</td></tr>
+</tbody>
+</table>
+</div>
+<p>The circuit MUST implement the following constraints:</p>
+<ol>
+<li><strong>Request binding</strong>. Compute <code>aat_commitment = H_8(DS_REQ; aud, nonce, cdh, blind)</code> from the public <code>aud</code> and <code>nonce</code> inputs and the private <code>cdh</code> and <code>blind</code>. The <code>aud</code> and <code>nonce</code> hashed here MUST be the same values as the public inputs, and this <code>aat_commitment</code> MUST be the one used in <code>message</code>. The circuit embedding the AAT MUST constrain <code>cdh</code> to its own inputs (e.g. recompute it from the <code>leaf_index</code> it proves), otherwise the AAT is not bound to its upstream use.</li>
+<li><strong>Signature</strong>. Compute <code>message</code> as in <a href="#34-authenticator-assertion-token">Authenticator Assertion Token</a> and verify <code>sig</code> over it under <code>authenticator_provider_key</code> per <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100 §3.5.1</a>. <code>H_3(DS_KEY; x, y)</code> of that key MUST equal <code>authenticator_provider_key_hash</code>.</li>
+<li><strong>Freshness</strong>. <code>exp</code> and <code>now</code> MUST be less than $2^{32}$. The circuit MUST enforce <code>now &lt; exp</code> and <code>exp - now &lt;= MAX_AAT_LIFETIME</code>, as comparisons over the full field $F$.</li>
+<li><strong>Security flags</strong>. <code>sec_flags</code> MUST be less than $2^{54}$ and MUST equal <code>platform + 2^8 * sec_level + 2^16 * build_version + 2^48 * sec_meta + 2^51 * user_presence</code>, with each sub-field range-checked to its width.</li>
+<li><strong>Nonce</strong>. <code>nonce</code> MUST NOT equal <code>0</code>.</li>
+<li><strong>User presence</strong>. <code>user_presence</code> MUST be less than <code>5</code>.</li>
+<li><strong>Build version</strong>. <code>build_version &gt;= min_build_version</code>, as a comparison over the full field $F$. <code>build_version</code> MUST remain private.</li>
+</ol>
+<p>A circuit MAY make AAT verification optional through a public boolean input <code>has_aat</code>. When <code>has_aat = 0</code>, constraints 1-4, 6 and 7 MUST NOT be enforced and <code>authenticator_provider_key_hash</code>, <code>platform</code>, <code>sec_level</code>, <code>sec_meta</code> and <code>user_presence</code> MUST equal <code>0</code>.</p>
+<p><code>exp</code> MUST remain private: its exact value would let the Authenticator Provider link a proof to the AAT it issued.</p>
+<h3 id="38-authenticator-metadata"><a class="header" href="#38-authenticator-metadata">3.8 Authenticator Metadata</a></h3>
+<ol>
+<li>Each Authenticator Provider MUST expose a JSON metadata file over HTTPS at <code>https://&lt;FQDN&gt;/.well-known/world-id-authenticator.json</code>.</li>
+<li>The file MUST validate against the JSON Schema in <a href="#appendix-a2-authenticator-metadata-schema">Appendix A2</a>. In summary:</li>
+</ol>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>version</code></td><td>integer</td><td>Schema version of this file. MUST be <code>1</code> for the format defined here.</td></tr>
+<tr><td><code>provider_id</code></td><td>string</td><td>Stable identifier, which RPs MAY allowlist.</td></tr>
+<tr><td><code>authenticator_provider_keys</code></td><td>array</td><td>Each entry: <code>kid</code> (hex), <code>x</code>, <code>y</code> (hex, the in-circuit <code>PublicKey</code>), <code>status</code> (<code>active</code>, <code>retired</code> or <code>revoked</code>), <code>not_before</code> and <code>not_after</code> (seconds since the Unix epoch).</td></tr>
+<tr><td><code>sec_meta</code></td><td>object</td><td>Meaning of each <code>sec_meta</code> bit (see item 3).</td></tr>
+</tbody>
+</table>
+</div>
+<ol start="3">
+<li><code>sec_meta</code> is keyed by bit index (<code>"0"</code>, <code>"1"</code>, <code>"2"</code>). Each value is an object with <code>name</code> (string) and <code>description</code> (string). A bit without an entry is undefined, and the Authenticator Provider MUST NOT set it.</li>
+<li><code>authenticator_provider_key</code> <code>status</code> values:
+<ul>
+<li><code>active</code>: the key signs AATs.</li>
+<li><code>retired</code>: the key no longer signs AATs (e.g. after rotation). AATs it signed remain valid until they expire. Authenticator Providers MAY remove a retired key <code>MAX_AAT_LIFETIME</code> after its last AAT.</li>
+<li><code>revoked</code>: the key must no longer be trusted (e.g. it was compromised). RPs MUST reject every AAT signed by it.</li>
+</ul>
+</li>
+</ol>
+<h2 id="4-reference-verification"><a class="header" href="#4-reference-verification">4. Reference Verification</a></h2>
+<p>An RP accepts an AAT-carrying proof by performing the following validations, on the proof’s public inputs or on the values a verifier outside a circuit reports:</p>
+<ol>
+<li><code>authenticator_provider_key_hash</code> is the hash of an <code>authenticator_provider_key</code> that belongs to an allowlisted Authenticator Provider, is <code>active</code> or <code>retired</code> (never <code>revoked</code>), and <code>now</code> is within its validity window.</li>
+<li><code>now</code> is within 5 minutes of the RP’s local time (RECOMMENDED; RPs MAY be stricter).</li>
+<li><code>aud</code> is the RP’s own <code>rpId</code>, and <code>nonce</code> is one the RP issued, has not expired and has not been used before.</li>
+<li><code>platform</code>, <code>sec_level</code>, <code>sec_meta</code> and <code>user_presence</code> match values the RP allowlists.</li>
+<li><code>min_build_version</code> is the RP’s own minimum.</li>
+</ol>
+<h2 id="5-rationale"><a class="header" href="#5-rationale">5. Rationale</a></h2>
+<ol>
+<li><strong>A single provider-signed token.</strong> Verifying device-bound platform signatures (ECDSA P-256 over SHA-256) in-circuit dominates proving cost on mobile devices. Having the Authenticator Provider verify the platform evidence off-circuit reduces in-circuit verification to a single EdDSA signature over a Poseidon2 digest.</li>
+<li><strong>Blinded request commitment.</strong> The Authenticator Provider must bind its signature to the request, but must not learn the RP or be able to link the proof back to the device. <code>blind</code> makes <code>aat_commitment</code> hiding, and the AAT stays a private input.</li>
+<li><strong>CWT for transport only.</strong> The AAT is carried as a CWT, but its signature is over <code>message</code> rather than the CBOR bytes, so circuits verify it without parsing or hashing CBOR. Generic COSE libraries do not implement the private-use algorithm.</li>
+<li><strong>User presence signed by the Authenticator Provider.</strong> The Authenticator runs the presence check, but the Authenticator Provider signs <code>user_presence</code> as part of <code>sec_flags</code>. It is accountable for the value like for every other claim, and can refuse values its evidence does not support.</li>
+<li><strong>Verifiers outside a circuit.</strong> Some use cases may rely on a TEE that the RP trusts for other checks. Verifying the AAT there adds no new trust assumption and removes its cost from the circuit. Privacy is preserved as long as the verifier keeps <code>aat_commitment</code>, <code>exp</code> and <code>sig</code> confidential, which a TEE enforces through attestation even when the Authenticator Provider operates it. The circuit form in <a href="#37-verification">Verification</a> stays the reference, so verification can move back into circuits as proving on mobile devices gets cheaper.</li>
+<li><strong>Key hash as public value.</strong> A single field element keeps circuits embedding the AAT to one public input for the key, and lets a later key type keep the same interface. RPs compute it from the published <code>x</code> and <code>y</code>.</li>
+</ol>
+<h2 id="6-alternatives-considered"><a class="header" href="#6-alternatives-considered">6. Alternatives Considered</a></h2>
+<ol>
+<li><strong>Device-signed AAT with a provider-signed key token.</strong> The Authenticator Provider attests a device-bound P-256 key once, and the device signs each AAT. Rejected: verifying P-256 ECDSA over SHA-256 in-circuit is too expensive for proving on mobile devices.</li>
+<li><strong>Device-signed AAT with a ZK-friendly key.</strong> As above, but with a BabyJubJub device key. Rejected: platforms can not hold such keys in secure hardware, so a device owner can extract the key and sign assertions from any environment.</li>
+<li><strong>Pre-fetched AATs.</strong> Authenticators obtain AATs ahead of requests to decouple issuance from proof timing. Rejected: an AAT would no longer attest the environment of a specific request, and <code>cdh</code> values that commit to per-request data can not be known in advance.</li>
+</ol>
+<h2 id="7-security"><a class="header" href="#7-security">7. Security</a></h2>
+<ol>
+<li><strong>Assertions are Authenticator Provider statements.</strong> The Protocol verifies only that an AAT was signed by an <code>authenticator_provider_key</code>. It does not and can not verify the claims: <code>sec_flags</code> reflects only what the Authenticator Provider verified, and <code>user_presence</code> only what the Authenticator reported and the Authenticator Provider accepted. RPs MUST base their trust on the Authenticator Providers they allowlist.</li>
+<li><strong>Issuance visibility.</strong> The Authenticator Provider observes every AAT issuance (device and time), but not the RP or the request. Issuance and proof times remain correlatable; short lifetimes limit this.</li>
+<li><strong>Authenticator Provider key compromise.</strong> A leaked <code>authenticator_provider_key</code> lets an attacker mint AATs with arbitrary <code>sec_flags</code>. Revocation is through the <a href="#38-authenticator-metadata">Authenticator Metadata</a>; AATs themselves are not revocable and rely on short lifetimes.</li>
+<li><strong>Web environments.</strong> Browsers offer no remote attestation of the running code. Evidence from web Authenticators proves possession of a user credential only, hence <code>sec_level = 10</code>.</li>
+<li><strong>User presence.</strong> <code>user_presence</code> is only as trustworthy as the Authenticator’s report and the Authenticator Provider’s checks. Use cases that need stronger guarantees SHOULD verify a signed statement from the check itself (e.g. a TEE face verifier) in-circuit.</li>
+<li><strong>Availability.</strong> AAT issuance requires the Authenticator Provider to be online. Proofs without an AAT remain valid; RPs decide whether to accept them.</li>
+</ol>
+<h2 id="8-future-considerations"><a class="header" href="#8-future-considerations">8. Future Considerations</a></h2>
+<p>The following may be considered for future versions of this spec.</p>
+<ol>
+<li>Integration into the Nullifier Proof and a <code>ProofRequest</code> attribute for requesting AATs.</li>
+<li>Delegated AATs (e.g. for agents).</li>
+<li>A standard-algorithm AAT profile (e.g. SHA-256 with Ed25519) for verifiers outside circuits, allowing KMS-hosted Authenticator Provider keys and verification with generic COSE libraries.</li>
+</ol>
+<h2 id="9-backwards-compatibility"><a class="header" href="#9-backwards-compatibility">9. Backwards Compatibility</a></h2>
+<p>This WIP introduces new functionality; no existing functionality is affected.</p>
+<h2 id="appendix-a1-test-vectors"><a class="header" href="#appendix-a1-test-vectors">Appendix A1. Test Vectors</a></h2>
+<p>Field elements are decimal, bytes are hex. The <code>authenticator_provider_key</code> secret is 32 bytes of <code>0x07</code>.</p>
+<pre><code class="language-text">aud       = 1928118
+nonce     = 42
+cdh       = 0
+user_presence = 2
+min_build_version = 2006
+blind     = 7
+aat_commitment = 0x17785a9691e9ee99df657ce545bfe748eab27cf21f118361d87cf64ff024495d
+exp       = 1783446925
+sec_flags = 0x0013000007d60102   (platform 2, sec_level 1, build_version 2006, sec_meta 3, user_presence 2)
+message   = 0x28f0b633f40ea69da7c2399aa958f48f4a4c582889eb563d8efd37e330c70332
+
+authenticator_provider_key.x = 19037598474602150174935475944965340829216795940473064039209388058233204431288
+authenticator_provider_key.y = 3549932221586364715003722955756497910920276078443163728621283280434115857197
+authenticator_provider_key_hash = 0x14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8
+kid                = 2d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d987
+sig                = 57c0b136c9c752669a3ad304ee30d45901678a0313d96debd06da712fde9402876071885070c0919ff6e425eb50b152540acd660240b73092d43025023858c01
+
+cwt = 8447a1013a00010000a10458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d9875859a4041a6a4d3d8d0a582017785a9691e9ee99df657ce545bfe748eab27cf21f118361d87cf64ff024495d190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001116f480013000007d60102584057c0b136c9c752669a3ad304ee30d45901678a0313d96debd06da712fde9402876071885070c0919ff6e425eb50b152540acd660240b73092d43025023858c01
+</code></pre>
+<h2 id="appendix-a2-authenticator-metadata-schema"><a class="header" href="#appendix-a2-authenticator-metadata-schema">Appendix A2. Authenticator Metadata Schema</a></h2>
+<pre><code class="language-json">{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["version", "provider_id", "authenticator_provider_keys", "sec_meta"],
+  "properties": {
+    "version": { "const": 1 },
+    "provider_id": { "type": "string", "minLength": 1 },
+    "authenticator_provider_keys": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kid", "x", "y", "status", "not_before", "not_after"],
+        "properties": {
+          "kid": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "x": { "type": "string", "pattern": "^0x[0-9a-f]{1,64}$" },
+          "y": { "type": "string", "pattern": "^0x[0-9a-f]{1,64}$" },
+          "status": { "enum": ["active", "retired", "revoked"] },
+          "not_before": { "type": "integer", "minimum": 0 },
+          "not_after": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "sec_meta": {
+      "type": "object",
+      "propertyNames": { "enum": ["0", "1", "2"] },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["name", "description"],
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
+</code></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../WIPs/wip-105.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../WIPs/wip-110.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../WIPs/wip-105.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../WIPs/wip-110.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../docs/mermaid-eefea253.min.js"></script>
+        <script src="../docs/mermaid-init-ccf746f1.js"></script>
+        <script src="../docs/mathjax/config-bab89348.js"></script>
+        <script src="../docs/mathjax/tex-svg-23c036de.js"></script>
+
+
+
+    </div>
+    </body>
+</html>
