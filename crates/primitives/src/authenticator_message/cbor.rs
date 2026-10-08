@@ -1,43 +1,34 @@
-//! Deterministic CBOR encoding and decoding with size and nesting bounds.
-
-use std::collections::BTreeSet;
+//! Deterministic CBOR output and bounded decoding of definite-length CBOR values.
 
 use serde::{Serialize, de::DeserializeOwned};
 
-use super::Value;
+mod de;
+mod ser;
 
 const MAX_DEPTH: usize = 32;
 
 /// Encodes a value using RFC 8949 core deterministic encoding.
 ///
-/// Map keys are sorted by their encoded bytes, recursively. Duplicate keys
-/// and values nested more than 32 levels are rejected. Transports must enforce their own encoded
-/// size limit before sending. Binary payload types must serialize as bytes, not integer arrays.
+/// Maps are buffered and sorted by their encoded keys, recursively. Duplicate keys and values
+/// nested more than 32 levels are rejected. Transports must enforce their own encoded size limit.
+/// Binary payload types must serialize as bytes, not integer arrays.
 pub fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, MessageError> {
-    let mut value = Value::serialized(value)?;
-    sort_maps(&mut value, 0)?;
-    let bytes = serialize_value(&value)?;
-    validate_encoding(&bytes)?;
-    Ok(bytes)
+    ser::encode(value)
 }
 
-/// Decodes exactly one value after validating its entire encoding.
+/// Decodes exactly one value, rejecting duplicate keys and enforcing size and nesting bounds.
 ///
-/// `max_size` is the transport's maximum encoded message size. Lengths and nesting (at most 32
-/// levels) are checked before allocating payload containers. The schema is determined by `T`;
-/// this codec does not impose any envelope or method-specific structure.
+/// Map ordering and non-minimal integer, length and floating-point encodings are accepted.
+/// Indefinite-length items are rejected. Lengths are checked against the remaining input before
+/// allocating containers; nesting is limited to 32 levels. The schema is determined by `T`.
 ///
 /// The Serde value model supports integers, floats, bytes, text, arrays, maps, tags, booleans and
-/// null. CBOR `undefined` and unassigned simple values are rejected instead of being silently
-/// converted to null. Methods using these values need a codec with a richer value model.
+/// null. CBOR `undefined` and unassigned simple values are rejected rather than converted to null.
 pub fn decode<T: DeserializeOwned>(bytes: &[u8], max_size: usize) -> Result<T, MessageError> {
     if bytes.len() > max_size {
         return Err(MessageError::TooLarge);
     }
-    validate_encoding(bytes)?;
-    let value: Value = ciborium::from_reader(bytes)
-        .map_err(|_| MessageError::Encoding("unsupported or invalid CBOR value"))?;
-    Ok(value.deserialized()?)
+    Ok(de::decode(bytes)?.deserialized()?)
 }
 
 /// A value failed its transport size bound, CBOR encoding rules, or payload schema.
@@ -54,207 +45,12 @@ pub enum MessageError {
     Payload(#[from] ciborium::value::Error),
 }
 
-fn sort_maps(value: &mut Value, depth: usize) -> Result<(), MessageError> {
-    if depth > MAX_DEPTH {
-        return Err(MessageError::Encoding("nesting depth exceeded"));
-    }
-    match value {
-        Value::Array(items) => {
-            for item in items {
-                sort_maps(item, depth + 1)?;
-            }
-        }
-        Value::Map(entries) => {
-            let mut sorted = Vec::with_capacity(entries.len());
-            for (mut key, mut value) in std::mem::take(entries) {
-                sort_maps(&mut key, depth + 1)?;
-                sort_maps(&mut value, depth + 1)?;
-                sorted.push((serialize_value(&key)?, key, value));
-            }
-            sorted.sort_by(|a, b| a.0.cmp(&b.0));
-            *entries = sorted
-                .into_iter()
-                .map(|(_, key, value)| (key, value))
-                .collect();
-        }
-        Value::Tag(_, value) => sort_maps(value, depth + 1)?,
-        _ => {}
-    }
-    Ok(())
-}
-
-fn serialize_value(value: &Value) -> Result<Vec<u8>, MessageError> {
-    let mut bytes = Vec::new();
-    ciborium::into_writer(value, &mut bytes)
-        .map_err(|_| MessageError::Encoding("value cannot be encoded"))?;
-    Ok(bytes)
-}
-
-// Validate raw bytes before Value decoding loses wire details such as integer widths and map order.
-fn validate_encoding(bytes: &[u8]) -> Result<(), MessageError> {
-    let mut remaining = bytes;
-    scan(&mut remaining, 0)?;
-    if !remaining.is_empty() {
-        return Err(MessageError::Encoding("trailing bytes"));
-    }
-    Ok(())
-}
-
-// The fingerprint frames each item by type and length. Floating-point signed zeros and NaN signs
-// are normalized, and map pairs sorted, to implement RFC 8949 §5.6.1 key equivalence.
-fn scan(bytes: &mut &[u8], depth: usize) -> Result<Vec<u8>, MessageError> {
-    if depth > MAX_DEPTH {
-        return Err(MessageError::Encoding("nesting depth exceeded"));
-    }
-    let start = *bytes;
-    let initial = take(bytes, 1)?[0];
-    let major = initial >> 5;
-    let additional = initial & 31;
-    let argument = match additional {
-        0..=23 => u64::from(additional),
-        24..=27 => {
-            let size = 1 << (additional - 24);
-            let raw = take(bytes, size)?;
-            let value = raw
-                .iter()
-                .fold(0u64, |value, byte| (value << 8) | u64::from(*byte));
-            if major != 7 && (value < 24 || (size > 1 && value < (1u64 << (size / 2 * 8)))) {
-                return Err(MessageError::Encoding("non-preferred integer or length"));
-            }
-            value
-        }
-        _ => return Err(MessageError::Encoding("indefinite or reserved item")),
-    };
-    let mut payload = Vec::new();
-    match major {
-        0 | 1 => payload.extend_from_slice(&argument.to_be_bytes()),
-        2 | 3 => {
-            let length =
-                usize::try_from(argument).map_err(|_| MessageError::Encoding("length overflow"))?;
-            let data = take(bytes, length)?;
-            if major == 3 && std::str::from_utf8(data).is_err() {
-                return Err(MessageError::Encoding("invalid UTF-8"));
-            }
-            payload.extend_from_slice(data);
-        }
-        4 | 5 => {
-            let length =
-                usize::try_from(argument).map_err(|_| MessageError::Encoding("length overflow"))?;
-            let items_per_entry = if major == 5 { 2 } else { 1 };
-            if length > bytes.len() / items_per_entry {
-                return Err(MessageError::Encoding(
-                    "container length exceeds remaining bytes",
-                ));
-            }
-            let mut previous_key: Option<&[u8]> = None;
-            let mut keys = BTreeSet::new();
-            let mut pairs = Vec::new();
-            for _ in 0..length {
-                let before = *bytes;
-                let key = scan(bytes, depth + 1)?;
-                if major == 4 {
-                    payload.extend(key);
-                    continue;
-                }
-                let encoded_key = &before[..before.len() - bytes.len()];
-                if previous_key.is_some_and(|previous| previous >= encoded_key) {
-                    return Err(MessageError::Encoding(
-                        "map keys are duplicated or out of order",
-                    ));
-                }
-                previous_key = Some(encoded_key);
-                if !keys.insert(key.clone()) {
-                    return Err(MessageError::Encoding("duplicate equivalent map key"));
-                }
-                let value = scan(bytes, depth + 1)?;
-                pairs.push((key, value));
-            }
-            pairs.sort_unstable();
-            for (key, value) in pairs {
-                payload.extend(key);
-                payload.extend(value);
-            }
-        }
-        6 => {
-            let content = scan(bytes, depth + 1)?;
-            if matches!(argument, 2 | 3) {
-                if content[0] != 2 {
-                    return Err(MessageError::Encoding("bignum content must be bytes"));
-                }
-                // Byte-string fingerprints have a type byte and an eight-byte length prefix.
-                let magnitude = &content[9..];
-                if magnitude.len() <= 8 || magnitude[0] == 0 {
-                    return Err(MessageError::Encoding("non-preferred bignum"));
-                }
-            }
-            payload.extend_from_slice(&argument.to_be_bytes());
-            payload.extend(content);
-        }
-        7 if additional <= 24 => {
-            if !(20..=22).contains(&argument) {
-                return Err(MessageError::Encoding("unsupported CBOR simple value"));
-            }
-            if additional == 24 && argument < 32 {
-                return Err(MessageError::Encoding(
-                    "invalid or non-preferred simple value",
-                ));
-            }
-            payload.push(argument as u8);
-        }
-        7 => {
-            let raw = &start[..start.len() - bytes.len()];
-            let value: f64 =
-                ciborium::from_reader(raw).map_err(|_| MessageError::Encoding("invalid float"))?;
-            let significand_bits = match additional {
-                25 => 10,
-                26 => 23,
-                _ => 52,
-            };
-            if value.is_nan() {
-                payload.push(1);
-                let significand = argument & ((1 << significand_bits) - 1);
-                if (additional == 26 && significand & ((1 << 13) - 1) == 0)
-                    || (additional == 27 && significand & ((1 << 29) - 1) == 0)
-                {
-                    return Err(MessageError::Encoding("non-preferred NaN"));
-                }
-                payload.extend_from_slice(&(significand << (64 - significand_bits)).to_be_bytes());
-            } else {
-                payload.push(0);
-                let preferred = serialize_value(&Value::Float(value))?;
-                if preferred != raw {
-                    return Err(MessageError::Encoding("non-preferred float"));
-                }
-                payload.extend_from_slice(
-                    &(if value == 0.0 { 0 } else { value.to_bits() }).to_be_bytes(),
-                );
-            }
-        }
-        _ => unreachable!(),
-    }
-    let mut fingerprint = vec![if major == 7 && additional >= 25 {
-        8
-    } else {
-        major
-    }];
-    fingerprint.extend_from_slice(&(payload.len() as u64).to_be_bytes());
-    fingerprint.extend(payload);
-    Ok(fingerprint)
-}
-
-const fn take<'a>(bytes: &mut &'a [u8], len: usize) -> Result<&'a [u8], MessageError> {
-    if len > bytes.len() {
-        return Err(MessageError::Encoding("truncated item or invalid length"));
-    }
-    let (item, remaining) = bytes.split_at(len);
-    *bytes = remaining;
-    Ok(item)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::authenticator_message::{ErrorObject, Id, MethodName, Request, Response, Version};
+    use crate::authenticator_message::{
+        ErrorObject, Id, MethodName, Request, Response, Value, Version,
+    };
 
     fn map(fields: &[(&str, Value)]) -> Value {
         Value::Map(
@@ -274,9 +70,9 @@ mod tests {
     }
 
     fn raw(value: &Value) -> Vec<u8> {
-        let mut value = value.clone();
-        sort_maps(&mut value, 0).unwrap();
-        serialize_value(&value).unwrap()
+        let mut bytes = Vec::new();
+        ciborium::into_writer(value, &mut bytes).unwrap();
+        bytes
     }
 
     #[test]
@@ -468,17 +264,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_malformed_or_non_deterministic_encoding_before_payload_decode() {
+    fn rejects_malformed_and_indefinite_encoding_before_payload_decode() {
         for invalid in [
             vec![0xbf, 0xff],
             vec![0xa0, 0x00],
-            vec![0xb8, 0x00],
             vec![0xa1, 0x61, 0xff, 0],
             vec![0xa1, 0x61, b'x', 0x9f, 0xff],
-            vec![0xa1, 0x61, b'x', 0x1b, 0, 0, 0, 0, 0, 0, 0, 1],
-            vec![0xa2, 0x61, b'b', 0, 0x61, b'a', 0],
             vec![0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-            vec![0xa1, 0, 0xfa, 0x3f, 0x80, 0, 0],
         ] {
             assert!(
                 matches!(
@@ -518,22 +310,53 @@ mod tests {
     }
 
     #[test]
-    fn rejects_nonpreferred_and_invalid_bignums_before_payload_decode() {
+    fn accepts_non_deterministic_input_but_emits_deterministic_output() {
+        for (input, expected) in [
+            (vec![0xb8, 0], vec![0xa0]),
+            (vec![0x1b, 0, 0, 0, 0, 0, 0, 0, 1], vec![1]),
+            (
+                vec![0xa2, 0x61, b'b', 0, 0x61, b'a', 0],
+                vec![0xa2, 0x61, b'a', 0, 0x61, b'b', 0],
+            ),
+            (vec![0xfa, 0x3f, 0x80, 0, 0], vec![0xf9, 0x3c, 0]),
+        ] {
+            let decoded: Value = decode(&input, 1024).unwrap();
+            assert_eq!(encode(&decoded).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn rejects_equivalent_keys_with_different_encodings() {
+        for input in [
+            vec![0xa2, 1, 0, 0x18, 1, 0],
+            vec![0xa2, 1, 0, 0xc2, 0x42, 0, 1, 0],
+            vec![0xa2, 0x20, 0, 0xc3, 0x40, 0],
+            vec![0xa2, 0xf9, 0, 0, 0, 0xfa, 0x80, 0, 0, 0, 0],
+        ] {
+            assert!(decode::<Value>(&input, 1024).is_err(), "{input:x?}");
+        }
+        let first = map(&[("a", 1.into()), ("b", 2.into())]);
+        let second = map(&[("b", 2.into()), ("a", 1.into())]);
+        let duplicate = Value::Map(vec![(first, Value::Null), (second, Value::Null)]);
+        assert!(decode::<Value>(&raw(&duplicate), 1024).is_err());
+        assert!(encode(&duplicate).is_err());
+    }
+
+    #[test]
+    fn accepts_nonpreferred_bignums_but_rejects_invalid_contents() {
         for tag in [2, 3] {
-            for content in [
-                Value::Bytes(vec![]),
-                Value::Bytes(vec![1]),
-                Value::Bytes(vec![255; 8]),
-                Value::Bytes(vec![0; 9]),
-                Value::Bytes([vec![0], vec![1; 9]].concat()),
-                Value::Text("1".into()),
+            for magnitude in [
+                vec![],
+                vec![1],
+                vec![255; 8],
+                vec![0; 9],
+                [vec![0], vec![1; 9]].concat(),
             ] {
-                let encoded = raw(&response(Value::Tag(tag, Box::new(content))));
-                assert!(matches!(
-                    decode::<Response<Value>>(&encoded, 1024),
-                    Err(MessageError::Encoding(_))
-                ));
+                let encoded = raw(&Value::Tag(tag, Box::new(Value::Bytes(magnitude))));
+                assert!(decode::<Value>(&encoded, 1024).is_ok());
             }
+            let invalid = raw(&Value::Tag(tag, Box::new(Value::Text("1".into()))));
+            assert!(decode::<Value>(&invalid, 1024).is_err());
         }
     }
 
@@ -548,6 +371,22 @@ mod tests {
                 assert_eq!(encode(&decoded).unwrap(), encoded);
             }
         }
+    }
+
+    #[test]
+    fn preserves_distinct_signaling_and_quiet_nan_keys() {
+        let encoded = [0xa2, 0xf9, 0x7c, 0x01, 0, 0xf9, 0x7e, 0x01, 0];
+        let decoded: Value = decode(&encoded, 1024).unwrap();
+        let keys = decoded.as_map().unwrap();
+        assert_eq!(
+            keys[0].0.as_float().unwrap().to_bits(),
+            0x7ff0_0400_0000_0000
+        );
+        assert_eq!(
+            keys[1].0.as_float().unwrap().to_bits(),
+            0x7ff8_0400_0000_0000
+        );
+        assert_eq!(encode(&decoded).unwrap(), encoded);
     }
 
     #[test]
