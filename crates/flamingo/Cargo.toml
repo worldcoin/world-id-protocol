@@ -1,0 +1,26 @@
+[package]
+name = "world-id-flamingo"
+description = "WIP-201 Flamingo Verifier types for the World ID Protocol"
+publish = false
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+ark-babyjubjub = { workspace = true }
+ark-ff = { workspace = true }
+coset = { workspace = true }
+eddsa-babyjubjub = { workspace = true }
+thiserror = { workspace = true }
+world-id-primitives = { workspace = true }
+
+[dev-dependencies]
+hex = { workspace = true }
+sha2 = { workspace = true }
+
+[lints]
+workspace = true
