@@ -2,9 +2,7 @@
 
 use serde::{Serialize, de::DeserializeOwned};
 
-mod de;
-
-const MAX_DEPTH: usize = 32;
+const RECURSION_LIMIT: usize = 32;
 
 /// Serializes a value as CBOR using Ciborium.
 ///
@@ -18,20 +16,21 @@ pub fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, MessageError> {
     Ok(bytes)
 }
 
-/// Decodes exactly one value, rejecting duplicate keys and enforcing size and nesting bounds.
+/// Decodes exactly one CBOR value using Ciborium, with a byte-size and recursion limit.
 ///
-/// Map ordering and non-minimal integer, length and floating-point encodings are accepted.
-/// Definite and indefinite lengths are supported. Lengths are checked against the remaining
-/// input before allocating containers; nesting is limited to 32 levels. The schema is determined
-/// by `T`.
-///
-/// The Serde value model supports integers, floats, bytes, text, arrays, maps, tags, booleans and
-/// null. CBOR `undefined` and unassigned simple values are rejected rather than converted to null.
+/// `T` determines the schema and duplicate-field behavior. Ciborium's standard value semantics
+/// apply, including support for indefinite lengths and conversion of `undefined` to null.
+/// The decoder uses a recursion limit of 32 and rejects any trailing bytes.
 pub fn decode<T: DeserializeOwned>(bytes: &[u8], max_size: usize) -> Result<T, MessageError> {
     if bytes.len() > max_size {
         return Err(MessageError::TooLarge);
     }
-    Ok(de::decode(bytes)?.deserialized()?)
+    let mut remaining = bytes;
+    let value = ciborium::de::from_reader_with_recursion_limit(&mut remaining, RECURSION_LIMIT)?;
+    if !remaining.is_empty() {
+        return Err(MessageError::TrailingData);
+    }
+    Ok(value)
 }
 
 /// A value failed its transport size bound, CBOR encoding rules, or payload schema.
@@ -40,15 +39,15 @@ pub enum MessageError {
     /// The transport's encoded message limit was exceeded.
     #[error("CBOR value exceeds transport size limit")]
     TooLarge,
-    /// The message violates the CBOR encoding rules.
-    #[error("invalid CBOR: {0}")]
-    Encoding(&'static str),
+    /// More bytes remain after decoding one value.
+    #[error("trailing bytes after CBOR value")]
+    TrailingData,
     /// The value could not be serialized as CBOR.
     #[error("CBOR serialization failed: {0}")]
     Serialize(#[from] ciborium::ser::Error<std::io::Error>),
-    /// The method-specific payload schema failed.
-    #[error("CBOR payload serialization failed: {0}")]
-    Payload(#[from] ciborium::value::Error),
+    /// The CBOR input or requested schema could not be decoded.
+    #[error("CBOR deserialization failed: {0}")]
+    Deserialize(#[from] ciborium::de::Error<std::io::Error>),
 }
 
 #[cfg(test)]
@@ -273,7 +272,7 @@ mod tests {
         assert!(
             matches!(
                 decode::<Request<Value>>(&raw(&modified), 1024),
-                Err(MessageError::Payload(_))
+                Err(MessageError::Deserialize(_))
             ),
             "{field}"
         );
@@ -302,44 +301,39 @@ mod tests {
         assert!(decode::<Response<Value>>(&raw(&invalid), 1024).is_err());
     }
 
-    #[test_case(vec![0xa0, 0x00]; "trailing_data")]
-    #[test_case(vec![0xa1, 0x61, 0xff, 0]; "invalid_utf8")]
-    #[test_case(vec![0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]; "excessive_length")]
-    fn rejects_malformed_encoding_before_payload_decode(invalid: Vec<u8>) {
-        assert!(
-            matches!(
-                decode::<Value>(&invalid, 1024),
-                Err(MessageError::Encoding(_))
-            ),
-            "{invalid:x?}"
-        );
-    }
-
-    #[test_case(vec![Value::Text("x".into()), Value::Text("x".into())]; "text")]
-    #[test_case(vec![Value::Float(0.0), Value::Float(-0.0)]; "signed_zero")]
-    #[test_case(vec![
-        Value::Array(vec![Value::Float(0.0)]),
-        Value::Array(vec![Value::Float(-0.0)]),
-    ]; "array_signed_zero")]
-    #[test_case(vec![
-        Value::Tag(100, Box::new(Value::Float(0.0))),
-        Value::Tag(100, Box::new(Value::Float(-0.0))),
-    ]; "tag_signed_zero")]
-    fn rejects_duplicate_nested_keys_including_equivalent_signed_zeros(keys: Vec<Value>) {
-        let result = Value::Map(keys.into_iter().map(|key| (key, Value::Null)).collect());
+    #[test_case(&[0xa1, 0x61, 0xff, 0]; "invalid utf8")]
+    #[test_case(&[0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]; "truncated array")]
+    #[test_case(&[0x5a, 0xff, 0xff, 0xff, 0xff]; "truncated bytes")]
+    fn rejects_malformed_input(invalid: &[u8]) {
         assert!(matches!(
-            decode::<Value>(&raw(&response(result)), 1024),
-            Err(MessageError::Encoding(_))
+            decode::<Value>(invalid, 1024),
+            Err(MessageError::Deserialize(_))
         ));
     }
 
     #[test]
-    fn integer_and_float_keys_are_distinct() {
-        let distinct = response(Value::Map(vec![
-            (1.into(), Value::Null),
-            (Value::Float(1.0), Value::Null),
-        ]));
-        assert!(decode::<Value>(&encode(&distinct).unwrap(), 1024).is_ok());
+    fn rejects_trailing_data() {
+        assert!(matches!(
+            decode::<Value>(&[0xa0, 0], 1024),
+            Err(MessageError::TrailingData)
+        ));
+    }
+
+    #[test]
+    fn duplicate_handling_follows_the_requested_type() {
+        let duplicate = map(&[
+            ("version", "1.0".into()),
+            ("version", "1.0".into()),
+            ("method", "worldid_ping".into()),
+        ]);
+        let encoded = encode(&duplicate).unwrap();
+        assert_eq!(decode::<Value>(&encoded, 1024).unwrap(), duplicate);
+        assert!(decode::<Request<Value>>(&encoded, 1024).is_err());
+    }
+
+    #[test]
+    fn undefined_uses_ciborium_null_semantics() {
+        assert_eq!(decode::<Value>(&[0xf7], 1024).unwrap(), Value::Null);
     }
 
     #[test_case(vec![0xb8, 0], Value::Map(vec![]); "wide_map_length")]
@@ -351,84 +345,6 @@ mod tests {
         assert_eq!(decode::<Value>(&input, 1024).unwrap(), expected);
     }
 
-    #[test_case(vec![0xa2, 1, 0, 0x18, 1, 0]; "integer_width")]
-    #[test_case(vec![0xa2, 1, 0, 0xc2, 0x42, 0, 1, 0]; "positive_bignum")]
-    #[test_case(vec![0xa2, 0x20, 0, 0xc3, 0x40, 0]; "negative_bignum")]
-    #[test_case(vec![0xa2, 0xf9, 0, 0, 0, 0xfa, 0x80, 0, 0, 0, 0]; "float_width")]
-    fn rejects_equivalent_keys_with_different_encodings(input: Vec<u8>) {
-        assert!(decode::<Value>(&input, 1024).is_err(), "{input:x?}");
-    }
-
-    #[test]
-    fn rejects_equivalent_map_keys_in_different_orders() {
-        let first = map(&[("a", 1.into()), ("b", 2.into())]);
-        let second = map(&[("b", 2.into()), ("a", 1.into())]);
-        let duplicate = Value::Map(vec![(first, Value::Null), (second, Value::Null)]);
-        assert!(decode::<Value>(&raw(&duplicate), 1024).is_err());
-    }
-
-    #[test_case(2, vec![]; "positive_empty")]
-    #[test_case(2, vec![1]; "positive_small")]
-    #[test_case(2, vec![255; 8]; "positive_eight_bytes")]
-    #[test_case(2, vec![0; 9]; "positive_zero")]
-    #[test_case(2, [vec![0], vec![1; 9]].concat(); "positive_leading_zero")]
-    #[test_case(3, vec![]; "negative_empty")]
-    #[test_case(3, vec![1]; "negative_small")]
-    #[test_case(3, vec![255; 8]; "negative_eight_bytes")]
-    #[test_case(3, vec![0; 9]; "negative_zero")]
-    #[test_case(3, [vec![0], vec![1; 9]].concat(); "negative_leading_zero")]
-    fn accepts_nonpreferred_bignums(tag: u64, magnitude: Vec<u8>) {
-        let encoded = raw(&Value::Tag(tag, Box::new(Value::Bytes(magnitude))));
-        assert!(decode::<Value>(&encoded, 1024).is_ok());
-    }
-
-    #[test_case(2; "positive")]
-    #[test_case(3; "negative")]
-    fn rejects_invalid_bignum_contents(tag: u64) {
-        let invalid = raw(&Value::Tag(tag, Box::new(Value::Text("1".into()))));
-        assert!(decode::<Value>(&invalid, 1024).is_err());
-    }
-
-    #[test_case(2, 9; "positive_9_bytes")]
-    #[test_case(2, 16; "positive_16_bytes")]
-    #[test_case(2, 17; "positive_17_bytes")]
-    #[test_case(3, 9; "negative_9_bytes")]
-    #[test_case(3, 16; "negative_16_bytes")]
-    #[test_case(3, 17; "negative_17_bytes")]
-    fn preferred_bignums_round_trip_without_changing_map_keys(tag: u64, length: usize) {
-        let key = Value::Tag(tag, Box::new(Value::Bytes(vec![1; length])));
-        let message = response(Value::Map(vec![(key, Value::Null)]));
-        let encoded = encode(&message).unwrap();
-        let decoded: Response<Value> = decode(&encoded, 1024).unwrap();
-        assert_eq!(encode(&decoded).unwrap(), encoded);
-    }
-
-    #[test]
-    fn preserves_distinct_signaling_and_quiet_nan_keys() {
-        let encoded = [0xa2, 0xf9, 0x7c, 0x01, 0, 0xf9, 0x7e, 0x01, 0];
-        let decoded: Value = decode(&encoded, 1024).unwrap();
-        let keys = decoded.as_map().unwrap();
-        assert_eq!(
-            keys[0].0.as_float().unwrap().to_bits(),
-            0x7ff0_0400_0000_0000
-        );
-        assert_eq!(
-            keys[1].0.as_float().unwrap().to_bits(),
-            0x7ff8_0400_0000_0000
-        );
-    }
-
-    #[test]
-    fn never_converts_undefined_to_null() {
-        let mut encoded = encode(&response(Value::Null)).unwrap();
-        let null = encoded.iter().position(|byte| *byte == 0xf6).unwrap();
-        encoded[null] = 0xf7;
-        assert!(matches!(
-            decode::<Response<Value>>(&encoded, 1024),
-            Err(MessageError::Encoding("unsupported CBOR simple value"))
-        ));
-    }
-
     #[test]
     fn enforces_size_and_depth_limits() {
         let encoded = encode(&response(Value::Null)).unwrap();
@@ -436,11 +352,13 @@ mod tests {
             decode::<Value>(&encoded, encoded.len() - 1),
             Err(MessageError::TooLarge)
         ));
-        let mut nested = vec![0x81; MAX_DEPTH + 2];
+        let mut nested = vec![0x81; RECURSION_LIMIT + 2];
         nested.push(0);
         assert!(matches!(
             decode::<Value>(&nested, 1024),
-            Err(MessageError::Encoding("nesting depth exceeded"))
+            Err(MessageError::Deserialize(
+                ciborium::de::Error::RecursionLimitExceeded
+            ))
         ));
     }
 }
