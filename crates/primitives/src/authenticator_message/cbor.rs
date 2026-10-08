@@ -215,6 +215,39 @@ mod tests {
         );
     }
 
+    #[test_case(None; "absent")]
+    #[test_case(Some(Value::Null); "present null")]
+    #[test_case(Some(map(&[("x", 1.into())])); "present map")]
+    fn request_params_preserve_presence(params: Option<Value>) {
+        let request = Request {
+            version: Version::V1,
+            id: Some(1.into()),
+            method: MethodName::from_static("worldid_ping"),
+            params,
+        };
+        assert_eq!(
+            decode::<Request<Value>>(&encode(&request).unwrap(), 1024).unwrap(),
+            request
+        );
+    }
+
+    #[test_case(None, true; "absent")]
+    #[test_case(Some(Value::Null), false; "present null")]
+    #[test_case(Some(map(&[("x", 1.into())])), true; "present map")]
+    fn typed_request_params_reject_null(params: Option<Value>, accepted: bool) {
+        let request = Request {
+            version: Version::V1,
+            id: Some(1.into()),
+            method: MethodName::from_static("worldid_ping"),
+            params,
+        };
+        let bytes = encode(&request).unwrap();
+        assert_eq!(
+            decode::<Request<std::collections::BTreeMap<String, u64>>>(&bytes, 1024).is_ok(),
+            accepted
+        );
+    }
+
     #[test]
     fn requests_accept_boolean_params() {
         let request = Request::new(None, MethodName::from_static("worldid_ping"), true);

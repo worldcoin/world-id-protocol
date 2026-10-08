@@ -4,7 +4,7 @@ use super::{
 };
 use poseidon2::bn254::permutation;
 
-// Known-answer fixture shared with `crates/proof/src/authenticator_assertion/tests.rs`.
+// Known-answer fixture shared with `crates/primitives/src/authenticator_assertion/tests.rs`.
 global AUTHENTICATOR_PROVIDER_KEY: [Field; 2] = [
     19037598474602150174935475944965340829216795940473064039209388058233204431288,
     3549932221586364715003722955756497910920276078443163728621283280434115857197,

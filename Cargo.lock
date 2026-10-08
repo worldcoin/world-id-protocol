@@ -12633,7 +12633,6 @@ dependencies = [
  "ark-groth16",
  "ark-serialize 0.6.0",
  "eyre",
- "hex",
  "once_cell",
  "provekit-common",
  "provekit-prover",
