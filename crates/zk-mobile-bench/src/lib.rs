@@ -4,9 +4,11 @@
 //! - Query Proof (`π1`) - proves knowledge of a valid OPRF query
 //! - Nullifier/Uniqueness Proof (`π2`) - proves uniqueness without revealing identity
 //! - Ownership Proof (WIP-103) - proves control of a World ID account, on Noir/ProveKit
+//! - DeepFace Proof (WIP-111) - proves a WIP-110 Verifier comparison, on Noir/ProveKit
 
 use mobench_sdk::{benchmark, profile_phase};
 
+mod deepface_bench;
 mod fixtures;
 
 use ark_babyjubjub::Fq;
@@ -444,6 +446,30 @@ pub fn bench_ownership_proof_generation() {
     std::hint::black_box(proof);
 }
 
+/// Benchmark: DeepFace Proof (WIP-111) on Noir/ProveKit, reported via the
+/// `prover_load` / `witness` / `prove` phases.
+#[benchmark]
+pub fn bench_deepface_proof_generation() {
+    let mut prover = profile_phase("prover_load", || {
+        deepface_bench::load_embedded_prover().expect("embedded DeepFace prover")
+    });
+    let input = deepface_bench::inputs(&prover).expect("DeepFace witness inputs");
+
+    let witness = profile_phase("witness", || {
+        prover
+            .generate_witness(input)
+            .expect("DeepFace witness generation")
+    });
+
+    let proof = profile_phase("prove", || {
+        prover
+            .prove_with_witness(witness)
+            .expect("DeepFace WHIR proving")
+    });
+
+    std::hint::black_box(proof);
+}
+
 // ============================================================================
 // UniFFI Exports for Mobile
 // ============================================================================
@@ -670,6 +696,12 @@ mod tests {
         bench_ownership_proof_generation();
     }
 
+    #[test]
+    #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
+    fn test_deepface_proof_benchmark() {
+        bench_deepface_proof_generation();
+    }
+
     /// The ownership fixture must stay in sync with the one backing the circuit's `Prover.toml`
     /// in `world-id-proof`; a drifted fixture would otherwise fail only at proving time.
     #[test]
@@ -709,6 +741,7 @@ mod tests {
             "zk_mobile_bench::bench_nullifier_witness_generation_only",
             "zk_mobile_bench::bench_nullifier_proving_only",
             "zk_mobile_bench::bench_ownership_proof_generation",
+            "zk_mobile_bench::bench_deepface_proof_generation",
         ] {
             assert!(
                 names.iter().any(|name| name == expected_name),
