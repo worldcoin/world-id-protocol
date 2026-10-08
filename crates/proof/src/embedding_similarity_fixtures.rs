@@ -330,7 +330,7 @@ fn render() -> Rendered {
          // need. Regenerate with:\n\
          //   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity\n\
          // Keys derive from constant test seeds (not real key material).\n\
-         use super::types::{{PublicKey, Signature}};\n\n{}",
+         use super::components::types::{{PublicKey, Signature}};\n\n{}",
         globals
             .iter()
             .map(|(name, ty, value)| format!("pub global {name}: {ty} = {value};\n"))

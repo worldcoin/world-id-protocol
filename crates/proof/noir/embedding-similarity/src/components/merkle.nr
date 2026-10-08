@@ -51,8 +51,7 @@ pub fn compute_merkle_root(
 }
 
 mod tests {
-    use crate::constants::MERKLE_DEPTH;
-    use crate::types::PublicKey;
+    use super::super::{constants::MERKLE_DEPTH, types::PublicKey};
     use super::{compute_merkle_root, key_set_commitment};
     use poseidon2::bn254::permutation;
 

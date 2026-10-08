@@ -2,7 +2,7 @@
 // need. Regenerate with:
 //   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity
 // Keys derive from constant test seeds (not real key material).
-use super::types::{PublicKey, Signature};
+use super::components::types::{PublicKey, Signature};
 
 pub global VERIFIER_KEY: PublicKey = PublicKey {
     x: 4417214393686375319944320810341694814369485096296978272105534111779387689568,

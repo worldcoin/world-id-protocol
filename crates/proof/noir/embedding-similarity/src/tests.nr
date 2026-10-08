@@ -1,5 +1,9 @@
 use crate::{
-    constants::{CHUNK_SLOTS, MAX_CLAIMS, MERKLE_DEPTH, NUM_KEYS},
+    components::{
+        constants::{MAX_CLAIMS, MERKLE_DEPTH, NUM_KEYS},
+        types::{AccountInputs, CredentialInputs, PublicKey},
+    },
+    constants::CHUNK_SLOTS,
     hashes_json::{claims_hash_v1, thumbnail_digest},
     main,
     test_fixtures::{
@@ -10,10 +14,7 @@ use crate::{
         PLATFORM, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS, SUB_BLINDING_FACTOR,
         TOKEN_SIG, TOKEN_SIG_NO_AAT, USER_PK, USER_PRESENCE, VERIFIER_KEY,
     },
-    types::{
-        AccountInputs, CredentialInputs, FlamingoTokenInputs, HashesJsonInputs, PrivateInputs,
-        PublicKey,
-    },
+    types::{FlamingoTokenInputs, HashesJsonInputs, PrivateInputs},
 };
 
 struct Public {

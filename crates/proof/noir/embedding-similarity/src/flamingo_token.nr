@@ -1,5 +1,5 @@
 // WIP-201 Flamingo Token Verification (WIP-201 section 3.9).
-use super::{constants::DS_WIP_201, types::{FlamingoTokenInputs, PublicKey}};
+use super::{components::types::PublicKey, constants::DS_WIP_201, types::FlamingoTokenInputs};
 use poseidon2::bn254::permutation;
 
 /// The public values a Flamingo Token is verified against.

@@ -1,16 +1,7 @@
-// Constants of the WIP-202 Proof of Embedding Similarity.
+// Constants of the WIP-202 Proof of Embedding Similarity; shared ones are in `components`.
 //
 // Domain separators are the ASCII bytes of the quoted tag read as a big-endian
 // integer (all tags are shorter than 31 bytes, so no reduction occurs).
-
-/// Number of authenticator key slots in a `WorldIDRegistry` leaf.
-pub global NUM_KEYS: u32 = 7;
-
-/// Number of claim slots in a Credential.
-pub global MAX_CLAIMS: u32 = 15;
-
-/// Depth of the `WorldIDRegistry` Merkle tree, fixed by WIP-100.
-pub global MERKLE_DEPTH: u32 = 30;
 
 /// Compared entries in a WIP-201 Flamingo Token.
 pub global MAX_COMPARED: u32 = 4;
@@ -40,15 +31,3 @@ pub global DS_WIP_201: Field = 1276034880235230441620707501697307500222808971856
 
 /// Account authorization (`DS_WIP_202_AUTH`): b"WORLD-ID/WIP-202/AUTH".
 pub global DS_WIP_202_AUTH: Field = 127603488023523044162070750169730750023380107613256;
-
-/// Credential hash (`ds::CREDENTIAL_V1`): b"POSEIDON2+EDDSA-BJJ".
-pub global DS_CREDENTIAL_V1: Field = 1790969822004668215611014194230797064349043274;
-
-/// Blinded credential subject (`ds::CREDENTIAL_SUB`): b"H_CS(id, r)".
-pub global DS_CREDENTIAL_SUB: Field = 87492525752134038588518953;
-
-/// Session commitment (`ds::SESSION_COMMITMENT`): b"H(id, r)".
-pub global DS_SESSION_COMMITMENT: Field = 5199521648757207593;
-
-/// Registry leaf hash (`ds::AUTHENTICATOR_KEY_SET`): b"World ID PK".
-pub global MERKLE_LEAF_DS: Field = 105702839725298824521994315;
