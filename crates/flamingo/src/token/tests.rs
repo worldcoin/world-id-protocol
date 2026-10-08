@@ -202,3 +202,20 @@ fn rejects_another_algorithm() {
         Err(TokenError::UnexpectedAlgorithm)
     );
 }
+
+#[test]
+fn rejects_an_altered_envelope() {
+    let mut unprotected = CoseSign1::from_slice(sign(&with_aat()).as_bytes()).unwrap();
+    unprotected.unprotected.key_id = vec![1];
+    let mut kid = CoseSign1::from_slice(sign(&with_aat()).as_bytes()).unwrap();
+    kid.protected.header.key_id = vec![0; 32];
+    kid.protected.original_data = None;
+
+    for sign1 in [unprotected, kid] {
+        let token = FlamingoToken::from_bytes(sign1.to_vec().unwrap());
+        assert_eq!(
+            token.verify(&signing_key().public()),
+            Err(TokenError::Malformed)
+        );
+    }
+}

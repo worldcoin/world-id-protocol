@@ -273,8 +273,10 @@ impl FlamingoToken {
         self.0
     }
 
-    /// Decodes the token and verifies its signature under `signing_public_key`; `kid` is
-    /// ignored.
+    /// Decodes the token and verifies its signature under `signing_public_key`.
+    ///
+    /// Accepts only the exact encoding [`Self::new`] produces, so `kid`, the headers and the
+    /// signature bytes cannot be altered without invalidating the token.
     ///
     /// # Errors
     /// Fails on any framing, claim or algorithm mismatch, or an invalid signature.
@@ -295,11 +297,14 @@ impl FlamingoToken {
             .and_then(|bytes| EdDSASignature::from_compressed_bytes(bytes).ok())
             .ok_or(TokenError::Malformed)?;
 
-        if signing_public_key.verify(*claims.digest(), &signature) {
-            Ok(claims)
-        } else {
-            Err(TokenError::SignatureInvalid)
+        if !signing_public_key.verify(*claims.digest(), &signature) {
+            return Err(TokenError::SignatureInvalid);
         }
+        // The signature covers only the claims; re-encoding pins the envelope too.
+        if Self::new(&claims, &signature, signing_public_key)? != *self {
+            return Err(TokenError::Malformed);
+        }
+        Ok(claims)
     }
 }
 
