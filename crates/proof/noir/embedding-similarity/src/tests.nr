@@ -19,6 +19,8 @@ use crate::{
 
 struct Public {
     now: u32,
+    aud: Field,
+    nonce: Field,
     has_aat: bool,
     authenticator_provider_key_hash: Field,
     platform: u8,
@@ -35,6 +37,8 @@ struct Public {
 fn public() -> Public {
     Public {
         now: NOW,
+        aud: AUD,
+        nonce: NONCE,
         has_aat: true,
         authenticator_provider_key_hash: AUTHENTICATOR_PROVIDER_KEY_HASH,
         platform: PLATFORM,
@@ -85,8 +89,8 @@ fn prove(p: Public, inputs: PrivateInputs) {
     main(
         VERIFIER_KEY,
         p.now,
-        AUD,
-        NONCE,
+        p.aud,
+        p.nonce,
         p.has_aat,
         p.authenticator_provider_key_hash,
         p.platform,
@@ -173,6 +177,20 @@ fn test_rejects_a_tampered_live_entry() {
 fn test_rejects_another_engine_config() {
     let mut p = public();
     p.engine_config_hash += 1;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_another_audience() {
+    let mut p = public();
+    p.aud += 1;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_another_nonce() {
+    let mut p = public();
+    p.nonce += 1;
     prove(p, inputs());
 }
 
@@ -329,5 +347,31 @@ fn test_reads_a_thumbnail_in_the_final_short_chunk() {
 fn test_rejects_a_hashes_json_below_the_length_window() {
     let mut json = inputs().hashes_json;
     json.len = 3071;
+    let _ = claims_hash_v1(json);
+}
+
+#[test(should_fail_with = "thumbnail digest must be lowercase hex")]
+fn test_rejects_an_uppercase_thumbnail_digest() {
+    let json = "{\"a\":\"1234\",\"thumbnail.png\":\"00000000000000000000000000000000000000000000000000000000000000FF\"}"
+        .as_bytes();
+    let _ = thumbnail_digest(
+        HashesJsonInputs { chunks: chunks_of(json), len: json.len(), digest_offset: 29 },
+    );
+}
+
+#[test(should_fail_with = "thumbnail digest must be 64 hex digits")]
+fn test_rejects_a_thumbnail_digest_without_its_closing_quote() {
+    // 65 hex digits: the 65th byte stands where the closing quote must be.
+    let json = "{\"a\":\"1234\",\"thumbnail.png\":\"00000000000000000000000000000000000000000000000000000000000000ff0\"}"
+        .as_bytes();
+    let _ = thumbnail_digest(
+        HashesJsonInputs { chunks: chunks_of(json), len: json.len(), digest_offset: 29 },
+    );
+}
+
+#[test(should_fail_with = "hashes.json exceeds its bound")]
+fn test_rejects_a_hashes_json_above_the_length_window() {
+    let mut json = inputs().hashes_json;
+    json.len = 5121;
     let _ = claims_hash_v1(json);
 }
