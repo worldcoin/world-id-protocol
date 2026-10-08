@@ -1,31 +1,31 @@
+//! Deterministic CBOR encoding and decoding with size and nesting bounds.
+
 use std::collections::BTreeSet;
 
 use serde::{Serialize, de::DeserializeOwned};
 
-use super::{MethodName, Value};
+use super::Value;
 
 const MAX_DEPTH: usize = 32;
 
-/// Encodes an envelope using RFC 8949 core deterministic encoding.
+/// Encodes a value using RFC 8949 core deterministic encoding.
 ///
-/// Map keys are sorted by their encoded bytes, recursively. Duplicate keys, invalid envelopes,
+/// Map keys are sorted by their encoded bytes, recursively. Duplicate keys
 /// and values nested more than 32 levels are rejected. Transports must enforce their own encoded
 /// size limit before sending. Binary payload types must serialize as bytes, not integer arrays.
-pub fn encode<T: Serialize>(message: &T) -> Result<Vec<u8>, MessageError> {
-    let mut value = Value::serialized(message)?;
-    validate_envelope(&value)?;
+pub fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, MessageError> {
+    let mut value = Value::serialized(value)?;
     sort_maps(&mut value, 0)?;
     let bytes = serialize_value(&value)?;
     validate_encoding(&bytes)?;
     Ok(bytes)
 }
 
-/// Decodes exactly one message after validating the entire encoding and envelope.
+/// Decodes exactly one value after validating its entire encoding.
 ///
 /// `max_size` is the transport's maximum encoded message size. Lengths and nesting (at most 32
-/// levels) are checked before allocating payload containers. Unknown envelope and error fields
-/// are ignored, but their encodings are still checked. Method-specific schemas are checked by
-/// `T`; callers must not execute a request until this function succeeds.
+/// levels) are checked before allocating payload containers. The schema is determined by `T`;
+/// this codec does not impose any envelope or method-specific structure.
 ///
 /// The Serde value model supports integers, floats, bytes, text, arrays, maps, tags, booleans and
 /// null. CBOR `undefined` and unassigned simple values are rejected instead of being silently
@@ -37,87 +37,21 @@ pub fn decode<T: DeserializeOwned>(bytes: &[u8], max_size: usize) -> Result<T, M
     validate_encoding(bytes)?;
     let value: Value = ciborium::from_reader(bytes)
         .map_err(|_| MessageError::Encoding("unsupported or invalid CBOR value"))?;
-    validate_envelope(&value)?;
     Ok(value.deserialized()?)
 }
 
-/// A message failed its transport size bound, CBOR encoding rules, envelope, or payload schema.
+/// A value failed its transport size bound, CBOR encoding rules, or payload schema.
 #[derive(Debug, thiserror::Error)]
 pub enum MessageError {
     /// The transport's encoded message limit was exceeded.
-    #[error("authenticator message exceeds transport size limit")]
+    #[error("CBOR value exceeds transport size limit")]
     TooLarge,
     /// The message violates the CBOR encoding rules.
-    #[error("invalid authenticator CBOR: {0}")]
+    #[error("invalid CBOR: {0}")]
     Encoding(&'static str),
-    /// The CBOR is valid, but the WIP-105 envelope is not.
-    #[error("invalid authenticator envelope: {0}")]
-    Envelope(&'static str),
     /// Serialization or the method-specific payload schema failed.
-    #[error("authenticator payload serialization failed: {0}")]
+    #[error("CBOR payload serialization failed: {0}")]
     Payload(#[from] ciborium::value::Error),
-}
-
-fn validate_envelope(value: &Value) -> Result<(), MessageError> {
-    let Value::Map(fields) = value else {
-        return Err(MessageError::Envelope("message must be a map"));
-    };
-    if fields.iter().any(|(key, _)| !matches!(key, Value::Text(_))) {
-        return Err(MessageError::Envelope("envelope keys must be text"));
-    }
-    let get = |name: &str| {
-        fields
-            .iter()
-            .find_map(|(key, value)| (key.as_text() == Some(name)).then_some(value))
-    };
-    if get("version").and_then(Value::as_text) != Some("1.0") {
-        return Err(MessageError::Envelope("unsupported or missing version"));
-    }
-    let valid_id = |id: &Value| matches!(id, Value::Integer(_) | Value::Text(_));
-    if let Some(method) = get("method") {
-        if method
-            .as_text()
-            .and_then(|m| m.parse::<MethodName>().ok())
-            .is_none()
-        {
-            return Err(MessageError::Envelope("invalid method name"));
-        }
-        if get("result").is_some() || get("error").is_some() {
-            return Err(MessageError::Envelope("request contains response fields"));
-        }
-        if get("id").is_some_and(|id| !valid_id(id)) {
-            return Err(MessageError::Envelope("request ID must be text or integer"));
-        }
-        if get("params").is_some_and(|params| !matches!(params, Value::Array(_) | Value::Map(_))) {
-            return Err(MessageError::Envelope("parameters must be an array or map"));
-        }
-        return Ok(());
-    }
-    if get("params").is_some() {
-        return Err(MessageError::Envelope("response contains parameters"));
-    }
-    let id = get("id").ok_or(MessageError::Envelope("response ID is missing"))?;
-    match (get("result"), get("error")) {
-        (Some(_), None) if valid_id(id) => Ok(()),
-        (None, Some(Value::Map(error))) if valid_id(id) || matches!(id, Value::Null) => {
-            if error.iter().any(|(key, _)| !matches!(key, Value::Text(_))) {
-                return Err(MessageError::Envelope("error keys must be text"));
-            }
-            for required in ["code", "message"] {
-                if !error.iter().any(|(key, value)| {
-                    key.as_text() == Some(required) && matches!(value, Value::Text(_))
-                }) {
-                    return Err(MessageError::Envelope(
-                        "error requires text code and message",
-                    ));
-                }
-            }
-            Ok(())
-        }
-        _ => Err(MessageError::Envelope(
-            "response requires a valid ID and exactly one result or error",
-        )),
-    }
 }
 
 fn sort_maps(value: &mut Value, depth: usize) -> Result<(), MessageError> {
@@ -156,6 +90,7 @@ fn serialize_value(value: &Value) -> Result<Vec<u8>, MessageError> {
     Ok(bytes)
 }
 
+// Validate raw bytes before Value decoding loses wire details such as integer widths and map order.
 fn validate_encoding(bytes: &[u8]) -> Result<(), MessageError> {
     let mut remaining = bytes;
     scan(&mut remaining, 0)?;
@@ -319,7 +254,7 @@ const fn take<'a>(bytes: &mut &'a [u8], len: usize) -> Result<&'a [u8], MessageE
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::authenticator_message::{ErrorObject, Id, Notification, Request, Response};
+    use crate::authenticator_message::{ErrorObject, Id, MethodName, Request, Response, Version};
 
     fn map(fields: &[(&str, Value)]) -> Value {
         Value::Map(
@@ -352,13 +287,24 @@ mod tests {
             Id::String("1".into()),
         ] {
             let request = Request::new(
-                id,
+                Some(id),
                 MethodName::from_static("worldid_auth_v1_register"),
                 map(&[("key", Value::Bytes(vec![0, 255]))]),
             );
             let bytes = encode(&request).unwrap();
             let decoded: Request<Value> = decode(&bytes, bytes.len()).unwrap();
             assert_eq!(decoded, request);
+        }
+    }
+
+    #[test]
+    fn typed_ids_reject_integers_outside_the_basic_cbor_range() {
+        for number in [i128::from(u64::MAX) + 1, -2 - i128::from(u64::MAX)] {
+            let request = Request::<Value>::without_params(
+                Some(Id::Number(number)),
+                MethodName::from_static("worldid_ping"),
+            );
+            assert!(encode(&request).is_err());
         }
     }
 
@@ -383,15 +329,16 @@ mod tests {
     #[test]
     fn notifications_and_absent_arguments_round_trip() {
         let notification =
-            Notification::<Value>::without_params(MethodName::from_static("worldid_ping"));
+            Request::<Value>::without_params(None, MethodName::from_static("worldid_ping"));
         let bytes = encode(&notification).unwrap();
         assert_eq!(
-            decode::<Notification<Value>>(&bytes, 1024).unwrap(),
+            decode::<Request<Value>>(&bytes, 1024).unwrap(),
             notification
         );
-        assert!(decode::<Request<Value>>(&bytes, 1024).is_err());
-        let request =
-            Request::<Value>::without_params(1.into(), MethodName::from_static("worldid_ping"));
+        let request = Request::<Value>::without_params(
+            Some(1.into()),
+            MethodName::from_static("worldid_ping"),
+        );
         assert_eq!(
             decode::<Request<Value>>(&encode(&request).unwrap(), 1024).unwrap(),
             request
@@ -401,6 +348,7 @@ mod tests {
     #[test]
     fn responses_preserve_null_results_and_error_data() {
         let success: Response<Value> = Response {
+            version: Version::V1,
             id: Some(1.into()),
             outcome: Ok(Value::Null),
         };
@@ -409,6 +357,7 @@ mod tests {
             success
         );
         let error: Response<Value> = Response {
+            version: Version::V1,
             id: None,
             outcome: Err(ErrorObject {
                 code: "parse_error".into(),
@@ -420,10 +369,8 @@ mod tests {
             decode::<Response<Value>>(&encode(&error).unwrap(), 1024).unwrap(),
             error
         );
-        let request =
-            Request::<Value>::without_params(1.into(), MethodName::from_static("worldid_ping"));
-        assert!(decode::<Notification<Value>>(&encode(&request).unwrap(), 1024).is_err());
         let invalid: Response<Value> = Response {
+            version: Version::V1,
             id: None,
             outcome: Ok(Value::Null),
         };
@@ -450,21 +397,37 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_envelopes() {
+    fn generic_codec_accepts_arbitrary_payloads() {
+        for value in [
+            Value::Null,
+            Value::Bool(true),
+            Value::Bytes(vec![1, 2]),
+            map(&[("x", 1.into())]),
+        ] {
+            assert_eq!(
+                decode::<Value>(&encode(&value).unwrap(), 1024).unwrap(),
+                value
+            );
+        }
+        let request = Request::new(None, MethodName::from_static("worldid_ping"), true);
+        assert_eq!(
+            decode::<Request<bool>>(&encode(&request).unwrap(), 1024).unwrap(),
+            request
+        );
+    }
+
+    #[test]
+    fn typed_envelopes_reject_invalid_fields() {
         let request = map(&[
             ("version", "1.0".into()),
             ("id", 1.into()),
             ("method", "worldid_ping".into()),
         ]);
         for (field, value) in [
-            ("params", Value::Null),
-            ("params", true.into()),
             ("id", Value::Null),
             ("id", Value::Float(1.0)),
             ("method", "other_ping".into()),
             ("version", "2.0".into()),
-            ("result", Value::Null),
-            ("error", Value::Null),
         ] {
             let mut modified = request.clone();
             let fields = modified.as_map_mut().unwrap();
@@ -472,13 +435,20 @@ mod tests {
             fields.push((field.into(), value));
             assert!(
                 matches!(
-                    decode::<Value>(&raw(&modified), 1024),
-                    Err(MessageError::Envelope(_))
+                    decode::<Request<Value>>(&raw(&modified), 1024),
+                    Err(MessageError::Payload(_))
                 ),
                 "{field}"
             );
         }
+        let error = map(&[("code", "failed".into()), ("message", "failed".into())]);
         for invalid in [
+            map(&[("id", 1.into()), ("result", Value::Null)]),
+            map(&[
+                ("version", "2.0".into()),
+                ("id", 1.into()),
+                ("result", Value::Null),
+            ]),
             map(&[("version", "1.0".into()), ("id", 1.into())]),
             map(&[("version", "1.0".into()), ("result", Value::Null)]),
             map(&[
@@ -490,10 +460,10 @@ mod tests {
                 ("version", "1.0".into()),
                 ("id", 1.into()),
                 ("result", Value::Null),
-                ("error", Value::Null),
+                ("error", error),
             ]),
         ] {
-            assert!(decode::<Value>(&raw(&invalid), 1024).is_err());
+            assert!(decode::<Response<Value>>(&raw(&invalid), 1024).is_err());
         }
     }
 

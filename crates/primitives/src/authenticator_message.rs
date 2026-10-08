@@ -2,7 +2,7 @@
 //! defined in [WIP-105](https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-105.md).
 //!
 //! Messages use deterministic CBOR. Use [`encode`] and [`decode`] at transport boundaries to
-//! enforce the encoding rules and envelope semantics before processing a method payload.
+//! enforce the encoding rules. Typed requests and responses validate their own fields.
 //! Deeplinks are `worldid://` URIs represented by [`Deeplink`].
 
 use std::{borrow::Cow, fmt, str::FromStr};
@@ -10,7 +10,7 @@ use std::{borrow::Cow, fmt, str::FromStr};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
-mod cbor;
+pub mod cbor;
 pub use cbor::{MessageError, decode, encode};
 pub use ciborium::Value;
 
@@ -19,16 +19,23 @@ pub const DEEPLINK_SCHEME: &str = "worldid";
 
 const METHOD_PREFIX: &str = "worldid";
 
-/// A request requiring a response with the same ID.
+/// A method invocation, with an ID when a response is expected.
 ///
-/// Use [`encode`] and [`decode`] to check envelope semantics, including the requirement that
-/// supplied parameters are a CBOR map or array. Session owners must prevent concurrent ID reuse.
+/// An absent ID represents a notification. Receivers must never reply to notifications, even
+/// when the method is unknown or execution fails. Session owners must prevent concurrent ID
+/// reuse. Callers are responsible for choosing a parameter type that enforces the method schema.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound(deserialize = "P: Deserialize<'de>"))]
 pub struct Request<P> {
-    version: Version,
-    /// The request ID, echoed back in the response.
-    pub id: Id,
+    /// The message format version.
+    pub version: Version,
+    /// The request ID, echoed back in the response, or `None` for a notification.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    pub id: Option<Id>,
     /// The method being invoked.
     pub method: MethodName,
     /// Arguments, or `None` when no arguments were supplied.
@@ -38,7 +45,7 @@ pub struct Request<P> {
 
 impl<P> Request<P> {
     /// Creates a request invoking `method` with `params`.
-    pub const fn new(id: Id, method: MethodName, params: P) -> Self {
+    pub const fn new(id: Option<Id>, method: MethodName, params: P) -> Self {
         Self {
             version: Version::V1,
             id,
@@ -48,7 +55,7 @@ impl<P> Request<P> {
     }
 
     /// Creates a request without an arguments field.
-    pub const fn without_params(id: Id, method: MethodName) -> Self {
+    pub const fn without_params(id: Option<Id>, method: MethodName) -> Self {
         Self {
             version: Version::V1,
             id,
@@ -65,52 +72,12 @@ impl<P> Request<P> {
 /// without replying. Use [`encode`] and [`decode`] at the transport boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Response<R, D = Value> {
+    /// The message format version.
+    pub version: Version,
     /// The request ID, or `None` for an uncorrelated error.
     pub id: Option<Id>,
     /// The method result, or the error that prevented it.
     pub outcome: Result<R, ErrorObject<D>>,
-}
-
-/// A method invocation without an ID. Receivers must never reply to a valid notification,
-/// including when the method is unknown or execution fails.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(deserialize = "P: Deserialize<'de>"))]
-pub struct Notification<P> {
-    version: Version,
-    #[serde(
-        default,
-        rename = "id",
-        skip_serializing,
-        deserialize_with = "reject_notification_id"
-    )]
-    no_id: (),
-    /// The method being invoked.
-    pub method: MethodName,
-    /// Arguments, or `None` when no arguments were supplied.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub params: Option<P>,
-}
-
-impl<P> Notification<P> {
-    /// Creates a notification with arguments.
-    pub const fn new(method: MethodName, params: P) -> Self {
-        Self {
-            version: Version::V1,
-            no_id: (),
-            method,
-            params: Some(params),
-        }
-    }
-
-    /// Creates a notification without arguments.
-    pub const fn without_params(method: MethodName) -> Self {
-        Self {
-            version: Version::V1,
-            no_id: (),
-            method,
-            params: None,
-        }
-    }
 }
 
 /// A method failure. Callers identify errors by their case-sensitive code, not message text.
@@ -130,14 +97,35 @@ pub struct ErrorObject<D = Value> {
     pub data: Option<D>,
 }
 
+/// The envelope version defined by WIP-105.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Version {
+    /// WIP-105 version 1.0.
+    #[default]
+    #[serde(rename = "1.0")]
+    V1,
+}
+
 /// A request ID. Integer and text IDs are distinct; null is never a request ID.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-#[serde(untagged)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Id {
     /// A CBOR integer, in the range -2^64 through 2^64 - 1.
     Number(i128),
     /// A text ID.
     String(String),
+}
+
+impl Serialize for Id {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Number(number) => {
+                let integer = ciborium::value::Integer::try_from(*number)
+                    .map_err(serde::ser::Error::custom)?;
+                Value::Integer(integer).serialize(serializer)
+            }
+            Self::String(text) => serializer.serialize_str(text),
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for Id {
@@ -427,14 +415,6 @@ pub enum DeeplinkError {
     MalformedParameter,
 }
 
-/// The envelope version defined by WIP-105.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-enum Version {
-    #[default]
-    #[serde(rename = "1.0")]
-    V1,
-}
-
 #[derive(Serialize)]
 struct WireResponseRef<'a, R, D> {
     version: Version,
@@ -448,8 +428,7 @@ struct WireResponseRef<'a, R, D> {
 #[derive(Deserialize)]
 #[serde(bound(deserialize = "R: Deserialize<'de>, D: Deserialize<'de>"))]
 struct WireResponse<R, D> {
-    #[serde(rename = "version")]
-    _version: Version,
+    version: Version,
     #[serde(deserialize_with = "Deserialize::deserialize")]
     id: Option<Id>,
     #[serde(default, deserialize_with = "deserialize_present")]
@@ -466,7 +445,7 @@ impl<R: Serialize, D: Serialize> Serialize for Response<R, D> {
             ));
         }
         WireResponseRef {
-            version: Version::V1,
+            version: self.version,
             id: &self.id,
             result: self.outcome.as_ref().ok(),
             error: self.outcome.as_ref().err(),
@@ -488,6 +467,7 @@ impl<'de, R: Deserialize<'de>, D: Deserialize<'de>> Deserialize<'de> for Respons
             }
         };
         Ok(Self {
+            version: wire.version,
             id: wire.id,
             outcome,
         })
@@ -500,10 +480,6 @@ where
     T: Deserialize<'de>,
 {
     T::deserialize(deserializer).map(Some)
-}
-
-fn reject_notification_id<'de, D: Deserializer<'de>>(_: D) -> Result<(), D::Error> {
-    Err(D::Error::custom("notification must not contain an ID"))
 }
 
 const fn is_valid_method_name(name: &str) -> bool {
