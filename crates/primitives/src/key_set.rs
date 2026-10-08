@@ -242,7 +242,8 @@ impl DerefMut for AuthenticatorPublicKeySet {
     }
 }
 
-#[cfg(test)]
+// The fixtures derive keys through `Signer`.
+#[cfg(all(test, feature = "protocol"))]
 mod tests {
     use super::*;
     use crate::{MAX_AUTHENTICATOR_KEYS, Signer};
