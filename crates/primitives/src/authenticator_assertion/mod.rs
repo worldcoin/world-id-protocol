@@ -13,12 +13,12 @@
 //! [`SignedAuthenticatorAssertionToken::into_private_inputs`]; the verifier derives the public
 //! inputs it reports with [`AuthenticatorAssertionPrivateInputs::public_inputs`].
 
-use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
-use serde::{Deserialize, Serialize};
-use world_id_primitives::{
+use crate::{
     FieldElement,
     poseidon::{self, ds},
 };
+use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
+use serde::{Deserialize, Serialize};
 
 /// Maximum remaining lifetime `exp - now` of an AAT, in seconds.
 pub const MAX_AAT_LIFETIME_SECS: u32 = 1800;
@@ -304,7 +304,7 @@ impl AuthenticatorAssertionToken {
     ///
     /// # Errors
     /// [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
-    pub fn new(
+    pub const fn new(
         exp: u32,
         aat_commitment: FieldElement,
         sec_flags: SecFlags,
