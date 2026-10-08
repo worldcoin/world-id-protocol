@@ -39,7 +39,11 @@ pub struct Request<P> {
     /// The method being invoked.
     pub method: MethodName,
     /// Arguments, or `None` when no arguments were supplied.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
     pub params: Option<P>,
 }
 
