@@ -36,3 +36,4 @@ This folder includes supporting documentation for World ID, particularly point-i
 | [WIP-112: Authenticator Registration over iroh](https://github.com/worldcoin/world-id-protocol/pull/985) | 🗑️ Cancelled | Secure bidirectional transport for WIP-109 authenticator registration using iroh. |
 | [WIP-201: Flamingo Verifier](https://github.com/worldcoin/world-id-protocol/pull/979) | 🟡 Draft | A TEE-backed service that compares images or embeddings under a requested match strictness and signs a Flamingo Token committing to its inputs. |
 | [WIP-202: Proof of Embedding Similarity](https://github.com/worldcoin/world-id-protocol/pull/979) | 🟡 Draft | Mechanism to prove similarity between vector embeddings based on a World ID credential. |
+| [WIP-203: Embedding Similarity Proof Request](WIPs/wip-203.md) | 🟡 Draft | Proof request type with which an RP asks for a WIP-202 Proof of Embedding Similarity. |
