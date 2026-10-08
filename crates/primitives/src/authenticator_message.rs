@@ -1,8 +1,8 @@
 //! The message and deeplink formats that World ID authenticators use to talk to each other, as
 //! defined in [WIP-105](https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-105.md).
 //!
-//! Messages use deterministic CBOR. Use [`encode`] and [`decode`] at transport boundaries to
-//! enforce the encoding rules and envelope semantics before processing a method payload.
+//! Use [`encode`] and [`decode`] for CBOR at transport boundaries. Decoding checks encoding
+//! rules and resource limits; typed requests and responses validate their own fields.
 //! Deeplinks are `worldid://` URIs represented by [`Deeplink`].
 
 use std::{borrow::Cow, fmt, str::FromStr};
@@ -10,7 +10,7 @@ use std::{borrow::Cow, fmt, str::FromStr};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
-mod cbor;
+pub mod cbor;
 pub use cbor::{MessageError, decode, encode};
 pub use ciborium::Value;
 
@@ -19,16 +19,23 @@ pub const DEEPLINK_SCHEME: &str = "worldid";
 
 const METHOD_PREFIX: &str = "worldid";
 
-/// A request requiring a response with the same ID.
+/// A method invocation, with an ID when a response is expected.
 ///
-/// Use [`encode`] and [`decode`] to check envelope semantics, including the requirement that
-/// supplied parameters are a CBOR map or array. Session owners must prevent concurrent ID reuse.
+/// An absent ID represents a notification. Receivers must never reply to notifications, even
+/// when the method is unknown or execution fails. Session owners must prevent concurrent ID
+/// reuse. Callers are responsible for choosing a parameter type that enforces the method schema.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound(deserialize = "P: Deserialize<'de>"))]
 pub struct Request<P> {
-    version: Version,
-    /// The request ID, echoed back in the response.
-    pub id: Id,
+    /// The message format version.
+    pub version: Version,
+    /// The request ID, echoed back in the response, or `None` for a notification.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    pub id: Option<Id>,
     /// The method being invoked.
     pub method: MethodName,
     /// Arguments, or `None` when no arguments were supplied.
@@ -38,7 +45,7 @@ pub struct Request<P> {
 
 impl<P> Request<P> {
     /// Creates a request invoking `method` with `params`.
-    pub const fn new(id: Id, method: MethodName, params: P) -> Self {
+    pub const fn new(id: Option<Id>, method: MethodName, params: P) -> Self {
         Self {
             version: Version::V1,
             id,
@@ -48,7 +55,7 @@ impl<P> Request<P> {
     }
 
     /// Creates a request without an arguments field.
-    pub const fn without_params(id: Id, method: MethodName) -> Self {
+    pub const fn without_params(id: Option<Id>, method: MethodName) -> Self {
         Self {
             version: Version::V1,
             id,
@@ -65,52 +72,12 @@ impl<P> Request<P> {
 /// without replying. Use [`encode`] and [`decode`] at the transport boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Response<R, D = Value> {
+    /// The message format version.
+    pub version: Version,
     /// The request ID, or `None` for an uncorrelated error.
     pub id: Option<Id>,
     /// The method result, or the error that prevented it.
     pub outcome: Result<R, ErrorObject<D>>,
-}
-
-/// A method invocation without an ID. Receivers must never reply to a valid notification,
-/// including when the method is unknown or execution fails.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(deserialize = "P: Deserialize<'de>"))]
-pub struct Notification<P> {
-    version: Version,
-    #[serde(
-        default,
-        rename = "id",
-        skip_serializing,
-        deserialize_with = "reject_notification_id"
-    )]
-    no_id: (),
-    /// The method being invoked.
-    pub method: MethodName,
-    /// Arguments, or `None` when no arguments were supplied.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub params: Option<P>,
-}
-
-impl<P> Notification<P> {
-    /// Creates a notification with arguments.
-    pub const fn new(method: MethodName, params: P) -> Self {
-        Self {
-            version: Version::V1,
-            no_id: (),
-            method,
-            params: Some(params),
-        }
-    }
-
-    /// Creates a notification without arguments.
-    pub const fn without_params(method: MethodName) -> Self {
-        Self {
-            version: Version::V1,
-            no_id: (),
-            method,
-            params: None,
-        }
-    }
 }
 
 /// A method failure. Callers identify errors by their case-sensitive code, not message text.
@@ -130,14 +97,35 @@ pub struct ErrorObject<D = Value> {
     pub data: Option<D>,
 }
 
+/// The envelope version defined by WIP-105.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Version {
+    /// WIP-105 version 1.0.
+    #[default]
+    #[serde(rename = "1.0")]
+    V1,
+}
+
 /// A request ID. Integer and text IDs are distinct; null is never a request ID.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-#[serde(untagged)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Id {
     /// A CBOR integer, in the range -2^64 through 2^64 - 1.
     Number(i128),
     /// A text ID.
     String(String),
+}
+
+impl Serialize for Id {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Number(number) => {
+                let integer = ciborium::value::Integer::try_from(*number)
+                    .map_err(serde::ser::Error::custom)?;
+                Value::Integer(integer).serialize(serializer)
+            }
+            Self::String(text) => serializer.serialize_str(text),
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for Id {
@@ -427,14 +415,6 @@ pub enum DeeplinkError {
     MalformedParameter,
 }
 
-/// The envelope version defined by WIP-105.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-enum Version {
-    #[default]
-    #[serde(rename = "1.0")]
-    V1,
-}
-
 #[derive(Serialize)]
 struct WireResponseRef<'a, R, D> {
     version: Version,
@@ -448,8 +428,7 @@ struct WireResponseRef<'a, R, D> {
 #[derive(Deserialize)]
 #[serde(bound(deserialize = "R: Deserialize<'de>, D: Deserialize<'de>"))]
 struct WireResponse<R, D> {
-    #[serde(rename = "version")]
-    _version: Version,
+    version: Version,
     #[serde(deserialize_with = "Deserialize::deserialize")]
     id: Option<Id>,
     #[serde(default, deserialize_with = "deserialize_present")]
@@ -466,7 +445,7 @@ impl<R: Serialize, D: Serialize> Serialize for Response<R, D> {
             ));
         }
         WireResponseRef {
-            version: Version::V1,
+            version: self.version,
             id: &self.id,
             result: self.outcome.as_ref().ok(),
             error: self.outcome.as_ref().err(),
@@ -488,22 +467,23 @@ impl<'de, R: Deserialize<'de>, D: Deserialize<'de>> Deserialize<'de> for Respons
             }
         };
         Ok(Self {
+            version: wire.version,
             id: wire.id,
             outcome,
         })
     }
 }
 
+/// Preserves the distinction between an absent field and a present value, including null.
+/// With `serde(default)`, absence becomes `None`; a present value is parsed as `T` and wrapped in
+/// `Some`. This preserves nullable results and error data, while rejecting a null request ID
+/// because `Id` itself does not accept null. Deserializing `Option<T>` would treat both as absent.
 fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
 {
     T::deserialize(deserializer).map(Some)
-}
-
-fn reject_notification_id<'de, D: Deserializer<'de>>(_: D) -> Result<(), D::Error> {
-    Err(D::Error::custom("notification must not contain an ID"))
 }
 
 const fn is_valid_method_name(name: &str) -> bool {
@@ -606,31 +586,28 @@ fn is_well_formed_percent_encoding(component: &str) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+    use test_case::test_case;
 
-    #[test]
-    fn method_names_follow_wip_105() {
-        for valid in [
-            "worldid",
-            "worldid_auth_v1_register",
-            "worldid_auth",
-            "worldid_someMethod_v2",
-        ] {
-            assert!(valid.parse::<MethodName>().is_ok(), "{valid}");
-        }
-        for invalid in [
-            "",
-            "worldidx_auth",
-            "worldId_auth",
-            "worldid_",
-            "worldid__auth",
-            "worldid_auth_",
-            "worldid_Auth",
-            "worldid_1auth",
-            "worldid_au-th",
-            "auth_worldid",
-        ] {
-            assert!(invalid.parse::<MethodName>().is_err(), "{invalid}");
-        }
+    #[test_case("worldid"; "prefix")]
+    #[test_case("worldid_auth_v1_register"; "registration")]
+    #[test_case("worldid_auth"; "namespace")]
+    #[test_case("worldid_someMethod_v2"; "camel_case")]
+    fn accepts_valid_method_names(valid: &str) {
+        assert!(valid.parse::<MethodName>().is_ok(), "{valid}");
+    }
+
+    #[test_case(""; "empty")]
+    #[test_case("worldidx_auth"; "wrong_prefix")]
+    #[test_case("worldId_auth"; "uppercase_prefix")]
+    #[test_case("worldid_"; "empty_suffix")]
+    #[test_case("worldid__auth"; "empty_segment")]
+    #[test_case("worldid_auth_"; "trailing_separator")]
+    #[test_case("worldid_Auth"; "uppercase_segment")]
+    #[test_case("worldid_1auth"; "numeric_segment")]
+    #[test_case("worldid_au-th"; "hyphen")]
+    #[test_case("auth_worldid"; "reversed_prefix")]
+    fn rejects_invalid_method_names(invalid: &str) {
+        assert!(invalid.parse::<MethodName>().is_err(), "{invalid}");
     }
 
     #[test]
@@ -686,78 +663,45 @@ mod tests {
         );
     }
 
-    #[test]
-    fn deeplink_parsing_rejects_malformed_uris() {
-        let cases = [
-            ("https://auth/v1/register", DeeplinkError::InvalidScheme),
-            ("worldid:auth/v1/register", DeeplinkError::InvalidScheme),
-            (
-                "worldid://user@auth/v1/register",
-                DeeplinkError::InvalidNamespace,
-            ),
-            (
-                "worldid://auth:443/v1/register",
-                DeeplinkError::InvalidNamespace,
-            ),
-            ("worldid:///v1/register", DeeplinkError::InvalidNamespace),
-            (
-                "worldid://Auth/v1/register",
-                DeeplinkError::InvalidNamespace,
-            ),
-            ("worldid://auth", DeeplinkError::InvalidVersion),
-            ("worldid://auth/1/register", DeeplinkError::InvalidVersion),
-            ("worldid://auth/v0/register", DeeplinkError::InvalidVersion),
-            ("worldid://auth/v01/register", DeeplinkError::InvalidVersion),
-            (
-                "worldid://auth/v99999999999/register",
-                DeeplinkError::InvalidVersion,
-            ),
-            ("worldid://auth/v1", DeeplinkError::InvalidAction),
-            ("worldid://auth/v1/", DeeplinkError::InvalidAction),
-            (
-                "worldid://auth/v1/register/",
-                DeeplinkError::UnexpectedPathSegments,
-            ),
-            (
-                "worldid://auth/v1/register/x",
-                DeeplinkError::UnexpectedPathSegments,
-            ),
-            (
-                "worldid://auth/v1/register#x",
-                DeeplinkError::UnexpectedFragment,
-            ),
-            (
-                "worldid://auth/v1/register?",
-                DeeplinkError::MalformedParameter,
-            ),
-            (
-                "worldid://auth/v1/register?a",
-                DeeplinkError::MalformedParameter,
-            ),
-            (
-                "worldid://auth/v1/register?=a",
-                DeeplinkError::MalformedParameter,
-            ),
-            (
-                "worldid://auth/v1/register?a=1&&b=2",
-                DeeplinkError::MalformedParameter,
-            ),
-            (
-                "worldid://auth/v1/register?a=%zz",
-                DeeplinkError::MalformedParameter,
-            ),
-            (
-                "worldid://auth/v1/register?a=%4",
-                DeeplinkError::MalformedParameter,
-            ),
-            (
-                "worldid://auth/v1/register?a=%ff",
-                DeeplinkError::MalformedParameter,
-            ),
-        ];
-        for (uri, expected) in cases {
-            assert_eq!(uri.parse::<Deeplink>(), Err(expected), "{uri}");
-        }
+    #[test_case("https://auth/v1/register", DeeplinkError::InvalidScheme; "https")]
+    #[test_case("worldid:auth/v1/register", DeeplinkError::InvalidScheme; "missing_slashes")]
+    #[test_case("worldid://user@auth/v1/register",
+                DeeplinkError::InvalidNamespace; "user_info")]
+    #[test_case("worldid://auth:443/v1/register",
+                DeeplinkError::InvalidNamespace; "port")]
+    #[test_case("worldid:///v1/register", DeeplinkError::InvalidNamespace; "empty_namespace")]
+    #[test_case("worldid://Auth/v1/register",
+                DeeplinkError::InvalidNamespace; "uppercase_namespace")]
+    #[test_case("worldid://auth", DeeplinkError::InvalidVersion; "missing_version")]
+    #[test_case("worldid://auth/1/register", DeeplinkError::InvalidVersion; "missing_version_prefix")]
+    #[test_case("worldid://auth/v0/register", DeeplinkError::InvalidVersion; "zero_version")]
+    #[test_case("worldid://auth/v01/register", DeeplinkError::InvalidVersion; "leading_zero_version")]
+    #[test_case("worldid://auth/v99999999999/register",
+                DeeplinkError::InvalidVersion; "version_overflow")]
+    #[test_case("worldid://auth/v1", DeeplinkError::InvalidAction; "missing_action")]
+    #[test_case("worldid://auth/v1/", DeeplinkError::InvalidAction; "empty_action")]
+    #[test_case("worldid://auth/v1/register/",
+                DeeplinkError::UnexpectedPathSegments; "trailing_slash")]
+    #[test_case("worldid://auth/v1/register/x",
+                DeeplinkError::UnexpectedPathSegments; "extra_path")]
+    #[test_case("worldid://auth/v1/register#x",
+                DeeplinkError::UnexpectedFragment; "fragment")]
+    #[test_case("worldid://auth/v1/register?",
+                DeeplinkError::MalformedParameter; "empty_query")]
+    #[test_case("worldid://auth/v1/register?a",
+                DeeplinkError::MalformedParameter; "missing_equals")]
+    #[test_case("worldid://auth/v1/register?=a",
+                DeeplinkError::MalformedParameter; "empty_key")]
+    #[test_case("worldid://auth/v1/register?a=1&&b=2",
+                DeeplinkError::MalformedParameter; "empty_parameter")]
+    #[test_case("worldid://auth/v1/register?a=%zz",
+                DeeplinkError::MalformedParameter; "invalid_hex_escape")]
+    #[test_case("worldid://auth/v1/register?a=%4",
+                DeeplinkError::MalformedParameter; "short_escape")]
+    #[test_case("worldid://auth/v1/register?a=%ff",
+                DeeplinkError::MalformedParameter; "invalid_utf8")]
+    fn deeplink_parsing_rejects_malformed_uris(uri: &str, expected: DeeplinkError) {
+        assert_eq!(uri.parse::<Deeplink>(), Err(expected), "{uri}");
     }
 
     #[test]

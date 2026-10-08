@@ -390,7 +390,7 @@ mod tests {
         for class in [admin(), AuthenticatorClass::Proving] {
             let (request, _, request_id) = signed_request(class);
             let message = RegisterRequestMessage::new(
-                Id::String(request_id.to_string()),
+                Some(Id::String(request_id.to_string())),
                 REGISTER_METHOD,
                 request,
             );
