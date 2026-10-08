@@ -9,6 +9,7 @@ use crate::FieldElement;
 
 const RP_SIGNATURE_MSG_VERSION: u8 = 0x01;
 
+#[cfg(feature = "protocol")]
 #[expect(unused_imports, reason = "used in doc comments")]
 use crate::ProofRequest;
 
