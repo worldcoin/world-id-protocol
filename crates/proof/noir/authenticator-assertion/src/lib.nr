@@ -22,7 +22,8 @@ pub global MAX_AAT_LIFETIME: Field = 1800;
 /// The public inputs of AAT verification (WIP-106 section 3.7). The caller MUST expose every
 /// field as a public input of its circuit.
 pub struct AuthenticatorAssertionPublicInputs {
-    /// `H_3(DS_KEY; x, y)` of the Authenticator Provider's key, supplied by the RP.
+    /// `H_3(DS_KEY; x, y)` of the Authenticator Provider's key; the RP checks it against its
+    /// allowlist.
     pub authenticator_provider_key_hash: Field,
     /// Current time as seconds since the Unix epoch.
     pub now: Field,

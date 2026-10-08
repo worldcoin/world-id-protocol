@@ -28,7 +28,7 @@ fn fixture() -> (AuthenticatorAssertionToken, EdDSAPrivateKey) {
     )
     .unwrap();
     (
-        AuthenticatorAssertionToken::new(1_783_446_925, aat_commitment, flags).unwrap(),
+        AuthenticatorAssertionToken::new(NOW, 1_783_446_925, aat_commitment, flags).unwrap(),
         EdDSAPrivateKey::from_bytes([7u8; 32]),
     )
 }
@@ -49,6 +49,10 @@ fn known_answer_matches_circuit_fixture() {
     assert_eq!(
         sig.r.x.to_string(),
         "9464927411176877143242073132305067532985742345968954357966273354098472816787"
+    );
+    assert_eq!(
+        sig.r.y.to_string(),
+        "18207207085206278655459517276373479902429501683178223921050583289961974448215"
     );
     assert_eq!(
         key.public().pk.x.to_string(),
@@ -135,6 +139,47 @@ fn non_canonical_encodings_rejected() {
 
     // Truncated.
     assert!(SignedAuthenticatorAssertionToken::decode(&cwt[..cwt.len() - 1]).is_err());
+
+    // `exp` below 2^16, still a 4-byte uint.
+    let mut tampered = cwt.clone();
+    tampered[payload + 3..payload + 7].copy_from_slice(&0xffffu32.to_be_bytes());
+    assert!(matches!(
+        SignedAuthenticatorAssertionToken::decode(&tampered),
+        Err(AssertionError::ExpirationOutOfRange(0xffff))
+    ));
+
+    // Reserved `sec_flags` bit 54.
+    let mut tampered = cwt.clone();
+    tampered[payload + 82] |= 0x40;
+    assert!(matches!(
+        SignedAuthenticatorAssertionToken::decode(&tampered),
+        Err(AssertionError::InvalidSecFlags(_))
+    ));
+
+    // Signature `R` not on the curve.
+    let mut tampered = cwt.clone();
+    let sig = cwt.len() - 64;
+    tampered[sig..sig + 32].fill(0x01);
+    assert!(matches!(
+        SignedAuthenticatorAssertionToken::decode(&tampered),
+        Err(AssertionError::InvalidEncoding("signature"))
+    ));
+}
+
+#[test]
+fn debug_hides_confidential_values() {
+    let (aat, key) = fixture();
+    let decoded = SignedAuthenticatorAssertionToken::decode(&aat.sign(&key).unwrap()).unwrap();
+    let (_, private, _) = inputs();
+    for debug in [format!("{decoded:?}"), format!("{private:?}")] {
+        assert!(!debug.contains(&aat.exp().to_string()), "{debug}");
+        assert!(!debug.contains("sig"), "{debug}");
+        assert!(!debug.contains("blind"), "{debug}");
+    }
+    assert_eq!(
+        VerificationError::InvalidSecFlags.to_string(),
+        "invalid sec_flags"
+    );
 }
 
 #[test]
@@ -142,9 +187,26 @@ fn invalid_claims_rejected() {
     let (aat, _) = fixture();
     let flags = aat.sec_flags();
     assert!(matches!(
-        AuthenticatorAssertionToken::new(0xffff, aat.aat_commitment(), flags),
+        AuthenticatorAssertionToken::new(0xff00, 0xffff, aat.aat_commitment(), flags),
         Err(AssertionError::ExpirationOutOfRange(0xffff))
     ));
+    // Issuance requires `now < exp <= now + MAX_AAT_LIFETIME_SECS`.
+    let exp = aat.exp();
+    for now in [exp, exp + 1, exp - MAX_AAT_LIFETIME_SECS - 1] {
+        assert!(matches!(
+            AuthenticatorAssertionToken::new(now, exp, aat.aat_commitment(), flags),
+            Err(AssertionError::LifetimeOutOfRange { .. })
+        ));
+    }
+    assert!(
+        AuthenticatorAssertionToken::new(
+            exp - MAX_AAT_LIFETIME_SECS,
+            exp,
+            aat.aat_commitment(),
+            flags
+        )
+        .is_ok()
+    );
     // A 4-bit `sec_meta` would overflow into `user_presence`.
     assert!(matches!(
         SecFlags::new(2, 1, 2006, 0x8, UserPresence::PresentVerified),
@@ -354,13 +416,9 @@ fn verify_rejects_each_constraint() {
         ..private.clone()
     };
     let reserved_bit = private.sec_flags | 1 << 54;
-    check(public, signed(reserved_bit), InvalidSecFlags(reserved_bit));
+    check(public, signed(reserved_bit), InvalidSecFlags);
     let reserved_presence = (private.sec_flags & !(0x7 << 51)) | 5 << 51;
-    check(
-        public,
-        signed(reserved_presence),
-        InvalidSecFlags(reserved_presence),
-    );
+    check(public, signed(reserved_presence), InvalidSecFlags);
 }
 
 #[test]
