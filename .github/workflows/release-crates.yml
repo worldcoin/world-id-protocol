@@ -29,10 +29,21 @@ jobs:
           toolchain: stable
 
       - name: Install Noir toolchain
-        uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
-        with:
-          # Semver checks build embedded ownership artifacts with the version required by provekit.
-          toolchain: v1.0.0-beta.26
+        env:
+          # Keep the version and archive digest in sync with nix/nargo.nix.
+          NARGO_VERSION: 1.0.0-beta.26
+          NARGO_SHA256: 64048040befd55a987158b11137d8f38f9688f696db4d84910dd1bcf0442fb80
+        run: |
+          set -euo pipefail
+          install_dir=$(mktemp -d "$RUNNER_TEMP/nargo.XXXXXX")
+          cd "$install_dir"
+          base_url="https://github.com/noir-lang/noir/releases/download"
+          curl --fail --location --retry 3 --connect-timeout 15 --max-time 120 \
+            "$base_url/v${NARGO_VERSION}/nargo-x86_64-unknown-linux-gnu.tar.gz" \
+            --output nargo.tar.gz
+          echo "$NARGO_SHA256  nargo.tar.gz" | sha256sum --check --strict
+          tar -xzf nargo.tar.gz nargo
+          echo "$install_dir" >> "$GITHUB_PATH"
 
       - name: Run release-plz
         uses: release-plz/action@b8d6b54b02889ff2ae2bb82e8b57c3a8fc1683a5 # v0.5.139 (https://github.com/release-plz/action/releases/tag/v0.5.139)
