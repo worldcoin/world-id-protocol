@@ -70,8 +70,8 @@ futures = "0.3"
 groth16-material = { package = "taceo-groth16-material", version = "0.4.2", default-features = false }
 hex = { version = "0.4" }
 hkdf = "0.13"
-aes-gcm = "0.10"
-ohttp = { version = "0.7", default-features = false }
+aes-gcm = "0.11"
+ohttp = { version = "0.8", default-features = false }
 bhttp = "0.7"
 itertools = "0.15"
 k256 = { version = "0.13" }
@@ -131,10 +131,9 @@ clap = "4.5.59"
 config = "0.15.19"
 dotenvy = "0.15"
 futures-util = "0.3"
-getrandom = "0.3"
-# `rand` 0.8's `OsRng` still uses `getrandom` 0.2, while OHTTP/HPKE uses 0.3.
+getrandom = "0.4"
+# `rand` 0.8's `OsRng` still uses `getrandom` 0.2.
 getrandom-02 = { package = "getrandom", version = "0.2" }
-getrandom-04 = { package = "getrandom", version = "0.4" }
 governor = "0.10.4"
 http = "1"
 humantime = "2"
@@ -170,7 +169,7 @@ world-id-issuer = { version = "0.14.1", path = "crates/issuer" }
 world-id-proof = { version = "0.14.1", path = "crates/proof" }
 world-id-registries = { version = "0.14.1", path = "crates/registries" }
 world-id-authenticator = { version = "0.14.1", path = "crates/authenticator" }
-world-id-primitives = { version = "0.14.1", path = "crates/primitives", default-features = false }
+world-id-primitives = { version = "0.14.1", path = "crates/primitives" }
 world-id-oprf-node = { version = "1.2.0", path = "services/oprf-node" }
 world-id-test-utils = { path = "crates/test-utils" }
 world-id-services-common = { path = "services/common", version = "0.1.0" }

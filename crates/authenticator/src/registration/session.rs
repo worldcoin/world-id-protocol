@@ -220,7 +220,7 @@ impl TransportKey {
             .try_fill_bytes(&mut nonce)
             .map_err(|_| TransportError::Rng)?;
         let aad = [label, id.as_bytes()].concat();
-        let ciphertext = Aes256Gcm::new(self.key.as_ref().into())
+        let ciphertext = Aes256Gcm::new((&*self.key).into())
             .encrypt(
                 &Nonce::from(nonce),
                 Payload {
@@ -253,7 +253,7 @@ impl TransportKey {
             return Err(TransportError::Encoding);
         }
         let aad = [label, id.as_bytes()].concat();
-        Aes256Gcm::new(self.key.as_ref().into())
+        Aes256Gcm::new((&*self.key).into())
             .decrypt(
                 &Nonce::from(nonce),
                 Payload {
