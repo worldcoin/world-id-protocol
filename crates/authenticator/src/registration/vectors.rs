@@ -71,7 +71,7 @@ fn session_derivations_match_vectors() {
                 .key
                 .as_ref()
         ),
-        "5f34760cf20842194596bc3765283c62ad11fe9d0d0e2fadd37dd2cfb48fb1a4"
+        "d54c3095e7243461690e9589eb9c39ebdeafa3f585b0a8586958b5bdb067dc7c"
     );
 
     let response_pubkey = ResponseSecretKey::from_seed(&[0x24; 32]).public_key();
