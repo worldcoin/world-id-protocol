@@ -93,8 +93,7 @@ pub async fn sweep_once(
                     } else {
                         StatusGuard::Batching
                     };
-                    match tracker.set_status_if(id, &[observed], status).await
-                    {
+                    match tracker.set_status_if(id, &[observed], status).await {
                         Ok(StatusWriteOutcome::Applied | StatusWriteOutcome::Missing) => {}
                         Ok(StatusWriteOutcome::Guarded) => {
                             tracing::debug!(
