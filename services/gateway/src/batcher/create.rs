@@ -3,14 +3,15 @@ use std::sync::Arc;
 use alloy::{
     primitives::{Address, U256},
     providers::DynProvider,
+    rpc::types::TransactionRequest,
 };
 use tokio::sync::mpsc;
 use world_id_primitives::api_types::CreateAccountRequest;
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
-use crate::request_tracker::BacklogScope;
+use crate::{batch_type::BatchType, request_tracker::BacklogScope};
 
-use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingBatchTx};
+use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner};
 
 #[derive(Clone)]
 pub struct CreateBatcherHandle {
@@ -33,37 +34,34 @@ impl BatcherEnvelope for CreateReqEnvelope {
 pub(crate) struct CreateStrategy;
 
 impl BatchSubmitStrategy<CreateReqEnvelope> for CreateStrategy {
-    fn batch_type(&self) -> &'static str {
-        "create"
+    fn batch_type(&self) -> BatchType {
+        BatchType::Create
     }
 
     fn backlog_scope(&self) -> BacklogScope {
         BacklogScope::Create
     }
 
-    async fn send_batch(
+    fn build_tx(
         &self,
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
-        batch: Vec<CreateReqEnvelope>,
-    ) -> Result<PendingBatchTx, alloy::contract::Error> {
-        let mut recovery_addresses: Vec<Address> = Vec::new();
-        let mut auths: Vec<Vec<Address>> = Vec::new();
-        let mut pubkeys: Vec<Vec<U256>> = Vec::new();
-        let mut commits: Vec<U256> = Vec::new();
+        batch: &[CreateReqEnvelope],
+    ) -> TransactionRequest {
+        let mut recovery_addresses: Vec<Address> = Vec::with_capacity(batch.len());
+        let mut auths: Vec<Vec<Address>> = Vec::with_capacity(batch.len());
+        let mut pubkeys: Vec<Vec<U256>> = Vec::with_capacity(batch.len());
+        let mut commits: Vec<U256> = Vec::with_capacity(batch.len());
 
-        for env in batch {
-            recovery_addresses.push(env.req.recovery_address.unwrap_or(Address::ZERO));
-            auths.push(env.req.authenticator_addresses);
-            pubkeys.push(env.req.authenticator_pubkeys);
-            commits.push(env.req.offchain_signer_commitment);
+        for envelope in batch {
+            recovery_addresses.push(envelope.req.recovery_address.unwrap_or(Address::ZERO));
+            auths.push(envelope.req.authenticator_addresses.clone());
+            pubkeys.push(envelope.req.authenticator_pubkeys.clone());
+            commits.push(envelope.req.offchain_signer_commitment);
         }
 
-        let builder = registry
+        registry
             .createManyAccounts(recovery_addresses, auths, pubkeys, commits)
-            .send()
-            .await?;
-
-        Ok(PendingBatchTx::new(builder))
+            .into_transaction_request()
     }
 }
 

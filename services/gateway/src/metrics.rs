@@ -29,6 +29,18 @@ pub const METRICS_BATCH_POLICY_TARGET_SIZE: &str = "batch.policy.target_size";
 // Request rejection metrics
 pub const METRICS_REQUEST_REJECTED: &str = "request.rejected";
 
+// Wallet lease metrics
+pub const METRICS_WALLET_POOL_SIZE: &str = "wallet.pool_size";
+pub const METRICS_WALLET_IN_FLIGHT: &str = "wallet.in_flight";
+pub const METRICS_WALLET_PARKED: &str = "wallet.parked";
+pub const METRICS_WALLET_ACQUIRE_WAIT_MS: &str = "wallet.acquire_wait_ms";
+pub const METRICS_WALLET_ACQUIRE_EMPTY: &str = "wallet.acquire_empty";
+pub const METRICS_WALLET_OUTCOME: &str = "wallet.outcome";
+pub const METRICS_WALLET_TIME_IN_FLIGHT_MS: &str = "wallet.time_in_flight_ms";
+pub const METRICS_WALLET_CONFIRMATIONS_AT_RELEASE: &str = "wallet.confirmations_at_release";
+pub const METRICS_WALLET_UNCONFIGURED: &str = "wallet.unconfigured";
+pub const METRICS_WALLET_ERROR: &str = "wallet.error";
+
 pub fn describe_metrics() {
     world_id_services_common::describe_http_request_metrics();
     world_id_services_common::describe_deprecated_endpoint_metrics();
@@ -112,6 +124,57 @@ pub fn describe_metrics() {
         "Number of rejected requests by reason."
     );
 
+    ::metrics::describe_gauge!(
+        METRICS_WALLET_POOL_SIZE,
+        ::metrics::Unit::Count,
+        "Number of configured transaction wallets."
+    );
+    ::metrics::describe_gauge!(
+        METRICS_WALLET_IN_FLIGHT,
+        ::metrics::Unit::Count,
+        "Number of wallets currently holding an outstanding transaction."
+    );
+    ::metrics::describe_gauge!(
+        METRICS_WALLET_PARKED,
+        ::metrics::Unit::Count,
+        "Number of wallets parked because a transaction's fate could not be decided."
+    );
+    ::metrics::describe_histogram!(
+        METRICS_WALLET_ACQUIRE_WAIT_MS,
+        ::metrics::Unit::Milliseconds,
+        "Time spent waiting for a free wallet before a batch could be signed."
+    );
+    ::metrics::describe_counter!(
+        METRICS_WALLET_ACQUIRE_EMPTY,
+        ::metrics::Unit::Count,
+        "Number of scans over the acquirable wallets that found none free (saturation, not an error)."
+    );
+    ::metrics::describe_counter!(
+        METRICS_WALLET_OUTCOME,
+        ::metrics::Unit::Count,
+        "Wallet transaction outcomes by kind; see `record_wallet_outcome` for the kinds."
+    );
+    ::metrics::describe_histogram!(
+        METRICS_WALLET_TIME_IN_FLIGHT_MS,
+        ::metrics::Unit::Milliseconds,
+        "Time a wallet spent out of the pool for one transaction."
+    );
+    ::metrics::describe_histogram!(
+        METRICS_WALLET_CONFIRMATIONS_AT_RELEASE,
+        ::metrics::Unit::Count,
+        "Confirmations observed when a wallet was released; evidence for the release threshold."
+    );
+    ::metrics::describe_counter!(
+        METRICS_WALLET_ERROR,
+        ::metrics::Unit::Count,
+        "Wallet errors, tagged by phase (acquire, release, resolve) and failure class."
+    );
+    ::metrics::describe_gauge!(
+        METRICS_WALLET_UNCONFIGURED,
+        ::metrics::Unit::Count,
+        "Wallet records in Redis for wallets this replica is not configured with; resolved, never reused."
+    );
+
     world_id_services_common::describe_provider_transport_metrics();
 }
 
@@ -185,4 +248,62 @@ pub fn increment_policy_defer(batch_type: &'static str, reason: &'static str) {
 
 pub fn increment_request_rejected(reason: &'static str) {
     ::metrics::counter!(METRICS_REQUEST_REJECTED, "reason" => reason).increment(1);
+}
+
+/// Records the size of the configured wallet pool.
+pub fn record_wallet_pool_size(size: usize) {
+    ::metrics::gauge!(METRICS_WALLET_POOL_SIZE).set(size as f64);
+}
+
+/// Records how many wallets are currently out of the pool.
+pub fn record_wallet_pool_state(in_flight: usize, parked: usize) {
+    ::metrics::gauge!(METRICS_WALLET_IN_FLIGHT).set(in_flight as f64);
+    ::metrics::gauge!(METRICS_WALLET_PARKED).set(parked as f64);
+}
+
+/// Records how long a caller waited before a wallet became free.
+pub fn record_wallet_acquire_wait(wait_ms: f64) {
+    ::metrics::histogram!(METRICS_WALLET_ACQUIRE_WAIT_MS).record(wait_ms);
+}
+
+/// Records that a caller found no free wallet before its timeout.
+pub fn increment_wallet_acquire_empty() {
+    ::metrics::counter!(METRICS_WALLET_ACQUIRE_EMPTY).increment(1);
+}
+
+/// Records how a wallet left the pool.
+///
+/// Outcomes that release the wallet: `confirmed`, `reverted`, `replaced`,
+/// `absent`, and `parked_landed` (a parked wallet's transaction landed after
+/// its requests were reported failed). `parked` keeps the wallet out of the
+/// pool. `abandoned` and `lease_lost` end a submission before any broadcast;
+/// `broadcast_skipped` means the commit-to-send deadline passed, so the
+/// committed transaction was never sent and the resolver will find it absent.
+pub fn record_wallet_outcome(outcome: &'static str) {
+    ::metrics::counter!(METRICS_WALLET_OUTCOME, "outcome" => outcome).increment(1);
+}
+
+/// Records how long a wallet was out of the pool for one transaction.
+pub fn record_wallet_time_in_flight(latency_ms: f64) {
+    ::metrics::histogram!(METRICS_WALLET_TIME_IN_FLIGHT_MS).record(latency_ms);
+}
+
+/// Records the confirmations observed when a wallet was released.
+pub fn record_wallet_confirmations_at_release(confirmations: u64) {
+    ::metrics::histogram!(METRICS_WALLET_CONFIRMATIONS_AT_RELEASE).record(confirmations as f64);
+}
+
+/// Records a wallet error.
+///
+/// `phase` is `acquire`, `release` or `resolve`. `class` is the failing
+/// dependency or cause: `rpc`, `redis`, `timeout`, `invalid_record` or
+/// `nonce_gap`.
+pub fn increment_wallet_error(phase: &'static str, class: &'static str) {
+    ::metrics::counter!(METRICS_WALLET_ERROR, "phase" => phase, "class" => class).increment(1);
+}
+
+/// Records how many wallet records belong to wallets this replica is not
+/// configured with.
+pub fn record_wallet_unconfigured(count: usize) {
+    ::metrics::gauge!(METRICS_WALLET_UNCONFIGURED).set(count as f64);
 }

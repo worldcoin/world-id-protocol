@@ -58,6 +58,11 @@ pub enum GatewayError {
     },
     #[error("config error: {0}")]
     Config(String),
+    /// A batch transaction could not be signed or committed, so nothing was
+    /// broadcast. Broadcast failures are not errors: the committed record is
+    /// resolved from the chain instead.
+    #[error("transaction submission failed: {0}")]
+    Submission(String),
 }
 
 impl From<ProviderError> for GatewayError {

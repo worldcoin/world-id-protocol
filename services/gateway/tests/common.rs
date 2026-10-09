@@ -3,8 +3,8 @@ use reqwest::{Client, StatusCode};
 use std::time::Duration;
 use testcontainers_modules::{redis::Redis, testcontainers::ContainerAsync};
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, GatewayHandle, RegistryVersion, SignerArgs, defaults,
-    spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, GatewayHandle, RegistryVersion, SignerArgs, WalletArgs,
+    defaults, spawn_gateway_for_tests,
 };
 use world_id_primitives::api_types::{GatewayRequestState, GatewayStatusResponse};
 use world_id_services_common::ProviderArgs;
@@ -101,6 +101,7 @@ async fn spawn_test_gateway_for_registry(
             sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
             stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
             stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
+            wallet: WalletArgs::default(),
             batch_policy: BatchPolicyConfig::default(),
         },
         Some(ms) => {
@@ -114,6 +115,7 @@ async fn spawn_test_gateway_for_registry(
                     signer: signer_args,
                     ..Default::default()
                 },
+                wallet: WalletArgs::default(),
                 batch_policy: BatchPolicyConfig {
                     max_wait_secs,
                     reeval_ms,

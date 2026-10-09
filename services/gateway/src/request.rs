@@ -6,6 +6,7 @@ use crate::{
     error::GatewayErrorResponse,
     request_tracker::RequestTracker,
     routes::validation::RequestValidation,
+    storage::request_store::StatusGuard,
 };
 use alloy::{
     primitives::{Bytes, U256},
@@ -469,12 +470,20 @@ where
         .await?;
 
     if !ctx.batcher.submit(cmd).await {
-        ctx.tracker
-            .set_status(
+        // Guarded like every other status write; the request never reached a
+        // batcher, so `Queued` is the only state it can be in.
+        if let Err(error) = ctx
+            .tracker
+            .set_status_if(
                 &id.to_string(),
+                &[StatusGuard::Queued],
                 GatewayRequestState::failed_from_code(GatewayErrorCode::BatcherUnavailable),
+                None,
             )
-            .await;
+            .await
+        {
+            tracing::error!(%error, request_id = %id, "failed to fail a request the batcher refused");
+        }
         return Err(GatewayErrorResponse::batcher_unavailable());
     }
 

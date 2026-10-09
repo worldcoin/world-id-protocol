@@ -7,7 +7,8 @@ use alloy::{
 use redis::{AsyncTypedCommands, IntegerReplyOrNoOp, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, RegistryVersion, defaults, spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, WalletArgs, defaults,
+    spawn_gateway_for_tests,
 };
 use world_id_primitives::api_types::GatewayStatusResponse;
 use world_id_services_common::{ProviderArgs, SignerArgs};
@@ -55,6 +56,7 @@ async fn redis_integration() {
         sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
         stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,
+        wallet: WalletArgs::default(),
         batch_policy: BatchPolicyConfig::default(),
     };
 
