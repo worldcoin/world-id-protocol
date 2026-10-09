@@ -487,12 +487,12 @@ impl WalletStore {
 
     /// Clears the nonce floor of `wallet` if it is at most `nonce`.
     ///
-    /// Called when a transaction signed at `nonce` was found absent, which
-    /// proves the chain never consumed `nonce`. A floor at or below it can
-    /// only be stale (its transaction was reorged out and dropped after the
-    /// wallet was released), and keeping it would sign every later batch
-    /// behind a nonce gap until it expired. A higher floor was raised after
-    /// this transaction and is left alone.
+    /// Called when a transaction signed at `nonce` was found absent while the
+    /// chain's mined nonce was below it: the floor that put it there is stale
+    /// (its transaction was reorged out and dropped after the wallet was
+    /// released), and keeping it would sign every later batch behind the same
+    /// gap until it expired. A higher floor was raised after this transaction
+    /// and is left alone.
     ///
     /// # Errors
     ///

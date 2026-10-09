@@ -31,7 +31,11 @@ pub(super) enum Probe {
     /// The nonce was consumed by a different transaction, so ours will not land.
     Replaced,
     /// The transaction is in no mempool and its nonce is untouched.
-    Absent,
+    Absent {
+        /// The wallet's mined transaction count on the answering node. Below
+        /// the transaction's nonce, the transaction was signed behind a gap.
+        latest: u64,
+    },
 }
 
 /// What a receipt says about inclusion.
@@ -140,7 +144,7 @@ pub(super) async fn probe(
     }
 
     match provider.get_block_by_number(BlockNumberOrTag::Latest).await {
-        Ok(Some(head)) if head.header.timestamp >= absent_after => Probe::Absent,
+        Ok(Some(head)) if head.header.timestamp >= absent_after => Probe::Absent { latest },
         // The node has not caught up with the time the transaction should have
         // reached it, so its silence proves nothing yet.
         Ok(_) => Probe::Wait,
@@ -461,7 +465,7 @@ mod tests {
         nonce(&asserter, NONCE);
         nonce(&asserter, NONCE);
         head_at(&asserter, ABSENT_AFTER);
-        assert_eq!(run(&asserter, 1).await, Probe::Absent);
+        assert_eq!(run(&asserter, 1).await, Probe::Absent { latest: NONCE });
     }
 
     #[tokio::test]

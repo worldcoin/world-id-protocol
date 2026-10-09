@@ -654,3 +654,32 @@ async fn an_absent_transaction_clears_the_stale_nonce_floor_it_was_signed_at() {
         "the absent transaction proved the floor stale, so the next batch signs at the chain nonce"
     );
 }
+
+#[tokio::test]
+async fn an_absent_transaction_at_the_chain_nonce_keeps_the_nonce_floor() {
+    let harness = Harness::start().await;
+    let submitter = harness.submitter(harness.anvil.endpoint(), config()).await;
+    let ids = harness.requests(1).await;
+
+    // A floor equal to the chain's next nonce, as after a confirmed
+    // transaction. A crash before broadcast at that nonce proves nothing about
+    // the floor, which still guards against lagging nodes.
+    harness
+        .wallet_store
+        .raise_nonce_floor(harness.wallet.address, 0, Duration::from_secs(600))
+        .await
+        .expect("raise floor");
+
+    harness.commit_without_broadcast(&submitter, &ids).await;
+    harness.mine().await;
+    resolve(&harness, &submitter).await;
+
+    assert_eq!(
+        harness
+            .wallet_store
+            .nonce_floor(harness.wallet.address)
+            .await
+            .expect("read floor"),
+        Some(0)
+    );
+}

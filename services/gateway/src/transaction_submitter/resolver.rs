@@ -51,7 +51,10 @@ enum Resolution {
     /// failed.
     ParkedLanded,
     Replaced,
-    Absent,
+    Absent {
+        /// The transaction's nonce was above the chain's mined nonce.
+        behind_gap: bool,
+    },
 }
 
 impl Resolution {
@@ -61,13 +64,13 @@ impl Resolution {
             Self::Reverted => "reverted",
             Self::ParkedLanded => "parked_landed",
             Self::Replaced => "replaced",
-            Self::Absent => "absent",
+            Self::Absent { .. } => "absent",
         }
     }
 
     /// Whether the wallet's nonce was used up, by this transaction or another.
     const fn consumes_nonce(self) -> bool {
-        !matches!(self, Self::Absent)
+        !matches!(self, Self::Absent { .. })
     }
 }
 
@@ -276,13 +279,13 @@ impl TransactionSubmitter {
                 self.fail_replaced(wallet, record, submission).await;
                 return true;
             }
-            Probe::Absent if submitter_done => {
-                self.fail_absent(wallet, record, submission).await;
+            Probe::Absent { latest } if submitter_done => {
+                self.fail_absent(wallet, record, submission, latest).await;
                 // Resolved: the transaction never landed, so its wallet is free.
                 return true;
             }
             // Possibly still being broadcast; decide on a later pass.
-            Probe::Absent => {}
+            Probe::Absent { .. } => {}
         }
 
         if !parked && age >= self.config.resolution_timeout_secs {
@@ -453,8 +456,14 @@ impl TransactionSubmitter {
     /// hash is unknown to the endpoint after the broadcast grace, so the
     /// transaction never landed and the wallet's nonce is free to reuse.
     /// Nothing is retried: the requests are answered and the wallet returns to
-    /// the pool.
-    async fn fail_absent(&self, wallet: Address, record: &WalletRecord, submission: &Submission) {
+    /// the pool. `latest` is the wallet's mined nonce on the answering node.
+    async fn fail_absent(
+        &self,
+        wallet: Address,
+        record: &WalletRecord,
+        submission: &Submission,
+        latest: u64,
+    ) {
         let status = GatewayRequestState::failed(
             format!(
                 "transaction was not accepted by the network (tx: {:#x})",
@@ -462,7 +471,10 @@ impl TransactionSubmitter {
             ),
             Some(GatewayErrorCode::ConfirmationError),
         );
-        self.resolve_batch(wallet, record, submission, &status, Resolution::Absent)
+        let resolution = Resolution::Absent {
+            behind_gap: latest < submission.nonce,
+        };
+        self.resolve_batch(wallet, record, submission, &status, resolution)
             .await;
     }
 
@@ -499,10 +511,14 @@ impl TransactionSubmitter {
             tracing::warn!(%error, %wallet, "failed to record the nonce floor; keeping the wallet for the next pass");
             return false;
         }
-        // An absent transaction proves its nonce is unconsumed, so a floor at
-        // or below it is stale. Best effort: if this fails, the stale floor
-        // costs failed batches until the next absent result or its TTL.
-        if !resolution.consumes_nonce()
+        // A transaction signed behind a gap was signed at a floor above the
+        // chain's nonce, which a reorg after release leaves behind; keeping it
+        // would sign every later batch behind the same gap. A floor equal to
+        // the chain's nonce is still valid (it guards against lagging nodes),
+        // so only the gapped case clears it. Best effort: if this fails, the
+        // stale floor costs failed batches until the next absent result or its
+        // TTL.
+        if matches!(resolution, Resolution::Absent { behind_gap: true })
             && let Err(error) = self
                 .wallet_store
                 .clear_nonce_floor_at_most(wallet, submission.nonce)
