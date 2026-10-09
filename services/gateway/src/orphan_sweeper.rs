@@ -108,8 +108,8 @@ pub async fn sweep_once(tracker: &RequestTracker, config: &OrphanSweeperConfig) 
                 }
             }
             // A submission that knows which wallet signed it is owned by the
-            // resolver, which has the transaction hash and the signed bytes and
-            // can decide its fate properly.
+            // resolver, which has the transaction hash and nonce and can decide
+            // its fate properly.
             GatewayRequestState::Submitted { .. } if record.wallet.is_some() => {}
             // A submission with no wallet was written by a build that predates
             // wallet records. Nothing can resolve it, so it is failed on the

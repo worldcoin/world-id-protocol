@@ -2,13 +2,13 @@
 //!
 //! One transaction per wallet at a time. A batch is signed, committed to
 //! [`WalletStore`] and only then broadcast; the wallet stays out of the pool
-//! until the transaction's fate is known. The committed record is what makes
-//! that survive a restart, and the stored signed bytes are what let an
-//! ambiguous broadcast be retried with identical input instead of guessed at.
+//! until the transaction's fate is known. The committed record, which holds
+//! the nonce and hash, is what makes that survive a restart: the resolver
+//! probes the chain for that hash and nonce rather than trusting the outcome
+//! of the broadcast call.
 //!
 //! Receipt polling for requests a wallet record owns lives here; the orphan
 //! sweeper keeps only the requests no wallet record owns.
-//!
 
 use std::{
     sync::{
@@ -86,6 +86,9 @@ pub(crate) enum SubmitOutcome {
     /// No wallet became available in time. Nothing was changed, so the caller
     /// should retry the batch rather than fail its requests.
     NoWalletAvailable,
+    /// Another owner resolved the batch's requests before broadcast, so the
+    /// signature was discarded. The requests already have their final status.
+    Abandoned,
 }
 
 /// A configured wallet and the provider stack that signs and sends for it.
@@ -307,10 +310,13 @@ impl TransactionSubmitter {
         {
             // Nothing was broadcast, so the nonce is untouched and the wallet is
             // safe to reuse immediately.
+            metrics::record_wallet_outcome("abandoned");
+            tracing::warn!(
+                %wallet, %batch_type,
+                "requests were resolved by another owner before broadcast; discarding signature"
+            );
             self.release_lease(wallet, lease_id).await;
-            return Err(GatewayError::Submission(
-                "requests were resolved by another owner before broadcast".to_string(),
-            ));
+            return Ok(SubmitOutcome::Abandoned);
         }
 
         tracing::info!(
@@ -356,32 +362,33 @@ impl TransactionSubmitter {
 
     /// Marks a batch as owned by a batcher.
     ///
-    /// Guarded on `Queued` and applied per request, so a batch that is
-    /// re-dispatched after waiting for a wallet does not refresh the age the
-    /// orphan sweeper uses to decide whether a request was abandoned.
+    /// Guarded on `Queued`, so it cannot pull back a request another owner has
+    /// already advanced.
     pub(crate) async fn mark_batching(&self, ids: &[String]) {
+        self.set_each_if(ids, StatusGuard::Queued, &GatewayRequestState::Batching)
+            .await;
+    }
+
+    /// Fails a batch that could not be submitted before any broadcast.
+    ///
+    /// Guarded on `Batching` and applied per request, so a request the sweeper
+    /// or another owner already resolved keeps its status, while the rest of
+    /// the batch still gets an answer.
+    pub(crate) async fn fail_batching(&self, ids: &[String], status: GatewayRequestState) {
+        self.set_each_if(ids, StatusGuard::Batching, &status).await;
+    }
+
+    /// Applies `status` to each request still in `guard`, one request at a time.
+    async fn set_each_if(&self, ids: &[String], guard: StatusGuard, status: &GatewayRequestState) {
         for id in ids {
             let result = self
                 .tracker
-                .set_status_if(
-                    id,
-                    &[StatusGuard::Queued],
-                    GatewayRequestState::Batching,
-                    None,
-                )
+                .set_status_if(id, &[guard], status.clone(), None)
                 .await;
             if let Err(error) = result {
-                tracing::warn!(%error, %id, "failed to mark a request as batching");
+                tracing::error!(%error, request_id = %id, ?guard, "guarded status write failed");
             }
         }
-    }
-
-    /// Writes a status for several requests without a guard.
-    ///
-    /// Used only where this process is the sole owner: failures detected before
-    /// any transaction exists.
-    pub(crate) async fn set_status_batch(&self, ids: &[String], status: GatewayRequestState) {
-        self.tracker.set_status_batch(ids, status).await;
     }
 
     /// Queued-backlog urgency for one batch stream, from the shared request store.
@@ -697,9 +704,9 @@ impl TransactionSubmitter {
         };
 
         // A receipt without a block hash cannot be checked against the chain.
-        // Waiting is the only answer that neither re-broadcasts on a false
-        // reorganisation nor releases the wallet below the configured
-        // confirmation floor.
+        // Waiting is the only answer that neither treats the transaction as
+        // reorganised out on no evidence nor releases the wallet below the
+        // configured confirmation floor.
         let Some(receipt_block_hash) = receipt.block_hash else {
             tracing::warn!(
                 tx_hash = %submission.tx_hash,

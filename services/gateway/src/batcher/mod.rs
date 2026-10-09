@@ -151,44 +151,46 @@ where
         self.run_policy_loop().await;
     }
 
-    async fn submit_common(&self, batch: Vec<E>, queue: &mut VecDeque<TimedEnvelope<E>>) {
+    /// Takes ownership of a batch the policy released and submits it.
+    ///
+    /// Returns the batch when no wallet became available, so the caller can
+    /// retry it with [`Self::try_submit`] instead of failing its requests.
+    async fn dispatch(&self, batch: Vec<E>) -> Option<Vec<E>> {
         if batch.is_empty() {
-            return;
+            return None;
         }
 
-        let batch_type = self.strategy.batch_type();
-        let ids: Vec<String> = batch
-            .iter()
-            .map(|envelope| envelope.request_id().to_owned())
-            .collect();
-
-        metrics::record_batch_submitted(batch_type.as_str(), ids.len());
+        let ids = Self::request_ids(&batch);
+        metrics::record_batch_submitted(self.strategy.batch_type().as_str(), ids.len());
 
         // Take ownership of the requests before waiting for a wallet: a batch
         // that is queued behind capacity must not look abandoned to the sweeper.
         self.submitter.mark_batching(&ids).await;
 
+        self.try_submit(batch).await
+    }
+
+    /// Submits a batch that is already marked `Batching`.
+    ///
+    /// Returns the batch when no wallet became available.
+    async fn try_submit(&self, batch: Vec<E>) -> Option<Vec<E>> {
+        let batch_type = self.strategy.batch_type();
+        let ids = Self::request_ids(&batch);
         let transaction = self.strategy.build_tx(&self.registry, &batch);
+
         match self
             .submitter
             .submit(transaction, ids.clone(), batch_type)
             .await
         {
-            Ok(SubmitOutcome::Submitted) => {}
+            Ok(SubmitOutcome::Submitted | SubmitOutcome::Abandoned) => None,
             Ok(SubmitOutcome::NoWalletAvailable) => {
                 tracing::warn!(
                     batch_type = %batch_type,
                     batch_size = ids.len(),
-                    "no wallet became available; returning the batch to the policy queue"
+                    "no wallet became available; holding the batch for retry"
                 );
-                // Push to the back so one starved batch cannot monopolise the next
-                // released wallet.
-                for envelope in batch {
-                    queue.push_back(TimedEnvelope {
-                        enqueued_at: Instant::now(),
-                        envelope,
-                    });
-                }
+                Some(batch)
             }
             Err(error) => {
                 tracing::error!(
@@ -198,13 +200,21 @@ where
                 );
                 let code = parse_contract_error(&error.to_string());
                 self.submitter
-                    .set_status_batch(
+                    .fail_batching(
                         &ids,
                         GatewayRequestState::failed(error.to_string(), Some(code)),
                     )
                     .await;
+                None
             }
         }
+    }
+
+    fn request_ids(batch: &[E]) -> Vec<String> {
+        batch
+            .iter()
+            .map(|envelope| envelope.request_id().to_owned())
+            .collect()
     }
 
     fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<E>>) {
@@ -224,8 +234,13 @@ where
         let mut queue: VecDeque<TimedEnvelope<E>> = VecDeque::new();
         let mut next_eval = Instant::now() + reeval_interval;
         let mut rx_open = true;
+        // A batch the policy released that is waiting only for a wallet. It is
+        // kept out of `queue` so it is retried as-is: re-running the policy on
+        // it could defer it indefinitely under high cost, because its requests
+        // are no longer `Queued` and so contribute no urgency.
+        let mut stalled: Option<Vec<E>> = None;
 
-        while rx_open || !queue.is_empty() {
+        while rx_open || !queue.is_empty() || stalled.is_some() {
             if queue.len() >= self.local_queue_limit {
                 tracing::warn!(
                     batch_type = %self.strategy.batch_type(),
@@ -236,7 +251,7 @@ where
                 );
             }
 
-            if queue.is_empty() {
+            if queue.is_empty() && stalled.is_none() {
                 if !rx_open {
                     break;
                 }
@@ -267,6 +282,12 @@ where
 
             match event {
                 PolicyLoopEvent::Tick => {
+                    if let Some(batch) = stalled.take() {
+                        stalled = self.try_submit(batch).await;
+                        next_eval = Instant::now() + reeval_interval;
+                        continue;
+                    }
+
                     let cost_score = policy_engine.update_cost_score(self.base_fee_cache.latest());
 
                     let fallback_age = queue
@@ -288,7 +309,6 @@ where
                             );
                             BacklogUrgencyStats {
                                 queued_count: queue.len(),
-                                in_progress_count: 0,
                                 oldest_age_secs: fallback_age,
                             }
                         }
@@ -298,12 +318,7 @@ where
                     record_policy_metrics(self.strategy.batch_type().as_str(), &decision);
 
                     if !decision.should_send {
-                        // Only resync when Redis really has nothing for us. A batch
-                        // we already marked `Batching` and pushed back while waiting
-                        // for a wallet is not a stale local queue.
-                        if matches!(decision.reason, DecisionReason::NoBacklog)
-                            && !queue.is_empty()
-                            && stats.in_progress_count == 0
+                        if matches!(decision.reason, DecisionReason::NoBacklog) && !queue.is_empty()
                         {
                             self.handle_no_backlog(&mut queue);
                         }
@@ -312,8 +327,8 @@ where
                     }
 
                     let take_n = decision.target_batch_size.min(queue.len()).max(1);
-                    let batch: Vec<E> = queue.drain(..take_n).map(|timed| timed.envelope).collect();
-                    self.submit_common(batch, &mut queue).await;
+                    let batch = queue.drain(..take_n).map(|timed| timed.envelope).collect();
+                    stalled = self.dispatch(batch).await;
 
                     next_eval = Instant::now() + reeval_interval;
                 }

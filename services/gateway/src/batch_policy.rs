@@ -13,14 +13,7 @@ use crate::{config::BatchPolicyConfig, metrics};
 /// Aggregated queued backlog pressure from Redis.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BacklogUrgencyStats {
-    /// Requests still waiting to be taken by a batcher.
     pub queued_count: usize,
-    /// Requests a batcher has taken but not yet put on chain.
-    ///
-    /// Counted separately because the policy's urgency should not be inflated by
-    /// work already dispatched, while the "Redis has forgotten our queue" resync
-    /// must not fire while such work exists.
-    pub in_progress_count: usize,
     pub oldest_age_secs: u64,
 }
 
@@ -123,16 +116,11 @@ impl BatchPolicyEngine {
     ) -> PolicyDecision {
         // Step 1: derive urgency from backlog pressure.
         let urgency_score = self.urgency_score(stats);
-        // Requests a batcher already owns still need a transaction, so they are
-        // backlog too. Reporting only `Queued` here would make a batch that is
-        // waiting for a wallet look like an empty queue, and it would never be
-        // retried. Age-based urgency still comes from `Queued` alone, so this
-        // does not let in-progress work force a send it does not warrant.
-        let has_backlog = stats.queued_count > 0 || stats.in_progress_count > 0;
+        let has_backlog = stats.queued_count > 0;
         let force_send = has_backlog && stats.oldest_age_secs >= self.cfg.max_wait_secs;
         let max_batch_size = max_batch_size.max(1);
 
-        // Step 2: no work at all, queued or already dispatched, means no action.
+        // Step 2: no queued work means no action.
         if !has_backlog {
             return PolicyDecision {
                 should_send: false,
@@ -356,7 +344,6 @@ mod tests {
     fn defer_when_cost_high_and_urgency_low() {
         let engine = BatchPolicyEngine::new(cfg());
         let stats = BacklogUrgencyStats {
-            in_progress_count: 0,
             queued_count: 4,
             oldest_age_secs: 2,
         };
@@ -369,7 +356,6 @@ mod tests {
     fn defer_when_cost_high_and_urgency_medium() {
         let engine = BatchPolicyEngine::new(cfg());
         let stats = BacklogUrgencyStats {
-            in_progress_count: 0,
             queued_count: 80,
             oldest_age_secs: 21,
         };
@@ -382,7 +368,6 @@ mod tests {
     fn force_send_at_max_wait() {
         let engine = BatchPolicyEngine::new(cfg());
         let stats = BacklogUrgencyStats {
-            in_progress_count: 0,
             queued_count: 10,
             oldest_age_secs: 30,
         };
@@ -399,7 +384,6 @@ mod tests {
 
         let low = engine.evaluate(
             BacklogUrgencyStats {
-                in_progress_count: 0,
                 queued_count: 1,
                 oldest_age_secs: 1,
             },
@@ -410,7 +394,6 @@ mod tests {
 
         let medium = engine.evaluate(
             BacklogUrgencyStats {
-                in_progress_count: 0,
                 queued_count: 100,
                 oldest_age_secs: 15,
             },
@@ -421,7 +404,6 @@ mod tests {
 
         let high = engine.evaluate(
             BacklogUrgencyStats {
-                in_progress_count: 0,
                 queued_count: 500,
                 oldest_age_secs: 20,
             },
@@ -432,7 +414,6 @@ mod tests {
 
         let high_cost_low_urgency = engine.evaluate(
             BacklogUrgencyStats {
-                in_progress_count: 0,
                 queued_count: 2,
                 oldest_age_secs: 1,
             },
@@ -444,7 +425,6 @@ mod tests {
 
         let high_cost_medium_urgency = engine.evaluate(
             BacklogUrgencyStats {
-                in_progress_count: 0,
                 queued_count: 80,
                 oldest_age_secs: 21,
             },
@@ -456,7 +436,6 @@ mod tests {
 
         let high_cost_high_urgency = engine.evaluate(
             BacklogUrgencyStats {
-                in_progress_count: 0,
                 queued_count: 300,
                 oldest_age_secs: 29,
             },
