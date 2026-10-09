@@ -127,7 +127,7 @@ async fn e2e_authenticator_registration() {
             vault: Some(vault.clone()),
             authenticators: vec![KnownAuthenticator {
                 pubkey_id: 0,
-                name: AuthenticatorName::try_from("iPhone".to_string()).unwrap(),
+                name: "iPhone".to_string(),
             }],
         },
     )
