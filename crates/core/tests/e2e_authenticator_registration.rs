@@ -13,7 +13,8 @@ use world_id_core::{
         Approval, ApprovalOutcome, ApproverError, AuthenticatorName, BridgeClient,
         CheckedRegistration, DeliveryOutcome, IncomingRegistration, KnownAuthenticator,
         PendingRegistration, RegistrationDigest, RegistrationErrorReason, RegistrationPlan,
-        RegistrationRequester, RequestedClass, RequesterStatus, Vault, VaultFormat,
+        RegistrationRequester, RequestedClass, RequesterStatus, UserVerification, Vault,
+        VaultFormat,
     },
 };
 use world_id_gateway::{
@@ -167,7 +168,7 @@ async fn e2e_authenticator_registration() {
         RegistrationPlan::AlreadyRegistered { pubkey_id: 1 }
     );
     checked
-        .approve(&primary, Approval::default())
+        .approve(&primary, Approval::default(), verified())
         .await
         .delivery
         .unwrap();
@@ -281,8 +282,26 @@ async fn e2e_authenticator_registration() {
         .check(&primary)
         .await
         .unwrap();
-    let outcome = checked.approve(&primary, Approval::default()).await;
+    let outcome = checked
+        .approve(&primary, Approval::default(), verified())
+        .await;
     assert_eq!(outcome.result, Err(RegistrationErrorReason::InternalError));
+    assert_eq!(primary.signing_nonce().await.unwrap(), nonce);
+    let RequesterStatus::Completed(Err(error)) = completed(&mut session).await else {
+        panic!("expected an internal error");
+    };
+    assert_eq!(error.code, RegistrationErrorReason::InternalError.code());
+
+    // Failed device verification ends the attempt with `internal_error` and submits nothing.
+    let mut session = requester(&[48u8; 32], RequestedClass::Proving, &bridge);
+    session.publish().await.unwrap();
+    let checked = receive(&mut session, &bridge)
+        .await
+        .unwrap()
+        .check(&primary)
+        .await
+        .unwrap();
+    checked.verification_failed().await.unwrap();
     assert_eq!(primary.signing_nonce().await.unwrap(), nonce);
     let RequesterStatus::Completed(Err(error)) = completed(&mut session).await else {
         panic!("expected an internal error");
@@ -305,7 +324,7 @@ async fn e2e_authenticator_registration() {
         }),
         ..Approval::default()
     };
-    let outcome = checked.approve(&primary, oversized).await;
+    let outcome = checked.approve(&primary, oversized, verified()).await;
     assert_eq!(outcome.result, Err(RegistrationErrorReason::InternalError));
     assert_eq!(primary.signing_nonce().await.unwrap(), nonce);
     let RequesterStatus::Completed(Err(error)) = completed(&mut session).await else {
@@ -365,6 +384,10 @@ impl Account {
     }
 }
 
+fn verified() -> UserVerification {
+    UserVerification::platform_check_succeeded()
+}
+
 fn bridge_client(bridge: &BridgeStub) -> BridgeClient {
     BridgeClient::new(Url::parse(&bridge.url).unwrap()).unwrap()
 }
@@ -417,6 +440,9 @@ async fn approve_and_sync(
         account.authenticators.push(inserted);
         account.sync(indexer);
     };
-    let (outcome, ()) = tokio::join!(checked.approve(primary, approval), update_indexer);
+    let (outcome, ()) = tokio::join!(
+        checked.approve(primary, approval, verified()),
+        update_indexer
+    );
     outcome
 }

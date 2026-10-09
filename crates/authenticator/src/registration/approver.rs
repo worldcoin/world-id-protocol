@@ -321,7 +321,8 @@ impl CheckedRegistration {
         self.incoming.respond_by
     }
 
-    /// Declines the registration with `user_rejected`.
+    /// Declines the registration with `user_rejected`, when the user rejects the request or
+    /// cancels device verification (WIP-109 §3.7.3).
     ///
     /// # Errors
     ///
@@ -332,9 +333,23 @@ impl CheckedRegistration {
             .await
     }
 
+    /// Ends the registration with `internal_error` because device verification failed or is
+    /// unavailable (WIP-109 §3.7.3). Nothing is registered and the vault is not shared.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the response cannot be sealed or delivered.
+    pub async fn verification_failed(self) -> Result<DeliveryOutcome, ApproverError> {
+        self.incoming
+            .reject(RegistrationErrorReason::InternalError)
+            .await
+    }
+
     /// Carries out an approved registration and sends the response (WIP-109 §3.7.4 and §3.7.5).
     ///
-    /// Call it only after the user gave explicit consent. Unless the authenticator is already
+    /// Call it only after the user consented on the consent screen and a fresh platform user
+    /// verification succeeded, which `verified` attests (WIP-109 §3.7.3). This also applies when
+    /// the authenticator is already registered, because the vault is shared. Unless the authenticator is already
     /// registered, this signs and submits `InsertAuthenticator` from the checked snapshot and
     /// tracks it until it is final on-chain or definitively failed. If its outcome is still
     /// unknown at [`respond_by`](Self::respond_by), the response is `outcome_unknown`. A failed
@@ -343,7 +358,13 @@ impl CheckedRegistration {
     /// If less than [`MIN_TRACKING_TIME`] is left before the deadline, nothing is submitted and
     /// the response is `internal_error`, so the user can start over with a new link.
     #[must_use = "the outcome tells whether the authenticator was registered"]
-    pub async fn approve(self, approver: &Authenticator, approval: Approval) -> ApprovalOutcome {
+    pub async fn approve(
+        self,
+        approver: &Authenticator,
+        approval: Approval,
+        verified: UserVerification,
+    ) -> ApprovalOutcome {
+        let UserVerification(()) = verified;
         let request_id = self.incoming.channel.request_id;
         let result = match self.plan {
             _ if !self.response_fits(&approval) => Err((
@@ -521,6 +542,24 @@ pub enum RegistrationPlan {
         /// The slot the authenticator is registered at.
         pubkey_id: u32,
     },
+}
+
+/// Attests that the platform's local user verification, a fresh device biometric or PIN check,
+/// succeeded for this approval (WIP-109 §3.7.3).
+///
+/// Entering the pairing code or having an unlocked device does not count. Create it only right
+/// after the check succeeds, and pass it to [`CheckedRegistration::approve`]. If the check fails
+/// or is unavailable, call [`CheckedRegistration::verification_failed`]; if the user cancels it,
+/// call [`CheckedRegistration::reject`].
+#[derive(Debug)]
+pub struct UserVerification(());
+
+impl UserVerification {
+    /// Attests that the platform's user verification just succeeded for this approval.
+    #[must_use]
+    pub const fn platform_check_succeeded() -> Self {
+        Self(())
+    }
 }
 
 /// What the Approving Authenticator shares with an approved authenticator.
